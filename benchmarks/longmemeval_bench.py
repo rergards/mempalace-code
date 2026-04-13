@@ -118,6 +118,7 @@ def _make_embed_fn(model_name: str):
     MODEL_MAP = {
         "bge-base": "BAAI/bge-base-en-v1.5",
         "bge-large": "BAAI/bge-large-en-v1.5",
+        "mpnet": "sentence-transformers/all-mpnet-base-v2",
         "nomic": "nomic-ai/nomic-embed-text-v1.5",
         "mxbai": "mixedbread-ai/mxbai-embed-large-v1",
     }
@@ -3315,7 +3316,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--embed-model",
-        choices=["default", "bge-base", "bge-large", "nomic", "mxbai"],
+        choices=["default", "bge-base", "bge-large", "mpnet", "nomic", "mxbai"],
         default="default",
         help="Embedding model. 'default'=all-MiniLM-L6-v2 (ChromaDB built-in, baseline). "
         "'bge-large'=BAAI/bge-large-en-v1.5 (best local, 1024-dim, ~1.3GB via fastembed). "

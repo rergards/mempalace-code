@@ -17,29 +17,27 @@ No external graph DB needed — built from ChromaDB metadata.
 
 from collections import defaultdict, Counter
 from .config import MempalaceConfig
+from .storage import open_store
 
-import chromadb
 
-
-def _get_collection(config=None):
+def _get_store(config=None):
     config = config or MempalaceConfig()
     try:
-        client = chromadb.PersistentClient(path=config.palace_path)
-        return client.get_collection(config.collection_name)
+        return open_store(config.palace_path, create=False)
     except Exception:
         return None
 
 
 def build_graph(col=None, config=None):
     """
-    Build the palace graph from ChromaDB metadata.
+    Build the palace graph from drawer metadata.
 
     Returns:
         nodes: dict of {room: {wings: set, halls: set, count: int}}
         edges: list of {room, wing_a, wing_b, hall} — one per tunnel crossing
     """
     if col is None:
-        col = _get_collection(config)
+        col = _get_store(config)
     if not col:
         return {}, []
 

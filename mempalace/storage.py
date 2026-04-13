@@ -1,0 +1,807 @@
+"""
+storage.py — Pluggable storage backend for MemPalace
+=====================================================
+
+Provides a unified interface for drawer storage, abstracting away
+the underlying vector database. Ships with LanceDB (default, crash-safe)
+and ChromaDB (legacy) backends.
+
+Usage:
+    from mempalace.storage import open_store
+
+    store = open_store("/path/to/palace")          # auto-detect or create LanceDB
+    store = open_store("/path/to/palace", "lance")  # explicit backend
+    store = open_store("/path/to/palace", "chroma") # legacy ChromaDB
+
+The store object exposes a collection-like API that all MemPalace code
+uses instead of calling ChromaDB/LanceDB directly.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("mempalace")
+
+
+# ─── Abstract interface ────────────────────────────────────────────────────────
+
+
+class DrawerStore(ABC):
+    """Minimal interface that every storage backend must implement."""
+
+    @abstractmethod
+    def count(self) -> int:
+        """Total number of drawers."""
+
+    @abstractmethod
+    def add(
+        self,
+        ids: List[str],
+        documents: List[str],
+        metadatas: List[Dict[str, Any]],
+    ) -> None:
+        """Insert new drawers. Raises on duplicate IDs."""
+
+    @abstractmethod
+    def upsert(
+        self,
+        ids: List[str],
+        documents: List[str],
+        metadatas: List[Dict[str, Any]],
+    ) -> None:
+        """Insert or update drawers."""
+
+    @abstractmethod
+    def get(
+        self,
+        ids: Optional[List[str]] = None,
+        where: Optional[Dict[str, Any]] = None,
+        include: Optional[List[str]] = None,
+        limit: int = 10000,
+        offset: int = 0,
+    ) -> Dict[str, List]:
+        """
+        Retrieve drawers by ID or metadata filter.
+
+        Returns dict with keys: ids, documents, metadatas
+        (each key present only if requested via `include` or always for ids).
+        """
+
+    @abstractmethod
+    def query(
+        self,
+        query_texts: List[str],
+        n_results: int = 5,
+        where: Optional[Dict[str, Any]] = None,
+        include: Optional[List[str]] = None,
+    ) -> Dict[str, List[List]]:
+        """
+        Semantic search. Returns nested lists (one per query text):
+          ids: [[id, ...]]
+          documents: [[doc, ...]]
+          metadatas: [[meta, ...]]
+          distances: [[dist, ...]]
+        """
+
+    @abstractmethod
+    def delete(self, ids: List[str]) -> None:
+        """Delete drawers by ID."""
+
+    @abstractmethod
+    def delete_wing(self, wing: str) -> int:
+        """Delete all drawers in a wing. Returns the count of deleted drawers."""
+
+    @abstractmethod
+    def count_by(self, column: str) -> Dict[str, int]:
+        """Return {value: count} for every distinct value in *column*."""
+
+    @abstractmethod
+    def count_by_pair(self, col_a: str, col_b: str) -> Dict[str, Dict[str, int]]:
+        """Return {a_value: {b_value: count}} for every (col_a, col_b) pair."""
+
+    def get_source_files(self, wing: str) -> Optional[set]:
+        """Return a set of all source_file values for a wing, or None if unsupported.
+
+        Returning None signals the caller to fall back to per-file file_already_mined()
+        checks. The base implementation returns None — override in backends that support
+        efficient bulk retrieval (LanceDB).
+        """
+        return None
+
+    def delete_by_source_file(self, source_file: str, wing: str) -> int:
+        """Delete all drawers for a given source_file within a wing. Returns deleted count."""
+        return 0
+
+    def get_source_file_hashes(self, wing: str) -> dict:
+        """Return {source_file: source_hash} for all drawers in wing.
+
+        Returns an empty dict if unsupported. Override in LanceDB backend.
+        """
+        return {}
+
+    def iter_all(self, where=None, batch_size=1000, include_vectors=False):
+        """Yield batches of drawers as lists of dicts. Streams without loading full table.
+
+        Each batch is a list of dicts with keys: id, text, and all metadata fields.
+        If include_vectors is True, a 'vector' key with the float list is also present.
+        """
+        raise NotImplementedError
+
+    def optimize(self) -> None:
+        """Merge Lance fragments and prune old versions. No-op on unsupported backends."""
+
+    def warmup(self) -> None:
+        """Force embedding model init so HuggingFace output appears before batch processing."""
+
+
+# ─── LanceDB backend ──────────────────────────────────────────────────────────
+
+_LANCE_TABLE = "mempalace_drawers"
+DEFAULT_EMBED_MODEL = "all-MiniLM-L6-v2"  # same model ChromaDB uses by default
+
+# Single source of truth for metadata fields.
+# Adding a new metadata column? Append ONE tuple here.
+# Format: (field_name, arrow_type_tag, default_value)
+# arrow_type_tag: "string" | "int32" | "float32"
+_META_FIELD_SPEC: tuple = (
+    # Core metadata
+    ("wing", "string", ""),
+    ("room", "string", ""),
+    ("source_file", "string", ""),
+    ("chunk_index", "int32", 0),
+    ("added_by", "string", ""),
+    ("filed_at", "string", ""),
+    # Diary/graph fields
+    ("hall", "string", ""),
+    ("topic", "string", ""),
+    ("type", "string", ""),
+    ("agent", "string", ""),
+    ("date", "string", ""),
+    # Convo mining
+    ("ingest_mode", "string", ""),
+    ("extract_mode", "string", ""),
+    # Compression
+    ("compression_ratio", "float32", 0.0),
+    ("original_tokens", "int32", 0),
+    # Language detection
+    ("language", "string", ""),
+    # Symbol metadata
+    ("symbol_name", "string", ""),
+    ("symbol_type", "string", ""),
+    # Provenance (CODE-INCREMENTAL)
+    ("source_hash", "string", ""),
+    ("extractor_version", "string", ""),
+    ("chunker_strategy", "string", ""),
+)
+
+_META_KEYS: frozenset = frozenset(name for name, _, _ in _META_FIELD_SPEC)
+_META_DEFAULTS: dict = {name: default for name, _, default in _META_FIELD_SPEC}
+
+
+def _target_drawer_schema(dim: int):
+    """Return the canonical PyArrow schema for the drawers table.
+
+    Single source of truth — used by both the create-table and migrate-existing paths in
+    ``LanceStore._open_or_create()``.  Any new column additions must be made here only.
+    """
+    import pyarrow as pa
+
+    _ARROW_TYPES = {"string": pa.string(), "int32": pa.int32(), "float32": pa.float32()}
+    fields = [
+        pa.field("id", pa.string()),
+        pa.field("text", pa.string()),
+        pa.field("vector", pa.list_(pa.float32(), dim)),
+    ]
+    for name, type_tag, _ in _META_FIELD_SPEC:
+        fields.append(pa.field(name, _ARROW_TYPES[type_tag]))
+    return pa.schema(fields)
+
+
+def _sql_default_for_arrow_type(arrow_type) -> str:
+    """Map a PyArrow scalar type to its SQL literal default for ``add_columns()``.
+
+    Raises ``RuntimeError`` for unsupported types.  In particular, ``pa.list_(...)``
+    (the vector column type) is not supported — the vector column must already exist in
+    the base schema; if it is missing the table is corrupt or unsupported.
+    """
+    import pyarrow as pa
+
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
+        return "CAST('' AS string)"
+    if pa.types.is_int32(arrow_type):
+        return "0"
+    if pa.types.is_int64(arrow_type):
+        return "0"
+    if pa.types.is_float32(arrow_type):
+        return "0.0"
+    raise RuntimeError(
+        f"No SQL default defined for Arrow type {arrow_type!r}. "
+        "The vector column (list type) must already exist in the base schema — "
+        "if it is missing the table is corrupt or unsupported."
+    )
+
+
+class LanceStore(DrawerStore):
+    """
+    Crash-safe drawer storage using LanceDB.
+
+    Data is stored in Lance columnar format with proper transactions —
+    an interrupted write does not corrupt the entire dataset.
+    """
+
+    def __init__(self, palace_path: str, create: bool = True, embed_model: Optional[str] = None):
+        import lancedb
+
+        self._model_name = embed_model or DEFAULT_EMBED_MODEL
+        self._db = lancedb.connect(os.path.join(palace_path, "lance"))
+        self._embedder = self._get_embedder()
+        self._table = self._open_or_create(create)
+
+    def _get_embedder(self):
+        """Load the sentence-transformers embedding model."""
+        from lancedb.embeddings import get_registry
+
+        return get_registry().get("sentence-transformers").create(name=self._model_name)
+
+    def _open_or_create(self, create: bool):
+        """Open existing table or create a new one, migrating schema if needed."""
+        dim = self._embedder.ndims()
+        target = _target_drawer_schema(dim)
+
+        # Try to open existing table first
+        _existing_table = None
+        try:
+            _existing_table = self._db.open_table(_LANCE_TABLE)
+        except Exception as e:
+            logger.debug("Table %r not found, will create: %s", _LANCE_TABLE, e)
+
+        if _existing_table is not None:
+            existing_names = set(_existing_table.schema.names)
+            missing_fields = [f for f in target if f.name not in existing_names]
+            if missing_fields:
+                cols_to_add = {f.name: _sql_default_for_arrow_type(f.type) for f in missing_fields}
+                logger.info(
+                    "Migrating palace schema: adding columns %s",
+                    sorted(cols_to_add),
+                )
+                _existing_table.add_columns(cols_to_add)
+                # Reload the handle so its schema reflects the updated on-disk table
+                _existing_table = self._db.open_table(_LANCE_TABLE)
+                reloaded_names = set(_existing_table.schema.names)
+                if not set(target.names) <= reloaded_names:
+                    still_missing = set(target.names) - reloaded_names
+                    raise RuntimeError(
+                        f"Post-migration assertion failed — still missing columns: {still_missing}"
+                    )
+            return _existing_table
+
+        if not create:
+            return None
+
+        return self._db.create_table(_LANCE_TABLE, schema=target)
+
+    def _embed(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings for a list of texts."""
+        return self._embedder.compute_source_embeddings(texts)
+
+    @staticmethod
+    def _meta_defaults(meta: Dict[str, Any]) -> Dict[str, Any]:
+        """Fill in default values for metadata fields; drop unknown keys."""
+        # Start with defaults, overlay known keys from meta, drop unknowns
+        merged = dict(_META_DEFAULTS)
+        for k, v in meta.items():
+            if k in _META_DEFAULTS:
+                merged[k] = v
+        # Ensure numeric fields have correct types
+        merged["chunk_index"] = int(merged.get("chunk_index", 0))
+        merged["compression_ratio"] = float(merged.get("compression_ratio", 0.0))
+        merged["original_tokens"] = int(merged.get("original_tokens", 0))
+        return merged
+
+    def count(self) -> int:
+        if self._table is None:
+            return 0
+        return self._table.count_rows()
+
+    def add(self, ids, documents, metadatas):
+        if self._table is None:
+            raise RuntimeError("Table does not exist and create=False")
+
+        vectors = self._embed(documents)
+        rows = []
+        for id_, doc, meta, vec in zip(ids, documents, metadatas, vectors):
+            row = self._meta_defaults(meta)
+            row["id"] = id_
+            row["text"] = doc
+            row["vector"] = vec
+            rows.append(row)
+
+        self._table.add(rows)
+
+    def upsert(self, ids, documents, metadatas):
+        # LanceDB merge_insert for upsert
+        if self._table is None:
+            raise RuntimeError("Table does not exist and create=False")
+
+        vectors = self._embed(documents)
+        rows = []
+        for id_, doc, meta, vec in zip(ids, documents, metadatas, vectors):
+            row = self._meta_defaults(meta)
+            row["id"] = id_
+            row["text"] = doc
+            row["vector"] = vec
+            rows.append(row)
+
+        self._table.merge_insert(
+            "id"
+        ).when_matched_update_all().when_not_matched_insert_all().execute(rows)
+
+    def get(self, ids=None, where=None, include=None, limit=10000, offset=0):
+        if self._table is None:
+            return {"ids": [], "documents": [], "metadatas": []}
+
+        include = include or []
+
+        if ids is not None:
+            if not ids:
+                return {"ids": [], "documents": [], "metadatas": []}
+            # Fetch by explicit IDs
+            id_list = ", ".join(f"'{id_}'" for id_ in ids)
+            try:
+                results = self._table.search().where(f"id IN ({id_list})").limit(len(ids)).to_list()
+            except Exception:
+                results = []
+        elif where is not None:
+            sql = self._where_to_sql(where)
+            try:
+                results = self._table.search().where(sql).limit(limit).offset(offset).to_list()
+            except Exception:
+                results = []
+        else:
+            try:
+                results = self._table.search().limit(limit).offset(offset).to_list()
+            except Exception:
+                results = []
+
+        out_ids = [r["id"] for r in results]
+        out: Dict[str, List] = {"ids": out_ids}
+
+        if "documents" in include:
+            out["documents"] = [r["text"] for r in results]
+        if "metadatas" in include:
+            out["metadatas"] = [{k: r.get(k, "") for k in _META_KEYS} for r in results]
+
+        return out
+
+    def query(self, query_texts, n_results=5, where=None, include=None):
+        if self._table is None:
+            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+        include = include or []
+        all_ids, all_docs, all_metas, all_dists = [], [], [], []
+
+        for text in query_texts:
+            vec = self._embed([text])[0]
+            q = self._table.search(vec).limit(n_results)
+            if where:
+                sql = self._where_to_sql(where)
+                q = q.where(sql)
+
+            try:
+                results = q.to_list()
+            except Exception:
+                results = []
+
+            ids = [r["id"] for r in results]
+            docs = [r["text"] for r in results]
+            metas = []
+            dists = []
+
+            for r in results:
+                metas.append({k: r.get(k, "") for k in _META_KEYS})
+                # LanceDB returns _distance (L2 distance)
+                dists.append(r.get("_distance", 0.0))
+
+            all_ids.append(ids)
+            all_docs.append(docs)
+            all_metas.append(metas)
+            all_dists.append(dists)
+
+        out: Dict[str, List[List]] = {"ids": all_ids}
+        if "documents" in include:
+            out["documents"] = all_docs
+        if "metadatas" in include:
+            out["metadatas"] = all_metas
+        if "distances" in include:
+            out["distances"] = all_dists
+
+        return out
+
+    def delete(self, ids):
+        if self._table is None:
+            return
+        if not ids:
+            return
+        id_list = ", ".join(f"'{id_}'" for id_ in ids)
+        self._table.delete(f"id IN ({id_list})")
+
+    def delete_wing(self, wing: str) -> int:
+        if self._table is None:
+            return 0
+        escaped = wing.replace("'", "''")
+        count = self._table.count_rows(f"wing = '{escaped}'")
+        if count == 0:
+            return 0
+        self._table.delete(f"wing = '{escaped}'")
+        return count
+
+    def delete_by_source_file(self, source_file: str, wing: str) -> int:
+        """Delete all drawers for a given source_file within a wing."""
+        if self._table is None:
+            return 0
+        escaped_file = source_file.replace("'", "''")
+        escaped_wing = wing.replace("'", "''")
+        count = self._table.count_rows(
+            f"source_file = '{escaped_file}' AND wing = '{escaped_wing}'"
+        )
+        if count == 0:
+            return 0
+        self._table.delete(f"source_file = '{escaped_file}' AND wing = '{escaped_wing}'")
+        return count
+
+    def get_source_file_hashes(self, wing: str) -> dict:
+        """Return {source_file: source_hash} for all drawers in wing.
+
+        Uses PyArrow column projection — no vector scan.
+        Deduplicates by taking the first hash per source_file.
+        Returns an empty dict if the table is empty or column is absent.
+        """
+        if self._table is None:
+            return {}
+        import pyarrow.compute as pc
+
+        try:
+            arrow_tbl = self._table.to_arrow().select(["source_file", "source_hash", "wing"])
+        except Exception:
+            # Table predates migration (source_hash column missing) — return empty
+            return {}
+        filtered = arrow_tbl.filter(pc.field("wing") == wing)
+        result: dict = {}
+        for sf, sh in zip(
+            filtered.column("source_file").to_pylist(),
+            filtered.column("source_hash").to_pylist(),
+        ):
+            if sf not in result:
+                result[sf] = sh
+        return result
+
+    def count_by(self, column: str) -> Dict[str, int]:
+        if self._table is None:
+            return {}
+        arrow_tbl = self._table.to_arrow().select([column])
+        result = arrow_tbl.group_by(column).aggregate([(column, "count")])
+        d = result.to_pydict()
+        return dict(zip(d[column], d[f"{column}_count"]))
+
+    def count_by_pair(self, col_a: str, col_b: str) -> Dict[str, Dict[str, int]]:
+        if self._table is None:
+            return {}
+        arrow_tbl = self._table.to_arrow().select([col_a, col_b])
+        result = arrow_tbl.group_by([col_a, col_b]).aggregate([(col_b, "count")])
+        d = result.to_pydict()
+        out: Dict[str, Dict[str, int]] = {}
+        for a, b, c in zip(d[col_a], d[col_b], d[f"{col_b}_count"]):
+            out.setdefault(a, {})[b] = c
+        return out
+
+    def get_source_files(self, wing: str) -> Optional[set]:
+        """Return the set of all source_file values already stored for *wing*.
+
+        Uses PyArrow column projection and filter — no vector scan required.
+        Returns an empty set if the table is empty or doesn't exist.
+        """
+        if self._table is None:
+            return set()
+        import pyarrow.compute as pc
+
+        arrow_tbl = self._table.to_arrow().select(["source_file", "wing"])
+        filtered = arrow_tbl.filter(pc.field("wing") == wing)
+        return set(filtered.column("source_file").to_pylist())
+
+    def iter_all(self, where=None, batch_size=1000, include_vectors=False):
+        """Yield batches of drawers as lists of dicts using PyArrow column projection.
+
+        Loads all non-vector columns via to_arrow() (no vector scan), applies an
+        optional PyArrow-level filter, then yields one list of dicts per batch.
+        """
+        if self._table is None:
+            return
+
+        meta_columns = ["id", "text"] + [name for name, _, _ in _META_FIELD_SPEC]
+        columns = meta_columns + (["vector"] if include_vectors else [])
+        # Only include columns that actually exist in the schema
+        existing = set(self._table.schema.names)
+        columns = [c for c in columns if c in existing]
+
+        try:
+            arrow_tbl = self._table.to_arrow().select(columns)
+        except Exception:
+            return
+
+        if where:
+            mask = self._where_to_arrow_mask(arrow_tbl, where)
+            if mask is not None:
+                arrow_tbl = arrow_tbl.filter(mask)
+
+        for batch in arrow_tbl.to_batches(max_chunksize=batch_size):
+            rows = batch.to_pydict()
+            n = len(rows["id"])
+            result = []
+            for i in range(n):
+                row = {col: rows[col][i] for col in rows}
+                result.append(row)
+            yield result
+
+    @staticmethod
+    def _where_to_arrow_mask(arrow_tbl, where):
+        """Recursively convert a where dict to a PyArrow boolean array for filtering.
+
+        Mirrors _where_to_sql semantics but operates on an in-memory Arrow table.
+        Supports $and, $or, and simple {field: value} equality clauses.
+        """
+        import pyarrow.compute as pc
+
+        if "$and" in where:
+            masks = [LanceStore._where_to_arrow_mask(arrow_tbl, sub) for sub in where["$and"]]
+            masks = [m for m in masks if m is not None]
+            if not masks:
+                return None
+            result = masks[0]
+            for m in masks[1:]:
+                result = pc.and_(result, m)
+            return result
+
+        if "$or" in where:
+            masks = [LanceStore._where_to_arrow_mask(arrow_tbl, sub) for sub in where["$or"]]
+            masks = [m for m in masks if m is not None]
+            if not masks:
+                return None
+            result = masks[0]
+            for m in masks[1:]:
+                result = pc.or_(result, m)
+            return result
+
+        parts = []
+        for key, value in where.items():
+            if key not in arrow_tbl.schema.names:
+                continue
+            col = arrow_tbl.column(key)
+            if isinstance(value, str):
+                parts.append(pc.equal(col, value))
+            elif isinstance(value, (int, float)):
+                parts.append(pc.equal(col, value))
+        if not parts:
+            return None
+        result = parts[0]
+        for p in parts[1:]:
+            result = pc.and_(result, p)
+        return result
+
+    def optimize(self) -> None:
+        """Merge Lance fragments and prune old versions (post-mining compaction)."""
+        if self._table is not None:
+            self._table.optimize()
+
+    def warmup(self) -> None:
+        """Embed a throwaway string to force model loading before batch processing."""
+        self._embed(["warmup"])
+
+    @staticmethod
+    def _where_to_sql(where: Dict[str, Any]) -> str:
+        """
+        Convert ChromaDB-style where filters to SQL WHERE clauses.
+
+        Supports:
+          {"wing": "foo"}                → wing = 'foo'
+          {"$and": [{"wing": "a"}, {"room": "b"}]}  → (wing = 'a') AND (room = 'b')
+          {"wing": {"$in": ["a", "b"]}}  → wing IN ('a', 'b')
+          {"wing": {"$in": []}}          → 1 = 0
+          {"wing": {"$in": ["a"]}}       → wing = 'a'  (single-element optimisation)
+        """
+        if "$and" in where:
+            clauses = [LanceStore._where_to_sql(sub) for sub in where["$and"]]
+            return " AND ".join(f"({c})" for c in clauses)
+        if "$or" in where:
+            clauses = [LanceStore._where_to_sql(sub) for sub in where["$or"]]
+            return " OR ".join(f"({c})" for c in clauses)
+
+        parts = []
+        for key, value in where.items():
+            if isinstance(value, str):
+                escaped = value.replace("'", "''")
+                parts.append(f"{key} = '{escaped}'")
+            elif isinstance(value, (int, float)):
+                parts.append(f"{key} = {value}")
+            elif isinstance(value, dict):
+                # Operator filters: {"field": {"$eq": val}} etc.
+                for op, val in value.items():
+                    if op == "$eq":
+                        if isinstance(val, (int, float)):
+                            parts.append(f"{key} = {val}")
+                        else:
+                            escaped = str(val).replace("'", "''")
+                            parts.append(f"{key} = '{escaped}'")
+                    elif op == "$ne":
+                        if isinstance(val, (int, float)):
+                            parts.append(f"{key} != {val}")
+                        else:
+                            escaped = str(val).replace("'", "''")
+                            parts.append(f"{key} != '{escaped}'")
+                    elif op in ("$gt", "$gte", "$lt", "$lte"):
+                        sql_op = {"$gt": ">", "$gte": ">=", "$lt": "<", "$lte": "<="}[op]
+                        parts.append(f"{key} {sql_op} {val}")
+                    elif op == "$in":
+                        if not val:
+                            parts.append("1 = 0")
+                        elif len(val) == 1:
+                            # Single-element optimisation — reuse $eq escaping logic
+                            v = val[0]
+                            if isinstance(v, (int, float)):
+                                parts.append(f"{key} = {v}")
+                            else:
+                                escaped = str(v).replace("'", "''")
+                                parts.append(f"{key} = '{escaped}'")
+                        else:
+                            first = val[0]
+                            if isinstance(first, str):
+                                if not all(isinstance(v, str) for v in val):
+                                    raise ValueError(
+                                        f"$in list for '{key}' must be all str or all numeric, not mixed"
+                                    )
+                                items = ", ".join(
+                                    f"'{str(v).replace(chr(39), chr(39) * 2)}'" for v in val
+                                )
+                            elif isinstance(first, (int, float)):
+                                if not all(isinstance(v, (int, float)) for v in val):
+                                    raise ValueError(
+                                        f"$in list for '{key}' must be all str or all numeric, not mixed"
+                                    )
+                                items = ", ".join(str(v) for v in val)
+                            else:
+                                raise ValueError(
+                                    f"$in list for '{key}' contains unsupported type: {type(first)}"
+                                )
+                            parts.append(f"{key} IN ({items})")
+            else:
+                parts.append(f"{key} = '{value}'")
+
+        return " AND ".join(parts) if parts else "1=1"
+
+
+# ─── ChromaDB backend (legacy) ────────────────────────────────────────────────
+
+
+class ChromaStore(DrawerStore):
+    """
+    Legacy ChromaDB-backed storage. Kept for migration and compatibility.
+
+    WARNING: ChromaDB PersistentClient uses HNSW with no WAL.
+    An interrupted write can corrupt the entire collection.
+    """
+
+    def __init__(
+        self, palace_path: str, collection_name: str = "mempalace_drawers", create: bool = True
+    ):
+        import chromadb
+
+        self._client = chromadb.PersistentClient(path=palace_path)
+        if create:
+            self._col = self._client.get_or_create_collection(collection_name)
+        else:
+            try:
+                self._col = self._client.get_collection(collection_name)
+            except Exception:
+                self._col = None
+
+    def count(self) -> int:
+        if self._col is None:
+            return 0
+        return self._col.count()
+
+    def add(self, ids, documents, metadatas):
+        self._col.add(ids=ids, documents=documents, metadatas=metadatas)
+
+    def upsert(self, ids, documents, metadatas):
+        self._col.upsert(ids=ids, documents=documents, metadatas=metadatas)
+
+    def get(self, ids=None, where=None, include=None, limit=10000, offset=0):
+        kwargs: Dict[str, Any] = {}
+        if ids is not None:
+            kwargs["ids"] = ids
+        if where:
+            kwargs["where"] = where
+        if include:
+            kwargs["include"] = include
+        kwargs["limit"] = limit
+        if offset > 0:
+            kwargs["offset"] = offset
+        return self._col.get(**kwargs)
+
+    def query(self, query_texts, n_results=5, where=None, include=None):
+        kwargs: Dict[str, Any] = {
+            "query_texts": query_texts,
+            "n_results": n_results,
+        }
+        if where:
+            kwargs["where"] = where
+        if include:
+            kwargs["include"] = include
+        return self._col.query(**kwargs)
+
+    def delete(self, ids):
+        self._col.delete(ids=ids)
+
+    def delete_wing(self, wing: str) -> int:
+        if self._col is None:
+            return 0
+        results = self._col.get(where={"wing": wing})
+        ids = results.get("ids", [])
+        if not ids:
+            return 0
+        self._col.delete(ids=ids)
+        return len(ids)
+
+    def count_by(self, column: str) -> Dict[str, int]:
+        raise NotImplementedError("count_by not supported on deprecated ChromaStore")
+
+    def count_by_pair(self, col_a: str, col_b: str) -> Dict[str, Dict[str, int]]:
+        raise NotImplementedError("count_by_pair not supported on deprecated ChromaStore")
+
+
+# ─── Store factory ─────────────────────────────────────────────────────────────
+
+
+def _detect_backend(palace_path: str) -> str:
+    """Auto-detect which backend a palace uses based on directory contents."""
+    p = Path(palace_path)
+    if (p / "lance").exists():
+        return "lance"
+    if (p / "chroma.sqlite3").exists():
+        return "chroma"
+    # New palace — default to LanceDB
+    return "lance"
+
+
+def open_store(
+    palace_path: str,
+    backend: Optional[str] = None,
+    collection_name: str = "mempalace_drawers",
+    create: bool = True,
+    embed_model: Optional[str] = None,
+) -> DrawerStore:
+    """
+    Open a drawer store. Auto-detects backend if not specified.
+
+    Args:
+        palace_path: Path to the palace data directory.
+        backend: "lance" or "chroma". None = auto-detect.
+        collection_name: Collection name (ChromaDB only).
+        create: Create table/collection if it doesn't exist.
+        embed_model: Embedding model name (LanceDB only). None = default.
+    """
+    os.makedirs(palace_path, exist_ok=True)
+
+    if backend is None:
+        backend = _detect_backend(palace_path)
+
+    if backend == "lance":
+        return LanceStore(palace_path, create=create, embed_model=embed_model)
+    elif backend == "chroma":
+        return ChromaStore(palace_path, collection_name=collection_name, create=create)
+    else:
+        raise ValueError(f"Unknown storage backend: {backend!r}. Use 'lance' or 'chroma'.")

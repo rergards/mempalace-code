@@ -1,0 +1,1078 @@
+{
+  "timestamp": "2026-04-09T19:03:14",
+  "project": "mempalace",
+  "query_count": 20,
+  "models": {
+    "minilm": {
+      "model_name": "all-MiniLM-L6-v2",
+      "dims": 384,
+      "context_tokens": 256,
+      "code_retrieval": {
+        "R@5": 0.95,
+        "R@10": 1.0,
+        "per_category": {
+          "function_lookup": {
+            "R@5": 1.0,
+            "R@10": 1.0
+          },
+          "class_lookup": {
+            "R@5": 1.0,
+            "R@10": 1.0
+          },
+          "architecture": {
+            "R@5": 0.8,
+            "R@10": 1.0
+          },
+          "cross_file": {
+            "R@5": 1.0,
+            "R@10": 1.0
+          }
+        },
+        "per_query": [
+          {
+            "query": "detect programming language from file extension and shebang",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "CODE-LANG-DETECT.md",
+              "CODE-LANG-DETECT.md",
+              "test_lang_detect.py",
+              "test_lang_detect.py"
+            ]
+          },
+          {
+            "query": "chunk code at structural boundaries for Python TypeScript Go",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "BACKLOG.yaml",
+              "CODE-LANG-DETECT.md",
+              "CODE-SMART-CHUNK.md",
+              "test_chunking.py"
+            ]
+          },
+          {
+            "query": "extract symbol name and type from code chunk",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "CODE-SYMBOL-META.md",
+              "miner.py",
+              "CODE-SYMBOL-META.md",
+              "miner.py",
+              "test_symbol_extract.py"
+            ]
+          },
+          {
+            "query": "semantic search across palace drawers",
+            "category": "function_lookup",
+            "expected_files": [
+              "searcher.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "longmemeval_bench.py",
+              "searcher.py",
+              "longmemeval_bench.py",
+              "BENCHMARKS.md",
+              "README.md"
+            ]
+          },
+          {
+            "query": "add drawer to palace with metadata",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "storage.py",
+              "layers.py",
+              "test_miner.py",
+              "cli.py"
+            ]
+          },
+          {
+            "query": "merge small chunks and split oversized ones",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "test_chunking.py",
+              "CODE-SMART-CHUNK.md",
+              "miner.py",
+              "split_mega_files.py"
+            ]
+          },
+          {
+            "query": "DrawerStore abstract interface for storage backends",
+            "category": "class_lookup",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "storage.py",
+              "conftest.py",
+              "storage.py",
+              "layers.py"
+            ]
+          },
+          {
+            "query": "LanceDB crash safe vector storage backend",
+            "category": "class_lookup",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "storage.py",
+              "FORK-README.md",
+              "FORK-CLAUDE-MD-round-1.md",
+              "README.md"
+            ]
+          },
+          {
+            "query": "ChromaStore legacy storage backend",
+            "category": "class_lookup",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "CLAUDE.md",
+              "FORK-PYPROJECT-round-1.md",
+              "storage.py",
+              "BACKLOG.yaml",
+              "README.md"
+            ]
+          },
+          {
+            "query": "gitignore pattern matcher for file scanning",
+            "category": "class_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "test_miner.py",
+              "miner.py",
+              "entity_detector.py",
+              "test_miner.py"
+            ]
+          },
+          {
+            "query": "how does the miner route files to rooms based on path and content",
+            "category": "architecture",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "room_detector_local.py",
+              "miner.py",
+              "cli.py",
+              "room_detector_local.py",
+              "miner.py"
+            ]
+          },
+          {
+            "query": "how are embeddings generated and stored in LanceDB",
+            "category": "architecture",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "CLAUDE.md",
+              "codex-plan-review.md",
+              "CODE-LANG-DETECT.md",
+              "codex-plan-review.md",
+              "storage.py"
+            ]
+          },
+          {
+            "query": "what metadata fields are stored per drawer in the palace",
+            "category": "architecture",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "storage.py",
+              "layers.py",
+              "longmemeval_bench.py",
+              "codex-plan-review.md"
+            ]
+          },
+          {
+            "query": "how does smart chunking dispatch between code prose and adaptive strategies",
+            "category": "architecture",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": false,
+            "hit_at_10": true,
+            "top5_files": [
+              "CODE-SMART-CHUNK.md",
+              "CODE-SMART-CHUNK-round-1.md",
+              "test_chunking.py",
+              "CODE-LANG-DETECT.md",
+              "test_chunking.py"
+            ]
+          },
+          {
+            "query": "MCP server tool handler dispatch and request routing",
+            "category": "architecture",
+            "expected_files": [
+              "mcp_server.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "test_mcp_server.py",
+              "codex-plan-review.md",
+              "codex-plan-review.md",
+              "test_mcp_server.py",
+              "mcp_server.py"
+            ]
+          },
+          {
+            "query": "open_store factory function backend detection lance chroma",
+            "category": "cross_file",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "storage.py",
+              "CLAUDE.md",
+              "README.md",
+              "FORK-PYPROJECT-round-1.md"
+            ]
+          },
+          {
+            "query": "mine project directory files into palace drawers end to end",
+            "category": "cross_file",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "cli.py",
+              "test_miner.py",
+              "test_miner.py",
+              "test_miner.py",
+              "test_miner.py"
+            ]
+          },
+          {
+            "query": "knowledge graph temporal entity relationship triples",
+            "category": "cross_file",
+            "expected_files": [
+              "knowledge_graph.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "knowledge_graph.py",
+              "mcp_server.py",
+              "test_knowledge_graph.py",
+              "conftest.py",
+              "knowledge_graph.py"
+            ]
+          },
+          {
+            "query": "conversation mining Claude ChatGPT Slack exports",
+            "category": "cross_file",
+            "expected_files": [
+              "convo_miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "normalize.py",
+              "convo_miner.py",
+              "convo_import.py",
+              "normalize.py",
+              "normalize.py"
+            ]
+          },
+          {
+            "query": "tiered context loading wake-up layers for local models",
+            "category": "cross_file",
+            "expected_files": [
+              "layers.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "layers.py",
+              "cli.py",
+              "README.md",
+              "layers.py",
+              "dialect.py"
+            ]
+          }
+        ]
+      },
+      "performance": {
+        "embed_time_s": 15.2,
+        "embed_chunks": 469,
+        "embed_per_chunk_ms": 32.4,
+        "query_latency_avg_ms": 15.9,
+        "query_latency_p95_ms": 17.5,
+        "index_size_mb": 17.0
+      }
+    },
+    "mpnet": {
+      "model_name": "all-mpnet-base-v2",
+      "dims": 768,
+      "context_tokens": 384,
+      "code_retrieval": {
+        "R@5": 0.9,
+        "R@10": 1.0,
+        "per_category": {
+          "function_lookup": {
+            "R@5": 1.0,
+            "R@10": 1.0
+          },
+          "class_lookup": {
+            "R@5": 1.0,
+            "R@10": 1.0
+          },
+          "architecture": {
+            "R@5": 0.6,
+            "R@10": 1.0
+          },
+          "cross_file": {
+            "R@5": 1.0,
+            "R@10": 1.0
+          }
+        },
+        "per_query": [
+          {
+            "query": "detect programming language from file extension and shebang",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "CODE-LANG-DETECT.md",
+              "CODE-LANG-DETECT-round-1.md",
+              "test_lang_detect.py",
+              "test_lang_detect.py"
+            ]
+          },
+          {
+            "query": "chunk code at structural boundaries for Python TypeScript Go",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "BACKLOG.yaml",
+              "test_chunking.py",
+              "CODE-LANG-DETECT.md",
+              "miner.py",
+              "CODE-SMART-CHUNK.md"
+            ]
+          },
+          {
+            "query": "extract symbol name and type from code chunk",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "CODE-SYMBOL-META.md",
+              "CODE-SYMBOL-META.md",
+              "codex-plan-review.md",
+              "miner.py"
+            ]
+          },
+          {
+            "query": "semantic search across palace drawers",
+            "category": "function_lookup",
+            "expected_files": [
+              "searcher.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "longmemeval_bench.py",
+              "searcher.py",
+              "searcher.py",
+              "layers.py",
+              "README.md"
+            ]
+          },
+          {
+            "query": "add drawer to palace with metadata",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "layers.py",
+              "test_miner.py",
+              "storage.py",
+              "README.md"
+            ]
+          },
+          {
+            "query": "merge small chunks and split oversized ones",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "test_chunking.py",
+              "miner.py",
+              "split_mega_files.py",
+              "CODE-SMART-CHUNK.md"
+            ]
+          },
+          {
+            "query": "DrawerStore abstract interface for storage backends",
+            "category": "class_lookup",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "storage.py",
+              "codex-plan-review.md",
+              "conftest.py",
+              "README.md"
+            ]
+          },
+          {
+            "query": "LanceDB crash safe vector storage backend",
+            "category": "class_lookup",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "FORK-CLAUDE-MD-round-1.md",
+              "storage.py",
+              "codex-plan-review.md",
+              "CLI-DIARY-WRITE-round-1.md",
+              "README.md"
+            ]
+          },
+          {
+            "query": "ChromaStore legacy storage backend",
+            "category": "class_lookup",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "FORK-PYPROJECT-round-1.md",
+              "BACKLOG.yaml",
+              "README.md",
+              "BACKLOG.yaml",
+              "storage.py"
+            ]
+          },
+          {
+            "query": "gitignore pattern matcher for file scanning",
+            "category": "class_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "miner.py",
+              "test_miner.py",
+              "test_miner.py",
+              "entity_detector.py"
+            ]
+          },
+          {
+            "query": "how does the miner route files to rooms based on path and content",
+            "category": "architecture",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "room_detector_local.py",
+              "miner.py",
+              "miner.py",
+              "room_detector_local.py"
+            ]
+          },
+          {
+            "query": "how are embeddings generated and stored in LanceDB",
+            "category": "architecture",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": false,
+            "hit_at_10": true,
+            "top5_files": [
+              "codex-plan-review.md",
+              "codex-plan-review.md",
+              "CLAUDE.md",
+              "FORK-CLAUDE-MD-round-1.md",
+              "BACKLOG.yaml"
+            ]
+          },
+          {
+            "query": "what metadata fields are stored per drawer in the palace",
+            "category": "architecture",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "README.md",
+              "storage.py",
+              "layers.py",
+              "storage.py",
+              "longmemeval_bench.py"
+            ]
+          },
+          {
+            "query": "how does smart chunking dispatch between code prose and adaptive strategies",
+            "category": "architecture",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": false,
+            "hit_at_10": true,
+            "top5_files": [
+              "CODE-SMART-CHUNK-round-1.md",
+              "CODE-SMART-CHUNK.md",
+              "CODE-LANG-DETECT.md",
+              "test_chunking.py",
+              "CODE-SMART-CHUNK-round-1.md"
+            ]
+          },
+          {
+            "query": "MCP server tool handler dispatch and request routing",
+            "category": "architecture",
+            "expected_files": [
+              "mcp_server.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "test_mcp_server.py",
+              "mcp_server.py",
+              "codex-plan-review.md",
+              "test_mcp_server.py",
+              "codex-plan-review.md"
+            ]
+          },
+          {
+            "query": "open_store factory function backend detection lance chroma",
+            "category": "cross_file",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "FORK-PYPROJECT-round-1.md",
+              "storage.py",
+              "BACKLOG.yaml",
+              "FORK-CI-LANCEDB.md",
+              "storage.py"
+            ]
+          },
+          {
+            "query": "mine project directory files into palace drawers end to end",
+            "category": "cross_file",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "BACKLOG.yaml",
+              "miner.py",
+              "miner.py",
+              "cli.py",
+              "test_miner.py"
+            ]
+          },
+          {
+            "query": "knowledge graph temporal entity relationship triples",
+            "category": "cross_file",
+            "expected_files": [
+              "knowledge_graph.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "knowledge_graph.py",
+              "mcp_server.py",
+              "test_knowledge_graph.py",
+              "conftest.py",
+              "knowledge_graph.py"
+            ]
+          },
+          {
+            "query": "conversation mining Claude ChatGPT Slack exports",
+            "category": "cross_file",
+            "expected_files": [
+              "convo_miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "normalize.py",
+              "convo_miner.py",
+              "normalize.py",
+              "normalize.py",
+              "normalize.py"
+            ]
+          },
+          {
+            "query": "tiered context loading wake-up layers for local models",
+            "category": "cross_file",
+            "expected_files": [
+              "layers.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "README.md",
+              "layers.py",
+              "BACKLOG.yaml",
+              "layers.py",
+              "BENCH-EMBED-AB.md"
+            ]
+          }
+        ]
+      },
+      "performance": {
+        "embed_time_s": 47.5,
+        "embed_chunks": 469,
+        "embed_per_chunk_ms": 101.3,
+        "query_latency_avg_ms": 30.5,
+        "query_latency_p95_ms": 32.3,
+        "index_size_mb": 17.7
+      }
+    },
+    "nomic": {
+      "model_name": "nomic-ai/nomic-embed-text-v1.5",
+      "dims": 768,
+      "context_tokens": 8192,
+      "code_retrieval": {
+        "R@5": 0.95,
+        "R@10": 1.0,
+        "per_category": {
+          "function_lookup": {
+            "R@5": 0.8333333333333334,
+            "R@10": 1.0
+          },
+          "class_lookup": {
+            "R@5": 1.0,
+            "R@10": 1.0
+          },
+          "architecture": {
+            "R@5": 1.0,
+            "R@10": 1.0
+          },
+          "cross_file": {
+            "R@5": 1.0,
+            "R@10": 1.0
+          }
+        },
+        "per_query": [
+          {
+            "query": "detect programming language from file extension and shebang",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "CODE-LANG-DETECT.md",
+              "test_lang_detect.py",
+              "test_lang_detect.py",
+              "CODE-LANG-DETECT.md"
+            ]
+          },
+          {
+            "query": "chunk code at structural boundaries for Python TypeScript Go",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "BACKLOG.yaml",
+              "miner.py",
+              "README.md",
+              "test_chunking.py",
+              "miner.py"
+            ]
+          },
+          {
+            "query": "extract symbol name and type from code chunk",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "CODE-SYMBOL-META.md",
+              "miner.py",
+              "CODE-SYMBOL-META.md",
+              "test_symbol_extract.py",
+              "miner.py"
+            ]
+          },
+          {
+            "query": "semantic search across palace drawers",
+            "category": "function_lookup",
+            "expected_files": [
+              "searcher.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "longmemeval_bench.py",
+              "longmemeval_bench.py",
+              "searcher.py",
+              "storage.py",
+              "layers.py"
+            ]
+          },
+          {
+            "query": "add drawer to palace with metadata",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": false,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "layers.py",
+              "storage.py",
+              "config.py",
+              "mcp_server.py"
+            ]
+          },
+          {
+            "query": "merge small chunks and split oversized ones",
+            "category": "function_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "test_chunking.py",
+              "CODE-SMART-CHUNK.md",
+              "miner.py",
+              "split_mega_files.py"
+            ]
+          },
+          {
+            "query": "DrawerStore abstract interface for storage backends",
+            "category": "class_lookup",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "storage.py",
+              "conftest.py",
+              "mcp_server.py",
+              "README.md"
+            ]
+          },
+          {
+            "query": "LanceDB crash safe vector storage backend",
+            "category": "class_lookup",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "storage.py",
+              "FORK-CLAUDE-MD-round-1.md",
+              "FORK-README.md",
+              "storage.py"
+            ]
+          },
+          {
+            "query": "ChromaStore legacy storage backend",
+            "category": "class_lookup",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "FORK-PYPROJECT-round-1.md",
+              "storage.py",
+              "storage.py",
+              "BACKLOG.yaml",
+              "README.md"
+            ]
+          },
+          {
+            "query": "gitignore pattern matcher for file scanning",
+            "category": "class_lookup",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "test_miner.py",
+              "test_miner.py",
+              "miner.py",
+              "entity_detector.py"
+            ]
+          },
+          {
+            "query": "how does the miner route files to rooms based on path and content",
+            "category": "architecture",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "cli.py",
+              "palace_graph.py",
+              "locomo_bench.py",
+              "palace_graph.py"
+            ]
+          },
+          {
+            "query": "how are embeddings generated and stored in LanceDB",
+            "category": "architecture",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "storage.py",
+              "CLAUDE.md",
+              "BACKLOG.yaml",
+              "BENCH-EMBED-AB.md"
+            ]
+          },
+          {
+            "query": "what metadata fields are stored per drawer in the palace",
+            "category": "architecture",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "storage.py",
+              "layers.py",
+              "mcp_server.py",
+              "storage.py"
+            ]
+          },
+          {
+            "query": "how does smart chunking dispatch between code prose and adaptive strategies",
+            "category": "architecture",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "CODE-SMART-CHUNK.md",
+              "test_chunking.py",
+              "miner.py",
+              "CODE-SMART-CHUNK-round-1.md",
+              "miner.py"
+            ]
+          },
+          {
+            "query": "MCP server tool handler dispatch and request routing",
+            "category": "architecture",
+            "expected_files": [
+              "mcp_server.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "test_mcp_server.py",
+              "test_mcp_server.py",
+              "mcp_server.py",
+              "BACKLOG.yaml",
+              "mcp_setup.md"
+            ]
+          },
+          {
+            "query": "open_store factory function backend detection lance chroma",
+            "category": "cross_file",
+            "expected_files": [
+              "storage.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "storage.py",
+              "FORK-PYPROJECT-round-1.md",
+              "FORK-CI-LANCEDB.md",
+              "storage.py",
+              "FORK-CI-LANCEDB-round-1.md"
+            ]
+          },
+          {
+            "query": "mine project directory files into palace drawers end to end",
+            "category": "cross_file",
+            "expected_files": [
+              "miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "miner.py",
+              "config.py",
+              "storage.py",
+              "test_miner.py",
+              "convo_miner.py"
+            ]
+          },
+          {
+            "query": "knowledge graph temporal entity relationship triples",
+            "category": "cross_file",
+            "expected_files": [
+              "knowledge_graph.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "knowledge_graph.py",
+              "test_knowledge_graph.py",
+              "mcp_server.py",
+              "knowledge_graph.py",
+              "conftest.py"
+            ]
+          },
+          {
+            "query": "conversation mining Claude ChatGPT Slack exports",
+            "category": "cross_file",
+            "expected_files": [
+              "convo_miner.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "convo_import.py",
+              "convo_miner.py",
+              "normalize.py",
+              "normalize.py",
+              "convo_miner.py"
+            ]
+          },
+          {
+            "query": "tiered context loading wake-up layers for local models",
+            "category": "cross_file",
+            "expected_files": [
+              "layers.py"
+            ],
+            "hit_at_5": true,
+            "hit_at_10": true,
+            "top5_files": [
+              "layers.py",
+              "layers.py",
+              "README.md",
+              "BACKLOG.yaml",
+              "membench_bench.py"
+            ]
+          }
+        ]
+      },
+      "performance": {
+        "embed_time_s": 85.4,
+        "embed_chunks": 469,
+        "embed_per_chunk_ms": 182.1,
+        "query_latency_avg_ms": 45.8,
+        "query_latency_p95_ms": 49.6,
+        "index_size_mb": 17.7
+      }
+    }
+  }
+}

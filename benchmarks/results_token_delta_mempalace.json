@@ -1,0 +1,608 @@
+{
+  "timestamp": "2026-04-13T00:10:53",
+  "project": "mempalace",
+  "query_count": 20,
+  "mine_time_s": 13.2,
+  "chunk_count": 555,
+  "search_tool": "grep",
+  "results_per_query": 5,
+  "summary": {
+    "valid_queries": 20,
+    "total_queries": 20,
+    "median_ratio": 13.430406233948236,
+    "mean_ratio": 18.900454436939743,
+    "p95_ratio": 41.77759167705905
+  },
+  "queries": [
+    {
+      "query": "detect programming language from file extension and shebang",
+      "category": "function_lookup",
+      "expected_files": [
+        "miner.py"
+      ],
+      "baseline_tokens": 7805,
+      "baseline_files_read": 2,
+      "baseline_file_list": [
+        "tests/conftest.py",
+        "tests/__pycache__/conftest.cpython-312-pytest-9.0.3.pyc"
+      ],
+      "mempalace_tokens": 2728,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "miner.py",
+        "test_lang_detect.py",
+        "HOW_SEARCH_WORKS.md",
+        "test_lang_detect.py",
+        "test_chunking.py"
+      ],
+      "ratio": 2.8610703812316713,
+      "keywords_used": [
+        "programming",
+        "extension",
+        "language"
+      ]
+    },
+    {
+      "query": "chunk code at structural boundaries for Python TypeScript Go",
+      "category": "function_lookup",
+      "expected_files": [
+        "miner.py"
+      ],
+      "baseline_tokens": 21394,
+      "baseline_files_read": 5,
+      "baseline_file_list": [
+        "CHANGELOG.md",
+        "mempalace/miner.py",
+        "tests/test_chunking.py",
+        "docs/plans/CODE-SYMBOL-META.md",
+        "docs/plans/CODE-SMART-CHUNK.md"
+      ],
+      "mempalace_tokens": 3034,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "miner.py",
+        "BACKLOG.yaml",
+        "test_chunking.py",
+        "test_chunking.py",
+        "token_delta_bench.py"
+      ],
+      "ratio": 7.051417270929466,
+      "keywords_used": [
+        "structural",
+        "boundaries",
+        "typescript"
+      ]
+    },
+    {
+      "query": "extract symbol name and type from code chunk",
+      "category": "function_lookup",
+      "expected_files": [
+        "miner.py"
+      ],
+      "baseline_tokens": 30044,
+      "baseline_files_read": 5,
+      "baseline_file_list": [
+        "CHANGELOG.md",
+        "tests/test_miner.py",
+        "tests/test_storage.py",
+        "tests/test_mcp_server.py",
+        ".pytest_cache/v/cache/nodeids"
+      ],
+      "mempalace_tokens": 2442,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "miner.py",
+        "miner.py",
+        "test_symbol_extract.py",
+        "results_embed_ab_2026-04-09.json",
+        "general_extractor.py"
+      ],
+      "ratio": 12.303030303030303,
+      "keywords_used": [
+        "extract",
+        "symbol",
+        "chunk"
+      ]
+    },
+    {
+      "query": "semantic search across palace drawers",
+      "category": "function_lookup",
+      "expected_files": [
+        "searcher.py"
+      ],
+      "baseline_tokens": 83356,
+      "baseline_files_read": 2,
+      "baseline_file_list": [
+        "tests/test_storage_lance.py",
+        "tests/__pycache__/test_storage_lance.cpython-312-pytest-9.0.3.pyc"
+      ],
+      "mempalace_tokens": 2699,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "longmemeval_bench.py",
+        "searcher.py",
+        "README.md",
+        "longmemeval_bench.py",
+        "BENCHMARKS.md"
+      ],
+      "ratio": 30.884031122638014,
+      "keywords_used": [
+        "semantic",
+        "drawers",
+        "search"
+      ]
+    },
+    {
+      "query": "add drawer to palace with metadata",
+      "category": "function_lookup",
+      "expected_files": [
+        "miner.py"
+      ],
+      "baseline_tokens": 16920,
+      "baseline_files_read": 5,
+      "baseline_file_list": [
+        "CHANGELOG.md",
+        "tests/conftest.py",
+        "tests/test_searcher.py",
+        "tests/test_mcp_server.py",
+        "tests/test_storage_lance.py"
+      ],
+      "mempalace_tokens": 2370,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "test_mcp_server.py",
+        "storage.py",
+        "layers.py",
+        "test_mcp_server.py",
+        "test_miner.py"
+      ],
+      "ratio": 7.139240506329114,
+      "keywords_used": [
+        "metadata",
+        "drawer",
+        "palace"
+      ]
+    },
+    {
+      "query": "merge small chunks and split oversized ones",
+      "category": "function_lookup",
+      "expected_files": [
+        "miner.py"
+      ],
+      "baseline_tokens": 123656,
+      "baseline_files_read": 5,
+      "baseline_file_list": [
+        "mempalace/miner.py",
+        "tests/test_chunking.py",
+        ".pytest_cache/v/cache/nodeids",
+        "mempalace/__pycache__/miner.cpython-312.pyc",
+        "tests/__pycache__/test_chunking.cpython-312-pytest-9.0.3.pyc"
+      ],
+      "mempalace_tokens": 2108,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "miner.py",
+        "test_chunking.py",
+        "miner.py",
+        "split_mega_files.py",
+        "convo_miner.py"
+      ],
+      "ratio": 58.66034155597723,
+      "keywords_used": [
+        "oversized",
+        "chunks",
+        "merge"
+      ]
+    },
+    {
+      "query": "DrawerStore abstract interface for storage backends",
+      "category": "class_lookup",
+      "expected_files": [
+        "storage.py"
+      ],
+      "baseline_tokens": 57361,
+      "baseline_files_read": 3,
+      "baseline_file_list": [
+        "mempalace/storage.py",
+        "mempalace/__pycache__/storage.cpython-312.pyc",
+        "mempalace/__pycache__/storage.cpython-314.pyc"
+      ],
+      "mempalace_tokens": 2601,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "storage.py",
+        "storage.py",
+        "conftest.py",
+        "test_mcp_server.py",
+        "test_storage.py"
+      ],
+      "ratio": 22.053440984236833,
+      "keywords_used": [
+        "drawerstore",
+        "interface",
+        "abstract"
+      ]
+    },
+    {
+      "query": "LanceDB crash safe vector storage backend",
+      "category": "class_lookup",
+      "expected_files": [
+        "storage.py"
+      ],
+      "baseline_tokens": 48373,
+      "baseline_files_read": 4,
+      "baseline_file_list": [
+        "CHANGELOG.md",
+        "tests/conftest.py",
+        "tests/__pycache__/conftest.cpython-312-pytest-9.0.3.pyc",
+        "tests/__pycache__/test_e2e.cpython-312-pytest-9.0.3.pyc"
+      ],
+      "mempalace_tokens": 2788,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "results_embed_ab_2026-04-09.json",
+        "BACKLOG.yaml",
+        "storage.py",
+        "CHANGELOG.md",
+        "WHY_THIS_FORK.md"
+      ],
+      "ratio": 17.350430416068868,
+      "keywords_used": [
+        "lancedb",
+        "storage",
+        "backend"
+      ]
+    },
+    {
+      "query": "ChromaStore legacy storage backend",
+      "category": "class_lookup",
+      "expected_files": [
+        "storage.py"
+      ],
+      "baseline_tokens": 14196,
+      "baseline_files_read": 1,
+      "baseline_file_list": [
+        "tests/__pycache__/test_migrate.cpython-312-pytest-9.0.3.pyc"
+      ],
+      "mempalace_tokens": 2538,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "storage.py",
+        "CLAUDE.md",
+        "BACKLOG.yaml",
+        "storage.py",
+        "results_embed_ab_2026-04-09.json"
+      ],
+      "ratio": 5.59338061465721,
+      "keywords_used": [
+        "chromastore",
+        "storage",
+        "backend"
+      ]
+    },
+    {
+      "query": "gitignore pattern matcher for file scanning",
+      "category": "class_lookup",
+      "expected_files": [
+        "miner.py"
+      ],
+      "baseline_tokens": 48322,
+      "baseline_files_read": 2,
+      "baseline_file_list": [
+        "mempalace/miner.py",
+        "mempalace/__pycache__/miner.cpython-312.pyc"
+      ],
+      "mempalace_tokens": 2190,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "miner.py",
+        "miner.py",
+        "test_miner.py",
+        "entity_detector.py",
+        "test_miner.py"
+      ],
+      "ratio": 22.064840182648403,
+      "keywords_used": [
+        "gitignore",
+        "scanning",
+        "pattern"
+      ]
+    },
+    {
+      "query": "how does the miner route files to rooms based on path and content",
+      "category": "architecture",
+      "expected_files": [
+        "miner.py"
+      ],
+      "baseline_tokens": 75334,
+      "baseline_files_read": 3,
+      "baseline_file_list": [
+        "tests/test_chunking.py",
+        ".pytest_cache/v/cache/nodeids",
+        "tests/__pycache__/test_chunking.cpython-312-pytest-9.0.3.pyc"
+      ],
+      "mempalace_tokens": 2357,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "results_embed_ab_2026-04-09.json",
+        "room_detector_local.py",
+        "results_embed_ab_2026-04-09.json",
+        "cli.py",
+        "room_detector_local.py"
+      ],
+      "ratio": 31.961815867628342,
+      "keywords_used": [
+        "content",
+        "miner",
+        "route"
+      ]
+    },
+    {
+      "query": "how are embeddings generated and stored in LanceDB",
+      "category": "architecture",
+      "expected_files": [
+        "storage.py"
+      ],
+      "baseline_tokens": 2446,
+      "baseline_files_read": 1,
+      "baseline_file_list": [
+        "docs/plans/QUAL-STORAGE-TESTS.md"
+      ],
+      "mempalace_tokens": 2211,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "CLAUDE.md",
+        "BACKLOG.yaml",
+        "migrate.py",
+        "storage.py",
+        "OFFLINE_USAGE.md"
+      ],
+      "ratio": 1.106286748077793,
+      "keywords_used": [
+        "embeddings",
+        "generated",
+        "lancedb"
+      ]
+    },
+    {
+      "query": "what metadata fields are stored per drawer in the palace",
+      "category": "architecture",
+      "expected_files": [
+        "storage.py"
+      ],
+      "baseline_tokens": 16248,
+      "baseline_files_read": 5,
+      "baseline_file_list": [
+        "CHANGELOG.md",
+        "tests/test_dialect.py",
+        "tests/test_storage.py",
+        "tests/test_searcher.py",
+        "tests/test_storage_lance.py"
+      ],
+      "mempalace_tokens": 2896,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "storage.py",
+        "layers.py",
+        "longmemeval_bench.py",
+        "test_storage.py",
+        "test_mcp_server.py"
+      ],
+      "ratio": 5.610497237569061,
+      "keywords_used": [
+        "metadata",
+        "fields",
+        "stored"
+      ]
+    },
+    {
+      "query": "how does smart chunking dispatch between code prose and adaptive strategies",
+      "category": "architecture",
+      "expected_files": [
+        "miner.py"
+      ],
+      "baseline_tokens": 15036,
+      "baseline_files_read": 3,
+      "baseline_file_list": [
+        "mempalace/miner.py",
+        "docs/plans/CODE-LANG-DETECT.md",
+        "docs/plans/CODE-SMART-CHUNK.md"
+      ],
+      "mempalace_tokens": 2409,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "results_embed_ab_2026-04-09.json",
+        "WHY_THIS_FORK.md",
+        "test_chunking.py",
+        "test_chunking.py",
+        "miner.py"
+      ],
+      "ratio": 6.24159402241594,
+      "keywords_used": [
+        "strategies",
+        "chunking",
+        "dispatch"
+      ]
+    },
+    {
+      "query": "MCP server tool handler dispatch and request routing",
+      "category": "architecture",
+      "expected_files": [
+        "mcp_server.py"
+      ],
+      "baseline_tokens": 93514,
+      "baseline_files_read": 3,
+      "baseline_file_list": [
+        "tests/test_mcp_server.py",
+        ".pytest_cache/v/cache/nodeids",
+        "tests/__pycache__/test_mcp_server.cpython-312-pytest-9.0.3.pyc"
+      ],
+      "mempalace_tokens": 2758,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "results_embed_ab_2026-04-09.json",
+        "results_embed_ab_2026-04-09.json",
+        "test_mcp_server.py",
+        "results_embed_ab_2026-04-09.json",
+        "test_mcp_server.py"
+      ],
+      "ratio": 33.90645395213923,
+      "keywords_used": [
+        "dispatch",
+        "handler",
+        "request"
+      ]
+    },
+    {
+      "query": "open_store factory function backend detection lance chroma",
+      "category": "cross_file",
+      "expected_files": [
+        "storage.py"
+      ],
+      "baseline_tokens": 32283,
+      "baseline_files_read": 5,
+      "baseline_file_list": [
+        "tests/conftest.py",
+        "mempalace/miner.py",
+        "tests/test_miner.py",
+        "tests/test_mcp_server.py",
+        "tests/__pycache__/conftest.cpython-312-pytest-9.0.3.pyc"
+      ],
+      "mempalace_tokens": 2358,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "storage.py",
+        "BACKLOG.yaml",
+        "storage.py",
+        "UPSTREAM_HARDENING.md",
+        "CLAUDE.md"
+      ],
+      "ratio": 13.69083969465649,
+      "keywords_used": [
+        "open_store",
+        "detection",
+        "function"
+      ]
+    },
+    {
+      "query": "mine project directory files into palace drawers end to end",
+      "category": "cross_file",
+      "expected_files": [
+        "miner.py"
+      ],
+      "baseline_tokens": 97077,
+      "baseline_files_read": 4,
+      "baseline_file_list": [
+        "tests/conftest.py",
+        ".pytest_cache/v/cache/nodeids",
+        "tests/__pycache__/conftest.cpython-312-pytest-9.0.3.pyc",
+        "tests/__pycache__/test_miner.cpython-312-pytest-9.0.3.pyc"
+      ],
+      "mempalace_tokens": 2805,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "cli.py",
+        "miner.py",
+        "test_miner.py",
+        "BACKUP_RESTORE.md",
+        "test_e2e.py"
+      ],
+      "ratio": 34.60855614973262,
+      "keywords_used": [
+        "directory",
+        "project",
+        "drawers"
+      ]
+    },
+    {
+      "query": "knowledge graph temporal entity relationship triples",
+      "category": "cross_file",
+      "expected_files": [
+        "knowledge_graph.py"
+      ],
+      "baseline_tokens": 27320,
+      "baseline_files_read": 5,
+      "baseline_file_list": [
+        "CHANGELOG.md",
+        "mempalace/README.md",
+        "mempalace/knowledge_graph.py",
+        "tests/test_knowledge_graph.py",
+        "mempalace/__pycache__/mcp_server.cpython-312.pyc"
+      ],
+      "mempalace_tokens": 2515,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "knowledge_graph.py",
+        "test_knowledge_graph.py",
+        "test_e2e.py",
+        "knowledge_graph.py",
+        "UPSTREAM_HARDENING.md"
+      ],
+      "ratio": 10.862823061630218,
+      "keywords_used": [
+        "relationship",
+        "knowledge",
+        "temporal"
+      ]
+    },
+    {
+      "query": "conversation mining Claude ChatGPT Slack exports",
+      "category": "cross_file",
+      "expected_files": [
+        "convo_miner.py"
+      ],
+      "baseline_tokens": 66322,
+      "baseline_files_read": 5,
+      "baseline_file_list": [
+        "mempalace/cli.py",
+        "mempalace/convo_miner.py",
+        "mempalace/__pycache__/cli.cpython-314.pyc",
+        "mempalace/__pycache__/cli.cpython-312.pyc",
+        "mempalace/__pycache__/convo_miner.cpython-314.pyc"
+      ],
+      "mempalace_tokens": 1622,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "normalize.py",
+        "convo_miner.py",
+        "convo_import.py",
+        "normalize.py",
+        "normalize.py"
+      ],
+      "ratio": 40.88902589395808,
+      "keywords_used": [
+        "conversation",
+        "chatgpt",
+        "exports"
+      ]
+    },
+    {
+      "query": "tiered context loading wake-up layers for local models",
+      "category": "cross_file",
+      "expected_files": [
+        "layers.py"
+      ],
+      "baseline_tokens": 33860,
+      "baseline_files_read": 2,
+      "baseline_file_list": [
+        "mempalace/cli.py",
+        "mempalace/__pycache__/cli.cpython-312.pyc"
+      ],
+      "mempalace_tokens": 2571,
+      "mempalace_results": 5,
+      "mempalace_sources": [
+        "README.md",
+        "layers.py",
+        "results_embed_ab_2026-04-09.json",
+        "results_embed_ab_2026-04-09.json",
+        "AGENT_INSTALL.md"
+      ],
+      "ratio": 13.169972773239984,
+      "keywords_used": [
+        "context",
+        "loading",
+        "wake-up"
+      ]
+    }
+  ]
+}

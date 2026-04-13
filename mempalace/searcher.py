@@ -6,10 +6,11 @@ Semantic search against the palace.
 Returns verbatim text — the actual words, never summaries.
 """
 
+import fnmatch
 import logging
 from pathlib import Path
 
-import chromadb
+from .storage import open_store
 
 logger = logging.getLogger("mempalace_mcp")
 
@@ -24,8 +25,7 @@ def search(query: str, palace_path: str, wing: str = None, room: str = None, n_r
     Optionally filter by wing (project) or room (aspect).
     """
     try:
-        client = chromadb.PersistentClient(path=palace_path)
-        col = client.get_collection("mempalace_drawers")
+        store = open_store(palace_path, create=False)
     except Exception:
         print(f"\n  No palace found at {palace_path}")
         print("  Run: mempalace init <dir> then mempalace mine <dir>")
@@ -49,7 +49,7 @@ def search(query: str, palace_path: str, wing: str = None, room: str = None, n_r
         if where:
             kwargs["where"] = where
 
-        results = col.query(**kwargs)
+        results = store.query(**kwargs)
 
     except Exception as e:
         print(f"\n  Search error: {e}")
@@ -98,8 +98,7 @@ def search_memories(
     Used by the MCP server and other callers that need data.
     """
     try:
-        client = chromadb.PersistentClient(path=palace_path)
-        col = client.get_collection("mempalace_drawers")
+        store = open_store(palace_path, create=False)
     except Exception as e:
         logger.error("No palace found at %s: %s", palace_path, e)
         return {
@@ -125,7 +124,7 @@ def search_memories(
         if where:
             kwargs["where"] = where
 
-        results = col.query(**kwargs)
+        results = store.query(**kwargs)
     except Exception as e:
         return {"error": f"Search error: {e}"}
 
@@ -141,6 +140,9 @@ def search_memories(
                 "wing": meta.get("wing", "unknown"),
                 "room": meta.get("room", "unknown"),
                 "source_file": Path(meta.get("source_file", "?")).name,
+                "symbol_name": meta.get("symbol_name", "") or "",
+                "symbol_type": meta.get("symbol_type", "") or "",
+                "language": meta.get("language", "") or "",
                 "similarity": round(1 - dist, 3),
             }
         )
@@ -148,5 +150,156 @@ def search_memories(
     return {
         "query": query,
         "filters": {"wing": wing, "room": room},
+        "results": hits,
+    }
+
+
+SUPPORTED_LANGUAGES = {
+    "python",
+    "go",
+    "typescript",
+    "javascript",
+    "rust",
+    "java",
+    "cpp",
+    "c",
+    "shell",
+    "ruby",
+    # web
+    "html",
+    "css",
+    # data / query
+    "sql",
+}
+
+VALID_SYMBOL_TYPES = {
+    "function",
+    "class",
+    "method",
+    "struct",
+    "interface",
+}
+
+
+def code_search(
+    palace_path: str,
+    query: str,
+    language: str = None,
+    symbol_name: str = None,
+    symbol_type: str = None,
+    file_glob: str = None,
+    wing: str = None,
+    n_results: int = 10,
+) -> dict:
+    """
+    Code-optimized semantic search. Returns symbol name, type, language, and
+    full file path per hit.
+
+    Filters applied in two stages:
+      1. LanceDB where clause (pre-query): wing, language, symbol_type.
+      2. Python post-filter: symbol_name (case-insensitive substring),
+         file_glob (fnmatch against the stored source_file path).
+
+    Over-fetches n_results*3 (capped at 150) to compensate for post-filter
+    discard, then truncates to n_results.
+    """
+    if language is not None:
+        language = language.lower()
+        if language not in SUPPORTED_LANGUAGES:
+            return {
+                "error": f"Unsupported language: {language!r}",
+                "supported_languages": sorted(SUPPORTED_LANGUAGES),
+            }
+
+    if symbol_type is not None:
+        symbol_type = symbol_type.lower()
+        if symbol_type not in VALID_SYMBOL_TYPES:
+            return {
+                "error": f"Invalid symbol_type: {symbol_type!r}",
+                "valid_symbol_types": sorted(VALID_SYMBOL_TYPES),
+            }
+
+    n_results = max(1, min(50, n_results))
+
+    try:
+        store = open_store(palace_path, create=False)
+    except Exception as e:
+        logger.error("No palace found at %s: %s", palace_path, e)
+        return {
+            "error": "No palace found",
+            "hint": "Run: mempalace init <dir> && mempalace mine <dir>",
+        }
+
+    # Build LanceDB where clause for pre-query filtering
+    conditions = []
+    if wing:
+        conditions.append({"wing": wing})
+    if language:
+        conditions.append({"language": language})
+    if symbol_type:
+        conditions.append({"symbol_type": symbol_type})
+
+    where = None
+    if len(conditions) > 1:
+        where = {"$and": conditions}
+    elif len(conditions) == 1:
+        where = conditions[0]
+
+    fetch_count = min(n_results * 3, 150)
+
+    try:
+        kwargs = {
+            "query_texts": [query],
+            "n_results": fetch_count,
+            "include": ["documents", "metadatas", "distances"],
+        }
+        if where:
+            kwargs["where"] = where
+
+        results = store.query(**kwargs)
+    except Exception as e:
+        return {"error": f"Search error: {e}"}
+
+    docs = results["documents"][0]
+    metas = results["metadatas"][0]
+    dists = results["distances"][0]
+
+    hits = []
+    for doc, meta, dist in zip(docs, metas, dists):
+        sym_name = meta.get("symbol_name", "") or ""
+        src_file = meta.get("source_file", "") or ""
+
+        if symbol_name and symbol_name.lower() not in sym_name.lower():
+            continue
+
+        if file_glob and not fnmatch.fnmatch(src_file, file_glob):
+            continue
+
+        hits.append(
+            {
+                "text": doc,
+                "wing": meta.get("wing", "unknown"),
+                "room": meta.get("room", "unknown"),
+                "source_file": src_file,
+                "symbol_name": sym_name,
+                "symbol_type": meta.get("symbol_type", "") or "",
+                "language": meta.get("language", "") or "",
+                "line_range": None,
+                "similarity": round(1 - dist, 3),
+            }
+        )
+
+        if len(hits) >= n_results:
+            break
+
+    return {
+        "query": query,
+        "filters": {
+            "language": language,
+            "symbol_name": symbol_name,
+            "symbol_type": symbol_type,
+            "file_glob": file_glob,
+            "wing": wing,
+        },
         "results": hits,
     }

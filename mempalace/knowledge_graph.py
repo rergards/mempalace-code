@@ -313,6 +313,29 @@ class KnowledgeGraph:
             for r in rows
         ]
 
+    def iter_all_triples(self, batch_size=500):
+        """Yield batches of triple dicts without the LIMIT 100 cap.
+
+        Each dict contains: id, subject, predicate, object, valid_from, valid_to,
+        confidence, source_closet, source_file.
+        """
+        conn = self._conn()
+        cursor = conn.execute("""
+            SELECT t.id, s.name AS subject, t.predicate, o.name AS object,
+                   t.valid_from, t.valid_to, t.confidence, t.source_closet, t.source_file
+            FROM triples t
+            JOIN entities s ON t.subject = s.id
+            JOIN entities o ON t.object = o.id
+            ORDER BY t.extracted_at ASC
+        """)
+        cols = [d[0] for d in cursor.description]
+        while True:
+            rows = cursor.fetchmany(batch_size)
+            if not rows:
+                break
+            yield [dict(zip(cols, r)) for r in rows]
+        conn.close()
+
     # ── Stats ─────────────────────────────────────────────────────────────
 
     def stats(self):

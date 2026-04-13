@@ -1,6 +1,6 @@
-# MemPalace Hooks — Auto-Save for Terminal AI Tools
+# mempalace-code Hooks — Auto-Save for Terminal AI Tools
 
-These hook scripts make MemPalace save automatically. No manual "save" commands needed.
+These hook scripts make mempalace-code save automatically. No manual "save" commands needed.
 
 ## What They Do
 

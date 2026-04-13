@@ -17,6 +17,7 @@ Commands:
     mempalace wake-up                     Show L0 + L1 wake-up context
     mempalace wake-up --wing my_app       Wake-up for a specific project
     mempalace status                      Show what's been filed
+    mempalace diary write --agent <name> --entry "<text>"  Write a diary entry
 
 Examples:
     mempalace init ~/projects/my_app
@@ -24,6 +25,7 @@ Examples:
     mempalace mine ~/chats/claude-sessions --mode convos
     mempalace search "why did we switch to GraphQL"
     mempalace search "pricing discussion" --wing my_app --room costs
+    mempalace diary write --agent claude-code --entry "Finished feature X" --topic dev
 """
 
 import os
@@ -32,6 +34,53 @@ import argparse
 from pathlib import Path
 
 from .config import MempalaceConfig
+
+
+def fetch_model(model_name: str, force: bool = False) -> None:
+    """Download *model_name* to the HuggingFace Hub cache.
+
+    Shared by ``cmd_fetch_model`` and ``cmd_init``.  When *force* is True the
+    cached model directory is removed before downloading so a fresh copy is
+    retrieved.
+    """
+    import shutil
+    from sentence_transformers import SentenceTransformer
+
+    # Compute cache dir at call time so HF_HOME env-var changes (e.g. in tests) are respected.
+    # huggingface_hub.constants.HF_HUB_CACHE is a module-level string set at import time and
+    # does not update when os.environ changes after Python starts.
+    hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
+    cache_dir = hf_home / "hub"
+    # Standard Hub layout: models--{org}--{model}
+    model_dir = cache_dir / f"models--sentence-transformers--{model_name}"
+
+    if force and model_dir.exists():
+        print(f"  Removing cached model: {model_dir}")
+        shutil.rmtree(model_dir)
+
+    print(f"  Downloading model '{model_name}' …")
+    SentenceTransformer(model_name)
+
+    # Report cache location and size
+    if model_dir.exists():
+        size_bytes = sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file())
+        size_mb = size_bytes / (1024 * 1024)
+        print(f"  Cached at: {model_dir}")
+        print(f"  Size on disk: {size_mb:.1f} MB")
+    else:
+        print(f"  Model ready (cache path not found at expected location: {model_dir})")
+
+
+def cmd_fetch_model(args):
+    from .storage import DEFAULT_EMBED_MODEL
+
+    model_name = args.model or DEFAULT_EMBED_MODEL
+    try:
+        fetch_model(model_name, force=args.force)
+        print("  Done — embedding model is ready for offline use.")
+    except Exception as exc:
+        print(f"  Error downloading model: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_init(args):
@@ -61,6 +110,18 @@ def cmd_init(args):
     # Pass 2: detect rooms from folder structure
     detect_rooms_local(project_dir=args.dir, yes=getattr(args, "yes", False))
     MempalaceConfig().init()
+
+    if not getattr(args, "skip_model_download", False):
+        from .storage import DEFAULT_EMBED_MODEL
+
+        print("\n  Downloading embedding model (~80 MB)…")
+        try:
+            fetch_model(DEFAULT_EMBED_MODEL)
+        except Exception as exc:
+            print(f"  Warning: model download failed: {exc}", file=sys.stderr)
+            print(
+                "  Run 'mempalace fetch-model' manually when network is available.", file=sys.stderr
+            )
 
 
 def cmd_mine(args):
@@ -93,6 +154,7 @@ def cmd_mine(args):
             dry_run=args.dry_run,
             respect_gitignore=not args.no_gitignore,
             include_ignored=include_ignored,
+            incremental=not args.full,
         )
 
 
@@ -155,10 +217,92 @@ def cmd_status(args):
     status(palace_path=palace_path)
 
 
+def cmd_diary_write(args):
+    import hashlib
+    from datetime import datetime
+    from .storage import open_store
+    from .version import __version__
+
+    palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+
+    agent_name = args.agent
+    entry = args.entry
+    topic = args.topic
+    wing = args.wing or f"wing_{agent_name.lower().replace(' ', '_')}"
+    room = "diary"
+
+    try:
+        store = open_store(palace_path, create=True)
+    except Exception as e:
+        print(f"Cannot open palace at {palace_path}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    now = datetime.now()
+    entry_id = (
+        f"diary_{wing}_{now.strftime('%Y%m%d_%H%M%S')}"
+        f"_{hashlib.md5(entry[:50].encode()).hexdigest()[:8]}"
+    )
+
+    try:
+        store.add(
+            ids=[entry_id],
+            documents=[entry],
+            metadatas=[
+                {
+                    "wing": wing,
+                    "room": room,
+                    "hall": "hall_diary",
+                    "topic": topic,
+                    "type": "diary_entry",
+                    "agent": agent_name,
+                    "filed_at": now.isoformat(),
+                    "date": now.strftime("%Y-%m-%d"),
+                    "extractor_version": __version__,
+                    "chunker_strategy": "diary_v1",
+                }
+            ],
+        )
+    except Exception as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_diary(args):
+    if args.diary_command == "write":
+        cmd_diary_write(args)
+    else:
+        args._diary_parser.print_help()
+        sys.exit(2)
+
+
+def cmd_migrate_storage(args):
+    """Migrate a ChromaDB palace to a LanceDB palace."""
+    from .migrate import migrate_chroma_to_lance, VerificationError
+
+    try:
+        src_count, dst_count = migrate_chroma_to_lance(
+            src_path=args.src_palace,
+            dst_path=args.dst_palace,
+            backup_dir=args.backup_dir,
+            force=args.force,
+            embed_model=args.embed_model,
+            verify=args.verify,
+            no_backup=False,
+        )
+    except VerificationError as e:
+        print(f"Verification failed: {e}", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Source drawers: {src_count}  Destination drawers: {dst_count}")
+
+
 def cmd_repair(args):
-    """Rebuild palace vector index from SQLite metadata."""
-    import chromadb
+    """Rebuild palace — extract all drawers, backup, and re-insert."""
     import shutil
+    from .storage import open_store
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
 
@@ -173,9 +317,8 @@ def cmd_repair(args):
 
     # Try to read existing drawers
     try:
-        client = chromadb.PersistentClient(path=palace_path)
-        col = client.get_collection("mempalace_drawers")
-        total = col.count()
+        store = open_store(palace_path, create=False)
+        total = store.count()
         print(f"  Drawers found: {total}")
     except Exception as e:
         print(f"  Error reading palace: {e}")
@@ -194,7 +337,7 @@ def cmd_repair(args):
     all_metas = []
     offset = 0
     while offset < total:
-        batch = col.get(limit=batch_size, offset=offset, include=["documents", "metadatas"])
+        batch = store.get(limit=batch_size, offset=offset, include=["documents", "metadatas"])
         all_ids.extend(batch["ids"])
         all_docs.extend(batch["documents"])
         all_metas.extend(batch["metadatas"])
@@ -208,16 +351,17 @@ def cmd_repair(args):
     print(f"  Backing up to {backup_path}...")
     shutil.copytree(palace_path, backup_path)
 
-    print("  Rebuilding collection...")
-    client.delete_collection("mempalace_drawers")
-    new_col = client.create_collection("mempalace_drawers")
+    print("  Rebuilding palace from extracted data...")
+    # Remove old data and recreate
+    shutil.rmtree(palace_path)
+    new_store = open_store(palace_path, create=True)
 
     filed = 0
     for i in range(0, len(all_ids), batch_size):
         batch_ids = all_ids[i : i + batch_size]
         batch_docs = all_docs[i : i + batch_size]
         batch_metas = all_metas[i : i + batch_size]
-        new_col.add(documents=batch_docs, ids=batch_ids, metadatas=batch_metas)
+        new_store.add(documents=batch_docs, ids=batch_ids, metadatas=batch_metas)
         filed += len(batch_ids)
         print(f"  Re-filed {filed}/{len(all_ids)} drawers...")
 
@@ -228,7 +372,7 @@ def cmd_repair(args):
 
 def cmd_compress(args):
     """Compress drawers in a wing using AAAK Dialect."""
-    import chromadb
+    from .storage import open_store
     from .dialect import Dialect
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
@@ -249,24 +393,22 @@ def cmd_compress(args):
 
     # Connect to palace
     try:
-        client = chromadb.PersistentClient(path=palace_path)
-        col = client.get_collection("mempalace_drawers")
+        store = open_store(palace_path, create=False)
     except Exception:
         print(f"\n  No palace found at {palace_path}")
         print("  Run: mempalace init <dir> then mempalace mine <dir>")
         sys.exit(1)
 
-    # Query drawers in batches to avoid SQLite variable limit (~999)
+    # Query drawers in batches
     where = {"wing": args.wing} if args.wing else None
     _BATCH = 500
     docs, metas, ids = [], [], []
     offset = 0
     while True:
         try:
-            kwargs = {"include": ["documents", "metadatas"], "limit": _BATCH, "offset": offset}
-            if where:
-                kwargs["where"] = where
-            batch = col.get(**kwargs)
+            batch = store.get(
+                include=["documents", "metadatas"], limit=_BATCH, offset=offset, where=where
+            )
         except Exception as e:
             if not docs:
                 print(f"\n  Error reading drawers: {e}")
@@ -321,19 +463,17 @@ def cmd_compress(args):
     # Store compressed versions (unless dry-run)
     if not args.dry_run:
         try:
-            comp_col = client.get_or_create_collection("mempalace_compressed")
+            # Upsert compressed drawers back into the main store
             for doc_id, compressed, meta, stats in compressed_entries:
                 comp_meta = dict(meta)
                 comp_meta["compression_ratio"] = round(stats["ratio"], 1)
                 comp_meta["original_tokens"] = stats["original_tokens"]
-                comp_col.upsert(
+                store.upsert(
                     ids=[doc_id],
                     documents=[compressed],
                     metadatas=[comp_meta],
                 )
-            print(
-                f"  Stored {len(compressed_entries)} compressed drawers in 'mempalace_compressed' collection."
-            )
+            print(f"  Stored {len(compressed_entries)} compressed drawers.")
         except Exception as e:
             print(f"  Error storing compressed drawers: {e}")
             sys.exit(1)
@@ -345,6 +485,66 @@ def cmd_compress(args):
     print(f"  Total: {orig_tokens:,}t -> {comp_tokens:,}t ({ratio:.1f}x compression)")
     if args.dry_run:
         print("  (dry run -- nothing stored)")
+
+
+def cmd_export(args):
+    from .storage import open_store
+    from .knowledge_graph import KnowledgeGraph
+    from .export import write_jsonl
+
+    palace_path = args.palace or MempalaceConfig().palace_path
+    store = open_store(palace_path, create=False)
+    kg = KnowledgeGraph() if args.with_kg else None
+
+    print(f"  Exporting from: {palace_path}")
+    summary = write_jsonl(
+        path=args.out,
+        store=store,
+        kg=kg,
+        only_manual=args.only_manual,
+        wing=args.wing,
+        room=args.room,
+        since=args.since,
+        include_vectors=args.with_embeddings,
+        include_kg=args.with_kg,
+        pretty=args.pretty,
+        palace_path=palace_path,
+    )
+    print(
+        f"  Exported {summary['drawer_count']} drawers, {summary['kg_count']} KG triples → {args.out}"
+    )
+
+
+def cmd_import(args):
+    from .storage import open_store
+    from .knowledge_graph import KnowledgeGraph
+    from .export import import_jsonl
+
+    palace_path = args.palace or MempalaceConfig().palace_path
+    store = open_store(palace_path, create=True)
+    kg = None if args.skip_kg else KnowledgeGraph()
+
+    print(f"  Importing into: {palace_path}")
+    if args.dry_run:
+        print("  (dry run — nothing will be written)")
+
+    summary = import_jsonl(
+        path=args.jsonl_file,
+        store=store,
+        kg=kg,
+        skip_dedup=args.skip_dedup,
+        skip_kg=args.skip_kg,
+        dry_run=args.dry_run,
+        wing_override=args.wing_override,
+    )
+
+    print(f"  Imported drawers:   {summary['imported_drawers']}")
+    print(f"  Skipped duplicates: {summary['skipped_duplicates']}")
+    print(f"  Imported KG triples:{summary['imported_triples']}")
+    if args.dry_run:
+        print("  (dry run — no changes made)")
+    for w in summary["warnings"]:
+        print(f"  WARNING: {w}")
 
 
 def main():
@@ -366,6 +566,12 @@ def main():
     p_init.add_argument("dir", help="Project directory to set up")
     p_init.add_argument(
         "--yes", action="store_true", help="Auto-accept all detected entities (non-interactive)"
+    )
+    p_init.add_argument(
+        "--skip-model-download",
+        action="store_true",
+        dest="skip_model_download",
+        help="Skip automatic embedding model download (run 'fetch-model' later)",
     )
 
     # mine
@@ -397,6 +603,11 @@ def main():
     p_mine.add_argument("--limit", type=int, default=0, help="Max files to process (0 = all)")
     p_mine.add_argument(
         "--dry-run", action="store_true", help="Show what would be filed without filing"
+    )
+    p_mine.add_argument(
+        "--full",
+        action="store_true",
+        help="Force full rebuild — re-mine all files even if content is unchanged",
     )
     p_mine.add_argument(
         "--extract",
@@ -451,6 +662,48 @@ def main():
         help="Only split files containing at least N sessions (default: 2)",
     )
 
+    # diary
+    p_diary = sub.add_parser("diary", help="Diary commands")
+    diary_sub = p_diary.add_subparsers(dest="diary_command")
+
+    p_diary_write = diary_sub.add_parser("write", help="Write a diary entry")
+    p_diary_write.add_argument("--agent", required=True, help="Agent name (e.g. claude-code)")
+    p_diary_write.add_argument(
+        "--entry", required=True, help="Diary entry content (stored verbatim)"
+    )
+    p_diary_write.add_argument("--topic", default="general", help="Topic tag (default: general)")
+    p_diary_write.add_argument(
+        "--wing", default=None, help="Override target wing (default: wing_<agent>)"
+    )
+
+    # migrate-storage
+    p_migrate = sub.add_parser(
+        "migrate-storage",
+        help="Migrate a ChromaDB palace to LanceDB (requires mempalace[chroma])",
+    )
+    p_migrate.add_argument("src_palace", help="Source ChromaDB palace path")
+    p_migrate.add_argument("dst_palace", help="Destination LanceDB palace path")
+    p_migrate.add_argument(
+        "--backup-dir",
+        default=None,
+        help="Directory for the source backup tar.gz (default: parent of src_palace)",
+    )
+    p_migrate.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow appending to a non-empty destination palace",
+    )
+    p_migrate.add_argument(
+        "--embed-model",
+        default=None,
+        help="Embedding model for the destination (default: all-MiniLM-L6-v2)",
+    )
+    p_migrate.add_argument(
+        "--verify",
+        action="store_true",
+        help="Verify per-wing counts after migration; exit non-zero on mismatch",
+    )
+
     # repair
     sub.add_parser(
         "repair",
@@ -460,11 +713,81 @@ def main():
     # status
     sub.add_parser("status", help="Show what's been filed")
 
+    # fetch-model
+    p_fetch = sub.add_parser("fetch-model", help="Download the embedding model (~80 MB)")
+    p_fetch.add_argument(
+        "--model",
+        default=None,
+        help="Model name (default: all-MiniLM-L6-v2)",
+    )
+    p_fetch.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-download even if already cached",
+    )
+
+    # export
+    p_export = sub.add_parser("export", help="Export drawers (and KG) to a JSONL file for backup")
+    p_export.add_argument(
+        "--out",
+        required=True,
+        metavar="FILE",
+        help="Output JSONL file path (use '-' for stdout)",
+    )
+    p_export.add_argument(
+        "--only-manual",
+        action="store_true",
+        help="Export only manually-added drawers (chunker_strategy in manual_v1, diary_v1)",
+    )
+    p_export.add_argument("--wing", default=None, help="Limit export to one wing")
+    p_export.add_argument("--room", default=None, help="Limit export to one room")
+    p_export.add_argument(
+        "--since",
+        default=None,
+        metavar="DATE",
+        help="Export only drawers filed on or after this ISO date (e.g. 2026-01-01)",
+    )
+    p_export.add_argument("--with-kg", action="store_true", help="Include KG triples in export")
+    p_export.add_argument(
+        "--with-embeddings",
+        action="store_true",
+        help="Include raw embedding vectors (larger file)",
+    )
+    p_export.add_argument("--pretty", action="store_true", help="Pretty-print JSON (larger file)")
+
+    # import
+    p_import = sub.add_parser("import", help="Import drawers (and KG) from a JSONL export file")
+    p_import.add_argument("jsonl_file", help="JSONL export file to import (use '-' for stdin)")
+    p_import.add_argument(
+        "--skip-dedup",
+        action="store_true",
+        help="Skip duplicate detection (import all records regardless of similarity)",
+    )
+    p_import.add_argument("--skip-kg", action="store_true", help="Skip KG triple import")
+    p_import.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what would be imported without writing anything",
+    )
+    p_import.add_argument(
+        "--wing-override",
+        default=None,
+        metavar="WING",
+        help="Override the wing for all imported drawers",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
         parser.print_help()
         return
+
+    if args.command == "diary" and not args.diary_command:
+        p_diary.print_help()
+        sys.exit(2)
+
+    if args.command == "diary":
+        args._diary_parser = p_diary
 
     dispatch = {
         "init": cmd_init,
@@ -473,8 +796,13 @@ def main():
         "search": cmd_search,
         "compress": cmd_compress,
         "wake-up": cmd_wakeup,
+        "migrate-storage": cmd_migrate_storage,
         "repair": cmd_repair,
         "status": cmd_status,
+        "diary": cmd_diary,
+        "fetch-model": cmd_fetch_model,
+        "export": cmd_export,
+        "import": cmd_import,
     }
     dispatch[args.command](args)
 

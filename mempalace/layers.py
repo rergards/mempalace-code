@@ -8,11 +8,11 @@ Load only what you need, when you need it.
     Layer 0: Identity       (~100 tokens)   — Always loaded. "Who am I?"
     Layer 1: Essential Story (~500-800)      — Always loaded. Top moments from the palace.
     Layer 2: On-Demand      (~200-500 each)  — Loaded when a topic/wing comes up.
-    Layer 3: Deep Search    (unlimited)      — Full ChromaDB semantic search.
+    Layer 3: Deep Search    (unlimited)      — Full semantic search.
 
 Wake-up cost: ~600-900 tokens (L0+L1). Leaves 95%+ of context free.
 
-Reads directly from ChromaDB (mempalace_drawers)
+Reads from the palace drawer store (LanceDB or ChromaDB)
 and ~/.mempalace/identity.txt.
 """
 
@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 from collections import defaultdict
 
-import chromadb
+from .storage import open_store
 
 from .config import MempalaceConfig
 
@@ -89,10 +89,10 @@ class Layer1:
         self.wing = wing
 
     def generate(self) -> str:
-        """Pull top drawers from ChromaDB and format as compact L1 text."""
+        """Pull top drawers from the palace and format as compact L1 text."""
         try:
-            client = chromadb.PersistentClient(path=self.palace_path)
-            col = client.get_collection("mempalace_drawers")
+            store = open_store(self.palace_path, create=False)
+            col = store
         except Exception:
             return "## L1 — No palace found. Run: mempalace mine <dir>"
 
@@ -196,8 +196,8 @@ class Layer2:
     def retrieve(self, wing: str = None, room: str = None, n_results: int = 10) -> str:
         """Retrieve drawers filtered by wing and/or room."""
         try:
-            client = chromadb.PersistentClient(path=self.palace_path)
-            col = client.get_collection("mempalace_drawers")
+            store = open_store(self.palace_path, create=False)
+            col = store
         except Exception:
             return "No palace found."
 
@@ -260,8 +260,8 @@ class Layer3:
     def search(self, query: str, wing: str = None, room: str = None, n_results: int = 5) -> str:
         """Semantic search, returns compact result text."""
         try:
-            client = chromadb.PersistentClient(path=self.palace_path)
-            col = client.get_collection("mempalace_drawers")
+            store = open_store(self.palace_path, create=False)
+            col = store
         except Exception:
             return "No palace found."
 
@@ -316,8 +316,8 @@ class Layer3:
     ) -> list:
         """Return raw dicts instead of formatted text."""
         try:
-            client = chromadb.PersistentClient(path=self.palace_path)
-            col = client.get_collection("mempalace_drawers")
+            store = open_store(self.palace_path, create=False)
+            col = store
         except Exception:
             return []
 
@@ -437,8 +437,8 @@ class MemoryStack:
 
         # Count drawers
         try:
-            client = chromadb.PersistentClient(path=self.palace_path)
-            col = client.get_collection("mempalace_drawers")
+            store = open_store(self.palace_path, create=False)
+            col = store
             count = col.count()
             result["total_drawers"] = count
         except Exception:

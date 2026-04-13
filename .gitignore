@@ -5,3 +5,43 @@ __pycache__/
 *.pyc
 .pytest_cache/
 mempal.yaml
+mempalace.yaml
+entities.json
+
+# Backlog lock files and archives (backlog CLI)
+*.yaml.lock
+*.md.lock
+docs/BACKLOG-archived.md
+
+# Palace data (local user data, never commit)
+*.lance/
+lance/
+chroma.sqlite3
+palace/
+
+# Environment
+.venv/
+venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sentence-transformers model cache
+.cache/
+
+# Autopilot artifacts (plans, audits, task reviews)
+docs/plans/
+docs/audits/
+.tasks/
+autopilot.toml
+
+# Claude Code session data
+.claude/

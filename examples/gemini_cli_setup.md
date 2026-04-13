@@ -1,6 +1,6 @@
 # Gemini CLI Integration Guide
 
-This guide explains how to set up MemPalace as a permanent memory for the [Gemini CLI](https://github.com/google/gemini-cli).
+This guide explains how to set up mempalace-code as a permanent memory for the [Gemini CLI](https://github.com/google/gemini-cli).
 
 ## Prerequisites
 
@@ -9,17 +9,17 @@ This guide explains how to set up MemPalace as a permanent memory for the [Gemin
 
 ## 1. Installation
 
-On many Linux systems, installing Python packages globally is restricted. We recommend using a local virtual environment within the MemPalace directory.
+On many Linux systems, installing Python packages globally is restricted. We recommend using a local virtual environment within the mempalace-code directory.
 
 ```bash
 # Clone the repository (if you haven't already)
-git clone https://github.com/milla-jovovich/mempalace.git
+git clone https://github.com/rergards/mempalace-code.git
 cd mempalace
 
 # Create a virtual environment
 python3 -m venv .venv
 
-# Install dependencies and MemPalace in editable mode
+# Install dependencies and mempalace-code in editable mode
 .venv/bin/pip install -e .
 ```
 
@@ -40,7 +40,7 @@ You can manually define who you are and what projects you work on by creating/ed
 
 ## 3. Connect to Gemini CLI (MCP)
 
-Register MemPalace as an MCP server so Gemini CLI can use its tools.
+Register mempalace-code as an MCP server so Gemini CLI can use its tools.
 
 ```bash
 gemini mcp add mempalace /absolute/path/to/mempalace/.venv/bin/python3 -m mempalace.mcp_server --scope user
@@ -79,7 +79,7 @@ chmod +x hooks/*.sh
 ## 5. Usage
 
 Once connected, Gemini CLI will automatically:
-- Start the MemPalace server on launch.
+- Start the mempalace-code server on launch.
 - Use `mempalace_search` to find relevant past discussions.
 - Use the `PreCompress` hook to save new memories before they are lost.
 

@@ -27,11 +27,11 @@ os.environ["HOMEDRIVE"] = os.path.splitdrive(_session_tmp)[0] or "C:"
 os.environ["HOMEPATH"] = os.path.splitdrive(_session_tmp)[1] or _session_tmp
 
 # Now it is safe to import mempalace modules that trigger initialisation.
-import chromadb  # noqa: E402
 import pytest  # noqa: E402
 
 from mempalace.config import MempalaceConfig  # noqa: E402
 from mempalace.knowledge_graph import KnowledgeGraph  # noqa: E402
+from mempalace.storage import open_store  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -81,10 +81,8 @@ def config(tmp_dir, palace_path):
 
 @pytest.fixture
 def collection(palace_path):
-    """A ChromaDB collection pre-seeded in the temp palace."""
-    client = chromadb.PersistentClient(path=palace_path)
-    col = client.get_or_create_collection("mempalace_drawers")
-    return col
+    """A drawer store in the temp palace."""
+    return open_store(palace_path, create=True)
 
 
 @pytest.fixture
@@ -139,6 +137,85 @@ def seeded_collection(collection):
                 "chunk_index": 0,
                 "added_by": "miner",
                 "filed_at": "2026-01-04T00:00:00",
+            },
+        ],
+    )
+    return collection
+
+
+@pytest.fixture
+def code_seeded_collection(collection):
+    """Collection with code drawers that carry symbol metadata."""
+    collection.add(
+        ids=[
+            "code_py_func_detect",
+            "code_py_class_lance",
+            "code_go_func_handle",
+            "code_ts_func_detect_user",
+            "code_rs_struct_config",
+        ],
+        documents=[
+            "def detect_language(filepath): detect programming language from file extension",
+            "class LanceStore: vector storage backend for managing palace drawers in LanceDB",
+            "func handleRequest(w http.ResponseWriter, r *http.Request): process HTTP requests",
+            "function detectUser(token: string): TypeScript authentication user detection",
+            "struct Config { palace_path: String, embed_model: String } application configuration",
+        ],
+        metadatas=[
+            {
+                "wing": "mempalace",
+                "room": "backend",
+                "source_file": "/project/mempalace/mempalace/miner.py",
+                "language": "python",
+                "symbol_name": "detect_language",
+                "symbol_type": "function",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+            },
+            {
+                "wing": "mempalace",
+                "room": "backend",
+                "source_file": "/project/mempalace/mempalace/storage.py",
+                "language": "python",
+                "symbol_name": "LanceStore",
+                "symbol_type": "class",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-02T00:00:00",
+            },
+            {
+                "wing": "other_project",
+                "room": "backend",
+                "source_file": "/project/other_project/main.go",
+                "language": "go",
+                "symbol_name": "handleRequest",
+                "symbol_type": "function",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-03T00:00:00",
+            },
+            {
+                "wing": "frontend",
+                "room": "frontend",
+                "source_file": "/project/frontend/src/auth.ts",
+                "language": "typescript",
+                "symbol_name": "detectUser",
+                "symbol_type": "function",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-04T00:00:00",
+            },
+            {
+                "wing": "rust_project",
+                "room": "backend",
+                "source_file": "/project/rust_project/src/config.rs",
+                "language": "rust",
+                "symbol_name": "Config",
+                "symbol_type": "struct",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-05T00:00:00",
             },
         ],
     )

@@ -10,14 +10,16 @@ Same palace as project mining. Different ingest strategy.
 
 import os
 import sys
+import time
 import hashlib
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
 
-import chromadb
-
+from .storage import open_store
 from .normalize import normalize
+from .miner import BATCH_SIZE, add_drawers_batch
+from .version import __version__
 
 
 # File types that might contain conversations
@@ -212,12 +214,9 @@ def detect_convo_room(content: str) -> str:
 
 
 def get_collection(palace_path: str):
+    """Open (or create) the drawer store for a palace."""
     os.makedirs(palace_path, exist_ok=True)
-    client = chromadb.PersistentClient(path=palace_path)
-    try:
-        return client.get_collection("mempalace_drawers")
-    except Exception:
-        return client.create_collection("mempalace_drawers")
+    return open_store(palace_path, create=True)
 
 
 def file_already_mined(collection, source_file: str) -> bool:
@@ -293,6 +292,12 @@ def mine_convos(
     total_drawers = 0
     files_skipped = 0
     room_counts = defaultdict(int)
+    batch_buffer: list = []
+
+    def flush_batch() -> None:
+        nonlocal total_drawers
+        total_drawers += add_drawers_batch(collection, batch_buffer)
+        batch_buffer.clear()
 
     for i, filepath in enumerate(files, 1):
         source_file = str(filepath)
@@ -350,37 +355,43 @@ def mine_convos(
         if extract_mode != "general":
             room_counts[room] += 1
 
-        # File each chunk
-        drawers_added = 0
+        # Build specs for this file; accumulate into the batch buffer
+        file_spec_count = 0
         for chunk in chunks:
             chunk_room = chunk.get("memory_type", room) if extract_mode == "general" else room
             if extract_mode == "general":
                 room_counts[chunk_room] += 1
             drawer_id = f"drawer_{wing}_{chunk_room}_{hashlib.md5((source_file + str(chunk['chunk_index'])).encode(), usedforsecurity=False).hexdigest()[:16]}"
-            try:
-                collection.add(
-                    documents=[chunk["content"]],
-                    ids=[drawer_id],
-                    metadatas=[
-                        {
-                            "wing": wing,
-                            "room": chunk_room,
-                            "source_file": source_file,
-                            "chunk_index": chunk["chunk_index"],
-                            "added_by": agent,
-                            "filed_at": datetime.now().isoformat(),
-                            "ingest_mode": "convos",
-                            "extract_mode": extract_mode,
-                        }
-                    ],
-                )
-                drawers_added += 1
-            except Exception as e:
-                if "already exists" not in str(e).lower():
-                    raise
+            batch_buffer.append(
+                {
+                    "id": drawer_id,
+                    "content": chunk["content"],
+                    "metadata": {
+                        "wing": wing,
+                        "room": chunk_room,
+                        "source_file": source_file,
+                        "chunk_index": chunk["chunk_index"],
+                        "added_by": agent,
+                        "filed_at": datetime.now().isoformat(),
+                        "ingest_mode": "convos",
+                        "extract_mode": extract_mode,
+                        "extractor_version": __version__,
+                        "chunker_strategy": "convo_turn_v1",
+                    },
+                }
+            )
+            file_spec_count += 1
 
-        total_drawers += drawers_added
-        print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{drawers_added}")
+        print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{file_spec_count}")
+        if len(batch_buffer) >= BATCH_SIZE:
+            flush_batch()
+
+    if not dry_run:
+        flush_batch()
+        t0 = time.time()
+        print("  >> Optimizing storage...", end="", flush=True)
+        collection.optimize()
+        print(f" done ({time.time() - t0:.1f}s)", flush=True)
 
     print(f"\n{'=' * 55}")
     print("  Done.")

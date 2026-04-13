@@ -8,14 +8,49 @@ Stores verbatim chunks as drawers. No summaries. Ever.
 """
 
 import os
+import re
 import sys
+import time
 import hashlib
 import fnmatch
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
+from typing import Optional
 
-import chromadb
+from .storage import open_store
+from .version import __version__
+
+EXTENSION_LANG_MAP = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".go": "go",
+    ".rs": "rust",
+    ".rb": "ruby",
+    ".java": "java",
+    ".sh": "shell",
+    ".sql": "sql",
+    ".md": "markdown",
+    ".txt": "text",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".html": "html",
+    ".css": "css",
+    ".csv": "csv",
+}
+
+SHEBANG_PATTERNS = [
+    (re.compile(r"python[0-9.]*"), "python"),
+    (re.compile(r"node"), "javascript"),
+    (re.compile(r"ruby"), "ruby"),
+    (re.compile(r"bash|sh|zsh"), "shell"),
+    (re.compile(r"perl"), "perl"),
+]
 
 READABLE_EXTENSIONS = {
     ".txt",
@@ -75,9 +110,42 @@ SKIP_FILENAMES = {
     "package-lock.json",
 }
 
-CHUNK_SIZE = 800  # chars per drawer
-CHUNK_OVERLAP = 100  # overlap between chunks
-MIN_CHUNK_SIZE = 50  # skip tiny chunks
+MIN_CHUNK = 100  # chars — skip tiny fragments
+TARGET_MIN = 400  # chars — merge threshold for small chunks
+TARGET_MAX = 2500  # chars — ideal max for a logical unit
+HARD_MAX = 4000  # chars — absolute max before forced split
+
+
+def _detect_batch_size() -> int:
+    """Return an appropriate batch size based on the available compute device.
+
+    | Device            | Batch | Reason                                      |
+    |-------------------|-------|---------------------------------------------|
+    | CUDA              |   256 | GPU VRAM handles larger batches efficiently |
+    | MPS (Apple Si)    |   256 | Unified memory, similar capacity to CUDA    |
+    | CPU (>4 GB RAM)   |   128 | Proven default on MacBook                   |
+    | CPU (<=4 GB RAM)  |    64 | Conservative for low-RAM devices            |
+
+    Falls back to 128 on any detection failure.
+    """
+    try:
+        import torch
+
+        if torch.backends.mps.is_available():
+            return 256
+        if torch.cuda.is_available():
+            return 256
+        # CPU fallback — check available RAM via os.sysconf (no new dependency)
+        try:
+            mem_bytes = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+            return 128 if mem_bytes / (1024**3) > 4 else 64
+        except (AttributeError, ValueError, OSError):
+            return 128
+    except Exception:
+        return 128
+
+
+BATCH_SIZE = _detect_batch_size()
 
 
 # =============================================================================
@@ -341,51 +409,419 @@ def detect_room(filepath: Path, content: str, rooms: list, project_path: Path) -
 
 
 # =============================================================================
-# CHUNKING
+# CHUNKING — boundary regexes
+# =============================================================================
+
+# TypeScript / JavaScript structural boundaries
+TS_BOUNDARY = re.compile(
+    r"^(?:"
+    r"export\s+(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const|let|var)\b"
+    r"|(?:async\s+)?function\s+\w+"
+    r"|class\s+\w+"
+    r"|interface\s+\w+"
+    r"|type\s+\w+\s*[=<]"
+    r"|enum\s+\w+"
+    r"|const\s+\w+\s*[:=]"
+    r"|let\s+\w+\s*[:=]"
+    r"|(?:describe|it|test|beforeEach|afterEach|beforeAll|afterAll)\s*\("
+    r"|module\.exports"
+    r"|exports\.\w+"
+    r")",
+    re.MULTILINE,
+)
+
+# Import block detection for TS/JS (group all imports together)
+TS_IMPORT = re.compile(r"^(?:import\s|from\s|require\s*\()", re.MULTILINE)
+
+# Python structural boundaries
+PY_BOUNDARY = re.compile(
+    r"^(?:"
+    r"(?:async\s+)?def\s+\w+"
+    r"|class\s+\w+"
+    r"|@\w+"
+    r")",
+    re.MULTILINE,
+)
+
+# Go structural boundaries
+GO_BOUNDARY = re.compile(
+    r"^(?:"
+    r"func\s+(?:\(.*?\)\s*)?\w+"
+    r"|type\s+\w+\s+(?:struct|interface)"
+    r"|var\s+\w+"
+    r"|const\s+\("
+    r")",
+    re.MULTILINE,
+)
+
+# Rust structural boundaries
+RUST_BOUNDARY = re.compile(
+    r"^(?:"
+    r"(?:pub(?:\(crate\))?\s+)?(?:async\s+)?fn\s+\w+"
+    r"|(?:pub(?:\(crate\))?\s+)?(?:struct|enum|trait|impl|mod|type)\s+\w+"
+    r"|#\["
+    r")",
+    re.MULTILINE,
+)
+
+# Markdown heading boundaries
+HEADING_MD = re.compile(r"^#{1,4}\s+.+", re.MULTILINE)
+
+
+def get_boundary_pattern(language: str):
+    """Return the appropriate structural boundary regex for a language string or file extension."""
+    mapping = {
+        "python": PY_BOUNDARY,
+        ".py": PY_BOUNDARY,
+        "typescript": TS_BOUNDARY,
+        ".ts": TS_BOUNDARY,
+        ".tsx": TS_BOUNDARY,
+        "javascript": TS_BOUNDARY,
+        ".js": TS_BOUNDARY,
+        ".jsx": TS_BOUNDARY,
+        "go": GO_BOUNDARY,
+        ".go": GO_BOUNDARY,
+        "rust": RUST_BOUNDARY,
+        ".rs": RUST_BOUNDARY,
+    }
+    return mapping.get(language)
+
+
+# =============================================================================
+# LANGUAGE DETECTION
 # =============================================================================
 
 
-def chunk_text(content: str, source_file: str) -> list:
+def detect_language(filepath: Path, content: str = "") -> str:
     """
-    Split content into drawer-sized chunks.
-    Tries to split on paragraph/line boundaries.
-    Returns list of {"content": str, "chunk_index": int}
+    Detect the programming language for a file.
+
+    Resolution order:
+    1. File extension lookup via EXTENSION_LANG_MAP.
+    2. Shebang inspection on the first line (for extensionless files).
+    3. Returns "unknown" if neither matches.
     """
-    # Clean up
-    content = content.strip()
-    if not content:
+    ext = filepath.suffix.lower()
+    if ext in EXTENSION_LANG_MAP:
+        return EXTENSION_LANG_MAP[ext]
+
+    # Shebang fallback — only for files with no recognized extension
+    first_line = content.split("\n")[0] if content else ""
+    if first_line.startswith("#!"):
+        # Strip "#!" and split by whitespace
+        parts = first_line[2:].strip().split()
+        if parts:
+            # #!/usr/bin/env python3 [-flags...] → env is parts[0], interpreter is parts[1]
+            # #!/usr/bin/python3 [-flags...]     → interpreter basename is parts[0]
+            basename = parts[0].split("/")[-1]
+            if basename == "env" and len(parts) > 1:
+                interp = parts[1].split("/")[-1]
+            else:
+                interp = basename
+            for pattern, lang in SHEBANG_PATTERNS:
+                if pattern.fullmatch(interp):
+                    return lang
+
+    return "unknown"
+
+
+# =============================================================================
+# SYMBOL EXTRACTION
+# =============================================================================
+
+# Per-language extraction patterns: list of (compiled_regex, symbol_type).
+# Each regex has exactly one capture group for the symbol name.
+# Ordered most-specific first within each language.
+
+_PY_EXTRACT = [
+    (re.compile(r"^(?:async\s+)?def\s+(\w+)", re.MULTILINE), "function"),
+    (re.compile(r"^class\s+(\w+)", re.MULTILINE), "class"),
+]
+
+_TS_EXTRACT = [
+    (re.compile(r"^export\s+default\s+(?:async\s+)?function\s+(\w+)", re.MULTILINE), "function"),
+    (re.compile(r"^export\s+default\s+class\s+(\w+)", re.MULTILINE), "class"),
+    (re.compile(r"^(?:export\s+)?(?:async\s+)?function\s+(\w+)", re.MULTILINE), "function"),
+    (re.compile(r"^(?:export\s+)?class\s+(\w+)", re.MULTILINE), "class"),
+    (re.compile(r"^(?:export\s+)?interface\s+(\w+)", re.MULTILINE), "interface"),
+    (re.compile(r"^(?:export\s+)?type\s+(\w+)\s*[=<]", re.MULTILINE), "type"),
+    (re.compile(r"^(?:export\s+)?enum\s+(\w+)", re.MULTILINE), "enum"),
+    (re.compile(r"^(?:export\s+)?const\s+(\w+)\s*[:=]", re.MULTILINE), "const"),
+]
+
+_TS_IMPORT_RE = re.compile(r"^(?:import\s|from\s|require\s*\()", re.MULTILINE)
+
+_GO_EXTRACT = [
+    (re.compile(r"^func\s+\(.*?\)\s+(\w+)", re.MULTILINE), "method"),
+    (re.compile(r"^func\s+(\w+)", re.MULTILINE), "function"),
+    (re.compile(r"^type\s+(\w+)\s+struct", re.MULTILINE), "struct"),
+    (re.compile(r"^type\s+(\w+)\s+interface", re.MULTILINE), "interface"),
+]
+
+_RUST_EXTRACT = [
+    (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)", re.MULTILINE), "function"),
+    (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)", re.MULTILINE), "struct"),
+    (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)", re.MULTILINE), "enum"),
+    (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?trait\s+(\w+)", re.MULTILINE), "trait"),
+    (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?impl(?:\s*<[^>]*>)?\s+(\w+)", re.MULTILINE), "impl"),
+    (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)", re.MULTILINE), "mod"),
+    (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?type\s+(\w+)", re.MULTILINE), "type"),
+]
+
+_LANG_EXTRACT_MAP = {
+    "python": _PY_EXTRACT,
+    "typescript": _TS_EXTRACT,
+    "javascript": _TS_EXTRACT,
+    "go": _GO_EXTRACT,
+    "rust": _RUST_EXTRACT,
+}
+
+
+def extract_symbol(content: str, language: str) -> tuple:
+    """
+    Extract the primary symbol defined in a code chunk.
+    Returns (symbol_name, symbol_type) or ("", "") if none found.
+    Non-code languages (markdown, text, json, yaml, unknown, etc.) return ("", "").
+    TS/JS import-only chunks return ("", "import").
+    """
+    patterns = _LANG_EXTRACT_MAP.get(language)
+    if patterns is None:
+        return ("", "")
+
+    # TS/JS: detect import-only chunks (first non-empty line starts with an import keyword)
+    is_import_chunk = False
+    if language in ("typescript", "javascript"):
+        first_non_empty = next((line for line in content.splitlines() if line.strip()), "")
+        is_import_chunk = bool(_TS_IMPORT_RE.match(first_non_empty.strip()))
+
+    for pattern, sym_type in patterns:
+        m = re.search(pattern, content)
+        if m:
+            return (m.group(1), sym_type)
+
+    return ("", "import") if is_import_chunk else ("", "")
+
+
+# =============================================================================
+# CHUNKING — strategies
+# =============================================================================
+
+
+def chunk_file(content: str, ext: str, source_file: str, language: str = None) -> list:
+    """Dispatcher — route to the right chunking strategy based on language."""
+    if language is None:
+        language = EXTENSION_LANG_MAP.get(ext, "unknown")
+
+    if language in ("python", "typescript", "javascript", "go", "rust"):
+        return chunk_code(content, language, source_file)
+    elif language in ("markdown", "text"):
+        return chunk_prose(content, source_file)
+    else:
+        return chunk_adaptive_lines(content, source_file)
+
+
+def chunk_code(content: str, language: str, source_file: str) -> list:
+    """
+    Split code at structural boundaries (function/class/export declarations).
+    Groups imports. Attaches leading comments immediately adjacent to declarations.
+    Falls back to chunk_adaptive_lines() if no boundaries are detected.
+
+    `language` accepts canonical language strings ("python", "typescript") or
+    raw file extensions (".py", ".ts") for backward compatibility.
+    """
+    boundary = get_boundary_pattern(language)
+    if not boundary:
+        return chunk_adaptive_lines(content, source_file)
+
+    is_ts_js = language in ("typescript", "javascript", ".ts", ".tsx", ".js", ".jsx")
+
+    lines = content.split("\n")
+    boundaries = []
+    in_import_block = False
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            if in_import_block:
+                in_import_block = False
+            continue
+
+        if TS_IMPORT.match(stripped) and is_ts_js:
+            if not in_import_block:
+                boundaries.append(("import", i))
+                in_import_block = True
+            continue
+        in_import_block = False
+
+        # For TS/JS, match against the original line so indented `const`/`let` inside
+        # function bodies (e.g., `    const x = ...`) don't trigger false boundaries.
+        # For Python/Go/Rust, match against the stripped line because methods are indented.
+        match_target = line if is_ts_js else stripped
+        if boundary.match(match_target):
+            # Look back for leading comments immediately adjacent (no blank-line gap).
+            comment_start = i
+            j = i - 1
+            while j >= 0:
+                prev = lines[j].strip()
+                if prev.startswith(("//", "/*", "*", "*/", "#", '"""', "'''", "/**")):
+                    comment_start = j
+                    j -= 1
+                else:
+                    break  # stop at blank lines or non-comment lines
+            boundaries.append(("decl", comment_start))
+
+    if not boundaries:
+        return chunk_adaptive_lines(content, source_file)
+
+    raw_chunks = []
+
+    # Preamble before the first boundary (file header, license, etc.)
+    if boundaries[0][1] > 0:
+        preamble = "\n".join(lines[: boundaries[0][1]]).strip()
+        if preamble:
+            raw_chunks.append(preamble)
+
+    for idx, (_kind, start) in enumerate(boundaries):
+        end = boundaries[idx + 1][1] if idx + 1 < len(boundaries) else len(lines)
+        text = "\n".join(lines[start:end]).strip()
+        if text:
+            raw_chunks.append(text)
+
+    # adaptive_merge_split handles final MIN_CHUNK filtering and merging of small pieces.
+    return adaptive_merge_split(raw_chunks, source_file)
+
+
+def chunk_prose(content: str, source_file: str) -> list:
+    """
+    Split prose at markdown heading boundaries (#–####).
+    Falls back to paragraph chunking if no headings are found.
+    """
+    lines = content.split("\n")
+    heading_lines = [i for i, line in enumerate(lines) if HEADING_MD.match(line.strip())]
+
+    if not heading_lines:
+        # Paragraph fallback — let adaptive_merge_split handle MIN_CHUNK filtering.
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", content) if p.strip()]
+        return adaptive_merge_split(paragraphs, source_file) if paragraphs else []
+
+    raw_chunks = []
+
+    # Preamble before the first heading
+    if heading_lines[0] > 0:
+        preamble = "\n".join(lines[: heading_lines[0]]).strip()
+        if preamble:
+            raw_chunks.append(preamble)
+
+    for idx, start in enumerate(heading_lines):
+        end = heading_lines[idx + 1] if idx + 1 < len(heading_lines) else len(lines)
+        section = "\n".join(lines[start:end]).strip()
+        if section:
+            raw_chunks.append(section)
+
+    return adaptive_merge_split(raw_chunks, source_file)
+
+
+def chunk_adaptive_lines(content: str, source_file: str) -> list:
+    """
+    Fallback for files without dedicated structural patterns.
+    Split at blank lines with adaptive sizing.
+    """
+    blocks = re.split(r"\n\s*\n", content)
+    raw = [b.strip() for b in blocks if len(b.strip()) >= MIN_CHUNK]
+    if not raw:
+        if len(content.strip()) >= MIN_CHUNK:
+            return [{"content": content.strip(), "chunk_index": 0}]
+        return []
+    return adaptive_merge_split(raw, source_file)
+
+
+def adaptive_merge_split(raw_chunks: list, source_file: str) -> list:
+    """
+    Post-process raw chunks:
+    - Merge adjacent small chunks (< TARGET_MIN) up to TARGET_MAX.
+    - Split oversized chunks (> HARD_MAX) at paragraph/line sub-boundaries.
+    Returns list of {"content": str, "chunk_index": int}.
+    """
+    if not raw_chunks:
         return []
 
-    chunks = []
-    start = 0
-    chunk_index = 0
+    result = []
+    buffer = ""
 
-    while start < len(content):
-        end = min(start + CHUNK_SIZE, len(content))
+    for chunk in raw_chunks:
+        if len(chunk) > HARD_MAX:
+            if buffer.strip():
+                result.append(buffer.strip())
+                buffer = ""
+            result.extend(_split_oversized(chunk))
+        elif len(buffer) + len(chunk) + 2 <= TARGET_MAX:
+            buffer = f"{buffer}\n\n{chunk}" if buffer else chunk
+        else:
+            if buffer.strip():
+                result.append(buffer.strip())
+            buffer = chunk
 
-        # Try to break at paragraph boundary
-        if end < len(content):
-            newline_pos = content.rfind("\n\n", start, end)
-            if newline_pos > start + CHUNK_SIZE // 2:
-                end = newline_pos
+    if buffer.strip():
+        result.append(buffer.strip())
+
+    filtered = [text for text in result if len(text) >= MIN_CHUNK]
+    return [{"content": text, "chunk_index": i} for i, text in enumerate(filtered)]
+
+
+def _split_oversized(text: str) -> list:
+    """Split a chunk exceeding HARD_MAX at the best available sub-boundary."""
+    # Try paragraph breaks first
+    parts = re.split(r"\n\s*\n", text)
+    if len(parts) > 1:
+        merged = []
+        buf = ""
+        for part in parts:
+            if len(buf) + len(part) + 2 <= TARGET_MAX:
+                buf = f"{buf}\n\n{part}" if buf else part
             else:
-                newline_pos = content.rfind("\n", start, end)
-                if newline_pos > start + CHUNK_SIZE // 2:
-                    end = newline_pos
+                if buf.strip():
+                    merged.append(buf.strip())
+                buf = part
+        if buf.strip():
+            merged.append(buf.strip())
+        return merged
 
-        chunk = content[start:end].strip()
-        if len(chunk) >= MIN_CHUNK_SIZE:
-            chunks.append(
-                {
-                    "content": chunk,
-                    "chunk_index": chunk_index,
-                }
-            )
-            chunk_index += 1
+    # Fall back to line-based splitting
+    lines_list = text.split("\n")
+    merged = []
+    buf = ""
+    for line in lines_list:
+        if len(buf) + len(line) + 1 <= TARGET_MAX:
+            buf = f"{buf}\n{line}" if buf else line
+        else:
+            if buf.strip():
+                merged.append(buf.strip())
+            buf = line
+    if buf.strip():
+        merged.append(buf.strip())
+    return merged
 
-        start = end - CHUNK_OVERLAP if end < len(content) else end
 
-    return chunks
+# =============================================================================
+# INCREMENTAL MINING HELPERS
+# =============================================================================
+
+
+def _file_hash(path: Path) -> str:
+    """Return blake2b hex digest (32 chars) of raw file bytes."""
+    h = hashlib.blake2b(digest_size=16)
+    h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+def _bulk_existing_file_hashes(collection, wing: str) -> dict:
+    """Return {source_file: source_hash} for all drawers in wing.
+
+    Delegates to collection.get_source_file_hashes() (LanceDB column projection,
+    no vector scan). Returns an empty dict on unsupported backends or empty palace.
+    """
+    result = collection.get_source_file_hashes(wing)
+    return result if result is not None else {}
 
 
 # =============================================================================
@@ -394,12 +830,9 @@ def chunk_text(content: str, source_file: str) -> list:
 
 
 def get_collection(palace_path: str):
+    """Open (or create) the drawer store for a palace."""
     os.makedirs(palace_path, exist_ok=True)
-    client = chromadb.PersistentClient(path=palace_path)
-    try:
-        return client.get_collection("mempalace_drawers")
-    except Exception:
-        return client.create_collection("mempalace_drawers")
+    return open_store(palace_path, create=True)
 
 
 def file_already_mined(collection, source_file: str) -> bool:
@@ -412,7 +845,16 @@ def file_already_mined(collection, source_file: str) -> bool:
 
 
 def add_drawer(
-    collection, wing: str, room: str, content: str, source_file: str, chunk_index: int, agent: str
+    collection,
+    wing: str,
+    room: str,
+    content: str,
+    source_file: str,
+    chunk_index: int,
+    agent: str,
+    language: str = "unknown",
+    symbol_name: str = "",
+    symbol_type: str = "",
 ):
     """Add one drawer to the palace."""
     drawer_id = f"drawer_{wing}_{room}_{hashlib.md5((source_file + str(chunk_index)).encode(), usedforsecurity=False).hexdigest()[:16]}"
@@ -428,6 +870,9 @@ def add_drawer(
                     "chunk_index": chunk_index,
                     "added_by": agent,
                     "filed_at": datetime.now().isoformat(),
+                    "language": language,
+                    "symbol_name": symbol_name,
+                    "symbol_type": symbol_type,
                 }
             ],
         )
@@ -436,6 +881,94 @@ def add_drawer(
         if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
             return False
         raise
+
+
+# =============================================================================
+# BATCH HELPERS
+# =============================================================================
+
+
+def _collect_specs_for_file(
+    filepath: Path,
+    project_path: Path,
+    collection,
+    wing: str,
+    rooms: list,
+    agent: str,
+    mined_files: Optional[set] = None,
+    source_hash: str = "",
+) -> list:
+    """Read, chunk, and prepare drawer specs for one file without writing.
+
+    Returns [] if the file is already mined, unreadable, or below MIN_CHUNK.
+    Each spec dict has keys: id, content, metadata.
+    IDs and filed_at timestamps are set at spec-creation time.
+
+    If *mined_files* is provided (a set of source_file strings pre-fetched for the
+    wing), membership is checked in O(1) instead of issuing a per-file LanceDB query.
+    Falls back to file_already_mined() when mined_files is None.
+
+    *source_hash* is the blake2b digest of the file bytes (computed once in mine()).
+    Stored verbatim on every drawer for incremental change detection.
+    """
+    source_file = str(filepath)
+    if mined_files is not None:
+        if source_file in mined_files:
+            return []
+    elif file_already_mined(collection, source_file):
+        return []
+
+    try:
+        content = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    content = content.strip()
+    if len(content) < MIN_CHUNK:
+        return []
+
+    language = detect_language(filepath, content)
+    room = detect_room(filepath, content, rooms, project_path)
+    chunks = chunk_file(content, filepath.suffix.lower(), source_file, language=language)
+
+    specs = []
+    for chunk in chunks:
+        symbol_name, symbol_type = extract_symbol(chunk["content"], language)
+        drawer_id = f"drawer_{wing}_{room}_{hashlib.md5((source_file + str(chunk['chunk_index'])).encode(), usedforsecurity=False).hexdigest()[:16]}"
+        specs.append(
+            {
+                "id": drawer_id,
+                "content": chunk["content"],
+                "metadata": {
+                    "wing": wing,
+                    "room": room,
+                    "source_file": source_file,
+                    "chunk_index": chunk["chunk_index"],
+                    "added_by": agent,
+                    "filed_at": datetime.now().isoformat(),
+                    "language": language,
+                    "symbol_name": symbol_name,
+                    "symbol_type": symbol_type,
+                    "source_hash": source_hash,
+                    "extractor_version": __version__,
+                    "chunker_strategy": "regex_structural_v1",
+                },
+            }
+        )
+    return specs
+
+
+def add_drawers_batch(collection, specs: list) -> int:
+    """Embed and upsert a batch of drawer specs. Idempotent: re-mining the same
+    file updates existing drawers in place instead of appending duplicates."""
+    if not specs:
+        return 0
+    collection.upsert(
+        ids=[s["id"] for s in specs],
+        documents=[s["content"] for s in specs],
+        metadatas=[s["metadata"] for s in specs],
+    )
+    return len(specs)
 
 
 # =============================================================================
@@ -454,42 +987,23 @@ def process_file(
 ) -> int:
     """Read, chunk, route, and file one file. Returns drawer count."""
 
-    # Skip if already filed
-    source_file = str(filepath)
-    if not dry_run and file_already_mined(collection, source_file):
-        return 0
-
-    try:
-        content = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return 0
-
-    content = content.strip()
-    if len(content) < MIN_CHUNK_SIZE:
-        return 0
-
-    room = detect_room(filepath, content, rooms, project_path)
-    chunks = chunk_text(content, source_file)
-
     if dry_run:
+        source_file = str(filepath)
+        try:
+            content = filepath.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return 0
+        content = content.strip()
+        if len(content) < MIN_CHUNK:
+            return 0
+        language = detect_language(filepath, content)
+        room = detect_room(filepath, content, rooms, project_path)
+        chunks = chunk_file(content, filepath.suffix.lower(), source_file, language=language)
         print(f"    [DRY RUN] {filepath.name} → room:{room} ({len(chunks)} drawers)")
         return len(chunks)
 
-    drawers_added = 0
-    for chunk in chunks:
-        added = add_drawer(
-            collection=collection,
-            wing=wing,
-            room=room,
-            content=chunk["content"],
-            source_file=source_file,
-            chunk_index=chunk["chunk_index"],
-            agent=agent,
-        )
-        if added:
-            drawers_added += 1
-
-    return drawers_added
+    specs = _collect_specs_for_file(filepath, project_path, collection, wing, rooms, agent)
+    return add_drawers_batch(collection, specs)
 
 
 # =============================================================================
@@ -566,8 +1080,14 @@ def mine(
     dry_run: bool = False,
     respect_gitignore: bool = True,
     include_ignored: list = None,
+    incremental: bool = True,
 ):
-    """Mine a project directory into the palace."""
+    """Mine a project directory into the palace.
+
+    When *incremental* is True (default), only files whose content hash has changed
+    since the last mine are re-chunked. Deleted files are swept after a full walk.
+    Pass *incremental=False* (or --full from the CLI) to force a clean rebuild.
+    """
 
     project_path = Path(project_dir).expanduser().resolve()
     config = load_config(project_dir)
@@ -583,6 +1103,8 @@ def mine(
     if limit > 0:
         files = files[:limit]
 
+    mine_start = time.time()
+
     print(f"\n{'=' * 55}")
     print("  MemPalace Mine")
     print(f"{'=' * 55}")
@@ -592,6 +1114,8 @@ def mine(
     print(f"  Palace:  {palace_path}")
     if dry_run:
         print("  DRY RUN — nothing will be filed")
+    if not incremental:
+        print("  Mode:    FULL REBUILD (--full)")
     if not respect_gitignore:
         print("  .gitignore: DISABLED")
     if include_ignored:
@@ -599,38 +1123,132 @@ def mine(
     print(f"{'─' * 55}\n")
 
     if not dry_run:
+        print("  Loading embedding model...", flush=True)
         collection = get_collection(palace_path)
+        collection.warmup()
+        print("  Model ready.\n", flush=True)
+        existing_hashes = _bulk_existing_file_hashes(collection, wing)
     else:
         collection = None
+        existing_hashes = {}
 
     total_drawers = 0
     files_skipped = 0
     room_counts = defaultdict(int)
+    batch_buffer: list = []
+    batch_num = 0
+    walked_paths: set = set()
 
-    for i, filepath in enumerate(files, 1):
-        drawers = process_file(
-            filepath=filepath,
-            project_path=project_path,
-            collection=collection,
-            wing=wing,
-            rooms=rooms,
-            agent=agent,
-            dry_run=dry_run,
+    def flush_batch() -> None:
+        nonlocal total_drawers, batch_num
+        batch_num += 1
+        count = len(batch_buffer)
+        print(
+            f"  >> Embedding batch {batch_num} ({count} chunks)...",
+            end="",
+            flush=True,
         )
-        if drawers == 0 and not dry_run:
-            files_skipped += 1
-        else:
-            total_drawers += drawers
-            room = detect_room(filepath, "", rooms, project_path)
+        t0 = time.time()
+        total_drawers += add_drawers_batch(collection, batch_buffer)
+        elapsed = time.time() - t0
+        print(f" done ({elapsed:.1f}s)", flush=True)
+        batch_buffer.clear()
+
+    try:
+        for i, filepath in enumerate(files, 1):
+            source_file = str(filepath)
+            walked_paths.add(source_file)
+
+            if dry_run:
+                drawers = process_file(
+                    filepath=filepath,
+                    project_path=project_path,
+                    collection=collection,
+                    wing=wing,
+                    rooms=rooms,
+                    agent=agent,
+                    dry_run=True,
+                )
+                total_drawers += drawers
+                room = detect_room(filepath, "", rooms, project_path)
+                room_counts[room] += 1
+                continue
+
+            # Print scanning progress every 100 files so large repos aren't silent
+            if i % 100 == 0 or i == 1:
+                print(
+                    f"  Scanning [{i:4}/{len(files)}]...",
+                    end="\r",
+                    flush=True,
+                )
+
+            current_hash = _file_hash(filepath)
+
+            if incremental:
+                stored_hash = existing_hashes.get(source_file, "")
+                if stored_hash == current_hash and stored_hash != "":
+                    # File unchanged — skip
+                    files_skipped += 1
+                    continue
+                # Hash mismatch or new file — delete old drawers then re-mine
+                if source_file in existing_hashes:
+                    collection.delete_by_source_file(source_file, wing)
+            else:
+                # --full mode: unconditionally delete existing drawers and re-mine
+                collection.delete_by_source_file(source_file, wing)
+
+            specs = _collect_specs_for_file(
+                filepath,
+                project_path,
+                collection,
+                wing,
+                rooms,
+                agent,
+                mined_files=None,
+                source_hash=current_hash,
+            )
+            if not specs:
+                files_skipped += 1
+                continue
+
+            room = specs[0]["metadata"]["room"]
             room_counts[room] += 1
-            if not dry_run:
-                print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{drawers}")
+            print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{len(specs)}")
+
+            batch_buffer.extend(specs)
+            if len(batch_buffer) >= BATCH_SIZE:
+                flush_batch()
+
+        if not dry_run:
+            if batch_buffer:
+                flush_batch()
+
+            # Stale-file sweep: remove drawers for files no longer on disk.
+            # Only safe when the full file set was walked (limit == 0).
+            if incremental and limit == 0:
+                stale_paths = set(existing_hashes.keys()) - walked_paths
+                for stale_path in stale_paths:
+                    collection.delete_by_source_file(stale_path, wing)
+
+            t0 = time.time()
+            print("  >> Optimizing storage...", end="", flush=True)
+            collection.optimize()
+            print(f" done ({time.time() - t0:.1f}s)", flush=True)
+    except KeyboardInterrupt:
+        print("\n\n  Interrupted. Flushing pending batch...", flush=True)
+        if batch_buffer and not dry_run:
+            flush_batch()
+        print(f"  {total_drawers} drawers filed before interrupt.")
+
+    elapsed = time.time() - mine_start
+    mins, secs = divmod(int(elapsed), 60)
 
     print(f"\n{'=' * 55}")
     print("  Done.")
     print(f"  Files processed: {len(files) - files_skipped}")
     print(f"  Files skipped (already filed): {files_skipped}")
     print(f"  Drawers filed: {total_drawers}")
+    print(f"  Time: {mins}m {secs}s")
     print("\n  By room:")
     for room, count in sorted(room_counts.items(), key=lambda x: x[1], reverse=True):
         print(f"    {room:20} {count} files")
@@ -646,23 +1264,18 @@ def mine(
 def status(palace_path: str):
     """Show what's been filed in the palace."""
     try:
-        client = chromadb.PersistentClient(path=palace_path)
-        col = client.get_collection("mempalace_drawers")
+        store = open_store(palace_path, create=False)
     except Exception:
         print(f"\n  No palace found at {palace_path}")
         print("  Run: mempalace init <dir> then mempalace mine <dir>")
         return
 
     # Count by wing and room
-    r = col.get(limit=10000, include=["metadatas"])
-    metas = r["metadatas"]
-
-    wing_rooms = defaultdict(lambda: defaultdict(int))
-    for m in metas:
-        wing_rooms[m.get("wing", "?")][m.get("room", "?")] += 1
+    total = store.count()
+    wing_rooms = store.count_by_pair("wing", "room")
 
     print(f"\n{'=' * 55}")
-    print(f"  MemPalace Status — {len(metas)} drawers")
+    print(f"  MemPalace Status — {total} drawers")
     print(f"{'=' * 55}\n")
     for wing, rooms in sorted(wing_rooms.items()):
         print(f"  WING: {wing}")

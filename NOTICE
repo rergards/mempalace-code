@@ -1,0 +1,17 @@
+mempalace-code
+Copyright 2026 Aleksandr Markov
+
+This product is a substantially rewritten fork of milla-jovovich/mempalace
+(MIT license, Copyright 2025 MemPalace Contributors). The fork replaces
+the storage backend (ChromaDB -> LanceDB), adds language-aware code mining,
+incremental re-mining, export/import, code search, and 400+ tests.
+
+Original upstream contributors:
+  Ben Sigman (bensig) — primary code author
+  Igor Lins e Silva (igorls) — core contributor
+  Milla Jovovich (milla-jovovich) — project creator/architect
+  adv3nt3 — contributor
+  James Cane — contributor
+  JayadityaGit, ac-opensource, Salman Muin Kayser Chishti,
+  Renato Oliveira, Oussama, Maurice Wen, f-hoedl,
+  Alexey Samosadov — contributors

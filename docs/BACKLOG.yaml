@@ -1,0 +1,843 @@
+# ============================================================
+# BACKLOG.yaml — Machine-readable project backlog
+# Format: sections + items (DH2-style)
+# Parse:  backlog list --status open --file docs/BACKLOG.yaml
+# ============================================================
+#
+# project: mempalace-code
+
+sections:
+  - id: immediate
+    order: 1
+    title: "IMMEDIATE — Foundation & Project Setup"
+    description: "Fork identity, CI, docs. Must be done before any feature work."
+  - id: pre_release
+    order: 2
+    title: "PRE-RELEASE — v1.0 Blockers (Autopilot Pass)"
+    description: "P0 and P1 items that must land before a public v1.0. All items here are autopilot-ready — owner decisions already made. Batch in one large autopilot pass. Items needing owner judgment live in other sections."
+  - id: coding_first
+    order: 3
+    title: "CODING-FIRST — Smart Code Mining"
+    description: "Language-aware chunking, structural boundaries, code-optimized search. The core differentiator."
+  - id: storage_reliability
+    order: 4
+    title: "STORAGE & RELIABILITY"
+    description: "LanceDB hardening, migration tooling, backup/restore."
+  - id: mcp_developer_tools
+    order: 5
+    title: "MCP — Developer-Focused Tools"
+    description: "New and improved MCP tools for coding workflows."
+  - id: cleanup
+    order: 6
+    title: "CLEANUP — De-emphasize Dialog-First Features"
+    description: "Refactor or gate conversation-centric modules. Keep functional but not default."
+  - id: quality
+    order: 7
+    title: "QUALITY — Tests, Benchmarks, CI"
+    description: "Test coverage, code-mining benchmarks, CI hardening."
+  - id: future
+    order: 8
+    title: "FUTURE — Post-v1 Ideas"
+    description: "Ideas for after the first public release."
+# ============================================================
+# OPEN ITEMS
+# ============================================================
+items:
+  - key: LANG-DETECT-NODEJS-SHEBANG
+    summary: "Detect nodejs interpreter in shebang patterns"
+    type: task
+    priority: low
+    status: open
+    size: XS
+    section_id: coding_first
+    labels: [mining, chunking]
+    description: >
+      SHEBANG_PATTERNS uses re.compile(r"node") with fullmatch(), which matches "node" exactly but not "nodejs". On Debian/Ubuntu systems the Node.js binary is named "nodejs", so #!/usr/bin/nodejs or #!/usr/bin/env nodejs returns "unknown" instead of "javascript". Deliverable: extend the node pattern to match both "node" and "nodejs" (e.g., r"nodejs?"). Acceptance criteria: (1) detect_language(Path("script"), "#!/usr/bin/nodejs\n") == "javascript"; (2) detect_language(Path("script"), "#!/usr/bin/env nodejs\n") == "javascript"; (3) existing tests unchanged; (4) ruff clean. Identified in CODE-LANG-DETECT harden round-1 (F-003).
+
+    resolution: null
+  - key: LANG-DETECT-GO-VAR-BODY
+    summary: "Go var inside function bodies creates spurious chunk boundaries"
+    type: task
+    priority: low
+    status: open
+    size: S
+    section_id: coding_first
+    labels: [mining, chunking]
+    description: >-
+      GO_BOUNDARY includes var\s+\w+ which matches against stripped lines. Because chunk_code() strips lines before matching for Go/Python/Rust, any var declaration inside a function body (e.g., "    var result int") becomes a spurious chunk boundary, splitting mid-function. The adaptive merge step mitigates this for small fragments, but large Go functions with many var declarations produce unnecessarily granular chunks. Deliverable: either (a) restrict GO_BOUNDARY to top-level var only (remove var\s+\w+ — rely on var (\n  ...\n) block detection instead), or (b) track indentation in chunk_code() for Go. Option (a) is simpler but loses top-level single-var detection. The proper fix is tree-sitter (CODE-TREESITTER-EXPAND). Acceptance criteria: a Go function body containing "var x int" does not produce a split between the var line and surrounding code; existing Go boundary tests pass; ruff clean. Identified in CODE-LANG-DETECT harden round-1 (F-004).
+    resolution: null
+  - key: CODE-SMART-CHUNK-VAR-BOUNDARY
+    summary: "Add non-exported var to TS_BOUNDARY in chunk_code()"
+    type: task
+    priority: low
+    status: open
+    size: S
+    section_id: coding_first
+    labels: [mining, chunking]
+    description: >
+      TS_BOUNDARY in miner.py detects exported var via the export branch but has no arm for top-level non-exported `var foo = ...`. Add `var\s+\w+\s*[:=]` to TS_BOUNDARY alongside the existing const/let arms. Acceptance criteria: a TS/JS file with a top-level non-exported var declaration produces a new chunk boundary at that var; existing tests unchanged; ruff clean. Low-priority since var is deprecated in modern TS/JS. Identified in CODE-SMART-CHUNK harden round-1 (F-004).
+
+    resolution: null
+  - key: CODE-GITIGNORE
+    summary: "Full .gitignore support in miner (already done, verify)"
+    type: task
+    priority: medium
+    status: done
+    size: S
+    section_id: coding_first
+    labels: [mining]
+    description: >
+      Verify the .gitignore support (nested gitignore, negation, include_ignored override) works correctly with the LanceDB backend. Tests exist in test_miner.py. May just need a verification pass.
+
+    resolution: null
+  - key: CODE-TREESITTER
+    summary: "Tree-sitter integration for precise AST-aware chunking"
+    type: feature
+    priority: medium
+    status: done
+    size: XL
+    section_id: coding_first
+    labels: [core, mining, chunking, ast]
+    description: >
+      Replace regex-based structural splitting with tree-sitter AST parsing for supported languages. Produces exact function/class/block boundaries. Requires py-tree-sitter + language grammars. Start with Python and TypeScript, expand. Falls back to regex chunking for unsupported languages.
+
+    resolution: null
+  - key: STORE-BACKUP-RESTORE
+    summary: "Palace backup and restore commands"
+    type: feature
+    priority: medium
+    status: open
+    size: M
+    section_id: storage_reliability
+    labels: [storage, cli]
+    description: >-
+      ## Scope
+
+
+      Add `mempalace backup` and `mempalace restore` CLI commands. LanceDB's storage is directory-based — backup creates a tarball of the lance/ directory plus the SQLite knowledge graph. Restore extracts a tarball into the palace path.
+
+
+      ## Acceptance criteria
+
+
+      1. `mempalace backup [--palace PATH] [--out FILE]` creates a .tar.gz containing lance data + knowledge_graph.db + metadata.json
+
+      2. metadata.json includes: drawer count, wing list, timestamp, mempalace version, backend type
+
+      3. `mempalace restore FILE [--palace PATH]` extracts tarball into target palace path
+
+      4. Restore to a non-empty palace path refuses unless `--force` is passed (prevents accidental overwrite)
+
+      5. Round-trip test: backup → restore to new path → search returns same results
+
+      6. ruff clean
+    resolution: null
+  - key: STORE-REMOVE-CHROMA-DEFAULT
+    summary: "Remove ChromaDB from default install path"
+    type: task
+    priority: low
+    status: open
+    size: S
+    section_id: storage_reliability
+    labels: [storage, packaging]
+    description: >
+      After migration CLI is solid, make ChromaDB purely optional. Remove any import-time chromadb references. ChromaStore should only be importable when [chroma] extra is installed. Lazy import pattern.
+
+    resolution: null
+  - key: MCP-FILE-CONTEXT
+    summary: "MCP tool: mempalace_file_context — get all chunks for a file"
+    type: feature
+    priority: medium
+    status: open
+    size: S
+    section_id: mcp_developer_tools
+    labels: [mcp, search, coding]
+    description: >
+      Given a source_file path, return all chunks in order (by chunk_index). Useful when an agent needs full file context from the palace without reading the actual file (e.g., file was deleted/renamed but palace has it).
+
+    resolution: null
+  - key: MCP-MINE-TRIGGER
+    summary: "MCP tool: mempalace_mine — trigger re-mining from MCP"
+    type: feature
+    priority: medium
+    status: open
+    size: M
+    section_id: mcp_developer_tools
+    labels: [mcp, mining]
+    description: >
+      Allow agents to trigger a re-mine of a project directory via MCP. Useful for keeping palace up to date during long coding sessions. Should use incremental mining (CODE-INCREMENTAL) when available. Returns summary: files scanned, drawers added/updated/removed.
+
+    resolution: null
+  # ── CLEANUP — De-emphasize Dialog-First Features ────────────
+  - key: CLEAN-ONBOARDING
+    summary: "Replace interactive onboarding with config-file-first setup"
+    type: task
+    priority: medium
+    status: open
+    size: M
+    section_id: cleanup
+    labels: [cleanup, ux]
+    description: >
+      Current onboarding.py is a guided interview (mode: work/personal/combo, people, projects, wing taxonomy). Replace with: 'mempalace init <dir>' reads project structure, generates mempalace.yaml automatically. Interactive prompts are opt-in, not default. Coding users want zero-friction setup.
+
+    resolution: null
+  - key: CLEAN-EMOTION-EXTRACT
+    summary: "Remove EMOTIONAL category from general_extractor defaults"
+    type: task
+    priority: low
+    status: open
+    size: S
+    section_id: cleanup
+    labels: [cleanup, mining]
+    description: >
+      general_extractor.py classifies memories into DECISIONS, PREFERENCES, MILESTONES, PROBLEMS, EMOTIONAL. The EMOTIONAL category is conversation-first (tracks sentiment/feelings). Remove from default extraction. Keep in code as opt-in for users who mine conversations.
+
+    resolution: null
+  - key: CLEAN-SPELLCHECK
+    summary: "Disable spellcheck by default for code mining"
+    type: task
+    priority: low
+    status: open
+    size: S
+    section_id: cleanup
+    labels: [cleanup, mining]
+    description: >
+      spellcheck.py corrects user messages before filing. Makes sense for conversation text, not for code (CamelCase, snake_case, technical terms). Disable by default when mining code files. Keep enabled for conversation mining mode.
+
+    resolution: null
+  - key: CLEAN-ENTITY-DETECT
+    summary: "Make entity detection opt-in, not default"
+    type: task
+    priority: low
+    status: open
+    size: S
+    section_id: cleanup
+    labels: [cleanup, mining]
+    description: >
+      entity_detector.py auto-detects people and projects from content using heuristics (verb patterns, pronouns, dialogue markers). Useful for conversations, noisy for code. Make opt-in via config flag. Default mining should not run entity detection.
+
+    resolution: null
+  # ── QUALITY — Tests, Benchmarks, CI ─────────────────────────
+  - key: QUAL-CODE-BENCH
+    summary: "Code mining benchmark — measure retrieval quality on real repos"
+    type: feature
+    priority: medium
+    status: open
+    size: L
+    section_id: quality
+    labels: [benchmarks, testing]
+    description: >
+      Upstream benchmarks (LongMemEval, LoCoMo) test conversation retrieval. Build a code-specific benchmark: mine a known repo, ask code questions (where is function X, what does module Y do, how does feature Z work), measure retrieval accuracy. Compare naive chunking vs smart chunking vs tree-sitter.
+
+    resolution: null
+  - key: QUAL-RUFF-STRICT
+    summary: "Enable stricter ruff rules"
+    type: task
+    priority: low
+    status: open
+    size: S
+    section_id: quality
+    labels: [quality, lint]
+    description: >
+      Current ruff config is minimal. Enable: type-checking rules, import sorting (isort), docstring conventions, unused variable detection. Fix existing violations. Add to CI.
+
+    resolution: null
+  # ── FUTURE — Post-v1 Ideas ─────────────────────────────────
+  - key: FUT-MULTI-REPO
+    summary: "Multi-repo palace — mine multiple projects into one palace"
+    type: story
+    priority: low
+    status: open
+    size: L
+    section_id: future
+    labels: [future, mining]
+    description: >
+      Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
+
+    resolution: null
+  - key: FUT-WATCH-MODE
+    summary: "Watch mode — auto-re-mine on file changes"
+    type: feature
+    priority: low
+    status: open
+    size: M
+    section_id: future
+    labels: [future, mining]
+    description: >
+      File watcher (watchdog/inotify) that triggers incremental re-mining when source files change. Keeps palace always up-to-date during active development. Depends on CODE-INCREMENTAL.
+
+    resolution: null
+  - key: TEST-STORAGE-EDGE
+    summary: 'Add edge-case tests for LanceStore: empty IDs, $or filters, comparison operators'
+    type: task
+    status: open
+    priority: medium
+    size: S
+    section_id: quality
+    labels: [test, storage]
+    description: LanceStore.get(ids=[]) and _where_to_sql with $or, $ne, $gt operators have no test coverage. Add targeted unit tests to prevent regressions on these paths.
+  - key: MINE-EAGER-EMBED-INIT
+    summary: "Force eager embedding model init during 'Loading embedding model...' phase"
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: coding_first
+    labels: [mining, devex]
+    description: >
+      LanceDB lazily initializes the sentence-transformers model on first embed call, not at store open time. This causes the "Loading weights" output from HuggingFace to appear mid-batch during flush_batch() instead of during the "Loading embedding model..." phase. Fix: after get_collection() in mine(), call a dummy embed (e.g. store._embed(["warmup"])) to force model initialization. AC: all model loading output appears between "Loading embedding model..." and "Model ready."; no HF output during batch embedding.
+
+    resolution: null
+  - key: CI-CHROMA-COMPAT-TESTS
+    summary: "Add ChromaStore-specific tests so the chroma-compat CI job actually validates ChromaDB"
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [ci, testing, storage]
+    description: >
+      The chroma-compat CI job installs .[dev,chroma] then runs the full test suite — but all tests use open_store() (LanceDB). The job only proves "chromadb installs without import errors", not "ChromaDB works as a storage backend". Add a test module (tests/test_chroma_compat.py) that explicitly instantiates ChromaStore and exercises add/search/delete. Mark it with pytest.importorskip("chromadb") so it is skipped in the main matrix and only runs in the chroma-compat job. AC: chroma-compat job exercises at least 5 ChromaStore operations; main matrix still passes without chromadb installed.
+
+    resolution: null
+  - key: PYPROJECT-CHROMA-VERSION
+    summary: "Update chromadb version ceiling in [chroma] optional extra when 0.7+ releases"
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: quality
+    labels: [packaging, maintenance]
+    description: >
+      The [chroma] optional extra pins chromadb>=0.5.0,<0.7. When ChromaDB releases 0.7+, users who install .[chroma] will get a dependency resolution failure. Periodically check https://pypi.org/project/chromadb/ for new releases and raise the ceiling or update to the latest compatible range. AC: pip install -e ".[chroma]" succeeds with a chromadb version >= 0.7 when available; chroma-compat CI job passes after the update. Constraints: only update after verifying the new version is compatible with ChromaStore (tests/test_chroma_compat.py).
+
+    resolution: null
+  - key: CI-CACHING
+    summary: "Add pip and HuggingFace model caching to CI jobs to reduce run time"
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [ci, devex]
+    description: >
+      Each CI run re-downloads ~500MB of packages (lancedb, sentence-transformers, torch) and the all-MiniLM-L6-v2 model at test runtime. Add pip cache via actions/setup-python cache param, and a HuggingFace model cache step (cache key: model name hash). Expected savings: 3–5 minutes per job, ~15 minutes total per push. AC: cold cache run completes in under 10 minutes; warm cache run completes in under 3 minutes.
+
+    resolution: null
+  - key: CODE-SYMBOL-META-GO-TYPES
+    summary: Extract Go type alias and custom scalar type symbols
+    type: feature
+    status: open
+    priority: low
+    size: S
+    section_id: coding_first
+    labels: [mining, metadata, go]
+    description: 'Currently _GO_EXTRACT only captures type X struct and type X interface. Missing: type MyInt int (custom scalar), type Handler func(...) (function type), type Alias = Original (type alias, Go 1.9+). These return ('''', '''') instead of the correct symbol name. Add a catch-all type pattern to _GO_EXTRACT and cover with unit tests. AC: test_go_type_scalar, test_go_type_func, test_go_type_alias all pass; existing tests unaffected.'
+  - key: CODE-SEARCH-LANG-CONFIG
+    summary: Allow filtering by config-file languages in code_search (yaml, json, toml)
+    type: feature
+    status: open
+    priority: low
+    size: XS
+    section_id: coding_first
+    labels: [search, coding, mcp]
+    description: 'The miner produces drawers with language values yaml, json, toml (config files) but code_search SUPPORTED_LANGUAGES in searcher.py rejects them with a validation error. Users who mine projects with YAML/JSON/TOML files cannot use language= filter for those drawers. Fix: add "yaml", "json", "toml" to SUPPORTED_LANGUAGES; update the MCP schema description. AC: (1) code_search(language="yaml") returns results instead of error; (2) test_code_search_invalid_language still rejects "cobol"; (3) ruff clean; pytest -q passes. Origin: MCP-CODE-SEARCH hardening round-1 F-1.'
+  - key: CODE-SEARCH-LANG-CPP
+    summary: Add C/C++ to miner EXTENSION_LANG_MAP so code_search language="cpp" returns results
+    type: feature
+    status: open
+    priority: low
+    size: XS
+    section_id: coding_first
+    labels: [mining, search, coding]
+    description: 'SUPPORTED_LANGUAGES in code_search pre-emptively includes "cpp" and "c" but the miner EXTENSION_LANG_MAP (miner.py) has no entries for .c or .cpp. Queries with language="cpp" pass validation but always return empty results because no mined drawers have those language values. Fix: add ".c": "c" and ".cpp": "cpp" to EXTENSION_LANG_MAP; verify symbol extraction for C/C++ (likely needs regex patterns). AC: (1) mining a project with .c/.cpp files produces drawers with language="c"/"cpp"; (2) code_search(language="cpp") returns those drawers; (3) ruff clean; pytest -q passes. Origin: MCP-CODE-SEARCH hardening round-1 F-1.'
+  - key: CLI-DIARY-WRITE-ID-COLLISION
+    summary: Use UUID for diary entry IDs to prevent same-second collision
+    type: bug
+    status: open
+    priority: low
+    size: XS
+    section_id: mcp_developer_tools
+    labels: [cli, diary, mcp]
+    description: 'diary write (cli.py cmd_diary_write) and tool_diary_write (mcp_server.py) both generate IDs using second-precision timestamps plus an 8-char MD5 suffix of the first 50 content chars. Two writes at the same second with identical first 50 chars produce the same ID, causing store.add() to raise a duplicate-ID error. Replace the ID formula in both sites with uuid.uuid4() to guarantee uniqueness. Deliverable: update cmd_diary_write and tool_diary_write atomically; update tests that assert on ID format if any. Constraints: keep all other metadata fields unchanged. AC: (1) two diary writes in the same second with identical content both succeed without error; (2) each produces a distinct ID; (3) all existing diary write tests pass; (4) ruff clean.'
+  - key: MINE-BATCH-EMBED-DRY-RUN-REFACTOR
+    summary: Remove process_file dry-run code duplication — delegate to _collect_specs_for_file
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: cleanup
+    labels: [core, mining, refactor]
+    description: 'After MINE-BATCH-EMBED, process_file''s dry-run branch manually re-implements the read/strip/chunk/detect pipeline that _collect_specs_for_file already implements. If new metadata fields are added to _collect_specs_for_file, the dry-run branch silently diverges. Deliverable: refactor process_file (or _collect_specs_for_file) so the dry-run path calls the shared helper rather than duplicating its logic. Acceptance criteria: (1) process_file dry_run=True produces the same chunk count as the non-dry-run path would; (2) no duplicate code between process_file and _collect_specs_for_file; (3) all existing tests pass.'
+  - key: STORE-CHROMA-DELETE-WING-LIMIT
+    summary: Fix ChromaStore.delete_wing to use self.get() so the limit wrapper applies
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: storage_reliability
+    labels: [storage, chroma, cleanup]
+    description: 'ChromaStore.delete_wing calls self._col.get(where=...) directly on the ChromaDB collection, bypassing the ChromaStore.get() wrapper that sets limit=10000. Wings with more drawers than ChromaDB''s default page size would be silently partially deleted. Fix: replace self._col.get(where={"wing": wing}) with self.get(where={"wing": wing}) in ChromaStore.delete_wing. Acceptance criteria: (1) the fix is a 1-line change; (2) existing test_delete_wing passes; (3) ruff clean. Identified in STORE-DELETE-WING harden round-1 (F-003). Note: ChromaDB is the deprecated backend; this is cleanup only.'
+  - key: STORE-DELETE-WING-EXCEPTION-TEST
+    summary: Add test verifying tool_delete_wing returns error dict when storage raises
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: quality
+    labels: [test, storage, mcp]
+    description: 'After removing the bare except Exception: return 0 in LanceStore.delete_wing (STORE-DELETE-WING harden F-002 fix), the exception propagation path is untested. Add a test that monkeypatches table.delete (or table.count_rows) to raise an exception, then calls tool_delete_wing and asserts the result is {"success": False, "error": ...}. Acceptance criteria: (1) new test in tests/test_mcp_server.py or tests/test_storage.py; (2) test fails before the F-002 fix, passes after; (3) all 284+ tests continue to pass; (4) ruff clean. Identified in STORE-DELETE-WING harden round-1 (F-004).'
+  - key: STORE-CHROMA-COUNTBY-FALLBACK
+    summary: "ChromaStore.count_by/count_by_pair silently return empty when deprecated ChromaDB backend is used"
+    type: bug
+    status: open
+    priority: low
+    size: S
+    section_id: storage_reliability
+    labels: [storage, chroma, hardening]
+    description: >
+      After STORE-STATUS-LIMIT, ChromaStore.count_by and count_by_pair raise NotImplementedError. MCP tools (tool_status, tool_list_wings, tool_list_rooms, tool_get_taxonomy) wrap these calls in try/except Exception: pass, so ChromaDB palaces silently report wings={}, rooms={} even though drawers exist. This is a regression from pre-fix behavior (ChromaDB returned truncated but non-empty results). Fix: implement get-and-iterate fallback in ChromaStore.count_by using self.get(include=["metadatas"], limit=self.count()) — similar to the old approach but with the correct upper bound. Acceptance criteria: tool_list_wings on a ChromaDB palace with N drawers across M wings returns all M wings. Note: ChromaDB is deprecated — this is a stop-gap until STORE-MIGRATION-CLI lands.
+
+    resolution: null
+  - key: REL-SMOKE-TEST
+    summary: Pre-release smoke test on clean machines and canonical repos
+    type: task
+    status: done
+    priority: high
+    size: M
+    section_id: pre_release
+    assignee: owner
+    labels: [release, testing, owner-task]
+    description: 'Manual release-gate smoke test. Cannot be automated because it verifies first-run UX on a clean machine, which is exactly what autopilot cannot reproduce. Procedure: (1) fresh venv or pipx install from the release candidate wheel on (a) MacBook Pro, (b) a Linux box, (c) a low-RAM device (Raspberry Pi or equivalent, to validate MINE-LANCE-COMPACT AC #3). (2) Run the full user path end to end on three canonical repos — a Python library (pick e.g. requests or httpx), a TypeScript application (e.g. next.js starter), and a Go service (e.g. the mempalace autopilot repo itself): mempalace init <dir> -> mempalace mine <dir> -> mempalace search ''<architecture question>'' -> mempalace status -> re-run mempalace mine <dir> (must be idempotent, exercises MINE-BATCH-EMBED-DEDUP-UPSERT). (3) Connect to Claude Code via MCP, verify mempalace_search and mempalace_code_search (if MCP-CODE-SEARCH shipped) return sane results with symbol metadata surfaced. (4) Run mempalace migrate-storage on a seeded ChromaDB palace and confirm count parity (exercises STORE-MIGRATION-CLI). (5) File any regressions as P0 release blockers before tagging v1.0. AC: all three repos mine cleanly on all three machine classes; re-mine is idempotent (drawer count unchanged); search returns symbol metadata; migrate-storage preserves drawer count; no uncaught tracebacks on Ctrl+C. Owner task because autopilot cannot sign off on a human-in-the-loop UX gate.'
+    resolution: '2026-04-13: Smoke tested on Ubuntu 22.04 (clean server). All checks pass. Bootstrap script created.'
+  - key: MINE-LANCE-VECTOR-SCAN
+    summary: get_source_files() loads full table including vector column before projecting to two columns
+    type: bug
+    status: open
+    priority: low
+    size: S
+    section_id: storage_reliability
+    labels: [mining, performance, storage]
+    description: 'LanceStore.get_source_files() calls self._table.to_arrow().select([''source_file'',''wing'']). to_arrow() without column arguments materializes ALL columns — including the large vector column (384 floats per row) — before the .select() projection discards everything except two string columns. For a palace with 5,000 drawers, this loads ~7MB of vector data into memory unnecessarily. The same pattern exists in count_by(), count_by_pair(), and get_source_file_hashes() (added in CODE-INCREMENTAL). Fix: pass a columns argument to to_arrow() or use the LanceDB scanner API for column-projected scans. Acceptance criteria: (1) get_source_files() and get_source_file_hashes() on a 5,000-drawer table each read less than 1MB of data (verified via LanceDB IO stats or a profiler); (2) all existing tests pass; (3) ruff clean; (4) the fix also applies to count_by() and count_by_pair() for consistency. Identified in MINE-LANCE-COMPACT harden round-1 (F-002); scope extended in CODE-INCREMENTAL harden round-1 (F-002).'
+  - key: STORE-MIGRATE-CLI-TEST
+    summary: Add CLI-level test for migrate-storage subcommand wiring
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [test, cli, migration]
+    description: 'test_cli.py has no tests for migrate-storage. The argparse wiring (args.backup_dir from --backup-dir), VerificationError->sys.exit(1) path in cmd_migrate_storage, and --force passthrough are untested. Deliverable: add tests invoking cmd_migrate_storage covering (1) happy path; (2) VerificationError yields exit code 1; (3) --force passes through. AC: test_migrate_storage_cli_happy_path and test_migrate_storage_cli_verify_fail pass; existing migrate tests unaffected; skip file if chromadb not installed. Identified in STORE-MIGRATION-CLI harden round-1 (F-002).'
+  - key: MINE-CLI-FULL-TEST
+    summary: Add CLI-level test for mine --full flag wiring
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: quality
+    labels: [test, cli, mining, incremental]
+    description: 'test_cli.py has no test for the mine --full flag introduced in CODE-INCREMENTAL. The argparse wiring (add_argument("--full", action="store_true") -> incremental=not args.full in cmd_mine) is a single indirection that is currently untested at the CLI level. The mine() function itself is tested in test_incremental_full_flag_forces_rebuild, but the CLI dispatch path is not. Deliverable: add a test to test_cli.py that invokes main() with ["mempalace", "--palace", ..., "mine", dir, "--full"] and asserts mine() is called with incremental=False (via mock). AC: (1) test_mine_cli_full_flag passes; (2) a complementary test_mine_cli_incremental_default asserts incremental=True when --full is absent; (3) existing tests unaffected; (4) ruff clean. Identified in CODE-INCREMENTAL harden round-1 (F-004).'
+  - key: STORE-MIGRATE-EMPTY-SRC-TEST
+    summary: Add test for migrate-storage empty source palace early-exit path
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: quality
+    labels: [test, migration]
+    description: 'The early-exit path ''if src_total == 0: return (0, 0)'' in migrate_chroma_to_lance() is untested. This path is distinct from ''_col is None'' (no collection): it requires a ChromaDB palace initialized with a collection that has had all drawers deleted. Deliverable: add test_migrate_empty_src to test_migrate.py that seeds a ChromaStore, deletes all rows, then calls migrate_chroma_to_lance and asserts it returns (0, 0) without creating destination rows. AC: test passes; existing tests unaffected. Identified in STORE-MIGRATION-CLI harden round-1 (F-003).'
+  - key: LAUNCH-BENCH-TOKEN-DELTA
+    summary: 'Publish token-delta benchmark: mempalace_search vs raw grep+read, 15-20 questions, median + P95 ratios'
+    type: task
+    status: done
+    priority: high
+    size: M
+    section_id: pre_release
+    assignee: bot
+    labels: [benchmarks, launch, marketing]
+    description: |-
+      ## Problem
+
+      Graphify's landing page advertises a **71.5× token reduction per query** (measured on a 100-file Python repo vs. "raw grep" ingestion). mempalace has no equivalent public number. For a launch post / README, a concrete "tokens per semantic question" comparison against the obvious baseline is table stakes — otherwise the pitch reduces to "it's smart, trust me".
+
+      ## Deliverable
+
+      `benchmarks/results_token_delta_YYYY-MM-DD.json` plus a summary chart in `docs/BENCH_TOKEN_DELTA.md` showing, for 15–20 representative coding questions against the `mempalace` repo itself (self-eats-dogfood):
+
+      | Question | Raw grep+read baseline tokens | mempalace_search top-5 tokens | Ratio |
+
+      Headline numbers:
+      - Median ratio across all questions
+      - P95 ratio
+      - Per-category split (function lookup / class lookup / architecture / cross-file)
+
+      Reuse the 20-query set from `benchmarks/embed_ab_bench.py` (already known-answer validated).
+
+      ## Method
+
+      1. **Baseline** ("grep + read"): for each question, `rg -l <keyword>` to find candidate files, then `cat` the top-5 files. Count tokens via `tiktoken.get_encoding("cl100k_base").encode()`. This simulates a plain Claude Code session with no memory.
+      2. **mempalace**: call `mempalace.searcher.search(query, limit=5)` and concatenate the `content` field of each result. Count tokens the same way.
+      3. **Ratio**: baseline_tokens / mempalace_tokens per question; aggregate.
+
+      ## Why owner task, not bot task
+
+      - Picking the 20 questions is a branding call — the question set IS the benchmark, and autopilot has no context on what the launch post will frame.
+      - The ratio chart goes on the README front page; owner needs to sign off before publication.
+      - Graphify's 71.5× figure is suspicious (no methodology published); mempalace's number must be honest and reproducible, so the run should be watched manually.
+
+      ## Acceptance
+
+      1. `benchmarks/token_delta_bench.py` script exists, runs in < 5 min on current palace.
+      2. Per-question CSV and aggregate JSON committed under `benchmarks/`.
+      3. `docs/BENCH_TOKEN_DELTA.md` contains the headline ratio + methodology + "how to reproduce" section.
+      4. README gets one line quoting the median ratio (not a hero claim, a footnote-style number).
+
+      ## Out of scope
+
+      - Comparing against graphify directly (apples to oranges, graphify is structural, mempalace is semantic).
+      - Running on repos other than mempalace for v1 (can expand post-launch).
+      - Claiming any single multiplier as "the" number — report median + P95 + per-category.
+  - key: CORE-EXPORT-IMPORT-STREAM-TEST
+    summary: 'Add test_export_streams_large_palace: verify iter_all streams without OOM on 5k-drawer palaces'
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    assignee: bot
+    labels: [test, export, performance]
+    description: |-
+      ## Problem
+      export.py exports via iter_all() which uses PyArrow batches — but there is no test that confirms the implementation does not inadvertently load all rows into memory at once on a large palace.
+
+      ## Scope
+      tests/test_export.py — add one new test class.
+
+      ## Acceptance criteria
+      - test_export_streams_large_palace seeds a synthetic 5k-drawer store and exports it
+      - Peak RSS or tracemalloc allocation during export is below 200 MB
+      - OR: iter_all batch count > 1 (proves batching is happening)
+      - Must complete in < 30s in CI
+      - No model loading required (mock or pre-built LanceDB table)
+
+      ## Deliverable
+      A test that seeds a synthetic 5k-drawer store, exports it, and asserts batch streaming is active via tracemalloc or batch-count instrumentation.
+
+      ## Constraints
+      - Deferred from CORE-EXPORT-IMPORT per plan (iter_all itself guarantees streaming; test is for regression protection)
+      - Must not slow the test suite materially
+  - key: STORE-META-DEFAULTS-COERCE
+    summary: Derive numeric coercions in _meta_defaults() from _META_FIELD_SPEC type_tags
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: storage_reliability
+    labels: [storage, refactor]
+    description: |-
+      ## Problem
+      _meta_defaults() in storage.py hardcodes explicit int/float coercions for chunk_index, compression_ratio, and original_tokens. Adding a new int32 or float32 field to _META_FIELD_SPEC still requires a manual coercion line here, partially defeating the single-point-of-change goal established by STORE-META-KEYS-DEDUP.
+
+      ## Scope
+      mempalace/storage.py — _meta_defaults() only.
+
+      ## Deliverable
+      Replace the three hardcoded coercion lines with a loop over _META_FIELD_SPEC that applies int() for int32 tags and float() for float32 tags automatically.
+
+      ## Constraints
+      - Must not change public API or behavior for existing fields
+      - ruff clean, existing tests unchanged
+
+      ## Acceptance criteria
+      1. The three hardcoded coercion lines are removed
+      2. A loop over _META_FIELD_SPEC drives coercions for all int32/float32 fields
+      3. Adding a new numeric field to _META_FIELD_SPEC requires no change in _meta_defaults()
+      4. test_metadata_roundtrip_all_fields passes with correct numeric types
+      5. ruff check mempalace/ reports no issues
+
+      Identified in STORE-META-KEYS-DEDUP harden round-1 (F-002).
+  - key: STORE-SCHEMA-PARTIAL-MIGRATE-TEST
+    summary: 'Add test: partial schema migration roundtrip (intermediate-column-count palace)'
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [storage, testing, migration]
+    description: |-
+      ## Problem
+      The existing TestSchemaMigration tests only cover migration from the bare 9-column legacy schema to the current full schema. No test exercises the intermediate case — a palace created at an intermediate release that already has some newer columns but not all.
+
+      ## Scope
+      tests/test_storage.py::TestSchemaMigration — add one new test method.
+
+      ## Deliverable
+      test_write_with_all_metadata_after_partial_migration: build a 12-column legacy table (9 original + hall + language + symbol_name), open it to trigger partial migration, store.add() with all _META_FIELD_SPEC fields, store.get() and assert every field roundtrips.
+
+      ## Acceptance Criteria
+      1. A 12-column legacy table (includes hall/language/symbol_name, excludes source_hash/extractor_version/chunker_strategy) is created directly via lancedb.
+      2. open_store triggers migration adding only the missing columns.
+      3. store.add() succeeds with all _META_FIELD_SPEC sentinel values.
+      4. store.get() returns all fields with correct sentinel values.
+      5. ruff clean.
+  - key: STORE-WHERE-ARROW-OPS
+    summary: _where_to_arrow_mask silently ignores operator dicts — iter_all() returns wrong rows
+    type: task
+    status: open
+    priority: medium
+    size: S
+    section_id: storage_reliability
+    labels: [storage, bug]
+    description: |-
+      ## Problem
+
+      iter_all(where={'chunk_index': {'$gt': 1}}) returns ALL rows because _where_to_arrow_mask (storage.py) only handles simple equality. Operator dicts ($gt, $gte, $lt, $lte, $ne) are silently skipped, producing no filter. Confirmed by manual test: 3 rows returned when 2 were expected.
+
+      ## Deliverable
+
+      Fix _where_to_arrow_mask to handle numeric comparison operators via pyarrow.compute (pc.greater, pc.less_equal, etc.), mirroring _where_to_sql semantics.
+
+      ## Acceptance criteria
+
+      1. _where_to_arrow_mask handles $gt, $gte, $lt, $lte, $ne operator dicts for numeric fields
+      2. iter_all(where={'chunk_index': {'$gt': 1}}) returns only rows with chunk_index > 1
+      3. Regression test added to test_storage_lance.py::TestIterAll
+
+      ## Constraints
+
+      - Arrow compute ops must work for both int32 and float32 columns
+      - No behavioral change to the string equality case already working
+  - key: STORE-MIGRATION-TEST-DYNAMIC-COLS
+    summary: Derive migration NULL-safety assertion list from _META_FIELD_SPEC instead of hardcoding column names
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: quality
+    assignee: bot
+    labels: [storage, tests, migration]
+    description: |-
+      ## Problem
+
+      test_migration_existing_rows_get_empty_defaults hardcodes the 13 new string column names introduced by migration. If a new string column is added to _META_FIELD_SPEC in the future, the test will silently fail to assert that its migration default is empty-string (not NULL).
+
+      ## Deliverable
+
+      Replace the hardcoded new_string_cols list with a dynamic derivation:
+        OLD_9_COLS = {"id", "text", "vector", "wing", "room", "source_file", "chunk_index", "added_by", "filed_at"}
+        new_string_cols = [name for name, type_tag, _ in _META_FIELD_SPEC if type_tag == "string" and name not in OLD_9_COLS]
+      Import _META_FIELD_SPEC in the test module.
+
+      ## Scope
+
+      tests/test_storage.py — only the new_string_cols derivation inside test_migration_existing_rows_get_empty_defaults.
+
+      ## Acceptance Criteria
+
+      - Derive new_string_cols from _META_FIELD_SPEC dynamically at test-time
+      - Adding a new string field to _META_FIELD_SPEC automatically extends the assertion loop
+      - All 13 current migration tests pass unchanged
+  - key: MINE-BATCH-UPSERT-CONTENT-UPDATE-TEST
+    summary: Add test verifying add_drawers_batch updates stored content on re-upsert with changed content
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: quality
+    labels: [test, mining, storage]
+    description: |-
+      ## Problem
+
+      add_drawers_batch now calls upsert (merge_insert + when_matched_update_all). The idempotency test (test_add_drawers_batch_is_idempotent) only verifies that count does not increase — it does not verify that content is updated when the same ID is re-upserted with different content. If LanceDB silently failed to overwrite existing rows, the current test would still pass.
+
+      ## Deliverable
+
+      Add test_add_drawers_batch_updates_content to tests/test_miner.py:
+      1. Call add_drawers_batch with content "v1" for a drawer ID.
+      2. Call add_drawers_batch again with content "v2" for the same drawer ID.
+      3. Query the store and assert the stored text equals "v2".
+
+      ## Scope
+
+      tests/test_miner.py only.
+
+      ## Acceptance criteria
+
+      - test_add_drawers_batch_updates_content passes with current implementation
+      - Test would fail if merge_insert did not call when_matched_update_all (remove it to verify)
+      - All existing 40 miner tests continue to pass
+      - ruff clean
+
+      ## Constraints
+
+      No production code changes needed. Test only. Identified in MINE-BATCH-EMBED-DEDUP-UPSERT harden round-1 (F-1).
+  - key: STORE-SEARCH-SOURCE-FILE-FULL-PATH
+    summary: search_memories should return full source_file path instead of basename, aligning with code_search
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: storage_reliability
+    labels: [search, api-consistency]
+    description: |-
+      ## Scope
+
+      Fix source_file inconsistency between search_memories() and code_search() in mempalace/searcher.py. search_memories() applies Path(...).name stripping the path to basename only (e.g. auth.py). code_search() returns the full stored path. Now that both APIs surface symbol fields they look structurally similar but differ on source_file format, which is confusing.
+
+      Deliverable: remove the .name strip in search_memories so source_file returns the full stored path.
+
+      ## Acceptance criteria
+
+      - search_memories hits have source_file equal to the full stored path (e.g. /path/to/auth.py, not auth.py)
+      - Existing tests in test_searcher.py updated to reflect full path
+      - No regression on code_search behavior
+      - MCP tool_search passes through the updated value
+      - Commit message notes this is a breaking change for callers relying on basename-only source_file
+  - key: BENCH-RESULTS-MISSING-FILES
+    summary: Commit or document missing benchmark results files (results_*.jsonl)
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [benchmarks, docs]
+    description: |-
+      ## Problem
+
+      BENCHMARKS.md claims 'Every result JSONL file in benchmarks/results_*.jsonl contains every question, every retrieved document, every score. You can inspect every individual answer.' and lists 12 named results files in its Results Files table — but none of these files exist in the repository (ls benchmarks/results_*.jsonl returns nothing). The Methodology Caveats section also references results_aaak_full500.jsonl as evidence for the AAAK 84.2% R@5 claim. A reader who wants to audit any result cannot do so.
+
+      ## Deliverable
+
+      Either (A) commit the missing results files to the repo, or (B) add a note to BENCHMARKS.md explaining that results files must be regenerated locally and remove or qualify the 'All raw results are committed' claim.
+
+      ## Scope
+
+      Single-file docs change (option B) or a results commit (option A). No code changes required.
+
+      ## Acceptance criteria
+
+      1. No results file referenced in BENCHMARKS.md is absent from the repo, OR the doc accurately states results are not committed.
+      2. The 'The results are auditable' claim is accurate.
+      3. ruff check passes.
+  - key: QUAL-E2E-REMAINING-MODULES
+    summary: Add e2e scenario tests for convo_miner, layers, and palace_graph modules
+    type: task
+    status: open
+    priority: low
+    size: M
+    section_id: quality
+    labels: [test, e2e, quality]
+    description: |-
+      ## Problem
+
+      test_e2e.py covers 7 of 9 key modules (storage, miner, searcher, knowledge_graph, mcp_server, export, cli). Three significant modules — convo_miner.py (conversation mining), layers.py (tiered context loading L0–L3), and palace_graph.py (graph traversal / tunnel detection) — have no end-to-end scenario tests.
+
+      ## Scope
+
+      tests/test_e2e.py (or new tests/test_e2e_graph.py) — 3 new scenario test functions, each self-contained with a tmp palace.
+
+      ## Deliverable
+
+      - AC-10: Convo miner — ingest a synthetic Claude export JSON, verify drawers are indexed and searchable
+      - AC-11: Layers — mine a project, call wake_up() L0→L1→L2, verify token counts increase monotonically and content is correct
+      - AC-12: Graph traversal — mine 2 wings with overlapping concepts, call traverse() and find_tunnels(), verify cross-wing links detected
+
+      ## Acceptance Criteria
+
+      1. Three new passing e2e scenario tests covering convo_miner, layers, and palace_graph
+      2. No test depends on external network or shared palace state
+      3. ruff check passes
+  - key: CODE-TREESITTER-INFRA
+    summary: 'Tree-sitter infra: py-tree-sitter dep, grammar download/cache, parser init, regex fallback'
+    type: task
+    status: open
+    priority: medium
+    size: M
+    section_id: coding_first
+    labels: [core, mining, chunking, ast]
+    description: '## Scope
+
+
+      Add py-tree-sitter as an optional dependency (`.[treesitter]` extra). Implement grammar download and caching for Python and TypeScript. Wire parser initialization into miner.py with automatic fallback to regex chunking when the grammar is unavailable or py-tree-sitter is not installed.
+
+
+      ## Acceptance criteria
+
+
+      1. `pip install mempalace-code[treesitter]` installs py-tree-sitter
+
+      2. A Python file can be parsed into a tree-sitter AST
+
+      3. Missing grammar or missing py-tree-sitter gracefully falls back to existing regex chunking path
+
+      4. No regression on existing test suite (`pytest tests/ -x -q`)
+
+      5. ruff clean'
+  - key: CODE-TREESITTER-PYTHON
+    summary: 'Tree-sitter Python chunking: AST-aware function/class/method boundaries'
+    type: task
+    status: open
+    priority: medium
+    size: M
+    section_id: coding_first
+    labels: [mining, chunking, ast, python]
+    description: |-
+      ## Scope
+
+      Replace regex-based Python structural splitting in chunk_code() with tree-sitter AST parsing. Extract function_definition, class_definition, and decorated_definition nodes as chunk boundaries. Keep regex path as fallback when tree-sitter is unavailable.
+
+      ## Acceptance criteria
+
+      1. Python files are chunked using tree-sitter AST nodes when py-tree-sitter is installed
+      2. A/B test against current R@5=0.950 on embed_ab_bench — must not regress
+      3. Existing chunking tests pass (regex fallback path unchanged)
+      4. New tests cover: function, class, decorated function, nested class boundaries
+      5. ruff clean
+    links:
+      - type: is-blocked-by
+        key: CODE-TREESITTER-INFRA
+  - key: CODE-TREESITTER-TS
+    summary: 'Tree-sitter TypeScript/JS/TSX chunking: AST-aware boundaries'
+    type: task
+    status: open
+    priority: medium
+    size: M
+    section_id: coding_first
+    labels: [mining, chunking, ast, typescript]
+    description: |-
+      ## Scope
+
+      Replace regex-based TS/JS structural splitting in chunk_code() with tree-sitter AST parsing. Handle TypeScript, JavaScript, TSX, and JSX via appropriate grammars. Can run in parallel with CODE-TREESITTER-PYTHON once infra lands.
+
+      ## Acceptance criteria
+
+      1. TS/JS/TSX/JSX files are chunked using tree-sitter AST nodes when py-tree-sitter is installed
+      2. Existing TS/JS chunking tests pass (regex fallback path unchanged)
+      3. New tests cover: export function, arrow function, class, interface, type alias boundaries
+      4. ruff clean
+    links:
+      - type: is-blocked-by
+        key: CODE-TREESITTER-INFRA
+  - key: CODE-TREESITTER-EXPAND
+    summary: Tree-sitter Go + Rust grammar support
+    type: task
+    status: open
+    priority: medium
+    size: S
+    section_id: coding_first
+    labels: [mining, chunking, ast, go, rust]
+    description: |-
+      ## Scope
+
+      Add Go and Rust grammars using the infra from CODE-TREESITTER-INFRA. Reuse the same AST-to-chunk pattern established by CODE-TREESITTER-PYTHON and CODE-TREESITTER-TS.
+
+      ## Acceptance criteria
+
+      1. Go files chunked on func, type, var block, const block boundaries via tree-sitter
+      2. Rust files chunked on fn, struct, enum, trait, impl, mod boundaries via tree-sitter
+      3. Existing Go/Rust regex chunking tests pass as fallback
+      4. New tests cover language-specific boundary types
+      5. ruff clean
+    links:
+      - type: is-blocked-by
+        key: CODE-TREESITTER-INFRA

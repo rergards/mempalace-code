@@ -16,7 +16,7 @@ claude mcp add mempalace -- python -m mempalace.mcp_server
 
 ## Available Tools
 
-The server exposes the full MemPalace MCP toolset. Common entry points include:
+The server exposes the full mempalace-code MCP toolset. Common entry points include:
 
 - **mempalace_status** — palace stats (wings, rooms, drawer counts)
 - **mempalace_search** — semantic search across all memories

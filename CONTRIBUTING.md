@@ -1,11 +1,11 @@
-# Contributing to MemPalace
+# Contributing to mempalace-code
 
-Thanks for wanting to help. MemPalace is open source and we welcome contributions of all sizes — from typo fixes to new features.
+Thanks for wanting to help. mempalace-code is open source and we welcome contributions of all sizes — from typo fixes to new features.
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/milla-jovovich/mempalace.git
+git clone https://github.com/rergards/mempalace-code.git
 cd mempalace
 pip install -e ".[dev]"    # installs with dev dependencies (pytest, build, twine)
 ```
@@ -60,11 +60,11 @@ assets/             ← logo + brand
 - **Naming**: `snake_case` for functions/variables, `PascalCase` for classes
 - **Docstrings**: on all modules and public functions
 - **Type hints**: where they improve readability
-- **Dependencies**: minimize. ChromaDB + PyYAML only. Don't add new deps without discussion.
+- **Dependencies**: minimize. Core: `lancedb>=0.17` + `sentence-transformers`. ChromaDB is a legacy optional extra (`.[chroma]`). Don't add new deps without discussion.
 
 ## Good First Issues
 
-Check the [Issues](https://github.com/milla-jovovich/mempalace/issues) tab. Great starting points:
+Check the [Issues](https://github.com/rergards/mempalace-code/issues) tab. Great starting points:
 
 - **New chat formats**: Add import support for Cursor, Copilot, or other AI tool exports
 - **Room detection**: Improve pattern matching in `room_detector_local.py`

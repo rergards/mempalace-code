@@ -37,6 +37,8 @@ The 100% is the competitive story: a perfect score on the standard benchmark for
 
 Both are real. Both are reproducible. Neither is the whole picture alone.
 
+> **Methodology note**: these numbers are measured on LongMemEval-S (30–50 sessions per question) with `n_results=50`, so R@5 is a ranking quality score, not a needle-in-haystack recall score. See [Methodology Caveats](#methodology-caveats) for details.
+
 ---
 
 ## Comparison vs Published Systems (LongMemEval)
@@ -58,6 +60,8 @@ Both are real. Both are reproducible. Neither is the whole picture alone.
 **MemPal raw (96.6%) is the highest published LongMemEval score that requires no API key, no cloud, and no LLM at any stage.**
 
 **MemPal hybrid v4 + Haiku rerank (100%) is the first perfect score on LongMemEval — 500/500 questions, all 6 question types at 100%.**
+
+> **Methodology note**: LongMemEval-S has 30–50 sessions per question; with `n_results=50` the full corpus is returned and R@5 measures ranking quality rather than haystack recall. See [Methodology Caveats](#methodology-caveats).
 
 ---
 
@@ -143,6 +147,8 @@ Root cause of wings v1 failure: (1) speaker WHERE filter discarded evidence abou
 ---
 
 ## LongMemEval — Breakdown by Question Type
+
+> See [Methodology Caveats](#methodology-caveats) for corpus-cap and assistant-turn indexing caveats that apply to all scores below.
 
 The 96.6% R@5 baseline broken down by the six question categories in LongMemEval:
 
@@ -501,6 +507,42 @@ The LoCoMo 100% result with top-k=50 has a structural issue: each of the 10 conv
 
 ---
 
+## Methodology Caveats
+
+### Corpus-cap: when retrieval becomes ranking
+
+Five call sites in `longmemeval_bench.py` use the pattern:
+
+```python
+n_results=min(n_results, len(corpus))
+```
+
+at lines 225, 303, 456, 606, and 689 — one per retrieve variant (raw, aaak, rooms, hybrid, full). This was inherited from an upstream ChromaDB guard against requesting more results than the collection contains.
+
+LongMemEval-S has 30–50 sessions per question. The default `n_results=50` means that for most or all questions, `len(corpus) ≤ 50` and the vector store returns every session in the corpus. In this regime R@5 is no longer a needle-in-haystack retrieval metric — it is ranking-within-fully-retrieved-set: all candidate sessions are already returned, and the only question is whether the correct session lands in positions 1–5.
+
+This does not make retrieval trivially easy, but it changes what the score measures: it is a ranking quality score, not a recall-under-selection-pressure score. A reader who expects the benchmark to simulate real-world retrieval from a large personal archive — where the ground-truth session is one of thousands, not one of ≤50 — is reading the metric under incorrect assumptions.
+
+The same structural issue is already documented for LoCoMo (see **Benchmark Integrity → LoCoMo 100%** above). A clean LongMemEval run would require either expanding the corpus (multi-user session pool) or reducing `n_results` to a value well below the minimum corpus size per question.
+
+### Assistant-turn indexing: `full` mode advantage
+
+The `full` mode (`build_palace_and_retrieve_full`, line 639) indexes both user and assistant turns. All other modes index user turns only.
+
+The primary beneficiary is the `single-session-assistant` category, which asks "what did the assistant say?" These questions are answered verbatim in assistant turns. When assistant turns are indexed, the correct session rises naturally in retrieval ranking. When they are not indexed (all other modes), the model must locate the session via user-side context alone — a structurally harder problem.
+
+This advantage is specific to LongMemEval's ground-truth design: ground-truth sessions are identified by the session containing the answer, whether the answer appears in a user turn or an assistant turn. In production MemPal deployments, assistant turns are not indexed by default — only user-authored content is stored. A reader who reproduces the `full` mode benchmark and expects those scores to transfer to a real deployment will find the `single-session-assistant` category degrades unless assistant turns are explicitly written to the palace at ingest time.
+
+### AAAK compression regression: −12.4pp
+
+AAAK mode compresses session text into a compact dialect before indexing: filler words removed, whitespace normalised, key clauses extracted. The intention is storage efficiency.
+
+On LongMemEval the AAAK mode scores **84.2% R@5**, a **−12.4pp regression** from the 96.6% raw baseline. The mechanism is sentence-transformer sensitivity to token presence: cosine similarity between query and document embeddings depends on token co-occurrence statistics. Removing tokens — even filler tokens — shifts the embedding and degrades cosine alignment for vocabulary-mismatch questions.
+
+The regression shows that AAAK's current compression is too aggressive for use as the primary ingestion layer on LongMemEval. AAAK is a storage-efficiency feature; it is not a retrieval-quality feature. Any use case that prioritises recall should use verbatim storage. Full results: `benchmarks/results_aaak_full500.jsonl`.
+
+---
+
 ## Notes on Reproducibility
 
 **The scripts are deterministic.** Same data + same script = same result every time. ChromaDB's embeddings are deterministic. The benchmark uses a fixed dataset with no randomness.
@@ -516,6 +558,8 @@ The LoCoMo 100% result with top-k=50 has a structural issue: each of the 10 conv
 ---
 
 ## Results Files
+
+> All LongMemEval-S scores below are subject to the corpus-cap caveat — see [Methodology Caveats](#methodology-caveats).
 
 All raw results are committed:
 
