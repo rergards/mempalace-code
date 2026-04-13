@@ -10,6 +10,7 @@ this module unconditionally — it is always safe to import, it just returns
 None when the optional dependency is absent.
 """
 
+import warnings
 from typing import Optional
 
 try:
@@ -57,5 +58,11 @@ def get_parser(language: str) -> "Optional[Parser]":
         parser = Parser(Language(lang_obj))
         _parser_cache[language] = parser
         return parser
-    except Exception:
+    except Exception as exc:
+        warnings.warn(
+            f"mempalace: tree-sitter grammar for '{language}' could not be loaded "
+            f"({type(exc).__name__}: {exc}). Falling back to regex chunking.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return None

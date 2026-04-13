@@ -218,6 +218,25 @@ items:
 
     resolution: null
   # ── QUALITY — Tests, Benchmarks, CI ─────────────────────────
+  - key: TREESITTER-VERSION-PINS
+    summary: "Periodically review and raise tree-sitter version ceilings in [treesitter] extra"
+    type: task
+    priority: low
+    status: open
+    size: XS
+    section_id: quality
+    labels: [packaging, maintenance, ast]
+    description: >
+      The [treesitter] optional extra pins tree-sitter>=0.22,<0.24 and grammar packages
+      >=0.23,<0.24. Tree-sitter 0.24+ exists and future major versions may introduce
+      breaking API changes. As the ecosystem evolves, the upper bounds need updating.
+      Deliverable: bump version ceilings in pyproject.toml [treesitter] extra to cover
+      the latest compatible tree-sitter release, update CI jobs accordingly, and verify
+      tests pass. Acceptance criteria: (1) pip install -e ".[treesitter]" resolves to the
+      latest available tree-sitter release; (2) treesitter-compat and treesitter-py39 CI
+      jobs pass; (3) ruff clean. Identified in CODE-TREESITTER-INFRA harden round-1 (F-3).
+    resolution: null
+
   - key: QUAL-CODE-BENCH
     summary: "Code mining benchmark — measure retrieval quality on real repos"
     type: feature
@@ -756,7 +775,9 @@ items:
     section_id: coding_first
     labels: [core, mining, chunking, ast]
     completed_date: '2026-04-13'
+    hardened_date: '2026-04-14'
     completion_summary: 'Added [treesitter] optional extra (tree-sitter>=0.22,<0.24 + grammar packages); new mempalace/treesitter.py with get_parser() factory and module-level cache; wired into chunk_code() as a no-op future hook; 15 new tests; two CI jobs (treesitter-compat/py39). Version pins corrected: tree-sitter-python>=0.23,<0.24 (0.21 not on PyPI; 0.25 needs lang version 15).'
+    hardening_summary: 'Round-1 harden (2026-04-14): 5 findings — 2 fixed (warning on grammar load failure, TS/TSX test skip guards), 1 backlogged (TREESITTER-VERSION-PINS), 2 dismissed. Audit: docs/audits/CODE-TREESITTER-INFRA-round-1.md.'
     description: '## Scope
 
 
