@@ -10,6 +10,8 @@ files:
     change: "Add AST-specific Python chunking tests: function, class, decorated, nested class, preamble handling"
   - path: tests/test_treesitter.py
     change: "Update parity test to expect AST-path divergence for Python; add integration tests for AST chunking output shape"
+  - path: tests/test_miner.py
+    change: "Add integration test: mine a Python file through process_file() with tree-sitter active, assert stored drawer metadata contains chunker_strategy='treesitter_v1'"
 acceptance:
   - id: AC-1
     when: "tree-sitter + tree-sitter-python installed, chunk_code() called with a Python source containing functions and classes"
@@ -21,11 +23,11 @@ acceptance:
     when: "embed_ab_bench.py run with AST chunking active"
     then: "R@5 >= 0.950 (no regression from baseline)"
   - id: AC-4
-    when: "AST path produces chunks"
-    then: "Each chunk dict includes chunker_strategy='treesitter_v1'; _collect_specs_for_file propagates it to drawer metadata"
+    when: "A Python file is mined through process_file() or mine() with tree-sitter active"
+    then: "Stored drawer metadata contains chunker_strategy='treesitter_v1' (verified via mining-path integration test in test_miner.py, not just raw chunk_code() output)"
   - id: AC-5
     when: "Python source has leading imports, module docstring, or license header before the first definition"
-    then: "Preamble is captured as a separate chunk (matching regex behavior)"
+    then: "Preamble text is detected as a separate raw chunk before the first definition boundary; it may remain separate or be merged with the next chunk by adaptive_merge_split() post-processing (matching regex-path behavior)"
   - id: AC-6
     when: "Python source has comments immediately above a function/class"
     then: "Leading comment nodes are attached to the definition chunk (not split off)"
@@ -60,10 +62,17 @@ out_of_scope:
 
 - **Strategy propagation**: `_chunk_python_treesitter()` returns dicts `{"content": str, "chunk_index": int, "chunker_strategy": "treesitter_v1"}`. `_collect_specs_for_file()` at line 965 changes from hardcoded `"regex_structural_v1"` to `chunk.get("chunker_strategy", "regex_structural_v1")`.
 
+- **Language normalization in `chunk_code()`**: before calling `get_parser()`, normalize extension-style inputs to canonical names using the existing `EXTENSION_LANG_MAP` (`miner.py:25`). This ensures callers passing `".py"` (as all existing tests do) get the AST path:
+  ```python
+  canonical = EXTENSION_LANG_MAP.get(language, language)
+  parser = get_parser(canonical)
+  ```
+  The rest of `chunk_code()` continues using the original `language` variable for backward-compatible checks (e.g. `is_ts_js`, `get_boundary_pattern()`).
+
 - **Wiring in `chunk_code()`**: replace the `pass` block (lines 638-641) with:
   ```python
   if parser is not None:
-      if language in ("python", ".py"):
+      if canonical == "python":
           return _chunk_python_treesitter(parser, content, source_file)
   ```
   Non-Python languages still fall through to regex (until CODE-TREESITTER-TS / CODE-TREESITTER-EXPAND).
@@ -72,5 +81,9 @@ out_of_scope:
   - `test_treesitter.py:test_chunk_code_parity_with_treesitter_installed` must be updated — Python AST chunks will now differ from regex chunks. Replace with a test that verifies AST chunks contain the same functions/classes (semantic parity, not byte-identical).
   - New tests in `test_chunking.py`: decorated functions, nested classes, standalone functions, preamble with imports, empty file, and the comment-attachment edge case.
   - Tests requiring tree-sitter use `pytest.importorskip("tree_sitter")` + Python 3.10+ version guard (matching existing pattern).
+
+- **Python version note**: the AST path only activates when `tree-sitter-python` is installed, which `pyproject.toml` constrains to Python >= 3.10. On Python 3.9, `get_parser()` returns `None` and the regex path runs as before. This is the existing gating pattern from CODE-TREESITTER-INFRA.
+
+- **`extract_symbol()` assumption**: `extract_symbol()` remains regex-based (out of scope). When the AST path produces chunks starting with attached comment lines, `extract_symbol()` still works correctly because it scans for `def `/ `class ` patterns anywhere in the chunk text, not just at the first line. No changes needed.
 
 - **Benchmark validation**: run `python benchmarks/embed_ab_bench.py --models minilm --out results_treesitter_python.json` after implementation. Compare R@5 against baseline 0.950. The 20-query set includes `"chunk code at structural boundaries for Python TypeScript Go"` which directly tests Python chunking quality.

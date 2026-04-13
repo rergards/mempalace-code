@@ -149,12 +149,21 @@ def test_get_parser_caches_parser():
     assert p1 is p2
 
 
-def test_chunk_code_parity_with_treesitter_installed(monkeypatch):
-    """AC-7b: chunk_code() output is identical whether tree-sitter is installed or not.
+def test_chunk_code_python_ast_semantic_parity():
+    """Python AST chunking preserves all definitions (semantic parity with regex path).
 
-    The parser is obtained but unused (AST chunking is future work). Chunks and
-    chunk_index values must match the regex-only path exactly.
+    The AST path may split chunks differently than the regex path, but all function
+    and class names must appear in the joined output, and each chunk must carry
+    chunker_strategy='treesitter_v1'.
     """
+    import sys
+
+    if sys.version_info < (3, 10):
+        pytest.skip("tree-sitter-python requires Python 3.10+")
+    parser = ts_mod.get_parser("python")
+    if parser is None:
+        pytest.skip("tree-sitter-python grammar not installed")
+
     src = (
         "def alpha():\n"
         '    """Alpha docstring."""\n'
@@ -166,16 +175,32 @@ def test_chunk_code_parity_with_treesitter_installed(monkeypatch):
         "        pass\n"
     ) * 3
 
-    # Run with tree-sitter available (normal path)
     ts_mod._parser_cache.clear()
-    chunks_with_ts = chunk_code(src, "python", "test.py")
+    chunks = chunk_code(src, "python", "test.py")
+    joined = "\n".join(c["content"] for c in chunks)
 
-    # Run with tree-sitter disabled
-    monkeypatch.setattr(ts_mod, "TREE_SITTER_AVAILABLE", False)
-    monkeypatch.setattr(ts_mod, "_parser_cache", {})
-    chunks_without_ts = chunk_code(src, "python", "test.py")
+    # All top-level definitions must appear in the AST-chunked output
+    assert "def alpha" in joined
+    assert "def beta" in joined
+    assert "class Gamma" in joined
 
-    assert len(chunks_with_ts) == len(chunks_without_ts)
-    for a, b in zip(chunks_with_ts, chunks_without_ts):
-        assert a["content"] == b["content"]
-        assert a["chunk_index"] == b["chunk_index"]
+    # Every chunk carries the AST strategy tag
+    for chunk in chunks:
+        assert chunk.get("chunker_strategy") == "treesitter_v1"
+
+
+def test_chunk_code_python_ast_extension_input():
+    """chunk_code() with '.py' extension activates the AST path on Python 3.10+."""
+    import sys
+
+    if sys.version_info < (3, 10):
+        pytest.skip("tree-sitter-python requires Python 3.10+")
+    parser = ts_mod.get_parser("python")
+    if parser is None:
+        pytest.skip("tree-sitter-python grammar not installed")
+
+    src = "def foo():\n    return 42\n\n\ndef bar():\n    return 0\n"
+    # Callers that pass ".py" (extension style) must also hit the AST path
+    chunks = chunk_code(src, ".py", "test.py")
+    for chunk in chunks:
+        assert chunk.get("chunker_strategy") == "treesitter_v1"

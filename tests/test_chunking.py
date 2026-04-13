@@ -1,5 +1,9 @@
 """Unit tests for language-aware adaptive chunking in miner.py."""
 
+import sys as _sys
+
+import pytest
+
 from mempalace.miner import (
     HARD_MAX,
     MIN_CHUNK,
@@ -742,3 +746,171 @@ def test_dispatcher_language_overrides_ext():
     chunks = chunk_file(PYTHON_TWO_FUNCS, ".json", "weird.json", language="python")
     joined = "\n".join(contents(chunks))
     assert "def foo" in joined
+
+
+# =============================================================================
+# chunk_code — Python AST path (tree-sitter, Python 3.10+ only)
+# =============================================================================
+
+
+PYTHON_DECORATED_FUNCS = """\
+@property
+def computed_value(self):
+    \"\"\"Return the computed value derived from internal state and history.\"\"\"
+    total = sum(self._history) if self._history else 0
+    return self._base + total
+
+
+@computed_value.setter
+def computed_value(self, v):
+    \"\"\"Set the base value, validating it is a non-negative integer input.\"\"\"
+    if not isinstance(v, int) or v < 0:
+        raise ValueError("computed_value must be a non-negative integer")
+    self._base = v
+"""
+
+PYTHON_PREAMBLE_WITH_IMPORTS = """\
+\"\"\"Module docstring describing the purpose of this Python module file.\"\"\"
+
+import os
+import sys
+from pathlib import Path
+from typing import Optional, List
+
+
+def main(args: List[str]) -> int:
+    \"\"\"Entry point for the command-line interface of this module.\"\"\"
+    for arg in args:
+        path = Path(arg)
+        if path.exists():
+            print(f"Found: {path}")
+    return 0
+
+
+def helper(value: Optional[int] = None) -> str:
+    \"\"\"Convert an optional integer to its string representation safely.\"\"\"
+    return str(value) if value is not None else "none"
+"""
+
+PYTHON_NESTED_CLASS = """\
+class Outer:
+    \"\"\"An outer class that contains a nested inner class definition.
+
+    This class demonstrates that tree-sitter top-level chunking keeps the
+    entire outer class — including any nested classes — as one unit.
+    \"\"\"
+
+    class Inner:
+        \"\"\"Inner class nested inside Outer — must stay in the same chunk.\"\"\"
+
+        def inner_method(self):
+            \"\"\"Return a constant string from the inner class method body.\"\"\"
+            return "inner"
+
+    def outer_method(self):
+        \"\"\"Return a constant string from the outer class method body.\"\"\"
+        return "outer"
+"""
+
+PYTHON_COMMENT_ATTACHED = """\
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# This leading comment must be attached to the function directly below it.
+# It spans two lines and has no blank line between it and the def keyword.
+def process(data):
+    \"\"\"Process the given data and return a transformed result string.\"\"\"
+    logger.info("processing %d items", len(data))
+    return [str(x) for x in data]
+
+
+# A detached comment with a blank line below it.
+
+def standalone():
+    \"\"\"This function has a detached comment above — not attached to it.\"\"\"
+    return []
+"""
+
+
+def _skip_if_no_ast():
+    """Skip test if tree-sitter Python AST path is not active."""
+    if _sys.version_info < (3, 10):
+        pytest.skip("tree-sitter-python requires Python 3.10+")
+    try:
+        import tree_sitter  # noqa: F401
+        import tree_sitter_python  # noqa: F401
+    except ImportError:
+        pytest.skip("tree-sitter-python not installed")
+
+
+def test_ast_decorated_functions_detected():
+    """AC-1: decorated_definition nodes produce separate chunk boundaries."""
+    _skip_if_no_ast()
+    chunks = chunk_code(PYTHON_DECORATED_FUNCS, ".py", "test.py")
+    joined = "\n".join(contents(chunks))
+    assert "def computed_value" in joined
+    assert "self._base" in joined
+
+
+def test_ast_chunker_strategy_tag():
+    """AC-1/AC-4: chunks from AST path carry chunker_strategy='treesitter_v1'."""
+    _skip_if_no_ast()
+    chunks = chunk_code(PYTHON_TWO_FUNCS, ".py", "test.py")
+    assert len(chunks) >= 1
+    for chunk in chunks:
+        assert chunk.get("chunker_strategy") == "treesitter_v1"
+
+
+def test_ast_preamble_content_preserved():
+    """AC-5: preamble (imports, module docstring) appears in the output."""
+    _skip_if_no_ast()
+    chunks = chunk_code(PYTHON_PREAMBLE_WITH_IMPORTS, ".py", "test.py")
+    joined = "\n".join(contents(chunks))
+    assert "import os" in joined
+    assert "def main" in joined
+    assert "def helper" in joined
+
+
+def test_ast_nested_class_stays_together():
+    """AC-1: nested inner class is not split from its outer class."""
+    _skip_if_no_ast()
+    chunks = chunk_code(PYTHON_NESTED_CLASS, ".py", "test.py")
+    joined = "\n".join(contents(chunks))
+    assert "class Outer" in joined
+    assert "class Inner" in joined
+    # The inner class must not appear in a chunk that does not also contain Outer
+    for c in contents(chunks):
+        if "class Inner" in c:
+            assert "class Outer" in c
+
+
+def test_ast_leading_comment_attached_to_def():
+    """AC-6: comments immediately above a def with no blank line are in the same chunk."""
+    _skip_if_no_ast()
+    chunks = chunk_code(PYTHON_COMMENT_ATTACHED, ".py", "test.py")
+    for c in contents(chunks):
+        if "def process" in c:
+            assert "This leading comment must be attached" in c
+            break
+    else:
+        pytest.fail("def process not found in any chunk")
+
+
+def test_ast_empty_file_returns_empty():
+    """AC-1: empty Python file produces no chunks via AST path."""
+    _skip_if_no_ast()
+    chunks = chunk_code("", ".py", "test.py")
+    assert chunks == []
+
+
+def test_ast_no_definitions_falls_back_to_adaptive():
+    """AC-2 complement: Python file with no def/class still produces chunks."""
+    _skip_if_no_ast()
+    plain = (
+        "x = 1\ny = 2\nsome_var = 'a value long enough to pass the hundred char minimum filter'\n\n"
+        "z = 3\nw = 4\nanother_var = 'more content here to ensure this block is also above limit'\n"
+    )
+    chunks = chunk_code(plain, ".py", "test.py")
+    assert len(chunks) >= 1

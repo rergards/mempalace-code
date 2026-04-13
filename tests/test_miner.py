@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 import torch
 import yaml
 
@@ -995,7 +996,19 @@ def test_incremental_full_flag_forces_rebuild():
 
 def test_provenance_fields_set_on_mine():
     """AC-6: mine() stores extractor_version and chunker_strategy on every drawer."""
+    import sys
+
     from mempalace.version import __version__
+
+    # When tree-sitter-python is installed (Python 3.10+), Python files use the AST path.
+    try:
+        import tree_sitter  # noqa: F401
+        import tree_sitter_python  # noqa: F401
+
+        ast_active = sys.version_info >= (3, 10)
+    except ImportError:
+        ast_active = False
+    expected_strategy = "treesitter_v1" if ast_active else "regex_structural_v1"
 
     tmpdir = tempfile.mkdtemp()
     try:
@@ -1011,7 +1024,7 @@ def test_provenance_fields_set_on_mine():
         assert len(result["metadatas"]) > 0
         for m in result["metadatas"]:
             assert m["extractor_version"] == __version__
-            assert m["chunker_strategy"] == "regex_structural_v1"
+            assert m["chunker_strategy"] == expected_strategy
     finally:
         shutil.rmtree(tmpdir)
 
@@ -1081,5 +1094,54 @@ def test_add_drawers_batch_is_idempotent():
             f"Expected count to stay at {count_after_first} after second upsert, "
             f"got {count_after_second} (duplicate appended)"
         )
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_process_file_python_treesitter_chunker_strategy():
+    """AC-4: process_file() stores chunker_strategy='treesitter_v1' when AST path is active.
+
+    Skipped when tree-sitter-python is not installed or Python < 3.10.
+    """
+    import sys
+
+    if sys.version_info < (3, 10):
+        pytest.skip("tree-sitter-python requires Python 3.10+")
+    try:
+        import tree_sitter  # noqa: F401
+        import tree_sitter_python  # noqa: F401
+    except ImportError:
+        pytest.skip("tree-sitter-python not installed")
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        py_file = project_root / "code.py"
+        write_file(py_file, MULTI_FUNC_PY)
+        _make_palace_config(project_root)
+
+        palace_path = project_root / "palace"
+        palace = open_store(str(palace_path), create=True)
+
+        drawers = process_file(
+            filepath=py_file,
+            project_path=project_root,
+            collection=palace,
+            wing="test_wing",
+            rooms=[{"name": "backend"}, {"name": "general"}],
+            agent="test",
+            dry_run=False,
+        )
+        assert drawers >= 1
+
+        result = palace.get(
+            where={"source_file": str(py_file)},
+            include=["metadatas"],
+            limit=100,
+        )
+        for meta in result["metadatas"]:
+            assert meta.get("chunker_strategy") == "treesitter_v1", (
+                f"Expected treesitter_v1, got {meta.get('chunker_strategy')!r}"
+            )
     finally:
         shutil.rmtree(tmpdir)

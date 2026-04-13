@@ -78,30 +78,6 @@ items:
       TS_BOUNDARY in miner.py detects exported var via the export branch but has no arm for top-level non-exported `var foo = ...`. Add `var\s+\w+\s*[:=]` to TS_BOUNDARY alongside the existing const/let arms. Acceptance criteria: a TS/JS file with a top-level non-exported var declaration produces a new chunk boundary at that var; existing tests unchanged; ruff clean. Low-priority since var is deprecated in modern TS/JS. Identified in CODE-SMART-CHUNK harden round-1 (F-004).
 
     resolution: null
-  - key: CODE-GITIGNORE
-    summary: "Full .gitignore support in miner (already done, verify)"
-    type: task
-    priority: medium
-    status: done
-    size: S
-    section_id: coding_first
-    labels: [mining]
-    description: >
-      Verify the .gitignore support (nested gitignore, negation, include_ignored override) works correctly with the LanceDB backend. Tests exist in test_miner.py. May just need a verification pass.
-
-    resolution: null
-  - key: CODE-TREESITTER
-    summary: "Tree-sitter integration for precise AST-aware chunking"
-    type: feature
-    priority: medium
-    status: done
-    size: XL
-    section_id: coding_first
-    labels: [core, mining, chunking, ast]
-    description: >
-      Replace regex-based structural splitting with tree-sitter AST parsing for supported languages. Produces exact function/class/block boundaries. Requires py-tree-sitter + language grammars. Start with Python and TypeScript, expand. Falls back to regex chunking for unsupported languages.
-
-    resolution: null
   - key: STORE-BACKUP-RESTORE
     summary: "Palace backup and restore commands"
     type: feature
@@ -227,16 +203,9 @@ items:
     section_id: quality
     labels: [packaging, maintenance, ast]
     description: >
-      The [treesitter] optional extra pins tree-sitter>=0.22,<0.24 and grammar packages
-      >=0.23,<0.24. Tree-sitter 0.24+ exists and future major versions may introduce
-      breaking API changes. As the ecosystem evolves, the upper bounds need updating.
-      Deliverable: bump version ceilings in pyproject.toml [treesitter] extra to cover
-      the latest compatible tree-sitter release, update CI jobs accordingly, and verify
-      tests pass. Acceptance criteria: (1) pip install -e ".[treesitter]" resolves to the
-      latest available tree-sitter release; (2) treesitter-compat and treesitter-py39 CI
-      jobs pass; (3) ruff clean. Identified in CODE-TREESITTER-INFRA harden round-1 (F-3).
-    resolution: null
+      The [treesitter] optional extra pins tree-sitter>=0.22,<0.24 and grammar packages >=0.23,<0.24. Tree-sitter 0.24+ exists and future major versions may introduce breaking API changes. As the ecosystem evolves, the upper bounds need updating. Deliverable: bump version ceilings in pyproject.toml [treesitter] extra to cover the latest compatible tree-sitter release, update CI jobs accordingly, and verify tests pass. Acceptance criteria: (1) pip install -e ".[treesitter]" resolves to the latest available tree-sitter release; (2) treesitter-compat and treesitter-py39 CI jobs pass; (3) ruff clean. Identified in CODE-TREESITTER-INFRA harden round-1 (F-3).
 
+    resolution: null
   - key: QUAL-CODE-BENCH
     summary: "Code mining benchmark — measure retrieval quality on real repos"
     type: feature
@@ -418,17 +387,6 @@ items:
       After STORE-STATUS-LIMIT, ChromaStore.count_by and count_by_pair raise NotImplementedError. MCP tools (tool_status, tool_list_wings, tool_list_rooms, tool_get_taxonomy) wrap these calls in try/except Exception: pass, so ChromaDB palaces silently report wings={}, rooms={} even though drawers exist. This is a regression from pre-fix behavior (ChromaDB returned truncated but non-empty results). Fix: implement get-and-iterate fallback in ChromaStore.count_by using self.get(include=["metadatas"], limit=self.count()) — similar to the old approach but with the correct upper bound. Acceptance criteria: tool_list_wings on a ChromaDB palace with N drawers across M wings returns all M wings. Note: ChromaDB is deprecated — this is a stop-gap until STORE-MIGRATION-CLI lands.
 
     resolution: null
-  - key: REL-SMOKE-TEST
-    summary: Pre-release smoke test on clean machines and canonical repos
-    type: task
-    status: done
-    priority: high
-    size: M
-    section_id: pre_release
-    assignee: owner
-    labels: [release, testing, owner-task]
-    description: 'Manual release-gate smoke test. Cannot be automated because it verifies first-run UX on a clean machine, which is exactly what autopilot cannot reproduce. Procedure: (1) fresh venv or pipx install from the release candidate wheel on (a) MacBook Pro, (b) a Linux box, (c) a low-RAM device (Raspberry Pi or equivalent, to validate MINE-LANCE-COMPACT AC #3). (2) Run the full user path end to end on three canonical repos — a Python library (pick e.g. requests or httpx), a TypeScript application (e.g. next.js starter), and a Go service (e.g. the mempalace autopilot repo itself): mempalace init <dir> -> mempalace mine <dir> -> mempalace search ''<architecture question>'' -> mempalace status -> re-run mempalace mine <dir> (must be idempotent, exercises MINE-BATCH-EMBED-DEDUP-UPSERT). (3) Connect to Claude Code via MCP, verify mempalace_search and mempalace_code_search (if MCP-CODE-SEARCH shipped) return sane results with symbol metadata surfaced. (4) Run mempalace migrate-storage on a seeded ChromaDB palace and confirm count parity (exercises STORE-MIGRATION-CLI). (5) File any regressions as P0 release blockers before tagging v1.0. AC: all three repos mine cleanly on all three machine classes; re-mine is idempotent (drawer count unchanged); search returns symbol metadata; migrate-storage preserves drawer count; no uncaught tracebacks on Ctrl+C. Owner task because autopilot cannot sign off on a human-in-the-loop UX gate.'
-    resolution: '2026-04-13: Smoke tested on Ubuntu 22.04 (clean server). All checks pass. Bootstrap script created.'
   - key: MINE-LANCE-VECTOR-SCAN
     summary: get_source_files() loads full table including vector column before projecting to two columns
     type: bug
@@ -465,57 +423,6 @@ items:
     section_id: quality
     labels: [test, migration]
     description: 'The early-exit path ''if src_total == 0: return (0, 0)'' in migrate_chroma_to_lance() is untested. This path is distinct from ''_col is None'' (no collection): it requires a ChromaDB palace initialized with a collection that has had all drawers deleted. Deliverable: add test_migrate_empty_src to test_migrate.py that seeds a ChromaStore, deletes all rows, then calls migrate_chroma_to_lance and asserts it returns (0, 0) without creating destination rows. AC: test passes; existing tests unaffected. Identified in STORE-MIGRATION-CLI harden round-1 (F-003).'
-  - key: LAUNCH-BENCH-TOKEN-DELTA
-    summary: 'Publish token-delta benchmark: mempalace_search vs raw grep+read, 15-20 questions, median + P95 ratios'
-    type: task
-    status: done
-    priority: high
-    size: M
-    section_id: pre_release
-    assignee: bot
-    labels: [benchmarks, launch, marketing]
-    description: |-
-      ## Problem
-
-      Graphify's landing page advertises a **71.5× token reduction per query** (measured on a 100-file Python repo vs. "raw grep" ingestion). mempalace has no equivalent public number. For a launch post / README, a concrete "tokens per semantic question" comparison against the obvious baseline is table stakes — otherwise the pitch reduces to "it's smart, trust me".
-
-      ## Deliverable
-
-      `benchmarks/results_token_delta_YYYY-MM-DD.json` plus a summary chart in `docs/BENCH_TOKEN_DELTA.md` showing, for 15–20 representative coding questions against the `mempalace` repo itself (self-eats-dogfood):
-
-      | Question | Raw grep+read baseline tokens | mempalace_search top-5 tokens | Ratio |
-
-      Headline numbers:
-      - Median ratio across all questions
-      - P95 ratio
-      - Per-category split (function lookup / class lookup / architecture / cross-file)
-
-      Reuse the 20-query set from `benchmarks/embed_ab_bench.py` (already known-answer validated).
-
-      ## Method
-
-      1. **Baseline** ("grep + read"): for each question, `rg -l <keyword>` to find candidate files, then `cat` the top-5 files. Count tokens via `tiktoken.get_encoding("cl100k_base").encode()`. This simulates a plain Claude Code session with no memory.
-      2. **mempalace**: call `mempalace.searcher.search(query, limit=5)` and concatenate the `content` field of each result. Count tokens the same way.
-      3. **Ratio**: baseline_tokens / mempalace_tokens per question; aggregate.
-
-      ## Why owner task, not bot task
-
-      - Picking the 20 questions is a branding call — the question set IS the benchmark, and autopilot has no context on what the launch post will frame.
-      - The ratio chart goes on the README front page; owner needs to sign off before publication.
-      - Graphify's 71.5× figure is suspicious (no methodology published); mempalace's number must be honest and reproducible, so the run should be watched manually.
-
-      ## Acceptance
-
-      1. `benchmarks/token_delta_bench.py` script exists, runs in < 5 min on current palace.
-      2. Per-question CSV and aggregate JSON committed under `benchmarks/`.
-      3. `docs/BENCH_TOKEN_DELTA.md` contains the headline ratio + methodology + "how to reproduce" section.
-      4. README gets one line quoting the median ratio (not a hero claim, a footnote-style number).
-
-      ## Out of scope
-
-      - Comparing against graphify directly (apples to oranges, graphify is structural, mempalace is semantic).
-      - Running on repos other than mempalace for v1 (can expand post-launch).
-      - Claiming any single multiplier as "the" number — report median + P95 + per-category.
   - key: CORE-EXPORT-IMPORT-STREAM-TEST
     summary: 'Add test_export_streams_large_palace: verify iter_all streams without OOM on 5k-drawer palaces'
     type: task
@@ -766,44 +673,21 @@ items:
       1. Three new passing e2e scenario tests covering convo_miner, layers, and palace_graph
       2. No test depends on external network or shared palace state
       3. ruff check passes
-  - key: CODE-TREESITTER-INFRA
-    summary: 'Tree-sitter infra: py-tree-sitter dep, grammar download/cache, parser init, regex fallback'
+  - key: CODE-TREESITTER-PYTHON
+    summary: 'Tree-sitter Python chunking: AST-aware function/class/method boundaries'
     type: task
     status: done
     priority: medium
     size: M
     section_id: coding_first
-    labels: [core, mining, chunking, ast]
-    completed_date: '2026-04-13'
-    hardened_date: '2026-04-14'
-    completion_summary: 'Added [treesitter] optional extra (tree-sitter>=0.22,<0.24 + grammar packages); new mempalace/treesitter.py with get_parser() factory and module-level cache; wired into chunk_code() as a no-op future hook; 15 new tests; two CI jobs (treesitter-compat/py39). Version pins corrected: tree-sitter-python>=0.23,<0.24 (0.21 not on PyPI; 0.25 needs lang version 15).'
-    hardening_summary: 'Round-1 harden (2026-04-14): 5 findings — 2 fixed (warning on grammar load failure, TS/TSX test skip guards), 1 backlogged (TREESITTER-VERSION-PINS), 2 dismissed. Audit: docs/audits/CODE-TREESITTER-INFRA-round-1.md.'
-    description: '## Scope
-
-
-      Add py-tree-sitter as an optional dependency (`.[treesitter]` extra). Implement grammar download and caching for Python and TypeScript. Wire parser initialization into miner.py with automatic fallback to regex chunking when the grammar is unavailable or py-tree-sitter is not installed.
-
-
-      ## Acceptance criteria
-
-
-      1. `pip install mempalace-code[treesitter]` installs py-tree-sitter
-
-      2. A Python file can be parsed into a tree-sitter AST
-
-      3. Missing grammar or missing py-tree-sitter gracefully falls back to existing regex chunking path
-
-      4. No regression on existing test suite (`pytest tests/ -x -q`)
-
-      5. ruff clean'
-  - key: CODE-TREESITTER-PYTHON
-    summary: 'Tree-sitter Python chunking: AST-aware function/class/method boundaries'
-    type: task
-    status: open
-    priority: medium
-    size: M
-    section_id: coding_first
     labels: [mining, chunking, ast, python]
+    completed_at: '2026-04-14'
+    completion_summary: >-
+      Implemented _chunk_python_treesitter() in miner.py: walks top-level AST nodes,
+      attaches adjacent comment siblings, emits preamble chunk, tags chunks with
+      chunker_strategy='treesitter_v1'. Wired into chunk_code() via canonical language
+      lookup; regex path unchanged as fallback. Added AST tests in test_chunking.py and
+      test_treesitter.py; AC-4 integration test in test_miner.py. All 460 tests pass.
     description: |-
       ## Scope
 
@@ -816,9 +700,6 @@ items:
       3. Existing chunking tests pass (regex fallback path unchanged)
       4. New tests cover: function, class, decorated function, nested class boundaries
       5. ruff clean
-    links:
-      - type: is-blocked-by
-        key: CODE-TREESITTER-INFRA
   - key: CODE-TREESITTER-TS
     summary: 'Tree-sitter TypeScript/JS/TSX chunking: AST-aware boundaries'
     type: task
@@ -838,9 +719,6 @@ items:
       2. Existing TS/JS chunking tests pass (regex fallback path unchanged)
       3. New tests cover: export function, arrow function, class, interface, type alias boundaries
       4. ruff clean
-    links:
-      - type: is-blocked-by
-        key: CODE-TREESITTER-INFRA
   - key: CODE-TREESITTER-EXPAND
     summary: Tree-sitter Go + Rust grammar support
     type: task
@@ -861,6 +739,3 @@ items:
       3. Existing Go/Rust regex chunking tests pass as fallback
       4. New tests cover language-specific boundary types
       5. ruff clean
-    links:
-      - type: is-blocked-by
-        key: CODE-TREESITTER-INFRA

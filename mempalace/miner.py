@@ -621,6 +621,77 @@ def chunk_file(content: str, ext: str, source_file: str, language: str = None) -
         return chunk_adaptive_lines(content, source_file)
 
 
+def _chunk_python_treesitter(parser, content: str, source_file: str) -> list:
+    """
+    AST-aware Python chunker using tree-sitter.
+
+    Extracts function_definition, class_definition, and decorated_definition
+    nodes as chunk boundaries. Attaches immediately adjacent leading comment
+    siblings (no blank-line gap) to their definition. Feeds raw text chunks
+    through adaptive_merge_split() and tags each result with
+    chunker_strategy='treesitter_v1'.
+
+    Falls back to chunk_adaptive_lines() when no definition nodes are found
+    (e.g. plain-assignment modules).
+    """
+    DEFINITION_TYPES = frozenset(
+        {"function_definition", "class_definition", "decorated_definition"}
+    )
+
+    source_bytes = content.encode("utf-8")
+    tree = parser.parse(source_bytes)
+    children = tree.root_node.children
+
+    # Build boundary_indices: for each definition node, track the start child
+    # index after pulling in any immediately preceding comment siblings.
+    boundary_indices: list = []
+    for i, child in enumerate(children):
+        if child.type in DEFINITION_TYPES:
+            start_i = i
+            j = i - 1
+            while j >= 0:
+                prev = children[j]
+                if prev.type == "comment":
+                    # No blank line between this comment and the node after it?
+                    gap = source_bytes[prev.end_byte : children[j + 1].start_byte]
+                    if b"\n\n" in gap:
+                        break
+                    start_i = j
+                    j -= 1
+                else:
+                    break
+            boundary_indices.append(start_i)
+
+    if not boundary_indices:
+        return chunk_adaptive_lines(content, source_file)
+
+    raw_chunks: list = []
+
+    # Preamble: all content before the first boundary (imports, module docstring, etc.)
+    first_start_byte = children[boundary_indices[0]].start_byte
+    if first_start_byte > 0:
+        preamble = source_bytes[:first_start_byte].decode("utf-8").strip()
+        if preamble:
+            raw_chunks.append(preamble)
+
+    # Each definition chunk: from its start_byte to the next boundary's start_byte
+    for k, start_child_idx in enumerate(boundary_indices):
+        start_byte = children[start_child_idx].start_byte
+        end_byte = (
+            children[boundary_indices[k + 1]].start_byte
+            if k + 1 < len(boundary_indices)
+            else len(source_bytes)
+        )
+        text = source_bytes[start_byte:end_byte].decode("utf-8").strip()
+        if text:
+            raw_chunks.append(text)
+
+    merged = adaptive_merge_split(raw_chunks, source_file)
+    for chunk in merged:
+        chunk["chunker_strategy"] = "treesitter_v1"
+    return merged
+
+
 def chunk_code(content: str, language: str, source_file: str) -> list:
     """
     Split code at structural boundaries (function/class/export declarations).
@@ -630,15 +701,15 @@ def chunk_code(content: str, language: str, source_file: str) -> list:
     `language` accepts canonical language strings ("python", "typescript") or
     raw file extensions (".py", ".ts") for backward compatibility.
 
-    When tree-sitter is installed, get_parser() is called to obtain an AST parser.
-    AST-based chunking (CODE-TREESITTER-CHUNK) is future work — the parser result
-    is currently unused and the function falls through to the regex path unchanged.
+    When tree-sitter is installed and the language is Python, AST-based chunking
+    via _chunk_python_treesitter() is used. All other languages still use the
+    regex path below.
     """
-    parser = get_parser(language)
+    canonical = EXTENSION_LANG_MAP.get(language, language)
+    parser = get_parser(canonical)
     if parser is not None:
-        # Future: AST-based chunking goes here (CODE-TREESITTER-CHUNK).
-        # For now, fall through to regex chunking unchanged.
-        pass
+        if canonical == "python":
+            return _chunk_python_treesitter(parser, content, source_file)
 
     boundary = get_boundary_pattern(language)
     if not boundary:
@@ -962,7 +1033,7 @@ def _collect_specs_for_file(
                     "symbol_type": symbol_type,
                     "source_hash": source_hash,
                     "extractor_version": __version__,
-                    "chunker_strategy": "regex_structural_v1",
+                    "chunker_strategy": chunk.get("chunker_strategy", "regex_structural_v1"),
                 },
             }
         )
