@@ -336,8 +336,9 @@ pyyaml>=6.0
 **Optional extras:**
 
 ```bash
-pip install "mempalace-code[chroma]"     # ChromaDB legacy backend (deprecated)
+pip install "mempalace-code[chroma]"      # ChromaDB legacy backend (deprecated)
 pip install "mempalace-code[spellcheck]" # autocorrect for room/wing names
+pip install "mempalace-code[treesitter]" # tree-sitter AST parser (Python 3.10+; TS/JS on 3.9+)
 pip install "mempalace-code[dev]"        # pytest + ruff (development)
 ```
 

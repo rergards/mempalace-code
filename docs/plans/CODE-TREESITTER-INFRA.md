@@ -11,7 +11,11 @@ files:
   - path: mempalace/miner.py
     change: "Import treesitter module; add get_parser() call in chunk_code() with fallback to regex when parser unavailable"
   - path: tests/test_treesitter.py
-    change: "New test file: parser creation, AST generation, fallback when tree-sitter missing, fallback when grammar missing"
+    change: "New test file: parser creation, AST generation, fallback when tree-sitter missing, fallback when grammar missing, chunk_code parity when tree-sitter installed"
+  - path: .github/workflows/ci.yml
+    change: "Add treesitter-compat job on Python 3.11, add treesitter-py39 job on Python 3.9 to verify env marker behavior"
+  - path: README.md
+    change: "Add [treesitter] to the optional extras table"
 acceptance:
   - id: AC-1
     when: "pip install mempalace-code[treesitter] on Python 3.10+"
@@ -34,6 +38,9 @@ acceptance:
   - id: AC-7
     when: "chunk_code() processes a Python file with tree-sitter unavailable"
     then: "uses regex chunking unchanged; chunker_strategy metadata is 'regex_structural_v1'"
+  - id: AC-7b
+    when: "chunk_code() processes a Python file with tree-sitter installed (but AST chunking not yet wired)"
+    then: "produces identical chunks to the no-tree-sitter path; chunker_strategy is still 'regex_structural_v1'"
   - id: AC-8
     when: "ruff check mempalace/ tests/ and ruff format --check mempalace/ tests/"
     then: "both pass with no violations"
@@ -95,18 +102,44 @@ out_of_scope:
   AST chunking task will set it to `"treesitter_v1"` when the AST path is used.
 
 - **Test strategy (`tests/test_treesitter.py`)**:
-  - Tests that require tree-sitter installed: marked `@pytest.mark.skipif(not TREE_SITTER_AVAILABLE)`.
-  - Fallback tests: monkeypatch `treesitter.TREE_SITTER_AVAILABLE = False` and verify
-    `get_parser()` returns None.
+  - Module-level `pytest.importorskip("tree_sitter")` for tests that need tree-sitter installed,
+    matching the repo convention in `tests/test_migrate.py`. The entire file is skipped when
+    tree-sitter is not installed, so the base `.[dev]` CI stays green.
+  - Fallback tests live in a separate file or section that monkeypatches `treesitter.TREE_SITTER_AVAILABLE = False`
+    and verifies `get_parser()` returns None. These run in all CI jobs (no importorskip).
   - Parse round-trip: call `parser.parse(b"def foo(): pass")`, assert `root_node.type == "module"`
     and first child is `function_definition`.
   - Grammar-missing test: monkeypatch the grammar loader to raise ImportError, verify None return.
+  - **Chunk parity test (AC-7b)**: with tree-sitter installed, call `chunk_code()` on a Python
+    file and assert the output chunks and `chunker_strategy = "regex_structural_v1"` are identical
+    to the regex-only path. This proves the installed-but-deferred path is truly no-op.
+
+- **CI verification (`ci.yml`)**:
+  - Add a `treesitter-compat` job on Python 3.11 that installs `.[dev,treesitter]` and runs the
+    full test suite. This mirrors the existing `chroma-compat` pattern and ensures AC-1/AC-3/AC-4
+    are exercised in CI.
+  - Add a `treesitter-py39` job on Python 3.9 that installs `.[dev,treesitter]` and runs the
+    full test suite. This verifies AC-2 (tree-sitter-python skipped via env marker) and AC-5
+    (get_parser('python') returns None on 3.9).
 
 - **pyproject.toml extra**:
   ```toml
   treesitter = [
       "tree-sitter>=0.22,<0.24",
-      "tree-sitter-python>=0.21; python_version >= '3.10'",
-      "tree-sitter-typescript>=0.23",
+      "tree-sitter-python>=0.23,<0.24; python_version >= '3.10'",
+      "tree-sitter-typescript>=0.23,<0.24",
   ]
   ```
+  (Validation finding: `tree-sitter-python` is only available from 0.23.0 on PyPI;
+  0.25.0 requires language version 15 which tree-sitter <0.24 does not support.
+  Upper bound `<0.24` added to both grammar packages for coherence.)
+
+- **Implementation-time validation** (before merging):
+  The following assumptions must be smoke-tested during implementation. If any fail, update
+  the version pins or grammar loaders accordingly:
+  1. `tree-sitter>=0.22,<0.24` installs cleanly on Python 3.9 and 3.11.
+  2. `tree-sitter-python` is skipped on 3.9 via the env marker (no install error).
+  3. `tree-sitter-typescript>=0.23` installs on 3.9.
+  4. Runtime API entry points: `tree_sitter_python.language()`,
+     `tree_sitter_typescript.language_typescript()`, `tree_sitter_typescript.language_tsx()`
+     all return valid Language objects compatible with the pinned tree-sitter version.

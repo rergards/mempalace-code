@@ -19,6 +19,7 @@ from collections import defaultdict
 from typing import Optional
 
 from .storage import open_store
+from .treesitter import get_parser
 from .version import __version__
 
 EXTENSION_LANG_MAP = {
@@ -628,7 +629,17 @@ def chunk_code(content: str, language: str, source_file: str) -> list:
 
     `language` accepts canonical language strings ("python", "typescript") or
     raw file extensions (".py", ".ts") for backward compatibility.
+
+    When tree-sitter is installed, get_parser() is called to obtain an AST parser.
+    AST-based chunking (CODE-TREESITTER-CHUNK) is future work — the parser result
+    is currently unused and the function falls through to the regex path unchanged.
     """
+    parser = get_parser(language)
+    if parser is not None:
+        # Future: AST-based chunking goes here (CODE-TREESITTER-CHUNK).
+        # For now, fall through to regex chunking unchanged.
+        pass
+
     boundary = get_boundary_pattern(language)
     if not boundary:
         return chunk_adaptive_lines(content, source_file)

@@ -750,11 +750,13 @@ items:
   - key: CODE-TREESITTER-INFRA
     summary: 'Tree-sitter infra: py-tree-sitter dep, grammar download/cache, parser init, regex fallback'
     type: task
-    status: open
+    status: done
     priority: medium
     size: M
     section_id: coding_first
     labels: [core, mining, chunking, ast]
+    completed_date: '2026-04-13'
+    completion_summary: 'Added [treesitter] optional extra (tree-sitter>=0.22,<0.24 + grammar packages); new mempalace/treesitter.py with get_parser() factory and module-level cache; wired into chunk_code() as a no-op future hook; 15 new tests; two CI jobs (treesitter-compat/py39). Version pins corrected: tree-sitter-python>=0.23,<0.24 (0.21 not on PyPI; 0.25 needs lang version 15).'
     description: '## Scope
 
 
