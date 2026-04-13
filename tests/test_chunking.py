@@ -914,3 +914,24 @@ def test_ast_no_definitions_falls_back_to_adaptive():
     )
     chunks = chunk_code(plain, ".py", "test.py")
     assert len(chunks) >= 1
+
+
+def test_ast_no_definitions_strategy_tag():
+    """F-1 fix: no-definition Python file carries 'treesitter_adaptive_v1', not 'regex_structural_v1'.
+
+    When tree-sitter is available but the file has no top-level function or class
+    definitions, _chunk_python_treesitter falls back to chunk_adaptive_lines.
+    The resulting chunks must be tagged 'treesitter_adaptive_v1' so downstream
+    metadata accurately reflects which code path produced them.
+    """
+    _skip_if_no_ast()
+    plain = (
+        "x = 1\ny = 2\nsome_var = 'a value long enough to pass the hundred char minimum filter'\n\n"
+        "z = 3\nw = 4\nanother_var = 'more content here to ensure this block is also above limit'\n"
+    )
+    chunks = chunk_code(plain, ".py", "test.py")
+    assert len(chunks) >= 1
+    for chunk in chunks:
+        assert chunk.get("chunker_strategy") == "treesitter_adaptive_v1", (
+            f"Expected 'treesitter_adaptive_v1', got {chunk.get('chunker_strategy')!r}"
+        )

@@ -683,11 +683,8 @@ items:
     labels: [mining, chunking, ast, python]
     completed_at: '2026-04-14'
     completion_summary: >-
-      Implemented _chunk_python_treesitter() in miner.py: walks top-level AST nodes,
-      attaches adjacent comment siblings, emits preamble chunk, tags chunks with
-      chunker_strategy='treesitter_v1'. Wired into chunk_code() via canonical language
-      lookup; regex path unchanged as fallback. Added AST tests in test_chunking.py and
-      test_treesitter.py; AC-4 integration test in test_miner.py. All 460 tests pass.
+      Implemented _chunk_python_treesitter() in miner.py: walks top-level AST nodes, attaches adjacent comment siblings, emits preamble chunk, tags chunks with chunker_strategy='treesitter_v1'. Wired into chunk_code() via canonical language lookup; regex path unchanged as fallback. Added AST tests in test_chunking.py and test_treesitter.py; AC-4 integration test in test_miner.py. All 460 tests pass.
+      Hardened (round 1): fixed misleading chunker_strategy tag on no-definition fallback path (now 'treesitter_adaptive_v1'); added test coverage; 1 finding backlogged (CODE-TREESITTER-PYTHON-DETACH-TEST).
     description: |-
       ## Scope
 
@@ -739,3 +736,33 @@ items:
       3. Existing Go/Rust regex chunking tests pass as fallback
       4. New tests cover language-specific boundary types
       5. ruff clean
+  - key: CODE-TREESITTER-PYTHON-DETACH-TEST
+    summary: Add negative test for detached-comment gap detection in _chunk_python_treesitter
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [testing, chunking, ast, python]
+    description: |-
+      ## Scope
+
+      Add a dedicated test function test_ast_detached_comment_not_absorbed to tests/test_chunking.py that verifies _chunk_python_treesitter's blank-line gap check correctly excludes detached comments from the following definition's chunk.
+
+      ## Problem
+
+      _chunk_python_treesitter uses b'\n\n' in source_bytes[prev.end_byte:next_sibling.start_byte] to decide whether a comment is attached to the following definition. The existing test test_ast_leading_comment_attached_to_def checks the positive case (attached comment IS in the same chunk) but has no negative assertion.
+
+      Because adaptive_merge_split merges small chunks, the current PYTHON_COMMENT_ATTACHED fixture produces a single merged output chunk at test scale, making it impossible to assert 'detached comment is NOT in standalone chunk'.
+
+      ## Deliverable
+
+      1. Extend PYTHON_COMMENT_ATTACHED fixture OR create a new fixture where def standalone has >= 400 chars of body, so it stays in its own final chunk after adaptive_merge_split.
+      2. Assert that the chunk containing 'def standalone' does NOT contain the detached comment text.
+
+      ## Acceptance Criteria
+
+      1. New test passes when tree-sitter-python is installed (Python 3.10+)
+      2. New test skips when tree-sitter-python is absent (uses _skip_if_no_ast guard)
+      3. New test would FAIL if the b'\n\n' gap check were removed from _chunk_python_treesitter
+      4. ruff check and ruff format pass

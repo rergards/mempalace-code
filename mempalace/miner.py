@@ -663,7 +663,13 @@ def _chunk_python_treesitter(parser, content: str, source_file: str) -> list:
             boundary_indices.append(start_i)
 
     if not boundary_indices:
-        return chunk_adaptive_lines(content, source_file)
+        # No top-level definitions found (e.g. plain-assignment module).
+        # Tag explicitly so _collect_specs_for_file doesn't mislabel as
+        # regex_structural_v1 — the regex structural path was never executed.
+        fallback = chunk_adaptive_lines(content, source_file)
+        for chunk in fallback:
+            chunk["chunker_strategy"] = "treesitter_adaptive_v1"
+        return fallback
 
     raw_chunks: list = []
 
