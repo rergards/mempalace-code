@@ -739,55 +739,83 @@ items:
     size: M
     section_id: coding_first
     labels: [mining, chunking, devops]
+    resolution: '2026-04-14: Added DevOps/infrastructure file support: Terraform (.tf/.tfvars/.hcl) with HCL boundary chunking, Dockerfile/Makefile via FILENAME_LANG_MAP, Helm templates (.tpl), Ansible Jinja2 (.j2/.jinja2), config files (.conf/.cfg/.ini/.mk). .terraform/ added to SKIP_DIRS. Updated SUPPORTED_LANGUAGES in searcher.py and code_search description in mcp_server.py. 237 tests pass. Hardening round-1 (2026-04-14): 0 fixed, 2 backlogged (MINE-HCL-BOUNDARY-MODERN, MINE-DEVOPS-SCAN-COVERAGE), 1 dismissed.'
+  - key: MINE-HCL-BOUNDARY-MODERN
+    summary: Extend HCL_BOUNDARY to cover Terraform 1.1+ block types (moved, import, check, removed)
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: coding_first
+    labels: [mining, chunking, devops]
     description: |-
       ## Problem
 
-      The miner only handles programming languages and basic data formats. DevOps/infrastructure files are completely missing: Terraform (.tf, .tfvars, .hcl), Dockerfiles (extensionless), Makefiles (extensionless), Helm Go templates (.tpl), Ansible Jinja2 templates (.j2, .jinja2), and general config files (.conf, .cfg, .ini). YAML-based infra files already work, but the most popular IaC tool (Terraform) and container tooling (Docker) are invisible to the scanner.
+      HCL_BOUNDARY regex covers only Terraform 0.x/1.0 block types: resource, data, module, variable, output, locals, provider, terraform. Terraform 1.1+ introduced new top-level blocks that will not be used as chunk split points:
+      - moved {} (Terraform 1.1)
+      - import {} (Terraform 1.5)
+      - check {} (Terraform 1.5)
+      - removed {} (Terraform 1.7)
+
+      When a .tf file contains only these newer blocks, chunk_code falls back to chunk_adaptive_lines, which still works but produces less semantically clean splits for large moved/import blocks.
 
       ## Scope
 
-      mempalace/miner.py — single file, plus tests in tests/test_miner.py.
+      mempalace/miner.py — HCL_BOUNDARY regex and its test in tests/test_chunking.py
 
-      ### 1. New extensions in EXTENSION_LANG_MAP + READABLE_EXTENSIONS
+      ## Deliverable
 
-      .tf, .tfvars, .hcl → "hcl"; .j2, .jinja2 → "jinja2"; .tpl → "gotemplate"; .mk → "make"; .groovy → "groovy"; .xml → "xml"; .proto → "protobuf"; .conf, .cfg, .ini → "config"; .nix → "nix"; .pp → "puppet"
+      Add moved, import, check, removed to HCL_BOUNDARY pattern.
 
-      ### 2. Extensionless file support
+      ## Acceptance Criteria
 
-      New READABLE_FILENAMES set: Dockerfile, Containerfile, Makefile, Jenkinsfile, Vagrantfile, Rakefile, Gemfile, Procfile, Brewfile.
-
-      New FILENAME_LANG_MAP dict mapping those to their languages (dockerfile, make, groovy, ruby, yaml).
-
-      Modify scan_project() to check filepath.name against READABLE_FILENAMES alongside the extension check. Extend detect_language() with a filename-based tier between extension lookup and shebang fallback.
-
-      ### 3. HCL/Terraform boundary pattern + chunking
-
-      HCL_BOUNDARY regex matching resource, data, variable, output, locals, module, provider, terraform blocks. DOCKERFILE_BOUNDARY for Docker instructions. MAKEFILE_BOUNDARY for targets.
-
-      Add to get_boundary_pattern() and route hcl/dockerfile/make through chunk_code() in chunk_file().
-
-      ### 4. HCL symbol extraction
-
-      _HCL_EXTRACT patterns for resource (two-label: type.name), data, variable, output, module, provider. Special handling in extract_symbol() for two-group resource/data patterns. Add to _LANG_EXTRACT_MAP.
-
-      ### 5. Other
-
-      Add .terraform to SKIP_DIRS. Add new language strings to SUPPORTED_LANGUAGES in searcher.py so code_search(language="hcl") works.
-
-      ## Acceptance criteria
-
-      1. scan_project picks up all new extensions and extensionless DevOps files
-      2. detect_language returns correct language for all new extensions and filenames
-      3. HCL files chunk at resource/variable/output/module boundaries
-      4. extract_symbol returns ("aws_instance.example", "resource") for Terraform resource blocks
-      5. .terraform directories are skipped
-      6. code_search(language="hcl") returns results
-      7. All existing tests pass; new tests cover scan, detect, chunk, extract for new formats
-      8. ruff clean
+      1. HCL_BOUNDARY pattern includes moved, import, check, removed keywords
+      2. A .tf file with moved {} blocks splits at each moved boundary
+      3. All existing Terraform tests continue to pass
+      4. ruff clean
 
       ## Constraints
 
-      - No tree-sitter grammars needed — regex boundaries + adaptive chunking are sufficient for v1
-      - Non-code infra formats (jinja2, gotemplate, config, xml, etc.) use chunk_adaptive_lines
-      - .env files deliberately excluded (secret risk)
-    resolution: '2026-04-14: 2026-04-14: Added DevOps/infrastructure file support: Terraform (.tf/.tfvars/.hcl) with HCL boundary chunking, Dockerfile/Makefile via FILENAME_LANG_MAP, Helm templates (.tpl), Ansible Jinja2 (.j2/.jinja2), config files (.conf/.cfg/.ini/.mk). .terraform/ added to SKIP_DIRS. Updated SUPPORTED_LANGUAGES in searcher.py and code_search description in mcp_server.py. 237 tests pass.'
+      - No tree-sitter needed — simple regex extension
+      - Don't break .tfvars handling (still falls back to chunk_adaptive_lines when no boundaries match)
+  - key: MINE-DEVOPS-SCAN-COVERAGE
+    summary: Add scan_project integration tests for remaining DevOps extensions (.j2, .conf, .ini, .mk, Vagrantfile, Containerfile)
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [mining, testing, devops]
+    description: |-
+      ## Problem
+
+      MINE-DEVOPS-INFRA added scan_project integration tests for Terraform, Dockerfile, and Makefile, but the following new file types have no scan_project test:
+      - Jinja2 templates (.j2, .jinja2)
+      - Config files (.conf, .cfg, .ini)
+      - Make include files (.mk)
+      - Containerfile (extensionless, maps to dockerfile)
+      - Vagrantfile (extensionless, maps to ruby)
+
+      These are covered by unit tests in test_lang_detect.py, but there are no integration-level tests confirming they flow through scan_project correctly.
+
+      ## Scope
+
+      tests/test_miner.py — new test functions using tempdir pattern
+
+      ## Deliverable
+
+      Additional test functions in tests/test_miner.py verifying each missing type appears in scan_project output.
+
+      ## Acceptance Criteria
+
+      1. test_scan_project_includes_jinja2_files — .j2 and .jinja2 files appear in scan results
+      2. test_scan_project_includes_config_files — .conf, .cfg, .ini files appear in scan results
+      3. test_scan_project_includes_mk_files — .mk files appear in scan results
+      4. test_scan_project_includes_containerfile — Containerfile appears in scan results
+      5. test_scan_project_includes_vagrantfile — Vagrantfile appears in scan results
+      6. All tests pass
+
+      ## Constraints
+
+      - Tests must use tempfile.mkdtemp() + shutil.rmtree() pattern (no pytest fixtures)
+      - No palace/embedding needed — pure scan_project() call tests
