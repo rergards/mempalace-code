@@ -53,7 +53,7 @@ items:
     labels: [mining, chunking]
     description: >-
       GO_BOUNDARY includes var\s+\w+ which matches against stripped lines. Because chunk_code() strips lines before matching for Go/Python/Rust, any var declaration inside a function body (e.g., "    var result int") becomes a spurious chunk boundary, splitting mid-function. The adaptive merge step mitigates this for small fragments, but large Go functions with many var declarations produce unnecessarily granular chunks. Deliverable: either (a) restrict GO_BOUNDARY to top-level var only (remove var\s+\w+ — rely on var (\n  ...\n) block detection instead), or (b) track indentation in chunk_code() for Go. Option (a) is simpler but loses top-level single-var detection. The proper fix is tree-sitter (CODE-TREESITTER-EXPAND). Acceptance criteria: a Go function body containing "var x int" does not produce a split between the var line and surrounding code; existing Go boundary tests pass; ruff clean. Identified in CODE-LANG-DETECT harden round-1 (F-004).
-    resolution: '2026-04-14: Replace var\s+\w+ with var\s+\( in GO_BOUNDARY; add 2 regression tests forcing regex path via monkeypatch'
+    resolution: '2026-04-14: Replace var\s+\w+ with var\s+\( in GO_BOUNDARY; add 2 regression tests forcing regex path via monkeypatch. Harden round-1: 1 fixed, 0 backlogged, 2 dismissed. Audit: docs/audits/LANG-DETECT-GO-VAR-BODY-round-1.md'
   - key: CODE-SMART-CHUNK-VAR-BOUNDARY
     summary: "Add non-exported var to TS_BOUNDARY in chunk_code()"
     type: task
