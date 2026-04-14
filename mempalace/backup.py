@@ -19,6 +19,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -27,7 +28,7 @@ def create_backup(
     palace_path: str,
     out_path: Optional[str] = None,
     kg_path: Optional[str] = None,
-) -> dict:
+) -> tuple:
     """Create a .tar.gz backup of the palace.
 
     Parameters
@@ -43,8 +44,9 @@ def create_backup(
 
     Returns
     -------
-    dict
-        The metadata dict written to ``metadata.json`` inside the archive.
+    tuple
+        ``(metadata, out_path)`` — the metadata dict written to ``metadata.json``
+        and the resolved output path of the archive.
     """
     from .knowledge_graph import DEFAULT_KG_PATH
     from .storage import open_store
@@ -75,23 +77,38 @@ def create_backup(
     }
 
     lance_dir = os.path.join(palace_path, "lance")
+    out_dir = os.path.dirname(os.path.abspath(out_path))
 
-    with tarfile.open(out_path, "w:gz") as tar:
-        # Lance vector data
-        if os.path.isdir(lance_dir):
-            tar.add(lance_dir, arcname="mempalace_backup/lance")
+    # Write atomically: build archive in a temp file, then rename into place.
+    # A partial/interrupted write therefore never corrupts the destination.
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=out_dir, suffix=".tar.gz.tmp")
+    os.close(tmp_fd)
+    try:
+        with tarfile.open(tmp_path, "w:gz") as tar:
+            # Lance vector data
+            if os.path.isdir(lance_dir):
+                tar.add(lance_dir, arcname="mempalace_backup/lance")
 
-        # Knowledge graph (optional — may not exist)
-        if os.path.isfile(kg_path):
-            tar.add(kg_path, arcname="mempalace_backup/knowledge_graph.sqlite3")
+            # Knowledge graph (optional — may not exist)
+            if os.path.isfile(kg_path):
+                tar.add(kg_path, arcname="mempalace_backup/knowledge_graph.sqlite3")
 
-        # Metadata JSON (in-memory, no temp file needed)
-        meta_bytes = json.dumps(metadata, indent=2).encode()
-        info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
-        info.size = len(meta_bytes)
-        tar.addfile(info, io.BytesIO(meta_bytes))
+            # Metadata JSON (in-memory, no temp file needed)
+            meta_bytes = json.dumps(metadata, indent=2).encode()
+            info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
+            info.size = len(meta_bytes)
+            info.mtime = int(time.time())
+            tar.addfile(info, io.BytesIO(meta_bytes))
 
-    return metadata
+        os.replace(tmp_path, out_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    return metadata, out_path
 
 
 def restore_backup(
@@ -188,7 +205,7 @@ def restore_backup(
                 os.makedirs(palace_path, exist_ok=True)
                 shutil.copytree(extracted_lance, lance_dir)
 
-            # Move KG into its canonical location
+            # Move KG into its canonical location (atomic: copy to .tmp, then rename)
             extracted_kg = os.path.join(tmpdir, "knowledge_graph.sqlite3")
             if os.path.isfile(extracted_kg):
                 if os.path.isfile(kg_path):
@@ -198,6 +215,8 @@ def restore_backup(
                     )
                 kg_dir = os.path.dirname(os.path.abspath(kg_path))
                 os.makedirs(kg_dir, exist_ok=True)
-                shutil.copy2(extracted_kg, kg_path)
+                kg_tmp = kg_path + ".tmp"
+                shutil.copy2(extracted_kg, kg_tmp)
+                os.replace(kg_tmp, kg_path)
 
     return metadata

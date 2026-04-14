@@ -74,7 +74,7 @@ items:
       5. Round-trip test: backup → restore to new path → search returns same results
 
       6. ruff clean
-    resolution: null
+    resolution: "Hardened in round-1 (2026-04-14): atomic backup write, atomic KG restore, TarInfo mtime, real out_path in CLI output. New backlog: STORE-BACKUP-CLI-TEST."
   - key: STORE-REMOVE-CHROMA-DEFAULT
     summary: "Remove ChromaDB from default install path"
     type: task
@@ -737,3 +737,37 @@ items:
       3. ruff clean; pytest -q passes
 
       Origin: CODE-SEARCH-LANG-CONFIG hardening round-1 F-5.
+  - key: STORE-BACKUP-CLI-TEST
+    summary: "Add CLI-level integration tests for backup and restore commands"
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [test, cli, storage]
+    description: |
+      ## Problem
+
+      tests/test_backup.py exercises create_backup() and restore_backup() at the library level
+      but does not test the CLI dispatch path: cmd_backup(args) and cmd_restore(args).
+      The argparse wiring, sys.exit(1) on error, and the returned out_path display are untested.
+
+      ## Deliverable
+
+      Add tests to tests/test_backup.py (or a new tests/test_backup_cli.py) that invoke
+      cmd_backup and cmd_restore through argparse using a minimal Namespace mock or by
+      calling main() with a fake argv list.
+
+      ## Acceptance criteria
+
+      1. test_backup_cli_default_out: call cmd_backup with args.palace=seeded_palace, args.out=None;
+         assert a .tar.gz file is created in CWD and the printed "Archive:" line shows the real path.
+      2. test_backup_cli_explicit_out: call cmd_backup with args.out=explicit_path;
+         assert file exists at that path.
+      3. test_restore_cli_happy: call cmd_restore with args.archive=backup_file, args.force=False;
+         assert palace lance/ dir is created.
+      4. test_restore_cli_force_flag: cmd_restore with args.force=True on non-empty palace; no error.
+      5. test_restore_cli_error_exit: cmd_restore on non-empty palace without --force exits with code 1.
+      6. ruff clean; pytest -q passes.
+
+      Origin: STORE-BACKUP-RESTORE hardening round-1 F-5.

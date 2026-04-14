@@ -52,7 +52,8 @@ def test_backup_creates_tarball(seeded_collection, palace_path, tmp_dir):
 def test_backup_metadata_contents(seeded_collection, palace_path, tmp_dir):
     out = os.path.join(tmp_dir, "test.tar.gz")
     kg_path = os.path.join(tmp_dir, "kg.sqlite3")
-    meta = create_backup(palace_path, out_path=out, kg_path=kg_path)
+    meta, returned_out = create_backup(palace_path, out_path=out, kg_path=kg_path)
+    assert returned_out == out
 
     # Returned dict
     assert meta["drawer_count"] == 4
@@ -92,7 +93,7 @@ def test_backup_default_out_path(seeded_collection, palace_path, tmp_dir, monkey
     """Default out_path is mempalace_backup_<ts>.tar.gz in CWD."""
     monkeypatch.chdir(tmp_dir)
     kg_path = os.path.join(tmp_dir, "kg.sqlite3")
-    meta = create_backup(palace_path, kg_path=kg_path)
+    meta, default_out = create_backup(palace_path, kg_path=kg_path)
 
     files = [
         f
@@ -100,6 +101,7 @@ def test_backup_default_out_path(seeded_collection, palace_path, tmp_dir, monkey
         if f.startswith("mempalace_backup_") and f.endswith(".tar.gz")
     ]
     assert len(files) == 1
+    assert os.path.basename(default_out) == files[0]
     assert meta["drawer_count"] == 4
 
 

@@ -494,12 +494,11 @@ def cmd_backup(args):
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
     try:
-        meta = create_backup(palace_path, out_path=args.out or None)
+        meta, out_path = create_backup(palace_path, out_path=args.out or None)
     except Exception as exc:
         print(f"  Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    out_path = args.out or "mempalace_backup_*.tar.gz (in CWD)"
     print(f"  Backed up {meta['drawer_count']} drawers from {len(meta['wings'])} wing(s).")
     print(f"  Wings: {', '.join(meta['wings']) if meta['wings'] else '(none)'}")
     print(f"  Archive: {out_path}")
