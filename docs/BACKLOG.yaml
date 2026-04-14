@@ -430,6 +430,7 @@ items:
       - Arrow compute ops must work for both int32 and float32 columns
       - No behavioral change to the string equality case already working
     resolution: '2026-04-14: Fixed _where_to_arrow_mask to handle $gt/$gte/$lt/$lte/$ne/$eq operator dicts via pyarrow.compute; 6 new TestIterAll tests cover all operators'
+    hardening: 'round-1: 0 fixed, 1 backlogged (STORE-WHERE-ARROW-IN: $in not supported in arrow mask), 2 dismissed. Audit: docs/audits/STORE-WHERE-ARROW-OPS-round-1.md'
   - key: STORE-MIGRATION-TEST-DYNAMIC-COLS
     summary: Derive migration NULL-safety assertion list from _META_FIELD_SPEC instead of hardcoding column names
     type: task
@@ -719,3 +720,33 @@ items:
       6. ruff clean; pytest -q passes.
 
       Origin: STORE-BACKUP-RESTORE hardening round-1 F-5.
+  - key: STORE-WHERE-ARROW-IN
+    summary: $in operator silently ignored in _where_to_arrow_mask — iter_all() returns wrong rows for $in filters
+    type: bug
+    status: open
+    priority: medium
+    size: XS
+    section_id: storage_reliability
+    labels: [storage, bug]
+    description: |-
+      ## Problem
+
+      _where_to_arrow_mask (storage.py) supports $eq/$ne/$gt/$gte/$lt/$lte via _OP_MAP but has no $in support. _OP_MAP.get("$in") returns None, so the operator is silently skipped. iter_all(where={"wing": {"$in": ["a", "b"]}}) returns ALL rows instead of filtering — the same silent-skip bug pattern as the original STORE-WHERE-ARROW-OPS ticket.
+
+      _where_to_sql does support $in, so there is a semantic divergence between the two code paths.
+
+      ## Deliverable
+
+      Add $in support to _where_to_arrow_mask using pyarrow.compute.is_in(). Handle empty list (return no rows), single-element (use pc.equal), and multi-element (use pc.is_in) cases, mirroring _where_to_sql semantics.
+
+      ## Acceptance criteria
+
+      1. iter_all(where={"wing": {"$in": ["alpha", "beta"]}}) returns only rows from those wings
+      2. iter_all(where={"wing": {"$in": []}}) returns zero rows (empty $in)
+      3. iter_all(where={"wing": {"$in": ["alpha"]}}) returns only alpha rows (single-element)
+      4. Tests cover all three $in sub-cases
+      5. ruff clean; pytest -q passes
+
+      ## Origin
+
+      Discovered during STORE-WHERE-ARROW-OPS hardening round-1 (2026-04-14).
