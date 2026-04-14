@@ -1194,3 +1194,400 @@ def test_ast_ts_no_definitions_falls_back():
     assert len(chunks) >= 1
     for chunk in chunks:
         assert chunk.get("chunker_strategy") == "treesitter_adaptive_v1"
+
+
+# =============================================================================
+# chunk_code — Go AST path (tree-sitter)
+# =============================================================================
+
+# --- Fixture sources ---
+
+GO_AST_ALL_BOUNDARIES = """\
+package store
+
+import (
+\t"context"
+\t"fmt"
+)
+
+// Store holds a connection pool and configuration.
+type Store struct {
+\tpool   []string
+\tconfig Config
+}
+
+// Config holds runtime settings.
+type Config interface {
+\tDSN() string
+\tMaxConn() int
+}
+
+const DefaultTimeout = 30
+
+const (
+\tMaxRetries = 3
+\tMinBackoff = 100
+)
+
+var globalStore *Store
+
+var (
+\tErrNotFound = fmt.Errorf("not found")
+\tErrTimeout  = fmt.Errorf("timeout")
+)
+
+// New creates a new Store with the given config.
+func New(cfg Config) *Store {
+\treturn &Store{config: cfg}
+}
+
+// Get retrieves an item by key from the store.
+func (s *Store) Get(ctx context.Context, key string) (string, error) {
+\tif key == "" {
+\t\treturn "", ErrNotFound
+\t}
+\treturn key, nil
+}
+
+func (s *Store) Put(ctx context.Context, key, value string) error {
+\tif key == "" {
+\t\treturn ErrNotFound
+\t}
+\ts.pool = append(s.pool, value)
+\treturn nil
+}
+"""
+
+GO_AST_COMMENT_ATTACHED = """\
+package util
+
+// computeHash computes a hash of the input string.
+// It uses a simple FNV-1a algorithm for speed.
+func computeHash(s string) uint64 {
+\tvar h uint64 = 14695981039346656037
+\tfor _, c := range s {
+\t\th ^= uint64(c)
+\t\th *= 1099511628211
+\t}
+\treturn h
+}
+
+// Detached comment — blank line separates it.
+
+func standalone() string {
+\treturn "standalone"
+}
+"""
+
+GO_AST_PACKAGE_ONLY = """\
+package main
+"""
+
+
+def _skip_if_no_go_ast():
+    """Skip test if tree-sitter-go is not installed."""
+    try:
+        import tree_sitter  # noqa: F401
+        import tree_sitter_go  # noqa: F401
+    except ImportError:
+        pytest.skip("tree-sitter-go not installed")
+
+
+# --- Tests ---
+
+
+def test_ast_go_func_declaration_detected():
+    """AC-1: function_declaration nodes produce separate chunk boundaries."""
+    _skip_if_no_go_ast()
+    chunks = chunk_code(GO_AST_ALL_BOUNDARIES, "go", "store.go")
+    joined = "\n".join(contents(chunks))
+    assert "func New(" in joined
+    assert "func (s *Store) Get(" in joined
+    assert "func (s *Store) Put(" in joined
+
+
+def test_ast_go_method_declaration_detected():
+    """AC-1: method_declaration nodes (receiver functions) produce chunk boundaries."""
+    _skip_if_no_go_ast()
+    chunks = chunk_code(GO_AST_ALL_BOUNDARIES, "go", "store.go")
+    found_get = any("func (s *Store) Get(" in c for c in contents(chunks))
+    found_put = any("func (s *Store) Put(" in c for c in contents(chunks))
+    assert found_get, "method Get not found in any chunk"
+    assert found_put, "method Put not found in any chunk"
+
+
+def test_ast_go_type_declaration_detected():
+    """AC-1: type_declaration nodes (struct and interface) produce chunk boundaries."""
+    _skip_if_no_go_ast()
+    chunks = chunk_code(GO_AST_ALL_BOUNDARIES, "go", "store.go")
+    joined = "\n".join(contents(chunks))
+    assert "type Store struct" in joined
+    assert "type Config interface" in joined
+
+
+def test_ast_go_const_declaration_detected():
+    """AC-1: const_declaration nodes (single and grouped) produce chunk boundaries."""
+    _skip_if_no_go_ast()
+    chunks = chunk_code(GO_AST_ALL_BOUNDARIES, "go", "store.go")
+    joined = "\n".join(contents(chunks))
+    assert "DefaultTimeout" in joined
+    assert "MaxRetries" in joined
+
+
+def test_ast_go_var_declaration_detected():
+    """AC-1: var_declaration nodes (single and grouped) produce chunk boundaries."""
+    _skip_if_no_go_ast()
+    chunks = chunk_code(GO_AST_ALL_BOUNDARIES, "go", "store.go")
+    joined = "\n".join(contents(chunks))
+    assert "globalStore" in joined
+    assert "ErrNotFound" in joined
+
+
+def test_ast_go_chunker_strategy_tag():
+    """AC-1: every chunk from Go AST path carries chunker_strategy='treesitter_v1'."""
+    _skip_if_no_go_ast()
+    chunks = chunk_code(GO_AST_ALL_BOUNDARIES, "go", "store.go")
+    assert len(chunks) >= 1
+    for chunk in chunks:
+        assert chunk.get("chunker_strategy") == "treesitter_v1"
+
+
+def test_ast_go_preamble_preserved():
+    """AC-1: preamble (package clause + imports) appears before the first boundary."""
+    _skip_if_no_go_ast()
+    chunks = chunk_code(GO_AST_ALL_BOUNDARIES, "go", "store.go")
+    joined = "\n".join(contents(chunks))
+    assert "package store" in joined
+    assert "import" in joined
+
+
+def test_ast_go_comment_attached():
+    """AC-4: comment immediately above a func with no blank line is in the same chunk."""
+    _skip_if_no_go_ast()
+    chunks = chunk_code(GO_AST_COMMENT_ATTACHED, "go", "util.go")
+    for c in contents(chunks):
+        if "func computeHash" in c:
+            assert "computeHash computes a hash" in c
+            break
+    else:
+        pytest.fail("func computeHash not found in any chunk")
+
+
+def test_ast_go_no_definitions_falls_back():
+    """AC-3: package-only file (no declarations) falls back to treesitter_adaptive_v1."""
+    _skip_if_no_go_ast()
+    chunks = chunk_code(GO_AST_PACKAGE_ONLY, "go", "main.go")
+    # Empty or adaptive — either is acceptable
+    for chunk in chunks:
+        assert chunk.get("chunker_strategy") in ("treesitter_adaptive_v1", "treesitter_v1")
+
+
+# =============================================================================
+# chunk_code — Rust AST path (tree-sitter)
+# =============================================================================
+
+# --- Fixture sources ---
+
+RUST_AST_ALL_BOUNDARIES = """\
+use std::collections::HashMap;
+use std::fmt;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, Clone)]
+pub struct Cache {
+    data: HashMap<String, String>,
+    capacity: usize,
+}
+
+#[derive(Debug)]
+pub enum Error {
+    NotFound(String),
+    Overflow,
+}
+
+pub trait Store {
+    fn get(&self, key: &str) -> Option<&str>;
+    fn put(&mut self, key: String, value: String) -> Result<()>;
+}
+
+impl Cache {
+    pub fn new(capacity: usize) -> Self {
+        Cache {
+            data: HashMap::new(),
+            capacity,
+        }
+    }
+}
+
+impl Store for Cache {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.data.get(key).map(|s| s.as_str())
+    }
+
+    fn put(&mut self, key: String, value: String) -> Result<()> {
+        if self.data.len() >= self.capacity {
+            return Err(Error::Overflow);
+        }
+        self.data.insert(key, value);
+        Ok(())
+    }
+}
+
+pub mod helpers {
+    pub fn sanitize(s: &str) -> String {
+        s.trim().to_lowercase()
+    }
+}
+
+pub(crate) fn internal_reset(cache: &mut Cache) {
+    cache.data.clear();
+}
+
+pub async fn fetch_remote(url: &str) -> Result<String> {
+    Ok(url.to_string())
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::NotFound(k) => write!(f, "not found: {k}"),
+            Error::Overflow => write!(f, "cache overflow"),
+        }
+    }
+}
+"""
+
+RUST_AST_ATTRIBUTE_ATTACHED = """\
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Config {
+    pub host: String,
+    pub port: u16,
+}
+
+// Standalone comment with blank line above.
+
+pub fn default_config() -> Config {
+    Config {
+        host: "localhost".to_string(),
+        port: 8080,
+    }
+}
+"""
+
+RUST_AST_USE_ONLY = """\
+use std::collections::HashMap;
+use std::sync::Arc;
+"""
+
+
+def _skip_if_no_rust_ast():
+    """Skip test if tree-sitter-rust is not installed."""
+    try:
+        import tree_sitter  # noqa: F401
+        import tree_sitter_rust  # noqa: F401
+    except ImportError:
+        pytest.skip("tree-sitter-rust not installed")
+
+
+# --- Tests ---
+
+
+def test_ast_rust_fn_detected():
+    """AC-2: function_item nodes (fn, pub fn, pub(crate) fn, async fn) produce boundaries."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
+    joined = "\n".join(contents(chunks))
+    assert "fn internal_reset" in joined
+    assert "async fn fetch_remote" in joined
+
+
+def test_ast_rust_struct_detected():
+    """AC-2: struct_item nodes produce chunk boundaries."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
+    found = any("pub struct Cache" in c for c in contents(chunks))
+    assert found, "struct Cache not found in any chunk"
+
+
+def test_ast_rust_enum_detected():
+    """AC-2: enum_item nodes produce chunk boundaries."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
+    found = any("pub enum Error" in c for c in contents(chunks))
+    assert found, "enum Error not found in any chunk"
+
+
+def test_ast_rust_trait_detected():
+    """AC-2: trait_item nodes produce chunk boundaries."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
+    found = any("pub trait Store" in c for c in contents(chunks))
+    assert found, "trait Store not found in any chunk"
+
+
+def test_ast_rust_impl_detected():
+    """AC-2: impl_item nodes (bare impl and impl-for-trait) produce chunk boundaries."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
+    joined = "\n".join(contents(chunks))
+    assert "impl Cache" in joined
+    assert "impl Store for Cache" in joined
+
+
+def test_ast_rust_mod_detected():
+    """AC-2: mod_item nodes produce chunk boundaries."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
+    found = any("pub mod helpers" in c for c in contents(chunks))
+    assert found, "mod helpers not found in any chunk"
+
+
+def test_ast_rust_type_item_detected():
+    """AC-2: type_item nodes produce chunk boundaries."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
+    found = any("pub type Result" in c for c in contents(chunks))
+    assert found, "type Result not found in any chunk"
+
+
+def test_ast_rust_attribute_attached():
+    """AC-4: #[derive(...)] attribute_item immediately above a struct is in the same chunk."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ATTRIBUTE_ATTACHED, "rust", "config.rs")
+    for c in contents(chunks):
+        if "pub struct Config" in c:
+            assert "#[derive(Debug, Clone, Serialize, Deserialize)]" in c
+            assert '#[serde(rename_all = "camelCase")]' in c
+            break
+    else:
+        pytest.fail("struct Config not found in any chunk")
+
+
+def test_ast_rust_chunker_strategy_tag():
+    """AC-2: every chunk from Rust AST path carries chunker_strategy='treesitter_v1'."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
+    assert len(chunks) >= 1
+    for chunk in chunks:
+        assert chunk.get("chunker_strategy") == "treesitter_v1"
+
+
+def test_ast_rust_preamble_preserved():
+    """AC-2: preamble (use declarations) appears before the first item boundary."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
+    joined = "\n".join(contents(chunks))
+    assert "use std::collections::HashMap" in joined
+    assert "use std::fmt" in joined
+
+
+def test_ast_rust_no_definitions_falls_back():
+    """AC-3: use-only file (no items) falls back to treesitter_adaptive_v1."""
+    _skip_if_no_rust_ast()
+    chunks = chunk_code(RUST_AST_USE_ONLY, "rust", "lib.rs")
+    for chunk in chunks:
+        assert chunk.get("chunker_strategy") in ("treesitter_adaptive_v1", "treesitter_v1")

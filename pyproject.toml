@@ -53,6 +53,8 @@ treesitter = [
     "tree-sitter>=0.22,<0.24",
     "tree-sitter-python>=0.23,<0.24; python_version >= '3.10'",
     "tree-sitter-typescript>=0.23,<0.24",
+    "tree-sitter-go>=0.23,<0.24",
+    "tree-sitter-rust>=0.23,<0.24",
 ]
 
 [dependency-groups]

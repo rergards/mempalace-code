@@ -788,6 +788,172 @@ def _chunk_typescript_treesitter(parser, content: str, source_file: str) -> list
     return merged
 
 
+def _chunk_go_treesitter(parser, content: str, source_file: str) -> list:
+    """
+    AST-aware Go chunker using tree-sitter.
+
+    Extracts function_declaration, method_declaration, type_declaration,
+    const_declaration, and var_declaration nodes as chunk boundaries.
+    Attaches immediately adjacent leading comment siblings (no blank-line
+    gap) to their declaration. Feeds raw text chunks through
+    adaptive_merge_split() and tags each result with
+    chunker_strategy='treesitter_v1'.
+
+    Falls back to chunk_adaptive_lines() when no declaration nodes are
+    found (e.g. package-only files).
+    """
+    DEFINITION_TYPES = frozenset(
+        {
+            "function_declaration",
+            "method_declaration",
+            "type_declaration",
+            "const_declaration",
+            "var_declaration",
+        }
+    )
+
+    source_bytes = content.encode("utf-8")
+    tree = parser.parse(source_bytes)
+    children = tree.root_node.children
+
+    # Build boundary_indices: for each declaration node, track the start child
+    # index after pulling in any immediately preceding comment siblings.
+    boundary_indices: list = []
+    for i, child in enumerate(children):
+        if child.type in DEFINITION_TYPES:
+            start_i = i
+            j = i - 1
+            while j >= 0:
+                prev = children[j]
+                if prev.type == "comment":
+                    # No blank line between this comment and the node after it?
+                    gap = source_bytes[prev.end_byte : children[j + 1].start_byte]
+                    if b"\n\n" in gap:
+                        break
+                    start_i = j
+                    j -= 1
+                else:
+                    break
+            boundary_indices.append(start_i)
+
+    if not boundary_indices:
+        fallback = chunk_adaptive_lines(content, source_file)
+        for chunk in fallback:
+            chunk["chunker_strategy"] = "treesitter_adaptive_v1"
+        return fallback
+
+    raw_chunks: list = []
+
+    # Preamble: all content before the first boundary (package clause, imports, etc.)
+    first_start_byte = children[boundary_indices[0]].start_byte
+    if first_start_byte > 0:
+        preamble = source_bytes[:first_start_byte].decode("utf-8").strip()
+        if preamble:
+            raw_chunks.append(preamble)
+
+    # Each declaration chunk: from its start_byte to the next boundary's start_byte
+    for k, start_child_idx in enumerate(boundary_indices):
+        start_byte = children[start_child_idx].start_byte
+        end_byte = (
+            children[boundary_indices[k + 1]].start_byte
+            if k + 1 < len(boundary_indices)
+            else len(source_bytes)
+        )
+        text = source_bytes[start_byte:end_byte].decode("utf-8").strip()
+        if text:
+            raw_chunks.append(text)
+
+    merged = adaptive_merge_split(raw_chunks, source_file)
+    for chunk in merged:
+        chunk["chunker_strategy"] = "treesitter_v1"
+    return merged
+
+
+def _chunk_rust_treesitter(parser, content: str, source_file: str) -> list:
+    """
+    AST-aware Rust chunker using tree-sitter.
+
+    Extracts function_item, struct_item, enum_item, trait_item, impl_item,
+    mod_item, and type_item nodes as chunk boundaries. Attaches immediately
+    adjacent leading attribute_item (#[...]) and comment siblings (no
+    blank-line gap) to their item — critical because tree-sitter-rust keeps
+    #[derive(...)] as a separate attribute_item sibling rather than wrapping
+    it with the item. Feeds raw text chunks through adaptive_merge_split()
+    and tags each result with chunker_strategy='treesitter_v1'.
+
+    Falls back to chunk_adaptive_lines() when no item nodes are found.
+    """
+    DEFINITION_TYPES = frozenset(
+        {
+            "function_item",
+            "struct_item",
+            "enum_item",
+            "trait_item",
+            "impl_item",
+            "mod_item",
+            "type_item",
+        }
+    )
+    # Nodes that can precede a definition and should be attached to it
+    LEADING_TYPES = frozenset({"attribute_item", "line_comment", "block_comment"})
+
+    source_bytes = content.encode("utf-8")
+    tree = parser.parse(source_bytes)
+    children = tree.root_node.children
+
+    # Build boundary_indices: for each item node, track the start child
+    # index after pulling in any immediately preceding attribute/comment siblings.
+    boundary_indices: list = []
+    for i, child in enumerate(children):
+        if child.type in DEFINITION_TYPES:
+            start_i = i
+            j = i - 1
+            while j >= 0:
+                prev = children[j]
+                if prev.type in LEADING_TYPES:
+                    # No blank line between this node and the node after it?
+                    gap = source_bytes[prev.end_byte : children[j + 1].start_byte]
+                    if b"\n\n" in gap:
+                        break
+                    start_i = j
+                    j -= 1
+                else:
+                    break
+            boundary_indices.append(start_i)
+
+    if not boundary_indices:
+        fallback = chunk_adaptive_lines(content, source_file)
+        for chunk in fallback:
+            chunk["chunker_strategy"] = "treesitter_adaptive_v1"
+        return fallback
+
+    raw_chunks: list = []
+
+    # Preamble: all content before the first boundary (use declarations, etc.)
+    first_start_byte = children[boundary_indices[0]].start_byte
+    if first_start_byte > 0:
+        preamble = source_bytes[:first_start_byte].decode("utf-8").strip()
+        if preamble:
+            raw_chunks.append(preamble)
+
+    # Each item chunk: from its start_byte to the next boundary's start_byte
+    for k, start_child_idx in enumerate(boundary_indices):
+        start_byte = children[start_child_idx].start_byte
+        end_byte = (
+            children[boundary_indices[k + 1]].start_byte
+            if k + 1 < len(boundary_indices)
+            else len(source_bytes)
+        )
+        text = source_bytes[start_byte:end_byte].decode("utf-8").strip()
+        if text:
+            raw_chunks.append(text)
+
+    merged = adaptive_merge_split(raw_chunks, source_file)
+    for chunk in merged:
+        chunk["chunker_strategy"] = "treesitter_v1"
+    return merged
+
+
 def chunk_code(content: str, language: str, source_file: str) -> list:
     """
     Split code at structural boundaries (function/class/export declarations).
@@ -798,8 +964,8 @@ def chunk_code(content: str, language: str, source_file: str) -> list:
     raw file extensions (".py", ".ts") for backward compatibility.
 
     When tree-sitter is installed and the language is Python, TypeScript, JavaScript,
-    TSX, or JSX, AST-based chunking is used. All other languages still use the
-    regex path below.
+    TSX, JSX, Go, or Rust, AST-based chunking is used. All other languages still
+    use the regex path below.
     """
     canonical = EXTENSION_LANG_MAP.get(language, language)
     parser = get_parser(canonical)
@@ -808,6 +974,10 @@ def chunk_code(content: str, language: str, source_file: str) -> list:
             return _chunk_python_treesitter(parser, content, source_file)
         if canonical in ("typescript", "javascript", "tsx", "jsx"):
             return _chunk_typescript_treesitter(parser, content, source_file)
+        if canonical == "go":
+            return _chunk_go_treesitter(parser, content, source_file)
+        if canonical == "rust":
+            return _chunk_rust_treesitter(parser, content, source_file)
 
     boundary = get_boundary_pattern(language)
     if not boundary:

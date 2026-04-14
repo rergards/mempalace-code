@@ -30,8 +30,7 @@ def test_get_parser_returns_none_for_unsupported_language(monkeypatch):
     """get_parser() returns None for languages not in _GRAMMAR_LOADERS."""
     monkeypatch.setattr(ts_mod, "TREE_SITTER_AVAILABLE", True)
     assert ts_mod.get_parser("java") is None
-    assert ts_mod.get_parser("rust") is None
-    assert ts_mod.get_parser("go") is None
+    assert ts_mod.get_parser("c") is None
 
 
 def test_get_parser_returns_none_when_grammar_import_fails(monkeypatch):
@@ -249,6 +248,86 @@ def test_get_parser_jsx_parses_jsx():
         return any(has_error(c) for c in node.children)
 
     assert not has_error(root)
+
+
+def test_get_parser_go_returns_parser():
+    """get_parser('go') returns a non-None Parser when tree-sitter-go is installed."""
+    parser = ts_mod.get_parser("go")
+    if parser is None:
+        pytest.skip("tree-sitter-go grammar not installed")
+    assert parser is not None
+
+
+def test_get_parser_go_parses_source():
+    """Parser for 'go' produces a valid Tree from Go source bytes."""
+    parser = ts_mod.get_parser("go")
+    if parser is None:
+        pytest.skip("tree-sitter-go grammar not installed")
+    tree = parser.parse(b'package main\n\nfunc Hello() string { return "hello" }\n')
+    root = tree.root_node
+    assert root.type == "source_file"
+    assert any(child.type == "function_declaration" for child in root.children)
+
+
+def test_get_parser_go_returns_none_when_import_fails(monkeypatch):
+    """get_parser('go') returns None (no exception) when tree_sitter_go raises ImportError."""
+    monkeypatch.setattr(ts_mod, "TREE_SITTER_AVAILABLE", True)
+    monkeypatch.setattr(ts_mod, "_parser_cache", {})
+
+    def broken_loader():
+        raise ImportError("no module named tree_sitter_go")
+
+    monkeypatch.setitem(ts_mod._GRAMMAR_LOADERS, "go", broken_loader)
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = ts_mod.get_parser("go")
+
+    assert result is None
+    assert len(caught) == 1
+    assert issubclass(caught[0].category, RuntimeWarning)
+    assert "go" in str(caught[0].message)
+
+
+def test_get_parser_rust_returns_parser():
+    """get_parser('rust') returns a non-None Parser when tree-sitter-rust is installed."""
+    parser = ts_mod.get_parser("rust")
+    if parser is None:
+        pytest.skip("tree-sitter-rust grammar not installed")
+    assert parser is not None
+
+
+def test_get_parser_rust_parses_source():
+    """Parser for 'rust' produces a valid Tree from Rust source bytes."""
+    parser = ts_mod.get_parser("rust")
+    if parser is None:
+        pytest.skip("tree-sitter-rust grammar not installed")
+    tree = parser.parse(b'pub fn greet() -> &\'static str { "hello" }\n')
+    root = tree.root_node
+    assert root.type == "source_file"
+    assert any(child.type == "function_item" for child in root.children)
+
+
+def test_get_parser_rust_returns_none_when_import_fails(monkeypatch):
+    """get_parser('rust') returns None (no exception) when tree_sitter_rust raises ImportError."""
+    monkeypatch.setattr(ts_mod, "TREE_SITTER_AVAILABLE", True)
+    monkeypatch.setattr(ts_mod, "_parser_cache", {})
+
+    def broken_loader():
+        raise ImportError("no module named tree_sitter_rust")
+
+    monkeypatch.setitem(ts_mod._GRAMMAR_LOADERS, "rust", broken_loader)
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = ts_mod.get_parser("rust")
+
+    assert result is None
+    assert len(caught) == 1
+    assert issubclass(caught[0].category, RuntimeWarning)
+    assert "rust" in str(caught[0].message)
 
 
 def test_chunk_code_typescript_ast_semantic_parity():

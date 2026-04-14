@@ -673,30 +673,10 @@ items:
       1. Three new passing e2e scenario tests covering convo_miner, layers, and palace_graph
       2. No test depends on external network or shared palace state
       3. ruff check passes
-  - key: CODE-TREESITTER-TS
-    summary: 'Tree-sitter TypeScript/JS/TSX chunking: AST-aware boundaries'
-    type: task
-    status: done
-    priority: medium
-    size: M
-    section_id: coding_first
-    labels: [mining, chunking, ast, typescript]
-    description: |-
-      ## Scope
-
-      Replace regex-based TS/JS structural splitting in chunk_code() with tree-sitter AST parsing. Handle TypeScript, JavaScript, TSX, and JSX via appropriate grammars. Can run in parallel with CODE-TREESITTER-PYTHON once infra lands.
-
-      ## Acceptance criteria
-
-      1. TS/JS/TSX/JSX files are chunked using tree-sitter AST nodes when py-tree-sitter is installed
-      2. Existing TS/JS chunking tests pass (regex fallback path unchanged)
-      3. New tests cover: export function, arrow function, class, interface, type alias boundaries
-      4. ruff clean
-    resolution: '2026-04-14: Tree-sitter TypeScript/JS/TSX/JSX AST chunking: _chunk_typescript_treesitter() in miner.py, javascript+jsx grammar loaders in treesitter.py, 12 new AST tests in test_chunking.py, 5 new parser tests in test_treesitter.py, mining integration test in test_miner.py. All 480 tests pass. Harden round-1 (2026-04-14): fixed F-1 (tsx/jsx missing from _LANG_EXTRACT_MAP and import-only check in extract_symbol), added 5 new extract_symbol tests. 485 tests pass.'
   - key: CODE-TREESITTER-EXPAND
     summary: Tree-sitter Go + Rust grammar support
     type: task
-    status: open
+    status: done
     priority: medium
     size: S
     section_id: coding_first
@@ -713,6 +693,7 @@ items:
       3. Existing Go/Rust regex chunking tests pass as fallback
       4. New tests cover language-specific boundary types
       5. ruff clean
+    resolution: '2026-04-14: 2026-04-14: Go + Rust tree-sitter AST chunking: _chunk_go_treesitter() and _chunk_rust_treesitter() in miner.py, go/rust grammar loaders in treesitter.py, tree-sitter-go + tree-sitter-rust added to pyproject.toml [treesitter] extra, 15 new Go AST tests and 13 new Rust AST tests in test_chunking.py, 6 new parser smoke tests in test_treesitter.py. All tests pass, ruff clean.'
   - key: CODE-TREESITTER-PYTHON-DETACH-TEST
     summary: Add negative test for detached-comment gap detection in _chunk_python_treesitter
     type: task

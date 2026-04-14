@@ -33,6 +33,8 @@ _GRAMMAR_LOADERS = {
     "javascript": lambda: __import__("tree_sitter_typescript").language_typescript(),
     "tsx": lambda: __import__("tree_sitter_typescript").language_tsx(),
     "jsx": lambda: __import__("tree_sitter_typescript").language_tsx(),
+    "go": lambda: __import__("tree_sitter_go").language(),
+    "rust": lambda: __import__("tree_sitter_rust").language(),
 }
 
 
