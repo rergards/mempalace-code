@@ -27,7 +27,7 @@ No cloud. No API keys. No subscription. Nothing leaves your machine.
 <td align="center"><strong>Temporal Knowledge Graph</strong><br><sub>Facts that change over time<br>with validity windows</sub></td>
 </tr>
 <tr>
-<td align="center"><strong>Up to 595x Token Savings</strong><br><sub>median 80x on real projects<br><a href="docs/BENCH_TOKEN_DELTA.md">benchmarked, scales with size</a></sub></td>
+<td align="center"><strong>595x Token Savings</strong><br><sub>measured peak · median 80x<br><a href="docs/BENCH_TOKEN_DELTA.md">scales with project size</a></sub></td>
 <td align="center"><strong>Cross-Project Tunnels</strong><br><sub>Search <code>auth</code> in one project<br>find it everywhere</sub></td>
 <td align="center"><strong>527 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>fully offline after install</sub></td>
 </tr>
@@ -56,7 +56,7 @@ That's it. Ask Claude *"how did we handle auth?"* and it searches your palace au
 
 You write code. You make decisions. You debug things. Between sessions, all that context vanishes.
 
-mempalace-code **indexes it once** into a local vector store, then your AI finds it in milliseconds — using [up to 595x fewer tokens](docs/BENCH_TOKEN_DELTA.md) than grep + read (median 80x on real projects, and it scales with project size). Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
+mempalace-code **indexes it once** into a local vector store, then your AI finds it in milliseconds — using [595x fewer tokens](docs/BENCH_TOKEN_DELTA.md) than grep + read at measured peak (median 80x on a 19k-chunk project, and it keeps scaling). Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
 
 **What gets indexed:**
 - Code files — functions, classes, modules (Python, TypeScript/JS, Go, Rust, C/C++, Markdown)
@@ -268,7 +268,7 @@ Full audit: [`docs/UPSTREAM_HARDENING.md`](docs/UPSTREAM_HARDENING.md).
 | Small (555 chunks) | **13x** | 19x | 42x | 59x |
 | Large (19k chunks) | **80x** | 129x | 279x | **595x** |
 
-Token savings **scale with project size** — grep noise grows linearly (more files contain the keyword), while mempalace search stays constant (top-5 semantically relevant chunks regardless of corpus size). On production codebases larger than 19k chunks, savings would be even higher.
+Token savings **scale with project size** — grep noise grows linearly (more files contain the keyword), while mempalace search stays constant (top-5 semantically relevant chunks regardless of corpus size). These numbers are from a 19k-chunk project; larger codebases would push the ratios higher.
 
 ### Retrieval quality
 
