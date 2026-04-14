@@ -44,12 +44,22 @@ pip install mempalace-code
 
 mempalace init ~/projects/myapp       # detect rooms, download embedding model (~80 MB)
 mempalace mine ~/projects/myapp       # index your codebase
-claude mcp add mempalace -- python -m mempalace.mcp_server  # connect to Claude
+claude mcp add mempalace -- python -m mempalace.mcp_server  # connect to Claude Code
 ```
 
-That's it. Ask Claude *"how did we handle auth?"* and it searches your palace automatically.
+This makes the 18 tools available to your AI. For the AI to search and store memories **proactively** (without you asking), add usage rules to your `CLAUDE.md` — see [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7, or run the full install runbook which handles everything including prompt injection.
 
-> Installing for a coding agent? See [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) — handles install, MCP wiring, verification, and injects usage rules into CLAUDE.md.
+### Supported MCP Clients
+
+mempalace works with any [MCP](https://modelcontextprotocol.io/)-compatible client:
+
+- **Claude Code** (CLI, desktop, web) — `claude mcp add mempalace -- python -m mempalace.mcp_server`
+- **Claude Desktop** — add to `claude_desktop_config.json`
+- **Cursor** — add as MCP server in settings
+- **Windsurf** — add as MCP server in settings
+- **Any MCP client** — point it at `python -m mempalace.mcp_server` (stdio transport)
+
+For local models without MCP support (Llama, Mistral, etc.), use `mempalace wake-up` to pipe context into the system prompt — see [Memory Layers](#memory-layers).
 
 ---
 
