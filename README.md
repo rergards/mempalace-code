@@ -47,7 +47,7 @@ mempalace mine ~/projects/myapp       # index your codebase
 claude mcp add mempalace -- python -m mempalace.mcp_server  # connect to Claude Code
 ```
 
-This makes the 18 tools available to your AI. For the AI to search and store memories **proactively** (without you asking), add usage rules to your `CLAUDE.md` — see [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7, or run the full install runbook which handles everything including prompt injection.
+This makes the 18 tools available to your AI. For the AI to search and store memories **proactively** (without you asking), it needs usage rules in your `CLAUDE.md`. The easiest way: ask your AI to read [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) — it will handle prompt setup, verification, and everything else.
 
 ### Supported MCP Clients
 
