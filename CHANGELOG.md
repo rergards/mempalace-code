@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-14 · MINE-DEVOPS-INFRA
+
+Add DevOps/infrastructure file support to the miner: Terraform (`.tf`, `.tfvars`, `.hcl`), Dockerfiles, Makefiles, Helm templates (`.tpl`), Ansible Jinja2 templates (`.j2`, `.jinja2`), and general config files (`.conf`, `.cfg`, `.ini`) are now scanned and indexed.
+
 ## 2026-04-14 · STORE-CHROMA-DELETE-WING-LIMIT
 
 `ChromaStore.delete_wing` now calls `self.get()` instead of `self._col.get()`, so the `limit=10000` wrapper applies. Wings with more drawers than ChromaDB's default page size were silently partially deleted. (ChromaDB is deprecated; cleanup only.)
