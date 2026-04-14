@@ -207,6 +207,21 @@ def test_go_type_interface():
     )
 
 
+def test_go_type_scalar():
+    assert extract_symbol("type MyInt int\n", "go") == ("MyInt", "type")
+
+
+def test_go_type_func():
+    assert extract_symbol("type Handler func(http.ResponseWriter, *http.Request)\n", "go") == (
+        "Handler",
+        "type",
+    )
+
+
+def test_go_type_alias():
+    assert extract_symbol("type Alias = Original\n", "go") == ("Alias", "type")
+
+
 # =============================================================================
 # RUST
 # =============================================================================

@@ -449,7 +449,7 @@ PY_BOUNDARY = re.compile(
 GO_BOUNDARY = re.compile(
     r"^(?:"
     r"func\s+(?:\(.*?\)\s*)?\w+"
-    r"|type\s+\w+\s+(?:struct|interface)"
+    r"|type\s+\w+"
     r"|var\s+\("
     r"|const\s+\("
     r")",
@@ -560,6 +560,7 @@ _GO_EXTRACT = [
     (re.compile(r"^func\s+(\w+)", re.MULTILINE), "function"),
     (re.compile(r"^type\s+(\w+)\s+struct", re.MULTILINE), "struct"),
     (re.compile(r"^type\s+(\w+)\s+interface", re.MULTILINE), "interface"),
+    (re.compile(r"^type\s+(\w+)\b", re.MULTILINE), "type"),
 ]
 
 _RUST_EXTRACT = [
