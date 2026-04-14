@@ -43,19 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: STORE-REMOVE-CHROMA-DEFAULT
-    summary: "Remove ChromaDB from default install path"
-    type: task
-    priority: low
-    status: done
-    size: S
-    section_id: storage_reliability
-    labels: [storage, packaging]
-    description: >
-      After migration CLI is solid, make ChromaDB purely optional. Remove any import-time chromadb references. ChromaStore should only be importable when [chroma] extra is installed. Lazy import pattern.
-
-    resolution: '2026-04-14: Moved ChromaStore to _chroma_store.py; storage.py now has lazy __getattr__ and open_store guard; migrate.py and test_migrate.py updated to import from ._chroma_store'
-    hardening: 'round-1: 1 fixed (F401 noqa removed from _chroma_store.py), 1 backlogged (STORE-CHROMA-IMPORT-ERROR-TESTS: ImportError path tests), 1 dismissed. Audit: docs/audits/STORE-REMOVE-CHROMA-DEFAULT-round-1.md'
   - key: MCP-FILE-CONTEXT
     summary: "MCP tool: mempalace_file_context — get all chunks for a file"
     type: feature
@@ -257,12 +244,14 @@ items:
   - key: STORE-CHROMA-DELETE-WING-LIMIT
     summary: Fix ChromaStore.delete_wing to use self.get() so the limit wrapper applies
     type: task
-    status: open
+    status: done
     priority: low
     size: XS
     section_id: storage_reliability
     labels: [storage, chroma, cleanup]
     description: 'ChromaStore.delete_wing calls self._col.get(where=...) directly on the ChromaDB collection, bypassing the ChromaStore.get() wrapper that sets limit=10000. Wings with more drawers than ChromaDB''s default page size would be silently partially deleted. Fix: replace self._col.get(where={"wing": wing}) with self.get(where={"wing": wing}) in ChromaStore.delete_wing. Acceptance criteria: (1) the fix is a 1-line change; (2) existing test_delete_wing passes; (3) ruff clean. Identified in STORE-DELETE-WING harden round-1 (F-003). Note: ChromaDB is the deprecated backend; this is cleanup only.'
+    resolution: '2026-04-14: Replaced self._col.get() with self.get() in ChromaStore.delete_wing; all 44 storage tests pass, ruff clean'
+    hardening: 'round-1: 0 fixed, 0 backlogged, 1 dismissed (F-1: no ChromaStore-specific test — dismissed, deprecated backend)'
   - key: STORE-DELETE-WING-EXCEPTION-TEST
     summary: Add test verifying tool_delete_wing returns error dict when storage raises
     type: task
