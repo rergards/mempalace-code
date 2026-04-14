@@ -27,7 +27,7 @@ No cloud. No API keys. No subscription. Nothing leaves your machine.
 <td align="center"><strong>Temporal Knowledge Graph</strong><br><sub>Facts that change over time<br>with validity windows</sub></td>
 </tr>
 <tr>
-<td align="center"><strong>13–80x Token Savings</strong><br><sub>vs grep + read approaches<br><a href="docs/BENCH_TOKEN_DELTA.md">benchmarked</a></sub></td>
+<td align="center"><strong>Up to 595x Token Savings</strong><br><sub>median 80x on real projects<br><a href="docs/BENCH_TOKEN_DELTA.md">benchmarked, scales with size</a></sub></td>
 <td align="center"><strong>Cross-Project Tunnels</strong><br><sub>Search <code>auth</code> in one project<br>find it everywhere</sub></td>
 <td align="center"><strong>527 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>fully offline after install</sub></td>
 </tr>
@@ -56,7 +56,7 @@ That's it. Ask Claude *"how did we handle auth?"* and it searches your palace au
 
 You write code. You make decisions. You debug things. Between sessions, all that context vanishes.
 
-mempalace-code **indexes it once** into a local vector store, then your AI finds it in milliseconds — instead of re-reading your entire codebase every time. Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
+mempalace-code **indexes it once** into a local vector store, then your AI finds it in milliseconds — using [up to 595x fewer tokens](docs/BENCH_TOKEN_DELTA.md) than grep + read (median 80x on real projects, and it scales with project size). Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
 
 **What gets indexed:**
 - Code files — functions, classes, modules (Python, TypeScript/JS, Go, Rust, C/C++, Markdown)
@@ -261,13 +261,23 @@ Full audit: [`docs/UPSTREAM_HARDENING.md`](docs/UPSTREAM_HARDENING.md).
 
 ## Benchmarks
 
-| Benchmark | Score | Notes |
-|-----------|-------|-------|
-| Code retrieval R@5 (MiniLM, 469 chunks) | **95.0%** | [methodology](benchmarks/BENCHMARKS.md) |
-| Code retrieval R@10 | **100%** | |
-| Token savings vs grep+read | **13–80x** | [benchmark](docs/BENCH_TOKEN_DELTA.md) |
+### Token savings vs grep + read ([full methodology](docs/BENCH_TOKEN_DELTA.md))
 
-Upstream LongMemEval result (96.6% R@5 on conversations) is retained with [methodology caveats](benchmarks/BENCHMARKS.md). Code benchmarks use the fork's own test corpus.
+| Project size | Median | Mean | P95 | Peak |
+|-------------|--------|------|-----|------|
+| Small (555 chunks) | **13x** | 19x | 42x | 59x |
+| Large (19k chunks) | **80x** | 129x | 279x | **595x** |
+
+Token savings **scale with project size** — grep noise grows linearly (more files contain the keyword), while mempalace search stays constant (top-5 semantically relevant chunks regardless of corpus size). On production codebases larger than 19k chunks, savings would be even higher.
+
+### Retrieval quality
+
+| Benchmark | Score |
+|-----------|-------|
+| Code retrieval R@5 (MiniLM, 469 chunks) | **95.0%** |
+| Code retrieval R@10 | **100%** |
+
+Upstream LongMemEval result (96.6% R@5 on conversations) retained with [methodology caveats](benchmarks/BENCHMARKS.md).
 
 ---
 
