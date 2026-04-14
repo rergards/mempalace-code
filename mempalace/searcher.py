@@ -170,6 +170,10 @@ SUPPORTED_LANGUAGES = {
     "css",
     # data / query
     "sql",
+    # config
+    "yaml",
+    "json",
+    "toml",
 }
 
 VALID_SYMBOL_TYPES = {

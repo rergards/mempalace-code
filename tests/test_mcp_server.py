@@ -552,6 +552,35 @@ class TestCodeSearchTool:
         assert "supported_languages" in result
         assert "python" in result["supported_languages"]
 
+    def test_code_search_yaml_language(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """code_search(language='yaml') must return results, not an error (AC-1)."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        # Seed a yaml drawer directly so the filter returns at least one hit.
+        code_seeded_collection.add(
+            ids=["code_yaml_pyproject"],
+            documents=["name = 'mempalace'\nversion = '0.1.0'\n[tool.ruff]\nline-length = 100"],
+            metadatas=[
+                {
+                    "wing": "mempalace",
+                    "room": "backend",
+                    "source_file": "/project/mempalace/pyproject.toml",
+                    "language": "yaml",
+                    "symbol_name": "",
+                    "symbol_type": "",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-06T00:00:00",
+                }
+            ],
+        )
+        from mempalace.mcp_server import tool_code_search
+
+        result = tool_code_search(query="project configuration", language="yaml")
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        assert "results" in result
+
     def test_code_search_invalid_symbol_type(
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):

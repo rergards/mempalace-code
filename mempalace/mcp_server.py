@@ -650,7 +650,7 @@ TOOLS = {
                 "query": {"type": "string", "description": "What to search for"},
                 "language": {
                     "type": "string",
-                    "description": "Filter by language (e.g. python, go, typescript, rust, sql, html, css)",
+                    "description": "Filter by language (e.g. python, go, typescript, rust, sql, html, css, yaml, json, toml)",
                 },
                 "symbol_name": {
                     "type": "string",
