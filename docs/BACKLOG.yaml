@@ -54,7 +54,7 @@ items:
     description: >
       SHEBANG_PATTERNS uses re.compile(r"node") with fullmatch(), which matches "node" exactly but not "nodejs". On Debian/Ubuntu systems the Node.js binary is named "nodejs", so #!/usr/bin/nodejs or #!/usr/bin/env nodejs returns "unknown" instead of "javascript". Deliverable: extend the node pattern to match both "node" and "nodejs" (e.g., r"nodejs?"). Acceptance criteria: (1) detect_language(Path("script"), "#!/usr/bin/nodejs\n") == "javascript"; (2) detect_language(Path("script"), "#!/usr/bin/env nodejs\n") == "javascript"; (3) existing tests unchanged; (4) ruff clean. Identified in CODE-LANG-DETECT harden round-1 (F-003).
 
-    resolution: '2026-04-14: Extended node shebang pattern to r"node(js)?" to detect Debian/Ubuntu nodejs binary name'
+    resolution: '2026-04-14: Extended node shebang pattern to r"node(js)?" to detect Debian/Ubuntu nodejs binary name. Harden round-1: 0 fixed, 0 backlogged, 1 dismissed (info). Audit: docs/audits/LANG-DETECT-NODEJS-SHEBANG-round-1.md'
   - key: LANG-DETECT-GO-VAR-BODY
     summary: "Go var inside function bodies creates spurious chunk boundaries"
     type: task
