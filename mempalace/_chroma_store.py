@@ -15,7 +15,7 @@ Internal module — use ``mempalace.storage.open_store(..., backend="chroma")`` 
 
 from __future__ import annotations
 
-import chromadb  # noqa: F401 — intentional top-level import; fails fast if not installed
+import chromadb  # top-level import: fails fast with ImportError if [chroma] extra not installed
 
 from typing import Any, Dict
 
