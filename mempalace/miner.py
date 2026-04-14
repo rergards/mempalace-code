@@ -43,6 +43,10 @@ EXTENSION_LANG_MAP = {
     ".html": "html",
     ".css": "css",
     ".csv": "csv",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".hpp": "cpp",
 }
 
 SHEBANG_PATTERNS = [
@@ -74,6 +78,10 @@ READABLE_EXTENSIONS = {
     ".csv",
     ".sql",
     ".toml",
+    ".c",
+    ".h",
+    ".cpp",
+    ".hpp",
 }
 
 SKIP_DIRS = {
@@ -573,6 +581,20 @@ _RUST_EXTRACT = [
     (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?type\s+(\w+)", re.MULTILINE), "type"),
 ]
 
+_C_EXTRACT = [
+    (re.compile(r"^struct\s+(\w+)", re.MULTILINE), "struct"),
+    (re.compile(r"^enum\s+(\w+)", re.MULTILINE), "enum"),
+    # heuristic: word chars, optional *, then name( — matches most top-level C defs
+    (re.compile(r"^[\w][\w\s*]+\s(\w+)\s*\([^;]*\)\s*\{", re.MULTILINE), "function"),
+]
+
+_CPP_EXTRACT = [
+    (re.compile(r"^class\s+(\w+)", re.MULTILINE), "class"),
+    (re.compile(r"^struct\s+(\w+)", re.MULTILINE), "struct"),
+    (re.compile(r"^enum\s+(?:class\s+)?(\w+)", re.MULTILINE), "enum"),
+    (re.compile(r"^[\w][\w\s*:<>]+\s(\w+)\s*\([^;]*\)\s*\{", re.MULTILINE), "function"),
+]
+
 _LANG_EXTRACT_MAP = {
     "python": _PY_EXTRACT,
     "typescript": _TS_EXTRACT,
@@ -581,6 +603,8 @@ _LANG_EXTRACT_MAP = {
     "jsx": _TS_EXTRACT,
     "go": _GO_EXTRACT,
     "rust": _RUST_EXTRACT,
+    "c": _C_EXTRACT,
+    "cpp": _CPP_EXTRACT,
 }
 
 

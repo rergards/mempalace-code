@@ -361,6 +361,56 @@ def test_rust_generic_impl_with_bound():
 
 
 # =============================================================================
+# C
+# =============================================================================
+
+
+def test_c_struct():
+    assert extract_symbol("struct Node {\n    int val;\n};\n", "c") == ("Node", "struct")
+
+
+def test_c_enum():
+    assert extract_symbol("enum Color {\n    RED,\n    GREEN,\n};\n", "c") == ("Color", "enum")
+
+
+def test_c_function():
+    assert extract_symbol("int add(int a, int b) {\n    return a + b;\n}\n", "c") == (
+        "add",
+        "function",
+    )
+
+
+# =============================================================================
+# C++
+# =============================================================================
+
+
+def test_cpp_class():
+    assert extract_symbol("class Foo {\n};\n", "cpp") == ("Foo", "class")
+
+
+def test_cpp_struct():
+    assert extract_symbol("struct Point {\n    float x;\n    float y;\n};\n", "cpp") == (
+        "Point",
+        "struct",
+    )
+
+
+def test_cpp_enum():
+    assert extract_symbol("enum Direction {\n    UP,\n    DOWN,\n};\n", "cpp") == (
+        "Direction",
+        "enum",
+    )
+
+
+def test_cpp_enum_class():
+    assert extract_symbol("enum class Status {\n    Active,\n    Inactive,\n};\n", "cpp") == (
+        "Status",
+        "enum",
+    )
+
+
+# =============================================================================
 # NON-CODE LANGUAGES — all return ("", "")
 # =============================================================================
 

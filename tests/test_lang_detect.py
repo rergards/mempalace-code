@@ -35,6 +35,10 @@ from mempalace.miner import detect_language
         (".html", "html"),
         (".css", "css"),
         (".csv", "csv"),
+        (".c", "c"),
+        (".h", "c"),
+        (".cpp", "cpp"),
+        (".hpp", "cpp"),
     ],
 )
 def test_extension_detection(ext, expected):

@@ -551,6 +551,11 @@ class TestCodeSearchTool:
         assert "error" in result
         assert "supported_languages" in result
         assert "python" in result["supported_languages"]
+        # Verify config-file languages are included in the hint list (AC regression guard)
+        for lang in ("yaml", "json", "toml"):
+            assert lang in result["supported_languages"], (
+                f"{lang!r} missing from supported_languages"
+            )
 
     def test_code_search_yaml_language(
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
@@ -580,6 +585,41 @@ class TestCodeSearchTool:
         result = tool_code_search(query="project configuration", language="yaml")
         assert "error" not in result, f"Unexpected error: {result.get('error')}"
         assert "results" in result
+        assert len(result["results"]) > 0, (
+            "language='yaml' filter returned no results despite seeded data"
+        )
+
+    def test_code_search_cpp_language(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """code_search(language='cpp') must return results, not an error (AC-2)."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        # Seed a cpp drawer directly so the filter returns at least one hit.
+        code_seeded_collection.add(
+            ids=["code_cpp_node"],
+            documents=["class Node {\npublic:\n    int val;\n    Node* next;\n};\n"],
+            metadatas=[
+                {
+                    "wing": "mempalace",
+                    "room": "backend",
+                    "source_file": "/project/src/node.cpp",
+                    "language": "cpp",
+                    "symbol_name": "Node",
+                    "symbol_type": "class",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-06T00:00:00",
+                }
+            ],
+        )
+        from mempalace.mcp_server import tool_code_search
+
+        result = tool_code_search(query="linked list node", language="cpp")
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        assert "results" in result
+        assert len(result["results"]) > 0, (
+            "language='cpp' filter returned no results despite seeded data"
+        )
 
     def test_code_search_invalid_symbol_type(
         self, monkeypatch, config, palace_path, code_seeded_collection, kg

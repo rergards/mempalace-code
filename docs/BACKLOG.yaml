@@ -265,35 +265,27 @@ items:
       Each CI run re-downloads ~500MB of packages (lancedb, sentence-transformers, torch) and the all-MiniLM-L6-v2 model at test runtime. Add pip cache via actions/setup-python cache param, and a HuggingFace model cache step (cache key: model name hash). Expected savings: 3–5 minutes per job, ~15 minutes total per push. AC: cold cache run completes in under 10 minutes; warm cache run completes in under 3 minutes.
 
     resolution: null
-  - key: CODE-SYMBOL-META-GO-TYPES
-    summary: Extract Go type alias and custom scalar type symbols
-    type: feature
-    status: done
-    priority: low
-    size: S
-    section_id: coding_first
-    labels: [mining, metadata, go]
-    description: 'Currently _GO_EXTRACT only captures type X struct and type X interface. Missing: type MyInt int (custom scalar), type Handler func(...) (function type), type Alias = Original (type alias, Go 1.9+). These return ('''', '''') instead of the correct symbol name. Add a catch-all type pattern to _GO_EXTRACT and cover with unit tests. AC: test_go_type_scalar, test_go_type_func, test_go_type_alias all pass; existing tests unaffected.'
-    resolution: '2026-04-14: Added catch-all Go type pattern to _GO_EXTRACT and broadened GO_BOUNDARY; test_go_type_scalar, test_go_type_func, test_go_type_alias all pass'
-    hardened: '2026-04-14: round-1 — 0 fixed, 0 backlogged, 3 dismissed (all info); see docs/audits/CODE-SYMBOL-META-GO-TYPES-round-1.md'
   - key: CODE-SEARCH-LANG-CONFIG
     summary: Allow filtering by config-file languages in code_search (yaml, json, toml)
     type: feature
-    status: open
+    status: done
     priority: low
     size: XS
     section_id: coding_first
     labels: [search, coding, mcp]
     description: 'The miner produces drawers with language values yaml, json, toml (config files) but code_search SUPPORTED_LANGUAGES in searcher.py rejects them with a validation error. Users who mine projects with YAML/JSON/TOML files cannot use language= filter for those drawers. Fix: add "yaml", "json", "toml" to SUPPORTED_LANGUAGES; update the MCP schema description. AC: (1) code_search(language="yaml") returns results instead of error; (2) test_code_search_invalid_language still rejects "cobol"; (3) ruff clean; pytest -q passes. Origin: MCP-CODE-SEARCH hardening round-1 F-1.'
+    resolution: '2026-04-14: Added yaml, json, toml to SUPPORTED_LANGUAGES in searcher.py; updated MCP schema description; added test_code_search_yaml_language AC-1 test'
+    hardening: 'round-1: 2 fixed (yaml/json/toml regression guard + non-empty results assertion), 1 backlogged (CODE-SEARCH-LANG-PROSE), 2 dismissed. Audit: docs/audits/CODE-SEARCH-LANG-CONFIG-round-1.md'
   - key: CODE-SEARCH-LANG-CPP
     summary: Add C/C++ to miner EXTENSION_LANG_MAP so code_search language="cpp" returns results
     type: feature
-    status: open
+    status: done
     priority: low
     size: XS
     section_id: coding_first
     labels: [mining, search, coding]
     description: 'SUPPORTED_LANGUAGES in code_search pre-emptively includes "cpp" and "c" but the miner EXTENSION_LANG_MAP (miner.py) has no entries for .c or .cpp. Queries with language="cpp" pass validation but always return empty results because no mined drawers have those language values. Fix: add ".c": "c" and ".cpp": "cpp" to EXTENSION_LANG_MAP; verify symbol extraction for C/C++ (likely needs regex patterns). AC: (1) mining a project with .c/.cpp files produces drawers with language="c"/"cpp"; (2) code_search(language="cpp") returns those drawers; (3) ruff clean; pytest -q passes. Origin: MCP-CODE-SEARCH hardening round-1 F-1.'
+    resolution: '2026-04-14: Added .c/.cpp/.h/.hpp to EXTENSION_LANG_MAP and READABLE_EXTENSIONS; added _C_EXTRACT/_CPP_EXTRACT regex patterns and registered in _LANG_EXTRACT_MAP; tests for lang detect, symbol extraction, and code_search language filter'
   - key: CLI-DIARY-WRITE-ID-COLLISION
     summary: Use UUID for diary entry IDs to prevent same-second collision
     type: bug
@@ -719,3 +711,27 @@ items:
       4. ruff clean
 
       Identified in CODE-TREESITTER-EXPAND harden round-1 (F-3).
+  - key: CODE-SEARCH-LANG-PROSE
+    summary: Add markdown, text, csv to SUPPORTED_LANGUAGES so code_search language filter works for prose and data drawers
+    type: feature
+    status: open
+    priority: low
+    size: XS
+    section_id: coding_first
+    labels: [search, coding, mcp]
+    description: |-
+      ## Problem
+
+      The miner assigns language="markdown" (.md), language="text" (.txt), and language="csv" (.csv) to drawers via EXTENSION_LANG_MAP, but SUPPORTED_LANGUAGES in searcher.py omits these values. Attempting code_search(language="markdown") returns a validation error instead of results. Same class of bug as yaml/json/toml (CODE-SEARCH-LANG-CONFIG).
+
+      ## Scope
+
+      Add "markdown", "text", "csv" to SUPPORTED_LANGUAGES in searcher.py; update the MCP schema description string for the language parameter.
+
+      ## Acceptance criteria
+
+      1. code_search(language="markdown") returns results instead of a validation error
+      2. test_code_search_invalid_language still rejects "cobol"
+      3. ruff clean; pytest -q passes
+
+      Origin: CODE-SEARCH-LANG-CONFIG hardening round-1 F-5.
