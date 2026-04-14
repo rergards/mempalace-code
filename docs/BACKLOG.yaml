@@ -229,19 +229,6 @@ items:
     section_id: quality
     labels: [test, storage]
     description: LanceStore.get(ids=[]) and _where_to_sql with $or, $ne, $gt operators have no test coverage. Add targeted unit tests to prevent regressions on these paths.
-  - key: MINE-EAGER-EMBED-INIT
-    summary: "Force eager embedding model init during 'Loading embedding model...' phase"
-    type: task
-    status: done
-    priority: low
-    size: XS
-    section_id: coding_first
-    labels: [mining, devex]
-    description: >
-      LanceDB lazily initializes the sentence-transformers model on first embed call, not at store open time. This causes the "Loading weights" output from HuggingFace to appear mid-batch during flush_batch() instead of during the "Loading embedding model..." phase. Fix: after get_collection() in mine(), call a dummy embed (e.g. store._embed(["warmup"])) to force model initialization. AC: all model loading output appears between "Loading embedding model..." and "Model ready."; no HF output during batch embedding.
-
-    resolution: "Already implemented in commit 530688f (MINE-LANCE-COMPACT): LanceStore.warmup() calls self._embed(['warmup']); mine() calls collection.warmup() between 'Loading embedding model...' and 'Model ready.' prints. Tests: TestWarmup + test_mine_calls_warmup_once. Verified 2026-04-14."
-    hardening: "round-1 2026-04-14: 0 fixed, 0 backlogged, 1 dismissed (convo_miner warmup gap — scoped out per plan)"
   - key: CI-CHROMA-COMPAT-TESTS
     summary: "Add ChromaStore-specific tests so the chroma-compat CI job actually validates ChromaDB"
     type: task
@@ -281,12 +268,14 @@ items:
   - key: CODE-SYMBOL-META-GO-TYPES
     summary: Extract Go type alias and custom scalar type symbols
     type: feature
-    status: open
+    status: done
     priority: low
     size: S
     section_id: coding_first
     labels: [mining, metadata, go]
     description: 'Currently _GO_EXTRACT only captures type X struct and type X interface. Missing: type MyInt int (custom scalar), type Handler func(...) (function type), type Alias = Original (type alias, Go 1.9+). These return ('''', '''') instead of the correct symbol name. Add a catch-all type pattern to _GO_EXTRACT and cover with unit tests. AC: test_go_type_scalar, test_go_type_func, test_go_type_alias all pass; existing tests unaffected.'
+    resolution: '2026-04-14: Added catch-all Go type pattern to _GO_EXTRACT and broadened GO_BOUNDARY; test_go_type_scalar, test_go_type_func, test_go_type_alias all pass'
+    hardened: '2026-04-14: round-1 — 0 fixed, 0 backlogged, 3 dismissed (all info); see docs/audits/CODE-SYMBOL-META-GO-TYPES-round-1.md'
   - key: CODE-SEARCH-LANG-CONFIG
     summary: Allow filtering by config-file languages in code_search (yaml, json, toml)
     type: feature
