@@ -241,6 +241,7 @@ items:
       LanceDB lazily initializes the sentence-transformers model on first embed call, not at store open time. This causes the "Loading weights" output from HuggingFace to appear mid-batch during flush_batch() instead of during the "Loading embedding model..." phase. Fix: after get_collection() in mine(), call a dummy embed (e.g. store._embed(["warmup"])) to force model initialization. AC: all model loading output appears between "Loading embedding model..." and "Model ready."; no HF output during batch embedding.
 
     resolution: "Already implemented in commit 530688f (MINE-LANCE-COMPACT): LanceStore.warmup() calls self._embed(['warmup']); mine() calls collection.warmup() between 'Loading embedding model...' and 'Model ready.' prints. Tests: TestWarmup + test_mine_calls_warmup_once. Verified 2026-04-14."
+    hardening: "round-1 2026-04-14: 0 fixed, 0 backlogged, 1 dismissed (convo_miner warmup gap — scoped out per plan)"
   - key: CI-CHROMA-COMPAT-TESTS
     summary: "Add ChromaStore-specific tests so the chroma-compat CI job actually validates ChromaDB"
     type: task
