@@ -17,6 +17,8 @@ Commands:
     mempalace wake-up                     Show L0 + L1 wake-up context
     mempalace wake-up --wing my_app       Wake-up for a specific project
     mempalace status                      Show what's been filed
+    mempalace backup [--out FILE]         Snapshot palace to a .tar.gz archive
+    mempalace restore FILE [--force]      Restore palace from a .tar.gz archive
     mempalace diary write --agent <name> --entry "<text>"  Write a diary entry
 
 Examples:
@@ -487,6 +489,42 @@ def cmd_compress(args):
         print("  (dry run -- nothing stored)")
 
 
+def cmd_backup(args):
+    from .backup import create_backup
+
+    palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+    try:
+        meta = create_backup(palace_path, out_path=args.out or None)
+    except Exception as exc:
+        print(f"  Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    out_path = args.out or "mempalace_backup_*.tar.gz (in CWD)"
+    print(f"  Backed up {meta['drawer_count']} drawers from {len(meta['wings'])} wing(s).")
+    print(f"  Wings: {', '.join(meta['wings']) if meta['wings'] else '(none)'}")
+    print(f"  Archive: {out_path}")
+
+
+def cmd_restore(args):
+    from .backup import restore_backup
+
+    palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+    try:
+        meta = restore_backup(args.archive, palace_path, force=args.force)
+    except FileExistsError as exc:
+        print(f"  Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as exc:
+        print(f"  Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"  Restored palace to: {palace_path}")
+    if meta:
+        print(f"  Drawers: {meta.get('drawer_count', '?')}")
+        print(f"  Wings: {', '.join(meta.get('wings', [])) or '(none)'}")
+        print(f"  Backup timestamp: {meta.get('timestamp', '?')}")
+
+
 def cmd_export(args):
     from .storage import open_store
     from .knowledge_graph import KnowledgeGraph
@@ -726,6 +764,30 @@ def main():
         help="Re-download even if already cached",
     )
 
+    # backup
+    p_backup = sub.add_parser(
+        "backup",
+        help="Create a .tar.gz snapshot of the palace (lance data + KG + metadata)",
+    )
+    p_backup.add_argument(
+        "--out",
+        default=None,
+        metavar="FILE",
+        help="Output .tar.gz path (default: mempalace_backup_<timestamp>.tar.gz in CWD)",
+    )
+
+    # restore
+    p_restore = sub.add_parser(
+        "restore",
+        help="Restore a palace from a .tar.gz backup archive",
+    )
+    p_restore.add_argument("archive", help="Path to the .tar.gz backup archive")
+    p_restore.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing non-empty palace",
+    )
+
     # export
     p_export = sub.add_parser("export", help="Export drawers (and KG) to a JSONL file for backup")
     p_export.add_argument(
@@ -801,6 +863,8 @@ def main():
         "status": cmd_status,
         "diary": cmd_diary,
         "fetch-model": cmd_fetch_model,
+        "backup": cmd_backup,
+        "restore": cmd_restore,
         "export": cmd_export,
         "import": cmd_import,
     }

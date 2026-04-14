@@ -47,7 +47,9 @@ items:
     summary: "Palace backup and restore commands"
     type: feature
     priority: medium
-    status: open
+    status: done
+    done_date: "2026-04-14"
+    done_summary: "Added mempalace/backup.py with create_backup/restore_backup, backup+restore CLI subcommands, and 10 tests covering metadata, round-trip, KG, force-overwrite, and default-path scenarios"
     size: M
     section_id: storage_reliability
     labels: [storage, cli]
