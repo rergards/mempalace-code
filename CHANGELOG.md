@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-16 · STORAGE-AUTO-BACKUP
+
+Auto-backup palace before risky operations: `safe_optimize` triggers a backup by default, `backup list` and `backup schedule` subcommands added, and `auto_backup_before_optimize` is enabled out-of-the-box.
+
 ## 2026-04-16 · FIX-LANCE-CORRUPT
 
 Detect and recover from missing LanceDB fragment files: `safe_open_table` probes the table with a count query on open and rolls back to the last clean version automatically when fragment corruption is detected.
