@@ -302,10 +302,12 @@ class LanceStore(DrawerStore):
         for k, v in meta.items():
             if k in _META_DEFAULTS:
                 merged[k] = v
-        # Ensure numeric fields have correct types
-        merged["chunk_index"] = int(merged.get("chunk_index", 0))
-        merged["compression_ratio"] = float(merged.get("compression_ratio", 0.0))
-        merged["original_tokens"] = int(merged.get("original_tokens", 0))
+        # Ensure numeric fields have correct types (derived from _META_FIELD_SPEC type_tags)
+        for name, type_tag, _ in _META_FIELD_SPEC:
+            if type_tag == "int32":
+                merged[name] = int(merged[name])
+            elif type_tag == "float32":
+                merged[name] = float(merged[name])
         return merged
 
     def count(self) -> int:
