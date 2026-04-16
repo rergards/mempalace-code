@@ -339,7 +339,7 @@ items:
   - key: STORE-META-DEFAULTS-COERCE
     summary: Derive numeric coercions in _meta_defaults() from _META_FIELD_SPEC type_tags
     type: task
-    status: open
+    status: done
     priority: low
     size: XS
     section_id: storage_reliability
@@ -366,6 +366,8 @@ items:
       5. ruff check mempalace/ reports no issues
 
       Identified in STORE-META-KEYS-DEDUP harden round-1 (F-002).
+    resolution: '2026-04-17: Replaced three hardcoded int/float coercion lines in _meta_defaults() with a loop over _META_FIELD_SPEC type_tags; 54 tests pass'
+    harden_round_1: '2026-04-17: 0 fixed, 0 backlogged, 2 dismissed — clean refactor, no issues found'
   - key: STORE-SCHEMA-PARTIAL-MIGRATE-TEST
     summary: 'Add test: partial schema migration roundtrip (intermediate-column-count palace)'
     type: task
@@ -592,31 +594,6 @@ items:
       5. ruff clean
 
       Identified in CODE-TREESITTER-EXPAND harden round-1 (F-2).
-  - key: CODE-SEARCH-LANG-PROSE
-    summary: Add markdown, text, csv to SUPPORTED_LANGUAGES so code_search language filter works for prose and data drawers
-    type: feature
-    status: done
-    priority: low
-    size: XS
-    section_id: coding_first
-    labels: [search, coding, mcp]
-    description: |-
-      ## Problem
-
-      The miner assigns language="markdown" (.md), language="text" (.txt), and language="csv" (.csv) to drawers via EXTENSION_LANG_MAP, but SUPPORTED_LANGUAGES in searcher.py omits these values. Attempting code_search(language="markdown") returns a validation error instead of results. Same class of bug as yaml/json/toml (CODE-SEARCH-LANG-CONFIG).
-
-      ## Scope
-
-      Add "markdown", "text", "csv" to SUPPORTED_LANGUAGES in searcher.py; update the MCP schema description string for the language parameter.
-
-      ## Acceptance criteria
-
-      1. code_search(language="markdown") returns results instead of a validation error
-      2. test_code_search_invalid_language still rejects "cobol"
-      3. ruff clean; pytest -q passes
-
-      Origin: CODE-SEARCH-LANG-CONFIG hardening round-1 F-5.
-    resolution: '2026-04-17: Added markdown, text, csv to SUPPORTED_LANGUAGES in searcher.py and updated MCP schema description; 2 new tests (hint guard + live markdown filter). Hardening round-1: 0 fixed, 1 backlogged (CODE-SEARCH-LANG-JSX-TSX), 2 dismissed.'
   - key: STORE-BACKUP-CLI-TEST
     summary: "Add CLI-level integration tests for backup and restore commands"
     type: task
