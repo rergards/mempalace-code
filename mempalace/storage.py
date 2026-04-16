@@ -559,6 +559,7 @@ class LanceStore(DrawerStore):
         Mirrors _where_to_sql semantics but operates on an in-memory Arrow table.
         Supports $and, $or, and simple {field: value} equality clauses.
         """
+        import pyarrow as pa
         import pyarrow.compute as pc
 
         if "$and" in where:
@@ -604,6 +605,8 @@ class LanceStore(DrawerStore):
                     fn = _OP_MAP.get(op)
                     if fn is not None:
                         parts.append(fn(col, operand))
+                    elif op == "$in":
+                        parts.append(pc.is_in(col, value_set=pa.array(operand, type=col.type)))
         if not parts:
             return None
         result = parts[0]

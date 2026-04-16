@@ -719,6 +719,54 @@ class TestIterAll:
         assert len(all_rows) == 1
         assert all_rows[0]["chunk_index"] == 1
 
+    def test_where_operator_in_multi(self, tmp_path):
+        """AC-1: iter_all() with $in on strings returns only rows whose wing is in the list."""
+        store = open_store(str(tmp_path), create=True)
+        store.add(
+            ids=["in1", "in2", "in3"],
+            documents=["alpha doc", "beta doc", "gamma doc"],
+            metadatas=[
+                {"wing": "alpha", "room": "r"},
+                {"wing": "beta", "room": "r"},
+                {"wing": "gamma", "room": "r"},
+            ],
+        )
+        batches = list(store.iter_all(where={"wing": {"$in": ["alpha", "beta"]}}))
+        all_rows = [row for batch in batches for row in batch]
+        assert len(all_rows) == 2
+        assert {row["wing"] for row in all_rows} == {"alpha", "beta"}
+
+    def test_where_operator_in_empty(self, tmp_path):
+        """AC-2: iter_all() with $in [] returns zero rows."""
+        store = open_store(str(tmp_path), create=True)
+        store.add(
+            ids=["in1", "in2"],
+            documents=["alpha doc", "beta doc"],
+            metadatas=[
+                {"wing": "alpha", "room": "r"},
+                {"wing": "beta", "room": "r"},
+            ],
+        )
+        batches = list(store.iter_all(where={"wing": {"$in": []}}))
+        all_rows = [row for batch in batches for row in batch]
+        assert len(all_rows) == 0
+
+    def test_where_operator_in_single(self, tmp_path):
+        """AC-3: iter_all() with $in ['alpha'] returns only the alpha row."""
+        store = open_store(str(tmp_path), create=True)
+        store.add(
+            ids=["in1", "in2"],
+            documents=["alpha doc", "beta doc"],
+            metadatas=[
+                {"wing": "alpha", "room": "r"},
+                {"wing": "beta", "room": "r"},
+            ],
+        )
+        batches = list(store.iter_all(where={"wing": {"$in": ["alpha"]}}))
+        all_rows = [row for batch in batches for row in batch]
+        assert len(all_rows) == 1
+        assert all_rows[0]["wing"] == "alpha"
+
 
 # ─── TestDetectBackend ────────────────────────────────────────────────────────
 
