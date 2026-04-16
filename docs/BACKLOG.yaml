@@ -167,9 +167,9 @@ items:
 
     resolution: null
   - key: FUT-WATCH-MODE
-    summary: "Watch mode — auto-re-mine on file changes"
+    summary: "DUPLICATE - see MINE-WATCH"
     type: feature
-    priority: low
+    priority: lowest
     status: open
     size: M
     section_id: future
@@ -810,3 +810,483 @@ items:
 
       - Tests must use tempfile.mkdtemp() + shutil.rmtree() pattern (no pytest fixtures)
       - No palace/embedding needed — pure scan_project() call tests
+  - key: FIX-LANCE-CORRUPT
+    summary: Detect and recover from missing LanceDB fragment files
+    type: bug
+    status: open
+    priority: medium
+    section_id: storage_reliability
+    labels: [fix, storage]
+    description: |-
+      ## Symptom
+      count() returns N, but count_by/search/query return empty or fail silently. MCP tools show total_drawers but wings:{}, rooms:{}.
+
+      ## Root Cause
+      Lance fragment file deleted/corrupted while manifest still references it. Happens when:
+      - optimize() interrupted mid-compaction
+      - Disk full during write
+      - Manual deletion of data/ files
+
+      ## Investigation Steps (from 2026-04-16 incident)
+      1. `table.list_versions()` shows version history
+      2. Binary search versions with `table.checkout(N)` + `table.head(1)` to find last working
+      3. `table.restore(N)` to roll back
+
+      ## Fix Plan
+      - [ ] Add `mempalace health` CLI command that validates all referenced fragments exist
+      - [ ] Add `mempalace repair` that: 1) finds last working version, 2) restores to it, 3) reports lost rows
+      - [ ] MCP: surface fragment errors instead of returning empty `{}`
+      - [ ] After optimize(), verify table is still readable before returning
+      - [ ] Consider: don't auto-optimize, or make it opt-in
+
+      ## Acceptance Criteria
+      - [ ] `mempalace health` detects missing fragments
+      - [ ] `mempalace repair --dry-run` shows what would be restored
+      - [ ] `mempalace repair` restores to last working version
+      - [ ] MCP returns error with diagnosis instead of silent empty results
+  - key: MINE-CSHARP
+    summary: Add C# language support to code miner
+    type: feature
+    status: open
+    priority: medium
+    section_id: immediate
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      C# projects cannot be mined. Users with .NET/Unity codebases have no mempalace support.
+
+      ## Scope
+      - Add C# (.cs) file support to code miner
+      - Extract: classes, interfaces, structs, enums, records, methods, properties, fields, constructors, events
+      - Handle: namespaces, partial classes (cross-link definitions), attributes, regions
+      - Preserve XML doc comments and leading comments with declarations
+      - Support nested types and generic constraints
+
+      ## References
+      - GitHub issue: rergards/mempalace-code#1
+
+      ## Acceptance Criteria
+      - [ ] Miner extracts C# symbols with correct metadata (symbol_name, symbol_type, language='csharp')
+      - [ ] Partial class chunks include reference to other parts
+      - [ ] XML docs preserved in drawer content
+      - [ ] Events extracted as symbol_type='event'
+      - [ ] Works on real Unity/ASP.NET/WPF projects
+      - [ ] Tests for: classes, interfaces, records, partial classes, generics, events
+      - [ ] Benchmark on open-rpa/openrpa or similar large repo
+  - key: MINE-DOTNET
+    summary: Add .NET ecosystem support to code miner
+    type: feature
+    status: open
+    priority: medium
+    section_id: immediate
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      .NET projects have multiple languages and config files not covered by MINE-CSHARP alone.
+
+      ## Scope
+      - F# (.fs, .fsi) — modules, functions, types, discriminated unions
+      - VB.NET (.vb) — classes, modules, functions
+      - Project files (.csproj, .fsproj, .vbproj):
+        - Extract: project name, target framework, output type
+        - Package references (name, version)
+        - Project references (path, dependency relationship)
+        - Store as KG triples: project -> depends_on -> other_project
+      - Solution files (.sln):
+        - Extract: solution name, project list, project GUIDs
+        - Project folders/hierarchy
+        - Store project membership in KG
+      - NuGet (packages.config, Directory.Packages.props, Directory.Build.props)
+
+      ## References
+      - GitHub issue: rergards/mempalace-code#1
+
+      ## Acceptance Criteria
+      - [ ] F# symbol extraction with correct metadata
+      - [ ] VB.NET symbol extraction
+      - [ ] .csproj parsed: dependencies stored in KG as triples
+      - [ ] .sln parsed: project list and structure in KG
+      - [ ] Query: 'which projects depend on X' works via kg_query
+      - [ ] Works on real ASP.NET Core / Blazor / MAUI / WPF projects
+      - [ ] Benchmark on multi-project .NET repo
+  - key: MINE-KOTLIN
+    summary: Add Kotlin language support to code miner
+    type: feature
+    status: open
+    priority: high
+    section_id: coding_first
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      Kotlin projects (Android, backend) cannot be mined.
+
+      ## Scope
+      - .kt, .kts files
+      - Extract: classes, objects, interfaces, functions, properties, data classes, sealed classes, enums
+      - Handle: companion objects, extension functions, coroutines, DSL builders
+
+      ## Acceptance criteria
+      - [ ] Symbol extraction for Kotlin constructs
+      - [ ] Works on Android and Ktor projects
+  - key: MINE-SWIFT
+    summary: Add Swift language support to code miner
+    type: feature
+    status: open
+    priority: high
+    section_id: coding_first
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      Swift projects (iOS, macOS) cannot be mined.
+
+      ## Scope
+      - .swift files
+      - Extract: classes, structs, enums, protocols, functions, properties, extensions
+      - Handle: generics, closures, property wrappers, actors, async/await
+
+      ## Acceptance criteria
+      - [ ] Symbol extraction for Swift constructs
+      - [ ] Works on iOS/SwiftUI projects
+  - key: MINE-PHP
+    summary: Add PHP language support to code miner
+    type: feature
+    status: open
+    priority: high
+    section_id: coding_first
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      PHP projects (Laravel, WordPress, Symfony) cannot be mined.
+
+      ## Scope
+      - .php files
+      - Extract: classes, interfaces, traits, functions, methods, namespaces
+      - Handle: attributes, enums (PHP 8.1+), typed properties
+
+      ## Acceptance criteria
+      - [ ] Symbol extraction for PHP constructs
+      - [ ] Works on Laravel/WordPress projects
+  - key: MINE-JAVA-SMART
+    summary: Add smart symbol extraction for Java
+    type: feature
+    status: open
+    priority: high
+    section_id: coding_first
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      Java is listed in miner but has no symbol extraction - only basic chunking.
+
+      ## Scope
+      - Upgrade existing .java support
+      - Extract: classes, interfaces, enums, records, methods, fields, annotations
+      - Handle: generics, inner classes, lambdas
+
+      ## Acceptance criteria
+      - [ ] Java added to _LANG_EXTRACT_MAP
+      - [ ] Works on Spring Boot / Android projects
+  - key: MINE-K8S
+    summary: Add Kubernetes manifest smart parsing
+    type: feature
+    status: open
+    priority: high
+    section_id: coding_first
+    labels: [feat, miner, infra]
+    description: |-
+      ## Problem
+      K8s YAML files are parsed as generic YAML without understanding resource structure.
+
+      ## Scope
+      - Detect k8s manifests (apiVersion/kind fields)
+      - Extract: Deployments, Services, ConfigMaps, Secrets, Ingress, CRDs
+      - Index by: kind, namespace, name, labels
+
+      ## Acceptance criteria
+      - [ ] K8s resources extracted with meaningful symbol_name (kind/name)
+      - [ ] Works on real cluster manifests
+  - key: MINE-SCALA
+    summary: Add Scala language support to code miner
+    type: feature
+    status: open
+    priority: medium
+    section_id: coding_first
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      Scala projects (Spark, Akka, Play) cannot be mined.
+
+      ## Scope
+      - .scala, .sc files
+      - Extract: classes, objects, traits, case classes, functions, vals/vars
+      - Handle: implicits, type aliases, pattern matching
+
+      ## Acceptance criteria
+      - [ ] Symbol extraction for Scala constructs
+      - [ ] Works on Spark/sbt projects
+  - key: MINE-DART
+    summary: Add Dart language support to code miner
+    type: feature
+    status: open
+    priority: medium
+    section_id: coding_first
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      Dart/Flutter projects cannot be mined.
+
+      ## Scope
+      - .dart files
+      - Extract: classes, mixins, extensions, functions, enums
+      - Handle: named constructors, factory constructors, async/await
+
+      ## Acceptance criteria
+      - [ ] Symbol extraction for Dart constructs
+      - [ ] Works on Flutter projects
+  - key: MINE-RUBY-SMART
+    summary: Add smart symbol extraction for Ruby
+    type: feature
+    status: open
+    priority: medium
+    section_id: coding_first
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      Ruby is listed in miner but has no symbol extraction - only basic chunking.
+
+      ## Scope
+      - Upgrade existing .rb support
+      - Extract: classes, modules, methods, attr_accessors, constants
+      - Handle: metaprogramming patterns, DSLs, blocks
+
+      ## Acceptance criteria
+      - [ ] Ruby added to _LANG_EXTRACT_MAP
+      - [ ] Works on Rails projects
+  - key: MINE-HELM
+    summary: Add Helm chart support to code miner
+    type: feature
+    status: open
+    priority: medium
+    section_id: coding_first
+    labels: [feat, miner, infra]
+    description: |-
+      ## Problem
+      Helm charts parsed as generic YAML without understanding template structure.
+
+      ## Scope
+      - Detect Chart.yaml, values.yaml, templates/
+      - Extract: chart metadata, values schema, template resources
+      - Handle: Go template syntax in YAML
+
+      ## Acceptance criteria
+      - [ ] Helm charts indexed with chart name, version, dependencies
+      - [ ] Template resources extracted despite {{ }} syntax
+  - key: MINE-ANSIBLE
+    summary: Add Ansible support to code miner
+    type: feature
+    status: open
+    priority: medium
+    section_id: coding_first
+    labels: [feat, miner, infra]
+    description: |-
+      ## Problem
+      Ansible playbooks/roles parsed as generic YAML.
+
+      ## Scope
+      - Detect playbooks, roles, inventory
+      - Extract: plays, tasks, handlers, variables, roles
+      - Handle: Jinja2 templating in YAML
+
+      ## Acceptance criteria
+      - [ ] Playbooks indexed by play name, hosts, tasks
+      - [ ] Roles indexed by role name and structure
+  - key: STORAGE-AUTO-BACKUP
+    summary: Auto-backup palace before risky operations and on schedule
+    type: feature
+    status: open
+    priority: high
+    section_id: storage_reliability
+    labels: [feat, storage, reliability]
+    description: |-
+      ## Problem
+      No automatic backups. Manual `mempalace backup` exists but nobody runs it. Lost 39 drawers in Apr 2026 incident.
+
+      ## Scope
+      - Auto-backup before optimize() / compaction
+      - Optional cron-style scheduled backups
+      - Configurable retention (keep N backups, or M days)
+      - Fast incremental backups using Lance versioning
+
+      ## Acceptance Criteria
+      - [ ] `mempalace backup --auto` runs before any optimize
+      - [ ] Config option: `auto_backup_before_optimize: true`
+      - [ ] Config option: `backup_schedule: daily` (via launchd/cron)
+      - [ ] `mempalace backup list` shows available backups
+  - key: MINE-WATCH
+    summary: File watcher for auto-incremental mining
+    type: feature
+    status: open
+    priority: medium
+    section_id: future
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      Must manually re-run `mempalace mine` after code changes. Would be nice to have auto-update.
+
+      ## Scope
+      - Watch mode: `mempalace mine --watch <dir>`
+      - Uses fsevents (macOS) / inotify (Linux)
+      - Debounced updates (wait 5s after last change)
+      - Only re-index changed files (incremental)
+
+      ## Acceptance Criteria
+      - [ ] `mempalace mine --watch` starts daemon
+      - [ ] Changed files re-indexed within 10s
+      - [ ] Low CPU usage when idle
+      - [ ] Graceful shutdown on SIGTERM
+  - key: STORAGE-SAFE-OPTIMIZE
+    summary: 'Hardening: safe_optimize with pre-backup and verification'
+    type: feature
+    status: done
+    priority: high
+    section_id: storage_reliability
+    labels: [feat, storage, hardening]
+    description: |-
+      ## Summary
+      Implemented in response to Apr 2026 LanceDB corruption incident. Needs hardening review.
+
+      ## Changes Made (needs review)
+      - config.py: Added optimize_after_mine and backup_before_optimize options
+      - storage.py: Added safe_optimize() method with pre-backup and post-verification
+      - miner.py: Uses config options and safe_optimize
+      - convo_miner.py: Same changes
+      - README.md: Documented new config options
+      - test_miner.py: Updated test to accept safe_optimize
+
+      ## Hardening Checklist
+      - [ ] Unit tests for safe_optimize()
+      - [ ] Test backup_before_optimize=true path
+      - [ ] Test optimize_after_mine=false path
+      - [ ] Test verification failure handling
+      - [ ] Integration test: corrupt fragment -> verify detection
+      - [ ] Edge case: backup fails but optimize succeeds
+      - [ ] Edge case: optimize succeeds but verification fails
+      - [ ] Config validation tests
+      - [ ] Documentation review
+
+      ## Acceptance Criteria
+      - [ ] All hardening checklist items pass
+      - [ ] No regressions in existing tests
+      - [ ] Changelog entry added
+    resolution: '2026-04-16: Hardened safe_optimize: fail-closed on backup error, path normalization, improved print formatting; added TestSafeOptimize and config env var tests'
+  - key: MINE-XAML
+    summary: Add XAML and WPF code-behind linking support
+    type: feature
+    status: open
+    priority: medium
+    section_id: coding_first
+    labels: [feat, miner, dotnet]
+    description: |-
+      ## Problem
+      WPF/UWP/MAUI repos have .xaml files with code-behind that are not linked.
+
+      ## Scope
+      - Parse .xaml files: identify views, bindings, commands, named controls (x:Name)
+      - Link .xaml to code-behind (.xaml.cs) via naming convention
+      - Link to ViewModel classes via DataContext bindings where detectable
+      - Extract resource references
+
+      ## References
+      - GitHub issue: rergards/mempalace-code#1 (Nice To Have #1)
+
+      ## Acceptance Criteria
+      - [ ] XAML files parsed with meaningful symbol_name (view name)
+      - [ ] Code-behind linked via metadata or KG triple
+      - [ ] ViewModel linkage where DataContext is explicit
+      - [ ] Works on WPF projects like open-rpa/openrpa
+  - key: DOTNET-SYMBOL-GRAPH
+    summary: Cross-project symbol relationships via KG
+    type: feature
+    status: open
+    priority: medium
+    section_id: coding_first
+    labels: [feat, miner, dotnet, kg]
+    description: |-
+      ## Problem
+      Large .NET repos have behavior spread across interfaces and implementations in different projects. No way to query these relationships.
+
+      ## Scope
+      - During mining, detect and store in KG:
+        - Interface implementations: TypeA -> implements -> IInterface
+        - Inheritance: TypeB -> inherits -> BaseClass
+        - Type usage references (where feasible without full semantic analysis)
+      - MCP tools to query:
+        - mempalace_kg_query('IMyInterface') -> shows all implementers
+        - mempalace_kg_query('BaseClass') -> shows all derived types
+
+      ## Limitations
+      - Full semantic analysis (Roslyn) is out of scope for v1
+      - Regex/AST-based detection may miss some cases
+      - Cross-file references limited to same-wing (project)
+
+      ## References
+      - GitHub issue: rergards/mempalace-code#1 (Must Have #3)
+
+      ## Acceptance Criteria
+      - [ ] Interface implementations detected and stored in KG
+      - [ ] Inheritance relationships detected and stored in KG
+      - [ ] kg_query returns implementers/derived types
+      - [ ] Works on multi-project .NET solutions
+  - key: BENCH-DOTNET
+    summary: Benchmark suite for C#/.NET repo mining and retrieval
+    type: task
+    status: open
+    priority: medium
+    section_id: quality
+    labels: [bench, dotnet, quality]
+    description: |-
+      ## Problem
+      No acceptance test target for .NET mining quality.
+
+      ## Scope
+      - Select a real multi-project .NET repo (e.g., open-rpa/openrpa or similar)
+      - Create query set:
+        - Symbol lookup (find class X, find method Y)
+        - Cross-project tracing (which project owns type Z)
+        - Interface implementation queries
+        - Project dependency queries
+      - Measure R@5, R@10 for retrieval quality
+      - Document baseline and track regressions
+
+      ## References
+      - GitHub issue: rergards/mempalace-code#1 (Nice To Have #5)
+
+      ## Acceptance Criteria
+      - [ ] Benchmark repo selected and documented
+      - [ ] Query set created (20+ queries across categories)
+      - [ ] Baseline R@5/R@10 established
+      - [ ] CI integration to detect regressions
+  - key: STORAGE-BACKUP-RETENTION
+    summary: 'Backup retention policy: auto-prune pre_optimize_*.tar.gz archives so they don''t accumulate indefinitely'
+    type: task
+    status: open
+    priority: medium
+    size: S
+    section_id: storage_reliability
+    labels: [feat, storage, hardening]
+    description: |-
+      ## Problem
+      safe_optimize() creates pre_optimize_YYYYMMDD_HHMMSS.tar.gz archives in <palace_parent>/backups/ before each optimize run. Currently there is no cleanup — archives accumulate forever, which will silently fill disk on long-running installations.
+
+      ## Deliverable
+      A configurable retention policy (e.g. keep last N backups, or delete archives older than D days) applied at the end of safe_optimize() after a successful optimize. Default: keep last 5 archives (or 0 = keep all, for backwards compatibility).
+
+      ## Acceptance Criteria
+      - [ ] New config option (e.g. backup_retain_count: 5) read from MempalaceConfig; env var MEMPALACE_BACKUP_RETAIN_COUNT overrides it.
+      - [ ] After safe_optimize() succeeds with backup_first=True, archives beyond the retention limit are deleted (oldest first).
+      - [ ] backup_retain_count=0 disables pruning (default for backwards compat).
+      - [ ] Unit test: after N+1 successful optimize calls with backup_first=True, only N archives remain under backups/.
+      - [ ] Pruning errors are logged at WARNING level and do not cause safe_optimize to return False.
+
+      ## Constraints
+      - Only prune pre_optimize_*.tar.gz files in the backups/ directory — do not touch other files.
+      - Retention applies per-palace, not globally.

@@ -800,7 +800,8 @@ def test_mine_calls_optimize_once():
             mock_get_collection.return_value = mock_store
             mine(str(project_root), palace_path)
 
-        mock_store.optimize.assert_called_once()
+        # Either safe_optimize (LanceDB) or optimize (legacy) should be called
+        assert mock_store.safe_optimize.called or mock_store.optimize.called
     finally:
         shutil.rmtree(tmpdir)
 
@@ -1224,6 +1225,55 @@ def test_process_file_python_treesitter_chunker_strategy():
 # =============================================================================
 # DevOps / infrastructure file support (MINE-DEVOPS-INFRA)
 # =============================================================================
+
+
+def test_mine_optimize_disabled_via_env(monkeypatch):
+    """AC-4: mine() with MEMPALACE_OPTIMIZE_AFTER_MINE=0 skips safe_optimize and optimize."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(project_root / "code.py", MULTI_FUNC_PY)
+        _make_palace_config(project_root)
+        palace_path = str(project_root / "palace")
+
+        monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
+
+        with patch("mempalace.miner.get_collection") as mock_get_collection:
+            mock_store = _make_mock_store()
+            mock_get_collection.return_value = mock_store
+            mine(str(project_root), palace_path)
+
+        mock_store.safe_optimize.assert_not_called()
+        mock_store.optimize.assert_not_called()
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_mine_backup_before_optimize_env(monkeypatch):
+    """AC-5: mine() with MEMPALACE_BACKUP_BEFORE_OPTIMIZE=1 calls safe_optimize(backup_first=True)."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(project_root / "code.py", MULTI_FUNC_PY)
+        _make_palace_config(project_root)
+        palace_path = str(project_root / "palace")
+
+        monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "1")
+        monkeypatch.setenv("MEMPALACE_BACKUP_BEFORE_OPTIMIZE", "1")
+
+        with patch("mempalace.miner.get_collection") as mock_get_collection:
+            mock_store = _make_mock_store()
+            mock_get_collection.return_value = mock_store
+            mine(str(project_root), palace_path)
+
+        mock_store.safe_optimize.assert_called_once()
+        call_kwargs = mock_store.safe_optimize.call_args
+        # backup_first must be True — check positional or keyword arg
+        args, kwargs = call_kwargs
+        backup_first_val = kwargs.get("backup_first", args[1] if len(args) > 1 else None)
+        assert backup_first_val is True, f"Expected backup_first=True, got {backup_first_val!r}"
+    finally:
+        shutil.rmtree(tmpdir)
 
 
 def test_scan_project_includes_terraform_files():

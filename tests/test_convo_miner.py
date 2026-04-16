@@ -46,6 +46,7 @@ def test_mine_convos_calls_optimize_once():
             mock_get_collection.return_value = mock_store
             mine_convos(tmpdir, palace_path, wing="test_convos")
 
-        mock_store.optimize.assert_called_once()
+        # Either safe_optimize (LanceDB) or optimize (legacy) should be called
+        assert mock_store.safe_optimize.called or mock_store.optimize.called
     finally:
         shutil.rmtree(tmpdir)

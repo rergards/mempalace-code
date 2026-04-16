@@ -616,6 +616,59 @@ class LanceStore(DrawerStore):
         if self._table is not None:
             self._table.optimize()
 
+    def safe_optimize(self, palace_path: str, backup_first: bool = False) -> bool:
+        """Optimize with optional pre-backup and post-verification.
+
+        Fail-closed contract: if backup_first=True and the backup fails, returns False
+        without running optimize(). The table is never compacted when the backup gate fails.
+
+        Args:
+            palace_path: Path to palace directory (for backup).
+            backup_first: Create backup before optimizing. If True and backup fails,
+                          returns False without optimizing.
+
+        Returns:
+            True if optimize succeeded and table is readable, False otherwise.
+        """
+        if self._table is None:
+            return True
+
+        palace_path = palace_path.rstrip("/\\")
+
+        # Pre-optimize backup (fail-closed gate)
+        if backup_first:
+            try:
+                from datetime import datetime
+
+                from .backup import create_backup
+
+                backup_dir = os.path.join(os.path.dirname(palace_path), "backups")
+                os.makedirs(backup_dir, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = os.path.join(backup_dir, f"pre_optimize_{timestamp}.tar.gz")
+                create_backup(palace_path, backup_path)
+                logger.info("Pre-optimize backup: %s", backup_path)
+            except Exception as e:
+                logger.error("Pre-optimize backup failed — skipping optimize: %s", e)
+                return False
+
+        # Get row count before optimize
+        pre_count = self._table.count_rows()
+
+        # Run optimize
+        self._table.optimize()
+
+        # Verify table is still readable
+        try:
+            self._table.head(1).to_pydict()
+            post_count = self._table.count_rows()
+            if post_count != pre_count:
+                logger.warning("Row count changed after optimize: %d -> %d", pre_count, post_count)
+            return True
+        except Exception as e:
+            logger.error("Table unreadable after optimize: %s", e)
+            return False
+
     def warmup(self) -> None:
         """Embed a throwaway string to force model loading before batch processing."""
         self._embed(["warmup"])

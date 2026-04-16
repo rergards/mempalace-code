@@ -723,6 +723,100 @@ class TestGetSourceFileHashes:
 # =============================================================================
 
 
+class TestSafeOptimize:
+    def test_happy_path_returns_true_and_readable(self, palace_path):
+        """AC-1: safe_optimize(backup_first=False) returns True; row count unchanged; table readable."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["so1", "so2"],
+            documents=["safe optimize test document one", "safe optimize test document two"],
+            metadatas=[
+                {"wing": "w", "room": "r"},
+                {"wing": "w", "room": "r"},
+            ],
+        )
+        pre_count = store.count()
+
+        result = store.safe_optimize(palace_path, backup_first=False)
+
+        assert result is True
+        assert store.count() == pre_count
+        rows = store.get(limit=1)
+        assert len(rows["ids"]) == 1
+
+    def test_backup_first_creates_backup_file(self, palace_path, tmp_dir):
+        """AC-2: safe_optimize(backup_first=True) creates a pre_optimize_*.tar.gz under backups/."""
+        import glob
+
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["bk1"],
+            documents=["backup before optimize test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        result = store.safe_optimize(palace_path, backup_first=True)
+
+        assert result is True
+        backup_dir = os.path.join(tmp_dir, "backups")
+        assert os.path.isdir(backup_dir), f"backups/ dir not created at {backup_dir}"
+        archives = glob.glob(os.path.join(backup_dir, "pre_optimize_*.tar.gz"))
+        assert len(archives) == 1, f"Expected 1 backup archive, found: {archives}"
+
+    def test_backup_failure_returns_false_and_skips_optimize(self, palace_path):
+        """AC-3: When create_backup raises, safe_optimize returns False and _table.optimize() is NOT called."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["fail1"],
+            documents=["backup failure test content here"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        with patch(
+            "mempalace.backup.create_backup", side_effect=OSError("disk full")
+        ) as mock_backup:
+            with patch.object(store._table, "optimize") as mock_optimize:
+                result = store.safe_optimize(palace_path, backup_first=True)
+
+        assert result is False
+        mock_backup.assert_called_once()
+        mock_optimize.assert_not_called()
+
+    def test_backup_failure_logs_error(self, palace_path, caplog):
+        """AC-3: Backup failure is logged at ERROR level."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["logfail1"],
+            documents=["backup failure logging test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        with patch("mempalace.backup.create_backup", side_effect=OSError("no space")):
+            with caplog.at_level(logging.ERROR, logger="mempalace"):
+                store.safe_optimize(palace_path, backup_first=True)
+
+        error_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+        assert any("backup" in m.lower() for m in error_msgs), f"No error logged: {error_msgs}"
+
+    def test_trailing_slash_does_not_misplace_backup(self, palace_path, tmp_dir):
+        """Path normalisation: trailing slash on palace_path must not break backup dir placement."""
+        import glob
+
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["slash1"],
+            documents=["trailing slash path normalisation test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        result = store.safe_optimize(palace_path + "/", backup_first=True)
+
+        assert result is True
+        backup_dir = os.path.join(tmp_dir, "backups")
+        archives = glob.glob(os.path.join(backup_dir, "pre_optimize_*.tar.gz"))
+        assert len(archives) == 1, f"backup should be sibling of palace, found: {archives}"
+
+
 class TestMetaFieldSpec:
     def test_meta_field_spec_consistency(self):
         """AC-4: _META_KEYS, _META_DEFAULTS.keys(), and schema column names are identical sets."""

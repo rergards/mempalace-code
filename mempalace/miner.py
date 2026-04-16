@@ -21,6 +21,7 @@ from typing import Optional
 from .storage import open_store
 from .treesitter import get_parser
 from .version import __version__
+from .config import MempalaceConfig
 
 EXTENSION_LANG_MAP = {
     ".py": "python",
@@ -1669,10 +1670,29 @@ def mine(
                 for stale_path in stale_paths:
                     collection.delete_by_source_file(stale_path, wing)
 
-            t0 = time.time()
-            print("  >> Optimizing storage...", end="", flush=True)
-            collection.optimize()
-            print(f" done ({time.time() - t0:.1f}s)", flush=True)
+            config = MempalaceConfig()
+            if config.optimize_after_mine:
+                t0 = time.time()
+                backup_first = config.backup_before_optimize
+                if backup_first:
+                    print("  >> Backing up before optimize...", flush=True)
+                print("  >> Optimizing storage...", end="", flush=True)
+                if hasattr(collection, "safe_optimize"):
+                    success = collection.safe_optimize(
+                        config.palace_path, backup_first=backup_first
+                    )
+                    if success:
+                        print(f" done ({time.time() - t0:.1f}s)", flush=True)
+                    else:
+                        print(
+                            f"\n  !! WARNING: optimize failed or verification error ({time.time() - t0:.1f}s)",
+                            flush=True,
+                        )
+                else:
+                    collection.optimize()
+                    print(f" done ({time.time() - t0:.1f}s)", flush=True)
+            else:
+                print("  >> Skipping optimize (disabled in config)", flush=True)
     except KeyboardInterrupt:
         print("\n\n  Interrupted. Flushing pending batch...", flush=True)
         if batch_buffer and not dry_run:
