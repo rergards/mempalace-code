@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-17 · CODE-SEARCH-LANG-PROSE
+
+Add markdown, text, and csv to `SUPPORTED_LANGUAGES` so `code_search(language="markdown"|"text"|"csv")` validates and filters correctly instead of returning an error.
+
 ## 2026-04-16 · STORAGE-AUTO-BACKUP
 
 Auto-backup palace before risky operations: `safe_optimize` triggers a backup by default, `backup list` and `backup schedule` subcommands added, and `auto_backup_before_optimize` is enabled out-of-the-box.
