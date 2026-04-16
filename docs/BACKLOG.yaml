@@ -63,9 +63,30 @@ items:
     size: M
     section_id: mcp_developer_tools
     labels: [mcp, mining]
-    description: >
-      Allow agents to trigger a re-mine of a project directory via MCP. Useful for keeping palace up to date during long coding sessions. Should use incremental mining (CODE-INCREMENTAL) when available. Returns summary: files scanned, drawers added/updated/removed.
+    description: >-
+      ## Problem
 
+      Agents cannot trigger re-mining during long sessions. User must manually run CLI.
+
+
+      ## Scope
+
+      - New MCP tool: mempalace_mine(directory, wing?, full?)
+
+      - Uses incremental mining by default
+
+      - Returns summary: files scanned, drawers added/updated/removed
+
+
+      ## Acceptance Criteria
+
+      - [ ] mempalace_mine tool registered in MCP server
+
+      - [ ] Incremental mining works via MCP
+
+      - [ ] Returns structured result with counts
+
+      - [ ] Tests for: successful mine, invalid directory, full vs incremental
     resolution: null
   # ── CLEANUP — De-emphasize Dialog-First Features ────────────
   - key: CLEAN-ONBOARDING
@@ -170,7 +191,7 @@ items:
     summary: "DUPLICATE - see MINE-WATCH"
     type: feature
     priority: lowest
-    status: open
+    status: done
     size: M
     section_id: future
     labels: [future, mining]
@@ -814,7 +835,7 @@ items:
     summary: Add C# language support to code miner
     type: feature
     status: open
-    priority: medium
+    priority: high
     section_id: immediate
     labels: [feat, miner]
     description: |-
@@ -839,11 +860,12 @@ items:
       - [ ] Works on real Unity/ASP.NET/WPF projects
       - [ ] Tests for: classes, interfaces, records, partial classes, generics, events
       - [ ] Benchmark on open-rpa/openrpa or similar large repo
+    size: L
   - key: MINE-DOTNET
     summary: Add .NET ecosystem support to code miner
     type: feature
     status: open
-    priority: medium
+    priority: high
     section_id: immediate
     labels: [feat, miner]
     description: |-
@@ -875,12 +897,13 @@ items:
       - [ ] Query: 'which projects depend on X' works via kg_query
       - [ ] Works on real ASP.NET Core / Blazor / MAUI / WPF projects
       - [ ] Benchmark on multi-project .NET repo
+    size: L
   - key: MINE-KOTLIN
     summary: Add Kotlin language support to code miner
     type: feature
     status: open
     priority: high
-    section_id: coding_first
+    section_id: immediate
     labels: [feat, miner]
     description: |-
       ## Problem
@@ -891,9 +914,14 @@ items:
       - Extract: classes, objects, interfaces, functions, properties, data classes, sealed classes, enums
       - Handle: companion objects, extension functions, coroutines, DSL builders
 
-      ## Acceptance criteria
+      ## References
+      - GitHub issue: rergards/mempalace-code#2
+
+      ## Acceptance Criteria
       - [ ] Symbol extraction for Kotlin constructs
       - [ ] Works on Android and Ktor projects
+      - [ ] Tests for: data classes, sealed classes, companion objects, extension functions
+    size: M
   - key: MINE-SWIFT
     summary: Add Swift language support to code miner
     type: feature
@@ -910,9 +938,11 @@ items:
       - Extract: classes, structs, enums, protocols, functions, properties, extensions
       - Handle: generics, closures, property wrappers, actors, async/await
 
-      ## Acceptance criteria
+      ## Acceptance Criteria
       - [ ] Symbol extraction for Swift constructs
       - [ ] Works on iOS/SwiftUI projects
+      - [ ] Tests for: classes, structs, protocols, extensions, async functions
+    size: M
   - key: MINE-PHP
     summary: Add PHP language support to code miner
     type: feature
@@ -929,15 +959,17 @@ items:
       - Extract: classes, interfaces, traits, functions, methods, namespaces
       - Handle: attributes, enums (PHP 8.1+), typed properties
 
-      ## Acceptance criteria
+      ## Acceptance Criteria
       - [ ] Symbol extraction for PHP constructs
       - [ ] Works on Laravel/WordPress projects
+      - [ ] Tests for: classes, interfaces, traits, namespaces, PHP 8.1 enums
+    size: M
   - key: MINE-JAVA-SMART
     summary: Add smart symbol extraction for Java
     type: feature
     status: open
     priority: high
-    section_id: coding_first
+    section_id: immediate
     labels: [feat, miner]
     description: |-
       ## Problem
@@ -946,11 +978,16 @@ items:
       ## Scope
       - Upgrade existing .java support
       - Extract: classes, interfaces, enums, records, methods, fields, annotations
-      - Handle: generics, inner classes, lambdas
+      - Handle: generics, inner classes, lambdas, anonymous classes
 
-      ## Acceptance criteria
+      ## References
+      - GitHub issue: rergards/mempalace-code#2
+
+      ## Acceptance Criteria
       - [ ] Java added to _LANG_EXTRACT_MAP
       - [ ] Works on Spring Boot / Android projects
+      - [ ] Tests for: classes, interfaces, records, annotations, generics
+    size: S
   - key: MINE-K8S
     summary: Add Kubernetes manifest smart parsing
     type: feature
@@ -967,9 +1004,12 @@ items:
       - Extract: Deployments, Services, ConfigMaps, Secrets, Ingress, CRDs
       - Index by: kind, namespace, name, labels
 
-      ## Acceptance criteria
+      ## Acceptance Criteria
       - [ ] K8s resources extracted with meaningful symbol_name (kind/name)
+      - [ ] symbol_type set to k8s resource kind
       - [ ] Works on real cluster manifests
+      - [ ] Tests for: Deployment, Service, ConfigMap, multi-doc YAML
+    size: S
   - key: MINE-SCALA
     summary: Add Scala language support to code miner
     type: feature
@@ -986,9 +1026,11 @@ items:
       - Extract: classes, objects, traits, case classes, functions, vals/vars
       - Handle: implicits, type aliases, pattern matching
 
-      ## Acceptance criteria
+      ## Acceptance Criteria
       - [ ] Symbol extraction for Scala constructs
       - [ ] Works on Spark/sbt projects
+      - [ ] Tests for: classes, objects, traits, case classes, implicits
+    size: M
   - key: MINE-DART
     summary: Add Dart language support to code miner
     type: feature
@@ -1005,9 +1047,11 @@ items:
       - Extract: classes, mixins, extensions, functions, enums
       - Handle: named constructors, factory constructors, async/await
 
-      ## Acceptance criteria
+      ## Acceptance Criteria
       - [ ] Symbol extraction for Dart constructs
       - [ ] Works on Flutter projects
+      - [ ] Tests for: classes, mixins, extensions, factory constructors
+    size: M
   - key: MINE-RUBY-SMART
     summary: Add smart symbol extraction for Ruby
     type: feature
@@ -1024,9 +1068,11 @@ items:
       - Extract: classes, modules, methods, attr_accessors, constants
       - Handle: metaprogramming patterns, DSLs, blocks
 
-      ## Acceptance criteria
+      ## Acceptance Criteria
       - [ ] Ruby added to _LANG_EXTRACT_MAP
       - [ ] Works on Rails projects
+      - [ ] Tests for: classes, modules, methods, attr_accessor
+    size: S
   - key: MINE-HELM
     summary: Add Helm chart support to code miner
     type: feature
@@ -1043,9 +1089,11 @@ items:
       - Extract: chart metadata, values schema, template resources
       - Handle: Go template syntax in YAML
 
-      ## Acceptance criteria
+      ## Acceptance Criteria
       - [ ] Helm charts indexed with chart name, version, dependencies
       - [ ] Template resources extracted despite {{ }} syntax
+      - [ ] Tests for: Chart.yaml, values.yaml, templated Deployment
+    size: S
   - key: MINE-ANSIBLE
     summary: Add Ansible support to code miner
     type: feature
@@ -1062,35 +1110,11 @@ items:
       - Extract: plays, tasks, handlers, variables, roles
       - Handle: Jinja2 templating in YAML
 
-      ## Acceptance criteria
+      ## Acceptance Criteria
       - [ ] Playbooks indexed by play name, hosts, tasks
       - [ ] Roles indexed by role name and structure
-  - key: STORAGE-AUTO-BACKUP
-    summary: Auto-backup palace before risky operations and on schedule
-    type: feature
-    status: done
-    priority: high
-    section_id: storage_reliability
-    labels: [feat, storage, reliability]
-    description: |-
-      ## Problem
-      No automatic backups. Manual `mempalace backup` exists but nobody runs it. Lost 39 drawers in Apr 2026 incident.
-
-      ## Scope
-      - Auto-backup before optimize() / compaction
-      - Optional cron-style scheduled backups
-      - Configurable retention (keep N backups, or M days)
-      - Fast incremental backups using Lance versioning
-
-      ## Acceptance Criteria
-      - [ ] `mempalace backup --auto` runs before any optimize
-      - [ ] Config option: `auto_backup_before_optimize: true`
-      - [ ] Config option: `backup_schedule: daily` (via launchd/cron)
-      - [ ] `mempalace backup list` shows available backups
-    links:
-      - type: deploy-blocked-by
-        key: STORAGE-AUTO-BACKUP-SCHEDULE-INSTALL
-    resolution: '2026-04-16: Flipped backup_before_optimize default to True; added list_backups() + render_schedule() to backup.py; refactored CLI backup parser with create/list/schedule subverbs; changed default backup dir to <palace_parent>/backups/; added auto_backup_before_optimize alias + backup_schedule config properties; 56 new tests added. Hardening round-1: 8 fixed (TOCTOU stat race, XML escape in plist, docstring, unsupported-platform UX, backup_schedule env test, shell injection via shlex.quote, backup dir 0o700 perms, explicit --out parent dir auto-creation), 2 dismissed. 5 tests added in hardening.'
+      - [ ] Tests for: playbook, role, inventory file
+    size: S
   - key: MINE-WATCH
     summary: File watcher for auto-incremental mining
     type: feature
@@ -1113,6 +1137,7 @@ items:
       - [ ] Changed files re-indexed within 10s
       - [ ] Low CPU usage when idle
       - [ ] Graceful shutdown on SIGTERM
+    size: M
   - key: MINE-XAML
     summary: Add XAML and WPF code-behind linking support
     type: feature
@@ -1138,6 +1163,10 @@ items:
       - [ ] Code-behind linked via metadata or KG triple
       - [ ] ViewModel linkage where DataContext is explicit
       - [ ] Works on WPF projects like open-rpa/openrpa
+    size: M
+    links:
+      - type: depends-on
+        key: MINE-CSHARP
   - key: DOTNET-SYMBOL-GRAPH
     summary: Cross-project symbol relationships via KG
     type: feature
@@ -1171,6 +1200,10 @@ items:
       - [ ] Inheritance relationships detected and stored in KG
       - [ ] kg_query returns implementers/derived types
       - [ ] Works on multi-project .NET solutions
+    size: M
+    links:
+      - type: depends-on
+        key: MINE-CSHARP
   - key: BENCH-DOTNET
     summary: Benchmark suite for C#/.NET repo mining and retrieval
     type: task
@@ -1200,6 +1233,12 @@ items:
       - [ ] Query set created (20+ queries across categories)
       - [ ] Baseline R@5/R@10 established
       - [ ] CI integration to detect regressions
+    size: S
+    links:
+      - type: depends-on
+        key: MINE-CSHARP
+      - type: depends-on
+        key: MINE-DOTNET
   - key: STORAGE-BACKUP-RETENTION
     summary: 'Backup retention policy: auto-prune pre_optimize_*.tar.gz archives so they don''t accumulate indefinitely'
     type: task
@@ -1252,12 +1291,3 @@ items:
       ## Constraints
       - Must preserve the exact corruption detection semantics (still scans all fragments)
       - Identified in FIX-LANCE-CORRUPT harden round-1 (F-4)
-  - key: STORAGE-AUTO-BACKUP-SCHEDULE-INSTALL
-    summary: User must manually install the emitted launchd plist (macOS) or cron entry (Linux) produced by `mempalace backup schedule --freq daily`; the subcommand only prints the snippet and does not write system files.
-    type: task
-    status: done
-    priority: high
-    section_id: immediate
-    assignee: owner
-    labels: [deploy-prereq, owner-action]
-    blocks_deploy: true

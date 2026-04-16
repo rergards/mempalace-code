@@ -308,6 +308,30 @@ Also available: `mempalace export --only-manual` for JSONL export of manually-st
 
 ---
 
+### Health & Repair
+
+```bash
+mempalace health              # probe palace for fragment corruption
+mempalace health --json       # machine-readable report
+
+mempalace repair --dry-run    # show what would be recovered
+mempalace repair --rollback   # roll back to last working version
+```
+
+**What `health` checks:**
+1. Manifest read (count_rows)
+2. Data fragment read (head)
+3. Metadata scan (count_by_pair) - catches the silent-failure surface
+
+**What `repair --rollback` does:**
+1. Walks LanceDB version history from newest to oldest
+2. Finds the most recent version where all probes pass
+3. Restores to that version (loses data added after corruption)
+
+Use `--dry-run` first to see how many rows would be lost.
+
+---
+
 ## This Fork vs Upstream
 
 This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla-jovovich/mempalace). We inherited the good parts — the palace metaphor, the MCP integration, the LongMemEval harness — and rebuilt what was broken. Every claim here is backed by code, tests, and documented benchmarks.
@@ -395,13 +419,15 @@ mempalace search "query"                          # search everything
 mempalace search "query" --wing myapp             # scoped to wing
 mempalace search "query" --room auth              # scoped to room
 
-# Backup
+# Backup & Recovery
 mempalace backup create                           # create backup (default: <palace_parent>/backups/)
 mempalace backup list                             # list existing backups
 mempalace backup schedule --freq daily            # print daily scheduler snippet
 mempalace restore <archive>                       # restore from backup
 mempalace export --only-manual                    # JSONL export
 mempalace import <file>                           # JSONL import
+mempalace health                                  # probe for fragment corruption
+mempalace repair --rollback                       # roll back to last working version
 
 # Context
 mempalace wake-up                                 # L0 + L1 context
