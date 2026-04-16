@@ -736,19 +736,22 @@ class LanceStore(DrawerStore):
         except Exception as e:
             errors.append({"probe": "count_by_pair", "kind": _classify(e), "message": str(e)})
 
-        # Version info — best-effort
+        # Version info — best-effort; failures go into warnings, not errors, to avoid
+        # false-positive DEGRADED status when data probes all pass.
+        warnings = []
         try:
             versions = self._table.list_versions()
             if versions:
                 current_version = versions[-1]["version"]
         except Exception as e:
-            errors.append({"probe": "list_versions", "kind": _classify(e), "message": str(e)})
+            warnings.append({"probe": "list_versions", "kind": _classify(e), "message": str(e)})
 
         return {
             "ok": len(errors) == 0,
             "total_rows": total_rows,
             "current_version": current_version,
             "errors": errors,
+            "warnings": warnings,
         }
 
     def recover_to_last_working_version(self, dry_run: bool = True) -> dict:

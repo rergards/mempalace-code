@@ -260,3 +260,64 @@ class TestRepairRollbackCommand:
             with pytest.raises(SystemExit) as exc:
                 main()
         assert exc.value.code == 2
+
+    def test_repair_rollback_live_no_candidate_exits_1(self, tmp_path, capsys):
+        """F-2 regression: --rollback live mode exits 1 when no candidate version found."""
+        from mempalace.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["repair_nc1"],
+            documents=["repair no candidate test content here"],
+            metadatas=[{"wing": "test", "room": "general"}],
+        )
+        assert isinstance(store, LanceStore)
+
+        # Simulate the case where all prior versions are also corrupt (no candidate)
+        def _no_candidate(dry_run=True):
+            return {
+                "recovered": False,
+                "candidate_version": None,
+                "dry_run": dry_run,
+                "message": "no healthy prior version found",
+            }
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "repair", "--rollback"],
+        ):
+            with patch.object(LanceStore, "recover_to_last_working_version", _no_candidate):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+        assert exc.value.code == 1, "must exit 1 when no candidate found in live mode"
+
+    def test_repair_rollback_live_restore_exception_exits_1(self, tmp_path, capsys):
+        """F-3 regression: --rollback exits 1 with clean message when restore() raises."""
+        from mempalace.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["repair_ex1"],
+            documents=["repair restore exception test content here"],
+            metadatas=[{"wing": "test", "room": "general"}],
+        )
+        assert isinstance(store, LanceStore)
+
+        def _broken_recover(*args, **kwargs):
+            raise RuntimeError("simulated restore failure")
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "repair", "--rollback"],
+        ):
+            with patch.object(store.__class__, "recover_to_last_working_version", _broken_recover):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert "restore failed" in (captured.err + captured.out).lower()

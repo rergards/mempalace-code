@@ -943,6 +943,7 @@ class TestLanceHealth:
         assert report["total_rows"] == 2
         assert report["current_version"] is not None
         assert report["errors"] == []
+        assert "warnings" in report  # warnings key always present
 
     def test_health_check_corrupt_store_returns_ok_false(self, palace_path):
         """AC-2: health_check() on a store with a missing fragment returns ok=False."""
@@ -977,6 +978,30 @@ class TestLanceHealth:
         assert kinds & {"fragment_missing", "read_failed", "other"}, (
             f"Expected a recognized error kind, got: {kinds}"
         )
+
+    def test_health_check_list_versions_failure_does_not_set_ok_false(self, palace_path, monkeypatch):
+        """F-1 regression: list_versions() failure must NOT cause ok=False (false-positive degraded)."""
+        from mempalace.storage import LanceStore
+
+        store = open_store(palace_path, create=True)
+        assert isinstance(store, LanceStore)
+        store.add(
+            ids=["hc_lv1"],
+            documents=["list versions failure test drawer content"],
+            metadatas=[{"wing": "test", "room": "general"}],
+        )
+
+        def _broken_list_versions():
+            raise RuntimeError("version metadata unavailable")
+
+        monkeypatch.setattr(store._table, "list_versions", _broken_list_versions)
+
+        report = store.health_check()
+
+        assert report["ok"] is True, "list_versions failure must not set ok=False"
+        assert report["errors"] == [], "list_versions failure must not appear in errors"
+        assert len(report["warnings"]) >= 1, "list_versions failure must appear in warnings"
+        assert report["warnings"][0]["probe"] == "list_versions"
 
     def test_recover_dry_run_reports_candidate_and_does_not_mutate(self, palace_path):
         """AC-3: recover_to_last_working_version(dry_run=True) reports candidate, leaves store unchanged."""

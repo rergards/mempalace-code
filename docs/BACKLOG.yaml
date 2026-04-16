@@ -1149,7 +1149,7 @@ items:
     type: feature
     status: open
     priority: medium
-    section_id: coding_first
+    section_id: immediate
     labels: [feat, miner, dotnet]
     description: |-
       ## Problem
@@ -1174,7 +1174,7 @@ items:
     type: feature
     status: open
     priority: medium
-    section_id: coding_first
+    section_id: immediate
     labels: [feat, miner, dotnet, kg]
     description: |-
       ## Problem
@@ -1207,7 +1207,7 @@ items:
     type: task
     status: open
     priority: medium
-    section_id: quality
+    section_id: immediate
     labels: [bench, dotnet, quality]
     description: |-
       ## Problem
@@ -1256,3 +1256,30 @@ items:
       ## Constraints
       - Only prune pre_optimize_*.tar.gz files in the backups/ directory — do not touch other files.
       - Retention applies per-palace, not globally.
+  - key: HEALTH-SCAN-PROJECTION
+    summary: health_check Probe 3 uses to_arrow() loading all rows; switch to column-projected scanner
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: storage_reliability
+    labels: [storage, performance, hardening]
+    description: |-
+      ## Problem
+      health_check() Probe 3 calls self._table.to_arrow().select(["wing","room"]) to detect fragment corruption. to_arrow() without column arguments materializes ALL columns — including the 384-float vector column — before the select() projection discards them. For a palace with 5,000 drawers this loads ~7MB of vector data into memory unnecessarily and may time out on very large palaces.
+
+      ## Scope
+      mempalace/storage.py — health_check() Probe 3 and the matching probe in recover_to_last_working_version().
+
+      ## Deliverable
+      Replace to_arrow().select(["wing","room"]) with a LanceDB scanner call that projects columns at scan time: self._table.scanner(columns=["wing","room"]).to_table(). Apply the same fix to the version-walk probe in recover_to_last_working_version().
+
+      ## Acceptance criteria
+      1. health_check() Probe 3 no longer materializes the vector column
+      2. All 571+ existing tests pass unchanged
+      3. ruff clean
+      4. Fix is consistent with MINE-LANCE-VECTOR-SCAN in count_by/count_by_pair
+
+      ## Constraints
+      - Must preserve the exact corruption detection semantics (still scans all fragments)
+      - Identified in FIX-LANCE-CORRUPT harden round-1 (F-4)

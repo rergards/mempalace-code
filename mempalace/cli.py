@@ -340,6 +340,10 @@ def cmd_health(args):
                 print(f"    [{err['kind']}] {err['probe']}: {err['message']}")
         else:
             print("  No errors detected.")
+        if report.get("warnings"):
+            print("  Warnings:")
+            for w in report["warnings"]:
+                print(f"    [{w['kind']}] {w['probe']}: {w['message']}")
 
     if not report["ok"]:
         sys.exit(1)
@@ -382,7 +386,14 @@ def cmd_repair(args):
         else:
             print("  Mode: live (will restore if candidate found)\n")
 
-        result = store.recover_to_last_working_version(dry_run=dry_run)
+        try:
+            result = store.recover_to_last_working_version(dry_run=dry_run)
+        except Exception as e:
+            print(f"  Restore failed: {e}", file=sys.stderr)
+            print("  Palace may still be in a degraded state.", file=sys.stderr)
+            print("  Try: mempalace repair (full rebuild)", file=sys.stderr)
+            print(f"\n{'=' * 55}\n")
+            sys.exit(1)
 
         if result.get("recovered"):
             print(f"  Restored to version: {result['restored_to']}")
@@ -394,8 +405,11 @@ def cmd_repair(args):
                 print("  Run without --dry-run to apply the rollback.")
         else:
             msg = result.get("message") or result.get("error") or "no healthy prior version found"
-            print(f"  No candidate version: {msg}")
-            print("  Try: mempalace repair (full rebuild)")
+            print(f"  No candidate version: {msg}", file=sys.stderr)
+            print("  Try: mempalace repair (full rebuild)", file=sys.stderr)
+            print(f"\n{'=' * 55}\n")
+            if not dry_run:
+                sys.exit(1)
         print(f"\n{'=' * 55}\n")
         return
 
