@@ -438,7 +438,7 @@ def test_c_pointer_return():
 
 @pytest.mark.parametrize(
     "language",
-    ["markdown", "text", "json", "yaml", "shell", "ruby", "java", "unknown", "html", "css", "sql"],
+    ["markdown", "text", "json", "yaml", "shell", "ruby", "unknown", "html", "css", "sql"],
 )
 def test_non_code_language_returns_empty(language):
     content = "Some content that might look like def foo() { return 1; }\n"
@@ -496,3 +496,83 @@ def test_jsx_function_symbol():
 def test_jsx_import_only_returns_import():
     content = "import React from 'react';\n"
     assert extract_symbol(content, "jsx") == ("", "import")
+
+
+# =============================================================================
+# JAVA
+# =============================================================================
+
+
+def test_java_class():
+    assert extract_symbol("public class UserService {\n}\n", "java") == ("UserService", "class")
+
+
+def test_java_abstract_class():
+    assert extract_symbol("public abstract class BaseEntity {\n}\n", "java") == (
+        "BaseEntity",
+        "class",
+    )
+
+
+def test_java_interface():
+    assert extract_symbol("public interface Repository<T> {\n}\n", "java") == (
+        "Repository",
+        "interface",
+    )
+
+
+def test_java_enum():
+    assert extract_symbol("public enum Status {\n    ACTIVE, INACTIVE\n}\n", "java") == (
+        "Status",
+        "enum",
+    )
+
+
+def test_java_record():
+    assert extract_symbol("public record Point(int x, int y) {\n}\n", "java") == (
+        "Point",
+        "record",
+    )
+
+
+def test_java_annotation_type():
+    assert extract_symbol("public @interface Component {\n}\n", "java") == (
+        "Component",
+        "annotation",
+    )
+
+
+def test_java_method_public():
+    content = "public void processRequest(HttpServletRequest req) {\n}\n"
+    assert extract_symbol(content, "java") == ("processRequest", "method")
+
+
+def test_java_method_private_static():
+    content = "private static void helper() {\n}\n"
+    assert extract_symbol(content, "java") == ("helper", "method")
+
+
+def test_java_method_generic():
+    content = "public <T> Optional<T> findById(Long id) {\n    return Optional.empty();\n}\n"
+    assert extract_symbol(content, "java") == ("findById", "method")
+
+
+def test_java_annotation_prefixed_method():
+    content = "@Override\npublic String toString() {\n    return name;\n}\n"
+    assert extract_symbol(content, "java") == ("toString", "method")
+
+
+def test_java_inner_class():
+    # stripped line (indented in source) — boundary/extract match on stripped line
+    content = "private static class Builder {\n}\n"
+    assert extract_symbol(content, "java") == ("Builder", "class")
+
+
+def test_java_unknown_returns_empty():
+    # plain assignment — no symbol
+    assert extract_symbol("int x = 42;\n", "java") == ("", "")
+
+
+def test_java_ruby_still_returns_empty():
+    content = "def foo\n  puts 'hello'\nend\n"
+    assert extract_symbol(content, "ruby") == ("", "")

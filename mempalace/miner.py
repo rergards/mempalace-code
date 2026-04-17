@@ -508,6 +508,17 @@ RUST_BOUNDARY = re.compile(
     re.MULTILINE,
 )
 
+# Java structural boundaries — matches against stripped lines (indented methods inside classes)
+JAVA_BOUNDARY = re.compile(
+    r"^(?:"
+    r"(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp)\s+)*(?:class|interface|enum|record)\s+\w+"
+    r"|(?:(?:public|protected)\s+)?@interface\s+\w+"
+    r"|(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|transient|volatile)\s+)+(?:<[^>]+>\s+)?[\w<>\[\],?]+(?:\[\])*\s+\w+\s*\("
+    r"|@\w+"
+    r")",
+    re.MULTILINE,
+)
+
 # Markdown heading boundaries
 HEADING_MD = re.compile(r"^#{1,4}\s+.+", re.MULTILINE)
 
@@ -535,6 +546,8 @@ def get_boundary_pattern(language: str):
         ".go": GO_BOUNDARY,
         "rust": RUST_BOUNDARY,
         ".rs": RUST_BOUNDARY,
+        "java": JAVA_BOUNDARY,
+        ".java": JAVA_BOUNDARY,
         "terraform": HCL_BOUNDARY,
         ".tf": HCL_BOUNDARY,
         ".tfvars": HCL_BOUNDARY,
@@ -647,6 +660,48 @@ _CPP_EXTRACT = [
     (re.compile(r"^[\w][\w\s*:<>]+[\s*]+(\w+)\s*\([^;]*\)\s*\{", re.MULTILINE), "function"),
 ]
 
+_JAVA_EXTRACT = [
+    # @interface must precede class/interface checks (annotation type declaration)
+    (re.compile(r"^(?:(?:public|protected)\s+)?@interface\s+(\w+)", re.MULTILINE), "annotation"),
+    # record before class (Java 16+; record Foo(...) doesn't start with 'class')
+    (
+        re.compile(
+            r"^(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp)\s+)*record\s+(\w+)",
+            re.MULTILINE,
+        ),
+        "record",
+    ),
+    (
+        re.compile(
+            r"^(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp)\s+)*interface\s+(\w+)",
+            re.MULTILINE,
+        ),
+        "interface",
+    ),
+    (
+        re.compile(
+            r"^(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp)\s+)*enum\s+(\w+)",
+            re.MULTILINE,
+        ),
+        "enum",
+    ),
+    (
+        re.compile(
+            r"^(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp)\s+)*class\s+(\w+)",
+            re.MULTILINE,
+        ),
+        "class",
+    ),
+    # method/constructor: requires at least one modifier to avoid matching field declarations
+    (
+        re.compile(
+            r"^(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|transient|volatile)\s+)+(?:<[^>]+>\s+)?[\w<>\[\],?]+(?:\[\])*\s+(\w+)\s*\(",
+            re.MULTILINE,
+        ),
+        "method",
+    ),
+]
+
 _LANG_EXTRACT_MAP = {
     "python": _PY_EXTRACT,
     "typescript": _TS_EXTRACT,
@@ -657,6 +712,7 @@ _LANG_EXTRACT_MAP = {
     "rust": _RUST_EXTRACT,
     "c": _C_EXTRACT,
     "cpp": _CPP_EXTRACT,
+    "java": _JAVA_EXTRACT,
 }
 
 
@@ -695,7 +751,7 @@ def chunk_file(content: str, ext: str, source_file: str, language: str = None) -
     if language is None:
         language = EXTENSION_LANG_MAP.get(ext, "unknown")
 
-    if language in ("python", "typescript", "javascript", "tsx", "jsx", "go", "rust"):
+    if language in ("python", "typescript", "javascript", "tsx", "jsx", "go", "rust", "java"):
         return chunk_code(content, language, source_file)
     elif language in ("terraform", "hcl"):
         return chunk_code(content, language, source_file)
