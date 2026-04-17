@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-18 · ARCH-RETRIEVAL
+
+Add `mempalace_explain_subsystem` MCP tool: combines semantic search with KG traversal to answer "how does this subsystem work?" queries, returning entry points, extracted symbols, and expanded relationships.
+
 ## 2026-04-18 · MCP-ARCH-TOOLS
 
 Add 4 architecture-oriented MCP tools for .NET type analysis: `mempalace_find_implementations`, `mempalace_find_references`, `mempalace_show_project_graph`, and `mempalace_show_type_dependencies`.
