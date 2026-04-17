@@ -1026,7 +1026,9 @@ items:
   - key: MCP-ARCH-TOOLS
     summary: Add architecture-oriented MCP tools for .NET repos
     type: task
-    status: open
+    status: done
+    done_date: "2026-04-17"
+    done_summary: "Added 4 MCP tools (find_implementations, find_references, show_project_graph, show_type_dependencies) as thin KG query compositions. Added type_dependency_chain() to KnowledgeGraph with cycle detection. Expanded SUPPORTED_LANGUAGES and VALID_SYMBOL_TYPES for .NET. 18 new tests, all AC-1 through AC-13 satisfied."
     priority: high
     size: M
     section_id: mcp_developer_tools
