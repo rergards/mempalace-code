@@ -970,11 +970,7 @@ def test_vb_no_inheritance(tmp_path):
 
 def test_vb_implements_generic_stripped(tmp_path):
     """VB Implements with generic suffix (Of T) → generic suffix stripped (F-2 regression)."""
-    content = (
-        "Public Class MyClass\n"
-        "    Implements IEquatable(Of MyClass), ICloneable\n"
-        "End Class\n"
-    )
+    content = "Public Class MyClass\n    Implements IEquatable(Of MyClass), ICloneable\nEnd Class\n"
     triples = _vb(tmp_path, content)
     assert ("MyClass", "implements", "IEquatable") in triples
     assert ("MyClass", "implements", "ICloneable") in triples
