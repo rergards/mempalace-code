@@ -149,7 +149,7 @@ items:
     description: >
       The [treesitter] optional extra pins tree-sitter>=0.22,<0.24 and grammar packages >=0.23,<0.24. Tree-sitter 0.24+ exists and future major versions may introduce breaking API changes. As the ecosystem evolves, the upper bounds need updating. Deliverable: bump version ceilings in pyproject.toml [treesitter] extra to cover the latest compatible tree-sitter release, update CI jobs accordingly, and verify tests pass. Acceptance criteria: (1) pip install -e ".[treesitter]" resolves to the latest available tree-sitter release; (2) treesitter-compat and treesitter-py39 CI jobs pass; (3) ruff clean. Identified in CODE-TREESITTER-INFRA harden round-1 (F-3).
 
-    resolution: '2026-04-17: Raised tree-sitter ceilings: core split by py version marker (<0.24 for py<3.10, <0.26 for py>=3.10), all grammar packages raised to <0.26; added treesitter-py313 CI job'
+    resolution: '2026-04-17: Raised tree-sitter ceilings: core split by py version marker (<0.24 for py<3.10, <0.26 for py>=3.10), all grammar packages raised to <0.26; added treesitter-py313 CI job. Hardening round-1: 0 fixed, 0 backlogged, 3 dismissed (all info-level).'
   - key: QUAL-CODE-BENCH
     summary: "Code mining benchmark — measure retrieval quality on real repos"
     type: feature
