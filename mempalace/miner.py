@@ -1429,19 +1429,13 @@ def process_file(
     """Read, chunk, route, and file one file. Returns drawer count."""
 
     if dry_run:
-        source_file = str(filepath)
-        try:
-            content = filepath.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            return 0
-        content = content.strip()
-        if len(content) < MIN_CHUNK:
-            return 0
-        language = detect_language(filepath, content)
-        room = detect_room(filepath, content, rooms, project_path)
-        chunks = chunk_file(content, filepath.suffix.lower(), source_file, language=language)
-        print(f"    [DRY RUN] {filepath.name} → room:{room} ({len(chunks)} drawers)")
-        return len(chunks)
+        specs = _collect_specs_for_file(
+            filepath, project_path, None, wing, rooms, agent, mined_files=set()
+        )
+        if specs:
+            room = specs[0]["metadata"]["room"]
+            print(f"    [DRY RUN] {filepath.name} → room:{room} ({len(specs)} drawers)")
+        return len(specs)
 
     specs = _collect_specs_for_file(filepath, project_path, collection, wing, rooms, agent)
     return add_drawers_batch(collection, specs)

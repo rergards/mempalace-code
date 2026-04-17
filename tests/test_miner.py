@@ -1249,6 +1249,43 @@ def test_mine_optimize_disabled_via_env(monkeypatch):
         shutil.rmtree(tmpdir)
 
 
+def test_process_file_dry_run_matches_chunk_count():
+    """process_file(dry_run=True) returns the same chunk count as dry_run=False."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        py_file = project_root / "code.py"
+        write_file(py_file, MULTI_FUNC_PY)
+        _make_palace_config(project_root)
+
+        palace_path = project_root / "palace"
+        palace = open_store(str(palace_path), create=True)
+
+        count_real = process_file(
+            filepath=py_file,
+            project_path=project_root,
+            collection=palace,
+            wing="test_wing",
+            rooms=[{"name": "backend"}, {"name": "general"}],
+            agent="test",
+            dry_run=False,
+        )
+
+        count_dry = process_file(
+            filepath=py_file,
+            project_path=project_root,
+            collection=None,
+            wing="test_wing",
+            rooms=[{"name": "backend"}, {"name": "general"}],
+            agent="test",
+            dry_run=True,
+        )
+
+        assert count_dry == count_real
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_mine_backup_before_optimize_env(monkeypatch):
     """AC-5: mine() with MEMPALACE_BACKUP_BEFORE_OPTIMIZE=1 calls safe_optimize(backup_first=True)."""
     tmpdir = tempfile.mkdtemp()

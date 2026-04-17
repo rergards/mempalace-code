@@ -232,25 +232,16 @@ items:
       Each CI run re-downloads ~500MB of packages (lancedb, sentence-transformers, torch) and the all-MiniLM-L6-v2 model at test runtime. Add pip cache via actions/setup-python cache param, and a HuggingFace model cache step (cache key: model name hash). Expected savings: 3–5 minutes per job, ~15 minutes total per push. AC: cold cache run completes in under 10 minutes; warm cache run completes in under 3 minutes.
 
     resolution: null
-  - key: CLI-DIARY-WRITE-ID-COLLISION
-    summary: Use UUID for diary entry IDs to prevent same-second collision
-    type: bug
-    status: done
-    priority: low
-    size: XS
-    section_id: mcp_developer_tools
-    labels: [cli, diary, mcp]
-    description: 'diary write (cli.py cmd_diary_write) and tool_diary_write (mcp_server.py) both generate IDs using second-precision timestamps plus an 8-char MD5 suffix of the first 50 content chars. Two writes at the same second with identical first 50 chars produce the same ID, causing store.add() to raise a duplicate-ID error. Replace the ID formula in both sites with uuid.uuid4() to guarantee uniqueness. Deliverable: update cmd_diary_write and tool_diary_write atomically; update tests that assert on ID format if any. Constraints: keep all other metadata fields unchanged. AC: (1) two diary writes in the same second with identical content both succeed without error; (2) each produces a distinct ID; (3) all existing diary write tests pass; (4) ruff clean.'
-    resolution: '2026-04-17: Replaced timestamp+MD5 diary entry ID with uuid4 in cmd_diary_write (cli.py) and tool_diary_write (mcp_server.py); removed unused hashlib import from cli.py. Hardening round-1: 0 fixed, 0 backlogged, 2 dismissed (lazy import placement info, ID format test gap info).'
   - key: MINE-BATCH-EMBED-DRY-RUN-REFACTOR
     summary: Remove process_file dry-run code duplication — delegate to _collect_specs_for_file
     type: task
-    status: open
+    status: done
     priority: low
     size: XS
     section_id: cleanup
     labels: [core, mining, refactor]
     description: 'After MINE-BATCH-EMBED, process_file''s dry-run branch manually re-implements the read/strip/chunk/detect pipeline that _collect_specs_for_file already implements. If new metadata fields are added to _collect_specs_for_file, the dry-run branch silently diverges. Deliverable: refactor process_file (or _collect_specs_for_file) so the dry-run path calls the shared helper rather than duplicating its logic. Acceptance criteria: (1) process_file dry_run=True produces the same chunk count as the non-dry-run path would; (2) no duplicate code between process_file and _collect_specs_for_file; (3) all existing tests pass.'
+    resolution: '2026-04-17: Delegated dry-run path in process_file() to _collect_specs_for_file(mined_files=set()); added chunk-count parity test'
   - key: STORE-DELETE-WING-EXCEPTION-TEST
     summary: Add test verifying tool_delete_wing returns error dict when storage raises
     type: task
