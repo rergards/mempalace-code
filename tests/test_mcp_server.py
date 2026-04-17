@@ -336,6 +336,23 @@ class TestWriteTools:
         assert result["success"] is False
         assert "error" in result
 
+    def test_delete_wing_storage_error(
+        self, monkeypatch, config, palace_path, seeded_collection, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_delete_wing, _get_store
+
+        store = _get_store()
+
+        def explode(wing):
+            raise RuntimeError("simulated storage failure")
+
+        monkeypatch.setattr(store, "delete_wing", explode)
+
+        result = tool_delete_wing("project")
+        assert result["success"] is False
+        assert "simulated storage failure" in result["error"]
+
     def test_check_duplicate(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace.mcp_server import tool_check_duplicate

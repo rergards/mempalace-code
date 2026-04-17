@@ -195,18 +195,6 @@ items:
       The chroma-compat CI job installs .[dev,chroma] then runs the full test suite — but all tests use open_store() (LanceDB). The job only proves "chromadb installs without import errors", not "ChromaDB works as a storage backend". Add a test module (tests/test_chroma_compat.py) that explicitly instantiates ChromaStore and exercises add/search/delete. Mark it with pytest.importorskip("chromadb") so it is skipped in the main matrix and only runs in the chroma-compat job. AC: chroma-compat job exercises at least 5 ChromaStore operations; main matrix still passes without chromadb installed.
 
     resolution: null
-  - key: PYPROJECT-CHROMA-VERSION
-    summary: "Update chromadb version ceiling in [chroma] optional extra when 0.7+ releases"
-    type: task
-    status: done
-    priority: low
-    size: XS
-    section_id: quality
-    labels: [packaging, maintenance]
-    description: >
-      The [chroma] optional extra pins chromadb>=0.5.0,<0.7. When ChromaDB releases 0.7+, users who install .[chroma] will get a dependency resolution failure. Periodically check https://pypi.org/project/chromadb/ for new releases and raise the ceiling or update to the latest compatible range. AC: pip install -e ".[chroma]" succeeds with a chromadb version >= 0.7 when available; chroma-compat CI job passes after the update. Constraints: only update after verifying the new version is compatible with ChromaStore (tests/test_chroma_compat.py).
-
-    resolution: '2026-04-17: Raised chromadb ceiling from <0.7 to <2; added tests/test_chroma_compat.py smoke tests (4 tests, all pass); hardening round-1: 0 fixed, 0 backlogged, 3 dismissed'
   - key: CI-CACHING
     summary: "Add pip and HuggingFace model caching to CI jobs to reduce run time"
     type: task
@@ -222,12 +210,13 @@ items:
   - key: STORE-DELETE-WING-EXCEPTION-TEST
     summary: Add test verifying tool_delete_wing returns error dict when storage raises
     type: task
-    status: open
+    status: done
     priority: low
     size: XS
     section_id: quality
     labels: [test, storage, mcp]
     description: 'After removing the bare except Exception: return 0 in LanceStore.delete_wing (STORE-DELETE-WING harden F-002 fix), the exception propagation path is untested. Add a test that monkeypatches table.delete (or table.count_rows) to raise an exception, then calls tool_delete_wing and asserts the result is {"success": False, "error": ...}. Acceptance criteria: (1) new test in tests/test_mcp_server.py or tests/test_storage.py; (2) test fails before the F-002 fix, passes after; (3) all 284+ tests continue to pass; (4) ruff clean. Identified in STORE-DELETE-WING harden round-1 (F-004).'
+    resolution: '2026-04-17: Added test_delete_wing_storage_error in TestWriteTools; monkeypatches store.delete_wing to raise RuntimeError and asserts tool_delete_wing returns {success: False, error: ...}'
   - key: STORE-CHROMA-COUNTBY-FALLBACK
     summary: "ChromaStore.count_by/count_by_pair silently return empty when deprecated ChromaDB backend is used"
     type: bug
