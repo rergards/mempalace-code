@@ -375,6 +375,81 @@ class KnowledgeGraph:
             "relationship_types": predicates,
         }
 
+    # ── Architecture queries ──────────────────────────────────────────────
+
+    def type_dependency_chain(self, type_name: str, max_depth: int = 3) -> dict:
+        """
+        Recursive graph walk: find ancestors and descendants of a type via
+        inherits / implements / extends predicates.
+
+        Walk up: follow outgoing inherits/implements/extends to find ancestors.
+        Walk down: follow incoming inherits/implements/extends to find descendants.
+        Cycle detection via separate visited sets for each direction.
+        max_depth caps traversal per direction (default 3).
+
+        Returns:
+            {
+                "type": type_name,
+                "ancestors": [{"type": ..., "relationship": ..., "depth": ...}, ...],
+                "descendants": [{"type": ..., "relationship": ..., "depth": ...}, ...],
+            }
+        """
+        TYPE_PREDICATES = {"inherits", "implements", "extends"}
+
+        # Walk UP: outgoing edges (type → predicate → parent)
+        ancestors: list = []
+        visited_up: set = {self._entity_id(type_name)}
+        queue: list = [(type_name, 0)]
+        while queue:
+            current, depth = queue.pop(0)
+            if depth >= max_depth:
+                continue
+            facts = self.query_entity(current, direction="outgoing")
+            for fact in facts:
+                if not fact["current"]:
+                    continue
+                if fact["predicate"] not in TYPE_PREDICATES:
+                    continue
+                target = fact["object"]
+                target_id = self._entity_id(target)
+                if target_id in visited_up:
+                    continue
+                visited_up.add(target_id)
+                ancestors.append(
+                    {"type": target, "relationship": fact["predicate"], "depth": depth + 1}
+                )
+                queue.append((target, depth + 1))
+
+        # Walk DOWN: incoming edges (child → predicate → type)
+        descendants: list = []
+        visited_down: set = {self._entity_id(type_name)}
+        queue = [(type_name, 0)]
+        while queue:
+            current, depth = queue.pop(0)
+            if depth >= max_depth:
+                continue
+            facts = self.query_entity(current, direction="incoming")
+            for fact in facts:
+                if not fact["current"]:
+                    continue
+                if fact["predicate"] not in TYPE_PREDICATES:
+                    continue
+                target = fact["subject"]
+                target_id = self._entity_id(target)
+                if target_id in visited_down:
+                    continue
+                visited_down.add(target_id)
+                descendants.append(
+                    {"type": target, "relationship": fact["predicate"], "depth": depth + 1}
+                )
+                queue.append((target, depth + 1))
+
+        return {
+            "type": type_name,
+            "ancestors": ancestors,
+            "descendants": descendants,
+        }
+
     # ── Seed from known facts ─────────────────────────────────────────────
 
     def seed_from_entity_facts(self, entity_facts: dict):

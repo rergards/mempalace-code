@@ -13,6 +13,12 @@ Tools (read):
   mempalace_code_search     — code-optimized search with symbol/language/file filters
   mempalace_check_duplicate — check if content already exists before filing
 
+Tools (architecture — queries pre-mined KG type relationships):
+  mempalace_find_implementations  — find all types implementing a given interface
+  mempalace_find_references       — find all usages of a type (implementors, subclasses, deps)
+  mempalace_show_project_graph    — project-level dependency graph, optionally filtered by solution
+  mempalace_show_type_dependencies — inheritance/implementation chain for a type (ancestors + descendants)
+
 Tools (write):
   mempalace_add_drawer      — file verbatim content into a wing/room
   mempalace_delete_drawer   — remove a drawer by ID
@@ -397,6 +403,105 @@ def tool_kg_stats():
     return _kg.stats()
 
 
+# ==================== ARCHITECTURE TOOLS ====================
+
+
+def tool_find_implementations(interface: str) -> dict:
+    """Find all types that implement a given interface in the KG."""
+    facts = _kg.query_entity(interface, direction="incoming")
+    implementations = [
+        {"type": f["subject"], "source_closet": f.get("source_closet")}
+        for f in facts
+        if f["predicate"] == "implements" and f["current"]
+    ]
+    return {
+        "interface": interface,
+        "implementations": implementations,
+        "count": len(implementations),
+    }
+
+
+def tool_find_references(type_name: str) -> dict:
+    """Find all usages of a type — incoming and outgoing KG relationships grouped by category."""
+    facts = _kg.query_entity(type_name, direction="both")
+    current_facts = [f for f in facts if f["current"]]
+
+    # Map (direction, predicate) → canonical category name
+    category_map = {
+        ("incoming", "implements"): "implementors",
+        ("incoming", "inherits"): "subclasses",
+        ("incoming", "extends"): "sub_interfaces",
+        ("outgoing", "implements"): "implements",
+        ("outgoing", "inherits"): "inherits",
+        ("outgoing", "extends"): "extends",
+        ("incoming", "depends_on"): "depended_by",
+        ("incoming", "references_project"): "referenced_by",
+        ("outgoing", "depends_on"): "depends_on",
+        ("outgoing", "references_project"): "references_project",
+    }
+
+    categories: dict = {}
+    for fact in current_facts:
+        key = (fact["direction"], fact["predicate"])
+        cat = category_map.get(key)
+        if cat is None:
+            continue
+        entry_type = fact["subject"] if fact["direction"] == "incoming" else fact["object"]
+        categories.setdefault(cat, []).append({"type": entry_type})
+
+    return {
+        "type": type_name,
+        "references": categories,
+        "total": sum(len(v) for v in categories.values()),
+    }
+
+
+def tool_show_project_graph(solution: str = None) -> dict:
+    """Show project-level dependency graph from the KG, optionally filtered by solution."""
+    PROJECT_PREDICATES = [
+        "depends_on",
+        "references_project",
+        "targets_framework",
+        "has_output_type",
+        "contains_project",
+    ]
+
+    all_triples: dict = {}
+    for pred in PROJECT_PREDICATES:
+        rows = _kg.query_relationship(pred)
+        all_triples[pred] = [r for r in rows if r["current"]]
+
+    if solution is not None:
+        sol_id = _kg._entity_id(solution)
+        # Projects contained in this solution
+        contained_projects = {
+            r["object"]
+            for r in all_triples.get("contains_project", [])
+            if _kg._entity_id(r["subject"]) == sol_id
+        }
+        filtered: dict = {}
+        for pred in PROJECT_PREDICATES:
+            if pred == "contains_project":
+                filtered[pred] = [
+                    r for r in all_triples[pred] if _kg._entity_id(r["subject"]) == sol_id
+                ]
+            else:
+                filtered[pred] = [
+                    r for r in all_triples[pred] if r["subject"] in contained_projects
+                ]
+        all_triples = filtered
+
+    return {
+        "solution": solution,
+        "graph": {pred: triples for pred, triples in all_triples.items() if triples},
+    }
+
+
+def tool_show_type_dependencies(type_name: str, max_depth: int = 3) -> dict:
+    """Show inheritance/implementation chain for a type — ancestors and descendants."""
+    return _kg.type_dependency_chain(type_name, max_depth=max_depth)
+
+
 # ==================== AGENT DIARY ====================
 
 
@@ -602,6 +707,81 @@ TOOLS = {
         "input_schema": {"type": "object", "properties": {}},
         "handler": tool_kg_stats,
     },
+    "mempalace_find_implementations": {
+        "description": (
+            "Find all types that implement a given interface in the knowledge graph. "
+            "Queries pre-mined .NET type relationships — requires DOTNET-SYMBOL-GRAPH mining."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "interface": {
+                    "type": "string",
+                    "description": "Interface name to find implementations of (e.g. 'IService', 'IDisposable')",
+                },
+            },
+            "required": ["interface"],
+        },
+        "handler": tool_find_implementations,
+    },
+    "mempalace_find_references": {
+        "description": (
+            "Find all usages of a type/interface — implementors, subclasses, dependencies. "
+            "Returns relationships grouped by category: implementors, subclasses, sub_interfaces, "
+            "implements, inherits, extends, depended_by, referenced_by, depends_on, references_project. "
+            "Empty categories are omitted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "type_name": {
+                    "type": "string",
+                    "description": "Type or project name to find references for",
+                },
+            },
+            "required": ["type_name"],
+        },
+        "handler": tool_find_references,
+    },
+    "mempalace_show_project_graph": {
+        "description": (
+            "Show project-level dependency graph from the knowledge graph. "
+            "Returns all depends_on, references_project, targets_framework, has_output_type, "
+            "and contains_project triples. Optionally filtered to a single solution."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "solution": {
+                    "type": "string",
+                    "description": "Filter to projects contained in this solution (optional)",
+                },
+            },
+        },
+        "handler": tool_show_project_graph,
+    },
+    "mempalace_show_type_dependencies": {
+        "description": (
+            "Show the inheritance/implementation chain for a type. "
+            "Returns ancestors (what it inherits/implements/extends) and descendants "
+            "(what inherits/implements it) as flat lists with depth metadata."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "type_name": {
+                    "type": "string",
+                    "description": "Type (class/interface) to show dependencies for",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Max inheritance depth to traverse (default 3)",
+                },
+            },
+            "required": ["type_name"],
+        },
+        "handler": tool_show_type_dependencies,
+    },
     "mempalace_traverse": {
         "description": "Walk the palace graph from a room. Shows connected ideas across wings — the tunnels. Like following a thread through the palace: start at 'chromadb-setup' in wing_code, discover it connects to wing_myproject (planning) and wing_user (feelings about it).",
         "input_schema": {
@@ -662,9 +842,10 @@ TOOLS = {
                 "language": {
                     "type": "string",
                     "description": (
-                        "Filter by language (e.g. python, go, typescript, rust, sql, html, css, "
-                        "yaml, json, toml, terraform, hcl, dockerfile, make, gotemplate, jinja2, "
-                        "conf, ini, markdown, text, csv)"
+                        "Filter by language (e.g. python, go, typescript, rust, java, cpp, c, "
+                        "csharp, fsharp, vbnet, xaml, dotnet-solution, "
+                        "sql, html, css, yaml, json, toml, terraform, hcl, dockerfile, make, "
+                        "gotemplate, jinja2, conf, ini, markdown, text, csv)"
                     ),
                 },
                 "symbol_name": {
@@ -673,7 +854,11 @@ TOOLS = {
                 },
                 "symbol_type": {
                     "type": "string",
-                    "description": "Filter by symbol type (function, class, method, struct, interface)",
+                    "description": (
+                        "Filter by symbol type "
+                        "(function, class, method, struct, interface, "
+                        "record, enum, property, event, module, union, type, view, exception)"
+                    ),
                 },
                 "file_glob": {
                     "type": "string",

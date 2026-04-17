@@ -165,6 +165,12 @@ SUPPORTED_LANGUAGES = {
     "c",
     "shell",
     "ruby",
+    # .NET
+    "csharp",
+    "fsharp",
+    "vbnet",
+    "xaml",
+    "dotnet-solution",
     # web
     "html",
     "css",
@@ -195,6 +201,16 @@ VALID_SYMBOL_TYPES = {
     "method",
     "struct",
     "interface",
+    # .NET / cross-language
+    "record",
+    "enum",
+    "property",
+    "event",
+    "module",
+    "union",
+    "type",
+    "view",
+    "exception",
 }
 
 

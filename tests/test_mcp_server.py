@@ -7,6 +7,7 @@ via monkeypatch to avoid touching real data.
 """
 
 import json
+import pytest
 from mempalace.storage import open_store
 
 
@@ -899,3 +900,177 @@ class TestDegradedPalace:
         result = tool_status()
         assert "error" not in result
         assert result["total_drawers"] == 4
+
+
+# ── Architecture Tools (MCP-ARCH-TOOLS) ──────────────────────────────────
+
+
+class TestArchTools:
+    """Tests for the 4 architecture-oriented MCP tools."""
+
+    @pytest.fixture
+    def dotnet_kg(self, kg):
+        """KG seeded with .NET-style type relationships per MCP-ARCH-TOOLS design notes."""
+        kg.add_triple("MyService", "implements", "IService")
+        kg.add_triple("MyService", "inherits", "BaseService")
+        kg.add_triple("SpecialService", "inherits", "MyService")
+        kg.add_triple("IService", "extends", "IDisposable")
+        kg.add_triple("MyApp", "depends_on", "Newtonsoft.Json@13.0.3")
+        kg.add_triple("MyApp", "references_project", "Shared")
+        kg.add_triple("MyApp", "targets_framework", "net8.0")
+        kg.add_triple("MySolution", "contains_project", "MyApp")
+        return kg
+
+    def test_find_implementations_returns_implementors(
+        self, monkeypatch, config, palace_path, dotnet_kg
+    ):
+        """AC-1: KG has MyService implements IService → find_implementations('IService') returns MyService."""
+        _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
+        from mempalace.mcp_server import tool_find_implementations
+
+        result = tool_find_implementations(interface="IService")
+        assert "implementations" in result
+        assert result["count"] == 1
+        types = [r["type"] for r in result["implementations"]]
+        assert "MyService" in types
+
+    def test_find_implementations_empty(self, monkeypatch, config, palace_path, dotnet_kg):
+        """AC-2: No implementors → returns empty list, no error."""
+        _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
+        from mempalace.mcp_server import tool_find_implementations
+
+        result = tool_find_implementations(interface="NoSuchInterface")
+        assert result["implementations"] == []
+        assert result["count"] == 0
+
+    def test_find_implementations_multiple(self, monkeypatch, config, palace_path, kg):
+        """AC-3: Multiple implementors are all returned."""
+        kg.add_triple("ServiceA", "implements", "IDisposable")
+        kg.add_triple("ServiceB", "implements", "IDisposable")
+        kg.add_triple("ServiceC", "implements", "IDisposable")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_find_implementations
+
+        result = tool_find_implementations(interface="IDisposable")
+        assert result["count"] == 3
+        types = {r["type"] for r in result["implementations"]}
+        assert types == {"ServiceA", "ServiceB", "ServiceC"}
+
+    def test_find_references_canonical_categories(
+        self, monkeypatch, config, palace_path, dotnet_kg
+    ):
+        """AC-4: find_references('MyService') returns grouped canonical relationship categories."""
+        _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
+        from mempalace.mcp_server import tool_find_references
+
+        result = tool_find_references(type_name="MyService")
+        refs = result["references"]
+        # Outgoing: MyService implements IService, MyService inherits BaseService
+        assert "implements" in refs
+        assert any(r["type"] == "IService" for r in refs["implements"])
+        assert "inherits" in refs
+        assert any(r["type"] == "BaseService" for r in refs["inherits"])
+        # Incoming: SpecialService inherits MyService
+        assert "subclasses" in refs
+        assert any(r["type"] == "SpecialService" for r in refs["subclasses"])
+
+    def test_find_references_empty_categories_omitted(
+        self, monkeypatch, config, palace_path, dotnet_kg
+    ):
+        """AC-4: Empty relationship categories are omitted from the response."""
+        _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
+        from mempalace.mcp_server import tool_find_references
+
+        result = tool_find_references(type_name="MyService")
+        refs = result["references"]
+        # MyService is not implemented by others (it's a class, not interface)
+        assert "implementors" not in refs
+
+    def test_show_project_graph_all(self, monkeypatch, config, palace_path, dotnet_kg):
+        """AC-5: show_project_graph returns all project-level predicates grouped."""
+        _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
+        from mempalace.mcp_server import tool_show_project_graph
+
+        result = tool_show_project_graph()
+        graph = result["graph"]
+        assert "depends_on" in graph
+        assert "targets_framework" in graph
+        assert "contains_project" in graph
+        assert "references_project" in graph
+
+    def test_show_project_graph_solution_filter(self, monkeypatch, config, palace_path, dotnet_kg):
+        """AC-6: solution= filter limits graph to projects in that solution."""
+        _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
+        from mempalace.mcp_server import tool_show_project_graph
+
+        result = tool_show_project_graph(solution="MySolution")
+        graph = result["graph"]
+        # MySolution contains MyApp → MyApp's depends_on/targets_framework appear
+        depends = graph.get("depends_on", [])
+        assert any(r["subject"] == "MyApp" for r in depends)
+        contains = graph.get("contains_project", [])
+        assert any(r["object"] == "MyApp" for r in contains)
+
+    def test_show_type_dependencies_ancestors_and_descendants(
+        self, monkeypatch, config, palace_path, dotnet_kg
+    ):
+        """AC-7: type_dependencies for MyService returns ancestors and descendants."""
+        _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
+        from mempalace.mcp_server import tool_show_type_dependencies
+
+        result = tool_show_type_dependencies(type_name="MyService")
+        assert result["type"] == "MyService"
+        ancestor_types = {a["type"] for a in result["ancestors"]}
+        assert "IService" in ancestor_types
+        assert "BaseService" in ancestor_types
+        descendant_types = {d["type"] for d in result["descendants"]}
+        assert "SpecialService" in descendant_types
+
+    def test_show_type_dependencies_cycle_safe(self, monkeypatch, config, palace_path, kg):
+        """AC-8: Circular references do not cause infinite loop."""
+        kg.add_triple("TypeA", "inherits", "TypeB")
+        kg.add_triple("TypeB", "inherits", "TypeA")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_show_type_dependencies
+
+        result = tool_show_type_dependencies(type_name="TypeA")
+        assert "ancestors" in result
+        assert "descendants" in result
+        # Starting type must not appear in its own ancestors
+        ancestor_types = [a["type"] for a in result["ancestors"]]
+        assert ancestor_types.count("TypeA") == 0
+
+    def test_show_type_dependencies_max_depth(self, monkeypatch, config, palace_path, kg):
+        """AC-9: max_depth=1 returns only direct parents, not transitive ones."""
+        kg.add_triple("MyService", "inherits", "BaseService")
+        kg.add_triple("BaseService", "inherits", "GrandBase")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_show_type_dependencies
+
+        result = tool_show_type_dependencies(type_name="MyService", max_depth=1)
+        ancestor_types = {a["type"] for a in result["ancestors"]}
+        assert "BaseService" in ancestor_types
+        assert "GrandBase" not in ancestor_types
+
+    def test_arch_tools_in_tools_list(self):
+        """AC-12: All 4 new tools appear in tools/list with name, description, and inputSchema."""
+        from mempalace.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        tool_names = {t["name"] for t in resp["result"]["tools"]}
+        assert "mempalace_find_implementations" in tool_names
+        assert "mempalace_find_references" in tool_names
+        assert "mempalace_show_project_graph" in tool_names
+        assert "mempalace_show_type_dependencies" in tool_names
+        # Each must have all 3 required fields
+        tool_map = {t["name"]: t for t in resp["result"]["tools"]}
+        for tool_name in (
+            "mempalace_find_implementations",
+            "mempalace_find_references",
+            "mempalace_show_project_graph",
+            "mempalace_show_type_dependencies",
+        ):
+            t = tool_map[tool_name]
+            assert t["name"]
+            assert t["description"]
+            assert t["inputSchema"]
