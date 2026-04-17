@@ -1099,6 +1099,37 @@ def test_add_drawers_batch_is_idempotent():
         shutil.rmtree(tmpdir)
 
 
+def test_add_drawers_batch_updates_content():
+    """add_drawers_batch() re-upserted with changed content must overwrite the stored text."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        palace_path = os.path.join(tmpdir, "palace")
+        store = open_store(palace_path, create=True)
+
+        drawer_id = "drawer_test_general_abc123"
+        metadata = {
+            "wing": "test",
+            "room": "general",
+            "source_file": "/fake/file.py",
+            "added_by": "test",
+            "filed_at": "2026-01-01T00:00:00",
+        }
+
+        add_drawers_batch(
+            store, [{"id": drawer_id, "content": "content version 1", "metadata": metadata}]
+        )
+        add_drawers_batch(
+            store, [{"id": drawer_id, "content": "content version 2", "metadata": metadata}]
+        )
+
+        result = store.get(ids=[drawer_id], include=["documents"])
+        assert result["documents"][0] == "content version 2", (
+            f"Expected 'content version 2' after re-upsert, got {result['documents'][0]!r}"
+        )
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def _skip_if_no_ts_ast():
     """Skip test if tree-sitter TypeScript grammar is not active."""
     try:
