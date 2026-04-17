@@ -764,80 +764,10 @@ items:
       - [ ] Low CPU usage when idle
       - [ ] Graceful shutdown on SIGTERM
     size: M
-  - key: MINE-XAML
-    summary: Add XAML and WPF code-behind linking support
-    type: feature
-    status: done
-    priority: medium
-    section_id: immediate
-    labels: [feat, miner, dotnet]
-    done_date: "2026-04-17"
-    done_summary: >-
-      Added .xaml language detection, x:Class symbol extraction (view/view_name), and parse_xaml_file() emitting KG triples for code-behind, DataContext ViewModel, x:Name controls, StaticResource/DynamicResource references, and Command bindings. Renamed _DOTNET_CONFIG_EXTENSIONS to _KG_EXTRACT_EXTENSIONS (includes .xaml). Tests: test_kg_extract.py (renamed from test_dotnet_config.py) + XAML roundtrip in test_miner.py. All tests and lint pass. Hardening round-1: fixed missing uses_command dedup test; backlogged plain Name= attribute support (MINE-XAML-NAME-ATTR); dismissed regex-matches-in-comments as accepted limitation of hybrid approach.
-    description: |-
-      ## Problem
-      WPF/UWP/MAUI repos have .xaml files with code-behind that are not linked.
-
-      ## Scope
-      - Parse .xaml files: identify views, bindings, commands, named controls (x:Name)
-      - Link .xaml to code-behind (.xaml.cs) via naming convention
-      - Link to ViewModel classes via DataContext bindings where detectable
-      - Extract resource references
-
-      ## References
-      - GitHub issue: rergards/mempalace-code#1 (Nice To Have #1)
-
-      ## Acceptance Criteria
-      - [ ] XAML files parsed with meaningful symbol_name (view name)
-      - [ ] Code-behind linked via metadata or KG triple
-      - [ ] ViewModel linkage where DataContext is explicit
-      - [ ] Works on WPF projects like open-rpa/openrpa
-    size: M
-    links:
-      - type: depends-on
-        key: MINE-CSHARP
-  - key: DOTNET-SYMBOL-GRAPH
-    summary: Cross-project symbol relationships via KG
-    type: feature
-    status: done
-    priority: medium
-    section_id: immediate
-    labels: [feat, miner, dotnet, kg]
-    description: |-
-      ## Problem
-      Large .NET repos have behavior spread across interfaces and implementations in different projects. No way to query these relationships.
-
-      ## Scope
-      - During mining, detect and store in KG:
-        - Interface implementations: TypeA -> implements -> IInterface
-        - Inheritance: TypeB -> inherits -> BaseClass
-        - Type usage references (where feasible without full semantic analysis)
-      - MCP tools to query:
-        - mempalace_kg_query('IMyInterface') -> shows all implementers
-        - mempalace_kg_query('BaseClass') -> shows all derived types
-
-      ## Limitations
-      - Full semantic analysis (Roslyn) is out of scope for v1
-      - Regex/AST-based detection may miss some cases
-      - Cross-file references limited to same-wing (project)
-
-      ## References
-      - GitHub issue: rergards/mempalace-code#1 (Must Have #3)
-
-      ## Acceptance Criteria
-      - [ ] Interface implementations detected and stored in KG
-      - [ ] Inheritance relationships detected and stored in KG
-      - [ ] kg_query returns implementers/derived types
-      - [ ] Works on multi-project .NET solutions
-    size: M
-    links:
-      - type: depends-on
-        key: MINE-CSHARP
-    resolution: '2026-04-17: Added extract_type_relationships() for C#/F#/VB.NET source files; detects implements/inherits/extends triples via regex heuristics and stores them in KG during mine(). _KG_EXTRACT_EXTENSIONS expanded to cover .cs/.fs/.fsi/.vb; invalidation and stale-sweep handled by existing guards. 48 new tests across C#/F#/VB.NET cases, KG lifecycle, and multi-project cross-project query (AC-1 through AC-12). Hardening round-1 (2 fixed, 1 backlogged, 1 dismissed): fixed F# module-scoped type indentation bug and VB.NET generic-suffix stripping; backlogged C# multi-line base-type declarations (DOTNET-CS-MULTILINE-BASE).'
   - key: BENCH-DOTNET
     summary: Benchmark suite for C#/.NET repo mining and retrieval
     type: task
-    status: open
+    status: done
     priority: medium
     section_id: immediate
     labels: [bench, dotnet, quality]
@@ -869,6 +799,9 @@ items:
         key: MINE-CSHARP
       - type: depends-on
         key: MINE-DOTNET
+      - type: deploy-blocked-by
+        key: BENCH-DOTNET-CLONE-REPO
+    resolution: '2026-04-17: Add benchmarks/dotnet_bench.py: 20-query R@5/R@10 benchmark for C#/.NET repos targeting jasontaylordev/CleanArchitecture, with --validate-queries mode and results JSON output'
   - key: STORAGE-BACKUP-RETENTION
     summary: 'Backup retention policy: auto-prune pre_optimize_*.tar.gz archives so they don''t accumulate indefinitely'
     type: task
@@ -1092,3 +1025,12 @@ items:
 
       ## Origin
       DOTNET-SYMBOL-GRAPH hardening round-1 F-3.
+  - key: BENCH-DOTNET-CLONE-REPO
+    summary: Clone jasontaylordev/CleanArchitecture (pin to a stable tag, e.g. v8.0.x) and record the commit hash before running the benchmark
+    type: task
+    status: open
+    priority: medium
+    section_id: immediate
+    assignee: owner
+    labels: [deploy-prereq, owner-action]
+    blocks_deploy: true
