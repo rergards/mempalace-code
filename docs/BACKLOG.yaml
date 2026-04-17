@@ -1028,7 +1028,7 @@ items:
     type: task
     status: done
     done_date: "2026-04-17"
-    done_summary: "Added 4 MCP tools (find_implementations, find_references, show_project_graph, show_type_dependencies) as thin KG query compositions. Added type_dependency_chain() to KnowledgeGraph with cycle detection. Expanded SUPPORTED_LANGUAGES and VALID_SYMBOL_TYPES for .NET. 18 new tests, all AC-1 through AC-13 satisfied."
+    done_summary: "Added 4 MCP tools (find_implementations, find_references, show_project_graph, show_type_dependencies) as thin KG query compositions. Added type_dependency_chain() to KnowledgeGraph with cycle detection. Expanded SUPPORTED_LANGUAGES and VALID_SYMBOL_TYPES for .NET. 18 new tests, all AC-1 through AC-13 satisfied. Hardening round-1: 2 fixed, 1 backlogged (ARCH-REF-COVERAGE), 2 dismissed."
     priority: high
     size: M
     section_id: mcp_developer_tools
@@ -1179,3 +1179,29 @@ items:
       - [ ] Layer detection with configurable rules
       - [ ] Results stored in KG
       - [ ] Queryable via mempalace_kg_query
+  - key: ARCH-REF-COVERAGE
+    summary: Add find_references test coverage for depended_by and referenced_by categories
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: mcp_developer_tools
+    description: |-
+      ## Problem
+
+      tool_find_references maps (incoming, depends_on)→depended_by and (incoming, references_project)→referenced_by in its category_map, but no test exercises these paths. A regression that breaks these mappings would not be caught.
+
+      ## Scope
+
+      Add 2 tests to TestArchTools in tests/test_mcp_server.py.
+
+      ## Deliverable
+
+      - test_find_references_depended_by: add triple (X depends_on MyApp), query find_references('MyApp'), assert 'depended_by' in result['references']
+      - test_find_references_referenced_by: add triple (X references_project MyApp), query find_references('MyApp'), assert 'referenced_by' in result['references']
+
+      ## Acceptance Criteria
+
+      - [ ] test_find_references_depended_by passes
+      - [ ] test_find_references_referenced_by passes
+      - [ ] ruff check passes

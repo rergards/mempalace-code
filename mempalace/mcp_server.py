@@ -409,11 +409,13 @@ def tool_kg_stats():
 def tool_find_implementations(interface: str) -> dict:
     """Find all types that implement a given interface in the KG."""
     facts = _kg.query_entity(interface, direction="incoming")
-    implementations = [
-        {"type": f["subject"], "source_closet": f.get("source_closet")}
-        for f in facts
-        if f["predicate"] == "implements" and f["current"]
-    ]
+    implementations = []
+    for f in facts:
+        if f["predicate"] == "implements" and f["current"]:
+            entry = {"type": f["subject"]}
+            if f.get("source_closet"):
+                entry["source_closet"] = f["source_closet"]
+            implementations.append(entry)
     return {
         "interface": interface,
         "implementations": implementations,

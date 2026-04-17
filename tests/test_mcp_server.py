@@ -1011,6 +1011,15 @@ class TestArchTools:
         contains = graph.get("contains_project", [])
         assert any(r["object"] == "MyApp" for r in contains)
 
+    def test_show_project_graph_unknown_solution(self, monkeypatch, config, palace_path, dotnet_kg):
+        """F-2: solution= with no matching solution returns empty graph, no error."""
+        _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
+        from mempalace.mcp_server import tool_show_project_graph
+
+        result = tool_show_project_graph(solution="NoSuchSolution")
+        assert result["solution"] == "NoSuchSolution"
+        assert result["graph"] == {}
+
     def test_show_type_dependencies_ancestors_and_descendants(
         self, monkeypatch, config, palace_path, dotnet_kg
     ):
