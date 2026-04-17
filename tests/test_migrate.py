@@ -159,3 +159,28 @@ def test_migrate_verify_catches_mismatch(tmp_path):
 
     with pytest.raises(VerificationError, match="wing_a"):
         migrate_chroma_to_lance(src, dst, force=True, verify=True, no_backup=True)
+
+
+# ─── AC-6: Empty source early-exit ───────────────────────────────────────────
+
+
+def test_migrate_empty_src(tmp_path):
+    """
+    When the source collection exists but has no rows, migrate_chroma_to_lance
+    should return (0, 0) without creating the destination directory.
+    """
+    src = str(tmp_path / "src")
+    dst = str(tmp_path / "dst")
+
+    # Seed then delete all rows so the collection exists but is empty.
+    _seed_chroma(src, n_per_wing=3, wings=["wing_a"])
+    src_store = ChromaStore(src, create=False)
+    all_ids = src_store.get(include=["documents"])["ids"]
+    assert len(all_ids) == 3
+    src_store.delete(all_ids)
+    assert src_store.count() == 0
+
+    result = migrate_chroma_to_lance(src, dst, no_backup=True)
+
+    assert result == (0, 0)
+    assert not os.path.isdir(dst), "destination directory must not be created on early exit"
