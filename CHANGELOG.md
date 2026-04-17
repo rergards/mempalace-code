@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-17 · MINE-KOTLIN
+
+Add Kotlin language support to code miner: `.kt` and `.kts` files are now mined with structured symbol extraction for classes, objects, interfaces, functions, properties, data classes, sealed classes, enums, companion objects, extension functions, and coroutine/DSL constructs.
+
 ## 2026-04-17 · MINE-JAVA-SMART
 
 Add smart symbol extraction for Java: classes, interfaces, enums, records, methods, fields, and annotations are now extracted as structured drawers instead of plain chunks; generics, inner classes, and annotation types are handled correctly.
