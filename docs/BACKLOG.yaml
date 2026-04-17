@@ -247,6 +247,7 @@ items:
     labels: [test, migration]
     description: 'The early-exit path ''if src_total == 0: return (0, 0)'' in migrate_chroma_to_lance() is untested. This path is distinct from ''_col is None'' (no collection): it requires a ChromaDB palace initialized with a collection that has had all drawers deleted. Deliverable: add test_migrate_empty_src to test_migrate.py that seeds a ChromaStore, deletes all rows, then calls migrate_chroma_to_lance and asserts it returns (0, 0) without creating destination rows. AC: test passes; existing tests unaffected. Identified in STORE-MIGRATION-CLI harden round-1 (F-003).'
     resolution: '2026-04-17: Added test_migrate_empty_src: seeds ChromaStore, deletes all rows, asserts migrate_chroma_to_lance returns (0,0) without creating dst dir'
+    hardening: 'round-1 (2026-04-17): 0 fixed, 0 backlogged, 1 dismissed (info only — no production changes needed).'
   - key: CORE-EXPORT-IMPORT-STREAM-TEST
     summary: 'Add test_export_streams_large_palace: verify iter_all streams without OOM on 5k-drawer palaces'
     type: task
