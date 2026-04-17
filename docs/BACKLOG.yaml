@@ -241,7 +241,7 @@ items:
     section_id: cleanup
     labels: [core, mining, refactor]
     description: 'After MINE-BATCH-EMBED, process_file''s dry-run branch manually re-implements the read/strip/chunk/detect pipeline that _collect_specs_for_file already implements. If new metadata fields are added to _collect_specs_for_file, the dry-run branch silently diverges. Deliverable: refactor process_file (or _collect_specs_for_file) so the dry-run path calls the shared helper rather than duplicating its logic. Acceptance criteria: (1) process_file dry_run=True produces the same chunk count as the non-dry-run path would; (2) no duplicate code between process_file and _collect_specs_for_file; (3) all existing tests pass.'
-    resolution: '2026-04-17: Delegated dry-run path in process_file() to _collect_specs_for_file(mined_files=set()); added chunk-count parity test'
+    resolution: '2026-04-17: Delegated dry-run path in process_file() to _collect_specs_for_file(mined_files=set()); added chunk-count parity test. Hardening round-1: 0 fixed, 0 backlogged, 2 dismissed (dry-run always-reports-all-chunks info, side-effect assertion gap info).'
   - key: STORE-DELETE-WING-EXCEPTION-TEST
     summary: Add test verifying tool_delete_wing returns error dict when storage raises
     type: task
