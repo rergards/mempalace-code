@@ -833,7 +833,7 @@ items:
     links:
       - type: depends-on
         key: MINE-CSHARP
-    resolution: '2026-04-17: 2026-04-17: Added extract_type_relationships() for C#/F#/VB.NET source files; detects implements/inherits/extends triples via regex heuristics and stores them in KG during mine(). _KG_EXTRACT_EXTENSIONS expanded to cover .cs/.fs/.fsi/.vb; invalidation and stale-sweep handled by existing guards. 48 new tests across C#/F#/VB.NET cases, KG lifecycle, and multi-project cross-project query (AC-1 through AC-12). All tests and lint pass.'
+    resolution: '2026-04-17: Added extract_type_relationships() for C#/F#/VB.NET source files; detects implements/inherits/extends triples via regex heuristics and stores them in KG during mine(). _KG_EXTRACT_EXTENSIONS expanded to cover .cs/.fs/.fsi/.vb; invalidation and stale-sweep handled by existing guards. 48 new tests across C#/F#/VB.NET cases, KG lifecycle, and multi-project cross-project query (AC-1 through AC-12). Hardening round-1 (2 fixed, 1 backlogged, 1 dismissed): fixed F# module-scoped type indentation bug and VB.NET generic-suffix stripping; backlogged C# multi-line base-type declarations (DOTNET-CS-MULTILINE-BASE).'
   - key: BENCH-DOTNET
     summary: Benchmark suite for C#/.NET repo mining and retrieval
     type: task
@@ -1059,3 +1059,36 @@ items:
       - <TextBox x:Name="myBox" Name="myBox" /> emits only one has_named_control triple for "myBox"
       - All existing test_parse_xaml_* tests continue to pass
       - Origin: MINE-XAML hardening round-1 F-3
+  - key: DOTNET-CS-MULTILINE-BASE
+    summary: Handle C# multi-line base-type declarations in type-relationship extraction
+    type: feature
+    status: open
+    priority: low
+    size: S
+    section_id: immediate
+    labels: [miner, dotnet, kg]
+    description: |-
+      ## Problem
+      C# allows base-type lists to span multiple lines:
+
+          public class Foo :
+              IBar,
+              IBaz
+          { }
+
+      The current regex in _csharp_type_rels uses (.+) which captures to end-of-line only, so multi-line declarations produce no triples. Gap relative to real-world C# codebases where IDE auto-formatting wraps long base lists.
+
+      ## Scope
+      Update _csharp_type_rels to join continuation lines before applying matcher patterns.
+
+      ## Constraints
+      - Must not break single-line extraction (all 72 existing tests must pass)
+      - Performance must not degrade on typical files
+
+      ## Acceptance Criteria
+      - [ ] public class Foo : IBar, IBaz on two lines produces both triples
+      - [ ] Existing 72 test_kg_extract.py tests continue to pass
+      - [ ] Ruff lint passes
+
+      ## Origin
+      DOTNET-SYMBOL-GRAPH hardening round-1 F-3.

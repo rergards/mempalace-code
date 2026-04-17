@@ -884,6 +884,21 @@ def test_fs_type_alias(tmp_path):
     assert len(triples) == 0
 
 
+def test_fs_type_inside_explicit_module(tmp_path):
+    """F# type defined inside an explicit module (indented) → triples extracted (F-1 regression)."""
+    content = (
+        "module Services =\n"
+        "\n"
+        "    type Worker() =\n"
+        "        inherit BackgroundService()\n"
+        "        interface IHostedService with\n"
+        "            member _.StartAsync(_) = System.Threading.Tasks.Task.CompletedTask\n"
+    )
+    triples = _fs(tmp_path, content)
+    assert ("Worker", "inherits", "BackgroundService") in triples
+    assert ("Worker", "implements", "IHostedService") in triples
+
+
 # =============================================================================
 # VB.NET type-relationship extraction
 # =============================================================================
@@ -951,6 +966,19 @@ def test_vb_no_inheritance(tmp_path):
     content = "Public Class Simple\n    Public Sub DoSomething()\n    End Sub\nEnd Class\n"
     triples = _vb(tmp_path, content)
     assert len(triples) == 0
+
+
+def test_vb_implements_generic_stripped(tmp_path):
+    """VB Implements with generic suffix (Of T) → generic suffix stripped (F-2 regression)."""
+    content = (
+        "Public Class MyClass\n"
+        "    Implements IEquatable(Of MyClass), ICloneable\n"
+        "End Class\n"
+    )
+    triples = _vb(tmp_path, content)
+    assert ("MyClass", "implements", "IEquatable") in triples
+    assert ("MyClass", "implements", "ICloneable") in triples
+    assert not any(t[2].startswith("IEquatable(") for t in triples)
 
 
 # =============================================================================

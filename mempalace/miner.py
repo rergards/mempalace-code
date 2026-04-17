@@ -2096,8 +2096,9 @@ def _csharp_type_rels(filepath: Path) -> list:
 
 
 # Module-level compiled patterns for F# line-by-line scanning.
-_FS_TYPE_DECL_RE = re.compile(r"^type\s+(\w+)")
-_FS_MODULE_DECL_RE = re.compile(r"^module\s+\w+")
+# Allow leading whitespace so that types defined inside explicit modules (indented) are matched.
+_FS_TYPE_DECL_RE = re.compile(r"^\s*type\s+(\w+)")
+_FS_MODULE_DECL_RE = re.compile(r"^\s*module\s+\w+")
 _FS_INHERIT_RE = re.compile(r"^\s+inherit\s+(\w+)")
 _FS_IFACE_RE = re.compile(r"^\s+interface\s+(\w+)")
 
@@ -2105,9 +2106,10 @@ _FS_IFACE_RE = re.compile(r"^\s+interface\s+(\w+)")
 def _fsharp_type_rels(filepath: Path) -> list:
     """Extract inheritance/implementation triples from an F# source file.
 
-    Scans for unindented ``type Name`` declarations, then collects indented
-    ``inherit Base`` and ``interface IFoo with`` lines within the type's scope
-    (until the next unindented ``type`` or ``module`` declaration, or EOF).
+    Scans for ``type Name`` declarations (at any indentation level, including types
+    inside explicit modules), then collects indented ``inherit Base`` and
+    ``interface IFoo with`` lines within the type's scope (until the next
+    ``type`` or ``module`` declaration, or EOF).
     """
     try:
         text = filepath.read_text(encoding="utf-8", errors="ignore")
@@ -2214,7 +2216,8 @@ def _vbnet_type_rels(filepath: Path) -> list:
         m = _VB_IMPLEMENTS_RE.match(line)
         if m:
             for iface_raw in m.group(1).split(","):
-                iface = iface_raw.strip()
+                # Strip VB.NET generic suffix: IEquatable(Of T) -> IEquatable
+                iface = iface_raw.strip().split("(")[0].strip()
                 if iface:
                     key = (current_type, "implements", iface)
                     if key not in seen:
