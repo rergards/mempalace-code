@@ -18,6 +18,7 @@ Tools (architecture — queries pre-mined KG type relationships):
   mempalace_find_references       — find all usages of a type (implementors, subclasses, deps)
   mempalace_show_project_graph    — project-level dependency graph, optionally filtered by solution
   mempalace_show_type_dependencies — inheritance/implementation chain for a type (ancestors + descendants)
+  mempalace_explain_subsystem     — explain how a subsystem works: semantic search + KG expansion
 
 Tools (write):
   mempalace_add_drawer      — file verbatim content into a wing/room
@@ -504,6 +505,92 @@ def tool_show_type_dependencies(type_name: str, max_depth: int = 3) -> dict:
     return _kg.type_dependency_chain(type_name, max_depth=max_depth)
 
 
+def tool_explain_subsystem(
+    query: str,
+    wing: str = None,
+    language: str = None,
+    n_results: int = 5,
+) -> dict:
+    """Explain how a subsystem works by combining semantic search with KG expansion.
+
+    Algorithm:
+    1. Semantic search via code_search() (over-fetch to compensate for post-filter).
+    2. Post-filter to code-shaped hits only (non-empty symbol_name).
+    3. Expand each discovered symbol via _kg.query_entity(direction='both').
+    4. Filter to current KG facts only; categorize using the find_references map.
+    5. Return {query, entry_points, symbol_graph, summary}.
+
+    wing/language constrain retrieval only; KG expansion is unconstrained.
+    """
+    store = _get_store()
+    if not store:
+        return _no_palace()
+
+    # Over-fetch to compensate for post-filtering non-code hits (mixed palace)
+    raw = code_search(
+        palace_path=_config.palace_path,
+        query=query,
+        wing=wing,
+        language=language,
+        n_results=n_results * 2,
+    )
+
+    # Propagate errors from code_search (e.g. invalid language)
+    if "error" in raw:
+        return raw
+
+    all_hits = raw.get("results", [])
+    # Post-filter: code-shaped hits have a non-empty symbol_name
+    entry_points = [r for r in all_hits if r.get("symbol_name")]
+    entry_points = entry_points[:n_results]
+
+    # Extract unique symbol names for KG expansion
+    symbols = {ep["symbol_name"] for ep in entry_points}
+
+    # (direction, predicate) → canonical category — same map as tool_find_references
+    category_map = {
+        ("incoming", "implements"): "implementors",
+        ("incoming", "inherits"): "subclasses",
+        ("incoming", "extends"): "sub_interfaces",
+        ("outgoing", "implements"): "implements",
+        ("outgoing", "inherits"): "inherits",
+        ("outgoing", "extends"): "extends",
+        ("incoming", "depends_on"): "depended_by",
+        ("incoming", "references_project"): "referenced_by",
+        ("outgoing", "depends_on"): "depends_on",
+        ("outgoing", "references_project"): "references_project",
+    }
+
+    symbol_graph: dict = {}
+    for symbol in symbols:
+        facts = _kg.query_entity(symbol, direction="both")
+        current_facts = [f for f in facts if f["current"]]
+        categories: dict = {}
+        for fact in current_facts:
+            key = (fact["direction"], fact["predicate"])
+            cat = category_map.get(key)
+            if cat is None:
+                continue
+            entry_type = fact["subject"] if fact["direction"] == "incoming" else fact["object"]
+            categories.setdefault(cat, []).append(entry_type)
+        symbol_graph[symbol] = categories
+
+    relationships_found = sum(
+        len(v) for sym_cats in symbol_graph.values() for v in sym_cats.values()
+    )
+
+    return {
+        "query": query,
+        "entry_points": entry_points,
+        "symbol_graph": symbol_graph,
+        "summary": {
+            "entry_point_count": len(entry_points),
+            "symbols_found": len(symbols),
+            "relationships_found": relationships_found,
+        },
+    }
+
+
 # ==================== AGENT DIARY ====================
 
 
@@ -783,6 +870,47 @@ TOOLS = {
             "required": ["type_name"],
         },
         "handler": tool_show_type_dependencies,
+    },
+    "mempalace_explain_subsystem": {
+        "description": (
+            "Explain how a subsystem works by combining semantic code search with KG expansion. "
+            "Finds code entry points matching the query, then expands each discovered symbol "
+            "through the knowledge graph to surface its relationships (implements, inherits, "
+            "subclasses, dependencies). "
+            "Use for queries like 'how does the storage backend work?' or "
+            "'how is authentication implemented?'. "
+            "Returns {entry_points, symbol_graph, summary}. "
+            "wing/language filter entry points only; KG relationships are always unconstrained."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Natural language question about a subsystem "
+                        "(e.g. 'how does vector storage work?')"
+                    ),
+                },
+                "wing": {
+                    "type": "string",
+                    "description": "Restrict entry point search to this wing/project (optional)",
+                },
+                "language": {
+                    "type": "string",
+                    "description": (
+                        "Restrict entry point search to this language "
+                        "(e.g. python, go, typescript) (optional)"
+                    ),
+                },
+                "n_results": {
+                    "type": "integer",
+                    "description": "Max entry points to return, 1–50 (default 5)",
+                },
+            },
+            "required": ["query"],
+        },
+        "handler": tool_explain_subsystem,
     },
     "mempalace_traverse": {
         "description": "Walk the palace graph from a room. Shows connected ideas across wings — the tunnels. Like following a thread through the palace: start at 'chromadb-setup' in wing_code, discover it connects to wing_myproject (planning) and wing_user (feelings about it).",

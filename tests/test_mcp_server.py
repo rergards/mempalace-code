@@ -1083,3 +1083,181 @@ class TestArchTools:
             assert t["name"]
             assert t["description"]
             assert t["inputSchema"]
+
+
+# ── Explain Subsystem Tool (ARCH-RETRIEVAL) ───────────────────────────────
+
+
+class TestExplainSubsystem:
+    """Tests for mempalace_explain_subsystem (ARCH-RETRIEVAL)."""
+
+    @pytest.fixture
+    def code_kg(self, kg):
+        """KG seeded with relationships for symbols in code_seeded_collection."""
+        kg.add_triple("LanceStore", "implements", "DrawerStore")
+        kg.add_triple("LanceStore", "inherits", "BaseStore")
+        kg.add_triple("MockStore", "implements", "DrawerStore")
+        return kg
+
+    def test_basic_query_returns_structure(
+        self, monkeypatch, config, palace_path, code_seeded_collection, code_kg
+    ):
+        """AC-1: Returns entry_points list with required fields."""
+        _patch_mcp_server(monkeypatch, config, palace_path, code_kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="vector storage backend")
+        assert "entry_points" in result
+        assert "symbol_graph" in result
+        assert "summary" in result
+        assert result["query"] == "vector storage backend"
+        assert len(result["entry_points"]) > 0
+        ep = result["entry_points"][0]
+        for field in (
+            "text",
+            "source_file",
+            "symbol_name",
+            "symbol_type",
+            "language",
+            "similarity",
+        ):
+            assert field in ep, f"Missing field: {field}"
+
+    def test_kg_expansion(self, monkeypatch, config, palace_path, code_seeded_collection, code_kg):
+        """AC-2: symbol_graph contains KG relationships for discovered symbols."""
+        _patch_mcp_server(monkeypatch, config, palace_path, code_kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="vector storage backend LanceStore")
+        assert "LanceStore" in result["symbol_graph"]
+        lancestore_graph = result["symbol_graph"]["LanceStore"]
+        assert "implements" in lancestore_graph
+        assert "DrawerStore" in lancestore_graph["implements"]
+
+    def test_empty_kg_valid_response(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """AC-3: Empty KG returns valid response — entry_points populated, symbol_graph entries empty."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="vector storage backend")
+        assert "entry_points" in result
+        assert "symbol_graph" in result
+        assert len(result["entry_points"]) > 0
+        for sym, rels in result["symbol_graph"].items():
+            assert rels == {}, f"Expected empty relations for {sym}, got {rels}"
+        assert result["summary"]["relationships_found"] == 0
+
+    def test_wing_filter(self, monkeypatch, config, palace_path, code_seeded_collection, kg):
+        """AC-4: wing filter restricts entry_points to that wing."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="language detection storage", wing="mempalace")
+        assert len(result["entry_points"]) > 0
+        assert all(ep["wing"] == "mempalace" for ep in result["entry_points"])
+
+    def test_language_filter(self, monkeypatch, config, palace_path, code_seeded_collection, kg):
+        """AC-5: language filter restricts entry_points to that language."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="code function", language="python")
+        assert len(result["entry_points"]) > 0
+        assert all(ep["language"] == "python" for ep in result["entry_points"])
+
+    def test_no_results_empty_response(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """AC-6: No matching code chunks → empty response, no error."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(
+            query="quantum entanglement teleportation", wing="nonexistent_wing_xyz"
+        )
+        assert result["entry_points"] == []
+        assert result["symbol_graph"] == {}
+        assert result["summary"] == {
+            "symbols_found": 0,
+            "relationships_found": 0,
+            "entry_point_count": 0,
+        }
+
+    def test_no_palace_returns_error(self, monkeypatch, config, kg):
+        """AC-7: No palace → error dict with hint."""
+        config._file_config["palace_path"] = "/nonexistent/path"
+        _patch_mcp_server(monkeypatch, config, "/nonexistent/path", kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="anything")
+        assert "error" in result
+        assert "hint" in result
+
+    def test_in_tools_list(self):
+        """AC-8: Tool appears in tools/list with correct schema."""
+        from mempalace.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        tool_map = {t["name"]: t for t in resp["result"]["tools"]}
+        assert "mempalace_explain_subsystem" in tool_map
+        t = tool_map["mempalace_explain_subsystem"]
+        assert t["name"]
+        assert t["description"]
+        schema = t["inputSchema"]
+        props = schema["properties"]
+        assert "query" in props
+        assert "wing" in props
+        assert "language" in props
+        assert "n_results" in props
+        assert schema.get("required") == ["query"]
+
+    def test_expired_kg_relationships_excluded(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """AC-10: Expired KG relationships are not included in symbol_graph."""
+        kg.add_triple("LanceStore", "implements", "OldStore", valid_to="2020-01-01")
+        kg.add_triple("LanceStore", "implements", "DrawerStore")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="vector storage backend LanceStore")
+        if "LanceStore" in result["symbol_graph"]:
+            impl = result["symbol_graph"]["LanceStore"].get("implements", [])
+            assert "OldStore" not in impl, "Expired relationship must not appear in symbol_graph"
+            assert "DrawerStore" in impl, "Active relationship must appear in symbol_graph"
+
+    def test_mixed_palace_code_only_filter(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """AC-11: Mixed palace — only code-shaped hits (non-empty symbol_name) in entry_points."""
+        # Add a non-code (prose) drawer that semantically matches the same query
+        code_seeded_collection.add(
+            ids=["prose_storage_doc"],
+            documents=[
+                "The storage system documentation explains how vector storage works in detail."
+            ],
+            metadatas=[
+                {
+                    "wing": "mempalace",
+                    "room": "documentation",
+                    "source_file": "/docs/storage.md",
+                    "language": "markdown",
+                    "symbol_name": "",
+                    "symbol_type": "",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-06T00:00:00",
+                }
+            ],
+        )
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="vector storage backend", n_results=10)
+        assert len(result["entry_points"]) > 0
+        for ep in result["entry_points"]:
+            assert ep.get("symbol_name"), (
+                f"Non-code drawer leaked into entry_points: {ep.get('source_file')}"
+            )

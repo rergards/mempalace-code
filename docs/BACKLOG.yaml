@@ -1023,42 +1023,10 @@ items:
       ## Constraints
       - Requires BENCH-DOTNET-CLONE-REPO (the repo must be pre-cloned or cloned in CI).
       - CI machine must have Python 3.9+ and sentence-transformers available.
-  - key: MCP-ARCH-TOOLS
-    summary: Add architecture-oriented MCP tools for .NET repos
-    type: task
-    status: done
-    done_date: "2026-04-17"
-    done_summary: "Added 4 MCP tools (find_implementations, find_references, show_project_graph, show_type_dependencies) as thin KG query compositions. Added type_dependency_chain() to KnowledgeGraph with cycle detection. Expanded SUPPORTED_LANGUAGES and VALID_SYMBOL_TYPES for .NET. 18 new tests, all AC-1 through AC-13 satisfied. Hardening round-1: 2 fixed, 1 backlogged (ARCH-REF-COVERAGE), 2 dismissed."
-    priority: high
-    size: M
-    section_id: mcp_developer_tools
-    description: |-
-      ## Problem
-
-      Issue #1 requests dedicated MCP tools for architecture analysis beyond semantic search.
-
-      ## Scope
-
-      Add MCP tools:
-      - `mempalace_find_implementations` — find all implementations of an interface
-      - `mempalace_find_references` — find all usages of a type/method
-      - `mempalace_show_project_graph` — visualize project dependencies
-      - `mempalace_show_type_dependencies` — show inheritance/implementation chain
-
-      ## References
-
-      - GitHub issue: rergards/mempalace-code#1 (Nice To Have #3)
-
-      ## Acceptance Criteria
-
-      - [ ] find_implementations returns all classes implementing a given interface
-      - [ ] find_references returns files/symbols referencing a given type
-      - [ ] show_project_graph returns project dependency tree
-      - [ ] show_type_dependencies returns inheritance chain
   - key: ARCH-RETRIEVAL
     summary: 'Architecture-oriented retrieval: explain subsystem queries'
     type: task
-    status: open
+    status: done
     priority: high
     size: M
     section_id: mcp_developer_tools
@@ -1085,6 +1053,7 @@ items:
       - [ ] Returns entry point chunks + related symbols from KG
       - [ ] Relationships include: implements, inherits, references
       - [ ] Output structured for LLM to synthesize explanation
+    resolution: '2026-04-18: Added mempalace_explain_subsystem MCP tool: semantic code search + KG expansion for subsystem queries'
   - key: REPO-STRUCTURE-DEFAULTS
     summary: Auto-organize wings/rooms by .sln and project structure
     type: task
