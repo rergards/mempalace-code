@@ -966,6 +966,39 @@ def test_csharp_using_not_extracted():
     )
 
 
+def test_csharp_record_class():
+    # `record class` is the explicit form of a reference record type (C# 10+)
+    assert extract_symbol("public record class Config(string Host, int Port);\n", "csharp") == (
+        "Config",
+        "record",
+    )
+
+
+def test_csharp_partial_record():
+    # partial modifier on a record must be handled
+    assert extract_symbol("public partial record Person(string Name);\n", "csharp") == (
+        "Person",
+        "record",
+    )
+
+
+def test_csharp_record_in_comment_not_matched():
+    # Regression F-1: "record" appearing inside a // comment must not produce a false positive.
+    # The class should be returned, not ("struct", "record") or ("data", "record").
+    content = (
+        "    /// Creates a record struct for coordinates.\n"
+        "    public class CoordinateFactory {\n"
+        "    }\n"
+    )
+    assert extract_symbol(content, "csharp") == ("CoordinateFactory", "class")
+
+
+def test_csharp_record_keyword_in_comment_bare():
+    # Regression F-1 (bare form): "record data" in a comment must not shadow the real class.
+    content = "// This handles record data\npublic class Processor {\n}\n"
+    assert extract_symbol(content, "csharp") == ("Processor", "class")
+
+
 def test_csharp_unknown_language_returns_empty():
     assert extract_symbol("public class Foo {}\n", "unknown") == ("", "")
 

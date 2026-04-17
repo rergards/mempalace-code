@@ -793,12 +793,34 @@ _KOTLIN_EXTRACT = [
 ]
 
 _CSHARP_EXTRACT = [
-    # record struct — most specific; must precede struct and bare record
-    (re.compile(r"record\s+struct\s+(\w+)", re.MULTILINE), "record"),
+    # record struct — most specific; must precede struct and bare record.
+    # ^\s* + modifiers anchors to line start so "record" in comments/strings is never matched.
+    (
+        re.compile(
+            r"^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|new|unsafe|readonly)\s+)*"
+            r"record\s+struct\s+(\w+)",
+            re.MULTILINE,
+        ),
+        "record",
+    ),
     # record class — must precede class and bare record
-    (re.compile(r"record\s+class\s+(\w+)", re.MULTILINE), "record"),
+    (
+        re.compile(
+            r"^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|new|unsafe)\s+)*"
+            r"record\s+class\s+(\w+)",
+            re.MULTILINE,
+        ),
+        "record",
+    ),
     # bare record Foo (implicitly a record class)
-    (re.compile(r"record\s+(\w+)", re.MULTILINE), "record"),
+    (
+        re.compile(
+            r"^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|new|unsafe)\s+)*"
+            r"record\s+(\w+)",
+            re.MULTILINE,
+        ),
+        "record",
+    ),
     # enum — before class/struct; ^\s* handles members indented inside namespace blocks
     (
         re.compile(

@@ -603,6 +603,7 @@ items:
       - [ ] Benchmark on open-rpa/openrpa or similar large repo
     size: L
     resolution: '2026-04-17: Add C# (.cs) regex-based chunking and symbol extraction to miner.py: CSHARP_BOUNDARY, _CSHARP_EXTRACT, language detection, chunk_file dispatch, chunk_code attribute lookback. 50 new tests — all 701 suite tests passing.'
+    hardening: 'round-1 2026-04-17: 2 fixed (record pattern line-start anchoring + missing tests), 1 backlogged (MINE-CSHARP-EXPR-BODY expression-bodied properties), 1 dismissed (ReDoS info). 4 regression tests added, 705 suite tests passing.'
   - key: MINE-DOTNET
     summary: Add .NET ecosystem support to code miner
     type: feature
@@ -1052,3 +1053,31 @@ items:
       - [ ] extract_symbol('fun <T : Comparable<T>> List<T>.sorted(): List<T>', 'kotlin') == ('sorted', 'function')
       - [ ] extract_symbol('fun Map<String, List<Int>>.flatten(): List<Int>', 'kotlin') == ('flatten', 'function')
       - [ ] All 23 existing Kotlin symbol tests still pass
+  - key: MINE-CSHARP-EXPR-BODY
+    summary: C# expression-bodied properties not detected as boundaries or symbols
+    type: feature
+    status: open
+    priority: low
+    size: S
+    section_id: coding_first
+    labels: [feat, miner, csharp]
+    description: |-
+      ## Problem
+      CSHARP_BOUNDARY and _CSHARP_EXTRACT property patterns both require a trailing `{` on the same line to detect auto-properties. C# expression-bodied properties use `=>` instead:
+
+      ```csharp
+      public int Count => _items.Count;
+      public string Name => _name;
+      ```
+
+      These lines are treated as field-like and skipped. The chunk has no symbol label.
+
+      ## Scope
+      - Extend CSHARP_BOUNDARY property alternative to also match `=>` after the property name.
+      - Extend the property pattern in _CSHARP_EXTRACT to match `=>` as an alternative to `{`.
+      - Add tests for expression-bodied properties in both extract and chunking contexts.
+
+      ## Acceptance Criteria
+      - [ ] extract_symbol('public int Count => _items.Count;\n', 'csharp') returns ('Count', 'property')
+      - [ ] chunk_code() creates a boundary at expression-bodied property declarations
+      - [ ] Existing tests unaffected
