@@ -725,16 +725,14 @@ _JAVA_EXTRACT = [
 ]
 
 _KOTLIN_EXTRACT = [
-    # Most-specific first to avoid premature matches by the plain class/interface patterns.
+    # Most-specific compound keywords first — must precede plain `class`/`interface`/`object`.
     (re.compile(r"data\s+class\s+(\w+)", re.MULTILINE), "data_class"),
     (re.compile(r"sealed\s+class\s+(\w+)", re.MULTILINE), "sealed_class"),
     (re.compile(r"sealed\s+interface\s+(\w+)", re.MULTILINE), "sealed_interface"),
     # enum class (Kotlin uses `enum class`, not bare `enum`)
     (re.compile(r"enum\s+class\s+(\w+)", re.MULTILINE), "enum"),
-    # companion object — capture optional name (unnamed companions return "")
-    (re.compile(r"companion\s+object\s*(\w*)", re.MULTILINE), "companion_object"),
-    # standalone object declarations
-    (re.compile(r"object\s+(\w+)", re.MULTILINE), "object"),
+    # interface/class before companion_object — companion objects appear *inside* class chunks,
+    # so checking class/interface first avoids misclassifying an enclosing class as companion_object.
     (
         re.compile(
             r"^(?:(?:public|internal|protected|private|abstract|open|final|override|inline|infix|operator|tailrec|suspend|external|expect|actual)\s+)*interface\s+(\w+)",
@@ -744,15 +742,21 @@ _KOTLIN_EXTRACT = [
     ),
     (
         re.compile(
-            r"^(?:(?:public|internal|protected|private|abstract|open|final|override|inline|infix|operator|tailrec|suspend|external|expect|actual)\s+)*class\s+(\w+)",
+            r"^(?:(?:public|internal|protected|private|abstract|open|final|override|inline|infix|operator|tailrec|suspend|external|expect|actual|inner|value|annotation)\s+)*class\s+(\w+)",
             re.MULTILINE,
         ),
         "class",
     ),
-    # fun — optional receiver type prefix (e.g. `fun String.isEmpty()` → captures `isEmpty`)
+    # companion object — capture optional name (unnamed companions return "")
+    (re.compile(r"companion\s+object\s*(\w*)", re.MULTILINE), "companion_object"),
+    # standalone object declarations — after companion_object to avoid partial match on "object Foo" inside "companion object Foo"
+    (re.compile(r"object\s+(\w+)", re.MULTILINE), "object"),
+    # fun — optional type params (e.g. `fun <T> identity(…)`) and optional receiver type
+    # (e.g. `fun String.isEmpty()` → `isEmpty`, `fun <T> List<T>.map()` → `map`).
+    # Receiver handles simple types and single-level generics; deeply nested generics are rare.
     (
         re.compile(
-            r"^(?:(?:public|internal|protected|private|abstract|open|final|override|inline|infix|operator|tailrec|suspend|external|expect|actual)\s+)*fun\s+(?:\w+\.)?(\w+)",
+            r"^(?:(?:public|internal|protected|private|abstract|open|final|override|inline|infix|operator|tailrec|suspend|external|expect|actual)\s+)*fun\s+(?:<[^>]+>\s+)?(?:\w+(?:<[^>]+>)?\.)?(\w+)",
             re.MULTILINE,
         ),
         "function",

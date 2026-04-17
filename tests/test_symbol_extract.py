@@ -733,6 +733,59 @@ def test_kotlin_chunk_class_with_two_funs():
     assert any("doB" in c for c in contents)
 
 
+def test_kotlin_class_with_companion_object_classifies_as_class():
+    # Regression: a class chunk containing a companion object body must be classified
+    # as the enclosing class, not as companion_object (F-1 hardening fix).
+    content = (
+        "class UserRepository {\n"
+        '    val baseUrl: String = "https://api.example.com"\n'
+        "\n"
+        "    companion object {\n"
+        "        fun create() = UserRepository()\n"
+        "    }\n"
+        "}\n"
+    )
+    assert extract_symbol(content, "kotlin") == ("UserRepository", "class")
+
+
+def test_kotlin_generic_fun_type_param_extracted():
+    # Regression: `fun <T> identity(value: T)` must capture `identity`, not return empty
+    # (F-2 hardening fix — type parameter before function name).
+    assert extract_symbol("fun <T> identity(value: T): T = value\n", "kotlin") == (
+        "identity",
+        "function",
+    )
+
+
+def test_kotlin_generic_extension_fun_type_param_extracted():
+    # `fun <T> List<T>.mapNotNull(…)` — generic receiver, type param before name.
+    content = (
+        "fun <T> List<T>.mapNotNull(transform: (T) -> T?): List<T> {\n    return emptyList()\n}\n"
+    )
+    assert extract_symbol(content, "kotlin") == ("mapNotNull", "function")
+
+
+def test_kotlin_inner_class_extracted():
+    # Regression (F-4): `inner` is now in the class modifier list.
+    assert extract_symbol("inner class ViewHolder(view: View) {\n}\n", "kotlin") == (
+        "ViewHolder",
+        "class",
+    )
+
+
+def test_kotlin_value_class_extracted():
+    # Regression (F-4): `value` is now in the class modifier list.
+    assert extract_symbol("value class UserId(val id: String)\n", "kotlin") == ("UserId", "class")
+
+
+def test_kotlin_annotation_class_extracted():
+    # Regression (F-4): `annotation` is now in the class modifier list.
+    assert extract_symbol("annotation class Retry(val times: Int = 3)\n", "kotlin") == (
+        "Retry",
+        "class",
+    )
+
+
 def test_java_chunk_code_no_spurious_boundary_on_inner_annotation():
     """@SuppressWarnings inside a method body must NOT split the method into separate chunks."""
     java_code = (
