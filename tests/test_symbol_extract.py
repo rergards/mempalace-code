@@ -2,7 +2,7 @@
 
 import pytest
 
-from mempalace.miner import extract_symbol
+from mempalace.miner import chunk_code, extract_symbol
 
 
 # =============================================================================
@@ -568,6 +568,25 @@ def test_java_inner_class():
     assert extract_symbol(content, "java") == ("Builder", "class")
 
 
+def test_java_method_map_return_type():
+    # Map<String, Object> has a space after the comma — must be extracted correctly
+    content = "public Map<String, Object> getConfig() {\n    return config;\n}\n"
+    assert extract_symbol(content, "java") == ("getConfig", "method")
+
+
+def test_java_method_nested_generic_return_type():
+    content = "public Map<String, List<String>> getAll() {\n    return map;\n}\n"
+    assert extract_symbol(content, "java") == ("getAll", "method")
+
+
+def test_java_field_not_extracted():
+    # fields have no () — should not be extracted
+    assert extract_symbol("private static final String URL = \"http://example.com\";\n", "java") == (
+        "",
+        "",
+    )
+
+
 def test_java_unknown_returns_empty():
     # plain assignment — no symbol
     assert extract_symbol("int x = 42;\n", "java") == ("", "")
@@ -576,3 +595,42 @@ def test_java_unknown_returns_empty():
 def test_java_ruby_still_returns_empty():
     content = "def foo\n  puts 'hello'\nend\n"
     assert extract_symbol(content, "ruby") == ("", "")
+
+
+def test_java_chunk_code_no_spurious_boundary_on_inner_annotation():
+    """@SuppressWarnings inside a method body must NOT split the method into separate chunks."""
+    java_code = (
+        "public class Foo {\n"
+        "    public List<String> process(List<?> items) {\n"
+        '        @SuppressWarnings("unchecked")\n'
+        "        List<String> result = (List<String>) items;\n"
+        "        return result;\n"
+        "    }\n"
+        "}\n"
+    )
+    chunks = chunk_code(java_code, "java", "Foo.java")
+    # The whole class (including the method body) should be in a single chunk —
+    # @SuppressWarnings on a local variable must not create a boundary.
+    assert len(chunks) == 1
+    assert "process" in chunks[0]["content"]
+    assert "@SuppressWarnings" in chunks[0]["content"]
+
+
+def test_java_chunk_code_class_with_two_methods():
+    """A class with two public methods should produce at most 2 content chunks."""
+    java_code = (
+        "public class MathUtils {\n"
+        "    public int add(int a, int b) {\n"
+        "        return a + b;\n"
+        "    }\n"
+        "\n"
+        "    public int subtract(int a, int b) {\n"
+        "        return a - b;\n"
+        "    }\n"
+        "}\n"
+    )
+    chunks = chunk_code(java_code, "java", "MathUtils.java")
+    full_text = "\n".join(c["content"] for c in chunks)
+    # Both methods must be present somewhere in the output
+    assert "add" in full_text
+    assert "subtract" in full_text

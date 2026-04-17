@@ -290,30 +290,6 @@ items:
       3. store.add() succeeds with all _META_FIELD_SPEC sentinel values.
       4. store.get() returns all fields with correct sentinel values.
       5. ruff clean.
-  - key: MINE-BATCH-UPSERT-CONTENT-UPDATE-TEST
-    summary: Add test verifying add_drawers_batch updates stored content on re-upsert with changed content
-    type: task
-    status: done
-    priority: low
-    size: XS
-    section_id: quality
-    labels: [test, mining, storage]
-    description: |-
-      ## Problem
-
-      add_drawers_batch now calls upsert (merge_insert + when_matched_update_all). The idempotency test (test_add_drawers_batch_is_idempotent) only verifies that count does not increase — it does not verify that content is updated when the same ID is re-upserted with different content. If LanceDB silently failed to overwrite existing rows, the current test would still pass.
-
-      ## Deliverable
-
-      Add test_add_drawers_batch_updates_content to tests/test_miner.py:
-      1. Call add_drawers_batch with content "v1" for a drawer ID.
-      2. Call add_drawers_batch again with content "v2" for the same drawer ID.
-      3. Query the store and assert the stored text equals "v2".
-
-      ## Hardening — Round 1 (2026-04-17)
-
-      1 finding fixed, 2 dismissed. Added non-empty guard assertion before indexing result['documents'][0] to surface a clear AssertionError instead of IndexError on empty result. Audit: docs/audits/MINE-BATCH-UPSERT-CONTENT-UPDATE-TEST-round-1.md
-    resolution: '2026-04-17: Added test_add_drawers_batch_updates_content to tests/test_miner.py; verifies content is overwritten on re-upsert with same ID'
   - key: STORE-SEARCH-SOURCE-FILE-FULL-PATH
     summary: search_memories should return full source_file path instead of basename, aligning with code_search
     type: task
@@ -732,7 +708,7 @@ items:
   - key: MINE-JAVA-SMART
     summary: Add smart symbol extraction for Java
     type: feature
-    status: open
+    status: done
     priority: high
     section_id: immediate
     labels: [feat, miner]
@@ -753,6 +729,8 @@ items:
       - [ ] Works on Spring Boot / Android projects
       - [ ] Tests for: classes, interfaces, records, annotations, generics
     size: S
+    resolution: '2026-04-17: Added JAVA_BOUNDARY, _JAVA_EXTRACT patterns, and chunk_file dispatch; 13 new symbol-extraction tests; all tests green'
+    hardening: 'round-1 2026-04-17: 1 fixed (spurious @annotation boundary), 1 backlogged (MINE-JAVA-PKG-PRIVATE-METHODS), 1 dismissed; audit at docs/audits/MINE-JAVA-SMART-round-1.md'
   - key: MINE-K8S
     summary: Add Kubernetes manifest smart parsing
     type: feature
@@ -1081,3 +1059,25 @@ items:
       4. ruff clean; pytest -q passes
 
       Origin: CODE-SEARCH-LANG-PROSE hardening round-1 F-1.
+  - key: MINE-JAVA-PKG-PRIVATE-METHODS
+    summary: Extract package-private Java methods (no visibility modifier) in symbol extraction
+    type: feature
+    status: open
+    priority: low
+    size: S
+    section_id: coding_first
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      The _JAVA_EXTRACT method pattern requires at least one modifier keyword before the return type. Package-private methods (no modifier) such as `void process() {}` are silently skipped: chunk content is correct but extract_symbol returns ("", ""), so symbol metadata is missing. Affects utility classes, Android lifecycle helpers, and JUnit test helpers.
+
+      ## Scope
+      - Extend _JAVA_EXTRACT method pattern to match package-private methods without leading modifiers
+      - Verify no false positives on field declarations or bare method calls
+      - Add test cases for package-private void and return-type methods
+
+      ## Acceptance Criteria
+      - [ ] extract_symbol("void process() {\n}\n", "java") returns ("process", "method")
+      - [ ] extract_symbol("String getName() {\n}\n", "java") returns ("getName", "method")
+      - [ ] extract_symbol("String name;\n", "java") still returns ("", "")
+      - [ ] All existing Java symbol-extraction tests pass

@@ -508,13 +508,15 @@ RUST_BOUNDARY = re.compile(
     re.MULTILINE,
 )
 
-# Java structural boundaries — matches against stripped lines (indented methods inside classes)
+# Java structural boundaries — matches against stripped lines (indented methods inside classes).
+# Deliberately excludes bare `@\w+` to avoid spurious boundaries on annotations inside method
+# bodies (e.g. @SuppressWarnings("unchecked") on a local variable).  Class-level annotations
+# will appear in the preamble or be merged by adaptive_merge_split.
 JAVA_BOUNDARY = re.compile(
     r"^(?:"
     r"(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp)\s+)*(?:class|interface|enum|record)\s+\w+"
     r"|(?:(?:public|protected)\s+)?@interface\s+\w+"
-    r"|(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|transient|volatile)\s+)+(?:<[^>]+>\s+)?[\w<>\[\],?]+(?:\[\])*\s+\w+\s*\("
-    r"|@\w+"
+    r"|(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|transient|volatile)\s+)+(?:<[^>]+>\s+)?[\w<>\[\],? ]+(?:\[\])*\s+\w+\s*\("
     r")",
     re.MULTILINE,
 )
@@ -695,7 +697,7 @@ _JAVA_EXTRACT = [
     # method/constructor: requires at least one modifier to avoid matching field declarations
     (
         re.compile(
-            r"^(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|transient|volatile)\s+)+(?:<[^>]+>\s+)?[\w<>\[\],?]+(?:\[\])*\s+(\w+)\s*\(",
+            r"^(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|transient|volatile)\s+)+(?:<[^>]+>\s+)?[\w<>\[\],? ]+(?:\[\])*\s+(\w+)\s*\(",
             re.MULTILINE,
         ),
         "method",
