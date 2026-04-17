@@ -250,12 +250,14 @@ items:
   - key: MINE-CLI-FULL-TEST
     summary: Add CLI-level test for mine --full flag wiring
     type: task
-    status: open
+    status: done
     priority: low
     size: XS
     section_id: quality
     labels: [test, cli, mining, incremental]
     description: 'test_cli.py has no test for the mine --full flag introduced in CODE-INCREMENTAL. The argparse wiring (add_argument("--full", action="store_true") -> incremental=not args.full in cmd_mine) is a single indirection that is currently untested at the CLI level. The mine() function itself is tested in test_incremental_full_flag_forces_rebuild, but the CLI dispatch path is not. Deliverable: add a test to test_cli.py that invokes main() with ["mempalace", "--palace", ..., "mine", dir, "--full"] and asserts mine() is called with incremental=False (via mock). AC: (1) test_mine_cli_full_flag passes; (2) a complementary test_mine_cli_incremental_default asserts incremental=True when --full is absent; (3) existing tests unaffected; (4) ruff clean. Identified in CODE-INCREMENTAL harden round-1 (F-004).'
+    resolution: '2026-04-17: Added TestMineCommand to test_cli.py: test_mine_full_flag (incremental=False) and test_mine_default_incremental (incremental=True), both passing.'
+    hardening: 'round-1 (2026-04-17): 0 fixed, 0 backlogged, 2 dismissed (info only — no production changes needed).'
   - key: STORE-MIGRATE-EMPTY-SRC-TEST
     summary: Add test for migrate-storage empty source palace early-exit path
     type: task
