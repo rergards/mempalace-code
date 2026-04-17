@@ -19,7 +19,6 @@ Usage:
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -220,8 +219,11 @@ def run_bench(repo_dir):
         print(f"Mined {chunk_count} chunks in {embed_time:.1f}s")
 
         # Index size
-        lance_dir = os.path.join(tmp_dir, "lance")
-        index_bytes = sum(f.stat().st_size for f in Path(lance_dir).rglob("*") if f.is_file())
+        lance_dir = Path(tmp_dir) / "lance"
+        if lance_dir.exists():
+            index_bytes = sum(f.stat().st_size for f in lance_dir.rglob("*") if f.is_file())
+        else:
+            index_bytes = 0
         index_mb = index_bytes / (1024 * 1024)
 
         # Run queries
@@ -314,14 +316,10 @@ def validate_queries(repo_dir):
         store, chunk_count = mine_project(repo_dir, tmp_dir)
         print(f"Mined {chunk_count} chunks\n")
 
-        # Collect all distinct basenames from mined drawers
-        results = store.query(
-            query_texts=[""],
-            n_results=chunk_count or 1,
-            include=["metadatas"],
-        )
-        all_metas = results["metadatas"][0] if results["metadatas"] else []
-        basenames = {m.get("source_file", "").rsplit("/", 1)[-1] for m in all_metas}
+        # Collect all distinct basenames using column scan (reliable even when
+        # chunk_count mismatches stored count due to dedup/batch failures).
+        source_files = store.get_source_files("dotnet-bench") or set()
+        basenames = {sf.rsplit("/", 1)[-1] for sf in source_files}
 
         any_fail = False
         for q in QUERIES:

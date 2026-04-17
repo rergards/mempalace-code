@@ -802,6 +802,7 @@ items:
       - type: deploy-blocked-by
         key: BENCH-DOTNET-CLONE-REPO
     resolution: '2026-04-17: Add benchmarks/dotnet_bench.py: 20-query R@5/R@10 benchmark for C#/.NET repos targeting jasontaylordev/CleanArchitecture, with --validate-queries mode and results JSON output'
+    hardening: 'round-1 2026-04-17: 2 fixed (validate_queries ANN→column-scan, lance_dir rglob guard), 1 backlogged (BENCH-DOTNET-CI-GATE), 1 dismissed'
   - key: STORAGE-BACKUP-RETENTION
     summary: 'Backup retention policy: auto-prune pre_optimize_*.tar.gz archives so they don''t accumulate indefinitely'
     type: task
@@ -1034,3 +1035,30 @@ items:
     assignee: owner
     labels: [deploy-prereq, owner-action]
     blocks_deploy: true
+  - key: BENCH-DOTNET-CI-GATE
+    summary: Add CI gate for dotnet benchmark R@5 regression detection
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [bench, dotnet, ci, quality]
+    description: |-
+      ## Problem
+      dotnet_bench.py prints a warning when R@5 < 0.800 but exits 0, so regressions in C#/.NET mining quality are silent. No automated run exists in CI.
+
+      ## Scope
+      - Add a GitHub Actions workflow that clones jasontaylordev/CleanArchitecture at a pinned commit and runs dotnet_bench.py.
+      - Make the job fail with exit code 1 when overall R@5 < R5_THRESHOLD (0.800).
+      - Archive results JSON as a build artifact.
+      - Pin the CleanArchitecture commit hash in the workflow or a fixture file.
+
+      ## Acceptance Criteria
+      - [ ] CI workflow runs dotnet_bench.py on PR and main pushes (can be skipped with label 'skip-bench').
+      - [ ] Job fails with exit code 1 when overall R@5 < 0.800.
+      - [ ] Results JSON is uploaded as artifact.
+      - [ ] Pinned CleanArchitecture commit hash is documented.
+
+      ## Constraints
+      - Requires BENCH-DOTNET-CLONE-REPO (the repo must be pre-cloned or cloned in CI).
+      - CI machine must have Python 3.9+ and sentence-transformers available.
