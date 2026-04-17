@@ -1023,3 +1023,157 @@ items:
       ## Constraints
       - Requires BENCH-DOTNET-CLONE-REPO (the repo must be pre-cloned or cloned in CI).
       - CI machine must have Python 3.9+ and sentence-transformers available.
+  - key: MCP-ARCH-TOOLS
+    summary: Add architecture-oriented MCP tools for .NET repos
+    type: task
+    status: open
+    priority: high
+    size: M
+    section_id: mcp_developer_tools
+    description: |-
+      ## Problem
+
+      Issue #1 requests dedicated MCP tools for architecture analysis beyond semantic search.
+
+      ## Scope
+
+      Add MCP tools:
+      - `mempalace_find_implementations` — find all implementations of an interface
+      - `mempalace_find_references` — find all usages of a type/method
+      - `mempalace_show_project_graph` — visualize project dependencies
+      - `mempalace_show_type_dependencies` — show inheritance/implementation chain
+
+      ## References
+
+      - GitHub issue: rergards/mempalace-code#1 (Nice To Have #3)
+
+      ## Acceptance Criteria
+
+      - [ ] find_implementations returns all classes implementing a given interface
+      - [ ] find_references returns files/symbols referencing a given type
+      - [ ] show_project_graph returns project dependency tree
+      - [ ] show_type_dependencies returns inheritance chain
+  - key: ARCH-RETRIEVAL
+    summary: 'Architecture-oriented retrieval: explain subsystem queries'
+    type: task
+    status: open
+    priority: high
+    size: M
+    section_id: mcp_developer_tools
+    description: |-
+      ## Problem
+
+      Issue #1 requests queries like "how does this subsystem work?" that combine semantic search with KG traversal.
+
+      ## Scope
+
+      Add MCP tool `mempalace_explain_subsystem`:
+      1. Semantic search for entry points matching query
+      2. Extract symbols from results
+      3. Expand via KG: implementations, dependencies, usages
+      4. Return structured explanation with entry points + relationships
+
+      ## References
+
+      - GitHub issue: rergards/mempalace-code#1 (Must Have #4)
+
+      ## Acceptance Criteria
+
+      - [ ] Tool accepts natural language query about a subsystem
+      - [ ] Returns entry point chunks + related symbols from KG
+      - [ ] Relationships include: implements, inherits, references
+      - [ ] Output structured for LLM to synthesize explanation
+  - key: REPO-STRUCTURE-DEFAULTS
+    summary: Auto-organize wings/rooms by .sln and project structure
+    type: task
+    status: open
+    priority: medium
+    size: S
+    section_id: coding_first
+    description: |-
+      ## Problem
+
+      Issue #1 requests repo-structure-aware defaults: auto-organize by solution/project.
+
+      ## Scope
+
+      - Detect .sln files -> create wing per solution
+      - Detect .csproj -> create room per project
+      - Use existing KG project info for organization
+      - Configurable folder handling (Activities, Views, etc.)
+
+      ## References
+
+      - GitHub issue: rergards/mempalace-code#1 (Nice To Have #2)
+
+      ## Acceptance Criteria
+
+      - [ ] Mining .NET repo auto-creates wing from .sln name
+      - [ ] Projects become rooms within the wing
+      - [ ] Configurable via mempalace.yaml
+  - key: LOGIC-EXTRACTION
+    summary: 'Reusable logic extraction: identify core vs platform-specific code'
+    type: task
+    status: open
+    priority: medium
+    size: L
+    section_id: mcp_developer_tools
+    description: |-
+      ## Problem
+
+      Issue #1 requests workflow to identify reusable core logic vs platform/UI coupling.
+
+      ## Scope
+
+      Add MCP tool `mempalace_extract_reusable`:
+      1. Take a symbol/subsystem as input
+      2. Compute transitive dependencies via KG
+      3. Classify each dependency:
+         - core: no UI/platform imports
+         - platform: references System.Windows, Xamarin, WPF, etc.
+         - glue: thin wrappers
+      4. Return partitioned dependency graph
+      5. Identify minimal public interface for extraction
+
+      ## References
+
+      - GitHub issue: rergards/mempalace-code#1 (Must Have #5)
+
+      ## Acceptance Criteria
+
+      - [ ] Tool accepts symbol name as input
+      - [ ] Returns partitioned deps: reusable_core, platform_specific
+      - [ ] Platform detection covers: WPF, WinForms, Xamarin, MAUI, ASP.NET
+      - [ ] Returns suggested minimal interface for porting
+  - key: ARCH-EXTRACTION-MODE
+    summary: 'Architecture extraction mode: produce higher-level entities'
+    type: task
+    status: open
+    priority: low
+    size: L
+    section_id: future
+    description: |-
+      ## Problem
+
+      Issue #1 requests producing higher-level architectural entities beyond code chunks.
+
+      ## Scope
+
+      Post-mining pass that:
+      1. Clusters types by namespace/project
+      2. Detects patterns: Repository, Service, Controller, ViewModel, Factory
+      3. Detects layers: UI, Business, Data, Infrastructure
+      4. Stores as KG triples: ("UserService", "is_layer", "Business")
+      5. Enables queries like "show all services" or "show data layer"
+
+      ## References
+
+      - GitHub issue: rergards/mempalace-code#1 (Nice To Have #4)
+      - Depends on: MCP-ARCH-TOOLS, ARCH-RETRIEVAL
+
+      ## Acceptance Criteria
+
+      - [ ] Pattern detection for common .NET patterns
+      - [ ] Layer detection with configurable rules
+      - [ ] Results stored in KG
+      - [ ] Queryable via mempalace_kg_query
