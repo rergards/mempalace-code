@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-18 · PY-TYPE-KG
+
+Add Python type extraction to the knowledge graph in `miner.py`: class inheritance (`class Foo(Bar)` → `extends` triple) and ABC/Protocol implementations are now extracted for Python codebases, making architecture retrieval tools (`find_implementations`, `find_references`, `show_type_dependencies`, `extract_reusable`) functional for Python projects.
+
 ## 2026-04-18 · MINE-MULTI
 
 Add `mempalace mine-all <parent-dir>` command for batch multi-project mining: scans immediate subdirectories for project markers (`.git`, `pyproject.toml`, `package.json`, `*.sln`, `go.mod`, `Cargo.toml`, `go.sum`), mines each detected project into its own wing, and reports per-project results with a summary table.
