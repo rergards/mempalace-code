@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-19 · REPO-STRUCTURE-DEFAULTS
+
+Auto-organize wings/rooms by .NET solution/project structure: mining a repo with `.sln` files now creates a wing named after the solution and maps each `.csproj` to a room, using KG project info for defaults and supporting configurable folder-based room detection.
+
 ## 2026-04-18 · FIND-IMPL-INHERITS
 
 Fix `mempalace_find_implementations` to include Python ABC/Protocol subclasses: when the queried interface is itself abstract (has an outgoing `implements → ABC/ABCMeta/Protocol` edge), incoming `inherits` triples are now included alongside `implements` triples, so concrete subclasses are returned instead of an empty list.

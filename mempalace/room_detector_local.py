@@ -10,7 +10,6 @@ No internet. No API key. Your files stay on your machine.
 """
 
 import os
-import re
 import sys
 import yaml
 from pathlib import Path
@@ -100,10 +99,11 @@ def _rooms_from_csproj(proj_files: list) -> list:
 
     De-duplicates by normalized name, returns room dicts with a "general" fallback.
     """
+    from .miner import _normalize_room_name
+
     seen: dict = {}
     for pf in proj_files:
-        name = pf.stem.lower().replace(".", "_").replace("-", "_").replace(" ", "_")
-        name = re.sub(r"[^a-z0-9_]", "", name) or "general"
+        name = _normalize_room_name(pf.stem)
         if name not in seen:
             seen[name] = pf.stem
 

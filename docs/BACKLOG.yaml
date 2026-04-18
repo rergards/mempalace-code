@@ -1029,6 +1029,7 @@ items:
       - [ ] Projects become rooms within the wing
       - [ ] Configurable via mempalace.yaml
     resolution: '2026-04-18: Auto-detect .sln wing and .csproj rooms when dotnet_structure: true in mempalace.yaml; added _detect_sln_wing, _build_csproj_room_map, _normalize_room_name helpers, csproj_room_map priority in detect_room, and 19 new tests'
+    hardening: 'round-1 2026-04-19: 4 findings (2 fixed, 0 backlogged, 2 dismissed); fixed dry-run room output for .NET repos and deduped normalization logic'
   - key: ARCH-EXTRACTION-MODE
     summary: 'Architecture extraction mode: produce higher-level entities'
     type: task

@@ -1869,19 +1869,29 @@ def process_file(
     rooms: list,
     agent: str,
     dry_run: bool,
+    csproj_room_map: Optional[dict] = None,
 ) -> int:
     """Read, chunk, route, and file one file. Returns drawer count."""
 
     if dry_run:
         specs = _collect_specs_for_file(
-            filepath, project_path, None, wing, rooms, agent, mined_files=set()
+            filepath,
+            project_path,
+            None,
+            wing,
+            rooms,
+            agent,
+            mined_files=set(),
+            csproj_room_map=csproj_room_map,
         )
         if specs:
             room = specs[0]["metadata"]["room"]
             print(f"    [DRY RUN] {filepath.name} → room:{room} ({len(specs)} drawers)")
         return len(specs)
 
-    specs = _collect_specs_for_file(filepath, project_path, collection, wing, rooms, agent)
+    specs = _collect_specs_for_file(
+        filepath, project_path, collection, wing, rooms, agent, csproj_room_map=csproj_room_map
+    )
     return add_drawers_batch(collection, specs)
 
 
@@ -2666,6 +2676,7 @@ def mine(
                     rooms=rooms,
                     agent=agent,
                     dry_run=True,
+                    csproj_room_map=csproj_room_map if csproj_room_map else None,
                 )
                 total_drawers += drawers
                 room = detect_room(
