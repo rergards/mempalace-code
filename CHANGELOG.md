@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-18 · MINE-WATCH
+
+Add `--watch` flag to `mempalace mine` for auto-incremental re-indexing: uses `watchdog` to monitor file changes, debounces updates (5s), and only re-indexes modified files — keeping the palace in sync automatically with low CPU overhead when idle.
+
 ## 2026-04-18 · PY-TYPE-KG
 
 Add Python type extraction to the knowledge graph in `miner.py`: class inheritance (`class Foo(Bar)` → `extends` triple) and ABC/Protocol implementations are now extracted for Python codebases, making architecture retrieval tools (`find_implementations`, `find_references`, `show_type_dependencies`, `extract_reusable`) functional for Python projects.
