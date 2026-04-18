@@ -1166,7 +1166,7 @@ items:
   - key: MINE-WATCH-GITIGNORE-CACHE
     summary: Invalidate gitignore matcher_cache in --watch when .gitignore changes
     type: feature
-    status: open
+    status: done
     priority: low
     size: S
     section_id: pre_release
@@ -1185,3 +1185,5 @@ items:
       - [ ] Adding a new .gitignore that ignores a tracked file causes that file to be filtered within 2 debounce cycles
       - [ ] Cache hit path for non-gitignore events is unaffected
       - [ ] Existing tests continue to pass
+    resolution: '2026-04-19: Add _invalidate_gitignore_cache() helper; call at top of watch loop; 5 unit tests added'
+    hardening: 'round-1 2026-04-19: 3 findings all dismissed; 0 fixes; ruff clean, 39 tests pass'

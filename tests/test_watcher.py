@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 from mempalace.cli import main
-from mempalace.watcher import _is_relevant_change, watch_and_mine
+from mempalace.watcher import _invalidate_gitignore_cache, _is_relevant_change, watch_and_mine
 
 
 # ---------------------------------------------------------------------------
@@ -196,6 +196,63 @@ class TestIsRelevantChange:
         """With respect_gitignore=False, gitignored files are accepted."""
         (proj / ".gitignore").write_text("secrets.txt\n", encoding="utf-8")
         assert _is_relevant_change(str(proj / "secrets.txt"), proj, respect_gitignore=False)
+
+
+# ---------------------------------------------------------------------------
+# _invalidate_gitignore_cache() unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestInvalidateGitignoreCache:
+    def test_gitignore_event_evicts_cache_entry(self, tmp_path):
+        """.gitignore modified event removes the directory's cache entry."""
+        from watchfiles import Change
+
+        gitignore_path = tmp_path / ".gitignore"
+        cache = {tmp_path: "stale_matcher"}
+        changes = {(Change.modified, str(gitignore_path))}
+        _invalidate_gitignore_cache(changes, cache)
+        assert tmp_path not in cache
+
+    def test_gitignore_added_evicts_cache_entry(self, tmp_path):
+        """.gitignore created event removes the directory's cache entry (previously None)."""
+        from watchfiles import Change
+
+        gitignore_path = tmp_path / ".gitignore"
+        cache = {tmp_path: None}
+        changes = {(Change.added, str(gitignore_path))}
+        _invalidate_gitignore_cache(changes, cache)
+        assert tmp_path not in cache
+
+    def test_gitignore_deleted_evicts_cache_entry(self, tmp_path):
+        """.gitignore deleted event removes the directory's cache entry."""
+        from watchfiles import Change
+
+        gitignore_path = tmp_path / ".gitignore"
+        cache = {tmp_path: "stale_matcher"}
+        changes = {(Change.deleted, str(gitignore_path))}
+        _invalidate_gitignore_cache(changes, cache)
+        assert tmp_path not in cache
+
+    def test_non_gitignore_event_leaves_cache_unchanged(self, tmp_path):
+        """Non-.gitignore file event does not modify the cache."""
+        from watchfiles import Change
+
+        py_file = tmp_path / "app.py"
+        cache = {tmp_path: "matcher"}
+        changes = {(Change.modified, str(py_file))}
+        _invalidate_gitignore_cache(changes, cache)
+        assert cache == {tmp_path: "matcher"}
+
+    def test_missing_cache_key_is_noop(self, tmp_path):
+        """pop on an absent key is a no-op (no KeyError)."""
+        from watchfiles import Change
+
+        gitignore_path = tmp_path / ".gitignore"
+        cache: dict = {}
+        changes = {(Change.modified, str(gitignore_path))}
+        _invalidate_gitignore_cache(changes, cache)
+        assert cache == {}
 
 
 # ---------------------------------------------------------------------------

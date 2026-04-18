@@ -28,6 +28,17 @@ from .miner import (
 )
 
 
+def _invalidate_gitignore_cache(changes, matcher_cache: dict) -> None:
+    """Evict matcher_cache entries for directories whose .gitignore file changed.
+
+    Called at the top of every watchfiles event batch so that _is_relevant_change()
+    picks up fresh matcher state for any files processed in the same batch.
+    """
+    for _change_type, path in changes:
+        if Path(path).name == ".gitignore":
+            matcher_cache.pop(Path(path).parent, None)
+
+
 def _is_relevant_change(
     path: str,
     project_path: Path,
@@ -176,6 +187,10 @@ def watch_and_mine(
             debounce=5000,
             stop_event=shutdown_event,
         ):
+            # Evict stale gitignore matchers before filtering — same-batch events
+            # (e.g. .gitignore change + affected file) must see fresh state.
+            _invalidate_gitignore_cache(changes, matcher_cache)
+
             # Discard irrelevant OS events (compiled files, git internals, etc.)
             relevant = [
                 (change_type, path)
