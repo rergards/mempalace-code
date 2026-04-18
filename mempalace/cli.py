@@ -143,7 +143,10 @@ def cmd_mine(args):
             print("  Error: --watch is incompatible with --dry-run.", file=sys.stderr)
             sys.exit(2)
         if args.full:
-            print("  Error: --watch is incompatible with --full (watch always uses incremental).", file=sys.stderr)
+            print(
+                "  Error: --watch is incompatible with --full (watch always uses incremental).",
+                file=sys.stderr,
+            )
             sys.exit(2)
         if args.limit:
             print(
