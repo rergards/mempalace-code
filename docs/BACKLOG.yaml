@@ -745,8 +745,8 @@ items:
     summary: File watcher for auto-incremental mining
     type: feature
     status: open
-    priority: medium
-    section_id: future
+    priority: highest
+    section_id: pre_release
     labels: [feat, miner]
     description: |-
       ## Problem
@@ -1086,6 +1086,7 @@ items:
       - [ ] Platform detection covers: WPF, WinForms, Xamarin, MAUI, ASP.NET
       - [ ] Returns suggested minimal interface for porting
     resolution: '2026-04-18: 2026-04-18: Add mempalace_extract_reusable MCP tool: BFS traversal of KG outgoing edges classifying entities as core/platform/glue using PLATFORM_PACKAGE_PREFIXES/FRAMEWORK_MARKERS/KG_PREDICATES; glue promotion for types bridging core interfaces and platform deps; boundary_interfaces extraction; 12 tests'
+    hardening_status: 'round-1: 1 fixed (deque BFS queue), 1 backlogged (EXTRACT-REUSABLE-REFERENCES-PROJECT-GLUE: references_project glue gap), 1 dismissed (root entity boundary_interfaces asymmetry by design)'
   - key: ARCH-EXTRACTION-MODE
     summary: 'Architecture extraction mode: produce higher-level entities'
     type: task
@@ -1169,3 +1170,119 @@ items:
       - [ ] n_results=1 returns exactly 1 entry_point when results exist
       - [ ] ruff check passes
       - [ ] All existing TestExplainSubsystem tests still pass
+  - key: PY-TYPE-KG
+    summary: Python type extraction to KG (class inheritance, imports)
+    type: feature
+    status: open
+    priority: highest
+    section_id: pre_release
+    labels: [mining, kg, python]
+    size: M
+    description: |
+      ## Problem
+
+      Architecture retrieval tools (find_implementations, find_references, show_type_dependencies, extract_reusable) query the KG for type relationships. Currently only .NET mining extracts these (implements, extends, depends_on). Python codebases get no KG type data, making arch tools useless for them.
+
+      ## Scope
+
+      Add Python type extraction to miner.py:
+      - Class inheritance: `class Foo(Bar)` -> (Foo, extends, Bar)
+      - ABC/Protocol implementations: `class Foo(ABC)` or `class Foo(Protocol)` -> (Foo, implements, ABC/Protocol)
+      - Import dependencies: `from x import Y` -> (current_module, depends_on, x) or (current_module, imports, Y)
+      - Dataclass/attrs detection for struct-like types
+
+      Mirror the .NET extraction pattern (extract_csharp_symbol_relationships).
+
+      ## Non-goals
+
+      - Full AST parsing (stick to regex like .NET extractor)
+      - Dynamic type inference
+      - Third-party library type resolution
+
+      ## Acceptance criteria
+
+      - [ ] `mempalace mine` on a Python project populates KG with extends/implements/depends_on
+      - [ ] `mempalace_find_implementations Protocol` returns classes implementing Protocol
+      - [ ] `mempalace_show_type_dependencies SomeClass` shows inheritance chain
+      - [ ] Tests for: simple inheritance, multiple inheritance, ABC, Protocol, imports
+      - [ ] Remine of mempalace itself produces type relationships
+
+      ## Files to touch
+
+      - mempalace/miner.py (add extract_python_symbol_relationships)
+      - tests/test_miner.py (Python KG extraction tests)
+  - key: MINE-MULTI
+    summary: Mine all projects in a directory with one command
+    type: feature
+    status: open
+    priority: highest
+    section_id: pre_release
+    labels: [mining, cli]
+    size: M
+    description: |
+      ## Problem
+
+      User has multiple projects in ~/dev/. Currently must run `mempalace mine` separately for each. Want one command to mine all, with each project as its own wing. Cross-project knowledge search and relationship discovery requires all projects in the same palace.
+
+      ## Scope
+
+      New CLI: `mempalace mine-all <parent-dir>` or `mempalace mine --all <parent-dir>`
+      - Scan immediate subdirectories for project markers (.git, pyproject.toml, package.json, *.sln, go.mod)
+      - Mine each detected project into its own wing (auto-name from folder or git remote)
+      - Skip already-mined projects unless --force
+      - Report summary: projects found, mined, skipped, errors
+
+      Wing auto-naming:
+      - Prefer git remote origin (github.com/user/repo -> repo)
+      - Fallback to folder name
+      - Conflict resolution: append suffix if wing exists from different path
+
+      ## Non-goals
+
+      - Recursive descent into nested projects (only immediate children)
+      - Parallel mining (sequential for v1, parallel later)
+      - Auto-detection of monorepo subprojects
+
+      ## Acceptance criteria
+
+      - [ ] `mempalace mine-all ~/dev` mines all projects in ~/dev
+      - [ ] Each project gets its own wing
+      - [ ] Wing names derived from git remote or folder
+      - [ ] --dry-run shows what would be mined without mining
+      - [ ] --force re-mines even if wing exists
+      - [ ] Summary shows: found X projects, mined Y, skipped Z
+      - [ ] Tests for: basic multi-mine, skip existing, force re-mine, no projects found
+
+      ## Files to touch
+
+      - mempalace/cli.py (add mine-all command or --all flag)
+      - mempalace/miner.py (wing auto-naming helper)
+      - tests/test_cli.py (mine-all tests)
+  - key: EXTRACT-REUSABLE-REFERENCES-PROJECT-GLUE
+    summary: 'Extract reusable: promote glue when entity references_project a platform project'
+    type: feature
+    status: open
+    priority: low
+    size: S
+    section_id: mcp_developer_tools
+    description: |-
+      ## Problem
+
+      Step 3 glue-promotion in mempalace_extract_reusable checks only depends_on predicates for platform dependencies. An entity that implements a core interface AND references_project a platform-classified project (e.g., a WPF project targeting net8.0-windows) is incorrectly classified as core instead of glue.
+
+      In .NET solutions, project references (references_project) are first-class coupling signals, equivalent to NuGet package references (depends_on). Ignoring them causes false-negative glue detection when the platform coupling arrives through a project reference rather than a direct package reference.
+
+      ## Scope
+
+      Extend the platform_deps check in step 3 to include references_project edges alongside depends_on. An entity qualifies as glue if it (a) implements a core-classified interface AND (b) depends_on OR references_project a platform-classified entity.
+
+      ## Acceptance Criteria
+
+      - [ ] Entity that implements a core-classified interface AND references_project a platform-classified project is promoted to glue
+      - [ ] platform_deps output list includes project-level platform references (not just package references)
+      - [ ] Existing 12 TestExtractReusable tests pass unchanged
+      - [ ] At least one new test covers the references_project -> glue promotion path
+
+      ## Origin
+
+      LOGIC-EXTRACTION hardening round-1 F-2.

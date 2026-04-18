@@ -32,6 +32,7 @@ import json
 import logging
 import hashlib
 import uuid
+from collections import deque
 from datetime import datetime
 from typing import Optional
 
@@ -655,10 +656,10 @@ def tool_extract_reusable(entity: str, max_depth: int = 3) -> dict:
     # Step 1: BFS traversal — collect all reachable entities with their current outgoing facts
     nodes = {}  # name -> {"depth": int, "facts": [current outgoing facts], "via": str|None}
     visited = set()
-    queue = [(entity, 0, None)]  # (name, depth, via_predicate)
+    queue = deque([(entity, 0, None)])  # (name, depth, via_predicate)
 
     while queue:
-        name, depth, via = queue.pop(0)
+        name, depth, via = queue.popleft()
         if name in visited:
             continue
         visited.add(name)
