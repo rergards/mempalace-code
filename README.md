@@ -54,7 +54,7 @@ mempalace mine ~/projects/myapp       # index your codebase
 claude mcp add mempalace -- python -m mempalace.mcp_server  # connect to Claude Code
 ```
 
-This makes the 18 tools available to your AI. For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` — see [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7.
+This makes the 27 tools available to your AI. For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` — see [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7.
 
 </details>
 
@@ -208,6 +208,20 @@ claude mcp add mempalace -- python -m mempalace.mcp_server
 | `mempalace_kg_invalidate` | Mark a fact as no longer true |
 | `mempalace_kg_timeline` | Chronological story of an entity |
 | `mempalace_kg_stats` | Graph overview |
+
+</details>
+
+<details>
+<summary><strong>Architecture Retrieval</strong></summary>
+
+| Tool | What |
+|------|------|
+| `mempalace_find_implementations` | Find all types implementing a given interface |
+| `mempalace_find_references` | Find all usages of a type (implementors, subclasses, deps) |
+| `mempalace_show_project_graph` | Project-level dependency graph, optionally filtered by solution |
+| `mempalace_show_type_dependencies` | Inheritance/implementation chain (ancestors + descendants) |
+| `mempalace_explain_subsystem` | Explain how a subsystem works: semantic search + KG expansion |
+| `mempalace_extract_reusable` | Classify deps as core/platform/glue; identify extraction boundary |
 
 </details>
 
@@ -483,7 +497,7 @@ Two Claude Code hooks for automatic memory saving:
 mempalace/
 ├── mempalace/
 │   ├── cli.py              ← CLI entry point
-│   ├── mcp_server.py       ← MCP server (18 tools)
+│   ├── mcp_server.py       ← MCP server (27 tools)
 │   ├── storage.py          ← LanceDB vector storage
 │   ├── miner.py            ← language-aware code chunking
 │   ├── convo_miner.py      ← conversation ingest

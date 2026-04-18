@@ -111,3 +111,7 @@ items:
       summary: 'Architecture-oriented retrieval: explain subsystem queries'
       resolution: '2026-04-18: Added mempalace_explain_subsystem MCP tool: semantic code search + KG expansion for subsystem queries'
       archived_date: "2026-04-18"
+    - key: LOGIC-EXTRACTION
+      summary: 'Reusable logic extraction: identify core vs platform-specific code'
+      resolution: '2026-04-18: 2026-04-18: Add mempalace_extract_reusable MCP tool: BFS traversal of KG outgoing edges classifying entities as core/platform/glue using PLATFORM_PACKAGE_PREFIXES/FRAMEWORK_MARKERS/KG_PREDICATES; glue promotion for types bridging core interfaces and platform deps; boundary_interfaces extraction; 12 tests'
+      archived_date: "2026-04-18"

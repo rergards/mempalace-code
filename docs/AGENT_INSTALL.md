@@ -667,7 +667,7 @@ A successful install produces:
 |-------|--------|
 | Palace path config | `mempalace/config.py:93–98` — env → config.json → default |
 | All CLI flags | `mempalace --help` / `mempalace <cmd> --help` |
-| MCP tool list (19 tools) | `README.md` → MCP Server section |
+| MCP tool list (27 tools) | `README.md` → MCP Server section |
 | Auto-save hooks | `hooks/README.md` |
 | Airgapped / offline setup | `docs/OFFLINE_USAGE.md` |
 | Manual MCP setup examples | `examples/mcp_setup.md` |

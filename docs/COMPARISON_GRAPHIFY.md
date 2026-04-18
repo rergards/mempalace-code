@@ -31,9 +31,9 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 | Incremental rebuild | **SHA256 file-level cache** | not yet (planned: CODE-INCREMENTAL) |
 | Privacy on ingest | code stays local; **docs/PDFs/images sent to host LLM API** | **nothing leaves the host, ever** (fully offline) |
 | Embedding dependency | none | 80 MB `all-MiniLM-L6-v2` model downloaded once |
-| MCP surface | `/graphify query`, `/graphify path`, `/graphify explain` | 19 MCP tools (search, traverse, diary, KG, stats, list_rooms, …) |
+| MCP surface | `/graphify query`, `/graphify path`, `/graphify explain` | 27 MCP tools (search, traverse, diary, KG, arch-retrieval, stats, …) |
 | Always-on integration | **PreToolUse hook** fires before every Glob/Grep/Bash | none — agent calls tools explicitly |
-| Supported agents | Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Aider, OpenClaw, Factory Droid, Trae | Claude Code (any MCP client); hooks not shipped |
+| Supported agents | Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Aider, OpenClaw, Factory Droid, Trae | Claude Code, Codex, any MCP client; hooks not shipped |
 | Installation | `pip install graphifyy` + `graphify install --platform <x>` | `uv pip install -e .` + `~/.mcp.json` entry |
 | Stars / visibility | 21.7k (launched ~Mar 2026) | fork of upstream, pre-launch |
 
@@ -115,7 +115,7 @@ mempalace-code's incremental re-mine is on the pre_release backlog (`CODE-INCREM
 
 `graphify install --platform codex|cursor|gemini|aider|droid|...` ships per-platform adapters. Graphify runs on 10 AI coding assistants out of the box.
 
-mempalace-code ships an MCP server that works in any MCP client. That is technically broader but practically narrower — MCP is Claude Code's native protocol and third-party MCP adoption is still thin outside Claude Code.
+mempalace-code ships an MCP server that works in any MCP client. Codex now supports MCP natively (`codex mcp add`), so coverage includes the two dominant AI coding assistants. Other MCP clients (Cursor, Continue, etc.) are growing.
 
 ### 7. Always-on PreToolUse hook
 
@@ -179,7 +179,7 @@ These are genuinely good ideas from graphify that mempalace can incorporate with
 | **Explicit per-edge / per-drawer provenance label** | S | medium | New (not in backlog yet) — e.g. `confidence`, `extractor_version` |
 | **`benchmarks/TOKEN_DELTA.md` with one public number** | S | high | Filed as `LAUNCH-BENCH-TOKEN-DELTA` (owner task) |
 | **Minimal static HTML visualization** of palace structure (wings × rooms × drawer counts) | M | medium | New candidate for post-launch |
-| **Per-platform installer** (`mempalace install --platform codex\|cursor\|gemini`) | L | low now, high later | Not urgent — MCP native coverage is enough for launch |
+| **Per-platform installer** (`mempalace install --platform codex\|cursor\|gemini`) | L | low | Not urgent — Claude Code + Codex both have native MCP; per-platform hooks are maintenance burden |
 | **Tree-sitter backend for structural chunking** | L | medium | Not urgent — current regex chunker scores R@5 = 0.95 on the internal bench |
 
 Note: the always-on PreToolUse hook is intentionally absent from this list. See the preceding section for why.
@@ -201,6 +201,6 @@ Note: the always-on PreToolUse hook is intentionally absent from this list. See 
 - "beats graphify on code retrieval" — the two tools measure different things and a head-to-head benchmark would be misleading either way
 
 **Do not attempt to match**:
-- 10-platform installer reach (MCP is the right bet long-term)
+- 10-platform installer reach (MCP now covers the top 2 — Claude Code + Codex — without per-platform adapters)
 - always-on hook default-on (see evidence section)
 - marketing hero number like "71.5× fewer tokens" (mempalace's honest number will be reported with methodology, as a footnote, not a headline)
