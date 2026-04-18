@@ -742,3 +742,27 @@ class TestMineAllCommand:
                     self._run_mine_all(palace, str(dev))
         # The final sys.exit(1) from cmd_mine_all's error path is what propagates
         assert exc_info.value.code == 1
+
+    def test_mine_all_dedup_wing_names(self, tmp_path):
+        """F-1 fix: two projects that derive the same wing name — second is skipped with warning."""
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        dev.mkdir()
+        _make_initialized_project(dev, "alpha")
+        _make_initialized_project(dev, "alpha-copy")  # will derive different folder name
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        # Force both projects to derive the same wing name
+        with patch("mempalace.miner.mine", side_effect=fake_mine):
+            with patch("mempalace.storage.open_store") as mock_store:
+                mock_store.return_value.count_by.return_value = {}
+                with patch("mempalace.miner.derive_wing_name", return_value="shared_wing"):
+                    self._run_mine_all(palace, str(dev))
+
+        # Only the first project should be mined; second skipped due to name clash
+        assert len(mine_calls) == 1
+        assert mine_calls[0]["wing_override"] == "shared_wing"

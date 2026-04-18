@@ -1178,7 +1178,7 @@ items:
   - key: MINE-MULTI
     summary: Mine all projects in a directory with one command
     type: feature
-    status: open
+    status: done
     priority: highest
     section_id: pre_release
     labels: [mining, cli]
@@ -1222,6 +1222,7 @@ items:
       - mempalace/cli.py (add mine-all command or --all flag)
       - mempalace/miner.py (wing auto-naming helper)
       - tests/test_cli.py (mine-all tests)
+    resolution: '2026-04-18: Added mine-all CLI command with detect_projects() and derive_wing_name() helpers in miner.py; cmd_mine_all with --dry-run/--force/--no-gitignore flags in cli.py; 25 new tests; all 885 suite tests pass. Hardening round-1 (2026-04-18): 1 fixed (F-1 duplicate wing collision with --force), 1 backlogged (MINE-MULTI-INCLUDE-IGNORED-TEST), 0 dismissed.'
   - key: EXTRACT-REUSABLE-REFERENCES-PROJECT-GLUE
     summary: 'Extract reusable: promote glue when entity references_project a platform project'
     type: feature
@@ -1250,3 +1251,29 @@ items:
       ## Origin
 
       LOGIC-EXTRACTION hardening round-1 F-2.
+  - key: MINE-MULTI-INCLUDE-IGNORED-TEST
+    summary: Add test verifying --include-ignored comma-splitting and pass-through in mine-all
+    type: task
+    status: open
+    priority: low
+    size: S
+    section_id: quality
+    labels: [testing, cli]
+    description: |-
+      ## Problem
+
+      The mine-all command splits --include-ignored values on commas before forwarding them to mine(). This logic is untested: no test asserts that --include-ignored path1,path2 results in mine() receiving ['path1', 'path2']. A regression here would silently drop user-specified paths from the scan.
+
+      ## Scope
+
+      Add one test in TestMineAllCommand (tests/test_cli.py) that passes --include-ignored with a comma-separated value and asserts the split list is forwarded to mine(). No production code changes required.
+
+      ## Acceptance Criteria
+
+      - Test passes --include-ignored 'pathA,pathB' to mine-all
+      - Asserts mine() was called with include_ignored=['pathA', 'pathB']
+      - No real mining occurs (mine() is mocked)
+
+      ## Constraints
+
+      - Test must use mock.patch on mempalace.miner.mine and inspect call kwargs

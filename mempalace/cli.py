@@ -215,6 +215,27 @@ def cmd_mine_all(args):
     skipped = 0
     errors: list = []
 
+    # Detect duplicate wing names within this batch — mining both into the same wing
+    # would silently merge two unrelated codebases, even with --force.
+    seen_wing_to_path: dict = {}
+    unique_entries = []
+    for entry in project_entries:
+        w = entry["wing"]
+        if w in seen_wing_to_path:
+            first_name = Path(seen_wing_to_path[w]).name
+            this_name = Path(entry["path"]).name
+            print(
+                f"  WARN  {this_name}: wing '{w}' already assigned to {first_name} "
+                f"in this batch — skipping to avoid data merge. Rename the folder or "
+                f"configure a unique wing in mempalace.yaml.",
+                file=sys.stderr,
+            )
+            skipped += 1
+        else:
+            seen_wing_to_path[w] = entry["path"]
+            unique_entries.append(entry)
+    project_entries = unique_entries
+
     include_ignored: list = []
     for raw in args.include_ignored or []:
         include_ignored.extend(part.strip() for part in raw.split(",") if part.strip())
