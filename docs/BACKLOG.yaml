@@ -744,10 +744,12 @@ items:
   - key: MINE-WATCH
     summary: File watcher for auto-incremental mining
     type: feature
-    status: open
+    status: done
     priority: highest
     section_id: pre_release
     labels: [feat, miner]
+    done_date: "2026-04-18"
+    resolution: "2026-04-18: Added mempalace/watcher.py (watch_and_mine, _is_relevant_change), --watch flag to mine CLI, watchfiles>=1.0 as [watch] optional dep, 34 tests in tests/test_watcher.py. Watchfiles uses fsevents/inotify (no polling), 5s debounce, incremental mine on change, SIGTERM clean shutdown. commit fb26bb5. Hardening round-1: 0 fixed, 1 backlogged (MINE-WATCH-GITIGNORE-CACHE), 1 dismissed."
     description: |-
       ## Problem
       Must manually re-run `mempalace mine` after code changes. Would be nice to have auto-update.
@@ -759,10 +761,10 @@ items:
       - Only re-index changed files (incremental)
 
       ## Acceptance Criteria
-      - [ ] `mempalace mine --watch` starts daemon
-      - [ ] Changed files re-indexed within 10s
-      - [ ] Low CPU usage when idle
-      - [ ] Graceful shutdown on SIGTERM
+      - [x] `mempalace mine --watch` starts daemon
+      - [x] Changed files re-indexed within 10s
+      - [x] Low CPU usage when idle
+      - [x] Graceful shutdown on SIGTERM
     size: M
   - key: STORAGE-BACKUP-RETENTION
     summary: 'Backup retention policy: auto-prune pre_optimize_*.tar.gz archives so they don''t accumulate indefinitely'
@@ -1134,49 +1136,6 @@ items:
       - [ ] n_results=1 returns exactly 1 entry_point when results exist
       - [ ] ruff check passes
       - [ ] All existing TestExplainSubsystem tests still pass
-  - key: PY-TYPE-KG
-    summary: Python type extraction to KG (class inheritance, imports)
-    type: feature
-    status: done
-    priority: highest
-    section_id: pre_release
-    labels: [mining, kg, python]
-    size: M
-    description: |
-      ## Problem
-
-      Architecture retrieval tools (find_implementations, find_references, show_type_dependencies, extract_reusable) query the KG for type relationships. Currently only .NET mining extracts these (implements, extends, depends_on). Python codebases get no KG type data, making arch tools useless for them.
-
-      ## Scope
-
-      Add Python type extraction to miner.py:
-      - Class inheritance: `class Foo(Bar)` -> (Foo, extends, Bar)
-      - ABC/Protocol implementations: `class Foo(ABC)` or `class Foo(Protocol)` -> (Foo, implements, ABC/Protocol)
-      - Import dependencies: `from x import Y` -> (current_module, depends_on, x) or (current_module, imports, Y)
-      - Dataclass/attrs detection for struct-like types
-
-      Mirror the .NET extraction pattern (extract_csharp_symbol_relationships).
-
-      ## Non-goals
-
-      - Full AST parsing (stick to regex like .NET extractor)
-      - Dynamic type inference
-      - Third-party library type resolution
-
-      ## Acceptance criteria
-
-      - [ ] `mempalace mine` on a Python project populates KG with extends/implements/depends_on
-      - [ ] `mempalace_find_implementations Protocol` returns classes implementing Protocol
-      - [ ] `mempalace_show_type_dependencies SomeClass` shows inheritance chain
-      - [ ] Tests for: simple inheritance, multiple inheritance, ABC, Protocol, imports
-      - [ ] Remine of mempalace itself produces type relationships
-
-      ## Files to touch
-
-      - mempalace/miner.py (add extract_python_symbol_relationships)
-      - tests/test_miner.py (Python KG extraction tests)
-    resolution: '2026-04-18: Added _python_type_rels() to miner.py: class inheritance/ABC/Protocol extraction (implements/inherits predicates), import extraction (depends_on), .py added to _KG_EXTRACT_EXTENSIONS and mine() dispatch; 22 new tests covering all 15 ACs; all 906 suite tests pass'
-    hardening: 'round-1 2026-04-18: 1 fixed (F-1 multi-param generic spurious base name), 1 backlogged (F-2 multi-module import line → PY-MULTI-IMPORT), 0 dismissed'
   - key: EXTRACT-REUSABLE-REFERENCES-PROJECT-GLUE
     summary: 'Extract reusable: promote glue when entity references_project a platform project'
     type: feature
@@ -1257,3 +1216,25 @@ items:
       ## Constraints
 
       Identified in PY-TYPE-KG hardening round-1 (F-2). Low priority -- multi-module imports are uncommon in modern Python.
+  - key: MINE-WATCH-GITIGNORE-CACHE
+    summary: Invalidate gitignore matcher_cache in --watch when .gitignore changes
+    type: feature
+    status: open
+    priority: low
+    size: S
+    section_id: pre_release
+    labels: [feat, miner, watch]
+    description: |-
+      ## Problem
+      In watch_and_mine(), the matcher_cache dict (watcher.py:157) is initialized once per session and never invalidated. If a .gitignore file is added, modified, or deleted while the watcher is running, cached GitignoreMatcher instances become stale — files that should now be gitignored continue to trigger re-mine cycles.
+
+      ## Scope
+      - Detect .gitignore-file events in the watch loop
+      - Clear the affected cache entry so it rebuilds on next _is_relevant_change() call
+      - No new dependencies; cache invalidation is a dict pop
+
+      ## Acceptance Criteria
+      - [ ] Modifying .gitignore while --watch is running causes newly-ignored files to stop triggering re-mines within 2 debounce cycles
+      - [ ] Adding a new .gitignore that ignores a tracked file causes that file to be filtered within 2 debounce cycles
+      - [ ] Cache hit path for non-gitignore events is unaffected
+      - [ ] Existing tests continue to pass
