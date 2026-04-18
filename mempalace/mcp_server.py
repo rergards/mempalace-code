@@ -19,6 +19,7 @@ Tools (architecture — queries pre-mined KG type relationships):
   mempalace_show_project_graph    — project-level dependency graph, optionally filtered by solution
   mempalace_show_type_dependencies — inheritance/implementation chain for a type (ancestors + descendants)
   mempalace_explain_subsystem     — explain how a subsystem works: semantic search + KG expansion
+  mempalace_extract_reusable      — classify transitive deps as core/platform/glue; identify extraction boundary
 
 Tools (write):
   mempalace_add_drawer      — file verbatim content into a wing/room
@@ -406,6 +407,49 @@ def tool_kg_stats():
 
 # ==================== ARCHITECTURE TOOLS ====================
 
+# Predicates followed during outgoing BFS in tool_extract_reusable
+EXPANSION_PREDICATES = frozenset(
+    {
+        "depends_on",
+        "references_project",
+        "implements",
+        "inherits",
+        "extends",
+        "contains_project",
+    }
+)
+
+# Entity names (or prefixes thereof) that signal UI/platform coupling
+PLATFORM_PACKAGE_PREFIXES = (
+    "System.Windows.",
+    "Microsoft.WindowsDesktop.",
+    "Microsoft.Maui.",
+    "Xamarin.",
+    "Avalonia.",
+    "System.Drawing.",
+)
+
+# Substrings in targets_framework values that indicate a platform-specific TFM
+PLATFORM_FRAMEWORK_MARKERS = (
+    "-windows",
+    "-android",
+    "-ios",
+    "-macos",
+    "-maccatalyst",
+    "-tizen",
+)
+
+# KG predicates that only appear in platform/UI code (XAML bindings etc.)
+PLATFORM_KG_PREDICATES = frozenset(
+    {
+        "binds_viewmodel",
+        "has_code_behind",
+        "has_named_control",
+        "references_resource",
+        "uses_command",
+    }
+)
+
 
 def tool_find_implementations(interface: str) -> dict:
     """Find all types that implement a given interface in the KG."""
@@ -587,6 +631,190 @@ def tool_explain_subsystem(
             "entry_point_count": len(entry_points),
             "symbols_found": len(symbols),
             "relationships_found": relationships_found,
+        },
+    }
+
+
+def tool_extract_reusable(entity: str, max_depth: int = 3) -> dict:
+    """Classify transitive dependencies of entity as core/platform/glue and identify the minimal
+    public interface for extraction.
+
+    Algorithm:
+    1. BFS from entity following EXPANSION_PREDICATES (outgoing only, current facts only).
+       Cycle-safe via visited set. Capped at max_depth.
+    2. Classify each reachable entity:
+       a. Package leaf: name matches PLATFORM_PACKAGE_PREFIXES → platform
+       b. Outgoing depends_on objects matching PLATFORM_PACKAGE_PREFIXES → platform
+       c. targets_framework containing PLATFORM_FRAMEWORK_MARKERS → platform
+       d. Any PLATFORM_KG_PREDICATES (binds_viewmodel etc.) → platform
+       Otherwise: core (tentative)
+    3. Promote core→glue: entity implements a core interface AND depends_on a platform entity.
+    4. Extract boundary_interfaces: core interfaces implemented by glue entities.
+    5. Return {entity, graph: {core, platform, glue}, boundary_interfaces, summary}.
+    """
+    # Step 1: BFS traversal — collect all reachable entities with their current outgoing facts
+    nodes = {}  # name -> {"depth": int, "facts": [current outgoing facts], "via": str|None}
+    visited = set()
+    queue = [(entity, 0, None)]  # (name, depth, via_predicate)
+
+    while queue:
+        name, depth, via = queue.pop(0)
+        if name in visited:
+            continue
+        visited.add(name)
+        facts = _kg.query_entity(name, direction="outgoing")
+        current_facts = [f for f in facts if f["current"]]
+        nodes[name] = {"depth": depth, "facts": current_facts, "via": via}
+
+        if depth < max_depth:
+            for fact in current_facts:
+                if fact["predicate"] in EXPANSION_PREDICATES:
+                    neighbor = fact["object"]
+                    if neighbor not in visited:
+                        queue.append((neighbor, depth + 1, fact["predicate"]))
+
+    # Step 2: Classify each entity
+    classification = {}  # name -> "platform" | "core"
+    evidence = {}  # name -> list[str] (for platform) or dict (for glue after step 3)
+
+    for name, node_data in nodes.items():
+        facts = node_data["facts"]
+
+        # a. Package leaf: entity name itself matches a platform prefix
+        matched_prefix = next((p for p in PLATFORM_PACKAGE_PREFIXES if name.startswith(p)), None)
+        if matched_prefix is not None:
+            classification[name] = "platform"
+            evidence[name] = [f"package name matches platform prefix {matched_prefix}"]
+            continue
+
+        # b/c/d: Inspect outgoing facts for platform signals
+        platform_evidence = []
+        for fact in facts:
+            pred = fact["predicate"]
+            obj = fact["object"]
+            # b. depends_on a platform package
+            if pred == "depends_on":
+                for prefix in PLATFORM_PACKAGE_PREFIXES:
+                    if obj.startswith(prefix):
+                        platform_evidence.append(f"depends_on platform package: {obj}")
+                        break
+            # c. targets a platform framework
+            elif pred == "targets_framework":
+                for marker in PLATFORM_FRAMEWORK_MARKERS:
+                    if marker in obj:
+                        platform_evidence.append(f"targets platform framework: {obj}")
+                        break
+            # d. uses a platform-only KG predicate
+            if pred in PLATFORM_KG_PREDICATES:
+                platform_evidence.append(f"uses platform predicate: {pred}")
+
+        if platform_evidence:
+            classification[name] = "platform"
+            evidence[name] = platform_evidence
+        else:
+            classification[name] = "core"
+            evidence[name] = []
+
+    # Step 3: Promote → glue
+    # An entity is glue if it implements a core-classified interface AND depends_on a platform entity.
+    # This overrides any previous classification (core or platform): a type that bridges a core
+    # contract and platform dependencies is always glue, regardless of step-2 result.
+    # Only `implements` (not `inherits`) triggers promotion — contracts, not base classes.
+    for name, node_data in nodes.items():
+        if classification.get(name) == "glue":
+            continue  # already glue
+        facts = node_data["facts"]
+
+        core_interfaces = [
+            f["object"]
+            for f in facts
+            if f["predicate"] == "implements" and classification.get(f["object"]) == "core"
+        ]
+        if not core_interfaces:
+            continue
+
+        platform_deps = [
+            f["object"]
+            for f in facts
+            if f["predicate"] == "depends_on" and classification.get(f["object"]) == "platform"
+        ]
+        if platform_deps:
+            classification[name] = "glue"
+            evidence[name] = {"core_interfaces": core_interfaces, "platform_deps": platform_deps}
+
+    # Step 4: Extract boundary interfaces
+    # For each glue entity, collect the core interfaces it `implements`.
+    # These are the swappable contracts at the core/platform boundary.
+    boundary_map: dict = {}  # interface_name -> list of {entity, classification}
+    for name, node_data in nodes.items():
+        if classification.get(name) != "glue":
+            continue
+        for fact in node_data["facts"]:
+            if fact["predicate"] == "implements":
+                iface = fact["object"]
+                if classification.get(iface) == "core":
+                    boundary_map.setdefault(iface, []).append(
+                        {"entity": name, "classification": "glue"}
+                    )
+
+    boundary_interfaces = [
+        {"interface": iface, "implemented_by": implementors}
+        for iface, implementors in boundary_map.items()
+    ]
+
+    # Step 5: Build partitioned graph response (root entity excluded from lists)
+    core_list = []
+    platform_list = []
+    glue_list = []
+
+    for name, node_data in nodes.items():
+        if name == entity:
+            continue  # root entity is the query subject, not a dependency
+        depth = node_data["depth"]
+        via = node_data["via"]
+        cls = classification.get(name, "core")
+
+        if cls == "core":
+            core_list.append({"entity": name, "depth": depth, "via": via})
+        elif cls == "platform":
+            platform_list.append(
+                {
+                    "entity": name,
+                    "depth": depth,
+                    "evidence": evidence.get(name, []),
+                }
+            )
+        elif cls == "glue":
+            glue_ev = evidence.get(name, {})
+            glue_list.append(
+                {
+                    "entity": name,
+                    "depth": depth,
+                    "core_interfaces": glue_ev.get("core_interfaces", [])
+                    if isinstance(glue_ev, dict)
+                    else [],
+                    "platform_deps": glue_ev.get("platform_deps", [])
+                    if isinstance(glue_ev, dict)
+                    else [],
+                }
+            )
+
+    total_entities = len(nodes) - 1  # exclude root
+
+    return {
+        "entity": entity,
+        "graph": {
+            "core": core_list,
+            "platform": platform_list,
+            "glue": glue_list,
+        },
+        "boundary_interfaces": boundary_interfaces,
+        "summary": {
+            "total_entities": total_entities,
+            "core_count": len(core_list),
+            "platform_count": len(platform_list),
+            "glue_count": len(glue_list),
+            "boundary_interface_count": len(boundary_interfaces),
         },
     }
 
@@ -911,6 +1139,35 @@ TOOLS = {
             "required": ["query"],
         },
         "handler": tool_explain_subsystem,
+    },
+    "mempalace_extract_reusable": {
+        "description": (
+            "Classify transitive dependencies of a symbol, project, or solution as core, platform, or glue. "
+            "BFS-expands outgoing KG edges (depends_on, implements, inherits, extends, references_project, "
+            "contains_project) and partitions reachable entities using built-in .NET/WPF/MAUI/Xamarin "
+            "platform markers. Identifies boundary interfaces — the minimal public contracts needed to "
+            "extract core logic from platform coupling. "
+            "Requires pre-mined KG data (DOTNET-SYMBOL-GRAPH mining). "
+            "Returns {entity, graph: {core, platform, glue}, boundary_interfaces, summary}."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "entity": {
+                    "type": "string",
+                    "description": (
+                        "Root entity to analyse (type, project, or solution name as stored in the KG, "
+                        "e.g. 'MyService', 'CoreLib', 'MySolution')"
+                    ),
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "description": "Maximum BFS depth to traverse (default 3)",
+                },
+            },
+            "required": ["entity"],
+        },
+        "handler": tool_extract_reusable,
     },
     "mempalace_traverse": {
         "description": "Walk the palace graph from a room. Shows connected ideas across wings — the tunnels. Like following a thread through the palace: start at 'chromadb-setup' in wing_code, discover it connects to wing_myproject (planning) and wing_user (feelings about it).",

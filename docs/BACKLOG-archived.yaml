@@ -1,0 +1,113 @@
+items:
+    - key: MINE-DEVOPS-INFRA
+      summary: Add DevOps/infrastructure file support to miner (Terraform, Docker, Helm, Ansible, Make, etc.)
+      resolution: '2026-04-14: Added DevOps/infrastructure file support: Terraform (.tf/.tfvars/.hcl) with HCL boundary chunking, Dockerfile/Makefile via FILENAME_LANG_MAP, Helm templates (.tpl), Ansible Jinja2 (.j2/.jinja2), config files (.conf/.cfg/.ini/.mk). .terraform/ added to SKIP_DIRS. Updated SUPPORTED_LANGUAGES in searcher.py and code_search description in mcp_server.py. 237 tests pass. Hardening round-1 (2026-04-14): 0 fixed, 2 backlogged (MINE-HCL-BOUNDARY-MODERN, MINE-DEVOPS-SCAN-COVERAGE), 1 dismissed.'
+      archived_date: "2026-04-14"
+    - key: STORAGE-SAFE-OPTIMIZE
+      summary: 'Hardening: safe_optimize with pre-backup and verification'
+      resolution: '2026-04-16: Hardened safe_optimize: fail-closed on backup error, path normalization, improved print formatting; added TestSafeOptimize and config env var tests. Round-1 audit: fixed optimize() exception propagation (F-1) and wrong palace_path in miner calls (F-2).'
+      archived_date: "2026-04-16"
+    - key: FIX-LANCE-CORRUPT
+      summary: Detect and recover from missing LanceDB fragment files
+      resolution: '2026-04-16: Added LanceStore.health_check() and recover_to_last_working_version(); cmd_health CLI with --json; --rollback/--dry-run for cmd_repair; _degraded_response helper in MCP tool_status/list_wings/list_rooms/get_taxonomy; all AC tests pass'
+      archived_date: "2026-04-16"
+    - key: STORAGE-AUTO-BACKUP
+      summary: Auto-backup palace before risky operations and on schedule
+      resolution: '2026-04-16: Flipped backup_before_optimize default to True; added list_backups() + render_schedule() to backup.py; refactored CLI backup parser with create/list/schedule subverbs; changed default backup dir to <palace_parent>/backups/; added auto_backup_before_optimize alias + backup_schedule config properties; 56 new tests added. Hardening round-1: 8 fixed (TOCTOU stat race, XML escape in plist, docstring, unsupported-platform UX, backup_schedule env test, shell injection via shlex.quote, backup dir 0o700 perms, explicit --out parent dir auto-creation), 2 dismissed. 5 tests added in hardening.'
+      archived_date: "2026-04-16"
+    - key: STORAGE-AUTO-BACKUP-SCHEDULE-INSTALL
+      summary: User must manually install the emitted launchd plist (macOS) or cron entry (Linux) produced by `mempalace backup schedule --freq daily`; the subcommand only prints the snippet and does not write system files.
+      archived_date: "2026-04-16"
+    - key: FUT-WATCH-MODE
+      summary: DUPLICATE - see MINE-WATCH
+      archived_date: "2026-04-17"
+    - key: STORE-WHERE-ARROW-IN
+      summary: $in operator silently ignored in _where_to_arrow_mask — iter_all() returns wrong rows for $in filters
+      resolution: '2026-04-16: Added $in operator to _where_to_arrow_mask via pc.is_in; empty list returns zero rows; 3 tests added. 2026-04-17: Hardening round-1 — 2 fixed (tests expanded to 5, docstring updated), 2 dismissed; audit at docs/audits/STORE-WHERE-ARROW-IN-round-1.md'
+      archived_date: "2026-04-17"
+    - key: CODE-TREESITTER-RUST-CONST-STATIC
+      summary: Add const_item and static_item to Rust AST chunker DEFINITION_TYPES
+      resolution: '2026-04-17: Added const_item and static_item to _chunk_rust_treesitter DEFINITION_TYPES; added RUST_AST_CONST_STATIC fixture and two new tests. Hardening round-1: 1 fixed (test_ast_rust_const_static_create_boundaries added to verify actual boundary creation), 2 dismissed; audit at docs/audits/CODE-TREESITTER-RUST-CONST-STATIC-round-1.md'
+      archived_date: "2026-04-17"
+    - key: CODE-SEARCH-LANG-PROSE
+      summary: Add markdown, text, csv to SUPPORTED_LANGUAGES so code_search language filter works for prose and data drawers
+      resolution: '2026-04-17: Added markdown, text, csv to SUPPORTED_LANGUAGES in searcher.py and updated MCP schema description; 2 new tests (hint guard + live markdown filter). Hardening round-1: 0 fixed, 1 backlogged (CODE-SEARCH-LANG-JSX-TSX), 2 dismissed.'
+      archived_date: "2026-04-17"
+    - key: STORE-META-DEFAULTS-COERCE
+      summary: Derive numeric coercions in _meta_defaults() from _META_FIELD_SPEC type_tags
+      resolution: '2026-04-17: Replaced three hardcoded int/float coercion lines in _meta_defaults() with a loop over _META_FIELD_SPEC type_tags; 54 tests pass'
+      archived_date: "2026-04-17"
+    - key: CLI-DIARY-WRITE-ID-COLLISION
+      summary: Use UUID for diary entry IDs to prevent same-second collision
+      resolution: '2026-04-17: Replaced timestamp+MD5 diary entry ID with uuid4 in cmd_diary_write (cli.py) and tool_diary_write (mcp_server.py); removed unused hashlib import from cli.py. Hardening round-1: 0 fixed, 0 backlogged, 2 dismissed (lazy import placement info, ID format test gap info).'
+      archived_date: "2026-04-17"
+    - key: MINE-BATCH-EMBED-DRY-RUN-REFACTOR
+      summary: Remove process_file dry-run code duplication — delegate to _collect_specs_for_file
+      resolution: '2026-04-17: Delegated dry-run path in process_file() to _collect_specs_for_file(mined_files=set()); added chunk-count parity test. Hardening round-1: 0 fixed, 0 backlogged, 2 dismissed (dry-run always-reports-all-chunks info, side-effect assertion gap info).'
+      archived_date: "2026-04-17"
+    - key: TREESITTER-VERSION-PINS
+      summary: Periodically review and raise tree-sitter version ceilings in [treesitter] extra
+      resolution: '2026-04-17: Raised tree-sitter ceilings: core split by py version marker (<0.24 for py<3.10, <0.26 for py>=3.10), all grammar packages raised to <0.26; added treesitter-py313 CI job. Hardening round-1: 0 fixed, 0 backlogged, 3 dismissed (all info-level).'
+      archived_date: "2026-04-17"
+    - key: PYPROJECT-CHROMA-VERSION
+      summary: Update chromadb version ceiling in [chroma] optional extra when 0.7+ releases
+      resolution: '2026-04-17: Raised chromadb ceiling from <0.7 to <2; added tests/test_chroma_compat.py smoke tests (4 tests, all pass); hardening round-1: 0 fixed, 0 backlogged, 3 dismissed'
+      archived_date: "2026-04-17"
+    - key: STORE-DELETE-WING-EXCEPTION-TEST
+      summary: Add test verifying tool_delete_wing returns error dict when storage raises
+      resolution: '2026-04-17: Added test_delete_wing_storage_error in TestWriteTools; monkeypatches store.delete_wing to raise RuntimeError and asserts tool_delete_wing returns {success: False, error: ...}'
+      archived_date: "2026-04-17"
+    - key: MINE-CLI-FULL-TEST
+      summary: Add CLI-level test for mine --full flag wiring
+      resolution: '2026-04-17: Added TestMineCommand to test_cli.py: test_mine_full_flag (incremental=False) and test_mine_default_incremental (incremental=True), both passing.'
+      archived_date: "2026-04-17"
+    - key: STORE-MIGRATE-EMPTY-SRC-TEST
+      summary: Add test for migrate-storage empty source palace early-exit path
+      resolution: '2026-04-17: Added test_migrate_empty_src: seeds ChromaStore, deletes all rows, asserts migrate_chroma_to_lance returns (0,0) without creating dst dir'
+      archived_date: "2026-04-17"
+    - key: STORE-MIGRATION-TEST-DYNAMIC-COLS
+      summary: Derive migration NULL-safety assertion list from _META_FIELD_SPEC instead of hardcoding column names
+      resolution: '2026-04-17: Replaced hardcoded 13-element new_string_cols list with dynamic derivation from _META_FIELD_SPEC (type_tag==string, name not in OLD_9_COLS). Harden round-1: 1 finding fixed (added non-empty guard assertion to prevent vacuous pass).'
+      archived_date: "2026-04-17"
+    - key: MINE-BATCH-UPSERT-CONTENT-UPDATE-TEST
+      summary: Add test verifying add_drawers_batch updates stored content on re-upsert with changed content
+      resolution: '2026-04-17: Added test_add_drawers_batch_updates_content to tests/test_miner.py; verifies content is overwritten on re-upsert with same ID'
+      archived_date: "2026-04-17"
+    - key: MINE-JAVA-SMART
+      summary: Add smart symbol extraction for Java
+      resolution: '2026-04-17: Added JAVA_BOUNDARY, _JAVA_EXTRACT patterns, and chunk_file dispatch; 13 new symbol-extraction tests; all tests green'
+      archived_date: "2026-04-17"
+    - key: MINE-KOTLIN
+      summary: Add Kotlin language support to code miner
+      resolution: '2026-04-17: Added Kotlin (.kt/.kts) language support to code miner with KOTLIN_BOUNDARY, _KOTLIN_EXTRACT, dispatch wiring, and 18 new tests covering all Kotlin symbol types'
+      archived_date: "2026-04-17"
+    - key: MINE-CSHARP
+      summary: Add C# language support to code miner
+      resolution: '2026-04-17: Add C# (.cs) regex-based chunking and symbol extraction to miner.py: CSHARP_BOUNDARY, _CSHARP_EXTRACT, language detection, chunk_file dispatch, chunk_code attribute lookback. 50 new tests — all 701 suite tests passing.'
+      archived_date: "2026-04-17"
+    - key: MINE-DOTNET
+      summary: Add .NET ecosystem support to code miner
+      resolution: '2026-04-17: Added F#/VB.NET language support, .csproj/.fsproj/.vbproj/.sln KG triple extraction, invalidate_by_source_file(), .vs/bin/obj SKIP_DIRS, and 60+ tests across 5 test files. Hardening round-1: fixed TargetFrameworks (plural) silent data-loss bug; backlogged bin/ SKIP_DIRS scope issue (MINE-BIN-SKIP-DIRS).'
+      archived_date: "2026-04-17"
+    - key: MINE-XAML
+      summary: Add XAML and WPF code-behind linking support
+      archived_date: "2026-04-17"
+      done_date: "2026-04-17"
+      done_summary: 'Added .xaml language detection, x:Class symbol extraction (view/view_name), and parse_xaml_file() emitting KG triples for code-behind, DataContext ViewModel, x:Name controls, StaticResource/DynamicResource references, and Command bindings. Renamed _DOTNET_CONFIG_EXTENSIONS to _KG_EXTRACT_EXTENSIONS (includes .xaml). Tests: test_kg_extract.py (renamed from test_dotnet_config.py) + XAML roundtrip in test_miner.py. All tests and lint pass. Hardening round-1: fixed missing uses_command dedup test; backlogged plain Name= attribute support (MINE-XAML-NAME-ATTR); dismissed regex-matches-in-comments as accepted limitation of hybrid approach.'
+    - key: DOTNET-SYMBOL-GRAPH
+      summary: Cross-project symbol relationships via KG
+      resolution: '2026-04-17: Added extract_type_relationships() for C#/F#/VB.NET source files; detects implements/inherits/extends triples via regex heuristics and stores them in KG during mine(). _KG_EXTRACT_EXTENSIONS expanded to cover .cs/.fs/.fsi/.vb; invalidation and stale-sweep handled by existing guards. 48 new tests across C#/F#/VB.NET cases, KG lifecycle, and multi-project cross-project query (AC-1 through AC-12). Hardening round-1 (2 fixed, 1 backlogged, 1 dismissed): fixed F# module-scoped type indentation bug and VB.NET generic-suffix stripping; backlogged C# multi-line base-type declarations (DOTNET-CS-MULTILINE-BASE).'
+      archived_date: "2026-04-17"
+    - key: BENCH-DOTNET
+      summary: Benchmark suite for C#/.NET repo mining and retrieval
+      resolution: '2026-04-17: Add benchmarks/dotnet_bench.py: 20-query R@5/R@10 benchmark for C#/.NET repos targeting jasontaylordev/CleanArchitecture, with --validate-queries mode and results JSON output'
+      archived_date: "2026-04-17"
+    - key: MCP-ARCH-TOOLS
+      summary: Add architecture-oriented MCP tools for .NET repos
+      archived_date: "2026-04-18"
+      done_date: "2026-04-17"
+      done_summary: 'Added 4 MCP tools (find_implementations, find_references, show_project_graph, show_type_dependencies) as thin KG query compositions. Added type_dependency_chain() to KnowledgeGraph with cycle detection. Expanded SUPPORTED_LANGUAGES and VALID_SYMBOL_TYPES for .NET. 18 new tests, all AC-1 through AC-13 satisfied. Hardening round-1: 2 fixed, 1 backlogged (ARCH-REF-COVERAGE), 2 dismissed.'
+    - key: ARCH-RETRIEVAL
+      summary: 'Architecture-oriented retrieval: explain subsystem queries'
+      resolution: '2026-04-18: Added mempalace_explain_subsystem MCP tool: semantic code search + KG expansion for subsystem queries'
+      archived_date: "2026-04-18"

@@ -1261,3 +1261,217 @@ class TestExplainSubsystem:
             assert ep.get("symbol_name"), (
                 f"Non-code drawer leaked into entry_points: {ep.get('source_file')}"
             )
+
+
+# ── Extract Reusable Tool (LOGIC-EXTRACTION) ─────────────────────────────
+
+
+class TestExtractReusable:
+    """Tests for mempalace_extract_reusable (LOGIC-EXTRACTION)."""
+
+    @pytest.fixture
+    def extraction_kg(self, kg):
+        """KG seeded with mixed core/platform/glue entities per LOGIC-EXTRACTION plan fixture."""
+        # Pure core: interface + its extension
+        kg.add_triple("IService", "extends", "IDisposable")
+        # Pure core implementation
+        kg.add_triple("CoreService", "implements", "IService")
+        # Platform: WpfView depends on a WPF package and uses XAML bindings
+        kg.add_triple("WpfView", "depends_on", "Microsoft.WindowsDesktop.App.WPF@8.0")
+        kg.add_triple("WpfView", "binds_viewmodel", "MainViewModel")
+        # Glue: implements core interface + depends on platform package
+        kg.add_triple("WinFormsAdapter", "implements", "IService")
+        kg.add_triple("WinFormsAdapter", "depends_on", "System.Windows.Forms@8.0")
+        # Project-level
+        kg.add_triple("MyApp", "references_project", "CoreLib")
+        kg.add_triple("MyApp", "targets_framework", "net8.0-windows")
+        kg.add_triple("MySolution", "contains_project", "MyApp")
+        kg.add_triple("MySolution", "contains_project", "CoreLib")
+        kg.add_triple("CoreLib", "targets_framework", "netstandard2.0")
+        return kg
+
+    def test_pure_core_graph_classifies_all_core(self, monkeypatch, config, palace_path, kg):
+        """AC-1: Pure core graph — all reachable entities classified as core."""
+        kg.add_triple("MyService", "implements", "IService")
+        kg.add_triple("MyService", "inherits", "BaseService")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="MyService")
+        assert result["entity"] == "MyService"
+        # IService and BaseService discovered; both should be core
+        core_entities = {e["entity"] for e in result["graph"]["core"]}
+        assert "IService" in core_entities
+        assert "BaseService" in core_entities
+        assert result["graph"]["platform"] == []
+        assert result["graph"]["glue"] == []
+
+    def test_platform_entity_classified_with_evidence(
+        self, monkeypatch, config, palace_path, extraction_kg
+    ):
+        """AC-2: WpfView depends_on WPF package and uses binds_viewmodel → classified platform."""
+        _patch_mcp_server(monkeypatch, config, palace_path, extraction_kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="WpfView")
+        platform = result["graph"]["platform"]
+        # Microsoft.WindowsDesktop.App.WPF@8.0 should appear as a platform leaf
+        platform_names = {e["entity"] for e in platform}
+        assert "Microsoft.WindowsDesktop.App.WPF@8.0" in platform_names
+        # Evidence must be non-empty for each platform entity
+        for p in platform:
+            assert p["evidence"], f"Platform entity {p['entity']} has no evidence"
+
+    def test_glue_detection_at_interface_boundary(
+        self, monkeypatch, config, palace_path, extraction_kg
+    ):
+        """AC-3: WinFormsAdapter implements IService (core) + depends_on System.Windows.Forms → glue.
+        boundary_interfaces must include IService with WinFormsAdapter as implementor."""
+        _patch_mcp_server(monkeypatch, config, palace_path, extraction_kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="WinFormsAdapter")
+        # WinFormsAdapter is the root — verify via boundary_interfaces
+        assert len(result["boundary_interfaces"]) >= 1
+        bi_ifaces = {b["interface"] for b in result["boundary_interfaces"]}
+        assert "IService" in bi_ifaces
+        # WinFormsAdapter must appear as an implementor
+        for bi in result["boundary_interfaces"]:
+            if bi["interface"] == "IService":
+                implementors = {imp["entity"] for imp in bi["implemented_by"]}
+                assert "WinFormsAdapter" in implementors
+
+    def test_empty_kg_returns_empty_graph(self, monkeypatch, config, palace_path, kg):
+        """AC-4: Entity has no KG facts → valid empty response, no error."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="UnknownEntity")
+        assert result["entity"] == "UnknownEntity"
+        assert result["graph"]["core"] == []
+        assert result["graph"]["platform"] == []
+        assert result["graph"]["glue"] == []
+        assert result["boundary_interfaces"] == []
+        summary = result["summary"]
+        assert summary["total_entities"] == 0
+        assert summary["core_count"] == 0
+        assert summary["platform_count"] == 0
+        assert summary["glue_count"] == 0
+        assert summary["boundary_interface_count"] == 0
+
+    def test_cycle_safe_traversal(self, monkeypatch, config, palace_path, kg):
+        """AC-5: Circular KG references terminate without infinite loop; each entity appears once."""
+        kg.add_triple("TypeA", "depends_on", "TypeB")
+        kg.add_triple("TypeB", "depends_on", "TypeA")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="TypeA")
+        all_entities = (
+            [e["entity"] for e in result["graph"]["core"]]
+            + [e["entity"] for e in result["graph"]["platform"]]
+            + [e["entity"] for e in result["graph"]["glue"]]
+        )
+        # TypeB should appear exactly once; TypeA (root) should not appear in graph
+        assert all_entities.count("TypeB") == 1
+        assert "TypeA" not in all_entities
+
+    def test_max_depth_caps_expansion(self, monkeypatch, config, palace_path, kg):
+        """AC-6: max_depth=1 returns only direct deps; depth-2+ nodes are omitted."""
+        kg.add_triple("Root", "implements", "InterfaceA")
+        kg.add_triple("InterfaceA", "extends", "InterfaceB")
+        kg.add_triple("InterfaceB", "extends", "InterfaceC")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="Root", max_depth=1)
+        all_entities = {e["entity"] for lst in result["graph"].values() for e in lst}
+        assert "InterfaceA" in all_entities
+        assert "InterfaceB" not in all_entities
+        assert "InterfaceC" not in all_entities
+
+    def test_expired_facts_excluded_from_traversal(self, monkeypatch, config, palace_path, kg):
+        """AC-7: Expired KG relationships are not traversed or classified."""
+        kg.add_triple("MyType", "implements", "OldInterface", valid_to="2020-01-01")
+        kg.add_triple("MyType", "implements", "IService")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="MyType")
+        all_entities = {e["entity"] for lst in result["graph"].values() for e in lst}
+        assert "OldInterface" not in all_entities, "Expired relationship must not be traversed"
+        assert "IService" in all_entities, "Active relationship must be traversed"
+
+    def test_tool_appears_in_tools_list(self):
+        """AC-8: mempalace_extract_reusable appears in tools/list with correct schema."""
+        from mempalace.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        tool_map = {t["name"]: t for t in resp["result"]["tools"]}
+        assert "mempalace_extract_reusable" in tool_map
+        t = tool_map["mempalace_extract_reusable"]
+        assert t["name"]
+        assert t["description"]
+        schema = t["inputSchema"]
+        props = schema["properties"]
+        assert "entity" in props
+        assert "max_depth" in props
+        assert schema.get("required") == ["entity"]
+
+    def test_package_leaf_nodes_classified_platform(self, monkeypatch, config, palace_path, kg):
+        """AC-2 / package-leaf: Package entities matching PLATFORM_PACKAGE_PREFIXES are platform."""
+        kg.add_triple("MyProject", "depends_on", "System.Windows.Forms@8.0")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="MyProject")
+        platform_names = {e["entity"] for e in result["graph"]["platform"]}
+        assert "System.Windows.Forms@8.0" in platform_names
+        # MyProject itself is platform because of its platform dep
+        # (root excluded from graph but the dep node itself should be platform)
+
+    def test_solution_level_expands_through_contains_project(
+        self, monkeypatch, config, palace_path, extraction_kg
+    ):
+        """AC-10: Solution-level query expands through contains_project to project deps."""
+        _patch_mcp_server(monkeypatch, config, palace_path, extraction_kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="MySolution")
+        all_entities = {e["entity"] for lst in result["graph"].values() for e in lst}
+        # MySolution contains MyApp and CoreLib
+        assert "MyApp" in all_entities or "CoreLib" in all_entities
+
+    def test_boundary_interfaces_only_implements_not_inherits(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """Plan spec: only `implements` (interface contracts) qualify for boundary_interfaces; not `inherits`."""
+        kg.add_triple("GlueType", "implements", "IContract")
+        kg.add_triple("GlueType", "inherits", "BasePlatformClass")
+        kg.add_triple("GlueType", "depends_on", "System.Windows.Forms@8.0")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="GlueType")
+        bi_ifaces = {b["interface"] for b in result["boundary_interfaces"]}
+        # IContract (via implements) should appear as boundary interface
+        assert "IContract" in bi_ifaces
+        # BasePlatformClass (via inherits) must NOT appear
+        assert "BasePlatformClass" not in bi_ifaces
+
+    def test_summary_counts_match_graph_lists(
+        self, monkeypatch, config, palace_path, extraction_kg
+    ):
+        """Summary counts must equal len() of corresponding graph lists."""
+        _patch_mcp_server(monkeypatch, config, palace_path, extraction_kg)
+        from mempalace.mcp_server import tool_extract_reusable
+
+        result = tool_extract_reusable(entity="MySolution")
+        summary = result["summary"]
+        assert summary["core_count"] == len(result["graph"]["core"])
+        assert summary["platform_count"] == len(result["graph"]["platform"])
+        assert summary["glue_count"] == len(result["graph"]["glue"])
+        assert summary["boundary_interface_count"] == len(result["boundary_interfaces"])
+        assert summary["total_entities"] == (
+            summary["core_count"] + summary["platform_count"] + summary["glue_count"]
+        )
