@@ -49,6 +49,7 @@ mempalace = "mempalace:main"
 dev = ["pytest>=7.0", "ruff>=0.4.0"]
 spellcheck = ["autocorrect>=2.0"]
 chroma = ["chromadb>=0.5.0,<2"]
+watch = ["watchfiles>=1.0"]
 treesitter = [
     "tree-sitter>=0.22,<0.24; python_version < '3.10'",
     "tree-sitter>=0.22,<0.26; python_version >= '3.10'",

@@ -135,6 +135,47 @@ def cmd_mine(args):
     for raw in args.include_ignored or []:
         include_ignored.extend(part.strip() for part in raw.split(",") if part.strip())
 
+    watch = getattr(args, "watch", False)
+
+    if watch:
+        # Validate incompatible flag combinations
+        if args.dry_run:
+            print("  Error: --watch is incompatible with --dry-run.", file=sys.stderr)
+            sys.exit(2)
+        if args.full:
+            print("  Error: --watch is incompatible with --full (watch always uses incremental).", file=sys.stderr)
+            sys.exit(2)
+        if args.limit:
+            print(
+                "  Error: --watch is incompatible with --limit "
+                "(watch must process all files for correct stale-file cleanup).",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        if args.mode == "convos":
+            print("  Error: --watch is not supported with --mode convos.", file=sys.stderr)
+            sys.exit(2)
+
+        try:
+            from .watcher import watch_and_mine
+        except ImportError as exc:
+            print(f"  Error importing watcher: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        from .knowledge_graph import KnowledgeGraph
+
+        kg = KnowledgeGraph()
+        watch_and_mine(
+            project_dir=args.dir,
+            palace_path=palace_path,
+            wing_override=args.wing,
+            agent=args.agent,
+            respect_gitignore=not args.no_gitignore,
+            include_ignored=include_ignored,
+            kg=kg,
+        )
+        return
+
     if args.mode == "convos":
         from .convo_miner import mine_convos
 
@@ -972,6 +1013,14 @@ def main():
         choices=["exchange", "general"],
         default="exchange",
         help="Extraction strategy for convos mode: 'exchange' (default) or 'general' (5 memory types)",
+    )
+    p_mine.add_argument(
+        "--watch",
+        action="store_true",
+        help=(
+            "Watch for file changes and re-mine automatically (requires mempalace[watch]). "
+            "Incompatible with --dry-run, --full, --limit, and --mode convos."
+        ),
     )
 
     # mine-all
