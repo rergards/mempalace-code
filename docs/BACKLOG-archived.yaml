@@ -128,3 +128,7 @@ items:
       resolution: '2026-04-18: Added mempalace/watcher.py (watch_and_mine, _is_relevant_change), --watch flag to mine CLI, watchfiles>=1.0 as [watch] optional dep, 34 tests in tests/test_watcher.py. Watchfiles uses fsevents/inotify (no polling), 5s debounce, incremental mine on change, SIGTERM clean shutdown. commit fb26bb5. Hardening round-1: 0 fixed, 1 backlogged (MINE-WATCH-GITIGNORE-CACHE), 1 dismissed.'
       archived_date: "2026-04-18"
       done_date: "2026-04-18"
+    - key: FIND-IMPL-INHERITS
+      summary: find_implementations should include inherits for Python ABCs
+      resolution: '2026-04-18: Fix tool_find_implementations to include inherits edges for Python ABCs by checking outgoing implements-to-ABC/Protocol triple'
+      archived_date: "2026-04-18"
