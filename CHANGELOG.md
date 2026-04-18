@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-18 · FIND-IMPL-INHERITS
+
+Fix `mempalace_find_implementations` to include Python ABC/Protocol subclasses: when the queried interface is itself abstract (has an outgoing `implements → ABC/ABCMeta/Protocol` edge), incoming `inherits` triples are now included alongside `implements` triples, so concrete subclasses are returned instead of an empty list.
+
 ## 2026-04-18 · MINE-WATCH
 
 Add `--watch` flag to `mempalace mine` for auto-incremental re-indexing: uses `watchdog` to monitor file changes, debounces updates (5s), and only re-indexes modified files — keeping the palace in sync automatically with low CPU overhead when idle.

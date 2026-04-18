@@ -452,16 +452,46 @@ PLATFORM_KG_PREDICATES = frozenset(
 )
 
 
+# Python built-in abstract base names — used to detect user-defined ABCs via an outgoing
+# (Interface, implements, ABC/ABCMeta/Protocol) triple.
+_PY_ABC_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
+
+
 def tool_find_implementations(interface: str) -> dict:
     """Find all types that implement a given interface in the KG."""
-    facts = _kg.query_entity(interface, direction="incoming")
+    incoming_facts = _kg.query_entity(interface, direction="incoming")
+
+    seen: set = set()
     implementations = []
-    for f in facts:
+
+    for f in incoming_facts:
         if f["predicate"] == "implements" and f["current"]:
-            entry = {"type": f["subject"]}
-            if f.get("source_closet"):
-                entry["source_closet"] = f["source_closet"]
-            implementations.append(entry)
+            t = f["subject"]
+            if t not in seen:
+                seen.add(t)
+                entry = {"type": t}
+                if f.get("source_closet"):
+                    entry["source_closet"] = f["source_closet"]
+                implementations.append(entry)
+
+    # Python ABC heuristic: if the interface itself has an outgoing implements-to-ABC/Protocol
+    # edge, it is a user-defined abstract base class and incoming inherits edges also count.
+    outgoing_facts = _kg.query_entity(interface, direction="outgoing")
+    is_abc = any(
+        f["predicate"] == "implements" and f["object"] in _PY_ABC_BASES and f["current"]
+        for f in outgoing_facts
+    )
+    if is_abc:
+        for f in incoming_facts:
+            if f["predicate"] == "inherits" and f["current"]:
+                t = f["subject"]
+                if t not in seen:
+                    seen.add(t)
+                    entry = {"type": t}
+                    if f.get("source_closet"):
+                        entry["source_closet"] = f["source_closet"]
+                    implementations.append(entry)
+
     return {
         "interface": interface,
         "implementations": implementations,

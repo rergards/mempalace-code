@@ -1216,7 +1216,7 @@ items:
   - key: FIND-IMPL-INHERITS
     summary: find_implementations should include inherits for Python ABCs
     type: bug
-    status: open
+    status: done
     priority: high
     section_id: mcp_developer_tools
     labels: [mcp, python, kg]
@@ -1254,3 +1254,5 @@ items:
       - [ ] Heuristic: include `inherits` edges where object has outgoing `implements ABC` or `implements Protocol`
       - [ ] Add test: test_find_implementations_includes_inherits_for_abc
       - [ ] Existing tests pass
+    resolution: '2026-04-18: Fix tool_find_implementations to include inherits edges for Python ABCs by checking outgoing implements-to-ABC/Protocol triple'
+    hardening: 'round-1: 2 findings fixed (Protocol test, deduplication test), 1 dismissed (expired-edge coverage). Audit: docs/audits/FIND-IMPL-INHERITS-round-1.md'

@@ -956,6 +956,61 @@ class TestArchTools:
         types = {r["type"] for r in result["implementations"]}
         assert types == {"ServiceA", "ServiceB", "ServiceC"}
 
+    def test_find_implementations_includes_inherits_for_abc(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """AC-1 (Python ABC): inherits edges are returned when interface has an implements-ABC triple."""
+        kg.add_triple("DrawerStore", "implements", "ABC")
+        kg.add_triple("LanceStore", "inherits", "DrawerStore")
+        kg.add_triple("ChromaStore", "inherits", "DrawerStore")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_find_implementations
+
+        result = tool_find_implementations(interface="DrawerStore")
+        types = {r["type"] for r in result["implementations"]}
+        assert "LanceStore" in types
+        assert "ChromaStore" in types
+        assert result["count"] == 2
+
+    def test_find_implementations_concrete_class_still_empty(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """AC-2: inherits edge without an implements-ABC triple → not treated as implementation."""
+        kg.add_triple("Child", "inherits", "BaseClass")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_find_implementations
+
+        result = tool_find_implementations(interface="BaseClass")
+        assert result["implementations"] == []
+        assert result["count"] == 0
+
+    def test_find_implementations_protocol_base(self, monkeypatch, config, palace_path, kg):
+        """Protocol base triggers same inherits-as-implements heuristic as ABC."""
+        kg.add_triple("Runnable", "implements", "Protocol")
+        kg.add_triple("TaskRunner", "inherits", "Runnable")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_find_implementations
+
+        result = tool_find_implementations(interface="Runnable")
+        types = {r["type"] for r in result["implementations"]}
+        assert "TaskRunner" in types
+        assert result["count"] == 1
+
+    def test_find_implementations_no_duplicates_when_both_edges(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """Class with both implements and inherits edges to an ABC appears only once."""
+        kg.add_triple("MyABC", "implements", "ABC")
+        kg.add_triple("ConcreteA", "implements", "MyABC")
+        kg.add_triple("ConcreteA", "inherits", "MyABC")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_find_implementations
+
+        result = tool_find_implementations(interface="MyABC")
+        types = [r["type"] for r in result["implementations"]]
+        assert types.count("ConcreteA") == 1
+        assert result["count"] == 1
+
     def test_find_references_canonical_categories(
         self, monkeypatch, config, palace_path, dotnet_kg
     ):
