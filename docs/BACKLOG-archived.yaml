@@ -132,3 +132,7 @@ items:
       summary: find_implementations should include inherits for Python ABCs
       resolution: '2026-04-18: Fix tool_find_implementations to include inherits edges for Python ABCs by checking outgoing implements-to-ABC/Protocol triple'
       archived_date: "2026-04-18"
+    - key: REPO-STRUCTURE-DEFAULTS
+      summary: Auto-organize wings/rooms by .sln and project structure
+      resolution: '2026-04-18: Auto-detect .sln wing and .csproj rooms when dotnet_structure: true in mempalace.yaml; added _detect_sln_wing, _build_csproj_room_map, _normalize_room_name helpers, csproj_room_map priority in detect_room, and 19 new tests'
+      archived_date: "2026-04-19"
