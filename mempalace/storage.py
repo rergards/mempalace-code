@@ -241,11 +241,32 @@ class LanceStore(DrawerStore):
 
     def __init__(self, palace_path: str, create: bool = True, embed_model: Optional[str] = None):
         import lancedb
+        import logging
 
         self._model_name = embed_model or DEFAULT_EMBED_MODEL
         self._db = lancedb.connect(os.path.join(palace_path, "lance"))
-        self._embedder = self._get_embedder()
-        self._table = self._open_or_create(create)
+
+        # Suppress noisy HF/safetensors output (BertModel LOAD REPORT, tqdm bars,
+        # unauthenticated-request warnings).  Must redirect at the OS fd level
+        # because the noise comes from C/Rust code, not Python.
+        hf_logger = logging.getLogger("huggingface_hub")
+        prev_level = hf_logger.level
+        hf_logger.setLevel(logging.ERROR)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        old_stdout = os.dup(1)
+        old_stderr = os.dup(2)
+        try:
+            os.dup2(devnull, 1)
+            os.dup2(devnull, 2)
+            self._embedder = self._get_embedder()
+            self._table = self._open_or_create(create)
+        finally:
+            os.dup2(old_stdout, 1)
+            os.dup2(old_stderr, 2)
+            os.close(devnull)
+            os.close(old_stdout)
+            os.close(old_stderr)
+            hf_logger.setLevel(prev_level)
 
     def _get_embedder(self):
         """Load the sentence-transformers embedding model."""
