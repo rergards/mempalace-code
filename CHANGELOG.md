@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.3.0 — 2026-04-19
+
+First-class C#/.NET support — delivers [rergards/mempalace-code#1](https://github.com/rergards/mempalace-code/issues/1) in full.
+
+### Added
+- **C# structural mining** — parse `.cs` files by namespace, class, interface, enum, record, method, property, event; partial class support, XML doc preservation (MINE-CSHARP)
+- **.NET solution/project awareness** — `.sln` and `.csproj` parsing with project references, package references, target frameworks; queryable via KG (MINE-DOTNET)
+- **F#, VB.NET, XAML mining** — `.fs`/`.fsi`, `.vb`, `.xaml` with structured symbol extraction and code-behind linking (MINE-DOTNET, MINE-XAML, MINE-XAML-NAME-ATTR)
+- **Cross-project symbol relationships** — interface implementations, inheritance, type usage stored as KG triples (DOTNET-SYMBOL-GRAPH)
+- **C# multi-line base-type declarations** — `class Foo :\n    IBar, IBaz` now parsed correctly (DOTNET-CS-MULTILINE-BASE)
+- **6 architecture MCP tools** — `find_implementations`, `find_references`, `show_project_graph`, `show_type_dependencies`, `explain_subsystem`, `extract_reusable` (MCP-ARCH-TOOLS, ARCH-RETRIEVAL, LOGIC-EXTRACTION)
+- **Python type extraction to KG** — class inheritance and ABC/Protocol implementations (PY-TYPE-KG)
+- **`mine-all` command** — batch mine all projects in a parent directory (MINE-MULTI)
+- **`--watch` flag** — auto-incremental re-mining on file changes via watchdog (MINE-WATCH)
+- **Auto-organize by .NET structure** — `.sln` creates wing, `.csproj` maps to room (REPO-STRUCTURE-DEFAULTS)
+- **.NET benchmark suite** — 20-query R@5/R@10 benchmark targeting CleanArchitecture (BENCH-DOTNET)
+
+### Fixed
+- `find_implementations` now includes Python ABC/Protocol subclasses (FIND-IMPL-INHERITS)
+- `.gitignore` patterns respected in `--watch` mode (MINE-WATCH-GITIGNORE-CACHE)
+
+### Stats
+- 27 MCP tools (was 18)
+- 1002 tests (was 527)
+
 ## 2026-04-19 · REPO-STRUCTURE-DEFAULTS
 
 Auto-organize wings/rooms by .NET solution/project structure: mining a repo with `.sln` files now creates a wing named after the solution and maps each `.csproj` to a room, using KG project info for defaults and supporting configurable folder-based room detection.

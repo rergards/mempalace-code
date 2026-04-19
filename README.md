@@ -23,13 +23,13 @@ No cloud. No API keys. No subscription. Nothing leaves your machine.
 <table>
 <tr>
 <td align="center"><strong>Tree-sitter AST Parsing</strong><br><sub>Chunks at function boundaries<br>not arbitrary line counts</sub></td>
-<td align="center"><strong>18 MCP Tools</strong><br><sub>Native Claude Code integration<br>search, store, traverse</sub></td>
+<td align="center"><strong>27 MCP Tools</strong><br><sub>Native Claude Code integration<br>search, store, traverse</sub></td>
 <td align="center"><strong>Temporal Knowledge Graph</strong><br><sub>Facts that change over time<br>with validity windows</sub></td>
 </tr>
 <tr>
 <td align="center"><strong>595x Token Savings</strong><br><sub>measured peak · median 80x<br><a href="docs/BENCH_TOKEN_DELTA.md">scales with project size</a></sub></td>
 <td align="center"><strong>Cross-Project Tunnels</strong><br><sub>Search <code>auth</code> in one project<br>find it everywhere</sub></td>
-<td align="center"><strong>848 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>fully offline after install</sub></td>
+<td align="center"><strong>1002 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>fully offline after install</sub></td>
 </tr>
 </table>
 
@@ -91,7 +91,8 @@ You write code. You make decisions. You debug things. Between sessions, all that
 mempalace-code **indexes it once** into a local vector store, then your AI finds it in milliseconds — using [595x fewer tokens](docs/BENCH_TOKEN_DELTA.md) than grep + read at measured peak (median 80x on a 19k-chunk project, and it keeps scaling). Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
 
 **What gets indexed:**
-- Code files — functions, classes, modules (Python, TypeScript/JS, Go, Rust, C/C++, Markdown)
+- Code files — functions, classes, modules (Python, TypeScript/JS, Go, Rust, C/C++, C#, F#, VB.NET, XAML, Java, Kotlin, Markdown)
+- .NET solutions — `.sln`/`.csproj` project graphs, cross-project symbol relationships, interface implementations
 - Conversation exports — Claude, ChatGPT, Slack
 - Architecture notes, decisions, anything you store manually
 
@@ -166,7 +167,7 @@ mempalace-code organizes memories into a navigable structure — the same mental
 
 ---
 
-### MCP Server — 18 Tools
+### MCP Server — 27 Tools
 
 ```bash
 claude mcp add mempalace -- python -m mempalace.mcp_server
@@ -372,7 +373,7 @@ This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla
 | ChromaDB — [silently deletes data on version bump](https://github.com/milla-jovovich/mempalace/issues/469) | LanceDB — crash-safe Arrow storage, no version-cliff |
 | "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace init` downloads model explicitly; fully offline after |
 | "100% R@5" — [unverifiable](https://github.com/milla-jovovich/mempalace/issues/27) | Number removed. Methodology caveats documented |
-| ~30% test coverage | 527 tests, every feature acceptance-gated |
+| ~30% test coverage | 1002 tests, every feature acceptance-gated |
 | No backup, no recovery | `backup` / `restore` / `export` / `import` |
 | No incremental mining | Content-hash incremental: only changed files re-chunked |
 | No code-search | `code_search` — filter by language, symbol, glob |
@@ -444,6 +445,8 @@ mempalace mine <dir>                              # mine code project
 mempalace mine <dir> --wing myapp                 # tag with wing
 mempalace mine <dir> --mode convos                # mine conversations
 mempalace mine <dir> --full                       # force full rebuild
+mempalace mine <dir> --watch                      # auto-incremental on file changes
+mempalace mine-all <parent-dir>                   # batch mine all projects in a directory
 
 # Search
 mempalace search "query"                          # search everything
@@ -508,7 +511,7 @@ mempalace/
 ├── benchmarks/             ← reproducible benchmark runners
 ├── hooks/                  ← Claude Code auto-save hooks
 ├── examples/               ← usage examples
-└── tests/                  ← 527 tests
+└── tests/                  ← 1002 tests
 ```
 
 </details>
@@ -528,7 +531,7 @@ python -m pytest tests/ -x -q    # full suite, all local, no network
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.1.1-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.3.0-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.9+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/
