@@ -832,13 +832,13 @@ def cmd_watch_schedule(args):
     print(snippet, end="")
     if platform == "darwin":
         plist_path = "~/Library/LaunchAgents/com.mempalace.watch.plist"
-        print("\n  # To install:")
-        print(f"  #   mempalace watch {args.dir} schedule > {plist_path}")
-        print(f"  #   launchctl load {plist_path}")
-        print("  # To stop:")
-        print(f"  #   launchctl unload {plist_path}")
+        print("\n  # To install:", file=sys.stderr)
+        print(f"  #   mempalace watch {args.dir} schedule > {plist_path}", file=sys.stderr)
+        print(f"  #   launchctl load {plist_path}", file=sys.stderr)
+        print("  # To stop:", file=sys.stderr)
+        print(f"  #   launchctl unload {plist_path}", file=sys.stderr)
     else:
-        print("\n  # To install: crontab -e  (paste the line above)")
+        print("\n  # To install: crontab -e  (paste the line above)", file=sys.stderr)
 
 
 def cmd_backup_create(args):
