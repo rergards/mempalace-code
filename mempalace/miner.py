@@ -2079,6 +2079,42 @@ def _split_base_list(base_str: str) -> list:
     return [p for p in parts if p]
 
 
+def _join_continuation_lines(text: str) -> str:
+    """Join C# continuation lines for multi-line base-type declarations.
+
+    When a line ends with ':' or ',' (after rstrip), the next non-empty line's
+    stripped content is merged onto it with a single space.  Merging continues
+    while the accumulated line still ends with ','.  Stops early when the next
+    non-empty line starts with '{' or is a bare ';'.
+    """
+    lines = text.splitlines()
+    result: list = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.rstrip()
+        if stripped.endswith(":") or stripped.endswith(","):
+            accumulated = stripped
+            j = i + 1
+            while j < len(lines):
+                next_stripped = lines[j].strip()
+                if not next_stripped:
+                    j += 1
+                    continue
+                if next_stripped.startswith("{") or next_stripped == ";":
+                    break
+                accumulated = accumulated + " " + next_stripped
+                j += 1
+                if not accumulated.rstrip().endswith(","):
+                    break
+            result.append(accumulated)
+            i = j
+        else:
+            result.append(line)
+            i += 1
+    return "\n".join(result)
+
+
 def _csharp_type_rels(filepath: Path) -> list:
     """Extract inheritance/implementation triples from a C# source file.
 
@@ -2092,6 +2128,9 @@ def _csharp_type_rels(filepath: Path) -> list:
     # Strip block comments, then line comments to suppress false-positive declarations.
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
     text = re.sub(r"//[^\n]*", "", text)
+    # Join continuation lines so multi-line base-type declarations are matched by the
+    # single-line patterns in _CSHARP_TYPE_REL_MATCHERS.
+    text = _join_continuation_lines(text)
     triples = []
     seen: set = set()
     for pattern, type_kind in _CSHARP_TYPE_REL_MATCHERS:

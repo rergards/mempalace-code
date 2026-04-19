@@ -814,6 +814,44 @@ def test_cs_record_struct_form(tmp_path):
     assert ("Point", "implements", "IEquatable") in triples
 
 
+def test_cs_multiline_single_base(tmp_path):
+    """class Foo :\\n    IBar → (Foo, implements, IBar) (AC-1)."""
+    triples = _cs(
+        tmp_path,
+        "public class Foo :\n    IBar\n{ }",
+    )
+    assert ("Foo", "implements", "IBar") in triples
+
+
+def test_cs_multiline_two_bases(tmp_path):
+    """class Foo :\\n    IBar,\\n    IBaz → two implements triples (AC-2)."""
+    triples = _cs(
+        tmp_path,
+        "public class Foo :\n    IBar,\n    IBaz\n{ }",
+    )
+    assert ("Foo", "implements", "IBar") in triples
+    assert ("Foo", "implements", "IBaz") in triples
+
+
+def test_cs_multiline_interface_extends(tmp_path):
+    """interface IFoo :\\n    IBar,\\n    IBaz → two extends triples (AC-4)."""
+    triples = _cs(
+        tmp_path,
+        "public interface IFoo :\n    IBar,\n    IBaz\n{ }",
+    )
+    assert ("IFoo", "extends", "IBar") in triples
+    assert ("IFoo", "extends", "IBaz") in triples
+
+
+def test_cs_multiline_record_implements(tmp_path):
+    """record Rec :\\n    IRecord → implements triple (AC-5)."""
+    triples = _cs(
+        tmp_path,
+        "public record Rec :\n    IRecord\n{ }",
+    )
+    assert ("Rec", "implements", "IRecord") in triples
+
+
 # =============================================================================
 # F# type-relationship extraction
 # =============================================================================
