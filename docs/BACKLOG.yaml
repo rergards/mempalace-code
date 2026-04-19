@@ -912,7 +912,7 @@ items:
   - key: MINE-XAML-NAME-ATTR
     summary: Track plain Name= attribute as well as x:Name for has_named_control triples
     type: task
-    status: open
+    status: done
     priority: low
     size: S
     section_id: immediate
@@ -931,6 +931,8 @@ items:
       - <TextBox x:Name="myBox" Name="myBox" /> emits only one has_named_control triple for "myBox"
       - All existing test_parse_xaml_* tests continue to pass
       - Origin: MINE-XAML hardening round-1 F-3
+    resolution: '2026-04-19: Updated parse_xaml_file() section 3 to collect both x:Name and plain Name= per element into a set before emitting has_named_control triples; added 2 regression tests (plain Name= and same-value dedup). All 189 tests pass.'
+    hardening: 'round-1 2026-04-19: 2 findings (both dismissed — info-only edge cases not reachable in valid WPF XAML). No fixes applied. Audit: docs/audits/MINE-XAML-NAME-ATTR-round-1.md'
   - key: BENCH-DOTNET-CLONE-REPO
     summary: Clone jasontaylordev/CleanArchitecture (pin to a stable tag, e.g. v8.0.x) and record the commit hash before running the benchmark
     type: task

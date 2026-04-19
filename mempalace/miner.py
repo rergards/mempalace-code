@@ -2512,7 +2512,7 @@ def parse_xaml_file(filepath: Path) -> list:
 
     Returns a list of (subject, predicate, object) tuples.
     Subject is the view name: short name from x:Class or filename stem.
-    Uses xml.etree.ElementTree for structured traversal (x:Class, x:Name,
+    Uses xml.etree.ElementTree for structured traversal (x:Class, x:Name, plain Name=,
     DataContext element syntax) and regex for markup extension values
     ({Binding}, {StaticResource}, {DynamicResource}, d:DataContext) that
     ET treats as opaque attribute strings.
@@ -2565,11 +2565,19 @@ def parse_xaml_file(filepath: Path) -> list:
                 if vm_name:
                     triples.append((view_name, "binds_viewmodel", vm_name))
 
-    # 3. Named controls (x:Name attribute)
+    # 3. Named controls (x:Name or plain Name= attribute)
+    # WPF's FrameworkElement exposes both as equivalent shorthands; collect both
+    # into a set per element so a duplicate value on the same element emits only one triple.
     xname_attr = f"{{{_XAML_NS}}}Name"
     for elem in root.iter():
-        name_val = elem.get(xname_attr, "")
-        if name_val:
+        names: set = set()
+        xname_val = elem.get(xname_attr, "")
+        if xname_val:
+            names.add(xname_val)
+        plain_name_val = elem.get("Name", "")
+        if plain_name_val:
+            names.add(plain_name_val)
+        for name_val in names:
             triples.append((view_name, "has_named_control", name_val))
 
     # 4. ViewModel from d:DataContext design-time attribute (regex — markup extension)

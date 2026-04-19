@@ -513,6 +513,39 @@ def test_parse_xaml_named_control(tmp_path):
     assert ("MainWindow", "has_named_control", "txtUsername") in triples
 
 
+def test_parse_xaml_plain_name_attr(tmp_path):
+    """Plain Name='myButton' (no x: prefix) emits has_named_control triple (AC-1)."""
+    content = (
+        '<Window x:Class="MyApp.MainWindow"'
+        ' xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+        ' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">'
+        '<Button Name="myButton" />'
+        "</Window>"
+    )
+    f = tmp_path / "MainWindow.xaml"
+    f.write_text(content, encoding="utf-8")
+    triples = triples_as_set(parse_xaml_file(f))
+    assert ("MainWindow", "has_named_control", "myButton") in triples
+
+
+def test_parse_xaml_xname_and_plain_name_same_value_deduped(tmp_path):
+    """x:Name and plain Name= with same value on one element emits exactly one triple (AC-2)."""
+    content = (
+        '<Window x:Class="MyApp.MainWindow"'
+        ' xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+        ' xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">'
+        '<TextBox x:Name="myBox" Name="myBox" />'
+        "</Window>"
+    )
+    f = tmp_path / "MainWindow.xaml"
+    f.write_text(content, encoding="utf-8")
+    triples = parse_xaml_file(f)
+    named_control_triples = [t for t in triples if t[1] == "has_named_control" and t[2] == "myBox"]
+    assert len(named_control_triples) == 1, (
+        f"Expected exactly 1 has_named_control triple for 'myBox', got {len(named_control_triples)}"
+    )
+
+
 # =============================================================================
 # parse_xaml_file — resource references (AC-6, AC-7)
 # =============================================================================
