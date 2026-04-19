@@ -861,6 +861,7 @@ items:
       - [ ] extract_symbol('fun Map<String, List<Int>>.flatten(): List<Int>', 'kotlin') == ('flatten', 'function')
       - [ ] All 23 existing Kotlin symbol tests still pass
     resolution: '2026-04-19: Replaced [^>]+ with (?:[^<>]|<[^<>]*>)* in fun regex; added 2 tests for depth-2 generic nesting (AC-1, AC-2); all 176 symbol extract tests pass'
+    hardening: 'round-1 2026-04-19: 4 findings (2 fixed, 2 dismissed); added tests for modifier+depth-2 and combined type-params+nested-receiver; 178 tests pass'
   - key: MINE-CSHARP-EXPR-BODY
     summary: C# expression-bodied properties not detected as boundaries or symbols
     type: feature

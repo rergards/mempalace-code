@@ -783,6 +783,23 @@ def test_kotlin_generic_fun_receiver_nested():
     )
 
 
+def test_kotlin_generic_fun_modifier_with_nested_type_param():
+    # F-2 hardening: modifier (inline) + depth-2 type-param bound.
+    # Ensures the modifier path works with the new (?:[^<>]|<[^<>]*>)* type-param pattern.
+    assert extract_symbol(
+        "inline fun <T : Comparable<T>> List<T>.sortedDesc(): List<T>\n", "kotlin"
+    ) == ("sortedDesc", "function")
+
+
+def test_kotlin_generic_fun_type_params_and_nested_receiver():
+    # F-3 hardening: both type params AND a depth-2 nested receiver in the same signature.
+    # Exercises the new pattern in both the type-param section and the receiver section.
+    assert extract_symbol("fun <T> Map<String, List<T>>.flatMap(): List<T>\n", "kotlin") == (
+        "flatMap",
+        "function",
+    )
+
+
 def test_kotlin_inner_class_extracted():
     # Regression (F-4): `inner` is now in the class modifier list.
     assert extract_symbol("inner class ViewHolder(view: View) {\n}\n", "kotlin") == (
