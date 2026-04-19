@@ -768,17 +768,19 @@ def test_kotlin_generic_extension_fun_type_param_extracted():
 def test_kotlin_generic_fun_type_param_bound_nested():
     # AC-1: type-param bound with depth-2 nesting: `<T : Comparable<T>>` contains an inner `<T>`.
     # The old [^>]+ stopped at the `>` in `<T>`, causing extract_symbol to return ("", "").
-    assert extract_symbol(
-        "fun <T : Comparable<T>> List<T>.sorted(): List<T>\n", "kotlin"
-    ) == ("sorted", "function")
+    assert extract_symbol("fun <T : Comparable<T>> List<T>.sorted(): List<T>\n", "kotlin") == (
+        "sorted",
+        "function",
+    )
 
 
 def test_kotlin_generic_fun_receiver_nested():
     # AC-2: receiver type with depth-2 nesting: `Map<String, List<Int>>` contains `<Int>`.
     # The old [^>]+ halted at the `>` in `<Int>`, leaving `.flatten` unreachable.
-    assert extract_symbol(
-        "fun Map<String, List<Int>>.flatten(): List<Int>\n", "kotlin"
-    ) == ("flatten", "function")
+    assert extract_symbol("fun Map<String, List<Int>>.flatten(): List<Int>\n", "kotlin") == (
+        "flatten",
+        "function",
+    )
 
 
 def test_kotlin_inner_class_extracted():
