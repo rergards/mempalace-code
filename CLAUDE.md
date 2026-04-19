@@ -72,7 +72,8 @@ Line length: 100. Target: py39. Quote style: double.
 | `layers.py` | Tiered context loading — L0/L1/L2/L3 wake-up layers for local models |
 | `palace_graph.py` | Graph traversal and tunnel detection across wings/rooms |
 | `mcp_server.py` | MCP server — exposes palace tools to Claude Code and other MCP clients |
-| `cli.py` | `mempalace` CLI entry point — init, mine, search, health, repair, backup |
+| `watcher.py` | File watcher — `watch_and_mine`, `watch_all`, launchd/cron schedule rendering |
+| `cli.py` | `mempalace` CLI entry point — init, mine, mine-all, watch, search, health, repair, backup |
 
 ## Architecture Principles
 

@@ -127,9 +127,28 @@ Tree-sitter is optional (`pip install "mempalace-code[treesitter]"`). Without it
 mempalace mine ~/projects/myapp                  # all supported file types
 mempalace mine ~/projects/myapp --wing myapp     # tag with a specific wing
 mempalace mine ~/chats/ --mode convos            # mine conversation exports
+mempalace mine-all ~/projects/                   # batch mine all projects in a directory
 ```
 
 Mining is **incremental** by default — content-hash based, only changed files are re-chunked. Use `--full` to force a rebuild.
+
+### Auto-Watch
+
+Keep your palace in sync automatically — watches all initialized projects for file changes and re-mines incrementally (5s debounce, Rust-backed fsevents/inotify).
+
+```bash
+mempalace watch ~/projects/                      # watch all projects (foreground)
+mempalace watch ~/projects/ schedule             # print launchd/cron snippet for daemon
+```
+
+**Install as persistent daemon (macOS):**
+
+```bash
+mempalace watch ~/projects/ schedule > ~/Library/LaunchAgents/com.mempalace.watch.plist
+launchctl load ~/Library/LaunchAgents/com.mempalace.watch.plist
+```
+
+Starts at login, restarts if crashed. Logs to `/tmp/mempalace-watch.log`.
 
 ---
 
@@ -447,6 +466,10 @@ mempalace mine <dir> --mode convos                # mine conversations
 mempalace mine <dir> --full                       # force full rebuild
 mempalace mine <dir> --watch                      # auto-incremental on file changes
 mempalace mine-all <parent-dir>                   # batch mine all projects in a directory
+
+# Watch (multi-project auto-sync)
+mempalace watch <parent-dir>                      # watch all initialized projects
+mempalace watch <parent-dir> schedule             # print launchd/cron daemon snippet
 
 # Search
 mempalace search "query"                          # search everything
