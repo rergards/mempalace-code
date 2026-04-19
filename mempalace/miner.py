@@ -158,7 +158,6 @@ SKIP_DIRS = {
     ".tox",
     ".nox",
     ".vs",
-    "bin",
     "obj",
     ".idea",
     ".vscode",
@@ -352,6 +351,27 @@ def is_gitignored(path: Path, matchers: list, is_dir: bool = False) -> bool:
         if decision is not None:
             ignored = decision
     return ignored
+
+
+_DOTNET_MARKERS = (
+    "*.sln",
+    "*.csproj",
+    "*.fsproj",
+    "*.vbproj",
+    "*/*.csproj",
+    "*/*.fsproj",
+    "*/*.vbproj",
+)
+
+
+def _is_dotnet_project(project_path: Path) -> bool:
+    """Return True if *project_path* looks like a .NET project.
+
+    Checks for .sln at root level and .csproj/.fsproj/.vbproj at root or one
+    level deep (the standard layout: Solution.sln at root, Project/Project.csproj
+    in a subdirectory).  Uses early-exit to minimise filesystem round-trips.
+    """
+    return any(next(project_path.glob(pat), None) is not None for pat in _DOTNET_MARKERS)
 
 
 def should_skip_dir(dirname: str) -> bool:
@@ -1912,6 +1932,7 @@ def scan_project(
     active_matchers = []
     matcher_cache = {}
     include_paths = normalize_include_paths(include_ignored)
+    dotnet_project = _is_dotnet_project(project_path)
 
     for root, dirs, filenames in os.walk(project_path):
         root_path = Path(root)
@@ -1930,7 +1951,7 @@ def scan_project(
             d
             for d in dirs
             if is_force_included(root_path / d, project_path, include_paths)
-            or not should_skip_dir(d)
+            or not (should_skip_dir(d) or (dotnet_project and d == "bin"))
         ]
         if respect_gitignore and active_matchers:
             dirs[:] = [

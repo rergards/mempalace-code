@@ -1582,11 +1582,13 @@ def test_process_file_vbnet_roundtrip():
 
 
 def test_skip_dirs_dotnet():
-    """scan_project() skips .vs/, bin/, and obj/ directories."""
+    """scan_project() skips .vs/, bin/, and obj/ directories for .NET projects."""
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
 
+        # .csproj at root triggers _is_dotnet_project() so bin/ is skipped
+        write_file(project_root / "MyApp.csproj", '<Project Sdk="Microsoft.NET.Sdk"/>\n' * 5)
         write_file(project_root / "src" / "App.cs", "public class App {}\n" * 20)
         write_file(project_root / ".vs" / "settings.json", '{"version": 1}\n' * 20)
         write_file(project_root / "bin" / "Debug" / "App.dll", "binary\n" * 20)
@@ -1596,8 +1598,47 @@ def test_skip_dirs_dotnet():
         # Only the source file should be found; none of the skip-dir files
         assert "src/App.cs" in result
         assert not any(p.startswith(".vs/") for p in result), ".vs/ should be skipped"
-        assert not any(p.startswith("bin/") for p in result), "bin/ should be skipped"
+        assert not any(p.startswith("bin/") for p in result), "bin/ should be skipped for .NET"
         assert not any(p.startswith("obj/") for p in result), "obj/ should be skipped"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_bin_dir_not_skipped_non_dotnet():
+    """scan_project() does NOT skip bin/ for non-.NET projects (AC-1)."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        # A shell script in bin/ — common in Ruby/Go/Python projects
+        write_file(project_root / "bin" / "run.sh", "#!/bin/bash\necho hello\n" * 20)
+        # obj/ must still be globally skipped even without .NET markers
+        write_file(project_root / "obj" / "cache.py", "x = 1\n" * 20)
+
+        result = scanned_files(project_root, respect_gitignore=False)
+        assert "bin/run.sh" in result, "bin/run.sh should be included for non-.NET projects"
+        assert not any(p.startswith("obj/") for p in result), (
+            "obj/ should still be globally skipped"
+        )
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_bin_dir_skipped_when_sln_at_root():
+    """scan_project() skips bin/ when a .sln file is present at root (AC-3)."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "Solution.sln", "\nMicrosoft Visual Studio Solution File\n" * 5)
+        write_file(project_root / "src" / "App.cs", "public class App {}\n" * 20)
+        write_file(project_root / "bin" / "Release" / "output.dll", "binary\n" * 20)
+
+        result = scanned_files(project_root, respect_gitignore=False)
+        assert "src/App.cs" in result
+        assert not any(p.startswith("bin/") for p in result), (
+            "bin/ should be skipped when .sln present"
+        )
     finally:
         shutil.rmtree(tmpdir)
 
