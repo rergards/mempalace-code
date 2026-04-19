@@ -863,10 +863,11 @@ _KOTLIN_EXTRACT = [
     (re.compile(r"object\s+(\w+)", re.MULTILINE), "object"),
     # fun — optional type params (e.g. `fun <T> identity(…)`) and optional receiver type
     # (e.g. `fun String.isEmpty()` → `isEmpty`, `fun <T> List<T>.map()` → `map`).
-    # Receiver handles simple types and single-level generics; deeply nested generics are rare.
+    # Uses (?:[^<>]|<[^<>]*>)* instead of [^>]+ to handle depth-2 generic nesting, e.g.
+    # `fun <T : Comparable<T>> …` and `fun Map<String, List<Int>>.flatten()`.
     (
         re.compile(
-            r"^(?:(?:public|internal|protected|private|abstract|open|final|override|inline|infix|operator|tailrec|suspend|external|expect|actual)\s+)*fun\s+(?:<[^>]+>\s+)?(?:\w+(?:<[^>]+>)?\.)?(\w+)",
+            r"^(?:(?:public|internal|protected|private|abstract|open|final|override|inline|infix|operator|tailrec|suspend|external|expect|actual)\s+)*fun\s+(?:<(?:[^<>]|<[^<>]*>)*>\s+)?(?:\w+(?:<(?:[^<>]|<[^<>]*>)*>)?\.)?(\w+)",
             re.MULTILINE,
         ),
         "function",
@@ -2623,6 +2624,7 @@ def mine(
     include_ignored: list = None,
     incremental: bool = True,
     kg=None,
+    skip_optimize: bool = False,
 ):
     """Mine a project directory into the palace.
 
@@ -2633,6 +2635,10 @@ def mine(
     *kg* is an optional KnowledgeGraph instance. When provided, .NET project files
     (.csproj, .fsproj, .vbproj) and solution files (.sln) are also parsed for
     structured dependency triples that are written to the knowledge graph.
+
+    When *skip_optimize* is True, post-mine storage compaction is skipped.  Callers
+    (e.g. the watcher) that run many mine() calls in sequence should skip optimize
+    on each call and run a single optimize at the end.
     """
 
     project_path = Path(project_dir).expanduser().resolve()
@@ -2811,7 +2817,9 @@ def mine(
                         kg.invalidate_by_source_file(stale_path)
 
             config = MempalaceConfig()
-            if config.optimize_after_mine:
+            if skip_optimize:
+                pass  # caller will optimize later
+            elif config.optimize_after_mine:
                 t0 = time.time()
                 backup_first = config.backup_before_optimize
                 if backup_first:

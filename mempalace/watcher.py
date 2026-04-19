@@ -226,6 +226,7 @@ def watch_and_mine(
                 include_ignored=include_ignored,
                 incremental=True,
                 kg=kg,
+                skip_optimize=True,
             )
             cycles += 1
             event_count += len(relevant)
@@ -240,6 +241,18 @@ def watch_and_mine(
         f"\n  Watch stopped after {elapsed:.0f}s — "
         f"{cycles} re-mine cycle(s), {event_count} file event(s)."
     )
+
+
+def _optimize_once(palace_path: str, open_store_fn) -> None:
+    """Run a single optimize pass on the palace store."""
+    try:
+        t0 = time.time()
+        print("  >> Optimizing storage...", end="", flush=True)
+        store = open_store_fn(palace_path, create=False)
+        store.optimize()
+        print(f" done ({time.time() - t0:.1f}s)", flush=True)
+    except Exception as exc:
+        print(f" skipped ({exc})", flush=True)
 
 
 def watch_all(
@@ -271,6 +284,7 @@ def watch_all(
 
     from .knowledge_graph import KnowledgeGraph
     from .miner import derive_wing_name, detect_projects
+    from .storage import open_store
 
     parent_path = Path(parent_dir).expanduser().resolve()
     if not parent_path.is_dir():
@@ -299,7 +313,8 @@ def watch_all(
         print(f"    {Path(wp).name} -> {project_map[Path(wp)]}")
     print(f"  Palace: {palace_path}")
 
-    # Initial incremental mine for all projects
+    # Initial incremental mine for all projects — skip per-project optimize,
+    # run a single optimize at the end to avoid N costly compaction passes.
     print("  Running initial mine...")
     for proj_path, wing in project_map.items():
         kg = KnowledgeGraph()
@@ -313,7 +328,11 @@ def watch_all(
             respect_gitignore=respect_gitignore,
             incremental=True,
             kg=kg,
+            skip_optimize=True,
         )
+
+    # Single optimize after all initial mines
+    _optimize_once(palace_path, open_store)
 
     print("  Watching for changes... (Ctrl-C to stop)")
 
@@ -378,9 +397,13 @@ def watch_all(
                     respect_gitignore=respect_gitignore,
                     incremental=True,
                     kg=kg,
+                    skip_optimize=True,
                 )
                 cycles += 1
                 event_count += len(relevant)
+
+            # Optimize once per watch batch (not per-project)
+            _optimize_once(palace_path, open_store)
 
     except KeyboardInterrupt:
         pass
