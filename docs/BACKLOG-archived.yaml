@@ -140,3 +140,7 @@ items:
       summary: Invalidate gitignore matcher_cache in --watch when .gitignore changes
       resolution: '2026-04-19: Add _invalidate_gitignore_cache() helper; call at top of watch loop; 5 unit tests added'
       archived_date: "2026-04-19"
+    - key: DOTNET-CS-MULTILINE-BASE
+      summary: Handle C# multi-line base-type declarations in type-relationship extraction
+      resolution: '2026-04-19: 2026-04-19: Added _join_continuation_lines helper in miner.py; called in _csharp_type_rels after comment stripping so multi-line C# base-type declarations produce KG triples. 4 new tests covering AC-1 through AC-5; zero regressions.'
+      archived_date: "2026-04-19"
