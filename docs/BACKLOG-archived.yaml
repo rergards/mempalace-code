@@ -136,3 +136,7 @@ items:
       summary: Auto-organize wings/rooms by .sln and project structure
       resolution: '2026-04-18: Auto-detect .sln wing and .csproj rooms when dotnet_structure: true in mempalace.yaml; added _detect_sln_wing, _build_csproj_room_map, _normalize_room_name helpers, csproj_room_map priority in detect_room, and 19 new tests'
       archived_date: "2026-04-19"
+    - key: MINE-WATCH-GITIGNORE-CACHE
+      summary: Invalidate gitignore matcher_cache in --watch when .gitignore changes
+      resolution: '2026-04-19: Add _invalidate_gitignore_cache() helper; call at top of watch loop; 5 unit tests added'
+      archived_date: "2026-04-19"

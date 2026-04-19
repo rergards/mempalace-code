@@ -1163,27 +1163,3 @@ items:
       ## Constraints
 
       Identified in PY-TYPE-KG hardening round-1 (F-2). Low priority -- multi-module imports are uncommon in modern Python.
-  - key: MINE-WATCH-GITIGNORE-CACHE
-    summary: Invalidate gitignore matcher_cache in --watch when .gitignore changes
-    type: feature
-    status: done
-    priority: low
-    size: S
-    section_id: pre_release
-    labels: [feat, miner, watch]
-    description: |-
-      ## Problem
-      In watch_and_mine(), the matcher_cache dict (watcher.py:157) is initialized once per session and never invalidated. If a .gitignore file is added, modified, or deleted while the watcher is running, cached GitignoreMatcher instances become stale — files that should now be gitignored continue to trigger re-mine cycles.
-
-      ## Scope
-      - Detect .gitignore-file events in the watch loop
-      - Clear the affected cache entry so it rebuilds on next _is_relevant_change() call
-      - No new dependencies; cache invalidation is a dict pop
-
-      ## Acceptance Criteria
-      - [ ] Modifying .gitignore while --watch is running causes newly-ignored files to stop triggering re-mines within 2 debounce cycles
-      - [ ] Adding a new .gitignore that ignores a tracked file causes that file to be filtered within 2 debounce cycles
-      - [ ] Cache hit path for non-gitignore events is unaffected
-      - [ ] Existing tests continue to pass
-    resolution: '2026-04-19: Add _invalidate_gitignore_cache() helper; call at top of watch loop; 5 unit tests added'
-    hardening: 'round-1 2026-04-19: 3 findings all dismissed; 0 fixes; ruff clean, 39 tests pass'
