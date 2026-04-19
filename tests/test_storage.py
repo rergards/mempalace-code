@@ -4,6 +4,7 @@ test_storage.py — Tests for DrawerStore aggregation and delete_wing.
 
 import logging
 import os
+from typing import Optional
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -911,7 +912,7 @@ def _find_data_files(palace_path: str) -> set:
     return set(glob.glob(pattern))
 
 
-def _corrupt_newest_fragment(palace_path: str, files_before: set) -> str | None:
+def _corrupt_newest_fragment(palace_path: str, files_before: set) -> Optional[str]:
     """Rename a fragment file that appeared after files_before. Returns the renamed path or None."""
     files_after = _find_data_files(palace_path)
     new_files = files_after - files_before
