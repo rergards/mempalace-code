@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-04-19 · Watcher quiet mode
+
+Watcher re-mines now suppress verbose mine() output. Only logs a one-line
+summary when drawers are actually filed. No-op commits produce zero log noise.
+Optimize is also skipped on no-op batches.
+
+## 2026-04-19 · Watcher on-commit fix
+
+Fixed watchfiles DefaultFilter ignoring `.git/` directories, which prevented
+on-commit mode from detecting ref changes.
+
 ## 2026-04-19 · MINE-BIN-SKIP-DIRS
 
 Remove `bin/` from global SKIP_DIRS; add `_is_dotnet_project()` helper to skip `bin/` only when `.csproj`/`.sln`/`.fsproj`/`.vbproj` markers are present in the project root.
