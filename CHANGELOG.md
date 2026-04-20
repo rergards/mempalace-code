@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-20 · MINE-SWIFT
+
+Add Swift language support to the code miner — extracts classes, structs, enums, protocols, functions, properties, extensions, actors, and async/await constructs from `.swift` files.
+
 ## 2026-04-20 · MCP-MINE-TRIGGER
 
 Add `mempalace_mine` MCP tool so agents can trigger incremental or full project re-mining without CLI access, returning structured counts of files processed and drawers filed.

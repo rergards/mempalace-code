@@ -677,6 +677,11 @@ SWIFT_BOUNDARY = re.compile(
     re.MULTILINE,
 )
 
+# Matches a line that consists only of Swift attribute annotations with no trailing
+# declaration (e.g. `@objc`, `@MainActor`, `@available(iOS 14, *)`).
+# Used to prevent greedy lookback from swallowing `@Published var x = 0` lines.
+_SWIFT_PURE_ATTR = re.compile(r"^(?:@\w+(?:\([^)]*\))?\s*)+$")
+
 # Markdown heading boundaries
 HEADING_MD = re.compile(r"^#{1,4}\s+.+", re.MULTILINE)
 
@@ -1682,6 +1687,13 @@ def chunk_code(content: str, language: str, source_file: str) -> list:
             while j >= 0:
                 prev = lines[j].strip()
                 if prev.startswith(comment_prefixes):
+                    # Swift: reject mixed @Attribute+declaration lines
+                    # (e.g. `@Published var count = 0`) — they belong to
+                    # the enclosing type body, not to the following func.
+                    # Only pure attribute-only lines (e.g. `@MainActor`,
+                    # `@objc`, `@available(iOS 14, *)`) should attach.
+                    if canonical == "swift" and prev.startswith("@") and not _SWIFT_PURE_ATTR.match(prev):
+                        break
                     comment_start = j
                     j -= 1
                 else:

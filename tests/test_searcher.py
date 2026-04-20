@@ -259,11 +259,22 @@ class TestSwiftLanguageSupport:
             f"symbol_type 'extension' should be valid, got: {result.get('error')}"
         )
 
+    def test_code_search_typealias_symbol_type(self, swift_palace_path):
+        """code_search(symbol_type='typealias') does not return 'invalid symbol_type' error.
+
+        typealias is produced by both Swift and Kotlin extractors; it must be accepted
+        as a valid filter so mined drawers are reachable via type-filtered search.
+        """
+        result = code_search(swift_palace_path, "something", symbol_type="typealias")
+        assert "invalid symbol_type" not in result.get("error", "").lower(), (
+            f"symbol_type 'typealias' should be valid, got: {result.get('error')}"
+        )
+
     def test_swift_new_symbol_types_in_error_hint(self, swift_palace_path):
-        """protocol/actor/extension appear in valid_symbol_types hint on invalid type query."""
+        """protocol/actor/extension/typealias appear in valid_symbol_types hint on invalid type query."""
         result = code_search(swift_palace_path, "something", symbol_type="notarealtype")
         assert "valid_symbol_types" in result
-        for sym in ("protocol", "actor", "extension"):
+        for sym in ("protocol", "actor", "extension", "typealias"):
             assert sym in result["valid_symbol_types"], (
                 f"Symbol type {sym!r} missing from valid_symbol_types hint"
             )

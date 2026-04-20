@@ -1424,7 +1424,7 @@ def test_swift_chunk_code_splits_at_func_boundaries():
 
 
 def test_swift_chunk_code_class_and_methods():
-    """chunk_code on Swift source with class and methods produces at least one chunk."""
+    """chunk_code on Swift source with class and methods produces chunks containing all symbols."""
     swift_src = (
         "class Calculator {\n"
         "    func add(_ a: Int, _ b: Int) -> Int {\n"
@@ -1439,3 +1439,41 @@ def test_swift_chunk_code_class_and_methods():
     assert len(chunks) > 0
     full_text = "\n".join(c["content"] for c in chunks)
     assert "Calculator" in full_text
+    assert "add" in full_text
+    assert "subtract" in full_text
+
+
+def test_swift_published_property_not_stolen_by_func_lookback():
+    """Regression: @Published var lines must NOT appear in a func's chunk.
+
+    The @-lookback was greedy and would include `@Published var count = 0` as if
+    it were a pure attribute annotation. This caused the property to disappear from
+    the class chunk and appear in the func chunk instead.  The fix uses
+    _SWIFT_PURE_ATTR to reject mixed attribute+declaration lines from lookback.
+
+    Uses content large enough that adaptive_merge_split produces separate chunks,
+    so the test exercises chunk_code end-to-end rather than re-implementing the
+    boundary detection logic.
+    """
+    func_body = "\n".join(
+        f"        let step{i:03d} = count + {i}  // adjust counter" for i in range(50)
+    )
+    src = (
+        "// ViewModel manages application state\n"
+        "class ViewModel {\n"
+        "    @Published var count = 0\n"
+        "    @Published var name = \"\"\n"
+        "    @Published var items: [String] = []\n"
+        f"    func increment() {{\n{func_body}\n        count += 1\n    }}\n"
+        "}\n"
+    )
+    chunks = chunk_code(src, "swift", "ViewModel.swift")
+
+    func_chunk = next(
+        (c for c in chunks if "func increment" in c["content"]),
+        None,
+    )
+    assert func_chunk is not None, "func increment chunk not found"
+    assert "@Published" not in func_chunk["content"], (
+        f"func increment chunk incorrectly contains @Published: {func_chunk['content'][:200]!r}"
+    )

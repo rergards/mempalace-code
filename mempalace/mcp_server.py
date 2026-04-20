@@ -1413,7 +1413,7 @@ TOOLS = {
                         "Filter by symbol type "
                         "(function, class, method, struct, interface, "
                         "record, enum, property, event, module, union, type, view, exception, "
-                        "protocol, actor, extension)"
+                        "typealias, protocol, actor, extension)"
                     ),
                 },
                 "file_glob": {

@@ -607,6 +607,7 @@ items:
       - [ ] Tests for: classes, structs, protocols, extensions, async functions
     size: M
     resolution: '2026-04-20: Add Swift (.swift) language support: SWIFT_BOUNDARY regex, _SWIFT_EXTRACT patterns for class/struct/enum/protocol/actor/extension/func/typealias, chunk_file dispatch, comment_prefixes @ extension for attribute attachment; ''swift'' in SUPPORTED_LANGUAGES and VALID_SYMBOL_TYPES; 32 new tests (symbol extract, miner roundtrip, attribute attachment, searcher validation)'
+    hardening: 'round-1 2026-04-20: F-1 fixed (typealias not in VALID_SYMBOL_TYPES); F-2 backlogged as MINE-SWIFT-DISTRIBUTED (distributed actor); F-3 fixed (@Published regression test rewrote to chunk_code-level); F-4 fixed (Calculator test weak assertions); F-5 dismissed (nested-paren attr edge case); F-6 dismissed (init not in scope). 1041 tests pass.'
   - key: MINE-PHP
     summary: Add PHP language support to code miner
     type: feature
@@ -1081,3 +1082,24 @@ items:
       ## Constraints
 
       Identified in PY-TYPE-KG hardening round-1 (F-2). Low priority -- multi-module imports are uncommon in modern Python.
+  - key: MINE-SWIFT-DISTRIBUTED
+    summary: Add distributed actor support to Swift miner
+    type: feature
+    status: open
+    priority: low
+    size: S
+    section_id: coding_first
+    labels: [feat, miner]
+    description: |-
+      ## Problem
+      Swift 5.5+ distributed actors use the `distributed` modifier (`distributed actor ClusterManager { }`). The current SWIFT_BOUNDARY regex and _SWIFT_EXTRACT patterns do not include `distributed` as a modifier, so these declarations are not detected as chunk boundaries and have no symbol_name/symbol_type.
+
+      ## Scope
+      - Add `distributed` to SWIFT_BOUNDARY modifier list
+      - Add `distributed` to the actor pattern modifier list in _SWIFT_EXTRACT
+      - Add unit test: `extract_symbol('distributed actor ClusterManager {}', 'swift') == ('ClusterManager', 'actor')`
+
+      ## Acceptance criteria
+      - `extract_symbol('distributed actor X {}', 'swift')` returns `('X', 'actor')`
+      - Regular `actor` declarations continue to work unchanged
+      - SWIFT_BOUNDARY detects `distributed actor Foo {` as a boundary

@@ -213,6 +213,8 @@ VALID_SYMBOL_TYPES = {
     "type",
     "view",
     "exception",
+    # Swift/Kotlin — type alias
+    "typealias",
     # Swift-specific
     "protocol",
     "actor",
