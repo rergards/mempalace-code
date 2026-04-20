@@ -10,6 +10,7 @@ import fnmatch
 import logging
 from pathlib import Path
 
+from .language_catalog import SUPPORTED_CODE_SEARCH_LANGUAGES
 from .storage import open_store
 
 logger = logging.getLogger("mempalace_mcp")
@@ -154,46 +155,7 @@ def search_memories(
     }
 
 
-SUPPORTED_LANGUAGES = {
-    "python",
-    "go",
-    "typescript",
-    "javascript",
-    "rust",
-    "java",
-    "cpp",
-    "c",
-    "shell",
-    "ruby",
-    # .NET
-    "csharp",
-    "fsharp",
-    "vbnet",
-    "xaml",
-    "dotnet-solution",
-    # web
-    "html",
-    "css",
-    # data / query
-    "sql",
-    # config
-    "yaml",
-    "json",
-    "toml",
-    # devops / infrastructure
-    "terraform",
-    "hcl",
-    "dockerfile",
-    "make",
-    "gotemplate",
-    "jinja2",
-    "conf",
-    "ini",
-    # prose / data
-    "markdown",
-    "text",
-    "csv",
-}
+SUPPORTED_LANGUAGES = SUPPORTED_CODE_SEARCH_LANGUAGES
 
 VALID_SYMBOL_TYPES = {
     "function",

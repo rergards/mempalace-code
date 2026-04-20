@@ -195,3 +195,22 @@ class TestDotNetLanguages:
             assert lang in result["supported_languages"], (
                 f".NET language {lang!r} missing from supported_languages hint"
             )
+
+
+class TestLanguageCatalogContract:
+    """Code search language validation stays aligned with mined language labels."""
+
+    def test_mined_languages_pass_validation(self, palace_path):
+        for lang in ("kotlin", "jsx", "tsx", "xml", "perl"):
+            result = code_search(palace_path, "something", language=lang)
+            assert "Unsupported language" not in result.get("error", ""), (
+                f"Mined language {lang!r} should be filterable, got: {result.get('error')}"
+            )
+
+    def test_mined_languages_appear_in_error_hint(self, palace_path):
+        result = code_search(palace_path, "something", language="notareallangnnn")
+        assert "supported_languages" in result
+        for lang in ("kotlin", "jsx", "tsx", "xml", "perl"):
+            assert lang in result["supported_languages"], (
+                f"Mined language {lang!r} missing from supported_languages hint"
+            )

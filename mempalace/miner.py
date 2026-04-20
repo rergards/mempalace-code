@@ -22,63 +22,7 @@ from .storage import open_store
 from .treesitter import get_parser
 from .version import __version__
 from .config import MempalaceConfig
-
-EXTENSION_LANG_MAP = {
-    ".py": "python",
-    ".js": "javascript",
-    ".jsx": "jsx",
-    ".ts": "typescript",
-    ".tsx": "tsx",
-    ".go": "go",
-    ".rs": "rust",
-    ".rb": "ruby",
-    ".java": "java",
-    ".kt": "kotlin",
-    ".kts": "kotlin",
-    ".cs": "csharp",
-    ".fs": "fsharp",
-    ".fsi": "fsharp",
-    ".vb": "vbnet",
-    ".csproj": "xml",
-    ".fsproj": "xml",
-    ".vbproj": "xml",
-    ".sln": "dotnet-solution",
-    ".xaml": "xaml",
-    ".sh": "shell",
-    ".sql": "sql",
-    ".md": "markdown",
-    ".txt": "text",
-    ".json": "json",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".toml": "toml",
-    ".html": "html",
-    ".css": "css",
-    ".csv": "csv",
-    ".c": "c",
-    ".h": "c",
-    ".cpp": "cpp",
-    ".hpp": "cpp",
-    # devops / infrastructure
-    ".tf": "terraform",
-    ".tfvars": "terraform",
-    ".hcl": "hcl",
-    ".tpl": "gotemplate",
-    ".j2": "jinja2",
-    ".jinja2": "jinja2",
-    ".conf": "conf",
-    ".cfg": "conf",
-    ".ini": "ini",
-    ".mk": "make",
-}
-
-FILENAME_LANG_MAP = {
-    "Dockerfile": "dockerfile",
-    "Containerfile": "dockerfile",
-    "Makefile": "make",
-    "GNUmakefile": "make",
-    "Vagrantfile": "ruby",
-}
+from .language_catalog import EXTENSION_LANG_MAP, FILENAME_LANG_MAP
 
 KNOWN_FILENAMES = set(FILENAME_LANG_MAP.keys())
 

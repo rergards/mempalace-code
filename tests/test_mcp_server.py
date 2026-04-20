@@ -582,7 +582,7 @@ class TestCodeSearchTool:
         assert "supported_languages" in result
         assert "python" in result["supported_languages"]
         # Verify config-file languages are included in the hint list (AC regression guard)
-        for lang in ("yaml", "json", "toml"):
+        for lang in ("yaml", "json", "toml", "kotlin", "jsx", "tsx", "xml", "perl"):
             assert lang in result["supported_languages"], (
                 f"{lang!r} missing from supported_languages"
             )
@@ -707,6 +707,9 @@ class TestCodeSearchTool:
         }
         assert schema.get("required") == ["query"]
         assert props["n_results"]["type"] == "integer"
+        assert "kotlin" in props["language"]["description"]
+        assert "jsx" in props["language"]["description"]
+        assert "tsx" in props["language"]["description"]
 
 
 class TestAggregationRegression:
