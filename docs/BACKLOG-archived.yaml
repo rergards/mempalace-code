@@ -160,3 +160,12 @@ items:
       summary: Clarify scope for MINE-BIN-SKIP-DIRS before planning can proceed
       resolution: '2026-04-19: Owner decision: implement per-project detection — skip bin/ only when .NET markers (.csproj, .sln, .fsproj, .vbproj) are present. Add non-.NET regression test.'
       archived_date: "2026-04-19"
+    - key: MCP-FILE-CONTEXT
+      summary: 'MCP tool: mempalace_file_context — get all chunks for a file'
+      archived_date: "2026-04-20"
+      done_date: "2026-04-20"
+      done_summary: Added tool_file_context handler + mempalace_file_context TOOLS entry in mcp_server.py; 6 tests covering all 6 ACs
+    - key: MCP-MINE-TRIGGER
+      summary: 'MCP tool: mempalace_mine — trigger re-mining from MCP'
+      resolution: '2026-04-20: Added mempalace_mine MCP tool: incremental/full re-mining from MCP with fd-level stdout suppression, preflight validation, and 8 new tests'
+      archived_date: "2026-04-20"
