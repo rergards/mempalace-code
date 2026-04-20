@@ -1,6 +1,6 @@
-# mempalace-code Hooks — Auto-Save for Terminal AI Tools
+# mempalace-code Hooks — Claude Code Auto-Save (Legacy)
 
-These hook scripts make mempalace-code save automatically. No manual "save" commands needed.
+Optional Claude Code hooks that trigger automatic memory saves during conversations. Not required — MCP tools + usage rules (see `docs/AGENT_INSTALL.md` Section 7) achieve the same result for any agent.
 
 ## What They Do
 
@@ -42,15 +42,19 @@ Make them executable:
 chmod +x hooks/mempal_save_hook.sh hooks/mempal_precompact_hook.sh
 ```
 
-## Install — Codex CLI (OpenAI)
+## Codex CLI / Other Agents
 
-> **Note:** Codex CLI does not currently support `Stop` or `PreCompact` hook events.
-> These hooks require Claude Code's hook system, which sends JSON with `session_id`,
-> `stop_hook_active`, and `transcript_path` on stdin. If the hook log at
-> `~/.mempalace/hook_state/hook.log` is empty, the hooks are not being triggered.
->
-> For Codex, use the MCP tools directly instead -- the agent can call
-> `mempalace_diary_write` and `mempalace_add_drawer` at the end of each session.
+These hooks are **Claude Code-only** — they rely on Claude Code's `Stop` and `PreCompact` hook events (JSON with `session_id`, `stop_hook_active`, and `transcript_path` on stdin). Other agents (Codex CLI, Cursor, etc.) do not support these events.
+
+**What to use instead:**
+
+| Concern | Solution |
+|---------|----------|
+| **Code mining** (indexing source files) | `mempalace watch-all` — works with any client, re-mines on commit |
+| **Conversation context** (decisions, discussions) | MCP tools — `mempalace_add_drawer`, `mempalace_diary_write` |
+| **Session continuity** | Add mempalace usage rules to agent instructions (see `docs/AGENT_INSTALL.md` Section 7) |
+
+For Codex specifically, wire the MCP server in `~/.codex/config.toml` (see `docs/AGENT_INSTALL.md` Step 5.2) and add a system prompt instruction like: *"At the end of each session, save key decisions and context to mempalace using `mempalace_add_drawer` and `mempalace_diary_write`."*
 
 ## Configuration
 

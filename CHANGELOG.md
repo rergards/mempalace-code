@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.1 — 2026-04-20
+
+### Changed
+- **Docs: hooks are legacy** — MCP tools + usage rules are now the recommended approach for all agents (Claude Code, Codex, Cursor); hooks demoted to optional Claude Code-only extra
+- **Docs: unified saving story** — README, AGENT_INSTALL, and hooks README all consistently describe watcher for code mining + MCP for conversation context
+
 ## v1.4.0 — 2026-04-19
 
 ### Added

@@ -60,6 +60,11 @@ mempalace mine ~/projects/myapp       # index your codebase
 claude mcp add mempalace -- python -m mempalace.mcp_server  # connect to Claude Code
 ```
 
+**Optional: auto-sync on commit** (requires `[watch]` extra — see [Auto-Watch](#auto-watch)):
+```bash
+mempalace watch ~/projects/           # re-mines on every commit, zero noise
+```
+
 This makes the 27 tools available to your AI. For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` — see [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7.
 
 </details>
@@ -141,6 +146,16 @@ Mining is **incremental** by default — content-hash based, only changed files 
 ### Auto-Watch
 
 Keep your palace in sync automatically. By default, watches `.git/refs/heads/` and re-mines only on **commit** — no noise from work-in-progress saves. Handles multiple branches and worktrees.
+
+Requires the `watch` extra:
+```bash
+uv tool install "mempalace-code[watch]"   # or: pipx install "mempalace-code[watch]"
+```
+
+Already installed without it? Add watchfiles:
+```bash
+uv tool inject mempalace-code watchfiles  # or: pipx inject mempalace-code watchfiles
+```
 
 ```bash
 mempalace watch ~/projects/                      # watch all projects (on commit, default)
@@ -505,21 +520,15 @@ mempalace fetch-model                             # pre-download for offline use
 </details>
 
 <details>
-<summary><strong>Auto-Save Hooks</strong></summary>
+<summary><strong>Saving Conversation Context</strong></summary>
 
-Two Claude Code hooks for automatic memory saving:
+Code mining is automatic via `mempalace watch-all`. For conversation context (decisions, discussions, debugging notes), the AI uses MCP tools directly — works with **any agent** (Claude Code, Codex, Cursor, etc.):
 
-- **Stop Hook** — after each response, saves topics, decisions, and code changes
-- **PreCompact Hook** — emergency save before context compression
+1. Wire the MCP server (see [install docs](docs/AGENT_INSTALL.md))
+2. Add usage rules to your agent's instructions (CLAUDE.md, system prompt, etc.)
+3. The agent calls `mempalace_add_drawer` and `mempalace_diary_write` during sessions
 
-```json
-{
-  "hooks": {
-    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "/path/to/mempalace/hooks/mempal_save_hook.sh"}]}],
-    "PreCompact": [{"matcher": "", "hooks": [{"type": "command", "command": "/path/to/mempalace/hooks/mempal_precompact_hook.sh"}]}]
-  }
-}
-```
+> **Legacy:** Claude Code also supports optional [auto-save hooks](hooks/README.md) that remind the AI to save at fixed intervals. These are redundant if MCP + usage rules are set up.
 
 </details>
 
@@ -539,7 +548,7 @@ mempalace/
 │   ├── palace_graph.py     ← room navigation graph
 │   └── layers.py           ← 4-layer memory stack
 ├── benchmarks/             ← reproducible benchmark runners
-├── hooks/                  ← Claude Code auto-save hooks
+├── hooks/                  ← Claude Code auto-save hooks (legacy, optional)
 ├── examples/               ← usage examples
 └── tests/                  ← 1008 tests
 ```

@@ -491,14 +491,17 @@ mkdir -p ~/.codex
 
 ---
 
-### Step 5.3: Auto-save hooks (optional, recommended)
+### Step 5.3: Auto-save for conversation context
 
-Auto-save hooks are separate from MCP wiring. They trigger automatic memory saves during AI sessions. Configuration is documented in [`hooks/README.md`](../hooks/README.md). Do NOT inline hook setup here — reference the README and let the human decide.
+Code mining is handled by the watcher (`mempalace watch-all`) and works with any client. Conversation context (decisions, discussions, debugging notes) is saved via **MCP tools + usage rules** — this works identically across all agents.
 
-**ASK HUMAN:** "Would you like to set up auto-save hooks (these automatically save memories during AI sessions — see `hooks/README.md`)? Reply `yes` or `no`."
+The recommended approach for **all agents** (Claude Code, Codex, Cursor, etc.):
+1. Wire the MCP server (Steps 5.1/5.2) so the agent can call `mempalace_add_drawer` and `mempalace_diary_write`.
+2. Add usage rules to the agent's instructions (Section 7) so it knows when to save.
 
-- `yes` → Refer human to `hooks/README.md` for configuration instructions. Do not proceed autonomously.
-- `no` → Skip.
+That's it. No hooks needed.
+
+> **Legacy: Claude Code auto-save hooks.** Claude Code also supports optional bash hooks that fire on Stop/PreCompact events and remind the AI to save at fixed intervals. These are redundant if you have MCP + usage rules set up, but are documented in [`hooks/README.md`](../hooks/README.md) for users who want belt-and-suspenders.
 
 ---
 
