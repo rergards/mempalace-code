@@ -410,6 +410,9 @@ READABLE_EXTENSIONS = {
     ".py",
     ".js",
     ".ts",
+    ".java",
+    ".kt",
+    ".kts",
     ".json",
     ".yaml",
     ".yml",
@@ -479,7 +482,10 @@ def _build_patterns(name: str) -> dict:
         ],
         "direct": re.compile(rf"\bhey\s+{n}\b|\bthanks?\s+{n}\b|\bhi\s+{n}\b", re.IGNORECASE),
         "versioned": re.compile(rf"\b{n}[-v]\w+", re.IGNORECASE),
-        "code_ref": re.compile(rf"\b{n}\.(py|js|ts|yaml|yml|json|sh)\b", re.IGNORECASE),
+        "code_ref": re.compile(
+            rf"\b{n}\.(py|js|ts|java|kt|kts|yaml|yml|json|sh)\b",
+            re.IGNORECASE,
+        ),
     }
 
 
