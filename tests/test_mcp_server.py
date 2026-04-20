@@ -1791,3 +1791,179 @@ class TestFileContextTool:
         data = json.loads(resp["result"]["content"][0]["text"])
         assert data["total"] == 3
         assert data["source_file"] == "dispatch/test.py"
+
+
+# ── Mine Tool (MCP-MINE-TRIGGER) ──────────────────────────────────────────
+
+
+def _make_mine_project(tmp_path, wing="test_mine_wing"):
+    """Create a minimal project directory with mempalace.yaml and one Python file."""
+    import yaml as _yaml
+
+    project_dir = tmp_path / "myproject"
+    project_dir.mkdir()
+    (project_dir / "mempalace.yaml").write_text(
+        _yaml.dump(
+            {
+                "wing": wing,
+                "rooms": [
+                    {"name": "backend", "description": "Backend code"},
+                    {"name": "general", "description": "General"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    # Write a Python file with enough content to exceed MIN_CHUNK (100 chars)
+    # so that the miner produces at least one drawer.
+    (project_dir / "utils.py").write_text(
+        "def compute_result(value: int) -> int:\n"
+        '    """Compute a result by squaring the input value."""\n'
+        "    return value * value\n\n\n"
+        "def transform_list(items: list) -> list:\n"
+        '    """Apply compute_result to every element of a list."""\n'
+        "    return [compute_result(x) for x in items]\n",
+        encoding="utf-8",
+    )
+    return str(project_dir)
+
+
+class TestToolMine:
+    """Tests for tool_mine / mempalace_mine (MCP-MINE-TRIGGER)."""
+
+    def test_successful_incremental_mine(self, monkeypatch, config, palace_path, kg, tmp_path):
+        """AC-1: mine a valid project directory, returns success with expected fields."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        project_dir = _make_mine_project(tmp_path)
+        from mempalace.mcp_server import tool_mine
+
+        result = tool_mine(directory=project_dir)
+
+        assert result["success"] is True, f"Expected success, got: {result}"
+        for field in ("files_processed", "files_skipped", "drawers_filed", "elapsed_secs"):
+            assert field in result, f"Missing field: {field}"
+        assert result["files_processed"] >= 1
+        assert result["drawers_filed"] >= 1
+
+    def test_full_mine_files_skipped_is_zero(self, monkeypatch, config, palace_path, kg, tmp_path):
+        """AC-2: full=True forces re-processing all files (files_skipped == 0)."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        project_dir = _make_mine_project(tmp_path)
+        from mempalace.mcp_server import tool_mine
+
+        # Mine once to populate hashes
+        r1 = tool_mine(directory=project_dir)
+        assert r1["success"] is True
+
+        # Mine again incrementally — some files should be skipped
+        r2 = tool_mine(directory=project_dir, full=False)
+        assert r2["success"] is True
+        assert r2["files_skipped"] >= 1, "Incremental re-mine should skip unchanged files"
+
+        # Full rebuild — nothing skipped
+        r3 = tool_mine(directory=project_dir, full=True)
+        assert r3["success"] is True
+        assert r3["files_skipped"] == 0, f"full=True must have files_skipped==0, got {r3}"
+
+    def test_nonexistent_directory(self, monkeypatch, config, palace_path, kg):
+        """AC-3: non-existent directory → {success: false, error: ...} without exception."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_mine
+
+        result = tool_mine(directory="/tmp/absolutely_does_not_exist_xyz123abc")
+
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_path_is_file_not_directory(self, monkeypatch, config, palace_path, kg, tmp_path):
+        """AC-3b: path exists but is a file → {success: false, error: ...}."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        a_file = tmp_path / "somefile.txt"
+        a_file.write_text("content")
+        from mempalace.mcp_server import tool_mine
+
+        result = tool_mine(directory=str(a_file))
+
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_directory_missing_mempalace_yaml(self, monkeypatch, config, palace_path, kg, tmp_path):
+        """AC-3c: valid directory but no mempalace.yaml → graceful {success: false, error: ...}."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        bare_dir = tmp_path / "bare"
+        bare_dir.mkdir()
+        (bare_dir / "some_code.py").write_text("x = 1\n")
+        from mempalace.mcp_server import tool_mine
+
+        result = tool_mine(directory=str(bare_dir))
+
+        assert result["success"] is False
+        assert "error" in result
+        # Must not have raised SystemExit or Exception propagated to caller
+
+    def test_wing_override_drawers_filed_under_custom_wing(
+        self, monkeypatch, config, palace_path, kg, tmp_path
+    ):
+        """AC-4: wing='custom_wing' → mined drawers filed under custom_wing in the store."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        project_dir = _make_mine_project(tmp_path, wing="default_wing")
+        from mempalace.mcp_server import tool_mine
+        from mempalace.storage import open_store
+
+        result = tool_mine(directory=project_dir, wing="custom_wing")
+
+        assert result["success"] is True
+        store = open_store(palace_path, create=False)
+        drawers_in_custom = store.get(
+            where={"wing": "custom_wing"},
+            include=["metadatas"],
+            limit=1000,
+        )
+        assert len(drawers_in_custom["ids"]) >= 1, "Expected drawers filed under 'custom_wing'"
+        # Verify no drawers were filed under the default wing
+        drawers_in_default = store.get(
+            where={"wing": "default_wing"},
+            include=["metadatas"],
+            limit=1000,
+        )
+        assert len(drawers_in_default["ids"]) == 0, (
+            "No drawers should be filed under the config-default wing when wing is overridden"
+        )
+
+    def test_mine_appears_in_tools_list(self):
+        """AC-5: mempalace_mine appears in tools/list with correct input schema."""
+        from mempalace.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        tools = {t["name"]: t for t in resp["result"]["tools"]}
+
+        assert "mempalace_mine" in tools
+        t = tools["mempalace_mine"]
+        assert t["description"]
+        schema = t["inputSchema"]
+        assert "directory" in schema["properties"]
+        assert schema.get("required") == ["directory"]
+        assert schema["properties"].get("full", {}).get("type") == "boolean"
+
+    def test_mine_via_protocol_dispatch(self, monkeypatch, config, palace_path, kg, tmp_path):
+        """Protocol-level: tools/call dispatch for mempalace_mine returns success result."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        project_dir = _make_mine_project(tmp_path)
+        from mempalace.mcp_server import handle_request
+
+        resp = handle_request(
+            {
+                "method": "tools/call",
+                "id": 42,
+                "params": {
+                    "name": "mempalace_mine",
+                    "arguments": {"directory": project_dir},
+                },
+            }
+        )
+
+        assert resp["id"] == 42
+        assert "error" not in resp, f"Unexpected error: {resp.get('error')}"
+        data = json.loads(resp["result"]["content"][0]["text"])
+        assert data["success"] is True
+        assert "drawers_filed" in data

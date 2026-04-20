@@ -237,6 +237,7 @@ claude mcp add mempalace -- python -m mempalace.mcp_server
 | `mempalace_add_drawer` | File verbatim content into a wing/room |
 | `mempalace_delete_drawer` | Remove a drawer by ID |
 | `mempalace_delete_wing` | Delete all drawers in a wing |
+| `mempalace_mine` | Trigger re-mining of a project directory (incremental or full) |
 
 </details>
 

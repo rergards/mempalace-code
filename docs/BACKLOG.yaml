@@ -91,7 +91,7 @@ items:
     summary: "MCP tool: mempalace_mine — trigger re-mining from MCP"
     type: feature
     priority: medium
-    status: open
+    status: done
     size: M
     section_id: mcp_developer_tools
     labels: [mcp, mining]
@@ -119,7 +119,7 @@ items:
       - [ ] Returns structured result with counts
 
       - [ ] Tests for: successful mine, invalid directory, full vs incremental
-    resolution: null
+    resolution: '2026-04-20: Added mempalace_mine MCP tool: incremental/full re-mining from MCP with fd-level stdout suppression, preflight validation, and 8 new tests'
   # ── CLEANUP — De-emphasize Dialog-First Features ────────────
   - key: CLEAN-ONBOARDING
     summary: "Replace interactive onboarding with config-file-first setup"

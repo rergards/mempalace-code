@@ -24,6 +24,7 @@ Tools (architecture — queries pre-mined KG type relationships):
 Tools (write):
   mempalace_add_drawer      — file verbatim content into a wing/room
   mempalace_delete_drawer   — remove a drawer by ID
+  mempalace_mine            — trigger re-mining of a project directory
 """
 
 import os
@@ -41,6 +42,7 @@ from .version import __version__
 from .searcher import code_search, search_memories
 from .palace_graph import traverse, find_tunnels, graph_stats
 from .storage import open_store, DrawerStore, LanceStore
+from .miner import mine
 
 from .knowledge_graph import KnowledgeGraph
 
@@ -363,6 +365,89 @@ def tool_delete_wing(wing: str):
         logger.info(f"Deleted wing: {wing} ({deleted_count} drawers)")
         return {"success": True, "wing": wing, "deleted_count": deleted_count}
     except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def _mine_quiet(**kwargs) -> dict:
+    """Run mine() with stdout/stderr suppressed at the fd level; return stats dict.
+
+    Uses os.dup2 to redirect fds 1 and 2 to /dev/null so that C-extension writes
+    (e.g. from sentence-transformers) and buffered Python writes do not corrupt
+    the MCP stdio JSON-RPC stream.
+    """
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    old_out = os.dup(1)
+    old_err = os.dup(2)
+    try:
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        return mine(**kwargs) or {}
+    finally:
+        # Flush Python buffers while fds still point to /dev/null so buffered
+        # text does not leak to real stdout on restore.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.dup2(old_out, 1)
+        os.dup2(old_err, 2)
+        os.close(devnull)
+        os.close(old_out)
+        os.close(old_err)
+
+
+def tool_mine(directory: str, wing: str = None, full: bool = False):
+    """Trigger re-mining of a project directory from the MCP server.
+
+    Parameters
+    ----------
+    directory:
+        Absolute path to the project root to mine.
+    wing:
+        Override wing name. When omitted, mine() uses config["wing"] from
+        the project's mempalace.yaml, with dotnet_structure projects additionally
+        detecting the solution-derived wing.
+    full:
+        When True, forces a full rebuild (incremental=False). Default False
+        (incremental mining — only changed files are re-processed).
+
+    Returns
+    -------
+    dict
+        On success: {success: True, files_processed, files_skipped, drawers_filed, elapsed_secs}
+        On failure: {success: False, error: <message>}
+    """
+    from pathlib import Path
+
+    # Validate directory exists and is a directory
+    try:
+        dir_path = Path(directory).expanduser().resolve()
+    except Exception as e:
+        return {"success": False, "error": f"Invalid path: {e}"}
+
+    if not dir_path.exists():
+        return {"success": False, "error": f"Directory not found: {directory}"}
+
+    if not dir_path.is_dir():
+        return {"success": False, "error": f"Path is not a directory: {directory}"}
+
+    # Validate mempalace.yaml or mempal.yaml exists; avoids sys.exit(1) in load_config()
+    if not (dir_path / "mempalace.yaml").exists() and not (dir_path / "mempal.yaml").exists():
+        return {
+            "success": False,
+            "error": (f"No mempalace.yaml found in {directory}. Run: mempalace init {directory}"),
+        }
+
+    palace_path = _config.palace_path
+
+    try:
+        stats = _mine_quiet(
+            project_dir=str(dir_path),
+            palace_path=palace_path,
+            wing_override=wing,
+            incremental=not full,
+            kg=_kg,
+        )
+        return {"success": True, **stats}
+    except (Exception, SystemExit) as e:
         return {"success": False, "error": str(e)}
 
 
@@ -1429,6 +1514,41 @@ TOOLS = {
             "required": ["wing"],
         },
         "handler": tool_delete_wing,
+    },
+    "mempalace_mine": {
+        "description": (
+            "Trigger re-mining of a project directory. "
+            "Re-indexes the project's source files into the palace so the agent can "
+            "search recently added or modified code without restarting the MCP server. "
+            "Uses incremental mining by default (only changed files are re-processed). "
+            "The project must have a mempalace.yaml (run: mempalace init <dir> first). "
+            "Returns {success, files_processed, files_skipped, drawers_filed, elapsed_secs}."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "directory": {
+                    "type": "string",
+                    "description": "Absolute path to the project root to mine",
+                },
+                "wing": {
+                    "type": "string",
+                    "description": (
+                        "Override wing name. When omitted, mine() uses config['wing'] "
+                        "from the project's mempalace.yaml (optional)"
+                    ),
+                },
+                "full": {
+                    "type": "boolean",
+                    "description": (
+                        "Force full rebuild — re-process all files regardless of hash. "
+                        "Default false (incremental)"
+                    ),
+                },
+            },
+            "required": ["directory"],
+        },
+        "handler": tool_mine,
     },
     "mempalace_diary_write": {
         "description": "Write a session diary entry for an agent. Record observations, thoughts, what you worked on, what matters. Each agent has their own diary wing with full history.",
