@@ -16,7 +16,7 @@ def test_scan_for_detection_includes_kotlin_sources_when_prose_is_sparse():
         project_root = Path(tmpdir).resolve()
         write_file(project_root / "README.md", "# Single prose file\n")
         write_file(project_root / "src" / "App.kt", "class App\n")
-        write_file(project_root / "build.gradle.kts", "plugins { kotlin(\"jvm\") }\n")
+        write_file(project_root / "build.gradle.kts", 'plugins { kotlin("jvm") }\n')
 
         files = scan_for_detection(str(project_root), max_files=10)
         relative_paths = sorted(path.relative_to(project_root).as_posix() for path in files)

@@ -946,6 +946,53 @@ def tool_diary_read(agent_name: str, last_n: int = 10):
         return {"error": str(e)}
 
 
+# ==================== FILE CONTEXT ====================
+
+
+def tool_file_context(source_file: str, wing: str = None):
+    """Return all indexed chunks for a source file, ordered by chunk_index."""
+    col = _get_store()
+    if not col:
+        return _no_palace()
+
+    where = (
+        {"$and": [{"source_file": source_file}, {"wing": wing}]}
+        if wing
+        else {"source_file": source_file}
+    )
+
+    try:
+        results = col.get(
+            where=where,
+            include=["documents", "metadatas"],
+            limit=10000,
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
+    if not results["ids"]:
+        return {"source_file": source_file, "wing": wing, "total": 0, "chunks": []}
+
+    chunks = []
+    for doc, meta in zip(results["documents"], results["metadatas"]):
+        chunks.append(
+            {
+                "chunk_index": meta.get("chunk_index", 0),
+                "content": doc,
+                "symbol_name": meta.get("symbol_name", ""),
+                "symbol_type": meta.get("symbol_type", ""),
+                "wing": meta.get("wing", ""),
+                "room": meta.get("room", ""),
+                "language": meta.get("language", ""),
+                "line_range": None,
+            }
+        )
+
+    chunks.sort(key=lambda x: x["chunk_index"])
+
+    return {"source_file": source_file, "wing": wing, "total": len(chunks), "chunks": chunks}
+
+
 # ==================== MCP PROTOCOL ====================
 
 TOOLS = {
@@ -1291,6 +1338,30 @@ TOOLS = {
             "required": ["query"],
         },
         "handler": tool_code_search,
+    },
+    "mempalace_file_context": {
+        "description": (
+            "Get all indexed chunks for a source file, ordered by chunk_index. "
+            "Use to review what was mined for a file, understand deleted/renamed files, "
+            "or get ordered file context without reading the file from disk. "
+            "Returns {source_file, wing, total, chunks} where each chunk has "
+            "chunk_index, content, symbol_name, symbol_type, wing, room, language, line_range."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_file": {
+                    "type": "string",
+                    "description": "Exact source file path to retrieve chunks for",
+                },
+                "wing": {
+                    "type": "string",
+                    "description": "Filter to a specific wing (optional)",
+                },
+            },
+            "required": ["source_file"],
+        },
+        "handler": tool_file_context,
     },
     "mempalace_check_duplicate": {
         "description": "Check if content already exists in the palace before filing",

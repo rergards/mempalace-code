@@ -1530,3 +1530,168 @@ class TestExtractReusable:
         assert summary["total_entities"] == (
             summary["core_count"] + summary["platform_count"] + summary["glue_count"]
         )
+
+
+# ── File Context Tool ──────────────────────────────────────────────────────
+
+
+def _seed_file_context(collection, source_file, wing, room="backend"):
+    """Seed 3 chunks for a file, inserted in reverse chunk_index order."""
+    collection.add(
+        ids=[
+            f"fc_{wing}_chunk2",
+            f"fc_{wing}_chunk0",
+            f"fc_{wing}_chunk1",
+        ],
+        documents=[
+            "def third_function(): pass",
+            "def first_function(): pass",
+            "def second_function(): pass",
+        ],
+        metadatas=[
+            {
+                "wing": wing,
+                "room": room,
+                "source_file": source_file,
+                "symbol_name": "third_function",
+                "symbol_type": "function",
+                "language": "python",
+                "chunk_index": 2,
+                "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+            },
+            {
+                "wing": wing,
+                "room": room,
+                "source_file": source_file,
+                "symbol_name": "first_function",
+                "symbol_type": "function",
+                "language": "python",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+            },
+            {
+                "wing": wing,
+                "room": room,
+                "source_file": source_file,
+                "symbol_name": "second_function",
+                "symbol_type": "function",
+                "language": "python",
+                "chunk_index": 1,
+                "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+            },
+        ],
+    )
+
+
+class TestFileContextTool:
+    def test_happy_path_returns_all_chunks_with_fields(
+        self, monkeypatch, config, palace_path, collection, kg
+    ):
+        """AC-1: 3 chunks for a file → {total: 3, chunks: [...]} with all required fields."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _seed_file_context(collection, source_file="mempalace/storage.py", wing="myproject")
+        from mempalace.mcp_server import tool_file_context
+
+        result = tool_file_context(source_file="mempalace/storage.py")
+
+        assert result["total"] == 3
+        assert result["source_file"] == "mempalace/storage.py"
+        assert result["wing"] is None
+        assert len(result["chunks"]) == 3
+        chunk = result["chunks"][0]
+        for field in (
+            "chunk_index",
+            "content",
+            "symbol_name",
+            "symbol_type",
+            "wing",
+            "room",
+            "language",
+            "line_range",
+        ):
+            assert field in chunk, f"Missing field: {field}"
+        assert chunk["line_range"] is None
+
+    def test_missing_file_returns_empty(self, monkeypatch, config, palace_path, collection, kg):
+        """AC-2: source_file not in palace → {total: 0, chunks: []} with no error key."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_file_context
+
+        result = tool_file_context(source_file="nonexistent/file.py")
+
+        assert "error" not in result
+        assert result["total"] == 0
+        assert result["chunks"] == []
+
+    def test_wing_filter_isolates_wing(self, monkeypatch, config, palace_path, collection, kg):
+        """AC-3: file in two wings + wing filter → only the specified wing's chunks."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _seed_file_context(collection, source_file="shared/utils.py", wing="wing_a")
+        # Add one chunk in wing_b for the same file
+        collection.add(
+            ids=["fc_wing_b_chunk0"],
+            documents=["def util_b(): pass"],
+            metadatas=[
+                {
+                    "wing": "wing_b",
+                    "room": "backend",
+                    "source_file": "shared/utils.py",
+                    "symbol_name": "util_b",
+                    "symbol_type": "function",
+                    "language": "python",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                }
+            ],
+        )
+        from mempalace.mcp_server import tool_file_context
+
+        result = tool_file_context(source_file="shared/utils.py", wing="wing_a")
+
+        assert result["total"] == 3
+        assert result["wing"] == "wing_a"
+        assert all(c["wing"] == "wing_a" for c in result["chunks"])
+
+    def test_chunks_sorted_by_chunk_index(self, monkeypatch, config, palace_path, collection, kg):
+        """AC-4: chunks inserted in reverse order → response sorted ascending by chunk_index."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _seed_file_context(collection, source_file="mempalace/miner.py", wing="mempalace")
+        from mempalace.mcp_server import tool_file_context
+
+        result = tool_file_context(source_file="mempalace/miner.py")
+
+        indices = [c["chunk_index"] for c in result["chunks"]]
+        assert indices == sorted(indices), f"chunks not sorted: {indices}"
+        assert indices == [0, 1, 2]
+
+    def test_no_palace_returns_error(self, monkeypatch, kg):
+        """AC-5: no palace (_get_store returns None) → standard error dict with 'error' and 'hint'."""
+        from mempalace import mcp_server
+
+        monkeypatch.setattr(mcp_server, "_kg", kg)
+        monkeypatch.setattr(mcp_server, "_store", None)
+        # Simulate _get_store() returning None (palace open failed)
+        monkeypatch.setattr(mcp_server, "_get_store", lambda create=False: None)
+
+        from mempalace.mcp_server import tool_file_context
+
+        result = tool_file_context(source_file="anything.py")
+
+        assert "error" in result
+        assert "hint" in result
+
+    def test_tools_list_includes_file_context(self):
+        """AC-6: tools/list response includes mempalace_file_context with source_file required."""
+        from mempalace.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        tools = {t["name"]: t for t in resp["result"]["tools"]}
+
+        assert "mempalace_file_context" in tools
+        schema = tools["mempalace_file_context"]["inputSchema"]
+        assert "source_file" in schema["properties"]
+        assert "source_file" in schema.get("required", [])

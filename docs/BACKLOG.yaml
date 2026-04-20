@@ -47,7 +47,9 @@ items:
     summary: "MCP tool: mempalace_file_context — get all chunks for a file"
     type: feature
     priority: medium
-    status: open
+    status: done
+    done_date: "2026-04-20"
+    done_summary: "Added tool_file_context handler + mempalace_file_context TOOLS entry in mcp_server.py; 6 tests covering all 6 ACs"
     size: S
     section_id: mcp_developer_tools
     labels: [mcp, search, coding]
