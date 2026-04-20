@@ -177,3 +177,7 @@ items:
       summary: Add PHP language support to code miner
       resolution: '2026-04-20: Add PHP language support: classes, interfaces, traits, enums, functions, namespaces; #[Attribute] attachment; PHP 8.1+ enums; full test coverage (32 new tests)'
       archived_date: "2026-04-20"
+    - key: MINE-K8S
+      summary: Add Kubernetes manifest smart parsing
+      resolution: '2026-04-21: Added K8s manifest smart parsing: content-based detection (apiVersion+kind), per-doc splitting on --- separators, Kind/name symbol extraction; kubernetes added to SUPPORTED_LANGUAGES and 6 resource kinds to VALID_SYMBOL_TYPES; 37 new tests all pass'
+      archived_date: "2026-04-21"

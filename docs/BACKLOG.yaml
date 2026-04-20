@@ -585,30 +585,6 @@ items:
 
       - Tests must use tempfile.mkdtemp() + shutil.rmtree() pattern (no pytest fixtures)
       - No palace/embedding needed — pure scan_project() call tests
-  - key: MINE-K8S
-    summary: Add Kubernetes manifest smart parsing
-    type: feature
-    status: done
-    priority: high
-    section_id: coding_first
-    labels: [feat, miner, infra]
-    description: |-
-      ## Problem
-      K8s YAML files are parsed as generic YAML without understanding resource structure.
-
-      ## Scope
-      - Detect k8s manifests (apiVersion/kind fields)
-      - Extract: Deployments, Services, ConfigMaps, Secrets, Ingress, CRDs
-      - Index by: kind, namespace, name, labels
-
-      ## Acceptance Criteria
-      - [ ] K8s resources extracted with meaningful symbol_name (kind/name)
-      - [ ] symbol_type set to k8s resource kind
-      - [ ] Works on real cluster manifests
-      - [ ] Tests for: Deployment, Service, ConfigMap, multi-doc YAML
-    size: S
-    resolution: '2026-04-21: Added K8s manifest smart parsing: content-based detection (apiVersion+kind), per-doc splitting on --- separators, Kind/name symbol extraction; kubernetes added to SUPPORTED_LANGUAGES and 6 resource kinds to VALID_SYMBOL_TYPES; 37 new tests all pass'
-    hardening: 'round-1 2026-04-21: 3 findings (1 fixed, 2 backlogged). Fixed dead _K8S_DETECT_RE. Backlogged: MINE-K8S-LARGE-DOC (large-doc symbol loss), MINE-K8S-YAML-SEPARATOR (false splits on embedded ---).'
   - key: MINE-SCALA
     summary: Add Scala language support to code miner
     type: feature
