@@ -1606,6 +1606,8 @@ pub const ALPHA: usize = 1;
 pub const BETA: usize = 2;
 
 pub static GAMMA: &str = "hello";
+
+pub const DELTA: usize = 4;
 """
 
 
