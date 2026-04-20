@@ -163,6 +163,7 @@ SKIP_DIRS = {
     ".nox",
     ".vs",
     "obj",
+    "vendor",
     ".idea",
     ".vscode",
     ".ipynb_checkpoints",

@@ -1884,8 +1884,27 @@ def test_php_attribute_attachment():
 
 
 # =============================================================================
-# SKIP_DIRS — .vs / bin / obj are skipped
+# SKIP_DIRS — .vs / bin / obj / vendor are skipped
 # =============================================================================
+
+
+def test_skip_dirs_vendor_php():
+    """scan_project() skips vendor/ (Composer dependencies) for PHP projects."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "src" / "App.php", "<?php\nclass App {}\n" * 20)
+        write_file(
+            project_root / "vendor" / "laravel" / "framework" / "src" / "Route.php",
+            "<?php\nclass Route {}\n" * 20,
+        )
+
+        result = scanned_files(project_root, respect_gitignore=False)
+        assert "src/App.php" in result, "src/App.php should be included"
+        assert not any(p.startswith("vendor/") for p in result), "vendor/ should be skipped"
+    finally:
+        shutil.rmtree(tmpdir)
 
 
 def test_skip_dirs_dotnet():

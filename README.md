@@ -65,7 +65,7 @@ claude mcp add mempalace -- python -m mempalace.mcp_server  # connect to Claude 
 mempalace watch ~/projects/           # re-mines on every commit, zero noise
 ```
 
-This makes the 27 tools available to your AI. For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` — see [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7.
+This makes the 27 tools available to your AI. For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` (or equivalent agent-instruction file) — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or let [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7 inject them for you.
 
 </details>
 

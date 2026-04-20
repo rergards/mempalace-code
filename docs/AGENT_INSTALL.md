@@ -554,6 +554,8 @@ claude mcp list 2>/dev/null | grep mempalace
 
 After a successful install and verification, offer to inject mempalace usage rules into the human's CLAUDE.md. These rules teach the AI assistant *how* to use mempalace effectively — without them, the tools are available but the assistant won't know when or how to call them.
 
+> **Source of truth:** the usage-rules block lives in [`docs/LLM_USAGE_RULES.md`](LLM_USAGE_RULES.md) (below the `# mempalace-code — Usage Rules` heading). If you keep the inline block below in sync with that file, either works. Humans doing this manually should copy from `LLM_USAGE_RULES.md`.
+
 ---
 
 ### Step 7.1: Offer injection

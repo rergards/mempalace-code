@@ -607,6 +607,7 @@ items:
       - [ ] Tests for: classes, interfaces, traits, namespaces, PHP 8.1 enums
     size: M
     resolution: '2026-04-20: Add PHP language support: classes, interfaces, traits, enums, functions, namespaces; #[Attribute] attachment; PHP 8.1+ enums; full test coverage (32 new tests)'
+    hardened_at: '2026-04-20: round-1 — 3 findings (1 fixed: vendor/ added to SKIP_DIRS; 2 dismissed)'
   - key: MINE-K8S
     summary: Add Kubernetes manifest smart parsing
     type: feature

@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-20 · MINE-PHP
+
+Add PHP language support to the code miner — extracts classes, interfaces, traits, enums (PHP 8.1+), functions, methods, and namespaces from `.php` files, with support for Laravel, WordPress, and Symfony projects.
+
 ## 2026-04-20 · MINE-SWIFT
 
 Add Swift language support to the code miner — extracts classes, structs, enums, protocols, functions, properties, extensions, actors, and async/await constructs from `.swift` files.
