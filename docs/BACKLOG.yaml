@@ -585,29 +585,6 @@ items:
 
       - Tests must use tempfile.mkdtemp() + shutil.rmtree() pattern (no pytest fixtures)
       - No palace/embedding needed — pure scan_project() call tests
-  - key: MINE-SCALA
-    summary: Add Scala language support to code miner
-    type: feature
-    status: done
-    priority: medium
-    section_id: coding_first
-    labels: [feat, miner]
-    description: |-
-      ## Problem
-      Scala projects (Spark, Akka, Play) cannot be mined.
-
-      ## Scope
-      - .scala, .sc files
-      - Extract: classes, objects, traits, case classes, functions, vals/vars
-      - Handle: implicits, type aliases, pattern matching
-
-      ## Acceptance Criteria
-      - [ ] Symbol extraction for Scala constructs
-      - [ ] Works on Spark/sbt projects
-      - [ ] Tests for: classes, objects, traits, case classes, implicits
-    size: M
-    resolution: '2026-04-21: Add Scala (.scala/.sc) language support: regex boundary patterns, extract_symbol for class/case class/object/case object/trait/enum/def/type, annotation attachment, searcher validation, MCP description strings, and full test coverage'
-    hardening: 'round-1 2026-04-21: 2 fixed (dead _SCALA_PURE_ATTR alias, HKT type alias regex), 1 dismissed (pre-existing indentation issue)'
   - key: MINE-DART
     summary: Add Dart language support to code miner
     type: feature

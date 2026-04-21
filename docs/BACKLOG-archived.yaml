@@ -181,3 +181,7 @@ items:
       summary: Add Kubernetes manifest smart parsing
       resolution: '2026-04-21: Added K8s manifest smart parsing: content-based detection (apiVersion+kind), per-doc splitting on --- separators, Kind/name symbol extraction; kubernetes added to SUPPORTED_LANGUAGES and 6 resource kinds to VALID_SYMBOL_TYPES; 37 new tests all pass'
       archived_date: "2026-04-21"
+    - key: MINE-SCALA
+      summary: Add Scala language support to code miner
+      resolution: '2026-04-21: Add Scala (.scala/.sc) language support: regex boundary patterns, extract_symbol for class/case class/object/case object/trait/enum/def/type, annotation attachment, searcher validation, MCP description strings, and full test coverage'
+      archived_date: "2026-04-21"
