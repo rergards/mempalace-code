@@ -79,12 +79,9 @@ items:
     description: >-
       ## Problem
 
-
       spellcheck.py corrects user messages before filing. Makes sense for conversation text, but for code mining it mangles CamelCase, snake_case, and technical terms (e.g., 'kubectl' → 'cubectl').
 
-
       ## Scope
-
 
       - Add a config flag (e.g. `spellcheck_enabled: false` in mempalace.yaml or MempalaceConfig)
 
@@ -94,9 +91,7 @@ items:
 
       - Respect explicit override: `--spellcheck` / `--no-spellcheck` CLI flags
 
-
       ## Acceptance Criteria
-
 
       - [ ] Code mining does not run spellcheck by default
 
@@ -119,12 +114,9 @@ items:
     description: >-
       ## Problem
 
-
       entity_detector.py auto-detects people and projects from content using heuristics (verb patterns, pronouns, dialogue markers). Useful for conversations, but for code mining it produces noisy false positives (variable names, function names mistaken for people/projects). Slows down `mempalace init` for no benefit on code repos.
 
-
       ## Scope
-
 
       - Make entity detection opt-in via config flag (e.g. `entity_detection: false` default)
 
@@ -134,9 +126,7 @@ items:
 
       - Conversation mining (`--mode convos`) can keep entity detection on by default
 
-
       ## Acceptance Criteria
-
 
       - [ ] `mempalace init <dir>` no longer runs entity detection by default
 
@@ -585,29 +575,6 @@ items:
 
       - Tests must use tempfile.mkdtemp() + shutil.rmtree() pattern (no pytest fixtures)
       - No palace/embedding needed — pure scan_project() call tests
-  - key: MINE-DART
-    summary: Add Dart language support to code miner
-    type: feature
-    status: done
-    priority: medium
-    section_id: coding_first
-    labels: [feat, miner]
-    hardening: round-1-complete
-    description: |-
-      ## Problem
-      Dart/Flutter projects cannot be mined.
-
-      ## Scope
-      - .dart files
-      - Extract: classes, mixins, extensions, functions, enums
-      - Handle: named constructors, factory constructors, async/await
-
-      ## Acceptance Criteria
-      - [x] Symbol extraction for Dart constructs
-      - [x] Works on Flutter projects
-      - [x] Tests for: classes, mixins, extensions, factory constructors
-    size: M
-    resolution: '2026-04-21: Add Dart language support: regex-based symbol extraction for classes, mixins, extensions, extension types, enums, typedefs, factory constructors, and typed top-level functions; 42 new tests pass across all 6 test modules'
   - key: MINE-RUBY-SMART
     summary: Add smart symbol extraction for Ruby
     type: feature

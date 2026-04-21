@@ -185,3 +185,7 @@ items:
       summary: Add Scala language support to code miner
       resolution: '2026-04-21: Add Scala (.scala/.sc) language support: regex boundary patterns, extract_symbol for class/case class/object/case object/trait/enum/def/type, annotation attachment, searcher validation, MCP description strings, and full test coverage'
       archived_date: "2026-04-21"
+    - key: MINE-DART
+      summary: Add Dart language support to code miner
+      resolution: '2026-04-21: Add Dart language support: regex-based symbol extraction for classes, mixins, extensions, extension types, enums, typedefs, factory constructors, and typed top-level functions; 42 new tests pass across all 6 test modules'
+      archived_date: "2026-04-21"
