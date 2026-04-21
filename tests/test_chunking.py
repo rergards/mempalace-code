@@ -1601,11 +1601,17 @@ pub fn helper() -> usize {
 # boundaries (strategy=treesitter_v1). Without them in DEFINITION_TYPES the chunker finds
 # no boundaries and falls back to treesitter_adaptive_v1.
 RUST_AST_CONST_ONLY = """\
+/// Upper bound for the alpha-channel slot table.
 pub const ALPHA: usize = 1;
 
+/// Upper bound for the beta-channel slot table.
 pub const BETA: usize = 2;
 
+/// Default host advertised to the discovery daemon.
 pub static GAMMA: &str = "hello";
+
+/// Default port advertised to the discovery daemon.
+pub static DELTA: u16 = 8080;
 """
 
 
