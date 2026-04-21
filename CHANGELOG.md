@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-21 · MINE-DART
+
+Add Dart language support to the code miner — extracts classes, mixins, extensions, enums, and functions from `.dart` files, with support for named constructors, factory constructors, and async/await.
+
 ## 2026-04-21 · MINE-SCALA
 
 Add Scala language support to the code miner — extracts classes, case classes, objects, traits, enums, and functions from `.scala`/`.sc` files, with support for implicits, type aliases, generics, and access modifiers.
