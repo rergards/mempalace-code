@@ -1,28 +1,22 @@
 # Changelog
 
-## 2026-04-21 · MINE-DART
+## v1.5.0 — 2026-04-21
 
-Add Dart language support to the code miner — extracts classes, mixins, extensions, enums, and functions from `.dart` files, with support for named constructors, factory constructors, and async/await.
+### Added
 
-## 2026-04-21 · MINE-SCALA
+- **5 new languages in the code miner:**
+  - **Dart** — classes, mixins, extensions, enums, functions; named/factory constructors, async/await (MINE-DART)
+  - **Scala** — classes, case classes, objects, traits, enums, functions; implicits, type aliases, generics, access modifiers (MINE-SCALA)
+  - **Kubernetes manifests** — Deployments, Services, ConfigMaps, Secrets, Ingresses, CRDs from `.yaml`/`.yml`, indexed by kind, namespace, name, labels (MINE-K8S)
+  - **PHP** — classes, interfaces, traits, enums (PHP 8.1+), functions, methods, namespaces; Laravel / WordPress / Symfony project recognition (MINE-PHP)
+  - **Swift** — classes, structs, enums, protocols, functions, properties, extensions, actors, async/await (MINE-SWIFT)
+- **2 new MCP tools:**
+  - `mempalace_mine` — agents can trigger incremental or full project re-mining without CLI access; returns structured counts of files processed and drawers filed (MCP-MINE-TRIGGER)
+  - `mempalace_file_context` — returns all indexed chunks for a specific source file, ordered by `chunk_index`; useful for reviewing what was mined, handling deleted/renamed files, or getting ordered file context without reading from disk (MCP-FILE-CONTEXT)
 
-Add Scala language support to the code miner — extracts classes, case classes, objects, traits, enums, and functions from `.scala`/`.sc` files, with support for implicits, type aliases, generics, and access modifiers.
+### Changed
 
-## 2026-04-21 · MINE-K8S
-
-Add Kubernetes manifest support to the code miner — extracts Deployments, Services, ConfigMaps, Secrets, Ingresses, and CRDs from `.yaml`/`.yml` files, indexed by kind, namespace, name, and labels.
-
-## 2026-04-20 · MINE-PHP
-
-Add PHP language support to the code miner — extracts classes, interfaces, traits, enums (PHP 8.1+), functions, methods, and namespaces from `.php` files, with support for Laravel, WordPress, and Symfony projects.
-
-## 2026-04-20 · MINE-SWIFT
-
-Add Swift language support to the code miner — extracts classes, structs, enums, protocols, functions, properties, extensions, actors, and async/await constructs from `.swift` files.
-
-## 2026-04-20 · MCP-MINE-TRIGGER
-
-Add `mempalace_mine` MCP tool so agents can trigger incremental or full project re-mining without CLI access, returning structured counts of files processed and drawers filed.
+- **LLM usage rules rewritten as LLM-agnostic** — `docs/LLM_USAGE_RULES.md` now targets any MCP-capable agent (Claude Code, Codex, Cursor, Windsurf, Continue, Zed, Aider, …); routing table maps 16 common tasks to the right specialist tool; `MEMPALACE_AGENT_NAME` env var for diary attribution; extended Never list covering destructive-delete guards, diary non-authoritativeness, and absence-from-search-miss; correction recipe added. `docs/AGENT_INSTALL.md` §7.3 synced. README's misleading "AI learns the protocol automatically" claim replaced with a concrete pointer to the usage rules. (LLM-USAGE-RULES)
 
 ## v1.4.1 — 2026-04-20
 

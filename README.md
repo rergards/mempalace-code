@@ -102,7 +102,7 @@ You write code. You make decisions. You debug things. Between sessions, all that
 mempalace-code **indexes it once** into a local vector store, then your AI finds it in milliseconds — using [595x fewer tokens](docs/BENCH_TOKEN_DELTA.md) than grep + read at measured peak (median 80x on a 19k-chunk project, and it keeps scaling). Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
 
 **What gets indexed:**
-- Code files — functions, classes, modules (Python, TypeScript/JS, Go, Rust, C/C++, C#, F#, VB.NET, XAML, Java, Kotlin, Markdown)
+- Code files — functions, classes, modules (Python, TypeScript/JS, Go, Rust, C/C++, C#, F#, VB.NET, XAML, Java, Kotlin, Scala, Swift, Dart, PHP, Markdown) plus Kubernetes manifests
 - .NET solutions — `.sln`/`.csproj` project graphs, cross-project symbol relationships, interface implementations
 - Conversation exports — Claude, ChatGPT, Slack
 - Architecture notes, decisions, anything you store manually
@@ -125,10 +125,15 @@ mempalace-code **indexes it once** into a local vector store, then your AI finds
 | Rust | Functions, structs, enums, traits, impls | Tree-sitter |
 | Java | Classes, interfaces, methods, annotations | Regex |
 | Kotlin | Classes, objects, functions, extensions | Regex |
+| Scala | Classes, case classes, objects, traits, enums, functions, implicits, type aliases, generics | Regex |
+| Swift | Classes, structs, enums, protocols, functions, properties, extensions, actors, async/await | Regex |
+| Dart | Classes, mixins, extensions, enums, functions, named/factory constructors, async/await | Regex |
+| PHP | Classes, interfaces, traits, enums (8.1+), functions, methods, namespaces (Laravel/WP/Symfony aware) | Regex |
 | C# | Classes, interfaces, records, methods, properties | Regex |
 | F# / VB.NET | Modules, types, functions | Regex |
 | XAML | Controls, resources, code-behind linking | Regex |
 | C / C++ | Functions, structs, enums, classes | Regex |
+| Kubernetes manifests | Deployments, Services, ConfigMaps, Secrets, Ingresses, CRDs (indexed by kind/namespace/labels) | YAML-aware |
 | Markdown / plain text | Heading sections, paragraphs | — |
 | YAML / JSON / TOML | Adaptive line-count | — |
 
@@ -225,6 +230,7 @@ claude mcp add mempalace -- python -m mempalace.mcp_server
 | `mempalace_get_taxonomy` | Full wing → room → count tree |
 | `mempalace_search` | Semantic search with optional wing/room filters |
 | `mempalace_code_search` | Filter by language, symbol name/type, file glob |
+| `mempalace_file_context` | All indexed chunks for a source file, ordered by chunk_index |
 | `mempalace_check_duplicate` | Similarity check before filing (0.9 threshold) |
 
 </details>
@@ -465,13 +471,13 @@ curl -fsSL https://raw.githubusercontent.com/rergards/mempalace-code/main/script
 **Optional extras:**
 
 ```bash
-pip install "mempalace-code[treesitter]"  # AST parsing (Python 3.10+; TS/JS on 3.9+)
+pip install "mempalace-code[treesitter]"  # AST parsing
 pip install "mempalace-code[chroma]"      # ChromaDB legacy backend (deprecated)
 pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[dev]"         # pytest + ruff
 ```
 
-**Requirements:** Python 3.9+. ~80 MB embedding model downloaded once during `mempalace init`.
+**Requirements:** Python 3.11+. ~80 MB embedding model downloaded once during `mempalace init`.
 
 </details>
 

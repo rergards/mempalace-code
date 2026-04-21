@@ -1,6 +1,6 @@
 [project]
 name = "mempalace-code"
-version = "1.4.1"
+version = "1.5.0"
 description = "Developer memory tool — mine codebases and conversations into a LanceDB-backed searchable palace. No API key required."
 readme = "README.md"
 requires-python = ">=3.11"
