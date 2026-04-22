@@ -143,6 +143,12 @@ class TestIsRelevantChange:
         """package-lock.json is in SKIP_FILENAMES."""
         assert not _is_relevant_change(str(proj / "package-lock.json"), proj)
 
+    def test_rejects_app_level_workspace_json(self, proj):
+        assert not _is_relevant_change(str(proj / "workspace.json"), proj)
+
+    def test_rejects_app_level_kotlin_lsp_dir(self, proj):
+        assert not _is_relevant_change(str(proj / ".kotlin-lsp" / "workspace.json"), proj)
+
     def test_rejects_ds_store(self, proj):
         assert not _is_relevant_change(str(proj / ".DS_Store"), proj)
 
@@ -165,6 +171,13 @@ class TestIsRelevantChange:
             str(proj / "node_modules" / "special.js"),
             proj,
             include_ignored=["node_modules/special.js"],
+        )
+
+    def test_include_ignored_bypasses_app_level_exclude(self, proj):
+        assert _is_relevant_change(
+            str(proj / "workspace.json"),
+            proj,
+            include_ignored=["workspace.json"],
         )
 
     # --- Delete events ---

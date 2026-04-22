@@ -13,6 +13,7 @@ import sys
 import time
 import hashlib
 import fnmatch
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -368,6 +369,62 @@ def is_force_included(path: Path, project_path: Path, include_paths: set) -> boo
             return True
 
     return False
+
+
+@dataclass(frozen=True)
+class ScanFilterRules:
+    skip_dirs: frozenset[str]
+    skip_files: frozenset[str]
+    skip_globs: tuple[str, ...]
+
+
+def get_scan_filter_rules(config: MempalaceConfig | None = None) -> ScanFilterRules:
+    """Load app-level scan exclusions from ~/.mempalace/config.json."""
+    cfg = config or MempalaceConfig()
+    return ScanFilterRules(
+        skip_dirs=frozenset(cfg.scan_skip_dirs),
+        skip_files=frozenset(cfg.scan_skip_files),
+        skip_globs=tuple(cfg.scan_skip_globs),
+    )
+
+
+def is_scan_excluded(
+    path: Path,
+    project_path: Path,
+    rules: ScanFilterRules,
+    *,
+    is_dir: bool = False,
+) -> bool:
+    """Return True when app-level scan rules exclude *path*."""
+    try:
+        relative = path.relative_to(project_path).as_posix().strip("/")
+    except ValueError:
+        return False
+
+    if not relative:
+        return False
+
+    if is_dir:
+        if path.name in rules.skip_dirs:
+            return True
+    else:
+        if path.name in rules.skip_files:
+            return True
+        if any(part in rules.skip_dirs for part in Path(relative).parts[:-1]):
+            return True
+
+    if not rules.skip_globs:
+        return False
+
+    candidates = {relative, path.name}
+    if is_dir:
+        candidates.add(f"{relative}/")
+
+    return any(
+        fnmatch.fnmatch(candidate, pattern)
+        for pattern in rules.skip_globs
+        for candidate in candidates
+    )
 
 
 # =============================================================================
@@ -1877,6 +1934,7 @@ def scan_project(
     matcher_cache = {}
     include_paths = normalize_include_paths(include_ignored)
     dotnet_project = _is_dotnet_project(project_path)
+    scan_rules = get_scan_filter_rules()
 
     for root, dirs, filenames in os.walk(project_path):
         root_path = Path(root)
@@ -1895,7 +1953,11 @@ def scan_project(
             d
             for d in dirs
             if is_force_included(root_path / d, project_path, include_paths)
-            or not (should_skip_dir(d) or (dotnet_project and d == "bin"))
+            or not (
+                should_skip_dir(d)
+                or (dotnet_project and d == "bin")
+                or is_scan_excluded(root_path / d, project_path, scan_rules, is_dir=True)
+            )
         ]
         if respect_gitignore and active_matchers:
             dirs[:] = [
@@ -1910,7 +1972,9 @@ def scan_project(
             force_include = is_force_included(filepath, project_path, include_paths)
             exact_force_include = is_exact_force_include(filepath, project_path, include_paths)
 
-            if not force_include and filename in SKIP_FILENAMES:
+            if not force_include and (
+                filename in SKIP_FILENAMES or is_scan_excluded(filepath, project_path, scan_rules)
+            ):
                 continue
             if filepath.suffix.lower() not in READABLE_EXTENSIONS and not exact_force_include:
                 if filename not in KNOWN_FILENAMES:

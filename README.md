@@ -143,6 +143,18 @@ mempalace mine-all ~/projects/                   # batch mine all projects in a 
 
 Mining is **incremental** by default — content-hash based, only changed files are re-chunked. Use `--full` to force a rebuild.
 
+Global scan excludes live in `~/.mempalace/config.json`. This is the right place for IDE/cache artifacts you want excluded across every project.
+
+```json
+{
+  "scan_skip_dirs": [".kotlin-lsp"],
+  "scan_skip_files": ["workspace.json"],
+  "scan_skip_globs": ["**/*.generated.snap"]
+}
+```
+
+`--include-ignored` still wins for one-off exceptions when you want a skipped path indexed intentionally.
+
 ### Auto-Watch
 
 Keep your palace in sync automatically. By default, watches `.git/refs/heads/` and re-mines only on **commit** — no noise from work-in-progress saves. Handles multiple branches and worktrees.

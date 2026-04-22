@@ -10,6 +10,9 @@ from pathlib import Path
 
 DEFAULT_PALACE_PATH = os.path.expanduser("~/.mempalace/palace")
 DEFAULT_COLLECTION_NAME = "mempalace_drawers"
+DEFAULT_SCAN_SKIP_DIRS = [".kotlin-lsp"]
+DEFAULT_SCAN_SKIP_FILES = ["workspace.json"]
+DEFAULT_SCAN_SKIP_GLOBS = []
 
 # Storage safety defaults
 DEFAULT_OPTIMIZE_AFTER_MINE = True  # Set False to disable auto-compaction
@@ -107,6 +110,38 @@ class MempalaceConfig:
         """ChromaDB collection name."""
         return self._file_config.get("collection_name", DEFAULT_COLLECTION_NAME)
 
+    def _merged_list_config(self, key: str, defaults: list[str]) -> list[str]:
+        """Return a stable de-duplicated list from defaults plus config file additions."""
+        merged = list(defaults)
+        raw = self._file_config.get(key, [])
+        if isinstance(raw, str):
+            raw = [raw]
+        if not isinstance(raw, list):
+            return merged
+
+        for value in raw:
+            if not isinstance(value, str):
+                continue
+            candidate = value.strip()
+            if candidate and candidate not in merged:
+                merged.append(candidate)
+        return merged
+
+    @property
+    def scan_skip_dirs(self):
+        """Directory names excluded from mining/watch across all projects."""
+        return self._merged_list_config("scan_skip_dirs", DEFAULT_SCAN_SKIP_DIRS)
+
+    @property
+    def scan_skip_files(self):
+        """Base filenames excluded from mining/watch across all projects."""
+        return self._merged_list_config("scan_skip_files", DEFAULT_SCAN_SKIP_FILES)
+
+    @property
+    def scan_skip_globs(self):
+        """Project-relative glob patterns excluded from mining/watch across all projects."""
+        return self._merged_list_config("scan_skip_globs", DEFAULT_SCAN_SKIP_GLOBS)
+
     @property
     def people_map(self):
         """Mapping of name variants to canonical names."""
@@ -176,6 +211,9 @@ class MempalaceConfig:
             default_config = {
                 "palace_path": DEFAULT_PALACE_PATH,
                 "collection_name": DEFAULT_COLLECTION_NAME,
+                "scan_skip_dirs": DEFAULT_SCAN_SKIP_DIRS,
+                "scan_skip_files": DEFAULT_SCAN_SKIP_FILES,
+                "scan_skip_globs": DEFAULT_SCAN_SKIP_GLOBS,
                 "topic_wings": DEFAULT_TOPIC_WINGS,
                 "hall_keywords": DEFAULT_HALL_KEYWORDS,
             }

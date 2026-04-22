@@ -221,6 +221,48 @@ def test_scan_project_skip_dirs_still_apply_without_override():
         shutil.rmtree(tmpdir)
 
 
+def test_scan_project_skips_app_level_workspace_json():
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "workspace.json", '{"generated": true}\n' * 20)
+        write_file(project_root / "main.py", "print('main')\n" * 20)
+
+        assert scanned_files(project_root, respect_gitignore=False) == ["main.py"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_skips_app_level_kotlin_lsp_dir():
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / ".kotlin-lsp" / "workspace.json", '{"generated": true}\n' * 20)
+        write_file(project_root / "src" / "main.kt", "fun main() = Unit\n" * 40)
+
+        assert scanned_files(project_root, respect_gitignore=False) == ["src/main.kt"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_include_override_beats_app_level_excludes():
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "workspace.json", '{"generated": true}\n' * 20)
+
+        assert scanned_files(
+            project_root,
+            respect_gitignore=False,
+            include_ignored=["workspace.json"],
+        ) == ["workspace.json"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 # =============================================================================
 # Integration tests — smart chunking through process_file() and mine()
 # =============================================================================

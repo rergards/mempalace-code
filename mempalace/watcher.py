@@ -21,9 +21,11 @@ from .miner import (
     KNOWN_FILENAMES,
     READABLE_EXTENSIONS,
     SKIP_FILENAMES,
+    get_scan_filter_rules,
     is_exact_force_include,
     is_force_included,
     is_gitignored,
+    is_scan_excluded,
     load_gitignore_matcher,
     mine,
     normalize_include_paths,
@@ -65,12 +67,15 @@ def _is_relevant_change(
         return False
 
     include_paths = normalize_include_paths(include_ignored or [])
+    scan_rules = get_scan_filter_rules()
 
     # Reject files inside skip dirs, unless a descendant is explicitly force-included.
     # Mirrors the dirs[:] pruning in scan_project().
     for i, part in enumerate(relative.parts[:-1]):
-        if should_skip_dir(part):
-            parent_path = project_path.joinpath(*relative.parts[: i + 1])
+        parent_path = project_path.joinpath(*relative.parts[: i + 1])
+        if should_skip_dir(part) or is_scan_excluded(
+            parent_path, project_path, scan_rules, is_dir=True
+        ):
             if not is_force_included(parent_path, project_path, include_paths):
                 return False
 
@@ -78,7 +83,9 @@ def _is_relevant_change(
     exact_force_include = is_exact_force_include(file_path, project_path, include_paths)
 
     # Reject known-skip filenames unless the file is explicitly force-included.
-    if not force_include and filename in SKIP_FILENAMES:
+    if not force_include and (
+        filename in SKIP_FILENAMES or is_scan_excluded(file_path, project_path, scan_rules)
+    ):
         return False
 
     # Reject files with non-readable extensions unless explicitly included or a known
