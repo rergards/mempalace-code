@@ -431,6 +431,9 @@ items:
       5. ruff clean
 
       Identified in CODE-TREESITTER-EXPAND harden round-1 (F-2).
+    links:
+      - type: is-blocked-by
+        key: CLARIFY-CODE-TREESITTER-GO-RUST-DETACH-TEST
   - key: STORE-BACKUP-CLI-TEST
     summary: "Add CLI-level integration tests for backup and restore commands"
     type: task
@@ -1059,3 +1062,12 @@ items:
     section_id: immediate
     assignee: owner
     description: "Clarification required before MINE-ANSIBLE can be planned.\n\n**Original task:** Add Ansible support to code miner\n\n**Block reasons:**\n- Task could not be planned within the time/token budget.\n\n**Questions requiring owner input:**\n1. The plan phase for MINE-ANSIBLE timed out or stalled without producing a plan. Please clarify scope and expected deliverables so the next attempt can succeed within budget.\n\n*(Auto-generated: plan phase timed out without producing a plan)*\n\n**Acceptance criteria:** When questions are answered, mark CLARIFY-MINE-ANSIBLE done (or remove its is-blocked-by link from MINE-ANSIBLE) and re-run autopilot."
+  - key: CLARIFY-CODE-TREESITTER-GO-RUST-DETACH-TEST
+    summary: "Clarify scope for CODE-TREESITTER-GO-RUST-DETACH-TEST before planning can proceed"
+    type: task
+    status: open
+    priority: highest
+    size: XS
+    section_id: immediate
+    assignee: owner
+    description: "Clarification required before CODE-TREESITTER-GO-RUST-DETACH-TEST can be planned.\n\n**Original task:** Add negative tests for detached-comment gap detection in Go and Rust AST chunkers\n\n**Block reasons:**\n- Task could not be planned within the time/token budget.\n\n**Questions requiring owner input:**\n1. The plan phase for CODE-TREESITTER-GO-RUST-DETACH-TEST timed out or stalled without producing a plan. Please clarify scope and expected deliverables so the next attempt can succeed within budget.\n\n*(Auto-generated: plan phase timed out without producing a plan)*\n\n**Acceptance criteria:** When questions are answered, mark CLARIFY-CODE-TREESITTER-GO-RUST-DETACH-TEST done (or remove its is-blocked-by link from CODE-TREESITTER-GO-RUST-DETACH-TEST) and re-run autopilot."
