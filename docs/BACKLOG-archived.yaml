@@ -194,3 +194,13 @@ items:
       resolution: '2026-04-24: completed in pipeline run'
       archived_date: "2026-04-24"
       done_summary: completed in pipeline run
+    - key: CODE-SEARCH-LANG-JSX-TSX
+      summary: Add jsx and tsx to SUPPORTED_LANGUAGES so code_search language filter works for React/TypeScript projects
+      resolution: |-
+        Implemented in hardening round 1.
+
+        - Added jsx and tsx to SUPPORTED_LANGUAGES
+        - Updated the MCP language description to mention jsx and tsx
+        - Added regression coverage for jsx/tsx filters, uppercase normalization, and supported_languages hints
+        - Verification: targeted pytest passed; ruff check and ruff format --check passed. A full pytest run was attempted but the broader suite was already failing outside this task scope.
+      archived_date: "2026-04-24"

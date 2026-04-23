@@ -664,38 +664,6 @@ items:
       ## Constraints
       - Must preserve the exact corruption detection semantics (still scans all fragments)
       - Identified in FIX-LANCE-CORRUPT harden round-1 (F-4)
-  - key: CODE-SEARCH-LANG-JSX-TSX
-    summary: Add jsx and tsx to SUPPORTED_LANGUAGES so code_search language filter works for React/TypeScript projects
-    type: feature
-    status: done
-    priority: low
-    size: XS
-    section_id: coding_first
-    labels: [search, coding, mcp]
-    description: |-
-      ## Problem
-
-      EXTENSION_LANG_MAP assigns language="jsx" to .jsx files and language="tsx" to .tsx files, but neither value appears in SUPPORTED_LANGUAGES in searcher.py. Any user who mines a React or Next.js project and calls code_search(language="jsx") or code_search(language="tsx") receives a validation error instead of results. Same class of bug as yaml/json/toml (CODE-SEARCH-LANG-CONFIG) and markdown/text/csv (CODE-SEARCH-LANG-PROSE).
-
-      ## Scope
-
-      Add "jsx" and "tsx" to SUPPORTED_LANGUAGES in searcher.py; update the MCP schema description string for the language parameter.
-
-      ## Acceptance criteria
-
-      1. code_search(language="jsx") returns results instead of a validation error
-      2. code_search(language="tsx") returns results instead of a validation error
-      3. Hint regression guard test verifies jsx and tsx appear in supported_languages error response
-      4. ruff clean; pytest -q passes
-
-      Origin: CODE-SEARCH-LANG-PROSE hardening round-1 F-1.
-    resolution: |-
-      Implemented in hardening round 1.
-
-      - Added jsx and tsx to SUPPORTED_LANGUAGES
-      - Updated the MCP language description to mention jsx and tsx
-      - Added regression coverage for jsx/tsx filters, uppercase normalization, and supported_languages hints
-      - Verification: targeted pytest passed; ruff check and ruff format --check passed. A full pytest run was attempted but the broader suite was already failing outside this task scope.
   - key: MINE-JAVA-PKG-PRIVATE-METHODS
     summary: Extract package-private Java methods (no visibility modifier) in symbol extraction
     type: feature
