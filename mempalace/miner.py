@@ -681,7 +681,7 @@ VBNET_BOUNDARY = re.compile(
 SWIFT_BOUNDARY = re.compile(
     r"^(?:@\w+(?:\([^)]*\))?\s+)*"
     r"(?:(?:public|private|fileprivate|internal|open|final|static|class|override|"
-    r"mutating|nonmutating|nonisolated|indirect|async)\s+)*"
+    r"mutating|nonmutating|nonisolated|indirect|async|distributed)\s+)*"
     r"(?:class|struct|enum|protocol|actor|extension|func|typealias)\s+",
     re.MULTILINE,
 )
@@ -1213,7 +1213,7 @@ _SWIFT_EXTRACT = [
     (
         re.compile(
             r"^(?:@\w+(?:\([^)]*\))?\s+)*"
-            r"(?:(?:public|private|fileprivate|internal|open|final)\s+)*"
+            r"(?:(?:public|private|fileprivate|internal|open|final|distributed)\s+)*"
             r"actor\s+(\w+)",
             re.MULTILINE,
         ),

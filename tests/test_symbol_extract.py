@@ -2,7 +2,7 @@
 
 import pytest
 
-from mempalace.miner import chunk_code, extract_symbol
+from mempalace.miner import SWIFT_BOUNDARY, chunk_code, extract_symbol
 
 
 # =============================================================================
@@ -1289,6 +1289,26 @@ def test_swift_actor():
         "DatabaseManager",
         "actor",
     )
+
+
+def test_swift_distributed_actor():
+    """Swift distributed actor declarations extract as actor symbols."""
+    assert extract_symbol("distributed actor ClusterManager {\n}\n", "swift") == (
+        "ClusterManager",
+        "actor",
+    )
+
+
+def test_swift_distributed_actor_boundary():
+    """Swift distributed actor declarations are chunk boundaries."""
+    match = SWIFT_BOUNDARY.search("distributed actor Foo {\n}\n")
+    assert match is not None
+    assert match.group(0) == "distributed actor "
+
+
+def test_swift_distributed_func_not_extracted():
+    """Distributed functions are out of scope for this regex extension."""
+    assert extract_symbol("distributed func sync() {\n}\n", "swift") == ("", "")
 
 
 def test_swift_extension():
