@@ -13,6 +13,9 @@ instead of the real user profile.
 import os
 import shutil
 import tempfile
+import hashlib
+import math
+import re
 
 # ── Isolate HOME before any mempalace imports ──────────────────────────
 _original_env = {}
@@ -32,6 +35,41 @@ import pytest  # noqa: E402
 from mempalace.config import MempalaceConfig  # noqa: E402
 from mempalace.knowledge_graph import KnowledgeGraph  # noqa: E402
 from mempalace.storage import open_store  # noqa: E402
+
+
+class _DeterministicTestEmbedder:
+    """Small deterministic embedder for tests that do not explicitly fetch HF models."""
+
+    _DIM = 384
+
+    def ndims(self):
+        return self._DIM
+
+    def compute_source_embeddings(self, texts):
+        return [self._embed(text) for text in texts]
+
+    def _embed(self, text):
+        vec = [0.0] * self._DIM
+        for token in re.findall(r"[A-Za-z0-9_]+", text.lower()):
+            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=4).digest()
+            idx = int.from_bytes(digest[:2], "little") % self._DIM
+            vec[idx] += 1.0 if digest[2] & 1 else -1.0
+
+        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+        return [v / norm for v in vec]
+
+
+@pytest.fixture(autouse=True)
+def _use_deterministic_test_embedder(monkeypatch, request):
+    """Keep ordinary tests offline and fast while leaving needs_network tests real."""
+    if request.node.get_closest_marker("needs_network"):
+        return
+
+    from mempalace.storage import LanceStore
+
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+    monkeypatch.setattr(LanceStore, "_get_embedder", lambda self: _DeterministicTestEmbedder())
 
 
 @pytest.fixture(scope="session", autouse=True)

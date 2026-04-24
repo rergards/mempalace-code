@@ -88,7 +88,7 @@ reportMissingTypeStubs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-m", "not needs_network"]
+addopts = ["-m", "not needs_network and not slow"]
 markers = [
     "needs_network: test requires network access (~80 MB download)",
     "slow: test is slow (e.g. mines 500+ files); skippable in fast CI runs",
