@@ -204,3 +204,12 @@ items:
         - Added regression coverage for jsx/tsx filters, uppercase normalization, and supported_languages hints
         - Verification: targeted pytest passed; ruff check and ruff format --check passed. A full pytest run was attempted but the broader suite was already failing outside this task scope.
       archived_date: "2026-04-24"
+    - key: MINE-JAVA-PKG-PRIVATE-METHODS
+      summary: Extract package-private Java methods (no visibility modifier) in symbol extraction
+      resolution: |-
+        2026-04-24: Extended Java symbol extraction to recognize package-private methods
+        while preserving field and bare-call false-positive guards. Added exact regression
+        tests for void/typed package-private methods and false positives. Harden round-1:
+        0 findings; targeted Java symbol tests, full symbol extraction tests, Ruff, and
+        format checks pass.
+      archived_date: "2026-04-24"
