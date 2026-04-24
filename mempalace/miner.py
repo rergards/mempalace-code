@@ -961,10 +961,12 @@ _JAVA_EXTRACT = [
         ),
         "class",
     ),
-    # method/constructor: requires at least one modifier to avoid matching field declarations
+    # method: modifiers are optional so package-private methods are extracted.
+    # Statement keywords are excluded because the zero-modifier path can otherwise
+    # resemble return/call statements inside a chunk.
     (
         re.compile(
-            r"^(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|transient|volatile)\s+)+(?:<[^>]+>\s+)?[\w<>\[\],? ]+(?:\[\])*\s+(\w+)\s*\(",
+            r"^(?!(?:return|if|for|while|switch|catch|throw|new|else|do|try|case|assert|break|continue)\b)(?:(?:public|private|protected|static|final|abstract|synchronized|native|default|transient|volatile)\s+)*(?:<[^>]+>\s+)?[\w<>\[\],? ]+(?:\[\])*\s+(\w+)\s*\(",
             re.MULTILINE,
         ),
         "method",

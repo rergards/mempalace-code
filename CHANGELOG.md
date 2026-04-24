@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-24 · MINE-JAVA-PKG-PRIVATE-METHODS
+
+Extract package-private Java methods during symbol extraction.
+
 ## 2026-04-24 · CODE-SEARCH-LANG-JSX-TSX
 
 Add jsx and tsx code_search language filters for React and TypeScript projects.

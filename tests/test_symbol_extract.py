@@ -547,6 +547,16 @@ def test_java_method_public():
     assert extract_symbol(content, "java") == ("processRequest", "method")
 
 
+def test_java_method_package_private_void():
+    content = "void process() {\n}\n"
+    assert extract_symbol(content, "java") == ("process", "method")
+
+
+def test_java_method_package_private_typed():
+    content = "String getName() {\n    return name;\n}\n"
+    assert extract_symbol(content, "java") == ("getName", "method")
+
+
 def test_java_method_private_static():
     content = "private static void helper() {\n}\n"
     assert extract_symbol(content, "java") == ("helper", "method")
@@ -585,6 +595,18 @@ def test_java_field_not_extracted():
         "",
         "",
     )
+
+
+def test_java_package_private_field_not_extracted():
+    assert extract_symbol("String name;\n", "java") == ("", "")
+
+
+def test_java_bare_call_not_extracted():
+    assert extract_symbol("process();\n", "java") == ("", "")
+
+
+def test_java_return_call_not_extracted():
+    assert extract_symbol("return process();\n", "java") == ("", "")
 
 
 def test_java_unknown_returns_empty():

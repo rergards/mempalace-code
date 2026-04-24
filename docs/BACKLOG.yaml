@@ -667,7 +667,7 @@ items:
   - key: MINE-JAVA-PKG-PRIVATE-METHODS
     summary: Extract package-private Java methods (no visibility modifier) in symbol extraction
     type: feature
-    status: open
+    status: done
     priority: low
     size: S
     section_id: coding_first
@@ -682,10 +682,16 @@ items:
       - Add test cases for package-private void and return-type methods
 
       ## Acceptance Criteria
-      - [ ] extract_symbol("void process() {\n}\n", "java") returns ("process", "method")
-      - [ ] extract_symbol("String getName() {\n}\n", "java") returns ("getName", "method")
-      - [ ] extract_symbol("String name;\n", "java") still returns ("", "")
-      - [ ] All existing Java symbol-extraction tests pass
+      - [x] extract_symbol("void process() {\n}\n", "java") returns ("process", "method")
+      - [x] extract_symbol("String getName() {\n}\n", "java") returns ("getName", "method")
+      - [x] extract_symbol("String name;\n", "java") still returns ("", "")
+      - [x] All existing Java symbol-extraction tests pass
+    resolution: |-
+      2026-04-24: Extended Java symbol extraction to recognize package-private methods
+      while preserving field and bare-call false-positive guards. Added exact regression
+      tests for void/typed package-private methods and false positives. Harden round-1:
+      0 findings; targeted Java symbol tests, full symbol extraction tests, Ruff, and
+      format checks pass.
   - key: MINE-CSHARP-EXPR-BODY
     summary: C# expression-bodied properties not detected as boundaries or symbols
     type: feature
