@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-24 · MINE-SWIFT-DISTRIBUTED
+
+Detect Swift distributed actors as mining boundaries and symbols.
+
 ## 2026-04-24 · MINE-CSHARP-EXPR-BODY
 
 Detect C# expression-bodied properties as mining boundaries and symbols.
