@@ -213,3 +213,7 @@ items:
         0 findings; targeted Java symbol tests, full symbol extraction tests, Ruff, and
         format checks pass.
       archived_date: "2026-04-24"
+    - key: MINE-CSHARP-EXPR-BODY
+      summary: C# expression-bodied properties not detected as boundaries or symbols
+      resolution: '2026-04-24: Extended C# property boundary and symbol extraction regexes to accept expression-bodied property syntax (`=>`) as an alternative to `{`. Added symbol extraction, chunk boundary, and XML doc attachment regression tests. Hardening round-1: 0 findings; targeted symbol/chunking pytest suite and ruff check pass.'
+      archived_date: "2026-04-24"
