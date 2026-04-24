@@ -217,3 +217,12 @@ items:
       summary: C# expression-bodied properties not detected as boundaries or symbols
       resolution: '2026-04-24: Extended C# property boundary and symbol extraction regexes to accept expression-bodied property syntax (`=>`) as an alternative to `{`. Added symbol extraction, chunk boundary, and XML doc attachment regression tests. Hardening round-1: 0 findings; targeted symbol/chunking pytest suite and ruff check pass.'
       archived_date: "2026-04-24"
+    - key: MINE-SWIFT-DISTRIBUTED
+      summary: Add distributed actor support to Swift miner
+      resolution: |-
+        2026-04-24: Added Swift distributed actor support by accepting `distributed`
+        in Swift boundary modifiers and actor extraction. Added exact actor extraction
+        and boundary regression tests. Hardening round-1: 1 finding fixed by aligning
+        `distributed func` symbol extraction with the expanded boundary regex; targeted
+        symbol extraction tests and Ruff checks pass.
+      archived_date: "2026-04-24"
