@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-25 · STORE-CHROMA-COUNTBY-FALLBACK
+
+Add ChromaDB count fallbacks so wings, rooms, taxonomy, and status reflect existing drawers.
+
 ## 2026-04-25 · TEST-STORAGE-EDGE
 
 Add LanceStore edge-case tests for empty ID lookups and SQL filter operators.
