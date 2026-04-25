@@ -1089,6 +1089,38 @@ class TestArchTools:
         # MyService is not implemented by others (it's a class, not interface)
         assert "implementors" not in refs
 
+    def test_find_references_depended_by(self, monkeypatch, config, palace_path, kg):
+        """Incoming depends_on edges are grouped under depended_by."""
+        kg.add_triple("ConsumerProject", "depends_on", "MyApp")
+        kg.add_triple("MyApp", "depends_on", "Newtonsoft.Json@13.0.3")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_find_references
+
+        result = tool_find_references(type_name="MyApp")
+        refs = result["references"]
+
+        assert "depended_by" in refs
+        assert [r["type"] for r in refs["depended_by"]] == ["ConsumerProject"]
+        assert "depends_on" in refs
+        assert [r["type"] for r in refs["depends_on"]] == ["Newtonsoft.Json@13.0.3"]
+        assert "referenced_by" not in refs
+
+    def test_find_references_referenced_by(self, monkeypatch, config, palace_path, kg):
+        """Incoming references_project edges are grouped under referenced_by."""
+        kg.add_triple("ConsumerProject", "references_project", "MyApp")
+        kg.add_triple("MyApp", "references_project", "Shared")
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_find_references
+
+        result = tool_find_references(type_name="MyApp")
+        refs = result["references"]
+
+        assert "referenced_by" in refs
+        assert [r["type"] for r in refs["referenced_by"]] == ["ConsumerProject"]
+        assert "references_project" in refs
+        assert [r["type"] for r in refs["references_project"]] == ["Shared"]
+        assert "depended_by" not in refs
+
     def test_show_project_graph_all(self, monkeypatch, config, palace_path, dotnet_kg):
         """AC-5: show_project_graph returns all project-level predicates grouped."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
