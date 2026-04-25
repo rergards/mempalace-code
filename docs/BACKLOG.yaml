@@ -89,7 +89,7 @@ items:
     summary: "Disable spellcheck by default for code mining"
     type: task
     priority: low
-    status: open
+    status: done
     size: S
     section_id: cleanup
     labels: [cleanup, mining]
@@ -110,16 +110,16 @@ items:
 
       ## Acceptance Criteria
 
-      - [ ] Code mining does not run spellcheck by default
+      - [x] Code mining does not run spellcheck by default
 
-      - [ ] Conversation mining still runs spellcheck by default
+      - [x] Conversation mining still runs spellcheck by default
 
-      - [ ] CLI flag `--no-spellcheck` / `--spellcheck` overrides the default
+      - [x] CLI flag `--no-spellcheck` / `--spellcheck` overrides the default
 
-      - [ ] Config file option works
+      - [x] Config file option works
 
-      - [ ] Tests for: code mine skips spellcheck, convo mine runs it, flag override
-    resolution: null
+      - [x] Tests for: code mine skips spellcheck, convo mine runs it, flag override
+    resolution: "Implemented and hardened in docs/audits/CLEAN-SPELLCHECK-round-1.md."
   - key: CLEAN-ENTITY-DETECT
     summary: "Make entity detection opt-in, not default"
     type: task
