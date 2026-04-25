@@ -44,6 +44,41 @@ sections:
 # ============================================================
 items:
   # ── CLEANUP — De-emphasize Dialog-First Features ────────────
+  - key: CLEAN-SPELLCHECK
+    summary: "Disable spellcheck by default for code mining"
+    type: task
+    priority: low
+    status: open
+    size: S
+    section_id: cleanup
+    labels: [cleanup, mining]
+    description: >-
+      ## Problem
+
+      spellcheck.py corrects user messages before filing. Makes sense for conversation text, but for code mining it mangles CamelCase, snake_case, and technical terms (e.g., 'kubectl' -> 'cubectl').
+
+      ## Scope
+
+      - Add a config flag (e.g. `spellcheck_enabled: false` in mempalace.yaml or MempalaceConfig)
+
+      - Default to disabled when mining code files (`--mode code`, or default mode)
+
+      - Keep enabled for conversation mining (`--mode convos`)
+
+      - Respect explicit override: `--spellcheck` / `--no-spellcheck` CLI flags
+
+      ## Acceptance Criteria
+
+      - [ ] Code mining does not run spellcheck by default
+
+      - [ ] Conversation mining still runs spellcheck by default
+
+      - [ ] CLI flag `--no-spellcheck` / `--spellcheck` overrides the default
+
+      - [ ] Config file option works
+
+      - [ ] Tests for: code mine skips spellcheck, convo mine runs it, flag override
+    resolution: null
   - key: CLEAN-ONBOARDING
     summary: "Replace interactive onboarding with config-file-first setup"
     type: task
