@@ -485,6 +485,62 @@ def test_md_no_headings_falls_back_to_paragraphs():
     assert "Another paragraph" in joined
 
 
+def test_md_section_metadata_tracks_heading_path_and_features():
+    doc = """\
+# Architecture
+
+Overview text with enough detail to keep the architecture section meaningful.
+This section explains the high level shape before moving into data flow.
+
+## Data Flow
+
+The data flow section is intentionally long enough to avoid being filtered.
+It explains how records move through the system and keeps the heading path.
+
+```mermaid
+flowchart TD
+    A --> B
+```
+
+| Field | Meaning |
+| --- | --- |
+| wing | project |
+""" + ("More detail about data movement and memory routing.\n" * 45)
+
+    chunks = chunk_prose(doc, "architecture.md")
+    data_flow = next(c for c in chunks if "## Data Flow" in c["content"])
+    metadata = data_flow["markdown_metadata"]
+
+    assert metadata["heading"] == "Data Flow"
+    assert metadata["heading_level"] == 2
+    assert metadata["heading_path"] == "Architecture > Data Flow"
+    assert metadata["doc_section_type"] == "section"
+    assert metadata["contains_mermaid"] == 1
+    assert metadata["contains_code"] == 1
+    assert metadata["contains_table"] == 1
+
+
+def test_md_h5_heading_is_a_boundary():
+    doc = """\
+# Root
+
+Root section content that establishes the document hierarchy for this test.
+It is long enough to survive the minimum chunk filter in the prose chunker.
+
+##### Deep Detail
+
+Deep detail content is intentionally verbose enough to become searchable.
+It proves that five-hash Markdown headings are treated as structural boundaries.
+""" + ("Additional deep detail for the section boundary assertion.\n" * 45)
+
+    chunks = chunk_prose(doc, "deep.md")
+    deep = next(c for c in chunks if "##### Deep Detail" in c["content"])
+
+    assert deep["markdown_metadata"]["heading"] == "Deep Detail"
+    assert deep["markdown_metadata"]["heading_level"] == 5
+    assert deep["markdown_metadata"]["heading_path"] == "Root > Deep Detail"
+
+
 def test_md_empty():
     chunks = chunk_prose("", "doc.md")
     assert chunks == []

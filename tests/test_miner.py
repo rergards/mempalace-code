@@ -626,6 +626,74 @@ def test_symbol_name_filter_query():
         shutil.rmtree(tmpdir)
 
 
+def test_markdown_section_metadata_roundtrips_to_store():
+    """Markdown drawers persist heading path, section type, and feature flags."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        md_file = project_root / "docs" / "architecture.md"
+        write_file(
+            md_file,
+            """\
+# Architecture
+
+Architecture overview text with enough detail to stay in the mined drawer.
+It explains the document scope before the implementation section starts.
+
+## Implementation
+
+Implementation section text describes how the Markdown memory metadata is stored.
+It is intentionally verbose enough to survive chunk filtering and merging rules.
+
+```mermaid
+flowchart TD
+    Source --> Drawer
+```
+
+| Field | Meaning |
+| --- | --- |
+| heading_path | Location |
+"""
+            + ("More implementation detail for a stable Markdown drawer.\n" * 45),
+        )
+        _make_palace_config(project_root)
+
+        palace_path = project_root / "palace"
+        palace = open_store(str(palace_path), create=True)
+
+        process_file(
+            filepath=md_file,
+            project_path=project_root,
+            collection=palace,
+            wing="test_wing",
+            rooms=[{"name": "docs"}, {"name": "general"}],
+            agent="test",
+            dry_run=False,
+        )
+
+        result = palace.get(
+            where={"source_file": str(md_file)},
+            include=["documents", "metadatas"],
+            limit=100,
+        )
+        implementation_meta = next(
+            meta
+            for doc, meta in zip(result["documents"], result["metadatas"])
+            if "Implementation" in doc
+        )
+
+        assert implementation_meta["language"] == "markdown"
+        assert implementation_meta["heading"] == "Implementation"
+        assert implementation_meta["heading_level"] == 2
+        assert implementation_meta["heading_path"] == "Architecture > Implementation"
+        assert implementation_meta["doc_section_type"] == "implementation"
+        assert implementation_meta["contains_mermaid"] == 1
+        assert implementation_meta["contains_code"] == 1
+        assert implementation_meta["contains_table"] == 1
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_mine_batch_embedding_parity():
     """mine() batch path produces correct drawer count and full metadata for multi-file projects."""
     tmpdir = tempfile.mkdtemp()

@@ -692,7 +692,10 @@ SWIFT_BOUNDARY = re.compile(
 _SWIFT_PURE_ATTR = re.compile(r"^(?:@\w+(?:\([^)]*\))?\s*)+$")
 
 # Markdown heading boundaries
-HEADING_MD = re.compile(r"^#{1,4}\s+.+", re.MULTILINE)
+HEADING_MD = re.compile(r"^(#{1,6})\s+(.+)", re.MULTILINE)
+FENCED_CODE_MD = re.compile(r"^\s*```", re.MULTILINE)
+MERMAID_CODE_MD = re.compile(r"^\s*```\s*mermaid\b", re.MULTILINE | re.IGNORECASE)
+TABLE_ROW_MD = re.compile(r"^\s*\|.+\|\s*$", re.MULTILINE)
 
 # HCL / Terraform top-level block boundaries
 HCL_BOUNDARY = re.compile(
@@ -2092,7 +2095,7 @@ def chunk_code(content: str, language: str, source_file: str) -> list:
 
 def chunk_prose(content: str, source_file: str) -> list:
     """
-    Split prose at markdown heading boundaries (#–####).
+    Split prose at markdown heading boundaries (#–######).
     Falls back to paragraph chunking if no headings are found.
     """
     lines = content.split("\n")
@@ -2104,20 +2107,164 @@ def chunk_prose(content: str, source_file: str) -> list:
         return adaptive_merge_split(paragraphs, source_file) if paragraphs else []
 
     raw_chunks = []
+    heading_stack = {}
 
     # Preamble before the first heading
     if heading_lines[0] > 0:
         preamble = "\n".join(lines[: heading_lines[0]]).strip()
         if preamble:
-            raw_chunks.append(preamble)
+            raw_chunks.append(
+                {
+                    "content": preamble,
+                    "markdown_metadata": _markdown_section_metadata(preamble, "", 0, []),
+                }
+            )
 
     for idx, start in enumerate(heading_lines):
         end = heading_lines[idx + 1] if idx + 1 < len(heading_lines) else len(lines)
         section = "\n".join(lines[start:end]).strip()
         if section:
-            raw_chunks.append(section)
+            match = HEADING_MD.match(lines[start].strip())
+            level = len(match.group(1)) if match else 0
+            heading = _clean_markdown_heading(match.group(2)) if match else ""
+            heading_stack = {k: v for k, v in heading_stack.items() if k < level}
+            if level:
+                heading_stack[level] = heading
+            heading_path = [heading_stack[k] for k in sorted(heading_stack)]
+            raw_chunks.append(
+                {
+                    "content": section,
+                    "markdown_metadata": _markdown_section_metadata(
+                        section, heading, level, heading_path
+                    ),
+                }
+            )
 
-    return adaptive_merge_split(raw_chunks, source_file)
+    return adaptive_merge_split_sections(raw_chunks, source_file)
+
+
+def _clean_markdown_heading(heading: str) -> str:
+    """Normalize markdown heading text for metadata filters."""
+    return heading.strip().strip("#").strip()
+
+
+def _markdown_section_metadata(
+    section: str, heading: str, heading_level: int, heading_path: list
+) -> dict:
+    """Build compact metadata for a Markdown section."""
+    return {
+        "heading": heading,
+        "heading_level": heading_level,
+        "heading_path": " > ".join(heading_path),
+        "doc_section_type": _classify_markdown_section(heading),
+        "contains_mermaid": int(bool(MERMAID_CODE_MD.search(section))),
+        "contains_code": int(bool(FENCED_CODE_MD.search(section))),
+        "contains_table": int(bool(TABLE_ROW_MD.search(section))),
+    }
+
+
+def _classify_markdown_section(heading: str) -> str:
+    """Classify common technical-document sections from their heading."""
+    normalized = heading.lower()
+    if not normalized:
+        return "preamble"
+    if "adr" in normalized or "decision" in normalized or "решени" in normalized:
+        return "decision"
+    if "architecture" in normalized or "архитект" in normalized:
+        return "architecture"
+    if "problem" in normalized or "context" in normalized or "зачем" in normalized:
+        return "context"
+    if "solution" in normalized or "implementation" in normalized or "реализац" in normalized:
+        return "implementation"
+    if "test" in normalized or "провер" in normalized:
+        return "validation"
+    if "risk" in normalized or "rollback" in normalized or "риск" in normalized:
+        return "risk"
+    if "api" in normalized or "reference" in normalized:
+        return "reference"
+    if "install" in normalized or "usage" in normalized or "quickstart" in normalized:
+        return "usage"
+    if "benchmark" in normalized or "metric" in normalized:
+        return "benchmark"
+    if "follow" in normalized or "next" in normalized:
+        return "follow_up"
+    return "section"
+
+
+def adaptive_merge_split_sections(raw_chunks: list, source_file: str) -> list:
+    """
+    Markdown-aware variant of adaptive_merge_split().
+    Preserves section metadata while merging small sections and splitting large ones.
+    """
+    if not raw_chunks:
+        return []
+
+    result = []
+    buffer = ""
+    buffer_meta = None
+
+    for item in raw_chunks:
+        chunk = item["content"]
+        metadata = item.get("markdown_metadata", {})
+        if len(chunk) > HARD_MAX:
+            if buffer.strip():
+                result.append({"content": buffer.strip(), "markdown_metadata": buffer_meta or {}})
+                buffer = ""
+                buffer_meta = None
+            for split in _split_oversized(chunk):
+                result.append({"content": split, "markdown_metadata": metadata})
+        elif len(buffer) + len(chunk) + 2 <= TARGET_MAX:
+            buffer = f"{buffer}\n\n{chunk}" if buffer else chunk
+            buffer_meta = (
+                _merge_markdown_metadata(buffer_meta, metadata) if buffer_meta else dict(metadata)
+            )
+        else:
+            if buffer.strip():
+                result.append({"content": buffer.strip(), "markdown_metadata": buffer_meta or {}})
+            buffer = chunk
+            buffer_meta = dict(metadata)
+
+    if buffer.strip():
+        result.append({"content": buffer.strip(), "markdown_metadata": buffer_meta or {}})
+
+    filtered = [item for item in result if len(item["content"]) >= MIN_CHUNK]
+    return [
+        {
+            "content": item["content"],
+            "chunk_index": i,
+            "markdown_metadata": item["markdown_metadata"],
+        }
+        for i, item in enumerate(filtered)
+    ]
+
+
+def _merge_markdown_metadata(left: dict, right: dict) -> dict:
+    """Merge metadata when adjacent short Markdown sections share one drawer."""
+    left = left or {}
+    right = right or {}
+    headings = [h for h in (left.get("heading", ""), right.get("heading", "")) if h]
+    paths = [p for p in (left.get("heading_path", ""), right.get("heading_path", "")) if p]
+    section_types = {
+        value
+        for value in (left.get("doc_section_type", ""), right.get("doc_section_type", ""))
+        if value
+    }
+    levels = [
+        level for level in (left.get("heading_level", 0), right.get("heading_level", 0)) if level
+    ]
+    return {
+        "heading": " | ".join(dict.fromkeys(headings)),
+        "heading_level": min(levels) if levels else 0,
+        "heading_path": " | ".join(dict.fromkeys(paths)),
+        "doc_section_type": next(iter(section_types)) if len(section_types) == 1 else "mixed",
+        "contains_mermaid": int(
+            bool(left.get("contains_mermaid", 0) or right.get("contains_mermaid", 0))
+        ),
+        "contains_code": int(bool(left.get("contains_code", 0) or right.get("contains_code", 0))),
+        "contains_table": int(
+            bool(left.get("contains_table", 0) or right.get("contains_table", 0))
+        ),
+    }
 
 
 def chunk_adaptive_lines(content: str, source_file: str) -> list:
@@ -2254,26 +2401,28 @@ def add_drawer(
     language: str = "unknown",
     symbol_name: str = "",
     symbol_type: str = "",
+    markdown_metadata: Optional[dict] = None,
 ):
     """Add one drawer to the palace."""
     drawer_id = f"drawer_{wing}_{room}_{hashlib.md5((source_file + str(chunk_index)).encode(), usedforsecurity=False).hexdigest()[:16]}"
     try:
+        metadata = {
+            "wing": wing,
+            "room": room,
+            "source_file": source_file,
+            "chunk_index": chunk_index,
+            "added_by": agent,
+            "filed_at": datetime.now().isoformat(),
+            "language": language,
+            "symbol_name": symbol_name,
+            "symbol_type": symbol_type,
+        }
+        if markdown_metadata:
+            metadata.update(markdown_metadata)
         collection.add(
             documents=[content],
             ids=[drawer_id],
-            metadatas=[
-                {
-                    "wing": wing,
-                    "room": room,
-                    "source_file": source_file,
-                    "chunk_index": chunk_index,
-                    "added_by": agent,
-                    "filed_at": datetime.now().isoformat(),
-                    "language": language,
-                    "symbol_name": symbol_name,
-                    "symbol_type": symbol_type,
-                }
-            ],
+            metadatas=[metadata],
         )
         return True
     except Exception as e:
@@ -2335,6 +2484,7 @@ def _collect_specs_for_file(
     for chunk in chunks:
         symbol_name, symbol_type = extract_symbol(chunk["content"], language)
         drawer_id = f"drawer_{wing}_{room}_{hashlib.md5((source_file + str(chunk['chunk_index'])).encode(), usedforsecurity=False).hexdigest()[:16]}"
+        markdown_metadata = chunk.get("markdown_metadata", {})
         specs.append(
             {
                 "id": drawer_id,
@@ -2349,6 +2499,7 @@ def _collect_specs_for_file(
                     "language": language,
                     "symbol_name": symbol_name,
                     "symbol_type": symbol_type,
+                    **markdown_metadata,
                     "source_hash": source_hash,
                     "extractor_version": __version__,
                     "chunker_strategy": chunk.get("chunker_strategy", "regex_structural_v1"),
