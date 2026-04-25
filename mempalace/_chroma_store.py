@@ -91,7 +91,35 @@ class ChromaStore(DrawerStore):
         return len(ids)
 
     def count_by(self, column: str) -> Dict[str, int]:
-        raise NotImplementedError("count_by not supported on deprecated ChromaStore")
+        total = self.count()
+        if total == 0:
+            return {}
+
+        # Deprecated backend stop-gap: ChromaDB has no cheap metadata group-by,
+        # so MCP status/taxonomy calls fall back to iterating metadata rows.
+        results = self.get(include=["metadatas"], limit=total)
+        counts: Dict[str, int] = {}
+        for metadata in results.get("metadatas", []):
+            if not metadata or column not in metadata:
+                continue
+            value = metadata[column]
+            counts[value] = counts.get(value, 0) + 1
+        return counts
 
     def count_by_pair(self, col_a: str, col_b: str) -> Dict[str, Dict[str, int]]:
-        raise NotImplementedError("count_by_pair not supported on deprecated ChromaStore")
+        total = self.count()
+        if total == 0:
+            return {}
+
+        # Deprecated backend stop-gap: ChromaDB has no cheap metadata group-by,
+        # so MCP status/taxonomy calls fall back to iterating metadata rows.
+        results = self.get(include=["metadatas"], limit=total)
+        counts: Dict[str, Dict[str, int]] = {}
+        for metadata in results.get("metadatas", []):
+            if not metadata or col_a not in metadata or col_b not in metadata:
+                continue
+            value_a = metadata[col_a]
+            value_b = metadata[col_b]
+            nested = counts.setdefault(value_a, {})
+            nested[value_b] = nested.get(value_b, 0) + 1
+        return counts
