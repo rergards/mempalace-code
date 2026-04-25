@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from mempalace.storage import (
     DrawerStore,
+    LanceStore,
     _META_DEFAULTS,
     _META_FIELD_SPEC,
     _META_KEYS,
@@ -18,6 +19,38 @@ from mempalace.storage import (
     _target_drawer_schema,
     open_store,
 )
+
+
+class _ProjectedScanner:
+    def __init__(self, arrow_table):
+        self._arrow_table = arrow_table
+
+    def to_table(self):
+        return self._arrow_table
+
+
+class _ProjectedTable:
+    def __init__(self, rows, *, fail_on_columns=None):
+        import pyarrow as pa
+
+        self.calls = []
+        self.fail_on_columns = fail_on_columns or set()
+        self._arrow_table = pa.Table.from_pylist(rows)
+
+    def scanner(self, *, columns):
+        self.calls.append(list(columns))
+        if self.fail_on_columns & set(columns):
+            raise RuntimeError("missing projected column")
+        return _ProjectedScanner(self._arrow_table.select(columns))
+
+    def to_arrow(self):
+        raise AssertionError("metadata scans must use scanner(columns=...)")
+
+
+def _store_with_projected_table(table):
+    store = LanceStore.__new__(LanceStore)
+    store._table = table
+    return store
 
 
 class TestDeleteWing:
@@ -138,6 +171,35 @@ class TestCountBy:
         assert store.count_by("wing") == {}
         assert store.count_by_pair("wing", "room") == {}
 
+    def test_count_by_uses_scan_projection(self):
+        table = _ProjectedTable(
+            [
+                {"wing": "alpha", "room": "backend", "vector": [1.0]},
+                {"wing": "alpha", "room": "frontend", "vector": [2.0]},
+                {"wing": "beta", "room": "backend", "vector": [3.0]},
+            ]
+        )
+        store = _store_with_projected_table(table)
+
+        assert store.count_by("wing") == {"alpha": 2, "beta": 1}
+        assert table.calls == [["wing"]]
+
+    def test_count_by_pair_uses_scan_projection(self):
+        table = _ProjectedTable(
+            [
+                {"wing": "alpha", "room": "backend", "vector": [1.0]},
+                {"wing": "alpha", "room": "backend", "vector": [2.0]},
+                {"wing": "beta", "room": "frontend", "vector": [3.0]},
+            ]
+        )
+        store = _store_with_projected_table(table)
+
+        assert store.count_by_pair("wing", "room") == {
+            "alpha": {"backend": 2},
+            "beta": {"frontend": 1},
+        }
+        assert table.calls == [["wing", "room"]]
+
 
 class TestGetSourceFiles:
     def test_empty_table_returns_empty_set(self, palace_path):
@@ -173,6 +235,59 @@ class TestGetSourceFiles:
         store = open_store(palace_path, create=True)
         result = store.get_source_files("anything")
         assert isinstance(result, set)
+
+    def test_get_source_files_uses_scan_projection(self):
+        table = _ProjectedTable(
+            [
+                {"source_file": "alpha/a.py", "wing": "alpha", "vector": [1.0]},
+                {"source_file": "alpha/b.py", "wing": "alpha", "vector": [2.0]},
+                {"source_file": "beta/c.py", "wing": "beta", "vector": [3.0]},
+            ]
+        )
+        store = _store_with_projected_table(table)
+
+        assert store.get_source_files("alpha") == {"alpha/a.py", "alpha/b.py"}
+        assert table.calls == [["source_file", "wing"]]
+
+
+class TestMetadataScanProjection:
+    def test_get_source_file_hashes_uses_scan_projection(self):
+        table = _ProjectedTable(
+            [
+                {
+                    "source_file": "alpha/a.py",
+                    "source_hash": "hash-a1",
+                    "wing": "alpha",
+                    "vector": [1.0],
+                },
+                {
+                    "source_file": "alpha/a.py",
+                    "source_hash": "hash-a2",
+                    "wing": "alpha",
+                    "vector": [2.0],
+                },
+                {
+                    "source_file": "beta/c.py",
+                    "source_hash": "hash-c",
+                    "wing": "beta",
+                    "vector": [3.0],
+                },
+            ]
+        )
+        store = _store_with_projected_table(table)
+
+        assert store.get_source_file_hashes("alpha") == {"alpha/a.py": "hash-a1"}
+        assert table.calls == [["source_file", "source_hash", "wing"]]
+
+    def test_get_source_file_hashes_missing_source_hash_returns_empty_dict(self):
+        table = _ProjectedTable(
+            [{"source_file": "alpha/a.py", "source_hash": "hash-a", "wing": "alpha"}],
+            fail_on_columns={"source_hash"},
+        )
+        store = _store_with_projected_table(table)
+
+        assert store.get_source_file_hashes("alpha") == {}
+        assert table.calls == [["source_file", "source_hash", "wing"]]
 
 
 class TestOptimize:

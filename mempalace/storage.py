@@ -508,7 +508,7 @@ class LanceStore(DrawerStore):
     def get_source_file_hashes(self, wing: str) -> dict:
         """Return {source_file: source_hash} for all drawers in wing.
 
-        Uses PyArrow column projection — no vector scan.
+        Uses LanceDB scan-time column projection — no vector scan.
         Deduplicates by taking the first hash per source_file.
         Returns an empty dict if the table is empty or column is absent.
         """
@@ -517,7 +517,7 @@ class LanceStore(DrawerStore):
         import pyarrow.compute as pc
 
         try:
-            arrow_tbl = self._table.to_arrow().select(["source_file", "source_hash", "wing"])
+            arrow_tbl = self._scan_columns(["source_file", "source_hash", "wing"])
         except Exception:
             # Table predates migration (source_hash column missing) — return empty
             return {}
@@ -534,7 +534,7 @@ class LanceStore(DrawerStore):
     def count_by(self, column: str) -> Dict[str, int]:
         if self._table is None:
             return {}
-        arrow_tbl = self._table.to_arrow().select([column])
+        arrow_tbl = self._scan_columns([column])
         result = arrow_tbl.group_by(column).aggregate([(column, "count")])
         d = result.to_pydict()
         return dict(zip(d[column], d[f"{column}_count"]))
@@ -542,7 +542,7 @@ class LanceStore(DrawerStore):
     def count_by_pair(self, col_a: str, col_b: str) -> Dict[str, Dict[str, int]]:
         if self._table is None:
             return {}
-        arrow_tbl = self._table.to_arrow().select([col_a, col_b])
+        arrow_tbl = self._scan_columns([col_a, col_b])
         result = arrow_tbl.group_by([col_a, col_b]).aggregate([(col_b, "count")])
         d = result.to_pydict()
         out: Dict[str, Dict[str, int]] = {}
@@ -553,16 +553,22 @@ class LanceStore(DrawerStore):
     def get_source_files(self, wing: str) -> Optional[set]:
         """Return the set of all source_file values already stored for *wing*.
 
-        Uses PyArrow column projection and filter — no vector scan required.
+        Uses LanceDB scan-time column projection and filter — no vector scan required.
         Returns an empty set if the table is empty or doesn't exist.
         """
         if self._table is None:
             return set()
         import pyarrow.compute as pc
 
-        arrow_tbl = self._table.to_arrow().select(["source_file", "wing"])
+        arrow_tbl = self._scan_columns(["source_file", "wing"])
         filtered = arrow_tbl.filter(pc.field("wing") == wing)
         return set(filtered.column("source_file").to_pylist())
+
+    def _scan_columns(self, columns: List[str]):
+        """Return an Arrow table from a LanceDB scan projected to *columns*."""
+        if hasattr(self._table, "scanner"):
+            return self._table.scanner(columns=columns).to_table()
+        return self._table.search().select(columns).to_arrow()
 
     def iter_all(self, where=None, batch_size=1000, include_vectors=False):
         """Yield batches of drawers as lists of dicts using PyArrow column projection.
