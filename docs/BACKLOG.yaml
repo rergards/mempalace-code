@@ -986,7 +986,7 @@ items:
   - key: MINE-K8S-LARGE-DOC
     summary: 'K8s large-doc symbol propagation: sub-chunks past first lose kind/name metadata'
     type: feature
-    status: open
+    status: done
     priority: low
     size: S
     section_id: coding_first
@@ -1000,8 +1000,14 @@ items:
       - Add a test with a large K8s doc (>4000 chars) verifying all sub-chunks have correct symbol metadata
 
       ## Acceptance Criteria
-      - [ ] Large K8s doc (>4000 chars) produces multiple chunks all with correct symbol_type and symbol_name
-      - [ ] Existing K8s tests continue to pass unchanged
+      - [x] Large K8s doc (>4000 chars) produces multiple chunks all with correct symbol_type and symbol_name
+      - [x] Existing K8s tests continue to pass unchanged
+
+      ## Resolution
+      2026-04-25: Propagated Kubernetes kind/name metadata from each full manifest
+      document to every adaptive sub-chunk, including oversized docs split past
+      HARD_MAX. Added large-doc, missing-kind, and multi-doc metadata isolation
+      regression tests. Hardening round-1: 0 findings; tests/test_miner.py passes.
   - key: MINE-K8S-YAML-SEPARATOR
     summary: K8s chunker false splits on '---' inside YAML block scalar values
     type: bug
