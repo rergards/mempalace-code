@@ -855,36 +855,6 @@ items:
       ## Constraints
 
       Identified in PY-TYPE-KG hardening round-1 (F-2). Low priority -- multi-module imports are uncommon in modern Python.
-  - key: MINE-K8S-YAML-SEPARATOR
-    summary: K8s chunker false splits on '---' inside YAML block scalar values
-    type: bug
-    status: done
-    priority: low
-    size: S
-    section_id: coding_first
-    labels: [fix, miner, infra]
-    description: |-
-      ## Symptom
-      _chunk_k8s_manifest splits on the regex (?:^|\n)---\s*(?:\n|$) which matches any --- at a line boundary, including --- inside YAML block scalars (|, >) in ConfigMap/Secret data fields. A ConfigMap with an embedded config file containing --- would be incorrectly split.
-
-      ## Steps to reproduce
-      1. Create a ConfigMap with a block scalar under data containing a line with `---`.
-      2. Run K8s manifest chunking on the file.
-      3. Observe the ConfigMap split as though the embedded separator were a YAML document separator.
-
-      ## Scope
-      - _chunk_k8s_manifest in miner.py: guard against splitting inside YAML block scalar values
-      - Add a test with a ConfigMap whose data contains an embedded --- separator
-
-      ## Acceptance Criteria
-      - [x] ConfigMap with data containing embedded --- is stored as a single chunk
-      - [x] Multi-document YAML files with real --- separators continue to produce one chunk per document
-      - [x] Hardening round-1 complete: 1 fixed, 0 backlogged, 0 dismissed
-    done_summary: |-
-      2026-04-25: Replaced regex-only K8s document splitting with a YAML-aware
-      line scanner that ignores --- inside literal/folded block scalar values.
-      Added tests for ConfigMap data scalars, folded Secret scalars followed by a
-      real document separator, and sequence item scalars in Pod commands.
   - key: CLARIFY-MINE-RUBY-SMART
     summary: "Clarify scope for MINE-RUBY-SMART before planning can proceed"
     type: task
