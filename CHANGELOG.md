@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-25 · CLEAN-EMOTION-EXTRACT
+
+Remove emotional memories from default general extraction while keeping them opt-in for conversation mining.
+
 ## 2026-04-25 · CLEAN-SPELLCHECK
 
 Disable spellcheck by default for code mining while keeping conversation mining spellcheck enabled.
