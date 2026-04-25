@@ -289,3 +289,8 @@ items:
       resolution: '2026-04-26: completed in pipeline run'
       archived_date: "2026-04-26"
       done_summary: completed in pipeline run
+    - key: EXTRACT-REUSABLE-REFERENCES-PROJECT-GLUE
+      summary: 'Extract reusable: promote glue when entity references_project a platform project'
+      resolution: '2026-04-26: completed in pipeline run'
+      archived_date: "2026-04-26"
+      done_summary: completed in pipeline run
