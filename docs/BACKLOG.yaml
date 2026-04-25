@@ -160,32 +160,6 @@ items:
       - Cold-cache runtime stays under 10 minutes for the main job.
       - Warm-cache runtime stays under 3 minutes for the main job, or the observed runtime is documented if the hosted runner is slower.
     resolution: null
-  - key: STORE-CHROMA-COUNTBY-FALLBACK
-    summary: "ChromaStore.count_by/count_by_pair silently return empty when deprecated ChromaDB backend is used"
-    type: bug
-    status: open
-    priority: low
-    size: S
-    section_id: storage_reliability
-    labels: [storage, chroma, hardening]
-    description: |-
-      ## Symptom
-      ChromaDB palaces can silently report empty wings and rooms even though drawers exist.
-
-      ## Steps to reproduce
-      1. Open a deprecated ChromaDB-backed palace with drawers across multiple wings.
-      2. Call `tool_list_wings`, `tool_list_rooms`, `tool_get_taxonomy`, or `tool_status`.
-      3. Observe `wings={}` or `rooms={}` because ChromaStore.count_by/count_by_pair are not implemented and MCP aggregation failures are swallowed.
-
-      ## Acceptance criteria
-      - Implement a get-and-iterate fallback for ChromaStore.count_by/count_by_pair using `self.get(include=["metadatas"], limit=self.count())`.
-      - `tool_list_wings` on a ChromaDB palace with N drawers across M wings returns all M wings.
-      - `tool_list_rooms` and taxonomy return non-empty counts for ChromaDB palaces.
-      - The fix is documented as a stop-gap for the deprecated ChromaDB backend.
-    resolution: |-
-      Implemented ChromaStore.count_by/count_by_pair metadata iteration fallback and
-      Chroma-specific regression tests. Hardening round-1: 0 findings; targeted
-      Chroma compatibility tests and Ruff checks pass.
   - key: MINE-LANCE-VECTOR-SCAN
     summary: get_source_files() loads full table including vector column before projecting to two columns
     type: bug

@@ -261,3 +261,8 @@ items:
       resolution: '2026-04-25: completed in pipeline run'
       archived_date: "2026-04-25"
       done_summary: completed in pipeline run
+    - key: STORE-CHROMA-COUNTBY-FALLBACK
+      summary: ChromaStore.count_by/count_by_pair silently return empty when deprecated ChromaDB backend is used
+      resolution: '2026-04-25: completed in pipeline run'
+      archived_date: "2026-04-25"
+      done_summary: completed in pipeline run
