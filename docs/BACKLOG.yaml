@@ -545,7 +545,7 @@ items:
   - key: HEALTH-SCAN-PROJECTION
     summary: health_check Probe 3 uses to_arrow() loading all rows; switch to column-projected scanner
     type: task
-    status: open
+    status: done
     priority: low
     size: S
     section_id: storage_reliability
@@ -569,6 +569,11 @@ items:
       ## Constraints
       - Must preserve the exact corruption detection semantics (still scans all fragments)
       - Identified in FIX-LANCE-CORRUPT harden round-1 (F-4)
+    resolution: |-
+      Implemented in hardening round 1: health_check() and recover_to_last_working_version()
+      now use projected LanceDB scans for the wing/room metadata probe. Added regression
+      coverage for scanner projection, structured scan failure reporting, recovery dry-run
+      projection, and fallback projected search.
   - key: BENCH-DOTNET-CLONE-REPO
     summary: Clone jasontaylordev/CleanArchitecture (pin to a stable tag, e.g. v8.0.x) and record the commit hash before running the benchmark
     type: task
