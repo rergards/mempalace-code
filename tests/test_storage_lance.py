@@ -122,14 +122,15 @@ class TestUpsert:
 
 
 class TestGetFilters:
-    def test_get_empty_ids_returns_empty(self, tmp_path):
-        """AC-5: get() with ids=[] returns empty result immediately."""
-        store = open_store(str(tmp_path), create=True)
-        store.add(
-            ids=["e1"],
-            documents=["some content in the store"],
-            metadatas=[{"wing": "w", "room": "r"}],
-        )
+    def test_get_empty_ids_does_not_query_table(self):
+        """AC-5: get() with ids=[] returns empty result before touching LanceDB."""
+        store = object.__new__(LanceStore)
+
+        class FailingTable:
+            def search(self):
+                raise AssertionError("ids=[] must not query the table")
+
+        store._table = FailingTable()
         result = store.get(ids=[])
         assert result == {"ids": [], "documents": [], "metadatas": []}
 
@@ -177,6 +178,32 @@ class TestGetFilters:
         returned_wings = {m["wing"] for m in result["metadatas"]}
         assert returned_wings == {"alpha", "beta"}
 
+    def test_get_where_or_matches_either_branch_only(self, tmp_path):
+        """Regression: $or includes either branch and excludes non-matching rows."""
+        store = open_store(str(tmp_path), create=True)
+        store.add(
+            ids=["or-alpha", "or-beta", "or-gamma"],
+            documents=[
+                "alpha wing regression document",
+                "beta wing regression document",
+                "gamma wing regression document",
+            ],
+            metadatas=[
+                {"wing": "alpha", "room": "r"},
+                {"wing": "beta", "room": "r"},
+                {"wing": "gamma", "room": "r"},
+            ],
+        )
+
+        result = store.get(
+            where={"$or": [{"wing": "alpha"}, {"wing": "beta"}]},
+            include=["metadatas"],
+        )
+
+        assert set(result["ids"]) == {"or-alpha", "or-beta"}
+        assert "or-gamma" not in result["ids"]
+        assert {m["wing"] for m in result["metadatas"]} == {"alpha", "beta"}
+
     def test_get_where_operators(self, tmp_path):
         """AC-6: get() with operator dicts ($gt, $gte, $lt, $lte) filters on numeric fields."""
         store = open_store(str(tmp_path), create=True)
@@ -214,6 +241,54 @@ class TestGetFilters:
         # $lt: chunk_index < 2 → rows with chunk_index 0 and 1
         lt_result = store.get(where={"chunk_index": {"$lt": 2}}, include=["metadatas"])
         assert len(lt_result["ids"]) == 2
+
+    def test_get_where_ne_excludes_comparison_value(self, tmp_path):
+        """Regression: $ne excludes the exact comparison value."""
+        store = open_store(str(tmp_path), create=True)
+        store.add(
+            ids=["ne-zero", "ne-one", "ne-two"],
+            documents=[
+                "chunk index zero ne regression",
+                "chunk index one ne regression",
+                "chunk index two ne regression",
+            ],
+            metadatas=[
+                {"wing": "w", "room": "r", "chunk_index": 0},
+                {"wing": "w", "room": "r", "chunk_index": 1},
+                {"wing": "w", "room": "r", "chunk_index": 2},
+            ],
+        )
+
+        result = store.get(where={"chunk_index": {"$ne": 1}}, include=["metadatas"])
+
+        assert set(result["ids"]) == {"ne-zero", "ne-two"}
+        assert "ne-one" not in result["ids"]
+        assert {m["chunk_index"] for m in result["metadatas"]} == {0, 2}
+
+    def test_get_where_gt_returns_strictly_greater_rows(self, tmp_path):
+        """Regression: $gt returns only rows strictly above the comparison value."""
+        store = open_store(str(tmp_path), create=True)
+        store.add(
+            ids=["gt-zero", "gt-one", "gt-two", "gt-three"],
+            documents=[
+                "chunk index zero gt regression",
+                "chunk index one gt regression",
+                "chunk index two gt regression",
+                "chunk index three gt regression",
+            ],
+            metadatas=[
+                {"wing": "w", "room": "r", "chunk_index": 0},
+                {"wing": "w", "room": "r", "chunk_index": 1},
+                {"wing": "w", "room": "r", "chunk_index": 2},
+                {"wing": "w", "room": "r", "chunk_index": 3},
+            ],
+        )
+
+        result = store.get(where={"chunk_index": {"$gt": 1}}, include=["metadatas"])
+
+        assert set(result["ids"]) == {"gt-two", "gt-three"}
+        assert {"gt-zero", "gt-one"}.isdisjoint(result["ids"])
+        assert {m["chunk_index"] for m in result["metadatas"]} == {2, 3}
 
     def test_get_limit_offset(self, tmp_path):
         """AC-7: get() with limit and offset returns the correct slice."""
