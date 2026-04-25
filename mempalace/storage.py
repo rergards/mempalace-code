@@ -740,7 +740,7 @@ class LanceStore(DrawerStore):
         Runs three probes covering the failure surfaces from the 2026-04-16 incident:
           1. count_rows() — touches the manifest
           2. head(1).to_pydict() — touches at least one fragment's data
-          3. to_arrow().select(["wing","room"]) group-by — touches every fragment's metadata
+          3. projected ["wing","room"] group-by — touches every fragment's metadata
 
         Returns a structured report. Never raises — all exceptions are caught.
 
@@ -792,7 +792,7 @@ class LanceStore(DrawerStore):
 
         # Probe 3: column scan — touches every fragment's metadata (the silent-failure surface)
         try:
-            arrow_tbl = self._table.to_arrow().select(["wing", "room"])
+            arrow_tbl = self._scan_columns(["wing", "room"])
             arrow_tbl.group_by(["wing", "room"]).aggregate([("room", "count")])
         except Exception as e:
             errors.append({"probe": "count_by_pair", "kind": _classify(e), "message": str(e)})
@@ -876,7 +876,7 @@ class LanceStore(DrawerStore):
                     # Run all three probes
                     self._table.count_rows()
                     self._table.head(1).to_pydict()
-                    arrow_tbl = self._table.to_arrow().select(["wing", "room"])
+                    arrow_tbl = self._scan_columns(["wing", "room"])
                     arrow_tbl.group_by(["wing", "room"]).aggregate([("room", "count")])
                     # All probes passed
                     candidate_version = ver_num

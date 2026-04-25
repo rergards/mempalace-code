@@ -30,11 +30,14 @@ class _ProjectedScanner:
 
 
 class _ProjectedTable:
-    def __init__(self, rows, *, fail_on_columns=None):
+    def __init__(self, rows, *, fail_on_columns=None, versions=None):
         import pyarrow as pa
 
         self.calls = []
+        self.checked_out = []
+        self.latest_checkouts = 0
         self.fail_on_columns = fail_on_columns or set()
+        self.versions = versions or [{"version": 1}]
         self._arrow_table = pa.Table.from_pylist(rows)
 
     def scanner(self, *, columns):
@@ -43,8 +46,64 @@ class _ProjectedTable:
             raise RuntimeError("missing projected column")
         return _ProjectedScanner(self._arrow_table.select(columns))
 
+    def count_rows(self):
+        return self._arrow_table.num_rows
+
+    def head(self, limit):
+        return self._arrow_table.slice(0, limit)
+
+    def list_versions(self):
+        return self.versions
+
+    def checkout(self, version):
+        self.checked_out.append(version)
+
+    def checkout_latest(self):
+        self.latest_checkouts += 1
+
     def to_arrow(self):
         raise AssertionError("metadata scans must use scanner(columns=...)")
+
+
+class _ProjectedSearch:
+    def __init__(self, table):
+        self._table = table
+
+    def select(self, columns):
+        self._table.calls.append(list(columns))
+        return _ProjectedSearchResult(self._table._arrow_table.select(columns))
+
+
+class _ProjectedSearchResult:
+    def __init__(self, arrow_table):
+        self._arrow_table = arrow_table
+
+    def to_arrow(self):
+        return self._arrow_table
+
+
+class _FallbackProjectedTable:
+    def __init__(self, rows):
+        import pyarrow as pa
+
+        self.calls = []
+        self.versions = [{"version": 1}]
+        self._arrow_table = pa.Table.from_pylist(rows)
+
+    def count_rows(self):
+        return self._arrow_table.num_rows
+
+    def head(self, limit):
+        return self._arrow_table.slice(0, limit)
+
+    def list_versions(self):
+        return self.versions
+
+    def search(self):
+        return _ProjectedSearch(self)
+
+    def to_arrow(self):
+        raise AssertionError("metadata scans must use projected fallback")
 
 
 def _store_with_projected_table(table):
@@ -1154,6 +1213,74 @@ def _corrupt_newest_fragment(palace_path: str, files_before: set) -> str | None:
 
 class TestLanceHealth:
     """AC-1 through AC-4: health_check() and recover_to_last_working_version()."""
+
+    def test_health_check_uses_projected_scan_for_metadata_probe(self):
+        table = _ProjectedTable(
+            [
+                {"wing": "test", "room": "general", "vector": [1.0]},
+                {"wing": "test", "room": "backend", "vector": [2.0]},
+            ]
+        )
+        store = _store_with_projected_table(table)
+
+        report = store.health_check()
+
+        assert report["ok"] is True
+        assert report["total_rows"] == 2
+        assert report["errors"] == []
+        assert table.calls == [["wing", "room"]]
+
+    def test_health_check_projected_scan_failure_is_structured_error(self):
+        table = _ProjectedTable(
+            [{"wing": "test", "room": "general", "vector": [1.0]}],
+            fail_on_columns={"room"},
+        )
+        store = _store_with_projected_table(table)
+
+        report = store.health_check()
+
+        assert report["ok"] is False
+        assert report["total_rows"] == 1
+        assert report["errors"] == [
+            {
+                "probe": "count_by_pair",
+                "kind": "other",
+                "message": "missing projected column",
+            }
+        ]
+        assert table.calls == [["wing", "room"]]
+
+    def test_recover_dry_run_uses_projected_scan_for_version_probe(self):
+        table = _ProjectedTable(
+            [{"wing": "test", "room": "general", "vector": [1.0]}],
+            versions=[{"version": 1}, {"version": 2}],
+        )
+        store = _store_with_projected_table(table)
+
+        result = store.recover_to_last_working_version(dry_run=True)
+
+        assert result["recovered"] is False
+        assert result["candidate_version"] == 1
+        assert result["checked_versions"] == [1]
+        assert table.checked_out == [1]
+        assert table.latest_checkouts == 1
+        assert table.calls == [["wing", "room"]]
+
+    def test_health_check_projected_scan_fallback_without_scanner(self):
+        table = _FallbackProjectedTable(
+            [
+                {"wing": "test", "room": "general", "vector": [1.0]},
+                {"wing": "test", "room": "backend", "vector": [2.0]},
+            ]
+        )
+        store = _store_with_projected_table(table)
+
+        report = store.health_check()
+
+        assert report["ok"] is True
+        assert report["total_rows"] == 2
+        assert report["errors"] == []
+        assert table.calls == [["wing", "room"]]
 
     def test_health_check_healthy_palace_returns_ok(self, palace_path):
         """AC-1: health_check() on a healthy palace returns ok=True, no errors."""
