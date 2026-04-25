@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-25 · TEST-STORAGE-EDGE
+
+Add LanceStore edge-case tests for empty ID lookups and SQL filter operators.
+
 ## 2026-04-25 · MINE-K8S-YAML-SEPARATOR
 
 Keep Kubernetes YAML document separators inside block scalar values from splitting manifest chunks.
