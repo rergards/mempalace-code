@@ -633,9 +633,9 @@ items:
 
       ## Acceptance Criteria
 
-      - [ ] test_find_references_depended_by passes
-      - [ ] test_find_references_referenced_by passes
-      - [ ] ruff check passes
+      - [x] test_find_references_depended_by passes
+      - [x] test_find_references_referenced_by passes
+      - [x] ruff check passes
   - key: EXPLAIN-NRESULTS-CLAMP
     summary: Clamp n_results in tool_explain_subsystem and add boundary tests
     type: task
