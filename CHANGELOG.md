@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-25 · MINE-K8S-LARGE-DOC
+
+Propagate Kubernetes manifest symbol metadata across large-document sub-chunks.
+
 ## 2026-04-24 · MINE-SWIFT-DISTRIBUTED
 
 Detect Swift distributed actors as mining boundaries and symbols.
