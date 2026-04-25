@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-25 · STORAGE-BACKUP-RETENTION
+
+Prune pre-optimize backup archives according to configurable retention settings.
+
 ## 2026-04-25 · MINE-K8S-LARGE-DOC
 
 Propagate Kubernetes manifest symbol metadata across large-document sub-chunks.
