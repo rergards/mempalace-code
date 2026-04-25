@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-26 · HEALTH-SCAN-PROJECTION
+
+Use projected metadata scans for health check and recovery probes to avoid vector-column materialization.
+
 ## 2026-04-26 · STORE-SEARCH-SOURCE-FILE-FULL-PATH
 
 Return full source_file paths from search_memories to match code_search.
