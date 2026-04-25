@@ -722,35 +722,6 @@ items:
     links:
       - type: is-blocked-by
         key: CLARIFY-MINE-ANSIBLE
-  - key: STORAGE-BACKUP-RETENTION
-    summary: 'Backup retention policy: auto-prune pre_optimize_*.tar.gz archives so they don''t accumulate indefinitely'
-    type: task
-    status: open
-    priority: medium
-    size: S
-    section_id: storage_reliability
-    labels: [feat, storage, hardening]
-    description: |-
-      ## Problem
-      safe_optimize() creates pre_optimize_YYYYMMDD_HHMMSS.tar.gz archives in <palace_parent>/backups/ before each optimize run. Currently there is no cleanup — archives accumulate forever, which will silently fill disk on long-running installations.
-
-      ## Scope
-      Add a retention policy for pre_optimize_*.tar.gz archives created by safe_optimize(), wired through config and environment overrides.
-
-      ## Deliverable
-      A configurable retention policy (e.g. keep last N backups, or delete archives older than D days) applied at the end of safe_optimize() after a successful optimize. Default: keep last 5 archives (or 0 = keep all, for backwards compatibility).
-
-      ## Acceptance Criteria
-      - [x] New config option (e.g. backup_retain_count: 5) read from MempalaceConfig; env var MEMPALACE_BACKUP_RETAIN_COUNT overrides it.
-      - [x] After safe_optimize() succeeds with backup_first=True, archives beyond the retention limit are deleted (oldest first).
-      - [x] backup_retain_count=0 disables pruning (default for backwards compat).
-      - [x] Unit test: after N+1 successful optimize calls with backup_first=True, only N archives remain under backups/.
-      - [x] Pruning errors are logged at WARNING level and do not cause safe_optimize to return False.
-
-      ## Constraints
-      - Only prune pre_optimize_*.tar.gz files in the backups/ directory — do not touch other files.
-      - Retention applies per-palace, not globally.
-    resolution: '2026-04-25: Added backup_retain_count config/env support and pre_optimize_*.tar.gz pruning after successful safe_optimize(); default 0 keeps all backups. Tests cover config defaults, file/env override, pruning scope, disabled pruning, exact retained archives, and warning-only prune failures. Hardening round-1: 0 findings.'
   - key: HEALTH-SCAN-PROJECTION
     summary: health_check Probe 3 uses to_arrow() loading all rows; switch to column-projected scanner
     type: task

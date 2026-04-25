@@ -229,3 +229,8 @@ items:
     - key: MINE-K8S-LARGE-DOC
       summary: 'K8s large-doc symbol propagation: sub-chunks past first lose kind/name metadata'
       archived_date: "2026-04-25"
+    - key: STORAGE-BACKUP-RETENTION
+      summary: 'Backup retention policy: auto-prune pre_optimize_*.tar.gz archives so they don''t accumulate indefinitely'
+      resolution: '2026-04-25: completed in pipeline run'
+      archived_date: "2026-04-25"
+      done_summary: completed in pipeline run
