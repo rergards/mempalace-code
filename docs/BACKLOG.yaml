@@ -234,32 +234,6 @@ items:
       3. store.add() succeeds with all _META_FIELD_SPEC sentinel values.
       4. store.get() returns all fields with correct sentinel values.
       5. ruff clean.
-  - key: STORE-SEARCH-SOURCE-FILE-FULL-PATH
-    summary: search_memories should return full source_file path instead of basename, aligning with code_search
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: storage_reliability
-    labels: [search, api-consistency]
-    description: |-
-      ## Scope
-
-      Fix source_file inconsistency between search_memories() and code_search() in mempalace/searcher.py. search_memories() applies Path(...).name stripping the path to basename only (e.g. auth.py). code_search() returns the full stored path. Now that both APIs surface symbol fields they look structurally similar but differ on source_file format, which is confusing.
-
-      Deliverable: remove the .name strip in search_memories so source_file returns the full stored path.
-
-      ## Acceptance criteria
-
-      - search_memories hits have source_file equal to the full stored path (e.g. /path/to/auth.py, not auth.py)
-      - Existing tests in test_searcher.py updated to reflect full path
-      - No regression on code_search behavior
-      - MCP tool_search passes through the updated value
-      - Commit message notes this is a breaking change for callers relying on basename-only source_file
-
-      ## Hardening status
-
-      - Round 1 completed 2026-04-26: no findings; focused searcher and MCP tests pass.
   - key: BENCH-RESULTS-MISSING-FILES
     summary: Commit or document missing benchmark results files (results_*.jsonl)
     type: task

@@ -271,3 +271,8 @@ items:
       resolution: '2026-04-26: completed in pipeline run'
       archived_date: "2026-04-26"
       done_summary: completed in pipeline run
+    - key: STORE-SEARCH-SOURCE-FILE-FULL-PATH
+      summary: search_memories should return full source_file path instead of basename, aligning with code_search
+      resolution: '2026-04-26: completed in pipeline run'
+      archived_date: "2026-04-26"
+      done_summary: completed in pipeline run
