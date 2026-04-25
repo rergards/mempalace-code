@@ -256,6 +256,10 @@ items:
       - No regression on code_search behavior
       - MCP tool_search passes through the updated value
       - Commit message notes this is a breaking change for callers relying on basename-only source_file
+
+      ## Hardening status
+
+      - Round 1 completed 2026-04-26: no findings; focused searcher and MCP tests pass.
   - key: BENCH-RESULTS-MISSING-FILES
     summary: Commit or document missing benchmark results files (results_*.jsonl)
     type: task
