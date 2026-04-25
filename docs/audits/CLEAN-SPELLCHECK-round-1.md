@@ -1,7 +1,7 @@
 slug: CLEAN-SPELLCHECK
 round: 1
 date: "2026-04-25"
-commit_range: d9d09f1..b799549
+commit_range: d9d09f1..1bbea7b
 findings: []
 
 totals:
