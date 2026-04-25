@@ -224,6 +224,30 @@ class TestSearchTool:
         result = tool_search(query="database", room="backend")
         assert all(r["room"] == "backend" for r in result["results"])
 
+    def test_tool_search_full_source_file_path(
+        self, monkeypatch, config, palace_path, collection, kg
+    ):
+        collection.add(
+            ids=["auth_tool_search"],
+            documents=["def authenticate(): validate JWT token and return the current user"],
+            metadatas=[
+                {
+                    "wing": "project",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                }
+            ],
+        )
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_search
+
+        result = tool_search(query="authenticate JWT", limit=1)
+
+        assert result["results"][0]["source_file"] == "/project/src/auth.py"
+
 
 # ── Write Tools ─────────────────────────────────────────────────────────
 

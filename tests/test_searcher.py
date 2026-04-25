@@ -10,6 +10,17 @@ from mempalace.storage import open_store
 
 
 class TestSearchMemories:
+    class FakeSearchStore:
+        def __init__(self, metadata):
+            self.metadata = metadata
+
+        def query(self, **_kwargs):
+            return {
+                "documents": [["def authenticate(): return current_user"]],
+                "metadatas": [[self.metadata]],
+                "distances": [[0.125]],
+            }
+
     def test_basic_search(self, palace_path, seeded_collection):
         result = search_memories("JWT authentication", palace_path)
         assert "results" in result
@@ -63,6 +74,28 @@ class TestSearchMemories:
         assert hit["symbol_type"] != ""
         assert hit["language"] != ""
 
+    def test_search_memories_full_source_file_path(self, monkeypatch):
+        store = self.FakeSearchStore(
+            {
+                "wing": "project",
+                "room": "backend",
+                "source_file": "/project/src/auth.py",
+            }
+        )
+        monkeypatch.setattr("mempalace.searcher.open_store", lambda *_args, **_kwargs: store)
+
+        result = search_memories("authentication", "/fake/palace")
+
+        assert result["results"][0]["source_file"] == "/project/src/auth.py"
+
+    def test_search_memories_missing_source_file_fallback(self, monkeypatch):
+        store = self.FakeSearchStore({"wing": "project", "room": "backend"})
+        monkeypatch.setattr("mempalace.searcher.open_store", lambda *_args, **_kwargs: store)
+
+        result = search_memories("authentication", "/fake/palace")
+
+        assert result["results"][0]["source_file"] == "?"
+
 
 class TestCodeSearch:
     def test_code_search_returns_code_shape(self, palace_path, code_seeded_collection):
@@ -106,6 +139,30 @@ class TestCodeSearch:
         assert "error" in result
         assert result["error"] == "No palace found"
         assert "hint" in result
+
+    def test_code_search_full_source_file_path_unchanged(self, palace_path):
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["auth_function"],
+            documents=["def authenticate(): validate JWT token and return the current user"],
+            metadatas=[
+                {
+                    "wing": "project",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "language": "python",
+                    "symbol_name": "authenticate",
+                    "symbol_type": "function",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                }
+            ],
+        )
+
+        result = code_search(palace_path, "authenticate JWT", n_results=1)
+
+        assert result["results"][0]["source_file"] == "/project/src/auth.py"
 
 
 class TestReactLanguageSupport:

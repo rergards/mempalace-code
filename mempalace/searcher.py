@@ -139,7 +139,7 @@ def search_memories(
                 "text": doc,
                 "wing": meta.get("wing", "unknown"),
                 "room": meta.get("room", "unknown"),
-                "source_file": Path(meta.get("source_file", "?")).name,
+                "source_file": meta.get("source_file", "?"),
                 "symbol_name": meta.get("symbol_name", "") or "",
                 "symbol_type": meta.get("symbol_type", "") or "",
                 "language": meta.get("language", "") or "",
