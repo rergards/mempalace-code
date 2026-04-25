@@ -256,3 +256,8 @@ items:
         line scanner that ignores --- inside literal/folded block scalar values.
         Added tests for ConfigMap data scalars, folded Secret scalars followed by a
         real document separator, and sequence item scalars in Pod commands.
+    - key: TEST-STORAGE-EDGE
+      summary: 'Add edge-case tests for LanceStore: empty IDs, $or filters, comparison operators'
+      resolution: '2026-04-25: completed in pipeline run'
+      archived_date: "2026-04-25"
+      done_summary: completed in pipeline run

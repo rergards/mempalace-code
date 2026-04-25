@@ -119,27 +119,6 @@ items:
       Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
 
     resolution: null
-  - key: TEST-STORAGE-EDGE
-    summary: 'Add edge-case tests for LanceStore: empty IDs, $or filters, comparison operators'
-    type: task
-    status: open
-    priority: medium
-    size: S
-    section_id: quality
-    labels: [test, storage]
-    description: |-
-      ## Problem
-      LanceStore.get(ids=[]) and _where_to_sql with $or, $ne, and $gt operators have no targeted test coverage.
-
-      ## Scope
-      Add focused storage tests for empty ID lookup and SQL generation/filter behavior for logical OR and comparison operators.
-
-      ## Acceptance criteria
-      - `LanceStore.get(ids=[])` returns an empty result without querying invalid SQL.
-      - `$or` filters are covered by a regression test.
-      - `$ne` and `$gt` filters are covered by regression tests.
-      - Existing storage tests continue to pass.
-    resolution: "Hardening round 1 complete: no findings; `python -m pytest tests/test_storage_lance.py -q` passed with 57 tests."
   - key: CI-CHROMA-COMPAT-TESTS
     summary: "Add ChromaStore-specific tests so the chroma-compat CI job actually validates ChromaDB"
     type: task
