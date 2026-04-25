@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-04-25 · CLEAN-ENTITY-DETECT
+
+Make heuristic people/project detection opt-in during init.
+
 ## 2026-04-25 · STORAGE-BACKUP-RETENTION
 
 Prune pre-optimize backup archives according to configurable retention settings.
