@@ -6,6 +6,7 @@ argparse → dispatch → storage path for the diary write subcommand.
 """
 
 import os
+import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -19,6 +20,127 @@ from mempalace.storage import open_store
 def run_mine_cli(argv):
     with patch.object(sys, "argv", argv):
         main()
+
+
+class TestInitEntityDetection:
+    def test_init_default_skips_entity_detection(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        source_file = project_dir / "notes.md"
+        source_file.write_text("Alice discussed Apollo.", encoding="utf-8")
+
+        with (
+            patch("mempalace.entity_detector.scan_for_detection") as mock_scan,
+            patch("mempalace.entity_detector.detect_entities") as mock_detect,
+            patch("mempalace.entity_detector.confirm_entities") as mock_confirm,
+            patch("mempalace.room_detector_local.detect_rooms_local") as mock_rooms,
+        ):
+            run_mine_cli(["mempalace", "init", str(project_dir), "--skip-model-download"])
+
+        mock_scan.assert_not_called()
+        mock_detect.assert_not_called()
+        mock_confirm.assert_not_called()
+        mock_rooms.assert_called_once_with(project_dir=str(project_dir), yes=False)
+        assert not (project_dir / "entities.json").exists()
+
+    def test_init_detect_entities_runs_scan(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        source_file = project_dir / "notes.md"
+        source_file.write_text("Alice discussed Apollo.", encoding="utf-8")
+
+        detected = {
+            "people": [{"name": "Alice"}],
+            "projects": [{"name": "Apollo"}],
+            "uncertain": [],
+        }
+        confirmed = {"people": ["Alice"], "projects": ["Apollo"]}
+
+        with (
+            patch(
+                "mempalace.entity_detector.scan_for_detection", return_value=[str(source_file)]
+            ) as mock_scan,
+            patch(
+                "mempalace.entity_detector.detect_entities", return_value=detected
+            ) as mock_detect,
+            patch(
+                "mempalace.entity_detector.confirm_entities", return_value=confirmed
+            ) as mock_confirm,
+            patch("mempalace.room_detector_local.detect_rooms_local"),
+        ):
+            run_mine_cli(
+                [
+                    "mempalace",
+                    "init",
+                    str(project_dir),
+                    "--detect-entities",
+                    "--skip-model-download",
+                ]
+            )
+
+        mock_scan.assert_called_once_with(str(project_dir))
+        mock_detect.assert_called_once_with([str(source_file)])
+        mock_confirm.assert_called_once_with(detected, yes=False)
+        saved = json.loads((project_dir / "entities.json").read_text(encoding="utf-8"))
+        assert saved == confirmed
+
+    def test_init_yes_without_detect_entities_skips_scan(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+
+        with (
+            patch("mempalace.entity_detector.scan_for_detection") as mock_scan,
+            patch("mempalace.entity_detector.confirm_entities") as mock_confirm,
+            patch("mempalace.room_detector_local.detect_rooms_local") as mock_rooms,
+        ):
+            run_mine_cli(["mempalace", "init", str(project_dir), "--yes", "--skip-model-download"])
+
+        mock_scan.assert_not_called()
+        mock_confirm.assert_not_called()
+        mock_rooms.assert_called_once_with(project_dir=str(project_dir), yes=True)
+        assert not (project_dir / "entities.json").exists()
+
+    def test_init_config_entity_detection_true_runs_scan(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        config_dir = tmp_path / ".mempalace"
+        config_dir.mkdir()
+        (config_dir / "config.json").write_text(
+            json.dumps({"entity_detection": True}), encoding="utf-8"
+        )
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        source_file = project_dir / "notes.md"
+        source_file.write_text("Alice discussed Apollo.", encoding="utf-8")
+
+        detected = {
+            "people": [{"name": "Alice"}],
+            "projects": [],
+            "uncertain": [],
+        }
+        confirmed = {"people": ["Alice"], "projects": []}
+
+        with (
+            patch(
+                "mempalace.entity_detector.scan_for_detection", return_value=[str(source_file)]
+            ) as mock_scan,
+            patch(
+                "mempalace.entity_detector.detect_entities", return_value=detected
+            ) as mock_detect,
+            patch(
+                "mempalace.entity_detector.confirm_entities", return_value=confirmed
+            ) as mock_confirm,
+            patch("mempalace.room_detector_local.detect_rooms_local"),
+        ):
+            run_mine_cli(["mempalace", "init", str(project_dir), "--skip-model-download"])
+
+        mock_scan.assert_called_once_with(str(project_dir))
+        mock_detect.assert_called_once_with([str(source_file)])
+        mock_confirm.assert_called_once_with(detected, yes=False)
+        saved = json.loads((project_dir / "entities.json").read_text(encoding="utf-8"))
+        assert saved == confirmed
 
 
 class TestMineSpellcheckFlags:

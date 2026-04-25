@@ -56,6 +56,7 @@ Then ask your AI to read [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) — it
 
 ```bash
 mempalace init ~/projects/myapp       # detect rooms, download embedding model (~80 MB)
+mempalace init ~/projects/myapp --detect-entities  # optional people/project detection
 mempalace mine ~/projects/myapp       # index your codebase
 claude mcp add mempalace -- python -m mempalace.mcp_server  # connect to Claude Code
 ```
@@ -486,7 +487,8 @@ pip install "mempalace-code[dev]"         # pytest + ruff
 
 ```bash
 # Setup
-mempalace init <dir>                              # initialize + mine
+mempalace init <dir>                              # initialize rooms
+mempalace init <dir> --detect-entities            # also scan for people/projects
 
 # Mining
 mempalace mine <dir>                              # mine code project

@@ -93,30 +93,35 @@ def cmd_fetch_model(args):
 def cmd_init(args):
     import json
     from pathlib import Path
-    from .entity_detector import scan_for_detection, detect_entities, confirm_entities
     from .room_detector_local import detect_rooms_local
 
-    # Pass 1: auto-detect people and projects from file content
-    print(f"\n  Scanning for entities in: {args.dir}")
-    files = scan_for_detection(args.dir)
-    if files:
-        print(f"  Reading {len(files)} files...")
-        detected = detect_entities(files)
-        total = len(detected["people"]) + len(detected["projects"]) + len(detected["uncertain"])
-        if total > 0:
-            confirmed = confirm_entities(detected, yes=getattr(args, "yes", False))
-            # Save confirmed entities to <project>/entities.json for the miner
-            if confirmed["people"] or confirmed["projects"]:
-                entities_path = Path(args.dir).expanduser().resolve() / "entities.json"
-                with open(entities_path, "w") as f:
-                    json.dump(confirmed, f, indent=2)
-                print(f"  Entities saved: {entities_path}")
-        else:
-            print("  No entities detected — proceeding with directory-based rooms.")
+    config = MempalaceConfig()
+    detect_entities_enabled = getattr(args, "detect_entities", False) or config.entity_detection
 
-    # Pass 2: detect rooms from folder structure
+    if detect_entities_enabled:
+        from .entity_detector import scan_for_detection, detect_entities, confirm_entities
+
+        # Pass 1: opt-in people/project detection from file content
+        print(f"\n  Scanning for entities in: {args.dir}")
+        files = scan_for_detection(args.dir)
+        if files:
+            print(f"  Reading {len(files)} files...")
+            detected = detect_entities(files)
+            total = len(detected["people"]) + len(detected["projects"]) + len(detected["uncertain"])
+            if total > 0:
+                confirmed = confirm_entities(detected, yes=getattr(args, "yes", False))
+                # Save confirmed entities to <project>/entities.json for the miner
+                if confirmed["people"] or confirmed["projects"]:
+                    entities_path = Path(args.dir).expanduser().resolve() / "entities.json"
+                    with open(entities_path, "w") as f:
+                        json.dump(confirmed, f, indent=2)
+                    print(f"  Entities saved: {entities_path}")
+            else:
+                print("  No entities detected — proceeding with directory-based rooms.")
+
+    # Detect rooms from folder structure
     detect_rooms_local(project_dir=args.dir, yes=getattr(args, "yes", False))
-    MempalaceConfig().init()
+    config.init()
 
     if not getattr(args, "skip_model_download", False):
         from .storage import DEFAULT_EMBED_MODEL
@@ -1056,7 +1061,12 @@ def main():
     p_init = sub.add_parser("init", help="Detect rooms from your folder structure")
     p_init.add_argument("dir", help="Project directory to set up")
     p_init.add_argument(
-        "--yes", action="store_true", help="Auto-accept all detected entities (non-interactive)"
+        "--yes", action="store_true", help="Auto-accept init prompts (non-interactive)"
+    )
+    p_init.add_argument(
+        "--detect-entities",
+        action="store_true",
+        help="Opt in to heuristic people/project detection during init",
     )
     p_init.add_argument(
         "--skip-model-download",

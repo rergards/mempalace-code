@@ -314,9 +314,11 @@ Run:
 mempalace init "<MINE_PATH>" --yes
 ```
 
-The `--yes` flag auto-accepts all detected entities — required for non-interactive execution.
+The `--yes` flag auto-accepts init prompts and is required for non-interactive execution.
+Heuristic people/project entity detection is opt-in; add `--detect-entities` only when the
+human explicitly wants entity detection during initialization.
 
-**Pass →** Exit code 0. Output includes `Entities saved` or `No entities detected`. Continue to Step 4c.
+**Pass →** Exit code 0. Config and room setup complete. Continue to Step 4c.
 
 **Fail →** Non-zero exit. Common causes: directory does not exist, permissions error. **ASK HUMAN:** "Could not initialize `<MINE_PATH>`. Error: `<paste stderr>`. Please confirm the path exists and is readable, then reply `retry` with a corrected path, or `skip`."
 - `retry <path>` → Re-run with the corrected path.

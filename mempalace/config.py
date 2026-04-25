@@ -17,6 +17,7 @@ DEFAULT_BACKUP_BEFORE_OPTIMIZE = True  # Auto-backup before risky operations (on
 DEFAULT_BACKUP_RETAIN_COUNT = 0  # 0 keeps all pre-optimize backups (backwards compatible)
 DEFAULT_BACKUP_SCHEDULE = "off"  # Scheduled backup frequency: off|daily|weekly|hourly
 DEFAULT_SPELLCHECK_ENABLED = None  # None lets each ingest mode choose its own default
+DEFAULT_ENTITY_DETECTION = False
 
 DEFAULT_TOPIC_WINGS = [
     "emotions",
@@ -204,6 +205,15 @@ class MempalaceConfig:
 
         return DEFAULT_SPELLCHECK_ENABLED
 
+    @property
+    def entity_detection(self):
+        """Whether init should run heuristic people/project detection."""
+        if "entity_detection" in self._file_config:
+            parsed = _parse_optional_bool(self._file_config["entity_detection"])
+            if parsed is not None:
+                return parsed
+        return DEFAULT_ENTITY_DETECTION
+
     def init(self):
         """Create config directory and write default config.json if it doesn't exist."""
         self._config_dir.mkdir(parents=True, exist_ok=True)
@@ -211,6 +221,7 @@ class MempalaceConfig:
             default_config = {
                 "palace_path": DEFAULT_PALACE_PATH,
                 "collection_name": DEFAULT_COLLECTION_NAME,
+                "entity_detection": DEFAULT_ENTITY_DETECTION,
                 "topic_wings": DEFAULT_TOPIC_WINGS,
                 "hall_keywords": DEFAULT_HALL_KEYWORDS,
             }
