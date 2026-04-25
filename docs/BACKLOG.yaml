@@ -655,10 +655,14 @@ items:
 
       ## Acceptance Criteria
 
-      - [ ] Entity that implements a core-classified interface AND references_project a platform-classified project is promoted to glue
-      - [ ] platform_deps output list includes project-level platform references (not just package references)
-      - [ ] Existing 12 TestExtractReusable tests pass unchanged
-      - [ ] At least one new test covers the references_project -> glue promotion path
+      - [x] Entity that implements a core-classified interface AND references_project a platform-classified project is promoted to glue
+      - [x] platform_deps output list includes project-level platform references (not just package references)
+      - [x] Existing 12 TestExtractReusable tests pass unchanged
+      - [x] At least one new test covers the references_project -> glue promotion path
+
+      ## Hardening
+
+      2026-04-26 round 1: no findings; focused extraction tests, references_project edge tests, ruff check, and ruff format check pass.
 
       ## Origin
 
