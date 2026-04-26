@@ -84,7 +84,7 @@ items:
       - Results report R@5/R@10 and enough metadata to diagnose misses.
       - Benchmark compares at least two chunking strategies.
       - README or benchmarks docs explain how to reproduce the run.
-    resolution: null
+    resolution: "2026-04-26: Added code retrieval benchmark with known-answer dataset, R@5/R@10/MRR reporting, naive/smart/tree-sitter chunker comparison, reproduction docs, and focused tests. Hardening round-1: fixed malformed/empty dataset validation before benchmark execution; audit at docs/audits/QUAL-CODE-BENCH-round-1.md."
   - key: QUAL-RUFF-STRICT
     summary: "Enable stricter ruff rules"
     type: task
