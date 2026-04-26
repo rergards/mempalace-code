@@ -48,14 +48,31 @@ def load_dataset(path: Path, limit: int | None = None) -> list[dict]:
         if limit <= 0:
             raise BenchError("--limit must be positive")
         records = records[:limit]
+    if not records:
+        raise BenchError("dataset must contain at least one record")
 
     required = {"id", "query", "expected_files", "category"}
     for idx, record in enumerate(records):
+        if not isinstance(record, dict):
+            raise BenchError(f"dataset record {idx} must be an object")
         missing = sorted(required - set(record))
         if missing:
             raise BenchError(f"dataset record {idx} is missing: {', '.join(missing)}")
-        if not record["expected_files"]:
-            raise BenchError(f"dataset record {record['id']} has no expected_files")
+        if not isinstance(record["id"], str) or not record["id"]:
+            raise BenchError(f"dataset record {idx} id must be a non-empty string")
+        if not isinstance(record["query"], str) or not record["query"]:
+            raise BenchError(f"dataset record {record['id']} query must be a non-empty string")
+        if not isinstance(record["category"], str) or not record["category"]:
+            raise BenchError(f"dataset record {record['id']} category must be a non-empty string")
+        expected_files = record["expected_files"]
+        if (
+            not isinstance(expected_files, list)
+            or not expected_files
+            or any(not isinstance(expected, str) or not expected for expected in expected_files)
+        ):
+            raise BenchError(
+                f"dataset record {record['id']} expected_files must be a non-empty list of strings"
+            )
     return records
 
 

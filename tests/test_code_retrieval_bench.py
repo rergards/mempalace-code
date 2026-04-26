@@ -76,6 +76,42 @@ def test_limit_must_be_positive(tmp_path):
         raise AssertionError("expected BenchError")
 
 
+def test_load_dataset_rejects_empty_dataset(tmp_path):
+    dataset = tmp_path / "queries.json"
+    dataset.write_text("[]", encoding="utf-8")
+
+    try:
+        bench.load_dataset(dataset)
+    except bench.BenchError as exc:
+        assert "dataset must contain at least one record" in str(exc)
+    else:
+        raise AssertionError("expected BenchError")
+
+
+def test_load_dataset_rejects_malformed_expected_files(tmp_path):
+    dataset = tmp_path / "queries.json"
+    dataset.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "q1",
+                    "query": "find miner",
+                    "expected_files": "miner.py",
+                    "category": "function_lookup",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        bench.load_dataset(dataset)
+    except bench.BenchError as exc:
+        assert "expected_files must be a non-empty list of strings" in str(exc)
+    else:
+        raise AssertionError("expected BenchError")
+
+
 def test_aggregate_results_computes_r_at_k_mrr_and_categories():
     rows = [
         {"category": "function_lookup", "rank": 1, "hit_at_5": True, "hit_at_10": True},
