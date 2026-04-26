@@ -294,3 +294,8 @@ items:
       resolution: '2026-04-26: completed in pipeline run'
       archived_date: "2026-04-26"
       done_summary: completed in pipeline run
+    - key: QUAL-CODE-BENCH
+      summary: Code mining benchmark — measure retrieval quality on real repos
+      resolution: '2026-04-26: completed in pipeline run'
+      archived_date: "2026-04-26"
+      done_summary: completed in pipeline run

@@ -64,27 +64,6 @@ items:
       - Existing prompt-based onboarding remains reachable for users who request it.
       - Tests cover default config generation and opt-in interactive behavior.
     resolution: null
-  - key: QUAL-CODE-BENCH
-    summary: "Code mining benchmark — measure retrieval quality on real repos"
-    type: feature
-    priority: medium
-    status: open
-    size: L
-    section_id: quality
-    labels: [benchmarks, testing]
-    description: |-
-      ## Problem
-      Upstream benchmarks (LongMemEval, LoCoMo) test conversation retrieval, not codebase retrieval. The fork needs a benchmark that measures whether code mining answers developer questions well.
-
-      ## Scope
-      Build a code-specific benchmark: mine a known repo, ask code questions such as where a function lives, what a module does, and how a feature works. Measure retrieval accuracy and compare naive chunking, smart chunking, and tree-sitter chunking.
-
-      ## Acceptance criteria
-      - Benchmark dataset includes known-answer code questions against at least one pinned real repo.
-      - Results report R@5/R@10 and enough metadata to diagnose misses.
-      - Benchmark compares at least two chunking strategies.
-      - README or benchmarks docs explain how to reproduce the run.
-    resolution: "2026-04-26: Added code retrieval benchmark with known-answer dataset, R@5/R@10/MRR reporting, naive/smart/tree-sitter chunker comparison, reproduction docs, and focused tests. Hardening round-1: fixed malformed/empty dataset validation before benchmark execution; audit at docs/audits/QUAL-CODE-BENCH-round-1.md."
   - key: QUAL-RUFF-STRICT
     summary: "Enable stricter ruff rules"
     type: task
