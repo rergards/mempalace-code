@@ -6,14 +6,14 @@ The Python package that powers mempalace-code. All modules, all logic.
 
 | Module | What it does |
 |--------|-------------|
-| `cli.py` | CLI entry point — routes to mine, search, init, compress, wake-up |
+| `cli.py` | CLI entry point — routes to init, mine, search, watch, backup/restore, export/import, health, and wake-up |
 | `config.py` | Configuration loading — `~/.mempalace/config.json`, env vars, defaults |
 | `normalize.py` | Converts 5 chat formats (Claude Code JSONL, Claude.ai JSON, ChatGPT JSON, Slack JSON, plain text) to standard transcript format |
-| `miner.py` | Project file ingest — scans directories, chunks by paragraph, stores to ChromaDB |
+| `miner.py` | Project file ingest — scans directories, detects languages, chunks code/prose/config, stores drawers |
 | `convo_miner.py` | Conversation ingest — chunks by exchange pair (Q+A), detects rooms from content |
-| `searcher.py` | Semantic search via ChromaDB vectors — filters by wing/room, returns verbatim + scores |
+| `searcher.py` | Semantic search via LanceDB vectors — filters by wing/room/language/symbol, returns verbatim + scores |
 | `layers.py` | 4-layer memory stack: L0 (identity), L1 (critical facts), L2 (room recall), L3 (deep search) |
-| `dialect.py` | AAAK compression — entity codes, emotion markers, 30x lossless ratio |
+| `dialect.py` | AAAK lossy summary dialect — entity codes, topic markers, and token-saving estimates |
 | `knowledge_graph.py` | Temporal entity-relationship graph — SQLite, time-filtered queries, fact invalidation |
 | `palace_graph.py` | Room-based navigation graph — BFS traversal, tunnel detection across wings |
 | `mcp_server.py` | MCP server — 27 tools, AAAK auto-teach, Palace Protocol, agent diary |
@@ -28,7 +28,7 @@ The Python package that powers mempalace-code. All modules, all logic.
 ## Architecture
 
 ```
-User → CLI → miner/convo_miner → ChromaDB (palace)
+User → CLI → miner/convo_miner → LanceDB (palace)
                                      ↕
                               knowledge_graph (SQLite)
                                      ↕
@@ -37,4 +37,4 @@ User → MCP Server → searcher → results
                   → diary    → agent journal
 ```
 
-The palace (ChromaDB) stores verbatim content. The knowledge graph (SQLite) stores structured relationships. The MCP server exposes both to any AI tool.
+The palace (LanceDB) stores verbatim drawer content and vector metadata. The knowledge graph (SQLite) stores structured relationships. The MCP server exposes both to any AI tool. ChromaDB is a deprecated optional legacy backend only.

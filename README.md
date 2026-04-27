@@ -22,7 +22,7 @@ No cloud. No API keys. No subscription. Nothing leaves your machine.
 
 <table>
 <tr>
-<td align="center"><strong>Tree-sitter AST Parsing</strong><br><sub>Chunks at function boundaries<br>not arbitrary line counts</sub></td>
+<td align="center"><strong>Language-Aware Mining</strong><br><sub>AST, regex, and adaptive chunking<br>matched to each file type</sub></td>
 <td align="center"><strong>27 MCP Tools</strong><br><sub>Native Claude Code integration<br>search, store, traverse</sub></td>
 <td align="center"><strong>Temporal Knowledge Graph</strong><br><sub>Facts that change over time<br>with validity windows</sub></td>
 </tr>
@@ -103,7 +103,7 @@ You write code. You make decisions. You debug things. Between sessions, all that
 mempalace-code **indexes it once** into a local vector store, then your AI finds it in milliseconds — using [595x fewer tokens](docs/BENCH_TOKEN_DELTA.md) than grep + read at measured peak (median 80x on a 19k-chunk project, and it keeps scaling). Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
 
 **What gets indexed:**
-- Code files — functions, classes, modules (Python, TypeScript/JS, Go, Rust, C/C++, C#, F#, VB.NET, XAML, Java, Kotlin, Scala, Swift, Dart, PHP, Markdown) plus Kubernetes manifests
+- Code files — structural chunks for Python, TypeScript/JS/TSX/JSX, Go, Rust, Java, Kotlin, C#, F#, VB.NET, XAML, Swift, PHP, Scala, Dart, Terraform/HCL, Markdown, and Kubernetes manifests; adaptive chunks for C/C++, Ruby, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, and config files
 - .NET solutions — `.sln`/`.csproj` project graphs, cross-project symbol relationships, interface implementations
 - Conversation exports — Claude, ChatGPT, Slack
 - Architecture notes, decisions, anything you store manually
@@ -116,14 +116,14 @@ mempalace-code **indexes it once** into a local vector store, then your AI finds
 
 ### Language-Aware Code Mining
 
-`mempalace mine` walks your source tree and chunks at **structural boundaries** — functions, classes, methods — not arbitrary line counts. Leading comments and docstrings stay attached to their declarations.
+`mempalace mine` walks your source tree and chooses the best chunker for each file type: AST boundaries where optional tree-sitter grammars are available, regex structural boundaries for supported languages, YAML-aware Kubernetes resource splits, Markdown/prose sections, or adaptive line-count chunks for formats without reliable declarations. Leading comments and docstrings stay attached to declarations where structural chunking is active.
 
 | Language | Strategy | AST Support |
 |----------|----------|:-----------:|
-| Python | Functions, classes, methods, decorators | Tree-sitter |
-| TypeScript / JavaScript / TSX / JSX | Functions, classes, exports, imports | Tree-sitter |
-| Go | Functions, types, methods, interfaces | Tree-sitter |
-| Rust | Functions, structs, enums, traits, impls | Tree-sitter |
+| Python | Functions, classes, methods, decorators | Optional tree-sitter |
+| TypeScript / JavaScript / TSX / JSX | Functions, classes, exports, imports | Optional tree-sitter |
+| Go | Functions, types, methods, interfaces | Optional tree-sitter |
+| Rust | Functions, structs, enums, traits, impls | Optional tree-sitter |
 | Java | Classes, interfaces, methods, annotations | Regex |
 | Kotlin | Classes, objects, functions, extensions | Regex |
 | Scala | Classes, case classes, objects, traits, enums, functions, implicits, type aliases, generics | Regex |
@@ -133,12 +133,16 @@ mempalace-code **indexes it once** into a local vector store, then your AI finds
 | C# | Classes, interfaces, records, methods, properties | Regex |
 | F# / VB.NET | Modules, types, functions | Regex |
 | XAML | Controls, resources, code-behind linking | Regex |
-| C / C++ | Functions, structs, enums, classes | Regex |
-| Kubernetes manifests | Deployments, Services, ConfigMaps, Secrets, Ingresses, CRDs (indexed by kind/namespace/labels) | YAML-aware |
+| Terraform / HCL | Terraform/HCL top-level blocks (`resource`, `module`, `variable`, `moved`, `import`, `check`, etc.) | Regex |
+| Kubernetes manifests | Deployments, Services, ConfigMaps, Secrets, Ingresses, CRDs (indexed by kind/name) | YAML-aware |
 | Markdown / plain text | Heading sections, paragraphs | — |
-| YAML / JSON / TOML | Adaptive line-count | — |
+| C / C++ | Indexed and searchable with best-effort symbol metadata; chunked adaptively today | — |
+| Ruby / shell / SQL | Indexed and searchable; chunked adaptively today | — |
+| HTML / CSS / CSV | Indexed and searchable; chunked adaptively today | — |
+| YAML / JSON / TOML | Adaptive line-count; Kubernetes YAML auto-detected separately | — |
+| Dockerfile / Make / templates / config | Dockerfile, Containerfile, Makefile, GNUmakefile, Vagrantfile, Go templates, Jinja2, `.conf`, `.cfg`, `.ini` | — |
 
-Tree-sitter is optional (`pip install "mempalace-code[treesitter]"`). Without it, all languages fall back to regex boundary detection — still structural, just less precise.
+Tree-sitter is optional (`pip install "mempalace-code[treesitter]"`). When a grammar is missing, Python, TypeScript/JavaScript/TSX/JSX, Go, and Rust fall back to regex structural chunking. Other recognized formats use their regex, YAML-aware, prose, or adaptive chunker as listed above.
 
 ```bash
 mempalace mine ~/projects/myapp                  # all supported file types
@@ -457,7 +461,7 @@ This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla
 | No backup, no recovery | `backup` / `restore` / `export` / `import` |
 | No incremental mining | Content-hash incremental: only changed files re-chunked |
 | No code-search | `code_search` — filter by language, symbol, glob |
-| Line-count chunking | Tree-sitter AST + regex structural chunking |
+| Line-count chunking | Language-aware mining: tree-sitter AST for supported grammars, regex structural chunking, YAML-aware Kubernetes splits, prose sections, and adaptive chunks for configs/data |
 
 Full audit: [`docs/UPSTREAM_HARDENING.md`](docs/UPSTREAM_HARDENING.md).
 

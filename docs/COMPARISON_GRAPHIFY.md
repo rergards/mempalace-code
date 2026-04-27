@@ -19,7 +19,7 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 | Dimension | Graphify | mempalace-code |
 |-----------|----------|-----------|
 | Core data structure | NetworkX MultiDiGraph | LanceDB columnar vector store + SQLite KG |
-| Code understanding | tree-sitter AST, 20 languages | regex-based structural chunking (def/class/export) + language detection |
+| Code understanding | tree-sitter AST, 20 languages | language-aware mining: optional tree-sitter chunks for Python/JS/TS/TSX/JSX/Go/Rust, regex structural chunks for supported languages, YAML-aware Kubernetes, adaptive config/prose chunks |
 | Semantic layer | Claude subagent extracts concepts into graph nodes | `all-MiniLM-L6-v2` embeddings (384d, local) |
 | Graph clustering | **Leiden community detection** (produces "god nodes" + clusters) | none — query-time ranked retrieval only |
 | Search primitive | graph traversal, BFS with hop limits | cosine distance over vectors, filtered by wing/room |
@@ -28,7 +28,7 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 | Conversation mining | none | `convo_miner.py` ingests Claude/ChatGPT/Slack exports |
 | Multimodal | **PDFs, images, videos, YouTube links** (via host LLM API) | text only |
 | Visualization | **interactive HTML graph** (pyvis) | none |
-| Incremental rebuild | **SHA256 file-level cache** | not yet (planned: CODE-INCREMENTAL) |
+| Incremental rebuild | **SHA256 file-level cache** | content-hash incremental mining; only changed files are re-chunked |
 | Privacy on ingest | code stays local; **docs/PDFs/images sent to host LLM API** | **nothing leaves the host, ever** (fully offline) |
 | Embedding dependency | none | 80 MB `all-MiniLM-L6-v2` model downloaded once |
 | MCP surface | `/graphify query`, `/graphify path`, `/graphify explain` | 27 MCP tools (search, traverse, diary, KG, arch-retrieval, stats, …) |
@@ -85,11 +85,11 @@ Graphify is per-project — each repo has its own `graphify-out/` directory and 
 
 mempalace-code has no visualization layer. Vector spaces do not visualize well; graph structures do.
 
-### 2. Tree-sitter AST, 20 languages
+### 2. Full AST graph precision across more languages
 
 Graphify uses tree-sitter for parsing, covering 20 languages precisely. Function calls, imports, class references, and type usages are captured at AST fidelity.
 
-mempalace-code uses regex-based structural chunking. It handles Python, JS, TS, Go, Rust reasonably well but it is not an AST — it cannot track `foo()` → function definition of `foo` across files. Symbol metadata is per-chunk only, not cross-referenced.
+mempalace-code uses tree-sitter for chunk boundaries when optional grammars are installed for Python, TypeScript/JavaScript/TSX/JSX, Go, and Rust. It also uses regex structural chunking for Java, Kotlin, .NET languages, XAML, Swift, PHP, Scala, Dart, and Terraform/HCL, YAML-aware splitting for Kubernetes manifests, and adaptive chunking for configs/data/prose. That is still not a call graph: it cannot track `foo()` → function definition of `foo` across files. Symbol metadata is per-chunk only, not cross-referenced.
 
 **Consequence**: for "find all call sites of this function" graphify is the right tool. mempalace-code will not answer that precisely.
 
@@ -105,11 +105,11 @@ For projects that include research papers, architecture diagrams as PNGs, or rec
 
 mempalace-code is text-only. No PDF parsing, no image captioning, no video transcription.
 
-### 5. Shipped SHA256 incremental rebuild
+### 5. Incremental rebuild is no longer a Graphify-only win
 
 Graphify caches parsed AST by file SHA256. Re-running on an unchanged file is a cache hit; only changed files are re-processed.
 
-mempalace-code's incremental re-mine is on the pre_release backlog (`CODE-INCREMENTAL`) but not yet shipped. Today, `mempalace mine` against a large repo is full-rebuild.
+mempalace-code now also mines incrementally by content hash: unchanged drawers are skipped and only changed files are re-chunked unless `--full` is passed. Graphify still wins on full structural graph analysis, but the basic "do not rebuild every unchanged file" capability is now table stakes for both tools.
 
 ### 6. 10-platform reach via installer
 
@@ -175,12 +175,12 @@ These are genuinely good ideas from graphify that mempalace can incorporate with
 
 | Idea | Cost | Value | Status |
 |------|------|-------|--------|
-| **SHA256 file cache for incremental re-mine** | M | high | Already in pre_release as `CODE-INCREMENTAL` |
+| **Broader AST coverage / call graph extraction** | L | high | Post-launch candidate — current tree-sitter support is chunk-boundary only for Python/JS/TS/TSX/JSX/Go/Rust |
 | **Explicit per-edge / per-drawer provenance label** | S | medium | New (not in backlog yet) — e.g. `confidence`, `extractor_version` |
 | **`benchmarks/TOKEN_DELTA.md` with one public number** | S | high | Filed as `LAUNCH-BENCH-TOKEN-DELTA` (owner task) |
 | **Minimal static HTML visualization** of palace structure (wings × rooms × drawer counts) | M | medium | New candidate for post-launch |
 | **Per-platform installer** (`mempalace install --platform codex\|cursor\|gemini`) | L | low | Not urgent — Claude Code + Codex both have native MCP; per-platform hooks are maintenance burden |
-| **Tree-sitter backend for structural chunking** | L | medium | Not urgent — current regex chunker scores R@5 = 0.95 on the internal bench |
+| **Tree-sitter grammars beyond Python/JS/TS/Go/Rust** | M | medium | Not urgent — current regex/adaptive chunkers cover the launch languages, but not full AST semantics |
 
 Note: the always-on PreToolUse hook is intentionally absent from this list. See the preceding section for why.
 
@@ -194,7 +194,7 @@ Note: the always-on PreToolUse hook is intentionally absent from this list. See 
 - crash-safe LanceDB (survives `Ctrl+C`)
 
 **Do not claim**:
-- AST precision — mempalace uses regex chunking
+- full AST/code-graph precision — mempalace uses AST chunk boundaries for a subset, regex structural chunks for many languages, and adaptive chunks for configs/data, but does not build call graphs
 - multimodal ingest — mempalace is text-only
 - visualization — mempalace has none
 - community detection — different problem, different algorithm, not mempalace's game
