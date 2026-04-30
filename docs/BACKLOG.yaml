@@ -43,6 +43,87 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
+  - key: CODE-LANGUAGE-CATALOG-FRESH-PR4
+    summary: "Rebuild PR #4 language catalog on top of current mining/search code"
+    type: task
+    priority: highest
+    status: open
+    size: M
+    section_id: coding_first
+    labels: [mining, search, mcp, refactor, pr4]
+    description: |-
+      ## Problem
+      PR #4 (`rergards/mempalace-code#4`) proposed a useful shared language catalog for
+      miner/search/MCP language filtering, but it is stale and not safe to merge directly.
+      The branch conflicts with current `publish/main`, mixes in unrelated app-level
+      scan-exclude config behavior, and its catalog would drop languages already supported
+      by current main.
+
+      ## Goal
+      Use PR #4 as a design template only. Write a fresh implementation on top of current
+      `publish/main` so language detection, code_search validation, and MCP schema text all
+      share one canonical catalog without regressing current language support.
+
+      ## Scope
+      - Add or rebuild `mempalace/language_catalog.py` from the current code, not from the
+        stale PR branch.
+      - Move the current `miner.py` extension, filename, and shebang language mappings into
+        the catalog, preserving the existing detection order and behavior.
+      - Move the current `searcher.py` `SUPPORTED_LANGUAGES` source of truth into the
+        catalog or derive it from catalog data plus explicit synthetic languages.
+      - Update `mempalace/mcp_server.py` language-filter schema text to use the catalog
+        instead of a hand-maintained hard-coded list.
+      - Port only the useful catalog-contract tests from PR #4, updating them for current
+        language coverage.
+
+      ## Out of scope
+      - Do not merge PR #4 directly.
+      - Do not include PR #4's app-level scan-exclude config behavior in this task.
+      - Do not remove or rename any currently accepted language labels.
+      - Do not change chunking, symbol extraction, or tree-sitter behavior except where an
+        import path must change to use the catalog.
+
+      ## Current language support that must be preserved
+      The fresh catalog must include current main's newer and special labels, including:
+      `swift`, `php`, `scala`, `dart`, and synthetic `kubernetes`.
+
+      It must also preserve existing extension/filename/shebang support for Python,
+      JavaScript/JSX, TypeScript/TSX, Go, Rust, Ruby, Java, Kotlin, C#, F#, VB.NET, XML,
+      .NET solution files, XAML, shell, SQL, Markdown, text, JSON, YAML, TOML, HTML, CSS,
+      CSV, C/C++, Terraform/HCL, Go templates, Jinja2, config/INI/Make files, Dockerfile,
+      Containerfile, Makefile/GNUmakefile, Vagrantfile, and shebang-only Perl.
+
+      ## Implementation notes
+      - Treat `mempalace/miner.py` and `mempalace/searcher.py` on current `publish/main`
+        as the truth source.
+      - `kubernetes` is content-detected from YAML (`apiVersion` + `kind`), so it must be
+        explicitly represented as a supported code_search language even though no extension
+        maps directly to it.
+      - Keep filename detection before shebang detection for extensionless files such as
+        Dockerfile, Makefile, Containerfile, and Vagrantfile.
+      - Keep MCP schema descriptions deterministic by sorting catalog-provided languages.
+      - If PR #4 code is materially reused, credit the author in the commit body.
+
+      ## Acceptance criteria
+      - `mempalace/language_catalog.py` exists and is the single shared source for language
+        maps and code_search-supported language labels.
+      - `mempalace/miner.py` imports catalog data and `detect_language()` behavior is
+        unchanged for all existing language-detection tests.
+      - `mempalace/searcher.py` imports the catalog-supported language set; invalid
+        language responses still return a sorted `supported_languages` list.
+      - `mempalace/mcp_server.py` uses a catalog-generated language description for the
+        `code_search` language parameter.
+      - Tests assert catalog/search/miner parity, including `swift`, `php`, `scala`,
+        `dart`, `kubernetes`, and shebang-only `perl`.
+      - PR #4 scan-exclude behavior is either untouched or split into a separate backlog
+        item before implementation.
+
+      ## Verification
+      Run at minimum:
+      - `python -m pytest tests/test_lang_detect.py tests/test_searcher.py tests/test_mcp_server.py -q`
+      - `python -m pytest tests/test_miner.py -q`
+      - `ruff check mempalace/ tests/`
+    resolution: null
   - key: CLEAN-ONBOARDING
     summary: "Replace interactive onboarding with config-file-first setup"
     type: task
