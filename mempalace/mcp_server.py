@@ -40,6 +40,7 @@ from typing import Optional
 
 from .config import MempalaceConfig
 from .knowledge_graph import KnowledgeGraph
+from .language_catalog import code_search_language_description
 from .miner import mine
 from .palace_graph import find_tunnels, graph_stats, traverse
 from .searcher import code_search, search_memories
@@ -1399,13 +1400,7 @@ TOOLS = {
                 "query": {"type": "string", "description": "What to search for"},
                 "language": {
                     "type": "string",
-                    "description": (
-                        "Filter by language (e.g. python, go, javascript, jsx, typescript, tsx, "
-                        "rust, java, scala, dart, cpp, c, shell, ruby, "
-                        "swift, csharp, fsharp, vbnet, xaml, dotnet-solution, php, "
-                        "sql, html, css, yaml, json, toml, terraform, hcl, dockerfile, make, "
-                        "gotemplate, jinja2, conf, ini, markdown, text, csv, kubernetes)"
-                    ),
+                    "description": code_search_language_description(),
                 },
                 "symbol_name": {
                     "type": "string",

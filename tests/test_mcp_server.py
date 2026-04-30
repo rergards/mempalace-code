@@ -746,6 +746,25 @@ class TestCodeSearchTool:
         for lang in ("jsx", "tsx", "dart"):
             assert lang in lang_desc, f"{lang!r} not found in language description: {lang_desc!r}"
 
+    def test_code_search_language_description_matches_catalog(self):
+        """The language schema description exposes the sorted catalog exactly once."""
+        from mempalace.language_catalog import sorted_searchable_languages
+        from mempalace.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 102, "params": {}})
+        tools = {t["name"]: t for t in resp["result"]["tools"]}
+        lang_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["language"][
+            "description"
+        ]
+        prefix = "Supported languages: "
+        assert lang_desc.startswith("Filter by language. ")
+        assert prefix in lang_desc
+
+        parsed = [part.strip() for part in lang_desc.split(prefix, 1)[1].split(",")]
+        assert parsed == list(sorted_searchable_languages())
+        assert len(parsed) == len(set(parsed))
+        assert parsed.count("kubernetes") == 1
+
     def test_code_search_dart_symbol_types_in_description(self):
         """The mempalace_code_search symbol_type description must mention mixin, extension_type, constructor."""
         from mempalace.mcp_server import handle_request

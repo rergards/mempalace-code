@@ -124,6 +124,14 @@ class TestIsRelevantChange:
             if name in KNOWN_FILENAMES:
                 assert _is_relevant_change(str(proj / name), proj), f"{name} should be accepted"
 
+    def test_watcher_miner_filter_imports_remain_available(self):
+        from mempalace import watcher
+
+        assert ".py" in watcher.READABLE_EXTENSIONS
+        assert ".yaml" in watcher.READABLE_EXTENSIONS
+        assert "Dockerfile" in watcher.KNOWN_FILENAMES
+        assert "Makefile" in watcher.KNOWN_FILENAMES
+
     # --- Files that SHOULD be rejected ---
 
     def test_rejects_pyc_file(self, proj):

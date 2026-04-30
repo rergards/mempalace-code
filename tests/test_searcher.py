@@ -6,6 +6,7 @@ Tests the library-facing search interface (not the CLI print variant).
 
 import pytest
 
+from mempalace.language_catalog import sorted_searchable_languages
 from mempalace.searcher import code_search, search_memories
 from mempalace.storage import open_store
 
@@ -140,6 +141,14 @@ class TestCodeSearch:
         assert "error" in result
         assert result["error"] == "No palace found"
         assert "hint" in result
+
+    def test_code_search_invalid_language_matches_catalog(self, palace_path):
+        result = code_search(palace_path, "something", language="notareallangnnn")
+
+        assert result == {
+            "error": "Unsupported language: 'notareallangnnn'",
+            "supported_languages": list(sorted_searchable_languages()),
+        }
 
     def test_code_search_full_source_file_path_unchanged(self, palace_path):
         store = open_store(palace_path, create=True)

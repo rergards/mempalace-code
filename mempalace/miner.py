@@ -19,135 +19,22 @@ from pathlib import Path
 from typing import Optional
 
 from .config import MempalaceConfig
+from .language_catalog import (
+    extension_language_map,
+    filename_language_map,
+    known_filenames,
+    readable_extensions,
+    shebang_patterns,
+)
 from .storage import open_store
 from .treesitter import get_parser
 from .version import __version__
 
-EXTENSION_LANG_MAP = {
-    ".py": "python",
-    ".js": "javascript",
-    ".jsx": "jsx",
-    ".ts": "typescript",
-    ".tsx": "tsx",
-    ".go": "go",
-    ".rs": "rust",
-    ".rb": "ruby",
-    ".java": "java",
-    ".kt": "kotlin",
-    ".kts": "kotlin",
-    ".cs": "csharp",
-    ".fs": "fsharp",
-    ".fsi": "fsharp",
-    ".vb": "vbnet",
-    ".swift": "swift",
-    ".csproj": "xml",
-    ".fsproj": "xml",
-    ".vbproj": "xml",
-    ".sln": "dotnet-solution",
-    ".xaml": "xaml",
-    ".sh": "shell",
-    ".sql": "sql",
-    ".md": "markdown",
-    ".txt": "text",
-    ".json": "json",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".toml": "toml",
-    ".html": "html",
-    ".css": "css",
-    ".csv": "csv",
-    ".c": "c",
-    ".h": "c",
-    ".cpp": "cpp",
-    ".hpp": "cpp",
-    ".php": "php",
-    ".scala": "scala",
-    ".sc": "scala",
-    ".dart": "dart",
-    # devops / infrastructure
-    ".tf": "terraform",
-    ".tfvars": "terraform",
-    ".hcl": "hcl",
-    ".tpl": "gotemplate",
-    ".j2": "jinja2",
-    ".jinja2": "jinja2",
-    ".conf": "conf",
-    ".cfg": "conf",
-    ".ini": "ini",
-    ".mk": "make",
-}
-
-FILENAME_LANG_MAP = {
-    "Dockerfile": "dockerfile",
-    "Containerfile": "dockerfile",
-    "Makefile": "make",
-    "GNUmakefile": "make",
-    "Vagrantfile": "ruby",
-}
-
-KNOWN_FILENAMES = set(FILENAME_LANG_MAP.keys())
-
-SHEBANG_PATTERNS = [
-    (re.compile(r"python[0-9.]*"), "python"),
-    (re.compile(r"node(js)?"), "javascript"),
-    (re.compile(r"ruby"), "ruby"),
-    (re.compile(r"bash|sh|zsh"), "shell"),
-    (re.compile(r"perl"), "perl"),
-]
-
-READABLE_EXTENSIONS = {
-    ".txt",
-    ".md",
-    ".py",
-    ".js",
-    ".ts",
-    ".jsx",
-    ".tsx",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".html",
-    ".css",
-    ".java",
-    ".kt",
-    ".kts",
-    ".cs",
-    ".fs",
-    ".fsi",
-    ".vb",
-    ".swift",
-    ".csproj",
-    ".fsproj",
-    ".vbproj",
-    ".sln",
-    ".xaml",
-    ".go",
-    ".rs",
-    ".rb",
-    ".sh",
-    ".csv",
-    ".sql",
-    ".toml",
-    ".c",
-    ".h",
-    ".cpp",
-    ".hpp",
-    ".php",
-    ".scala",
-    ".sc",
-    ".dart",
-    # devops / infrastructure
-    ".tf",
-    ".tfvars",
-    ".hcl",
-    ".tpl",
-    ".j2",
-    ".jinja2",
-    ".conf",
-    ".cfg",
-    ".ini",
-    ".mk",
-}
+EXTENSION_LANG_MAP = extension_language_map()
+FILENAME_LANG_MAP = filename_language_map()
+KNOWN_FILENAMES = known_filenames()
+SHEBANG_PATTERNS = list(shebang_patterns())
+READABLE_EXTENSIONS = readable_extensions()
 
 SKIP_DIRS = {
     ".git",
