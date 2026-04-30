@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.6.1 — 2026-04-30
+
+### Added
+
+- Markdown section metadata in mined drawers: heading, heading level, heading path, document section type, and flags for Mermaid diagrams, fenced code blocks, and Markdown tables.
+- `search_memories` now returns Markdown section context with each result when available.
+
+### Changed
+
+- Markdown prose chunking treats `#` through `######` headings as section boundaries and preserves section metadata through small-section merges and oversized-section splits.
+
 ## v1.6.0 — 2026-04-27
 
 ### Added
