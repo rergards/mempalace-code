@@ -123,7 +123,16 @@ items:
       - `python -m pytest tests/test_lang_detect.py tests/test_searcher.py tests/test_mcp_server.py -q`
       - `python -m pytest tests/test_miner.py -q`
       - `ruff check mempalace/ tests/`
-    resolution: null
+    resolution: |-
+      2026-04-30: Hardening round-1 complete. Fixed 2 low-severity test-contract gaps:
+      invalid-language code_search now proves validation short-circuits before storage access,
+      and catalog tests now assert extension/readable plus searchable/detected set invariants.
+      Audit: docs/audits/CODE-LANGUAGE-CATALOG-FRESH-PR4-round-1.md.
+      Verification: language/catalog/detection/searcher/MCP/watcher focused checks passed;
+      tests/test_lang_detect.py tests/test_searcher.py tests/test_mcp_server.py passed;
+      tests/test_miner.py passed; ruff check passed. Full tests/ run was otherwise green
+      except 6 unrelated tests/test_migrate.py failures caused by Chroma attempting an ONNX
+      model download under restricted network.
   - key: CLEAN-ONBOARDING
     summary: "Replace interactive onboarding with config-file-first setup"
     type: task

@@ -142,8 +142,13 @@ class TestCodeSearch:
         assert result["error"] == "No palace found"
         assert "hint" in result
 
-    def test_code_search_invalid_language_matches_catalog(self, palace_path):
-        result = code_search(palace_path, "something", language="notareallangnnn")
+    def test_code_search_invalid_language_matches_catalog(self, monkeypatch):
+        def fail_open_store(*_args, **_kwargs):
+            raise AssertionError("invalid language validation should run before storage open")
+
+        monkeypatch.setattr("mempalace.searcher.open_store", fail_open_store)
+
+        result = code_search("/unused/palace", "something", language="notareallangnnn")
 
         assert result == {
             "error": "Unsupported language: 'notareallangnnn'",

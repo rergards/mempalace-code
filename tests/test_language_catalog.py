@@ -81,6 +81,14 @@ def test_catalog_keeps_non_extension_boundaries_explicit():
     )
 
 
+def test_catalog_readable_and_searchable_sets_stay_in_sync():
+    extension_map = catalog.extension_language_map()
+
+    assert set(extension_map) <= catalog.readable_extensions()
+    assert not catalog.readable_extensions() - set(extension_map)
+    assert catalog.searchable_languages() <= catalog.detected_languages()
+
+
 def test_catalog_helpers_return_independent_containers():
     extension_map = catalog.extension_language_map()
     extension_map[".zzz"] = "zlang"
