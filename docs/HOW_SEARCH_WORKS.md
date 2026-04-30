@@ -4,7 +4,7 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 
 ## The Algorithm in 5 Steps
 
-1. **During mining** (`mempalace mine`), every source file is split into chunks. Each chunk is passed through the `all-MiniLM-L6-v2` model, which converts the text into a **384-dimensional vector** — a numeric fingerprint of its meaning. The vector is stored in LanceDB alongside metadata (`wing`, `room`, `source_file`, `language`, `symbol_name`, `symbol_type`).
+1. **During mining** (`mempalace mine`), every source file is split into chunks. Each chunk is passed through the `all-MiniLM-L6-v2` model, which converts the text into a **384-dimensional vector** — a numeric fingerprint of its meaning. The vector is stored in LanceDB alongside metadata (`wing`, `room`, `source_file`, `language`, `symbol_name`, `symbol_type`). Markdown drawers also store section metadata (`heading`, `heading_level`, `heading_path`, `doc_section_type`) and flags for Mermaid diagrams, fenced code blocks, and tables.
 
 2. **At query time**, the query string (e.g. `"detect language file extension"`) goes through the same model and produces another 384-dimensional vector in the same semantic space.
 
@@ -12,7 +12,7 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 
 4. **Optional `wing` / `room` filters** are applied as standard SQL `WHERE` predicates. LanceDB decides whether to pre-filter before the vector search or post-filter after it.
 
-5. **Top-N results are returned** with a `similarity = 1 - distance` score (1.0 = perfect match, 0.0 = unrelated).
+5. **Top-N results are returned** with a `similarity = 1 - distance` score (1.0 = perfect match, 0.0 = unrelated). Programmatic search returns the stored metadata with each hit so agents can cite the file, symbol, language, and Markdown section path when available.
 
 ## ASCII Diagram
 
@@ -78,9 +78,10 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 - **The ANN index is approximate.** LanceDB uses IVF-PQ, which trades a tiny amount of recall for a massive speedup. On palaces with ~20k rows, the difference between the ANN search and exact brute force is negligible.
 - **Similarity is not a probability.** A score of 0.396 does not mean "40% match". Scores are only comparable *within the same query* — 0.4 beats 0.3 for the same query, but a 0.4 on one query and a 0.4 on another are not the same thing.
 - **`wing` / `room` filters are cheap.** They are plain columns in LanceDB, evaluated as SQL predicates.
+- **Markdown location survives retrieval.** For `.md` files, `search_memories()` results include `heading`, `heading_level`, `heading_path`, `doc_section_type`, `contains_mermaid`, `contains_code`, and `contains_table` when the drawer came from a headed section.
 
 ## Where the Code Lives
 
-- `mempalace/searcher.py:21-90` — high-level `search()` and `search_memories()` functions.
+- `mempalace/searcher.py` — high-level `search()` and `search_memories()` functions.
 - `mempalace/storage.py` — `LanceStore.query()`, which owns the embedding model, the LanceDB handle, and the actual vector search call.
 - `mempalace/miner.py` — smart chunker, language detection, symbol extraction, and the batch embedding loop used during `mempalace mine`.

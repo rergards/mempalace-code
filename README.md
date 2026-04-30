@@ -116,7 +116,7 @@ mempalace-code **indexes it once** into a local vector store, then your AI finds
 
 ### Language-Aware Code Mining
 
-`mempalace mine` walks your source tree and chooses the best chunker for each file type: AST boundaries where optional tree-sitter grammars are available, regex structural boundaries for supported languages, YAML-aware Kubernetes resource splits, Markdown/prose sections, or adaptive line-count chunks for formats without reliable declarations. Leading comments and docstrings stay attached to declarations where structural chunking is active.
+`mempalace mine` walks your source tree and chooses the best chunker for each file type: AST boundaries where optional tree-sitter grammars are available, regex structural boundaries for supported languages, YAML-aware Kubernetes resource splits, Markdown/prose sections, or adaptive line-count chunks for formats without reliable declarations. Leading comments and docstrings stay attached to declarations where structural chunking is active; Markdown drawers keep heading path, section type, and Mermaid/code/table flags in search metadata.
 
 | Language | Strategy | AST Support |
 |----------|----------|:-----------:|
@@ -135,7 +135,7 @@ mempalace-code **indexes it once** into a local vector store, then your AI finds
 | XAML | Controls, resources, code-behind linking | Regex |
 | Terraform / HCL | Terraform/HCL top-level blocks (`resource`, `module`, `variable`, `moved`, `import`, `check`, etc.) | Regex |
 | Kubernetes manifests | Deployments, Services, ConfigMaps, Secrets, Ingresses, CRDs (indexed by kind/name) | YAML-aware |
-| Markdown / plain text | Heading sections, paragraphs | — |
+| Markdown / plain text | Heading sections (`#`-`######`), heading paths, section metadata, paragraphs | — |
 | C / C++ | Indexed and searchable with best-effort symbol metadata; chunked adaptively today | — |
 | Ruby / shell / SQL | Indexed and searchable; chunked adaptively today | — |
 | HTML / CSS / CSV | Indexed and searchable; chunked adaptively today | — |
@@ -264,7 +264,7 @@ claude mcp add mempalace -- python -m mempalace.mcp_server
 | `mempalace_list_wings` | All wings with drawer counts |
 | `mempalace_list_rooms` | Rooms within a wing |
 | `mempalace_get_taxonomy` | Full wing → room → count tree |
-| `mempalace_search` | Semantic search with optional wing/room filters |
+| `mempalace_search` | Semantic search with optional wing/room filters; Markdown hits include heading path and section metadata |
 | `mempalace_code_search` | Filter by language, symbol name/type, file glob |
 | `mempalace_file_context` | All indexed chunks for a source file, ordered by chunk_index |
 | `mempalace_check_duplicate` | Similarity check before filing (0.9 threshold) |
@@ -616,7 +616,7 @@ Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 <!-- Link Definitions -->
 [version-shield]: https://img.shields.io/badge/version-1.6.1-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
-[python-shield]: https://img.shields.io/badge/python-3.9+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
+[python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/
 [license-shield]: https://img.shields.io/badge/license-Apache_2.0-b0e8ff?style=flat-square&labelColor=0a0e14
 [license-link]: https://github.com/rergards/mempalace-code/blob/main/LICENSE
