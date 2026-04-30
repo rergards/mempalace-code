@@ -308,3 +308,8 @@ items:
       resolution: '2026-04-26: completed in pipeline run'
       archived_date: "2026-04-26"
       done_summary: completed in pipeline run
+    - key: CODE-LANGUAGE-CATALOG-FRESH-PR4
+      summary: 'Rebuild PR #4 language catalog on top of current mining/search code'
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
