@@ -8,6 +8,7 @@ The Python package that powers mempalace-code. All modules, all logic.
 |--------|-------------|
 | `cli.py` | CLI entry point — routes to init, mine, search, watch, backup/restore, export/import, health, and wake-up |
 | `config.py` | Configuration loading — `~/.mempalace/config.json`, env vars, defaults |
+| `language_catalog.py` | Shared language metadata for miner detection, `code_search` validation, and MCP language hints |
 | `normalize.py` | Converts 5 chat formats (Claude Code JSONL, Claude.ai JSON, ChatGPT JSON, Slack JSON, plain text) to standard transcript format |
 | `miner.py` | Project file ingest — scans directories, detects languages, chunks code/prose/config, stores drawers; Markdown chunks keep heading path and section metadata |
 | `convo_miner.py` | Conversation ingest — chunks by exchange pair (Q+A), detects rooms from content |

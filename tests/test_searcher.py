@@ -155,6 +155,13 @@ class TestCodeSearch:
             "supported_languages": list(sorted_searchable_languages()),
         }
 
+    def test_code_search_catalog_language_filters_include_pr4_detector_labels(self):
+        for lang in ("kotlin", "xml", "perl"):
+            result = code_search("/unused/palace", "something", language=lang)
+            assert "Unsupported language" not in result.get("error", ""), (
+                f"Catalog language {lang!r} should be accepted, got: {result.get('error')}"
+            )
+
     def test_code_search_full_source_file_path_unchanged(self, palace_path):
         store = open_store(palace_path, create=True)
         store.add(

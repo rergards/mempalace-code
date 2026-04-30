@@ -62,9 +62,10 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
                                     │     source: miner.py   sim: 0.396    │
                                     │     def detect_language(path): ...   │
                                     │                                      │
-                                    │ [2] mempalace / miner                │
-                                    │     source: miner.py   sim: 0.351    │
-                                    │     EXTENSION_LANG_MAP = { ... }     │
+                                    │ [2] mempalace / language_catalog     │
+                                    │     source: language_catalog.py       │
+                                    │     sim: 0.351                        │
+                                    │     _EXTENSION_LANG_MAP = { ... }     │
                                     │                                      │
                                     │ [3] ...                              │
                                     └──────────────────────────────────────┘
@@ -78,6 +79,7 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 - **The ANN index is approximate.** LanceDB uses IVF-PQ, which trades a tiny amount of recall for a massive speedup. On palaces with ~20k rows, the difference between the ANN search and exact brute force is negligible.
 - **Similarity is not a probability.** A score of 0.396 does not mean "40% match". Scores are only comparable *within the same query* — 0.4 beats 0.3 for the same query, but a 0.4 on one query and a 0.4 on another are not the same thing.
 - **`wing` / `room` filters are cheap.** They are plain columns in LanceDB, evaluated as SQL predicates.
+- **Language filters share the miner catalog.** `code_search(language=...)` validates against the same language labels the miner emits, and the MCP schema hint is generated from that catalog.
 - **Markdown location survives retrieval.** For `.md` files, `search_memories()` results include `heading`, `heading_level`, `heading_path`, `doc_section_type`, `contains_mermaid`, `contains_code`, and `contains_table` when the drawer came from a headed section.
 
 ## Where the Code Lives

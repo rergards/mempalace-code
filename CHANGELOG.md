@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.6.2 — 2026-05-01
+
+### Added
+
+- Shared language catalog for miner detection, `code_search` validation, and MCP language hints.
+- `code_search(language=...)` now accepts Kotlin, XML project files, and Perl shebang-detected files, matching mined language labels from the catalog.
+
+### Changed
+
+- The `mempalace_code_search` MCP language description is generated from the same catalog used by search validation, reducing future drift when language support changes.
+- PR #4's scan-exclude proposal is split into backlog item `MINE-APP-SCAN-EXCLUDES-PR4` instead of being merged with the catalog refactor.
+
 ## v1.6.1 — 2026-04-30
 
 ### Added

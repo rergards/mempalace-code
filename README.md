@@ -29,7 +29,7 @@ No cloud. No API keys. No subscription. Nothing leaves your machine.
 <tr>
 <td align="center"><strong>595x Token Savings</strong><br><sub>measured peak · median 80x<br><a href="docs/BENCH_TOKEN_DELTA.md">scales with project size</a></sub></td>
 <td align="center"><strong>Cross-Project Tunnels</strong><br><sub>Search <code>auth</code> in one project<br>find it everywhere</sub></td>
-<td align="center"><strong>1312 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>fully offline after install</sub></td>
+<td align="center"><strong>1322 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>fully offline after install</sub></td>
 </tr>
 </table>
 
@@ -141,6 +141,10 @@ mempalace-code **indexes it once** into a local vector store, then your AI finds
 | HTML / CSS / CSV | Indexed and searchable; chunked adaptively today | — |
 | YAML / JSON / TOML | Adaptive line-count; Kubernetes YAML auto-detected separately | — |
 | Dockerfile / Make / templates / config | Dockerfile, Containerfile, Makefile, GNUmakefile, Vagrantfile, Go templates, Jinja2, `.conf`, `.cfg`, `.ini` | — |
+
+The `mempalace_code_search` language filter is generated from the same language
+catalog as the miner. If a file type is mined with a language label, the MCP
+schema and unsupported-language hints stay aligned with that catalog.
 
 Tree-sitter is optional (`pip install "mempalace-code[treesitter]"`). When a grammar is missing, Python, TypeScript/JavaScript/TSX/JSX, Go, and Rust fall back to regex structural chunking. Other recognized formats use their regex, YAML-aware, prose, or adaptive chunker as listed above.
 
@@ -614,7 +618,7 @@ python -m pytest tests/ -x -q    # full suite, all local, no network
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.6.1-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.6.2-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

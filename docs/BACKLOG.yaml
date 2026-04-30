@@ -43,6 +43,36 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
+  - key: MINE-APP-SCAN-EXCLUDES-PR4
+    summary: "Evaluate PR #4 app-level scan excludes as a separate mining feature"
+    type: task
+    priority: medium
+    status: open
+    size: M
+    section_id: coding_first
+    labels: [mining, watcher, config, pr4]
+    description: |-
+      ## Problem
+      PR #4 includes app-level scan exclusions (`scan_skip_dirs`, `scan_skip_files`,
+      `scan_skip_globs`) alongside its language-catalog refactor. The catalog part was
+      rebuilt on current main, but global scan excludes are a separate behavior change and
+      should not be merged accidentally through the catalog task.
+
+      ## Scope
+      Re-evaluate the PR #4 scan-exclude idea on current main and implement it only if the
+      behavior is still desirable. The feature should exclude noisy generated artifacts such
+      as `.kotlin-lsp/` and `workspace.json` consistently from `scan_project()` and watcher
+      relevance checks, while preserving explicit `--include-ignored` overrides.
+
+      ## Acceptance criteria
+      - Global scan-exclude config keys are documented and loaded from
+        `~/.mempalace/config.json`.
+      - `scan_project()` and watcher relevance filtering use the same app-level rules.
+      - Explicit `--include-ignored` paths override app-level excludes.
+      - Defaults are conservative and do not hide common source files.
+      - Tests cover config loading, miner scanning, watcher filtering, and override behavior.
+      - README/docs describe how to remove previously indexed noise by re-mining.
+    resolution: null
   - key: CLEAN-ONBOARDING
     summary: "Replace interactive onboarding with config-file-first setup"
     type: task

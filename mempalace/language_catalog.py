@@ -141,6 +141,7 @@ _SEARCHABLE_LANGUAGES = frozenset(
         "tsx",
         "rust",
         "java",
+        "kotlin",
         "cpp",
         "c",
         "shell",
@@ -151,6 +152,7 @@ _SEARCHABLE_LANGUAGES = frozenset(
         "vbnet",
         "xaml",
         "dotnet-solution",
+        "xml",
         # Apple / Swift
         "swift",
         # PHP
@@ -182,6 +184,7 @@ _SEARCHABLE_LANGUAGES = frozenset(
         "markdown",
         "text",
         "csv",
+        "perl",
     }
 )
 

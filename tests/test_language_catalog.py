@@ -61,7 +61,6 @@ def test_catalog_preserves_current_detection_labels():
 def test_catalog_keeps_non_extension_boundaries_explicit():
     extension_map = catalog.extension_language_map()
     filename_map = catalog.filename_language_map()
-    detector_only = catalog.detected_languages() - catalog.searchable_languages()
 
     assert filename_map == {
         "Dockerfile": "dockerfile",
@@ -74,7 +73,6 @@ def test_catalog_keeps_non_extension_boundaries_explicit():
     assert "kubernetes" in catalog.searchable_languages()
     assert "kubernetes" in catalog.detected_languages()
     assert "kubernetes" not in extension_map.values()
-    assert {"xml", "perl", "kotlin"} <= detector_only
     assert not any(
         hasattr(catalog, name)
         for name in ("SCAN_EXCLUDE_CONFIG", "SCAN_EXCLUDES", "SCAN_EXCLUDE_PATTERNS")
@@ -87,6 +85,7 @@ def test_catalog_readable_and_searchable_sets_stay_in_sync():
     assert set(extension_map) <= catalog.readable_extensions()
     assert not catalog.readable_extensions() - set(extension_map)
     assert catalog.searchable_languages() <= catalog.detected_languages()
+    assert {"kotlin", "xml", "perl"} <= catalog.searchable_languages()
 
 
 def test_catalog_helpers_return_independent_containers():
