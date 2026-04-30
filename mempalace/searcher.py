@@ -143,6 +143,13 @@ def search_memories(
                 "symbol_name": meta.get("symbol_name", "") or "",
                 "symbol_type": meta.get("symbol_type", "") or "",
                 "language": meta.get("language", "") or "",
+                "heading": meta.get("heading", "") or "",
+                "heading_level": meta.get("heading_level", 0) or 0,
+                "heading_path": meta.get("heading_path", "") or "",
+                "doc_section_type": meta.get("doc_section_type", "") or "",
+                "contains_mermaid": bool(meta.get("contains_mermaid", 0)),
+                "contains_code": bool(meta.get("contains_code", 0)),
+                "contains_table": bool(meta.get("contains_table", 0)),
                 "similarity": round(1 - dist, 3),
             }
         )

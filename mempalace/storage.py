@@ -201,6 +201,14 @@ _META_FIELD_SPEC: tuple = (
     # Symbol metadata
     ("symbol_name", "string", ""),
     ("symbol_type", "string", ""),
+    # Markdown / prose section metadata
+    ("heading", "string", ""),
+    ("heading_level", "int32", 0),
+    ("heading_path", "string", ""),
+    ("doc_section_type", "string", ""),
+    ("contains_mermaid", "int32", 0),
+    ("contains_code", "int32", 0),
+    ("contains_table", "int32", 0),
     # Provenance (CODE-INCREMENTAL)
     ("source_hash", "string", ""),
     ("extractor_version", "string", ""),
