@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-01 · MINE-APP-SCAN-EXCLUDES-PR4
+
+App-level scan excludes (`scan_skip_dirs`, `scan_skip_files`, `scan_skip_globs`) implemented in miner and watcher with hardened, tested outputs.
+
 ## v1.6.2 — 2026-05-01
 
 ### Added
