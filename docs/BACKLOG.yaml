@@ -77,27 +77,6 @@ items:
       Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
 
     resolution: null
-  - key: CI-CACHING
-    summary: "Add pip and HuggingFace model caching to CI jobs to reduce run time"
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: quality
-    labels: [ci, devex]
-    description: |-
-      ## Problem
-      CI repeatedly downloads large Python packages and the all-MiniLM-L6-v2 model, increasing runtime and making feedback slower.
-
-      ## Scope
-      Add pip caching through actions/setup-python and a HuggingFace model cache keyed by model name and dependency lock inputs.
-
-      ## Acceptance criteria
-      - CI caches pip packages.
-      - CI caches the HuggingFace model directory when model-backed tests run.
-      - Cold-cache runtime stays under 10 minutes for the main job.
-      - Warm-cache runtime stays under 3 minutes for the main job, or the observed runtime is documented if the hosted runner is slower.
-    resolution: null
   - key: STORE-MIGRATE-CLI-TEST
     summary: Add CLI-level test for migrate-storage subcommand wiring
     type: task
