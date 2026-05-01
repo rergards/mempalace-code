@@ -99,7 +99,7 @@ def cmd_init(args):
 
     config = MempalaceConfig()
 
-    # Validate directory before any side effects — must precede entity scanning
+    # Validate directory before any side effects — must precede entity scanning (AC-7)
     project_path = Path(args.dir).expanduser().resolve()
     if not project_path.is_dir():
         print(f"  Error: directory not found: {args.dir}", file=sys.stderr)
@@ -110,6 +110,7 @@ def cmd_init(args):
     if detect_entities_enabled:
         from .entity_detector import confirm_entities, detect_entities, scan_for_detection
 
+        # Pass 1: opt-in people/project detection from file content
         print(f"\n  Scanning for entities in: {args.dir}")
         files = scan_for_detection(args.dir)
         if files:
@@ -118,6 +119,7 @@ def cmd_init(args):
             total = len(detected["people"]) + len(detected["projects"]) + len(detected["uncertain"])
             if total > 0:
                 confirmed = confirm_entities(detected, yes=getattr(args, "yes", False))
+                # Save confirmed entities to <project>/entities.json for the miner
                 if confirmed["people"] or confirmed["projects"]:
                     entities_path = project_path / "entities.json"
                     with open(entities_path, "w") as f:
@@ -126,6 +128,7 @@ def cmd_init(args):
             else:
                 print("  No entities detected — proceeding with directory-based rooms.")
 
+    # Detect rooms from folder structure
     detect_rooms_local(
         project_dir=args.dir,
         yes=getattr(args, "yes", False),
