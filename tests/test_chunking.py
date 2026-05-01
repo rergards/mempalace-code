@@ -1124,6 +1124,12 @@ def test_ast_detached_comment_not_absorbed():
     standalone_chunk = next((c for c in contents(chunks) if "def standalone" in c), None)
     assert standalone_chunk is not None, "def standalone not found in any chunk"
     assert "A detached comment" not in standalone_chunk
+    # The detached comment must still be preserved somewhere — it belongs to the
+    # preceding boundary's chunk, not silently dropped.
+    process_chunk = next((c for c in contents(chunks) if "def process" in c), None)
+    assert process_chunk is not None, "def process not found in any chunk"
+    assert "A detached comment" in process_chunk
+    assert process_chunk is not standalone_chunk
 
 
 def test_ast_empty_file_returns_empty():

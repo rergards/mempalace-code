@@ -86,6 +86,7 @@ items:
       2. New test skips when tree-sitter-python is absent (uses _skip_if_no_ast guard)
       3. New test would FAIL if the b'\n\n' gap check were removed from _chunk_python_treesitter
       4. ruff check and ruff format pass
+    hardening_round_1: "2026-05-01 — fixed F-1 (low): test asserted only that the detached comment was absent from the standalone chunk, leaving a hypothetical comment-loss bug undetectable; added positive assertions that 'A detached comment' lands in the previous (def process) chunk and that the two chunks are distinct objects. Audit at docs/audits/CODE-TREESITTER-PYTHON-DETACH-TEST-round-1.md."
   - key: CODE-TREESITTER-GO-RUST-DETACH-TEST
     summary: Add negative tests for detached-comment gap detection in Go and Rust AST chunkers
     type: task
