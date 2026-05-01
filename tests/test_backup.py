@@ -487,7 +487,7 @@ class TestRenderSchedule:
         backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
         assert backups_dir in out
         assert "scheduled_" in out
-        # No bare 'mempalace backup' without --out
+        # No bare 'mempalace-code backup' without --out
         assert "--out" in out
 
     def test_darwin_weekly(self, palace_path):

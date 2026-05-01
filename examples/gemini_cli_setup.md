@@ -14,7 +14,7 @@ On many Linux systems, installing Python packages globally is restricted. We rec
 ```bash
 # Clone the repository (if you haven't already)
 git clone https://github.com/rergards/mempalace-code.git
-cd mempalace
+cd mempalace-code
 
 # Create a virtual environment
 python3 -m venv .venv
@@ -29,7 +29,7 @@ Set up your "Palace" (the database) and configure your identity.
 
 ```bash
 # Initialize the palace in the current directory
-.venv/bin/python3 -m mempalace init .
+.venv/bin/mempalace-code init .
 ```
 
 ### Identity and Wings (Optional but Recommended)
@@ -43,7 +43,7 @@ You can manually define who you are and what projects you work on by creating/ed
 Register mempalace-code as an MCP server so Gemini CLI can use its tools.
 
 ```bash
-gemini mcp add mempalace /absolute/path/to/mempalace/.venv/bin/python3 -m mempalace.mcp_server --scope user
+gemini mcp add mempalace-code /absolute/path/to/mempalace-code/.venv/bin/python3 -m mempalace.mcp_server --scope user
 ```
 *Note: Use the absolute path to ensure it works from any directory.*
 
@@ -62,7 +62,7 @@ Edit your `~/.gemini/settings.json` and add the following:
         "hooks": [
           {
             "type": "command",
-            "command": "/absolute/path/to/mempalace/hooks/mempal_precompact_hook.sh"
+            "command": "/absolute/path/to/mempalace-code/hooks/mempal_precompact_hook.sh"
           }
         ]
       }
@@ -86,10 +86,10 @@ Once connected, Gemini CLI will automatically:
 ### Manual Mining
 If you want the AI to learn from your existing code or docs immediately, run the "mine" command:
 ```bash
-.venv/bin/python3 -m mempalace mine /path/to/your/project
+.venv/bin/mempalace-code mine /path/to/your/project
 ```
 
 ### Verification
 In a Gemini CLI session, you can run:
-- `/mcp list`: Verify `mempalace` is `CONNECTED`.
+- `/mcp list`: Verify `mempalace-code` is `CONNECTED`.
 - `/hooks panel`: Verify the `PreCompress` hook is active.

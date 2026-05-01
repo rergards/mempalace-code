@@ -14,13 +14,63 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from mempalace.cli import main
+from mempalace.cli import install_legacy_alias, main
 from mempalace.storage import open_store
 
 
 def run_mine_cli(argv):
     with patch.object(sys, "argv", argv):
         main()
+
+
+class TestLegacyAlias:
+    def _write_executable(self, path: Path) -> None:
+        path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755)
+
+    def test_install_legacy_alias_creates_mempalace_when_unused(self, tmp_path, monkeypatch):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        canonical = bin_dir / "mempalace-code"
+        self._write_executable(canonical)
+        monkeypatch.setenv("PATH", str(bin_dir))
+
+        alias = install_legacy_alias()
+
+        assert alias == bin_dir / "mempalace"
+        assert alias.is_symlink()
+        assert alias.resolve() == canonical.resolve()
+
+    def test_install_legacy_alias_refuses_existing_mempalace(self, tmp_path, monkeypatch):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        canonical = bin_dir / "mempalace-code"
+        existing = bin_dir / "mempalace"
+        self._write_executable(canonical)
+        self._write_executable(existing)
+        monkeypatch.setenv("PATH", str(bin_dir))
+
+        with pytest.raises(RuntimeError, match="already in use"):
+            install_legacy_alias()
+
+        assert existing.is_file()
+        assert not existing.is_symlink()
+
+    def test_install_alias_subcommand_dispatches(self, tmp_path, monkeypatch):
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        canonical = bin_dir / "mempalace-code"
+        self._write_executable(canonical)
+        monkeypatch.setenv("PATH", str(bin_dir))
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "install-alias", "--target-dir", str(bin_dir)],
+        ):
+            main()
+
+        assert (bin_dir / "mempalace").resolve() == canonical.resolve()
 
 
 class TestInitEntityDetection:

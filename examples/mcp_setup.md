@@ -11,7 +11,7 @@ python -m mempalace.mcp_server
 Or add it to Claude Code:
 
 ```bash
-claude mcp add mempalace -- python -m mempalace.mcp_server
+claude mcp add mempalace-code -- python -m mempalace.mcp_server
 ```
 
 ## Available Tools

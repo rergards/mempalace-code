@@ -39,7 +39,7 @@ class TestHandleRequest:
         from mempalace.mcp_server import handle_request
 
         resp = handle_request({"method": "initialize", "id": 1, "params": {}})
-        assert resp["result"]["serverInfo"]["name"] == "mempalace"
+        assert resp["result"]["serverInfo"]["name"] == "mempalace-code"
         assert resp["id"] == 1
 
     def test_notifications_initialized_returns_none(self):

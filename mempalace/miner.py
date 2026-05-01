@@ -460,7 +460,7 @@ def load_config(project_dir: str) -> dict:
             config_path = legacy_path
         else:
             print(f"ERROR: No mempalace.yaml found in {project_dir}")
-            print(f"Run: mempalace init {project_dir}")
+            print(f"Run: mempalace-code init {project_dir}")
             sys.exit(1)
     with open(config_path) as f:
         return yaml.safe_load(f)
@@ -3596,7 +3596,7 @@ def mine(
     print("\n  By room:")
     for room, count in sorted(room_counts.items(), key=lambda x: x[1], reverse=True):
         print(f"    {room:20} {count} files")
-    print('\n  Next: mempalace search "what you\'re looking for"')
+    print('\n  Next: mempalace-code search "what you\'re looking for"')
     print(f"{'=' * 55}\n")
 
     return {
@@ -3803,7 +3803,7 @@ def status(palace_path: str):
         store = open_store(palace_path, create=False)
     except Exception:
         print(f"\n  No palace found at {palace_path}")
-        print("  Run: mempalace init <dir> then mempalace mine <dir>")
+        print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")
         return
 
     # Count by wing and room

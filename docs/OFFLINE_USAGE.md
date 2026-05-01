@@ -18,7 +18,7 @@ On a machine with internet access:
 
 ```bash
 # Download the model to the default cache location
-mempalace fetch-model
+mempalace-code fetch-model
 
 # The model lives at:
 #   ~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/
@@ -34,9 +34,9 @@ On the airgapped machine:
 mkdir -p ~/.cache/huggingface/hub
 tar -xzf minilm-cache.tar.gz -C ~/.cache/huggingface/hub
 
-# Install mempalace without triggering a download
-pip install mempalace
-mempalace init ~/my-project --skip-model-download
+# Install mempalace-code without triggering a download
+pip install mempalace-code
+mempalace-code init ~/my-project --skip-model-download
 ```
 
 ### Option B — Use a custom `HF_HOME`
@@ -45,7 +45,7 @@ If your cache lives in a non-default location (e.g. on a read-only network share
 
 ```bash
 export HF_HOME=/mnt/shared/huggingface
-mempalace search "my query"   # resolves model from $HF_HOME/hub/
+mempalace-code search "my query"   # resolves model from $HF_HOME/hub/
 ```
 
 Set `HF_HOME` in your shell profile so it persists across sessions.
@@ -62,11 +62,11 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
 # This must succeed without network access:
-mempalace search "test"
+mempalace-code search "test"
 ```
 
 If the command exits with a connection error, the model is not fully cached.  Run
-`mempalace fetch-model` on a connected machine first.
+`mempalace-code fetch-model` on a connected machine first.
 
 ---
 
@@ -77,7 +77,7 @@ the model upgrade policy):
 
 ```bash
 # 1. Download on a connected machine:
-mempalace fetch-model --model all-mpnet-base-v2
+mempalace-code fetch-model --model all-mpnet-base-v2
 
 # 2. Pass the model name when opening the store (Python API):
 from mempalace.storage import LanceStore
@@ -94,7 +94,7 @@ the same model — changing the model requires re-mining all content.
 ## 4. `fetch-model` Reference
 
 ```
-mempalace fetch-model [--model MODEL] [--force]
+mempalace-code fetch-model [--model MODEL] [--force]
 ```
 
 | Flag | Default | Description |
@@ -121,13 +121,13 @@ environment variable.
 
 ```bash
 # Download the default model
-mempalace fetch-model
+mempalace-code fetch-model
 
 # Force re-download (e.g. after corruption)
-mempalace fetch-model --force
+mempalace-code fetch-model --force
 
 # Download a non-default model
-mempalace fetch-model --model all-mpnet-base-v2
+mempalace-code fetch-model --model all-mpnet-base-v2
 ```
 
 ---

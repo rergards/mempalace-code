@@ -61,7 +61,7 @@ def _fake_watch_factory(change_batches):
 
 class TestWatchFlagValidation:
     def _run(self, tmp_path, *extra_args):
-        """Run `mempalace mine <dir> --watch <extra_args>` and return exit code."""
+        """Run `mempalace-code mine <dir> --watch <extra_args>` and return exit code."""
         project = tmp_path / "proj"
         _make_project(project)
         argv = [
@@ -605,7 +605,7 @@ class TestImportError:
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "watchfiles" in captured.err
-        assert "mempalace[watch]" in captured.err
+        assert "mempalace-code[watch]" in captured.err
 
 
 # ---------------------------------------------------------------------------

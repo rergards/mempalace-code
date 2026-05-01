@@ -53,7 +53,7 @@ def migrate_chroma_to_lance(
     try:
         from ._chroma_store import ChromaStore
     except ImportError:
-        raise RuntimeError("chromadb not installed — run: pip install mempalace[chroma]")
+        raise RuntimeError("chromadb not installed — run: pip install mempalace-code[chroma]")
 
     # Open source ChromaDB palace.
     src_store = ChromaStore(src_path, create=False)

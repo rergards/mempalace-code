@@ -6,10 +6,10 @@ graph triples that would otherwise be lost when nuking and re-seeding a palace.
 
 Typical workflow:
     # Before nuke-and-re-seed:
-    mempalace export --only-manual --with-kg --out backup.jsonl
+    mempalace-code export --only-manual --with-kg --out backup.jsonl
 
     # After re-mine:
-    mempalace import backup.jsonl
+    mempalace-code import backup.jsonl
 """
 
 from __future__ import annotations

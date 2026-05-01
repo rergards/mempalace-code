@@ -6,7 +6,7 @@ Two-pass approach:
   Pass 1: scan files, extract entity candidates with signal counts
   Pass 2: score and classify each candidate as person, project, or uncertain
 
-Used by mempalace init before mining begins.
+Used by mempalace-code init before mining begins.
 The confirmed entity map feeds the miner as the taxonomy.
 
 Usage:

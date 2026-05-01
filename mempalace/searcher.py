@@ -29,7 +29,7 @@ def search(query: str, palace_path: str, wing: str = None, room: str = None, n_r
         store = open_store(palace_path, create=False)
     except Exception:
         print(f"\n  No palace found at {palace_path}")
-        print("  Run: mempalace init <dir> then mempalace mine <dir>")
+        print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")
         raise SearchError(f"No palace found at {palace_path}")
 
     # Build where filter
@@ -104,7 +104,7 @@ def search_memories(
         logger.error("No palace found at %s: %s", palace_path, e)
         return {
             "error": "No palace found",
-            "hint": "Run: mempalace init <dir> && mempalace mine <dir>",
+            "hint": "Run: mempalace-code init <dir> && mempalace-code mine <dir>",
         }
 
     # Build where filter
@@ -253,7 +253,7 @@ def code_search(
         logger.error("No palace found at %s: %s", palace_path, e)
         return {
             "error": "No palace found",
-            "hint": "Run: mempalace init <dir> && mempalace mine <dir>",
+            "hint": "Run: mempalace-code init <dir> && mempalace-code mine <dir>",
         }
 
     # Build LanceDB where clause for pre-query filtering

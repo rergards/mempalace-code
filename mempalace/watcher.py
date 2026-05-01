@@ -6,7 +6,7 @@ plus ``render_watch_schedule()`` for generating launchd/cron daemon configs.
 Uses the ``watchfiles`` library (Rust-backed, uses fsevents/inotify — no polling).
 
 Install the optional extra before use:
-    pip install 'mempalace[watch]'
+    pip install 'mempalace-code[watch]'
 """
 
 import json
@@ -193,14 +193,14 @@ def watch_and_mine(
     Parameters match ``mine()`` (minus ``limit``, ``dry_run``, and
     ``incremental`` which are fixed in watch mode).
 
-    Requires ``watchfiles`` (``pip install 'mempalace[watch]'``).
+    Requires ``watchfiles`` (``pip install 'mempalace-code[watch]'``).
     """
     try:
         import watchfiles
     except ImportError:
         print(
             "  Error: 'watchfiles' is not installed.\n"
-            "  Install it with:  pip install 'mempalace[watch]'\n"
+            "  Install it with:  pip install 'mempalace-code[watch]'\n"
             "  or:               pip install watchfiles",
             file=sys.stderr,
         )
@@ -395,14 +395,14 @@ def watch_all(
 
     Blocks until SIGTERM or KeyboardInterrupt.
 
-    Requires ``watchfiles`` (``pip install 'mempalace[watch]'``).
+    Requires ``watchfiles`` (``pip install 'mempalace-code[watch]'``).
     """
     try:
         import watchfiles
     except ImportError:
         print(
             "  Error: 'watchfiles' is not installed.\n"
-            "  Install it with:  pip install 'mempalace[watch]'\n"
+            "  Install it with:  pip install 'mempalace-code[watch]'\n"
             "  or:               pip install watchfiles",
             file=sys.stderr,
         )
@@ -422,7 +422,7 @@ def watch_all(
 
     if not initialized:
         print(f"  No initialized projects found in {parent_path}")
-        print("  Run 'mempalace init <dir>' on projects first.")
+        print("  Run 'mempalace-code init <dir>' on projects first.")
         sys.exit(1)
 
     # Build project path -> wing name mapping
@@ -632,16 +632,16 @@ def render_watch_schedule(
     platform: str,
     mempalace_bin: Optional[str] = None,
 ) -> str:
-    """Render a scheduler snippet (launchd plist or cron) for ``mempalace watch``.
+    """Render a scheduler snippet (launchd plist or cron) for ``mempalace-code watch``.
 
     Parameters
     ----------
     parent_dir:
-        Parent directory to watch (passed to ``mempalace watch <dir>``).
+        Parent directory to watch (passed to ``mempalace-code watch <dir>``).
     platform:
         'darwin' for launchd plist, 'linux' for cron @reboot line.
     mempalace_bin:
-        Override the mempalace binary path (default: resolved via shutil.which).
+        Override the mempalace-code binary path (default: resolved via shutil.which).
 
     Returns
     -------
@@ -657,7 +657,7 @@ def render_watch_schedule(
     safe_dir = _shlex.quote(str(Path(parent_dir).expanduser().resolve()))
 
     if mempalace_bin is None:
-        mempalace_bin = _shutil.which("mempalace")
+        mempalace_bin = _shutil.which("mempalace-code")
         if mempalace_bin is None:
             mempalace_bin = f"{sys.executable} -m mempalace"
 

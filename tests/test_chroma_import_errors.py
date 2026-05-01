@@ -14,7 +14,7 @@ import pytest
 
 
 def test_storage_chroma_store_import_error():
-    """storage.ChromaStore raises ImportError mentioning mempalace[chroma] when chromadb absent.
+    """storage.ChromaStore raises ImportError mentioning mempalace-code[chroma] when chromadb absent.
 
     Also verifies the original ImportError is preserved as __cause__ (raise ... from exc),
     so debuggers can see why the lazy import actually failed.
@@ -23,14 +23,14 @@ def test_storage_chroma_store_import_error():
         sys.modules.pop("mempalace._chroma_store", None)
         import mempalace.storage as storage_mod
 
-        with pytest.raises(ImportError, match=r"mempalace\[chroma\]") as exc_info:
+        with pytest.raises(ImportError, match=r"mempalace-code\[chroma\]") as exc_info:
             _ = storage_mod.ChromaStore
 
         assert isinstance(exc_info.value.__cause__, ImportError)
 
 
 def test_open_store_chroma_import_error(tmp_path):
-    """open_store(..., backend='chroma') raises ImportError mentioning mempalace[chroma].
+    """open_store(..., backend='chroma') raises ImportError mentioning mempalace-code[chroma].
 
     Also verifies the original ImportError is preserved as __cause__ (raise ... from exc).
     """
@@ -38,7 +38,7 @@ def test_open_store_chroma_import_error(tmp_path):
         sys.modules.pop("mempalace._chroma_store", None)
         from mempalace.storage import open_store
 
-        with pytest.raises(ImportError, match=r"mempalace\[chroma\]") as exc_info:
+        with pytest.raises(ImportError, match=r"mempalace-code\[chroma\]") as exc_info:
             open_store(str(tmp_path), backend="chroma")
 
         assert isinstance(exc_info.value.__cause__, ImportError)

@@ -41,8 +41,8 @@
 # to save everything. After the AI saves, compaction proceeds normally.
 #
 # === MEMPALACE CLI ===
-# This repo uses: mempalace mine <dir>
-# or:            mempalace mine <dir> --mode convos
+# This repo uses: mempalace-code mine <dir>
+# or:            mempalace-code mine <dir> --mode convos
 # Set MEMPAL_DIR below if you want the hook to auto-ingest before compaction.
 # Leave blank to rely on the AI's own save instructions.
 
@@ -65,7 +65,11 @@ echo "[$(date '+%H:%M:%S')] PRE-COMPACT triggered for session $SESSION_ID" >> "$
 if [ -n "$MEMPAL_DIR" ] && [ -d "$MEMPAL_DIR" ]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     REPO_DIR="$(dirname "$SCRIPT_DIR")"
-    python3 -m mempalace mine "$MEMPAL_DIR" >> "$STATE_DIR/hook.log" 2>&1
+    if command -v mempalace-code >/dev/null 2>&1; then
+        mempalace-code mine "$MEMPAL_DIR" >> "$STATE_DIR/hook.log" 2>&1
+    else
+        python3 -m mempalace mine "$MEMPAL_DIR" >> "$STATE_DIR/hook.log" 2>&1
+    fi
 fi
 
 # Always block — compaction = save everything

@@ -1,7 +1,7 @@
 # AGENT_INSTALL — mempalace-code Install Runbook for Coding Agents
 
 > **Audience:** Coding agents (Claude Code, Codex, Cursor, autopilot orchestrators) installing
-> mempalace on behalf of a human. This is a decision-tree script, not prose. Execute steps
+> mempalace-code on behalf of a human. This is a decision-tree script, not prose. Execute steps
 > sequentially; each step has a shell check, a **Pass →** branch, and a **Fail →** branch.
 >
 > **Hard constraints:**
@@ -34,11 +34,11 @@ Wait for `ready`. Re-run Step 1.1. If still failing after one retry, halt and re
 
 ---
 
-### Step 1.2: Existing mempalace install
+### Step 1.2: Existing mempalace-code install
 
 **Check:**
 ```bash
-command -v mempalace
+command -v mempalace-code
 ```
 
 Exit code 0 = binary found; non-zero = not installed.
@@ -46,7 +46,7 @@ Exit code 0 = binary found; non-zero = not installed.
 **Pass →** Binary found. Record version — try the pipx venv Python first (works for any install method), fall back to system python3:
 ```bash
 MPALACE_VER=$(
-  "$(pipx environment --value PIPX_LOCAL_VENVS 2>/dev/null)/mempalace/bin/python" \
+  "$(pipx environment --value PIPX_LOCAL_VENVS 2>/dev/null)/mempalace-code/bin/python" \
     -c "import mempalace; print(mempalace.__version__)" 2>/dev/null \
   || python3 -c "import mempalace; print(mempalace.__version__)" 2>/dev/null
 )
@@ -55,6 +55,8 @@ echo "$MPALACE_VER"
 If this prints a version string, record `MEMPALACE_VERSION=$MPALACE_VER` and set `ALREADY_INSTALLED=true`. Skip Section 3 (Install). Continue to Step 1.3.
 
 **Note:** For pipx installs, system `python3` cannot import mempalace — only the pipx venv Python can. The two-command fallback above handles both cases.
+The `mempalace` command name may belong to upstream/vanilla MemPalace; do not use it
+to detect this fork unless it was explicitly created by `mempalace-code install-alias`.
 
 **Fail →** Binary not found. Set `ALREADY_INSTALLED=false`. Continue to Step 1.3.
 
@@ -109,7 +111,7 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 
 **Condition:** `ALREADY_INSTALLED=false`
 
-**ASK HUMAN:** "I can install mempalace at the user level (recommended: `uv tool install` or `pipx`, isolated from other packages) or as a project dependency in the current virtual environment (`pip`). Reply `user` for isolated install or `project` for the current venv."
+**ASK HUMAN:** "I can install mempalace-code at the user level (recommended: `uv tool install` or `pipx`, isolated from other packages) or as a project dependency in the current virtual environment (`pip`). Reply `user` for isolated install or `project` for the current venv."
 
 **Parse response:**
 - `user` → Set `INSTALL_METHOD=user`. Prefer `uv tool install` if `HAS_UV=true`, else fall back to `pipx`.
@@ -130,13 +132,13 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 - A `MEMPALACE_PALACE_PATH=...` export → Record the env var; set `PALACE_PATH` from it.
 - Anything else → Repeat once; default to `~/.mempalace/palace` if still unclear.
 
-**Note:** `PALACE_PATH` is the vector DB storage location. It is separate from the project directory passed to `mempalace init`.
+**Note:** `PALACE_PATH` is the vector DB storage location. It is separate from the project directory passed to `mempalace-code init`.
 
 ---
 
 ### Q3 — Model download consent
 
-**ASK HUMAN:** "mempalace uses a local embedding model (~80 MB) downloaded once from HuggingFace. This requires internet access during setup; after that everything runs offline. Reply `yes` to download now, `no` to skip (you can run `mempalace fetch-model` later), or `offline` if this machine has no internet access."
+**ASK HUMAN:** "mempalace-code uses a local embedding model (~80 MB) downloaded once from HuggingFace. This requires internet access during setup; after that everything runs offline. Reply `yes` to download now, `no` to skip (you can run `mempalace-code fetch-model` later), or `offline` if this machine has no internet access."
 
 **Parse response:**
 - `yes` → Set `DOWNLOAD_MODEL=yes`.
@@ -148,7 +150,7 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 
 ### Q4 — MCP scope
 
-**ASK HUMAN:** "Should the mempalace MCP server be registered globally (available in all projects) or only for the current project? Reply `global` to register in `~/.mcp.json` (Claude Code) / `~/.codex/config.toml` (Codex), or `project` to register in `.mcp.json` in the current directory."
+**ASK HUMAN:** "Should the mempalace-code MCP server be registered globally (available in all projects) or only for the current project? Reply `global` to register in `~/.mcp.json` (Claude Code) / `~/.codex/config.toml` (Codex), or `project` to register in `.mcp.json` in the current directory."
 
 **Parse response:**
 - `global` → Set `MCP_SCOPE=global`.
@@ -172,6 +174,11 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 
 **Skip this section if `ALREADY_INSTALLED=true`.**
 
+For side-by-side use with upstream/vanilla MemPalace, prefer an isolated user-level
+install (`uv tool install` or `pipx`). The console command is `mempalace-code`, but
+the Python import package remains `mempalace`, so do not install both projects into
+the same virtualenv.
+
 ---
 
 ### Step 3.0: Bootstrap script (preferred)
@@ -187,7 +194,7 @@ curl -fsSL https://raw.githubusercontent.com/rergards/mempalace-code/main/script
 curl -fsSL https://raw.githubusercontent.com/rergards/mempalace-code/main/scripts/bootstrap.sh | MEMPALACE_SOURCE=git bash
 ```
 
-**Pass →** Script exits 0 and prints `Done. mempalace <version> is ready.` Skip to Section 4.
+**Pass →** Script exits 0 and prints `Done. mempalace-code <version> is ready.` Skip to Section 4.
 
 **Fail →** Script exits non-zero. Read the error output. Common causes: no Python 3.11+, no `venv` module (`apt install python3-venv`). Fix and re-run, or fall through to manual Steps 3.1–3.3.
 
@@ -264,7 +271,22 @@ python3 -c "import mempalace; print(mempalace.__version__)"
 ```bash
 hash -r && python3 -c "import mempalace; print(mempalace.__version__)"
 ```
-If still failing, **ASK HUMAN:** "mempalace was installed but cannot be imported. This usually means the pipx venv Python is not on PATH, or install was into a different environment. Reply `retry` after sourcing your shell profile (`. ~/.bashrc` or `. ~/.zshrc`) or `abort`."
+If still failing, **ASK HUMAN:** "mempalace-code was installed but cannot be imported. This usually means the pipx venv Python is not on PATH, or install was into a different environment. Reply `retry` after sourcing your shell profile (`. ~/.bashrc` or `. ~/.zshrc`) or `abort`."
+
+---
+
+### Step 3.5: Optional `mempalace` alias
+
+The default executable is `mempalace-code` so this fork can coexist with
+upstream/vanilla `mempalace` on the same machine. Only create the shorter alias if
+the command name is unused:
+
+```bash
+command -v mempalace || mempalace-code install-alias
+```
+
+If `command -v mempalace` prints a path, leave it untouched. It may belong to
+upstream/vanilla MemPalace or another local install.
 
 ---
 
@@ -301,7 +323,7 @@ print('palace_path written')
 
 **Fail →** Write failed. **ASK HUMAN:** "Could not write `~/.mempalace/config.json`. The `MEMPALACE_PALACE_PATH` env var is still set for this session. Reply `continue` to proceed with session-only config, or `abort` to stop."
 
-**Default path case:** No action needed — `mempalace init` will create `~/.mempalace/palace` automatically.
+**Default path case:** No action needed — `mempalace-code init` will create `~/.mempalace/palace` automatically.
 
 ---
 
@@ -311,10 +333,10 @@ print('palace_path written')
 
 Run:
 ```bash
-mempalace init "<MINE_PATH>"
+mempalace-code init "<MINE_PATH>"
 ```
 
-`mempalace init` is non-interactive by default — it detects rooms from the folder structure
+`mempalace-code init` is non-interactive by default — it detects rooms from the folder structure
 and writes `mempalace.yaml` without prompting. The `--yes` flag is accepted for backward
 compatibility with existing scripts but is no longer required.
 Heuristic people/project entity detection is opt-in; add `--detect-entities` only when the
@@ -333,7 +355,7 @@ are confirmed, init writes `<MINE_PATH>/entities.json` with:
 For unattended setup, use `--detect-entities` only after the human accepts the
 tradeoff: detected people/projects are auto-accepted and uncertain candidates are skipped.
 Do not add the flag just because a directory is a source repo; code symbols are handled by
-`mempalace mine`, and broad entity scans over code create false positives.
+`mempalace-code mine`, and broad entity scans over code create false positives.
 
 **Pass →** Exit code 0. Config and room setup complete. Continue to Step 4c.
 
@@ -349,16 +371,16 @@ Do not add the flag just because a directory is a source repo; code symbols are 
 
 Run:
 ```bash
-mempalace fetch-model
+mempalace-code fetch-model
 ```
 
 `fetch-model` is idempotent — if the model is already cached it loads instantly from disk (no network call). Expected output ends with `Done — embedding model is ready for offline use.`
 
 Exit code 0 = success. Set `MODEL_READY=true`. Continue to Step 4d.
 
-**Fail →** Retry once. If still failing, **ASK HUMAN:** "Model download failed (network error or HuggingFace unavailable). The palace will work without the model, but search quality will degrade until it is available. Reply `retry` to try again, or `continue` to proceed without the model (run `mempalace fetch-model` later)."
+**Fail →** Retry once. If still failing, **ASK HUMAN:** "Model download failed (network error or HuggingFace unavailable). The palace will work without the model, but search quality will degrade until it is available. Reply `retry` to try again, or `continue` to proceed without the model (run `mempalace-code fetch-model` later)."
 
-**Condition:** `DOWNLOAD_MODEL=no` → Set `MODEL_READY=false`. Note to human: run `mempalace fetch-model` before first search.
+**Condition:** `DOWNLOAD_MODEL=no` → Set `MODEL_READY=false`. Note to human: run `mempalace-code fetch-model` before first search.
 
 ---
 
@@ -367,7 +389,7 @@ Exit code 0 = success. Set `MODEL_READY=true`. Continue to Step 4d.
 **Condition:** `MINE_PATH != skip`
 
 ```bash
-mempalace mine "<MINE_PATH>"
+mempalace-code mine "<MINE_PATH>"
 ```
 
 **Pass →** Exit code 0. Output ends with a filed-drawer count. Continue to Section 5.
@@ -378,10 +400,12 @@ mempalace mine "<MINE_PATH>"
 
 ## Section 5 — MCP Wiring
 
-Wire the mempalace MCP server so your AI assistant can call it during conversations.
+Wire the mempalace-code MCP server so your AI assistant can call it during conversations.
+Use `mempalace-code` as the MCP server registration name. The exposed MCP tool
+identifiers stay `mempalace_*` for compatibility with existing agents and usage rules.
 
 **Important:** The MCP server is `python -m mempalace.mcp_server`, not a CLI subcommand. The Python interpreter used must be the one that has `mempalace` importable:
-- **pipx install:** `$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace/bin/python`
+- **pipx install:** `$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace-code/bin/python`
 - **uv / pip-in-venv:** the venv Python (e.g. `~/.mempalace/venv/bin/python` or `.venv/bin/python`)
 - **pip --user install:** `python3` if the package is on PATH
 
@@ -396,7 +420,7 @@ MPALACE_PYTHON=$(python3 -c "import sys; print(sys.executable)")
 
 **Fail →** Find the pipx venv Python:
 ```bash
-MPALACE_PYTHON=$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace/bin/python
+MPALACE_PYTHON=$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace-code/bin/python
 "$MPALACE_PYTHON" -c "import mempalace; print('ok')"
 ```
 
@@ -406,10 +430,10 @@ MPALACE_PYTHON=$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace/bin/python
 
 **Check — already wired?**
 ```bash
-claude mcp list 2>/dev/null | grep -i mempalace
+claude mcp list 2>/dev/null | grep -i mempalace-code
 ```
 
-**Pass →** mempalace is already in the MCP list. Set `CLAUDE_WIRED=true`. Skip to Step 5.2.
+**Pass →** mempalace-code is already in the MCP list. Set `CLAUDE_WIRED=true`. Skip to Step 5.2.
 
 **Fail →** Not wired. Proceed based on `MCP_SCOPE`.
 
@@ -417,7 +441,7 @@ claude mcp list 2>/dev/null | grep -i mempalace
 
 Preferred (CLI):
 ```bash
-claude mcp add --scope user mempalace -- "$MPALACE_PYTHON" -m mempalace.mcp_server
+claude mcp add --scope user mempalace-code -- "$MPALACE_PYTHON" -m mempalace.mcp_server
 ```
 
 Exit code 0 = success. This writes to `~/.mcp.json` under the `mcpServers` key.
@@ -426,7 +450,7 @@ Exit code 0 = success. This writes to `~/.mcp.json` under the `mcpServers` key.
 ```json
 {
   "mcpServers": {
-    "mempalace": {
+    "mempalace-code": {
       "type": "stdio",
       "command": "<MPALACE_PYTHON>",
       "args": ["-m", "mempalace.mcp_server"]
@@ -434,20 +458,20 @@ Exit code 0 = success. This writes to `~/.mcp.json` under the `mcpServers` key.
   }
 }
 ```
-If `~/.mcp.json` already exists with other entries, merge only the `"mempalace"` key into `"mcpServers"` without overwriting other keys.
+If `~/.mcp.json` already exists with other entries, merge only the `"mempalace-code"` key into `"mcpServers"` without overwriting other keys.
 
 #### 5.1-B: Project scope (MCP_SCOPE=project)
 
 Preferred (CLI):
 ```bash
-claude mcp add --scope project mempalace -- "$MPALACE_PYTHON" -m mempalace.mcp_server
+claude mcp add --scope project mempalace-code -- "$MPALACE_PYTHON" -m mempalace.mcp_server
 ```
 
 **Fail (CLI not available) →** Manual fallback — create or update `.mcp.json` in the current working directory:
 ```json
 {
   "mcpServers": {
-    "mempalace": {
+    "mempalace-code": {
       "command": "<MPALACE_PYTHON>",
       "args": ["-m", "mempalace.mcp_server"]
     }
@@ -457,12 +481,12 @@ claude mcp add --scope project mempalace -- "$MPALACE_PYTHON" -m mempalace.mcp_s
 
 **Post-wire check:**
 ```bash
-claude mcp list 2>/dev/null | grep -i mempalace
+claude mcp list 2>/dev/null | grep -i mempalace-code
 ```
 
 **Pass →** Set `CLAUDE_WIRED=true`. Continue to Step 5.2.
 
-**Fail →** **ASK HUMAN:** "Claude Code MCP wiring appears to have failed — `claude mcp list` does not show mempalace. Manual fix: add the entry to `~/.claude.json` (global) or `.mcp.json` (project) as shown above, then reply `done` to continue."
+**Fail →** **ASK HUMAN:** "Claude Code MCP wiring appears to have failed — `claude mcp list` does not show mempalace-code. Manual fix: add the entry to `~/.claude.json` (global) or `.mcp.json` (project) as shown above, then reply `done` to continue."
 
 ---
 
@@ -480,7 +504,7 @@ codex mcp --help 2>/dev/null && echo "has_mcp" || echo "no_mcp"
 
 If `has_mcp`:
 ```bash
-codex mcp add mempalace -- "$MPALACE_PYTHON" -m mempalace.mcp_server
+codex mcp add mempalace-code -- "$MPALACE_PYTHON" -m mempalace.mcp_server
 ```
 
 Exit code 0 = success. Set `CODEX_WIRED=true`.
@@ -494,7 +518,7 @@ If `no_mcp` or CLI add fails → Fall through to manual TOML edit below.
 Edit `~/.codex/config.toml`. Resolve `MPALACE_PYTHON` first (see Step 5 preamble), then append:
 
 ```toml
-[mcp_servers.mempalace]
+[mcp_servers.mempalace-code]
 command = "<MPALACE_PYTHON>"
 args = ["-m", "mempalace.mcp_server"]
 ```
@@ -512,7 +536,7 @@ mkdir -p ~/.codex
 
 ### Step 5.3: Auto-save for conversation context
 
-Code mining is handled by the watcher (`mempalace watch-all`) and works with any client. Conversation context (decisions, discussions, debugging notes) is saved via **MCP tools + usage rules** — this works identically across all agents.
+Code mining is handled by the watcher (`mempalace-code watch`) and works with any client. Conversation context (decisions, discussions, debugging notes) is saved via **MCP tools + usage rules** — this works identically across all agents.
 
 The recommended approach for **all agents** (Claude Code, Codex, Cursor, etc.):
 1. Wire the MCP server (Steps 5.1/5.2) so the agent can call `mempalace_add_drawer` and `mempalace_diary_write`.
@@ -533,25 +557,25 @@ Run all checks. Each one is a pass/fail with an explicit failure action.
 ### Step 6.1: Palace status
 
 ```bash
-mempalace status
+mempalace-code status
 ```
 
 **Pass →** Exit code 0. Output shows palace path, total drawers, and wing list. Confirm `palace_path` in the output matches `PALACE_PATH`.
 
-**Fail →** Exit code non-zero or output is empty/error. Likely causes: wrong `PALACE_PATH`, palace not initialized. **ASK HUMAN:** "Palace status check failed. Error: `<paste stderr>`. Common fix: check `MEMPALACE_PALACE_PATH` env var or run `mempalace init <project_dir>`. Reply `retry` after fixing, or `skip`."
+**Fail →** Exit code non-zero or output is empty/error. Likely causes: wrong `PALACE_PATH`, palace not initialized. **ASK HUMAN:** "Palace status check failed. Error: `<paste stderr>`. Common fix: check `MEMPALACE_PALACE_PATH` env var or run `mempalace-code init <project_dir>`. Reply `retry` after fixing, or `skip`."
 
 ---
 
 ### Step 6.2: Search smoke test
 
 ```bash
-mempalace search "test" --results 1
+mempalace-code search "test" --results 1
 ```
 
 **Pass →** Exit code 0. Output contains a formatted result block with `wing`, `room`, and `similarity` fields, or an `empty palace` message (acceptable for a fresh palace). Either is a pass.
 
 **Fail →** Exit code non-zero. Common causes: palace not initialized, embedding model not downloaded.
-- If model not downloaded: run `mempalace fetch-model` (see Step 4c), then retry.
+- If model not downloaded: run `mempalace-code fetch-model` (see Step 4c), then retry.
 - Otherwise: **ASK HUMAN:** "Search smoke test failed. Error: `<paste stderr>`. Reply `retry` or `skip`."
 
 ---
@@ -560,10 +584,10 @@ mempalace search "test" --results 1
 
 For Claude Code:
 ```bash
-claude mcp list 2>/dev/null | grep mempalace
+claude mcp list 2>/dev/null | grep mempalace-code
 ```
 
-**Pass →** mempalace appears in the list. Wiring is confirmed.
+**Pass →** mempalace-code appears in the list. Wiring is confirmed.
 
 **Fail →** Not in list. Re-run Step 5.1 wiring. If still failing after one retry, **ASK HUMAN:** "MCP wiring could not be confirmed. Please check `~/.claude.json` or `.mcp.json` manually and reply `done` when corrected."
 
@@ -579,7 +603,7 @@ After a successful install and verification, offer to inject mempalace usage rul
 
 ### Step 7.1: Offer injection
 
-**ASK HUMAN:** "mempalace is installed and working. Should I add usage rules to your CLAUDE.md so your AI assistant knows how to use mempalace effectively? This teaches it when to search, when to store, and how to organize memories. Reply `yes` (recommended) or `skip`."
+**ASK HUMAN:** "mempalace-code is installed and working. Should I add usage rules to your CLAUDE.md so your AI assistant knows how to use mempalace effectively? This teaches it when to search, when to store, and how to organize memories. Reply `yes` (recommended) or `skip`."
 
 - `yes` → Continue to Step 7.2.
 - `skip` → Skip Section 7 entirely.
@@ -719,11 +743,11 @@ A successful install produces:
 | Item | Expected state |
 |------|---------------|
 | `python3 -c "import mempalace; print(mempalace.__version__)"` | Prints version string |
-| `command -v mempalace` | Returns path to binary |
-| `mempalace status` | Exit 0, shows palace path |
-| `mempalace search "test" --results 1` | Exit 0, formatted output |
-| `claude mcp list \| grep mempalace` | Shows entry (if Claude Code target) |
-| `~/.codex/config.toml` contains `mcp_servers.mempalace` | Present (if Codex target) |
+| `command -v mempalace-code` | Returns path to binary |
+| `mempalace-code status` | Exit 0, shows palace path |
+| `mempalace-code search "test" --results 1` | Exit 0, formatted output |
+| `claude mcp list \| grep mempalace-code` | Shows entry (if Claude Code target) |
+| `~/.codex/config.toml` contains `mcp_servers.mempalace-code` | Present (if Codex target) |
 
 ---
 
@@ -732,8 +756,8 @@ A successful install produces:
 | Topic | Source |
 |-------|--------|
 | Palace path config | `mempalace/config.py:93–98` — env → config.json → default |
-| All CLI flags | `mempalace --help` / `mempalace <cmd> --help` |
-| MCP tool list (27 tools) | `README.md` → MCP Server section |
+| All CLI flags | `mempalace-code --help` / `mempalace-code <cmd> --help` |
+| MCP tool list (28 tools) | `README.md` → MCP Server section |
 | Auto-save hooks | `hooks/README.md` |
 | Airgapped / offline setup | `docs/OFFLINE_USAGE.md` |
 | Manual MCP setup examples | `examples/mcp_setup.md` |
@@ -745,31 +769,31 @@ A successful install produces:
 ### Search returns empty or counts don't match
 
 ```bash
-mempalace health
+mempalace-code health
 ```
 
 If `ok: false` or errors reported:
 
 ```bash
-mempalace repair --dry-run    # see what would be recovered
-mempalace repair --rollback   # roll back to last working version
+mempalace-code repair --dry-run    # see what would be recovered
+mempalace-code repair --rollback   # roll back to last working version
 ```
 
 ### MCP tools return empty wings/rooms
 
-Same as above — likely fragment corruption. Run `mempalace health`.
+Same as above — likely fragment corruption. Run `mempalace-code health`.
 
 ### "Table unreadable" or LanceDB errors
 
-Storage corruption. Use `mempalace repair --rollback`. Data added after corruption point is lost. This is why auto-backup exists (`~/.mempalace/backups/pre_optimize_*.tar.gz`).
+Storage corruption. Use `mempalace-code repair --rollback`. Data added after corruption point is lost. This is why auto-backup exists (`~/.mempalace/backups/pre_optimize_*.tar.gz`).
 
 ### Re-mine doesn't fix the issue
 
 Manual drawers are not regenerated by mining. Check if you have a backup:
 
 ```bash
-mempalace backup list
-mempalace restore <backup.tar.gz>
+mempalace-code backup list
+mempalace-code restore <backup.tar.gz>
 ```
 
 ---

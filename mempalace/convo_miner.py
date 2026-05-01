@@ -423,7 +423,7 @@ def mine_convos(
         print("\n  By room:")
         for room, count in sorted(room_counts.items(), key=lambda x: x[1], reverse=True):
             print(f"    {room:20} {count} files")
-    print('\n  Next: mempalace search "what you\'re looking for"')
+    print('\n  Next: mempalace-code search "what you\'re looking for"')
     print(f"{'=' * 55}\n")
 
 

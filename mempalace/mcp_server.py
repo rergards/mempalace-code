@@ -2,7 +2,7 @@
 """
 MemPalace MCP Server — read/write palace access for Claude Code
 ================================================================
-Install: claude mcp add mempalace -- python -m mempalace.mcp_server
+Install: claude mcp add mempalace-code -- python -m mempalace.mcp_server
 
 Tools (read):
   mempalace_status          — total drawers, wing/room breakdown
@@ -78,11 +78,11 @@ def _get_store(create=False) -> Optional[DrawerStore]:
 def _no_palace():
     return {
         "error": "No palace found",
-        "hint": "Run: mempalace init <dir> && mempalace mine <dir>",
+        "hint": "Run: mempalace-code init <dir> && mempalace-code mine <dir>",
     }
 
 
-_DEGRADED_HINT = "Run: mempalace health && mempalace repair --rollback --dry-run"
+_DEGRADED_HINT = "Run: mempalace-code health && mempalace-code repair --rollback --dry-run"
 
 
 def _degraded_response(exc: Exception, **extra) -> dict:
@@ -432,7 +432,9 @@ def tool_mine(directory: str, wing: str = None, full: bool = False):
     if not (dir_path / "mempalace.yaml").exists() and not (dir_path / "mempal.yaml").exists():
         return {
             "success": False,
-            "error": (f"No mempalace.yaml found in {directory}. Run: mempalace init {directory}"),
+            "error": (
+                f"No mempalace.yaml found in {directory}. Run: mempalace-code init {directory}"
+            ),
         }
 
     palace_path = _config.palace_path
@@ -1525,7 +1527,7 @@ TOOLS = {
             "Re-indexes the project's source files into the palace so the agent can "
             "search recently added or modified code without restarting the MCP server. "
             "Uses incremental mining by default (only changed files are re-processed). "
-            "The project must have a mempalace.yaml (run: mempalace init <dir> first). "
+            "The project must have a mempalace.yaml (run: mempalace-code init <dir> first). "
             "Returns {success, files_processed, files_skipped, drawers_filed, elapsed_secs}."
         ),
         "input_schema": {
@@ -1609,7 +1611,7 @@ def handle_request(request):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "mempalace", "version": __version__},
+                "serverInfo": {"name": "mempalace-code", "version": __version__},
             },
         }
     elif method == "notifications/initialized":

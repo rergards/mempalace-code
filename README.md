@@ -23,7 +23,7 @@ No cloud. No API keys. No subscription. Nothing leaves your machine.
 <table>
 <tr>
 <td align="center"><strong>Language-Aware Mining</strong><br><sub>AST, regex, and adaptive chunking<br>matched to each file type</sub></td>
-<td align="center"><strong>27 MCP Tools</strong><br><sub>Native Claude Code integration<br>search, store, traverse</sub></td>
+<td align="center"><strong>28 MCP Tools</strong><br><sub>Native Claude Code integration<br>search, store, traverse</sub></td>
 <td align="center"><strong>Temporal Knowledge Graph</strong><br><sub>Facts that change over time<br>with validity windows</sub></td>
 </tr>
 <tr>
@@ -46,8 +46,15 @@ pipx install mempalace-code           # alternative
 # or
 pip install mempalace-code            # into current environment
 # or
-uvx --from mempalace-code mempalace --help  # try without installing
+uvx --from mempalace-code mempalace-code --help  # try without installing
 ```
+
+`mempalace-code` is the default command name so this fork can coexist with
+upstream/vanilla `mempalace` on the same machine. If `mempalace` is unused on
+your PATH and you want the shorter alias, run `mempalace-code install-alias`.
+For side-by-side use with vanilla MemPalace, prefer `uv tool install` or `pipx`;
+the Python import package is still `mempalace`, so do not install both projects
+into the same virtualenv.
 
 Then ask your AI to read [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) — it will handle setup, MCP wiring, prompt injection, and verification automatically.
 
@@ -55,18 +62,18 @@ Then ask your AI to read [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) — it
 <summary>Or do it manually</summary>
 
 ```bash
-mempalace init ~/projects/myapp       # detect rooms, download embedding model (~80 MB)
-mempalace init ~/projects/myapp --detect-entities  # optional people/project detection for notes/convos
-mempalace mine ~/projects/myapp       # index your codebase
-claude mcp add mempalace -- python -m mempalace.mcp_server  # connect to Claude Code
+mempalace-code init ~/projects/myapp       # detect rooms, download embedding model (~80 MB)
+mempalace-code init ~/projects/myapp --detect-entities  # optional people/project detection for notes/convos
+mempalace-code mine ~/projects/myapp       # index your codebase
+claude mcp add mempalace-code -- python -m mempalace.mcp_server  # connect to Claude Code
 ```
 
 **Optional: auto-sync on commit** (requires `[watch]` extra — see [Auto-Watch](#auto-watch)):
 ```bash
-mempalace watch ~/projects/           # re-mines on every commit, zero noise
+mempalace-code watch ~/projects/           # re-mines on every commit, zero noise
 ```
 
-This makes the 27 tools available to your AI. For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` (or equivalent agent-instruction file) — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or let [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7 inject them for you.
+This makes the 28 tools available to your AI. For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` (or equivalent agent-instruction file) — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or let [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7 inject them for you.
 
 </details>
 
@@ -84,15 +91,15 @@ Read https://github.com/rergards/mempalace-code/blob/main/docs/AGENT_INSTALL.md
 
 ### Supported MCP Clients
 
-mempalace works with any [MCP](https://modelcontextprotocol.io/)-compatible client:
+mempalace-code works with any [MCP](https://modelcontextprotocol.io/)-compatible client:
 
-- **Claude Code** (CLI, desktop, web) — `claude mcp add mempalace -- python -m mempalace.mcp_server`
+- **Claude Code** (CLI, desktop, web) — `claude mcp add mempalace-code -- python -m mempalace.mcp_server`
 - **Claude Desktop** — add to `claude_desktop_config.json`
 - **Cursor** — add as MCP server in settings
 - **Windsurf** — add as MCP server in settings
 - **Any MCP client** — point it at `python -m mempalace.mcp_server` (stdio transport)
 
-For local models without MCP support (Llama, Mistral, etc.), use `mempalace wake-up` to pipe context into the system prompt — see [Memory Layers](#memory-layers).
+For local models without MCP support (Llama, Mistral, etc.), use `mempalace-code wake-up` to pipe context into the system prompt — see [Memory Layers](#memory-layers).
 
 ---
 
@@ -116,7 +123,7 @@ mempalace-code **indexes it once** into a local vector store, then your AI finds
 
 ### Language-Aware Code Mining
 
-`mempalace mine` walks your source tree and chooses the best chunker for each file type: AST boundaries where optional tree-sitter grammars are available, regex structural boundaries for supported languages, YAML-aware Kubernetes resource splits, Markdown/prose sections, or adaptive line-count chunks for formats without reliable declarations. Leading comments and docstrings stay attached to declarations where structural chunking is active; Markdown drawers keep heading path, section type, and Mermaid/code/table flags in search metadata.
+`mempalace-code mine` walks your source tree and chooses the best chunker for each file type: AST boundaries where optional tree-sitter grammars are available, regex structural boundaries for supported languages, YAML-aware Kubernetes resource splits, Markdown/prose sections, or adaptive line-count chunks for formats without reliable declarations. Leading comments and docstrings stay attached to declarations where structural chunking is active; Markdown drawers keep heading path, section type, and Mermaid/code/table flags in search metadata.
 
 | Language | Strategy | AST Support |
 |----------|----------|:-----------:|
@@ -149,24 +156,24 @@ schema and unsupported-language hints stay aligned with that catalog.
 Tree-sitter is optional (`pip install "mempalace-code[treesitter]"`). When a grammar is missing, Python, TypeScript/JavaScript/TSX/JSX, Go, and Rust fall back to regex structural chunking. Other recognized formats use their regex, YAML-aware, prose, or adaptive chunker as listed above.
 
 ```bash
-mempalace mine ~/projects/myapp                  # all supported file types
-mempalace mine ~/projects/myapp --wing myapp     # tag with a specific wing
-mempalace mine ~/chats/ --mode convos            # mine conversation exports
-mempalace mine-all ~/projects/                   # batch mine all projects in a directory
+mempalace-code mine ~/projects/myapp                  # all supported file types
+mempalace-code mine ~/projects/myapp --wing myapp     # tag with a specific wing
+mempalace-code mine ~/chats/ --mode convos            # mine conversation exports
+mempalace-code mine-all ~/projects/                   # batch mine all projects in a directory
 ```
 
 Mining is **incremental** by default — content-hash based, only changed files are re-chunked. Use `--full` to force a rebuild.
 
 ### Optional Entity Detection
 
-`mempalace init <dir>` is config-first by default: it detects rooms from the directory
+`mempalace-code init <dir>` is config-first by default: it detects rooms from the directory
 structure and does not scan file contents for names. Add `--detect-entities` only when
 the directory contains prose where people or project names matter, such as meeting notes,
 client notes, personal notes, or conversation exports:
 
 ```bash
-mempalace init ~/notes --detect-entities        # prompts to confirm detected people/projects
-mempalace init ~/notes --detect-entities --yes  # auto-accept entity confirmation (no room prompts)
+mempalace-code init ~/notes --detect-entities        # prompts to confirm detected people/projects
+mempalace-code init ~/notes --detect-entities --yes  # auto-accept entity confirmation (no room prompts)
 ```
 
 The detector is a lightweight bootstrap step, not the main miner. It samples up to 10
@@ -186,7 +193,7 @@ Use it for human/project context. Leave it off for normal code repos unless thei
 contain the entities you want captured. Full-repo scanning would be slower and noisier:
 class names, packages, examples, and variables often look like people or products to a
 heuristic pass. Code structure, symbols, languages, and architecture relationships are
-handled by `mempalace mine`, not by entity detection.
+handled by `mempalace-code mine`, not by entity detection.
 
 ### Auto-Watch
 
@@ -203,15 +210,15 @@ uv tool inject mempalace-code watchfiles  # or: pipx inject mempalace-code watch
 ```
 
 ```bash
-mempalace watch ~/projects/                      # watch all projects (on commit, default)
-mempalace watch ~/projects/ --on-save            # watch all file saves instead (noisier)
-mempalace watch ~/projects/ schedule             # print launchd/cron snippet for daemon
+mempalace-code watch ~/projects/                      # watch all projects (on commit, default)
+mempalace-code watch ~/projects/ --on-save            # watch all file saves instead (noisier)
+mempalace-code watch ~/projects/ schedule             # print launchd/cron snippet for daemon
 ```
 
 **Install as persistent daemon (macOS):**
 
 ```bash
-mempalace watch ~/projects/ schedule > ~/Library/LaunchAgents/com.mempalace.watch.plist
+mempalace-code watch ~/projects/ schedule > ~/Library/LaunchAgents/com.mempalace.watch.plist
 launchctl load ~/Library/LaunchAgents/com.mempalace.watch.plist
 ```
 
@@ -253,11 +260,15 @@ mempalace-code organizes memories into a navigable structure — the same mental
 
 ---
 
-### MCP Server — 27 Tools
+### MCP Server — 28 Tools
 
 ```bash
-claude mcp add mempalace -- python -m mempalace.mcp_server
+claude mcp add mempalace-code -- python -m mempalace.mcp_server
 ```
+
+The MCP server registration name defaults to `mempalace-code`. The MCP tool
+identifiers remain `mempalace_*` for compatibility with existing agents and
+usage rules.
 
 <details>
 <summary><strong>Palace — Read</strong></summary>
@@ -360,7 +371,7 @@ kg.invalidate("myapp", "uses", "Postgres", ended="2026-03-01")  # fact expired
 | **L3** | Deep search — full semantic query | On demand |
 
 ```bash
-mempalace wake-up --wing myapp    # emit L0 + L1 context (~170 tokens)
+mempalace-code wake-up --wing myapp    # emit L0 + L1 context (~170 tokens)
 ```
 
 For local models (Llama, Mistral) that don't speak MCP, pipe `wake-up` into the system prompt.
@@ -370,14 +381,14 @@ For local models (Llama, Mistral) that don't speak MCP, pipe `wake-up` into the 
 ### Backup & Restore
 
 ```bash
-mempalace backup create                           # create backup archive (default: <palace_parent>/backups/)
-mempalace backup create --out ~/safe/my.tar.gz   # custom path
-mempalace backup                                  # back-compat: same as 'backup create'
-mempalace backup --out ~/safe/my.tar.gz           # back-compat: same as 'backup create --out ...'
-mempalace backup list                             # list existing backups
-mempalace backup list --dir ~/old_backups/        # include extra directory in discovery
-mempalace restore palace_backup_2026-04-14.tar.gz # restore
-mempalace restore backup.tar.gz --force           # overwrite existing
+mempalace-code backup create                           # create backup archive (default: <palace_parent>/backups/)
+mempalace-code backup create --out ~/safe/my.tar.gz   # custom path
+mempalace-code backup                                  # back-compat: same as 'backup create'
+mempalace-code backup --out ~/safe/my.tar.gz           # back-compat: same as 'backup create --out ...'
+mempalace-code backup list                             # list existing backups
+mempalace-code backup list --dir ~/old_backups/        # include extra directory in discovery
+mempalace-code restore palace_backup_2026-04-14.tar.gz # restore
+mempalace-code restore backup.tar.gz --force           # overwrite existing
 ```
 
 Backups are written to `<palace_parent>/backups/` by default. For a palace at `~/.mempalace/palace`, that is `~/.mempalace/backups/`.
@@ -386,17 +397,17 @@ Backups are written to `<palace_parent>/backups/` by default. For a palace at `~
 
 ```bash
 # Print a scheduler snippet (does NOT install — owner action required)
-mempalace backup schedule --freq daily    # daily at 03:00
-mempalace backup schedule --freq weekly   # weekly on Sunday at 03:00
-mempalace backup schedule --freq hourly   # every hour
+mempalace-code backup schedule --freq daily    # daily at 03:00
+mempalace-code backup schedule --freq weekly   # weekly on Sunday at 03:00
+mempalace-code backup schedule --freq hourly   # every hour
 
 # macOS: save and load the launchd plist
-mempalace backup schedule --freq daily > ~/Library/LaunchAgents/com.mempalace.backup.plist
+mempalace-code backup schedule --freq daily > ~/Library/LaunchAgents/com.mempalace.backup.plist
 launchctl load ~/Library/LaunchAgents/com.mempalace.backup.plist
 
 # Linux: paste the printed cron line into crontab -e
-mempalace backup schedule --freq daily
-# → 0 3 * * * /usr/local/bin/mempalace backup create --out /path/to/backups/scheduled_$(date +%Y%m%d_%H%M%S).tar.gz
+mempalace-code backup schedule --freq daily
+# → 0 3 * * * /usr/local/bin/mempalace-code backup create --out /path/to/backups/scheduled_$(date +%Y%m%d_%H%M%S).tar.gz
 ```
 
 **Auto-backup before optimize (on by default):**
@@ -422,15 +433,15 @@ Or set env var: `MEMPALACE_AUTO_BACKUP_BEFORE_OPTIMIZE=0` (preferred) or `MEMPAL
 
 Skips compaction entirely. Storage will grow with more fragments but avoids any compaction-related corruption risk.
 
-**Why backup matters:** Manual drawer additions (via `mempalace_add_drawer`) are not recoverable from source code. If LanceDB storage gets corrupted, only backups preserve this data. Code-mined drawers can be restored by re-running `mempalace mine`.
+**Why backup matters:** Manual drawer additions (via `mempalace_add_drawer`) are not recoverable from source code. If LanceDB storage gets corrupted, only backups preserve this data. Code-mined drawers can be restored by re-running `mempalace-code mine`.
 
-Also available: `mempalace export --only-manual` for JSONL export of manually-stored drawers.
+Also available: `mempalace-code export --only-manual` for JSONL export of manually-stored drawers.
 
 ---
 
 ### Scan Excludes
 
-By default `mempalace mine` already skips common generated directories (`node_modules`,
+By default `mempalace-code mine` already skips common generated directories (`node_modules`,
 `__pycache__`, `.git`, etc.). For project-specific noise — generated LSP state, build
 artifacts, IDE files — configure app-level excludes in `~/.mempalace/config.json`:
 
@@ -452,8 +463,8 @@ artifacts, IDE files — configure app-level excludes in `~/.mempalace/config.js
 monorepo config file, so it is *not* excluded by default. Add it to `scan_skip_files`
 only if your LSP generates it as noise inside generated directories.
 
-These rules apply to both `mempalace mine` and the auto-watcher (`mempalace mine --watch`
-and `mempalace watch`). Force-include paths (`--include-ignored`) always win over
+These rules apply to both `mempalace-code mine` and the auto-watcher (`mempalace-code mine --watch`
+and `mempalace-code watch`). Force-include paths (`--include-ignored`) always win over
 app-level excludes.
 
 **Removing previously indexed noise:** scan excludes prevent *future* scans from indexing
@@ -461,7 +472,7 @@ the excluded paths. To remove content that was indexed before adding the exclusi
 full re-mine:
 
 ```bash
-mempalace mine <dir> --full
+mempalace-code mine <dir> --full
 ```
 
 `--full` forces a clean rebuild and sweeps drawers from files that are no longer
@@ -473,11 +484,11 @@ exclusion rule.
 ### Health & Repair
 
 ```bash
-mempalace health              # probe palace for fragment corruption
-mempalace health --json       # machine-readable report
+mempalace-code health              # probe palace for fragment corruption
+mempalace-code health --json       # machine-readable report
 
-mempalace repair --dry-run    # show what would be recovered
-mempalace repair --rollback   # roll back to last working version
+mempalace-code repair --dry-run    # show what would be recovered
+mempalace-code repair --rollback   # roll back to last working version
 ```
 
 **What `health` checks:**
@@ -501,7 +512,7 @@ This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla
 | Upstream | This fork |
 |---|---|
 | ChromaDB — [silently deletes data on version bump](https://github.com/milla-jovovich/mempalace/issues/469) | LanceDB — crash-safe Arrow storage, no version-cliff |
-| "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace init` downloads model explicitly; fully offline after |
+| "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace-code init` downloads model explicitly; fully offline after |
 | "100% R@5" — [unverifiable](https://github.com/milla-jovovich/mempalace/issues/27) | Number removed. Methodology caveats documented |
 | ~30% test coverage | 1312 tests, every feature acceptance-gated |
 | No backup, no recovery | `backup` / `restore` / `export` / `import` |
@@ -522,7 +533,7 @@ Full audit: [`docs/UPSTREAM_HARDENING.md`](docs/UPSTREAM_HARDENING.md).
 | Small (555 chunks) | **13x** | 19x | 42x | 59x |
 | Large (19k chunks) | **80x** | 129x | 279x | **595x** |
 
-Token savings **scale with project size** — grep noise grows linearly (more files contain the keyword), while mempalace search stays constant (top-5 semantically relevant chunks regardless of corpus size). These numbers are from a 19k-chunk project; larger codebases would push the ratios higher.
+Token savings **scale with project size** — grep noise grows linearly (more files contain the keyword), while mempalace-code search stays constant (top-5 semantically relevant chunks regardless of corpus size). These numbers are from a 19k-chunk project; larger codebases would push the ratios higher.
 
 ### Retrieval quality
 
@@ -559,7 +570,7 @@ pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[dev]"         # pytest + ruff
 ```
 
-**Requirements:** Python 3.11+. ~80 MB embedding model downloaded once during `mempalace init`.
+**Requirements:** Python 3.11+. ~80 MB embedding model downloaded once during `mempalace-code init`.
 
 </details>
 
@@ -568,43 +579,43 @@ pip install "mempalace-code[dev]"         # pytest + ruff
 
 ```bash
 # Setup
-mempalace init <dir>                              # initialize rooms
-mempalace init <dir> --detect-entities            # optional prose entity bootstrap
+mempalace-code init <dir>                              # initialize rooms
+mempalace-code init <dir> --detect-entities            # optional prose entity bootstrap
 
 # Mining
-mempalace mine <dir>                              # mine code project
-mempalace mine <dir> --wing myapp                 # tag with wing
-mempalace mine <dir> --mode convos                # mine conversations
-mempalace mine <dir> --full                       # force full rebuild
-mempalace mine <dir> --watch                      # auto-incremental on file changes
-mempalace mine-all <parent-dir>                   # batch mine all projects in a directory
+mempalace-code mine <dir>                              # mine code project
+mempalace-code mine <dir> --wing myapp                 # tag with wing
+mempalace-code mine <dir> --mode convos                # mine conversations
+mempalace-code mine <dir> --full                       # force full rebuild
+mempalace-code mine <dir> --watch                      # auto-incremental on file changes
+mempalace-code mine-all <parent-dir>                   # batch mine all projects in a directory
 
 # Watch (multi-project auto-sync)
-mempalace watch <parent-dir>                      # watch all initialized projects
-mempalace watch <parent-dir> schedule             # print launchd/cron daemon snippet
+mempalace-code watch <parent-dir>                      # watch all initialized projects
+mempalace-code watch <parent-dir> schedule             # print launchd/cron daemon snippet
 
 # Search
-mempalace search "query"                          # search everything
-mempalace search "query" --wing myapp             # scoped to wing
-mempalace search "query" --room auth              # scoped to room
+mempalace-code search "query"                          # search everything
+mempalace-code search "query" --wing myapp             # scoped to wing
+mempalace-code search "query" --room auth              # scoped to room
 
 # Backup & Recovery
-mempalace backup create                           # create backup (default: <palace_parent>/backups/)
-mempalace backup list                             # list existing backups
-mempalace backup schedule --freq daily            # print daily scheduler snippet
-mempalace restore <archive>                       # restore from backup
-mempalace export --only-manual                    # JSONL export
-mempalace import <file>                           # JSONL import
-mempalace health                                  # probe for fragment corruption
-mempalace repair --rollback                       # roll back to last working version
+mempalace-code backup create                           # create backup (default: <palace_parent>/backups/)
+mempalace-code backup list                             # list existing backups
+mempalace-code backup schedule --freq daily            # print daily scheduler snippet
+mempalace-code restore <archive>                       # restore from backup
+mempalace-code export --only-manual                    # JSONL export
+mempalace-code import <file>                           # JSONL import
+mempalace-code health                                  # probe for fragment corruption
+mempalace-code repair --rollback                       # roll back to last working version
 
 # Context
-mempalace wake-up                                 # L0 + L1 context
-mempalace wake-up --wing myapp                    # project-scoped
-mempalace status                                  # palace overview
+mempalace-code wake-up                                 # L0 + L1 context
+mempalace-code wake-up --wing myapp                    # project-scoped
+mempalace-code status                                  # palace overview
 
 # Model
-mempalace fetch-model                             # pre-download for offline use
+mempalace-code fetch-model                             # pre-download for offline use
 ```
 
 </details>
@@ -612,7 +623,7 @@ mempalace fetch-model                             # pre-download for offline use
 <details>
 <summary><strong>Saving Conversation Context</strong></summary>
 
-Code mining is automatic via `mempalace watch-all`. For conversation context (decisions, discussions, debugging notes), the AI uses MCP tools directly — works with **any agent** (Claude Code, Codex, Cursor, etc.):
+Code mining is automatic via `mempalace-code watch`. For conversation context (decisions, discussions, debugging notes), the AI uses MCP tools directly — works with **any agent** (Claude Code, Codex, Cursor, etc.):
 
 1. Wire the MCP server (see [install docs](docs/AGENT_INSTALL.md))
 2. Add usage rules to your agent's instructions (CLAUDE.md, system prompt, etc.)
@@ -629,7 +640,7 @@ Code mining is automatic via `mempalace watch-all`. For conversation context (de
 mempalace/
 ├── mempalace/
 │   ├── cli.py              ← CLI entry point
-│   ├── mcp_server.py       ← MCP server (27 tools)
+│   ├── mcp_server.py       ← MCP server (28 tools)
 │   ├── storage.py          ← LanceDB vector storage
 │   ├── miner.py            ← language-aware code chunking
 │   ├── convo_miner.py      ← conversation ingest

@@ -50,7 +50,7 @@ These hooks are **Claude Code-only** — they rely on Claude Code's `Stop` and `
 
 | Concern | Solution |
 |---------|----------|
-| **Code mining** (indexing source files) | `mempalace watch-all` — works with any client, re-mines on commit |
+| **Code mining** (indexing source files) | `mempalace-code watch` — works with any client, re-mines on commit |
 | **Conversation context** (decisions, discussions) | MCP tools — `mempalace_add_drawer`, `mempalace_diary_write` |
 | **Session continuity** | Add mempalace usage rules to agent instructions (see `docs/AGENT_INSTALL.md` Section 7) |
 
@@ -62,15 +62,15 @@ Edit `mempal_save_hook.sh` to change:
 
 - **`SAVE_INTERVAL=15`** — How many human messages between saves. Lower = more frequent saves, higher = less interruption.
 - **`STATE_DIR`** — Where hook state is stored (defaults to `~/.mempalace/hook_state/`)
-- **`MEMPAL_DIR`** — Optional. Set to a conversations directory to auto-run `mempalace mine <dir>` on each save trigger. Leave blank (default) to let the AI handle saving via the block reason message.
+- **`MEMPAL_DIR`** — Optional. Set to a conversations directory to auto-run `mempalace-code mine <dir>` on each save trigger. Leave blank (default) to let the AI handle saving via the block reason message.
 
-### mempalace CLI
+### mempalace-code CLI
 
 The relevant commands are:
 
 ```bash
-mempalace mine <dir>               # Mine all files in a directory
-mempalace mine <dir> --mode convos # Mine conversation transcripts only
+mempalace-code mine <dir>               # Mine all files in a directory
+mempalace-code mine <dir> --mode convos # Mine conversation transcripts only
 ```
 
 The hooks resolve the repo root automatically from their own path, so they work regardless of where you install the repo.

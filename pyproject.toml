@@ -43,7 +43,8 @@ Repository = "https://github.com/rergards/mempalace-code"
 Upstream = "https://github.com/milla-jovovich/mempalace"
 
 [project.scripts]
-mempalace = "mempalace:main"
+mempalace-code = "mempalace:main"
+mempalace-code-alias = "mempalace.cli:main_alias"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "ruff>=0.4.0", "watchfiles>=1.0"]

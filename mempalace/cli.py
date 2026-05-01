@@ -3,44 +3,118 @@
 MemPalace — Give your AI a memory. No API key required.
 
 Two ways to ingest:
-  Projects:      mempalace mine ~/projects/my_app          (code, docs, notes)
-  Conversations: mempalace mine ~/chats/ --mode convos     (Claude, ChatGPT, Slack)
+  Projects:      mempalace-code mine ~/projects/my_app          (code, docs, notes)
+  Conversations: mempalace-code mine ~/chats/ --mode convos     (Claude, ChatGPT, Slack)
 
 Same palace. Same search. Different ingest strategies.
 
 Commands:
-    mempalace init <dir>                  Detect rooms from folder structure
-    mempalace split <dir>                 Split concatenated mega-files into per-session files
-    mempalace mine <dir>                  Mine project files (default)
-    mempalace mine <dir> --mode convos    Mine conversation exports
-    mempalace mine-all <parent-dir>       Mine all projects in a directory
-    mempalace watch <parent-dir>          Watch all projects for changes, re-mine automatically
-    mempalace watch <parent-dir> schedule Print launchd/cron snippet for watch daemon
-    mempalace search "query"              Find anything, exact words
-    mempalace wake-up                     Show L0 + L1 wake-up context
-    mempalace wake-up --wing my_app       Wake-up for a specific project
-    mempalace status                      Show what's been filed
-    mempalace health [--json]             Probe palace for fragment corruption
-    mempalace repair [--rollback] [--dry-run]  Repair palace (rollback or full rebuild)
-    mempalace backup [--out FILE]         Snapshot palace to a .tar.gz archive
-    mempalace restore FILE [--force]      Restore palace from a .tar.gz archive
-    mempalace diary write --agent <name> --entry "<text>"  Write a diary entry
+    mempalace-code init <dir>                  Detect rooms from folder structure
+    mempalace-code split <dir>                 Split concatenated mega-files into per-session files
+    mempalace-code mine <dir>                  Mine project files (default)
+    mempalace-code mine <dir> --mode convos    Mine conversation exports
+    mempalace-code mine-all <parent-dir>       Mine all projects in a directory
+    mempalace-code watch <parent-dir>          Watch all projects for changes, re-mine automatically
+    mempalace-code watch <parent-dir> schedule Print launchd/cron snippet for watch daemon
+    mempalace-code search "query"              Find anything, exact words
+    mempalace-code wake-up                     Show L0 + L1 wake-up context
+    mempalace-code wake-up --wing my_app       Wake-up for a specific project
+    mempalace-code status                      Show what's been filed
+    mempalace-code health [--json]             Probe palace for fragment corruption
+    mempalace-code repair [--rollback] [--dry-run]  Repair palace (rollback or full rebuild)
+    mempalace-code backup [--out FILE]         Snapshot palace to a .tar.gz archive
+    mempalace-code restore FILE [--force]      Restore palace from a .tar.gz archive
+    mempalace-code diary write --agent <name> --entry "<text>"  Write a diary entry
 
 Examples:
-    mempalace init ~/projects/my_app
-    mempalace mine ~/projects/my_app
-    mempalace mine ~/chats/claude-sessions --mode convos
-    mempalace search "why did we switch to GraphQL"
-    mempalace search "pricing discussion" --wing my_app --room costs
-    mempalace diary write --agent claude-code --entry "Finished feature X" --topic dev
+    mempalace-code init ~/projects/my_app
+    mempalace-code mine ~/projects/my_app
+    mempalace-code mine ~/chats/claude-sessions --mode convos
+    mempalace-code search "why did we switch to GraphQL"
+    mempalace-code search "pricing discussion" --wing my_app --room costs
+    mempalace-code diary write --agent claude-code --entry "Finished feature X" --topic dev
 """
 
 import argparse
 import os
+import shutil
 import sys
 from pathlib import Path
 
 from .config import MempalaceConfig
+
+CANONICAL_CLI_COMMAND = "mempalace-code"
+LEGACY_CLI_ALIAS = "mempalace"
+
+
+def _same_command_path(left: Path, right: Path) -> bool:
+    try:
+        return left.samefile(right)
+    except OSError:
+        return left.resolve(strict=False) == right.resolve(strict=False)
+
+
+def _resolve_canonical_cli() -> Path:
+    found = shutil.which(CANONICAL_CLI_COMMAND)
+    if found:
+        return Path(found).expanduser()
+
+    argv0 = Path(sys.argv[0]).expanduser()
+    if argv0.name == CANONICAL_CLI_COMMAND and argv0.exists():
+        return argv0.resolve()
+
+    raise RuntimeError(
+        f"cannot find `{CANONICAL_CLI_COMMAND}` on PATH; install mempalace-code first"
+    )
+
+
+def install_legacy_alias(target_dir: str | os.PathLike[str] | None = None) -> Path:
+    """Create an optional ``mempalace`` alias when that command name is unused."""
+    canonical_path = _resolve_canonical_cli()
+    alias_dir = Path(target_dir).expanduser() if target_dir else canonical_path.parent
+    alias_path = alias_dir / LEGACY_CLI_ALIAS
+
+    existing_on_path = shutil.which(LEGACY_CLI_ALIAS)
+    if existing_on_path:
+        existing_path = Path(existing_on_path).expanduser()
+        if _same_command_path(existing_path, canonical_path):
+            return existing_path
+        raise RuntimeError(f"`{LEGACY_CLI_ALIAS}` is already in use at {existing_path}")
+
+    if alias_path.exists() or alias_path.is_symlink():
+        if _same_command_path(alias_path, canonical_path):
+            return alias_path
+        raise RuntimeError(f"{alias_path} already exists; not overwriting")
+
+    alias_path.parent.mkdir(parents=True, exist_ok=True)
+    if alias_path.parent == canonical_path.parent:
+        alias_path.symlink_to(canonical_path.name)
+    else:
+        alias_path.symlink_to(canonical_path)
+    return alias_path
+
+
+def cmd_install_alias(args) -> None:
+    try:
+        alias_path = install_legacy_alias(target_dir=args.target_dir)
+    except RuntimeError as exc:
+        print(f"  Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"  Alias ready: {alias_path} -> {CANONICAL_CLI_COMMAND}")
+
+
+def main_alias() -> None:
+    parser = argparse.ArgumentParser(
+        description=f"Create an optional `{LEGACY_CLI_ALIAS}` alias for `{CANONICAL_CLI_COMMAND}`."
+    )
+    parser.add_argument(
+        "--target-dir",
+        default=None,
+        help="Directory where the alias should be created (default: next to mempalace-code)",
+    )
+    args = parser.parse_args()
+    cmd_install_alias(args)
 
 
 def fetch_model(model_name: str, force: bool = False) -> None:
@@ -142,7 +216,8 @@ def cmd_init(args):
         except Exception as exc:
             print(f"  Warning: model download failed: {exc}", file=sys.stderr)
             print(
-                "  Run 'mempalace fetch-model' manually when network is available.", file=sys.stderr
+                "  Run 'mempalace-code fetch-model' manually when network is available.",
+                file=sys.stderr,
             )
 
 
@@ -336,7 +411,9 @@ def cmd_mine_all(args):
         wing_name = entry["wing"]
 
         if not entry["initialized"]:
-            print(f"  SKIP  {proj_name}  (not initialized — run: mempalace init {proj_path})")
+            print(
+                f"  SKIP  {proj_name}  (not initialized — run: mempalace-code init {proj_path})"
+            )
             skipped += 1
             continue
 
@@ -433,7 +510,7 @@ def cmd_split(args):
         argv += ["--min-sessions", str(args.min_sessions)]
 
     old_argv = sys.argv
-    sys.argv = ["mempalace split"] + argv
+    sys.argv = ["mempalace-code split"] + argv
     try:
         split_main()
     finally:
@@ -617,7 +694,7 @@ def cmd_repair(args):
         except Exception as e:
             print(f"  Restore failed: {e}", file=sys.stderr)
             print("  Palace may still be in a degraded state.", file=sys.stderr)
-            print("  Try: mempalace repair (full rebuild)", file=sys.stderr)
+            print("  Try: mempalace-code repair (full rebuild)", file=sys.stderr)
             print(f"\n{'=' * 55}\n")
             sys.exit(1)
 
@@ -632,7 +709,7 @@ def cmd_repair(args):
         else:
             msg = result.get("message") or result.get("error") or "no healthy prior version found"
             print(f"  No candidate version: {msg}", file=sys.stderr)
-            print("  Try: mempalace repair (full rebuild)", file=sys.stderr)
+            print("  Try: mempalace-code repair (full rebuild)", file=sys.stderr)
             print(f"\n{'=' * 55}\n")
             if not dry_run:
                 sys.exit(1)
@@ -729,7 +806,7 @@ def cmd_compress(args):
         store = open_store(palace_path, create=False)
     except Exception:
         print(f"\n  No palace found at {palace_path}")
-        print("  Run: mempalace init <dir> then mempalace mine <dir>")
+        print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")
         sys.exit(1)
 
     # Query drawers in batches
@@ -850,7 +927,7 @@ def cmd_watch_schedule(args):
     if getattr(args, "install", False):
         print(
             "  owner action required: --install is not supported.\n"
-            "  Print the snippet with 'mempalace watch <dir> schedule'\n"
+            "  Print the snippet with 'mempalace-code watch <dir> schedule'\n"
             "  then install it yourself with: launchctl load <plist> (macOS)\n"
             "  or: crontab -e (Linux).",
             file=sys.stderr,
@@ -865,7 +942,7 @@ def cmd_watch_schedule(args):
     else:
         print(
             f"  Error: watch scheduling is not supported on {_sys.platform}.\n"
-            "  'mempalace watch schedule' works on macOS (launchd) and Linux (cron) only.",
+            "  'mempalace-code watch schedule' works on macOS (launchd) and Linux (cron) only.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -882,7 +959,7 @@ def cmd_watch_schedule(args):
     if platform == "darwin":
         plist_path = "~/Library/LaunchAgents/com.mempalace.watch.plist"
         print("\n  # To install:", file=sys.stderr)
-        print(f"  #   mempalace watch {args.dir} schedule > {plist_path}", file=sys.stderr)
+        print(f"  #   mempalace-code watch {args.dir} schedule > {plist_path}", file=sys.stderr)
         print(f"  #   launchctl load {plist_path}", file=sys.stderr)
         print("  # To stop:", file=sys.stderr)
         print(f"  #   launchctl unload {plist_path}", file=sys.stderr)
@@ -943,7 +1020,7 @@ def cmd_backup_schedule(args):
     if getattr(args, "install", False):
         print(
             "  owner action required: --install is not supported.\n"
-            "  Print the snippet with 'mempalace backup schedule --freq <freq>'\n"
+            "  Print the snippet with 'mempalace-code backup schedule --freq <freq>'\n"
             "  then install it yourself with: launchctl load <plist> (macOS)\n"
             "  or: crontab -e (Linux).",
             file=sys.stderr,
@@ -959,7 +1036,7 @@ def cmd_backup_schedule(args):
     else:
         print(
             f"  Error: backup scheduling is not supported on {_sys.platform}.\n"
-            "  'mempalace backup schedule' works on macOS (launchd) and Linux (cron) only.",
+            "  'mempalace-code backup schedule' works on macOS (launchd) and Linux (cron) only.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -1183,7 +1260,7 @@ def main():
         "--watch",
         action="store_true",
         help=(
-            "Watch for file changes and re-mine automatically (requires mempalace[watch]). "
+            "Watch for file changes and re-mine automatically (requires mempalace-code[watch]). "
             "Incompatible with --dry-run, --full, --limit, and --mode convos."
         ),
     )
@@ -1283,7 +1360,7 @@ def main():
     # migrate-storage
     p_migrate = sub.add_parser(
         "migrate-storage",
-        help="Migrate a ChromaDB palace to LanceDB (requires mempalace[chroma])",
+        help="Migrate a ChromaDB palace to LanceDB (requires mempalace-code[chroma])",
     )
     p_migrate.add_argument("src_palace", help="Source ChromaDB palace path")
     p_migrate.add_argument("dst_palace", help="Destination LanceDB palace path")
@@ -1338,6 +1415,17 @@ def main():
 
     # status
     sub.add_parser("status", help="Show what's been filed")
+
+    # install-alias
+    p_alias = sub.add_parser(
+        "install-alias",
+        help="Create optional `mempalace` alias when that command name is unused",
+    )
+    p_alias.add_argument(
+        "--target-dir",
+        default=None,
+        help="Directory where the alias should be created (default: next to mempalace-code)",
+    )
 
     # fetch-model
     p_fetch = sub.add_parser("fetch-model", help="Download the embedding model (~80 MB)")
@@ -1394,7 +1482,7 @@ def main():
         "backup",
         help="Palace backup commands: create, list, schedule",
     )
-    # Top-level --out for back-compat: 'mempalace backup --out X' still works
+    # Top-level --out for back-compat: 'mempalace-code backup --out X' still works
     p_backup.add_argument(
         "--out",
         default=None,
@@ -1539,6 +1627,7 @@ def main():
         "status": cmd_status,
         "diary": cmd_diary,
         "fetch-model": cmd_fetch_model,
+        "install-alias": cmd_install_alias,
         "backup": cmd_backup,
         "restore": cmd_restore,
         "export": cmd_export,

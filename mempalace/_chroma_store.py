@@ -4,7 +4,7 @@ _chroma_store.py — ChromaDB storage backend (legacy, optional)
 
 This module is only importable when the [chroma] extra is installed::
 
-    pip install 'mempalace[chroma]'
+    pip install 'mempalace-code[chroma]'
 
 Importing this file without chromadb present raises ``ImportError`` immediately
 (top-level ``import chromadb`` ensures a clean failure surface).

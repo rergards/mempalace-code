@@ -307,7 +307,7 @@ def save_config(project_dir: str, project_name: str, rooms: list, dotnet_structu
 
     print(f"\n  Config saved: {config_path}")
     print("\n  Next step:")
-    print(f"    mempalace mine {project_dir}")
+    print(f"    mempalace-code mine {project_dir}")
     print(f"\n{'=' * 55}\n")
 
 

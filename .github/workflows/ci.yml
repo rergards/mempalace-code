@@ -87,6 +87,6 @@ jobs:
             hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-
       - run: pip install -e ".[dev,treesitter]"
       - name: Fetch embedding model (no-op on cache hit)
-        run: mempalace fetch-model
+        run: mempalace-code fetch-model
       - name: Run model-backed tests
         run: python -m pytest tests/ -v -m needs_network

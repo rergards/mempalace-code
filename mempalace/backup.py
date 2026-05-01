@@ -335,7 +335,7 @@ def render_schedule(
     platform:
         'darwin' for launchd plist, 'linux' for cron line.
     mempalace_bin:
-        Override the mempalace binary path (default: resolved via shutil.which).
+        Override the mempalace-code binary path (default: resolved via shutil.which).
 
     Returns
     -------
@@ -359,7 +359,7 @@ def render_schedule(
     backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
 
     if mempalace_bin is None:
-        mempalace_bin = _shutil.which("mempalace")
+        mempalace_bin = _shutil.which("mempalace-code")
         if mempalace_bin is None:
             mempalace_bin = f"{sys.executable} -m mempalace"
 

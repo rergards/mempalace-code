@@ -1,7 +1,7 @@
 """
 test_migrate.py — Tests for mempalace/migrate.py (ChromaDB → LanceDB migration).
 
-Requires chromadb (mempalace[chroma] extra). The entire module is skipped when
+Requires chromadb (mempalace-code[chroma] extra). The entire module is skipped when
 chromadb is not installed so CI without the chroma extra stays green.
 """
 

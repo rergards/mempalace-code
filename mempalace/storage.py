@@ -1025,7 +1025,7 @@ def __getattr__(name: str):
             return ChromaStore
         except ImportError as exc:
             raise ImportError(
-                "ChromaStore requires the [chroma] extra: pip install 'mempalace[chroma]'"
+                "ChromaStore requires the [chroma] extra: pip install 'mempalace-code[chroma]'"
             ) from exc
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
@@ -1073,7 +1073,7 @@ def open_store(
             from ._chroma_store import ChromaStore
         except ImportError as exc:
             raise ImportError(
-                "ChromaDB backend requires the [chroma] extra: pip install 'mempalace[chroma]'"
+                "ChromaDB backend requires the [chroma] extra: pip install 'mempalace-code[chroma]'"
             ) from exc
         return ChromaStore(palace_path, collection_name=collection_name, create=create)
     else:

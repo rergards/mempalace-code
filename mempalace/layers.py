@@ -92,7 +92,7 @@ class Layer1:
             store = open_store(self.palace_path, create=False)
             col = store
         except Exception:
-            return "## L1 — No palace found. Run: mempalace mine <dir>"
+            return "## L1 — No palace found. Run: mempalace-code mine <dir>"
 
         # Fetch all drawers in batches to avoid SQLite variable limit (~999)
         _BATCH = 500
