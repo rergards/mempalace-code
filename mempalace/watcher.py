@@ -18,8 +18,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-_UNSET: object = object()  # sentinel for _ScanRulesSnapshot._bad_mtime
-
 from .miner import (
     KNOWN_FILENAMES,
     READABLE_EXTENSIONS,
@@ -36,6 +34,8 @@ from .miner import (
     normalize_include_paths,
     should_skip_dir,
 )
+
+_UNSET: object = object()  # sentinel for _ScanRulesSnapshot._bad_mtime
 
 
 def _invalidate_gitignore_cache(changes, matcher_cache: dict) -> None:
