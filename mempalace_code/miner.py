@@ -3572,6 +3572,30 @@ def mine(
                     if kg is not None and Path(stale_path).suffix.lower() in _KG_EXTRACT_EXTENSIONS:
                         kg.invalidate_by_source_file(stale_path)
 
+            # Architecture extraction pass: derive pattern/layer/namespace/project
+            # KG facts from the full walked file set.  Runs after the stale sweep so
+            # deleted-file triples are already expired before we re-emit.
+            if kg is not None and limit == 0:
+                from mempalace_code.architecture import (
+                    ARCH_PREDICATES,
+                    extract_type_inventory,
+                    load_arch_config,
+                    run_arch_pass,
+                )
+
+                arch_cfg = load_arch_config(config)
+                if arch_cfg.get("enabled", True):
+                    arch_pred_list = list(ARCH_PREDICATES)
+                    # Global reset: expire all arch triples before re-emitting.
+                    # This handles deleted files in both incremental and full-rebuild modes
+                    # without needing to enumerate stale paths separately.
+                    kg.invalidate_by_predicates(arch_pred_list)
+                    arch_files = [Path(f) for f in walked_paths]
+                    inventory = extract_type_inventory(arch_files, project_path)
+                    n_arch = run_arch_pass(inventory, arch_cfg, wing, kg)
+                    if n_arch:
+                        print(f"  >> Architecture: {n_arch} KG triples emitted", flush=True)
+
             config = MempalaceConfig()
             if skip_optimize:
                 pass  # caller will optimize later

@@ -5,6 +5,27 @@ Current command/package names: the CLI is `mempalace-code`, the import package i
 Older historical entries may mention legacy `mempalace` names that were valid
 when those changes landed.
 
+## 2026-05-02 · ARCH-EXTRACTION-MODE
+
+Architecture extraction mode: `mempalace-code mine` now runs a post-mining pass
+that emits higher-level KG facts for .NET (C#, F#, VB.NET) and Python projects.
+
+### Added
+
+- `mempalace_code/architecture.py` — new module with pattern detection
+  (`is_pattern`: Service, Repository, Controller, ViewModel, Factory), layer
+  classification (`is_layer`: UI, Business, Data, Infrastructure), namespace
+  tagging (`in_namespace`), and project membership (`in_project`).
+- `KnowledgeGraph.invalidate_by_source_file` gains an optional `predicates`
+  parameter so architecture facts can be refreshed without expiring type
+  dependency facts (implements, inherits, depends_on, etc.).
+- Architecture config block in `mempalace.yaml` under `architecture:` — supports
+  custom `patterns` (name, suffixes, explicit `type_names`) and `layers`
+  (name, namespace_globs, type_suffixes, priority). Invalid rule entries are
+  silently ignored; the pass continues with built-in defaults.
+- KG queries: `entity="Service", direction="incoming"` shows all services;
+  `entity="Data", direction="incoming"` shows all data-layer types.
+
 ## 2026-05-02 · FUT-MULTI-REPO
 
 Multi-repo palace sync: `mine-all` command mines multiple project directories into one palace with per-repo wing isolation, wing auto-naming from git remote/folder, and incremental per-repo re-mining.

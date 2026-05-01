@@ -167,18 +167,52 @@ class KnowledgeGraph:
         conn.close()
         return triple_id
 
-    def invalidate_by_source_file(self, source_file: str, ended: str = None):
+    def invalidate_by_source_file(self, source_file: str, ended: str = None, predicates=None):
         """Set valid_to on all active triples (valid_to IS NULL) whose source_file matches.
 
-        Used by the miner before re-parsing a changed or deleted .NET config file so that
-        stale KG triples are expired rather than left as contradictory active facts.
-        Temporal invalidation (not physical deletion) preserves history.
+        When *predicates* is a non-empty list/tuple of predicate strings, only triples
+        whose predicate is in that set are expired — other predicates are left untouched.
+        Omit *predicates* (or pass ``None``) to expire all active triples for the file,
+        which is the original behaviour used by the per-file KG extraction pass.
+
+        Used by the miner before re-parsing a changed or deleted source file and by the
+        architecture extraction pass to refresh only architecture predicates without
+        expiring type-dependency facts (implements, inherits, depends_on, etc.).
         """
         ended = ended or date.today().isoformat()
         conn = self._conn()
+        if predicates:
+            placeholders = ",".join("?" * len(predicates))
+            conn.execute(
+                f"UPDATE triples SET valid_to=? WHERE source_file=? AND valid_to IS NULL"
+                f" AND predicate IN ({placeholders})",
+                [ended, source_file, *predicates],
+            )
+        else:
+            conn.execute(
+                "UPDATE triples SET valid_to=? WHERE source_file=? AND valid_to IS NULL",
+                (ended, source_file),
+            )
+        conn.commit()
+        conn.close()
+
+    def invalidate_by_predicates(self, predicates: list, ended: str = None) -> None:
+        """Expire all active triples (valid_to IS NULL) whose predicate is in *predicates*.
+
+        Used by the architecture extraction pass to globally reset arch facts (is_pattern,
+        is_layer, in_namespace, in_project) before re-emitting a fresh picture from the
+        current walked file set.  Works correctly across both incremental and full-rebuild
+        mine modes without needing to track which files were deleted.
+        """
+        if not predicates:
+            return
+        ended = ended or date.today().isoformat()
+        conn = self._conn()
+        placeholders = ",".join("?" * len(predicates))
         conn.execute(
-            "UPDATE triples SET valid_to=? WHERE source_file=? AND valid_to IS NULL",
-            (ended, source_file),
+            f"UPDATE triples SET valid_to=? WHERE valid_to IS NULL"
+            f" AND predicate IN ({placeholders})",
+            [ended, *predicates],
         )
         conn.commit()
         conn.close()

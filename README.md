@@ -331,6 +331,8 @@ usage rules.
 | `mempalace_show_type_dependencies` | Inheritance/implementation chain (ancestors + descendants) |
 | `mempalace_explain_subsystem` | Explain how a subsystem works: semantic search + KG expansion |
 | `mempalace_extract_reusable` | Classify deps as core/platform/glue; identify extraction boundary |
+| `mempalace_kg_query` (entity="Service", direction="incoming") | Show all services in the project |
+| `mempalace_kg_query` (entity="Data",    direction="incoming") | Show all types in the data layer |
 
 </details>
 
@@ -367,6 +369,36 @@ kg.invalidate("myapp", "uses", "Postgres", ended="2026-03-01")  # fact expired
 ```
 
 **Good candidates:** version numbers, team assignments, tech stack choices, deployment states, deadlines.
+
+**Architecture extraction** — `mempalace-code mine` automatically emits higher-level KG facts for .NET and Python projects after each mine:
+
+| Predicate | Example | Query |
+|-----------|---------|-------|
+| `is_pattern` | `UserService → is_pattern → Service` | `kg_query(entity="Service", direction="incoming")` |
+| `is_layer` | `UserRepository → is_layer → Data` | `kg_query(entity="Data", direction="incoming")` |
+| `in_namespace` | `UserService → in_namespace → Company.App` | `kg_query(entity="UserService")` |
+| `in_project` | `UserService → in_project → myapp` | `kg_query(entity="myapp", direction="incoming")` |
+
+Default patterns: Service, Repository, Controller, ViewModel, Factory.
+Default layers: UI (`*.UI`, `*.Web`, `*.Presentation`), Business (`*.Application`, `*.Domain`), Data (`*.Data`, `*.Persistence`), Infrastructure (`*.Infrastructure`).
+
+Override or extend via the `architecture:` block in `mempalace.yaml`:
+
+```yaml
+architecture:
+  enabled: true
+  patterns:
+    - name: Service
+      suffixes: [Service]
+      type_names: [AuditHandler]   # explicit names bypass suffix matching
+  layers:
+    - name: Business
+      namespace_globs: ["*.Application", "*.Domain", "*.Audit"]
+      type_suffixes: [Service]
+      priority: 1
+```
+
+Set `enabled: false` to disable the pass entirely.
 
 ---
 

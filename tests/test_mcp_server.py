@@ -451,6 +451,24 @@ class TestKGTools:
         result = tool_kg_stats()
         assert result["entities"] >= 4
 
+    def test_kg_query_arch_facts_queryable(self, monkeypatch, config, palace_path, kg):
+        """Architecture is_pattern and is_layer facts are queryable via mempalace_kg_query."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_kg_query
+
+        kg.add_triple("UserService", "is_pattern", "Service")
+        kg.add_triple("UserRepository", "is_layer", "Data")
+
+        svc_result = tool_kg_query(entity="Service", direction="incoming")
+        assert svc_result["count"] > 0
+        subjects = {r["subject"] for r in svc_result["facts"]}
+        assert "UserService" in subjects
+
+        data_result = tool_kg_query(entity="Data", direction="incoming")
+        assert data_result["count"] > 0
+        subjects = {r["subject"] for r in data_result["facts"]}
+        assert "UserRepository" in subjects
+
 
 # ── Diary Tools ─────────────────────────────────────────────────────────
 
