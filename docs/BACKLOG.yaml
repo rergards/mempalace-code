@@ -77,29 +77,6 @@ items:
       Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
 
     resolution: null
-  - key: STORE-MIGRATE-CLI-TEST
-    summary: Add CLI-level test for migrate-storage subcommand wiring
-    type: task
-    status: done
-    priority: low
-    size: S
-    section_id: quality
-    labels: [test, cli, migration]
-    description: |-
-      ## Problem
-      test_cli.py has no tests for migrate-storage. The argparse wiring, VerificationError exit path, and --force passthrough are untested.
-
-      ## Scope
-      Add CLI-level tests invoking cmd_migrate_storage for the happy path, VerificationError handling, backup_dir wiring, and --force passthrough.
-
-      ## Acceptance criteria
-      - test_migrate_storage_cli_happy_path passes.
-      - test_migrate_storage_cli_verify_fail exits with code 1.
-      - --backup-dir is passed through as args.backup_dir.
-      - --force is passed through to migrate_chroma_to_lance.
-      - Existing migrate tests are unaffected and chromadb-specific tests skip when chromadb is absent.
-    resolution: "2026-05-01: Added TestMigrateStorageCommand with happy path, VerificationError exit, --backup-dir passthrough, --force passthrough. Hardening strengthened assertions (distinct src/dst counts, error message body)."
-    done_summary: "Added TestMigrateStorageCommand with happy path, VerificationError exit, --backup-dir passthrough, --force passthrough. Hardening strengthened assertions (distinct src/dst counts, error message body)."
   - key: CORE-EXPORT-IMPORT-STREAM-TEST
     summary: 'Add test_export_streams_large_palace: verify iter_all streams without OOM on 5k-drawer palaces'
     type: task

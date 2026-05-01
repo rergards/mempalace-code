@@ -338,3 +338,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: STORE-MIGRATE-CLI-TEST
+      summary: Add CLI-level test for migrate-storage subcommand wiring
+      resolution: '2026-05-01: Added TestMigrateStorageCommand with happy path, VerificationError exit, --backup-dir passthrough, --force passthrough. Hardening strengthened assertions (distinct src/dst counts, error message body).'
+      archived_date: "2026-05-01"
+      done_summary: Added TestMigrateStorageCommand with happy path, VerificationError exit, --backup-dir passthrough, --force passthrough. Hardening strengthened assertions (distinct src/dst counts, error message body).
