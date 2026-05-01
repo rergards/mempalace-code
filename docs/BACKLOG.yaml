@@ -77,26 +77,6 @@ items:
       Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
 
     resolution: null
-  - key: CI-CHROMA-COMPAT-TESTS
-    summary: "Add ChromaStore-specific tests so the chroma-compat CI job actually validates ChromaDB"
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: quality
-    labels: [ci, testing, storage]
-    description: |-
-      ## Problem
-      The chroma-compat CI job installs .[dev,chroma] then runs the full test suite, but most tests use open_store() with LanceDB. The job mostly proves chromadb imports, not that ChromaStore works.
-
-      ## Scope
-      Add ChromaStore-specific tests that explicitly instantiate ChromaStore and exercise add, search, get, delete, and count behavior. Guard the module with pytest.importorskip("chromadb") so it is skipped in the main matrix.
-
-      ## Acceptance criteria
-      - chroma-compat CI exercises at least five ChromaStore operations.
-      - Main CI matrix still passes without chromadb installed.
-      - Chroma-specific failures are visible in the chroma-compat job.
-    resolution: null
   - key: CI-CACHING
     summary: "Add pip and HuggingFace model caching to CI jobs to reduce run time"
     type: task

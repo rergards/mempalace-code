@@ -328,3 +328,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: CI-CHROMA-COMPAT-TESTS
+      summary: Add ChromaStore-specific tests so the chroma-compat CI job actually validates ChromaDB
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
