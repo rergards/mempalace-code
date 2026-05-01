@@ -206,6 +206,7 @@ items:
     size: S
     section_id: quality
     labels: [testing, cli]
+    hardening_round_1: "2026-05-01 — 3 findings, all dismissed (no fixes required). F-1: multi-flag --include-ignored accumulation not covered (out of scope per single-test constraint). F-2: empty-token filter branch (`if part.strip()`) not exercised by chosen input (out of scope). F-3: equivalent comma-split logic in cmd_mine is also untested at CLI level but covered at miner layer in test_miner.py. Audit at docs/audits/MINE-MULTI-INCLUDE-IGNORED-TEST-round-1.md."
     description: |-
       ## Problem
 
