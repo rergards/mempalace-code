@@ -413,3 +413,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: CI-CACHING-TEST-ENV-BRANCH
+      summary: Cover MEMPALACE_TEST_HF_HOME branch selection in offline test helpers
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
