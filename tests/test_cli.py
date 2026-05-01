@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from mempalace.cli import main
 from mempalace.storage import open_store
@@ -170,8 +171,6 @@ class TestInitNonInteractiveOnboarding:
 
         config_path = project_dir / "mempalace.yaml"
         assert config_path.exists(), "mempalace.yaml must be written"
-        import yaml
-
         cfg = yaml.safe_load(config_path.read_text())
         assert cfg["wing"] == "myproject", f"wing must derive from dir name, got {cfg.get('wing')!r}"
         assert isinstance(cfg["rooms"], list) and len(cfg["rooms"]) >= 1
@@ -216,8 +215,6 @@ class TestInitNonInteractiveOnboarding:
         with patch("builtins.input", side_effect=_raise_if_called):
             self._run_init(["mempalace", "init", str(project_dir), "--skip-model-download"])
 
-        import yaml
-
         cfg = yaml.safe_load((project_dir / "mempalace.yaml").read_text())
         assert cfg["wing"] == "flat_project"
         room_names = [r["name"] for r in cfg["rooms"]]
@@ -260,8 +257,6 @@ class TestInitNonInteractiveOnboarding:
             self._run_init(
                 ["mempalace", "init", str(project_dir), "--yes", "--skip-model-download"]
             )
-
-        import yaml
 
         cfg = yaml.safe_load((project_dir / "mempalace.yaml").read_text())
         assert cfg["wing"] == "myproject"
