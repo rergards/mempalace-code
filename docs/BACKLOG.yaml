@@ -43,27 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: CLEAN-ONBOARDING
-    summary: "Replace interactive onboarding with config-file-first setup"
-    type: task
-    priority: medium
-    status: open
-    size: M
-    section_id: cleanup
-    labels: [cleanup, ux]
-    description: |-
-      ## Problem
-      Current onboarding.py is a guided interview (mode: work/personal/combo, people, projects, wing taxonomy). Coding users want zero-friction setup driven by the project directory.
-
-      ## Scope
-      Replace the default setup path with `mempalace init <dir>` reading project structure and generating mempalace.yaml automatically. Interactive prompts should remain available only as an explicit opt-in path.
-
-      ## Acceptance criteria
-      - `mempalace init <dir>` can generate a usable mempalace.yaml without an interview.
-      - Interactive onboarding is not the default for code projects.
-      - Existing prompt-based onboarding remains reachable for users who request it.
-      - Tests cover default config generation and opt-in interactive behavior.
-    resolution: null
   # ── FUTURE — Post-v1 Ideas ─────────────────────────────────
   - key: FUT-MULTI-REPO
     summary: "Multi-repo palace — mine multiple projects into one palace"
