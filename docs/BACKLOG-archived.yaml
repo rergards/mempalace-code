@@ -318,3 +318,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: STORE-CHROMA-IMPORT-ERROR-TESTS
+      summary: Add tests for ChromaStore ImportError paths when chromadb extra absent
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run

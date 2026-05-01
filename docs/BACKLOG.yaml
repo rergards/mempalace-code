@@ -352,41 +352,6 @@ items:
       6. ruff clean; pytest -q passes.
 
       Origin: STORE-BACKUP-RESTORE hardening round-1 F-5.
-  - key: STORE-CHROMA-IMPORT-ERROR-TESTS
-    summary: Add tests for ChromaStore ImportError paths when chromadb extra absent
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: storage_reliability
-    labels: [storage, packaging, test]
-    description: |-
-      ## Problem
-
-      When chromadb is not installed, two code paths should raise a clear ImportError:
-      1. `from mempalace.storage import ChromaStore` (via `storage.__getattr__`)
-      2. `open_store(palace_path, backend="chroma")`
-
-      Neither path has test coverage. If the lazy import guard is accidentally removed or broken, there is no test to catch the regression.
-
-      ## Scope
-
-      Add tests for the lazy ChromaDB import failure paths without requiring chromadb to be absent from the developer machine.
-
-      ## Deliverable
-
-      Add tests (using `unittest.mock.patch.dict(sys.modules, {"chromadb": None})` or a subprocess approach) that verify both ImportError paths raise the expected error with a helpful message.
-
-      ## Acceptance criteria
-
-      1. Test for `from mempalace.storage import ChromaStore` raising ImportError (with 'mempalace[chroma]' in message) when chromadb absent
-      2. Test for `open_store(path, backend='chroma')` raising ImportError (with 'mempalace[chroma]' in message) when chromadb absent
-      3. Tests pass when chromadb IS installed (mock approach isolates the test)
-
-      ## Constraints
-
-      - Do not remove existing chromadb-dependent tests; guard with pytest.importorskip
-      - The mock approach (patch.dict sys.modules chromadb None) is preferred over subprocess for speed
   - key: MINE-DEVOPS-SCAN-COVERAGE
     summary: Add scan_project integration tests for remaining DevOps extensions (.j2, .conf, .ini, .mk, Vagrantfile, Containerfile)
     type: task
