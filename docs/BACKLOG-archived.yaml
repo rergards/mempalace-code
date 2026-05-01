@@ -388,3 +388,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: STORE-BACKUP-CLI-TEST
+      summary: Add CLI-level integration tests for backup and restore commands
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
