@@ -5,6 +5,10 @@ Current command/package names: the CLI is `mempalace-code`, the import package i
 Older historical entries may mention legacy `mempalace` names that were valid
 when those changes landed.
 
+## 2026-05-02 · FUT-MULTI-REPO
+
+Multi-repo palace sync: `mine-all` command mines multiple project directories into one palace with per-repo wing isolation, wing auto-naming from git remote/folder, and incremental per-repo re-mining.
+
 ## 2026-05-01 · Recent completed task review
 
 ### Added
