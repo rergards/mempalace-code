@@ -685,6 +685,8 @@ def tool_explain_subsystem(
     if not store:
         return _no_palace()
 
+    n_results = max(1, min(50, n_results))
+
     # Over-fetch to compensate for post-filtering non-code hits (mixed palace)
     raw = code_search(
         palace_path=_config.palace_path,

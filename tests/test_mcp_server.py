@@ -1418,6 +1418,53 @@ class TestExplainSubsystem:
                 f"Non-code drawer leaked into entry_points: {ep.get('source_file')}"
             )
 
+    def test_n_results_one_returns_exactly_one(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """AC-1 (EXPLAIN-NRESULTS-CLAMP): n_results=1 returns exactly 1 entry_point."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="code", n_results=1)
+        assert "error" not in result
+        assert len(result["entry_points"]) == 1
+        assert result["summary"]["entry_point_count"] == 1
+
+    def test_n_results_zero_clamped_to_one(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """AC-2 (EXPLAIN-NRESULTS-CLAMP): n_results=0 is clamped to 1, returns 1 entry_point."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="code", n_results=0)
+        assert "error" not in result
+        assert len(result["entry_points"]) == 1
+        assert result["summary"]["entry_point_count"] == 1
+
+    def test_n_results_negative_clamped_to_one(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """AC-3 (EXPLAIN-NRESULTS-CLAMP): n_results=-1 is clamped to 1, not sliced negatively."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="code", n_results=-1)
+        assert "error" not in result
+        assert len(result["entry_points"]) == 1
+        assert result["summary"]["entry_point_count"] == 1
+
+    def test_invalid_language_with_zero_n_results_propagates_error(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """AC-4 (EXPLAIN-NRESULTS-CLAMP): unsupported language error propagates even when n_results also needs clamping."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace.mcp_server import tool_explain_subsystem
+
+        result = tool_explain_subsystem(query="code", language="not-a-language", n_results=0)
+        assert "error" in result
+        assert "supported_languages" in result
+
 
 # ── Extract Reusable Tool (LOGIC-EXTRACTION) ─────────────────────────────
 
