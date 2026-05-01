@@ -323,3 +323,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: EXPLAIN-NRESULTS-CLAMP
+      summary: Clamp n_results in tool_explain_subsystem and add boundary tests
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
