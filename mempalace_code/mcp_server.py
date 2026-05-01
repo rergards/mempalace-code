@@ -85,10 +85,8 @@ def _get_store(create: bool = False) -> Optional[DrawerStore]:
     read_only = not create
     try:
         new_store = open_store(_config.palace_path, create=create, read_only=read_only)
-        table_missing = isinstance(new_store, LanceStore) and new_store._table is None
-        if table_missing:
-            db_absent = isinstance(new_store, LanceStore) and new_store._db is None
-            if db_absent:
+        if isinstance(new_store, LanceStore) and new_store._table is None:
+            if new_store._db is None:
                 # Lance dir missing — no palace on disk; signal with None so tools
                 # return _no_palace() instead of a misleading empty-store response.
                 return None
