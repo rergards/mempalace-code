@@ -1174,8 +1174,9 @@ class TestMigrateStorageCommand:
         src = str(tmp_path / "src")
         dst = str(tmp_path / "dst")
 
+        # Use distinct counts so a src/dst swap in the print statement is detectable.
         with patch(
-            "mempalace.migrate.migrate_chroma_to_lance", return_value=(10, 10)
+            "mempalace.migrate.migrate_chroma_to_lance", return_value=(10, 7)
         ) as mock_migrate:
             self._run(["mempalace", "migrate-storage", src, dst])
 
@@ -1189,9 +1190,8 @@ class TestMigrateStorageCommand:
             no_backup=False,
         )
         captured = capsys.readouterr()
-        assert "Source drawers" in captured.out
-        assert "Destination drawers" in captured.out
-        assert "10" in captured.out
+        assert "Source drawers: 10" in captured.out
+        assert "Destination drawers: 7" in captured.out
 
     def test_migrate_storage_cli_verify_fail(self, tmp_path, capsys):
         """AC-2: VerificationError exits with code 1, stderr includes 'Verification failed:'."""
@@ -1209,7 +1209,7 @@ class TestMigrateStorageCommand:
 
         assert exc.value.code == 1
         captured = capsys.readouterr()
-        assert "Verification failed:" in captured.err
+        assert "Verification failed: wing count mismatch" in captured.err
 
     def test_migrate_storage_cli_backup_dir_passthrough(self, tmp_path, capsys):
         """AC-3: --backup-dir <dir> reaches migrate_chroma_to_lance as backup_dir."""

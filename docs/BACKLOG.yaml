@@ -80,7 +80,7 @@ items:
   - key: STORE-MIGRATE-CLI-TEST
     summary: Add CLI-level test for migrate-storage subcommand wiring
     type: task
-    status: open
+    status: done
     priority: low
     size: S
     section_id: quality
@@ -98,6 +98,8 @@ items:
       - --backup-dir is passed through as args.backup_dir.
       - --force is passed through to migrate_chroma_to_lance.
       - Existing migrate tests are unaffected and chromadb-specific tests skip when chromadb is absent.
+    resolution: "2026-05-01: Added TestMigrateStorageCommand with happy path, VerificationError exit, --backup-dir passthrough, --force passthrough. Hardening strengthened assertions (distinct src/dst counts, error message body)."
+    done_summary: "Added TestMigrateStorageCommand with happy path, VerificationError exit, --backup-dir passthrough, --force passthrough. Hardening strengthened assertions (distinct src/dst counts, error message body)."
   - key: CORE-EXPORT-IMPORT-STREAM-TEST
     summary: 'Add test_export_streams_large_palace: verify iter_all streams without OOM on 5k-drawer palaces'
     type: task
@@ -639,3 +641,12 @@ items:
     section_id: quality
     labels: [ci, test, devex]
     description: "## Problem\nThe test helpers in tests/test_offline.py and tests/test_e2e.py select between a CI-shared HuggingFace cache (MEMPALACE_TEST_HF_HOME) and a tmp_path-isolated cache. Branch selection is wired but not directly unit-tested; only the integration end-to-end path on workflow_dispatch exercises it.\n\n## Scope\ntests/test_offline.py and/or tests/test_e2e.py — add a focused test that exercises both branches without performing a real model download.\n\n## Deliverable\nA small unit test (or parametrized helper test) that asserts:\n- When MEMPALACE_TEST_HF_HOME is set, HF_HOME is monkeypatched to that exact value and no tmp_path subdirectory is created.\n- When MEMPALACE_TEST_HF_HOME is unset, a fresh tmp_path/hf directory is created and HF_HOME is set to it.\n\n## Acceptance criteria\n- New test asserts both branches without requiring a model download (mock fetch_model or short-circuit before the SentenceTransformer call).\n- Test runs under the default 'not needs_network' filter.\n- Ruff clean.\n\n## Constraints\n- No new helper file unless strictly required; prefer fixtures in the existing test modules."
+  - key: STORE-MIGRATE-CLI-TEST-EXPAND
+    summary: "Expand migrate-storage CLI tests: --verify, --embed-model, RuntimeError exit path"
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: quality
+    labels: [test, cli, migration]
+    description: "## Problem\nSTORE-MIGRATE-CLI-TEST landed happy-path / VerificationError / --backup-dir / --force coverage but left three gaps:\n1. --verify=True is only tested implicitly via the default. No test exercises argparse store_true wiring for --verify.\n2. --embed-model VALUE passthrough is untested (defaults only).\n3. The RuntimeError handler in cmd_migrate_storage (mempalace/cli.py:526-528) is unreachable in tests — a regression that drops it would not be caught.\n\n## Scope\ntests/test_cli.py::TestMigrateStorageCommand — add three new tests. No production-code changes.\n\n## Deliverable\nThree tests in tests/test_cli.py::TestMigrateStorageCommand:\n- test_migrate_storage_cli_verify_passthrough — passes --verify, asserts mock kwarg verify=True.\n- test_migrate_storage_cli_embed_model_passthrough — passes --embed-model foo, asserts mock kwarg embed_model='foo'.\n- test_migrate_storage_cli_runtime_error_exits_1 — patches migrate to raise RuntimeError, asserts SystemExit.code==1 and 'Error:' on stderr.\n\n## Acceptance criteria\n- All three tests pass.\n- Tests assert on specific kwarg values (no 'mock was called' weak assertions).\n- Tests do not require chromadb installation.\n\n## Constraints\n- Mock at the same patch target as existing tests (mempalace.migrate.migrate_chroma_to_lance)."
