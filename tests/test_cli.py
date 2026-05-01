@@ -1379,6 +1379,122 @@ class TestMineAllCommand:
         assert len(mine_calls) == 1
         assert mine_calls[0]["wing_override"] == "custom_wing"
 
+    # ------------------------------------------------------------------
+    # Regression: uninitialized + initialized colliding wings must NOT fail
+    # the batch — the uninitialized project would be skipped anyway, so the
+    # initialized project should still be mined.
+    # ------------------------------------------------------------------
+
+    def test_mine_all_uninit_wing_collision_does_not_block_initialized(self, tmp_path):
+        """An uninit project resolving to the same wing as an init project does not abort the batch.
+
+        Regression for round-1 hardening F-1: previously, the duplicate-wing
+        check ran before the uninitialized skip, so an uninit folder whose
+        derived name collided with an initialized project killed the batch.
+        Uninitialized projects are skipped later and cannot mine, so they
+        cannot corrupt the palace and must not trigger a fatal duplicate.
+        """
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        dev.mkdir()
+        # Initialized project explicitly declaring wing "shared".
+        init_proj = dev / "init_proj"
+        init_proj.mkdir()
+        (init_proj / ".git").mkdir()
+        (init_proj / "mempalace.yaml").write_text("wing: shared\n")
+        # Uninitialized folder that also resolves to wing "shared" — no
+        # mempalace.yaml present, but folder name normalizes to "shared".
+        uninit = dev / "shared"
+        uninit.mkdir()
+        (uninit / ".git").mkdir()
+        # No mempalace.yaml → not "initialized" per detect_projects.
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
+                mock_store.return_value.count_by.return_value = {}
+                self._run_mine_all(palace, str(dev))
+
+        # The initialized project was mined; the uninitialized one was skipped.
+        wings_called = [c["wing_override"] for c in mine_calls]
+        assert wings_called == ["shared"]
+        assert mine_calls[0]["project_dir"] == str(init_proj)
+
+    # ------------------------------------------------------------------
+    # AC-5 integration: same relative filename across two repos must produce
+    # distinct stored entries (different wing AND different source_file). This
+    # exercises real mine() + real LanceDB storage instead of mock-only checks.
+    # ------------------------------------------------------------------
+
+    def test_mine_all_same_relative_filenames_distinct_in_storage(self, tmp_path):
+        """AC-5 (integration): two repos with src/settings.py both end up in storage
+        under different wings with full source_file paths — no drawer-id collision."""
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        dev.mkdir()
+
+        # Padded content so each file exceeds the miner's minimum size threshold
+        padding = "    # " + "x" * 60 + "\n"
+        body_a = (
+            "def configure_alpha():\n"
+            '    """Configure alpha-flavored settings."""\n' + padding * 12 + "    return 'alpha'\n"
+        )
+        body_b = (
+            "def configure_beta():\n"
+            '    """Configure beta-flavored settings."""\n' + padding * 12 + "    return 'beta'\n"
+        )
+
+        repo_a = dev / "repo_a"
+        repo_a.mkdir()
+        (repo_a / ".git").mkdir()
+        (repo_a / "mempalace.yaml").write_text("wing: alpha\n")
+        (repo_a / "src").mkdir()
+        (repo_a / "src" / "settings.py").write_text(body_a)
+
+        repo_b = dev / "repo_b"
+        repo_b.mkdir()
+        (repo_b / ".git").mkdir()
+        (repo_b / "mempalace.yaml").write_text("wing: beta\n")
+        (repo_b / "src").mkdir()
+        (repo_b / "src" / "settings.py").write_text(body_b)
+
+        # Real mine via cmd_mine_all — no mocks on miner/storage.
+        self._run_mine_all(palace, str(dev))
+
+        store = open_store(palace, create=False)
+
+        # Stored counts include both wings.
+        wing_counts = store.count_by("wing")
+        assert wing_counts.get("alpha", 0) >= 1
+        assert wing_counts.get("beta", 0) >= 1
+
+        # Pull rows for each wing and confirm:
+        #   - source_file is the absolute repo-scoped path (no cross-repo aliasing)
+        #   - drawer ids differ between wings even though the relative path matches
+        results = store.query(
+            query_texts=["configure settings"],
+            n_results=20,
+            include=["metadatas", "documents"],
+        )
+        metas = results["metadatas"][0]
+
+        rows_a = [m for m in metas if m.get("wing") == "alpha"]
+        rows_b = [m for m in metas if m.get("wing") == "beta"]
+        assert rows_a, "expected at least one alpha row in search results"
+        assert rows_b, "expected at least one beta row in search results"
+
+        sources_a = {m.get("source_file", "") for m in rows_a}
+        sources_b = {m.get("source_file", "") for m in rows_b}
+        # Each wing's source_file must point at its own repo and contain the
+        # full relative subpath — they must not collide.
+        assert any("repo_a" in s and "settings.py" in s for s in sources_a)
+        assert any("repo_b" in s and "settings.py" in s for s in sources_b)
+        assert sources_a.isdisjoint(sources_b)
+
 
 class TestMigrateStorageCommand:
     """CLI-level tests for migrate-storage argparse wiring and dispatch."""

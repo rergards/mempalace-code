@@ -735,8 +735,6 @@ class TestWatchAll:
 
     def test_watch_all_uses_configured_wings(self, tmp_path, monkeypatch):
         """watch_all reads wing from mempalace.yaml and passes it to mine()."""
-        from watchfiles import Change
-
         from mempalace_code.watcher import watch_all
 
         project = tmp_path / "my_proj"

@@ -369,6 +369,25 @@ def cmd_mine_all(args):
 
     print(f"\n  Found {len(project_entries)} project(s) in {parent_dir}\n")
 
+    # Detect duplicate wings among projects that will actually be mined.
+    # Uninitialized projects are skipped later, so a uninit/init wing collision is
+    # not a corruption risk and must not block the batch.
+    wing_to_paths: dict = {}
+    for entry in project_entries:
+        if entry["initialized"]:
+            wing_to_paths.setdefault(entry["wing"], []).append(entry["path"])
+
+    duplicate_wings = {w: paths for w, paths in wing_to_paths.items() if len(paths) > 1}
+    if duplicate_wings:
+        for w, paths in sorted(duplicate_wings.items()):
+            path_list = ", ".join(str(p) for p in paths)
+            print(
+                f"  ERROR  duplicate wing '{w}': {path_list}\n"
+                f"         Configure a unique 'wing:' in each project's mempalace.yaml.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+
     if args.dry_run:
         # Dry-run: only show detected projects, never open the store
         for entry in project_entries:
@@ -386,23 +405,6 @@ def cmd_mine_all(args):
         existing_wings = set(store.count_by("wing").keys())
     except Exception as e:
         print(f"  Error opening palace at {palace_path}: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    # Detect duplicate wing names within this batch — batch error, exit before mining.
-    # Mining two unrelated repos into the same wing silently corrupts the palace.
-    wing_to_paths: dict = {}
-    for entry in project_entries:
-        wing_to_paths.setdefault(entry["wing"], []).append(entry["path"])
-
-    duplicate_wings = {w: paths for w, paths in wing_to_paths.items() if len(paths) > 1}
-    if duplicate_wings:
-        for w, paths in sorted(duplicate_wings.items()):
-            path_list = ", ".join(str(p) for p in paths)
-            print(
-                f"  ERROR  duplicate wing '{w}': {path_list}\n"
-                f"         Configure a unique 'wing:' in each project's mempalace.yaml.",
-                file=sys.stderr,
-            )
         sys.exit(1)
 
     mined = 0
