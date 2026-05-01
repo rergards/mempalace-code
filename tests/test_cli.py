@@ -1187,6 +1187,28 @@ class TestMineAllCommand:
         assert len(mine_calls) == 1
         assert mine_calls[0]["wing_override"] == "shared_wing"
 
+    def test_mine_all_include_ignored_comma_splits_to_mine(self, tmp_path):
+        """mine-all splits --include-ignored on commas and trims whitespace before forwarding to mine()."""
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        dev.mkdir()
+        _make_initialized_project(dev, "proj")
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
+                mock_store.return_value.count_by.return_value = {}
+                self._run_mine_all(
+                    palace, str(dev), ["--include-ignored", "ignored/a.py, ignored/b.py"]
+                )
+
+        assert len(mine_calls) == 1
+        assert mine_calls[0]["include_ignored"] == ["ignored/a.py", "ignored/b.py"]
+
 
 class TestMigrateStorageCommand:
     """CLI-level tests for migrate-storage argparse wiring and dispatch."""
