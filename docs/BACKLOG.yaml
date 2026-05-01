@@ -198,15 +198,6 @@ items:
       - [ ] Layer detection with configurable rules
       - [ ] Results stored in KG
       - [ ] Queryable via mempalace_kg_query
-  - key: PY-MULTI-IMPORT
-    summary: Handle multi-module import lines (import os, sys) in Python KG extraction
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: quality
-    labels: [mining, kg, python]
-    description: "## Problem\n\n_python_type_rels() uses _PY_IMPORT_RE which captures only the first module on a multi-module import line (e.g. 'import os, sys' yields only 'os', missing 'sys'). This is uncommon in idiomatic Python but can occur in legacy or third-party code.\n\n## Scope\n\nFix _PY_IMPORT_RE to capture all comma-separated module names on a single import line.\n\n## Acceptance Criteria\n\n- [x] extract_type_relationships on 'import os, sys\\n' returns both (module, depends_on, os) and (module, depends_on, sys)\n- [x] Existing tests for single imports still pass\n- [x] ruff check passes\n\n## Constraints\n\nIdentified in PY-TYPE-KG hardening round-1 (F-2). Low priority -- multi-module imports are uncommon in modern Python.\n\n## Hardening\n\n- Round 1 (2026-05-01): docs/audits/PY-MULTI-IMPORT-round-1.md — 2 findings fixed (semicolon-line regression, vacuous dedup test), 2 dismissed."
   - key: CLARIFY-MINE-RUBY-SMART
     summary: "Clarify scope for MINE-RUBY-SMART before planning can proceed"
     type: task

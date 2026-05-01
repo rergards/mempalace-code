@@ -408,3 +408,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: PY-MULTI-IMPORT
+      summary: Handle multi-module import lines (import os, sys) in Python KG extraction
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
