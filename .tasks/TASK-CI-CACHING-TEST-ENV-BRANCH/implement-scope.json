@@ -1,0 +1,8 @@
+{
+  "phase": "implement",
+  "files": [
+    "tests/test_offline.py"
+  ],
+  "before_sha": "aa5641a",
+  "timestamp": "2026-05-01T21:16:41Z"
+}
