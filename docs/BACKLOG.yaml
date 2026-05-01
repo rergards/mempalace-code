@@ -491,15 +491,6 @@ items:
       - Owner confirms test-only versus test-plus-fixture scope.
       - CLARIFY-CODE-TREESITTER-GO-RUST-DETACH-TEST is marked done, or its is-blocked-by link is removed from CODE-TREESITTER-GO-RUST-DETACH-TEST.
       - Autopilot can re-run CODE-TREESITTER-GO-RUST-DETACH-TEST planning without timing out on ambiguous scope.
-  - key: MINE-SCAN-GLOB-DIR-PRUNE
-    summary: "Prune directories at walk-time when fully covered by skip_globs"
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: coding_first
-    labels: [mining, performance, scan-excludes]
-    description: "## Problem\n`scan_project()` and the watcher prune directories by basename only via `scan_skip_dirs`.\nGlob patterns in `scan_skip_globs` (e.g. `build/**`) are applied per-file, so the dir-walk\nstill descends into `build/` and only filters files inside. For large generated trees this\nwastes IO and time.\n\n## Scope\nDetect glob patterns whose match would cover an entire directory subtree (e.g. trailing\n`/**`, prefix-only patterns) and prune those directories at walk time in both\n`scan_project()` and `_is_relevant_change()`.\n\n## Acceptance criteria\n- Patterns like `build/**`, `generated/**/*`, `dist/**` prune the directory in os.walk.\n- File-level glob behavior is unchanged for non-coverage patterns (e.g. `generated/**/*.js`).\n- Force-include of a path inside a pruned directory still wins.\n- Test verifies os.walk does not descend into a directory matched by a coverage glob.\n\n## Constraints\n- Must remain fnmatch-compatible (no new dependency).\n- Behavior must match between `scan_project()` and `_is_relevant_change()`."
   - key: MINE-SCAN-RULES-LIVE-RELOAD
     summary: "Live-reload scan_skip_* config in watcher loops without restart"
     type: task
