@@ -423,3 +423,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: FUT-MULTI-REPO
+      summary: Multi-repo palace — mine multiple projects into one palace
+      resolution: '2026-05-02: completed in pipeline run'
+      archived_date: "2026-05-02"
+      done_summary: completed in pipeline run

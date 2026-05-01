@@ -43,25 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  # ── FUTURE — Post-v1 Ideas ─────────────────────────────────
-  - key: FUT-MULTI-REPO
-    summary: "Multi-repo palace — mine multiple projects into one palace"
-    type: story
-    priority: low
-    status: open
-    size: L
-    section_id: future
-    labels: [future, mining]
-    description: >
-      Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
-
-
-      ## Hardening
-
-
-      - Round 1 (2026-05-02): docs/audits/FUT-MULTI-REPO-round-1.md — 2 findings fixed (duplicate-wing check no longer aborts batches when an uninitialized folder collides with an initialized project; AC-5 now exercised end-to-end against real LanceDB storage instead of mocked mine() kwargs).
-
-    resolution: null
   - key: CODE-TREESITTER-GO-RUST-DETACH-TEST
     summary: Add negative tests for detached-comment gap detection in Go and Rust AST chunkers
     type: task
