@@ -20,8 +20,8 @@ def test_storage_chroma_store_import_error():
     so debuggers can see why the lazy import actually failed.
     """
     with unittest.mock.patch.dict(sys.modules, {"chromadb": None}):
-        sys.modules.pop("mempalace._chroma_store", None)
-        import mempalace.storage as storage_mod
+        sys.modules.pop("mempalace_code._chroma_store", None)
+        import mempalace_code.storage as storage_mod
 
         with pytest.raises(ImportError, match=r"mempalace-code\[chroma\]") as exc_info:
             _ = storage_mod.ChromaStore
@@ -35,8 +35,8 @@ def test_open_store_chroma_import_error(tmp_path):
     Also verifies the original ImportError is preserved as __cause__ (raise ... from exc).
     """
     with unittest.mock.patch.dict(sys.modules, {"chromadb": None}):
-        sys.modules.pop("mempalace._chroma_store", None)
-        from mempalace.storage import open_store
+        sys.modules.pop("mempalace_code._chroma_store", None)
+        from mempalace_code.storage import open_store
 
         with pytest.raises(ImportError, match=r"mempalace-code\[chroma\]") as exc_info:
             open_store(str(tmp_path), backend="chroma")

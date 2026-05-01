@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 
-from mempalace.config import MempalaceConfig
+from mempalace_code.config import MempalaceConfig
 
 
 def test_default_config():

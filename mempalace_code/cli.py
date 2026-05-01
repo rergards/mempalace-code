@@ -411,9 +411,7 @@ def cmd_mine_all(args):
         wing_name = entry["wing"]
 
         if not entry["initialized"]:
-            print(
-                f"  SKIP  {proj_name}  (not initialized — run: mempalace-code init {proj_path})"
-            )
+            print(f"  SKIP  {proj_name}  (not initialized — run: mempalace-code init {proj_path})")
             skipped += 1
             continue
 

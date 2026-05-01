@@ -15,7 +15,7 @@ This is what competes with Zep's temporal knowledge graph.
 Zep uses Neo4j in the cloud ($25/mo+). We use SQLite locally (free).
 
 Usage:
-    from mempalace.knowledge_graph import KnowledgeGraph
+    from mempalace_code.knowledge_graph import KnowledgeGraph
 
     kg = KnowledgeGraph()
     kg.add_triple("Max", "child_of", "Alice", valid_from="2015-04-01")

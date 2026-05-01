@@ -80,10 +80,10 @@ else
 fi
 
 # --- Step 6: Verify import ---
-"$VPYTHON" -c "import mempalace; print(mempalace.__version__)" >/dev/null 2>&1 \
-    || fail "Install succeeded but 'import mempalace' failed."
+"$VPYTHON" -c "import mempalace_code; print(mempalace_code.__version__)" >/dev/null 2>&1 \
+    || fail "Install succeeded but 'import mempalace_code' failed."
 
-VERSION=$("$VPYTHON" -c "import mempalace; print(mempalace.__version__)")
+VERSION=$("$VPYTHON" -c "import mempalace_code; print(mempalace_code.__version__)")
 info "mempalace-code $VERSION installed"
 
 # --- Step 7: Symlink canonical binary to ~/.local/bin ---

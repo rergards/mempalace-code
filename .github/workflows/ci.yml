@@ -59,8 +59,8 @@ jobs:
             pyproject.toml
             uv.lock
       - run: pip install ruff
-      - run: ruff check mempalace/ tests/
-      - run: ruff format --check mempalace/ tests/
+      - run: ruff check mempalace_code/ tests/
+      - run: ruff format --check mempalace_code/ tests/
 
   model-tests:
     runs-on: ubuntu-latest

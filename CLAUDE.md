@@ -45,16 +45,16 @@ python -m pytest tests/test_convo_miner.py -v
 
 ```bash
 # Check
-ruff check mempalace/ tests/
+ruff check mempalace_code/ tests/
 
 # Format check
-ruff format --check mempalace/ tests/
+ruff format --check mempalace_code/ tests/
 
 # Auto-fix lint
-ruff check --fix mempalace/ tests/
+ruff check --fix mempalace_code/ tests/
 
 # Auto-fix format
-ruff format mempalace/ tests/
+ruff format mempalace_code/ tests/
 ```
 
 Line length: 100. Target: py39. Quote style: double.
@@ -73,7 +73,7 @@ Line length: 100. Target: py39. Quote style: double.
 | `palace_graph.py` | Graph traversal and tunnel detection across wings/rooms |
 | `mcp_server.py` | MCP server — exposes palace tools to Claude Code and other MCP clients |
 | `watcher.py` | File watcher — `watch_and_mine`, `watch_all`, launchd/cron schedule rendering |
-| `cli.py` | `mempalace` CLI entry point — init, mine, mine-all, watch, search, health, repair, backup |
+| `cli.py` | `mempalace-code` CLI entry point — init, mine, mine-all, watch, search, health, repair, backup |
 
 ## Architecture Principles
 

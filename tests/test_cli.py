@@ -14,8 +14,8 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from mempalace.cli import install_legacy_alias, main
-from mempalace.storage import open_store
+from mempalace_code.cli import install_legacy_alias, main
+from mempalace_code.storage import open_store
 
 
 def run_mine_cli(argv):
@@ -82,10 +82,10 @@ class TestInitEntityDetection:
         source_file.write_text("Alice discussed Apollo.", encoding="utf-8")
 
         with (
-            patch("mempalace.entity_detector.scan_for_detection") as mock_scan,
-            patch("mempalace.entity_detector.detect_entities") as mock_detect,
-            patch("mempalace.entity_detector.confirm_entities") as mock_confirm,
-            patch("mempalace.room_detector_local.detect_rooms_local") as mock_rooms,
+            patch("mempalace_code.entity_detector.scan_for_detection") as mock_scan,
+            patch("mempalace_code.entity_detector.detect_entities") as mock_detect,
+            patch("mempalace_code.entity_detector.confirm_entities") as mock_confirm,
+            patch("mempalace_code.room_detector_local.detect_rooms_local") as mock_rooms,
         ):
             run_mine_cli(["mempalace", "init", str(project_dir), "--skip-model-download"])
 
@@ -113,15 +113,15 @@ class TestInitEntityDetection:
 
         with (
             patch(
-                "mempalace.entity_detector.scan_for_detection", return_value=[str(source_file)]
+                "mempalace_code.entity_detector.scan_for_detection", return_value=[str(source_file)]
             ) as mock_scan,
             patch(
-                "mempalace.entity_detector.detect_entities", return_value=detected
+                "mempalace_code.entity_detector.detect_entities", return_value=detected
             ) as mock_detect,
             patch(
-                "mempalace.entity_detector.confirm_entities", return_value=confirmed
+                "mempalace_code.entity_detector.confirm_entities", return_value=confirmed
             ) as mock_confirm,
-            patch("mempalace.room_detector_local.detect_rooms_local"),
+            patch("mempalace_code.room_detector_local.detect_rooms_local"),
         ):
             run_mine_cli(
                 [
@@ -145,9 +145,9 @@ class TestInitEntityDetection:
         project_dir.mkdir()
 
         with (
-            patch("mempalace.entity_detector.scan_for_detection") as mock_scan,
-            patch("mempalace.entity_detector.confirm_entities") as mock_confirm,
-            patch("mempalace.room_detector_local.detect_rooms_local") as mock_rooms,
+            patch("mempalace_code.entity_detector.scan_for_detection") as mock_scan,
+            patch("mempalace_code.entity_detector.confirm_entities") as mock_confirm,
+            patch("mempalace_code.room_detector_local.detect_rooms_local") as mock_rooms,
         ):
             run_mine_cli(["mempalace", "init", str(project_dir), "--yes", "--skip-model-download"])
 
@@ -179,15 +179,15 @@ class TestInitEntityDetection:
 
         with (
             patch(
-                "mempalace.entity_detector.scan_for_detection", return_value=[str(source_file)]
+                "mempalace_code.entity_detector.scan_for_detection", return_value=[str(source_file)]
             ) as mock_scan,
             patch(
-                "mempalace.entity_detector.detect_entities", return_value=detected
+                "mempalace_code.entity_detector.detect_entities", return_value=detected
             ) as mock_detect,
             patch(
-                "mempalace.entity_detector.confirm_entities", return_value=confirmed
+                "mempalace_code.entity_detector.confirm_entities", return_value=confirmed
             ) as mock_confirm,
-            patch("mempalace.room_detector_local.detect_rooms_local"),
+            patch("mempalace_code.room_detector_local.detect_rooms_local"),
         ):
             run_mine_cli(["mempalace", "init", str(project_dir), "--skip-model-download"])
 
@@ -268,7 +268,7 @@ class TestInitNonInteractiveOnboarding:
         project_dir = tmp_path / "myproject"
         project_dir.mkdir()
 
-        with patch("mempalace.onboarding.run_onboarding") as mock_onboarding:
+        with patch("mempalace_code.onboarding.run_onboarding") as mock_onboarding:
             with patch.object(sys, "argv", ["mempalace", "onboarding", str(project_dir)]):
                 main()
 
@@ -279,8 +279,8 @@ class TestInitNonInteractiveOnboarding:
         project_dir = tmp_path / "myproject"
         project_dir.mkdir()
 
-        with patch("mempalace.onboarding.run_onboarding") as mock_onboarding:
-            with patch("mempalace.room_detector_local.detect_rooms_local"):
+        with patch("mempalace_code.onboarding.run_onboarding") as mock_onboarding:
+            with patch("mempalace_code.room_detector_local.detect_rooms_local"):
                 self._run_init(["mempalace", "init", str(project_dir), "--skip-model-download"])
 
         mock_onboarding.assert_not_called()
@@ -307,7 +307,7 @@ class TestInitNonInteractiveOnboarding:
         monkeypatch.setenv("HOME", str(tmp_path))
         missing = tmp_path / "does_not_exist"
 
-        with patch("mempalace.entity_detector.scan_for_detection", side_effect=AssertionError):
+        with patch("mempalace_code.entity_detector.scan_for_detection", side_effect=AssertionError):
             with pytest.raises(SystemExit) as exc:
                 self._run_init(
                     [
@@ -326,25 +326,25 @@ class TestInitNonInteractiveOnboarding:
 
 class TestMineSpellcheckFlags:
     def test_project_mode_defaults_spellcheck_false(self, tmp_path):
-        with patch("mempalace.miner.mine") as mock_mine:
+        with patch("mempalace_code.miner.mine") as mock_mine:
             run_mine_cli(["mempalace", "mine", str(tmp_path)])
 
         assert mock_mine.call_args.kwargs["spellcheck"] is False
 
     def test_convos_mode_defaults_spellcheck_true(self, tmp_path):
-        with patch("mempalace.convo_miner.mine_convos") as mock_mine_convos:
+        with patch("mempalace_code.convo_miner.mine_convos") as mock_mine_convos:
             run_mine_cli(["mempalace", "mine", str(tmp_path), "--mode", "convos"])
 
         assert mock_mine_convos.call_args.kwargs["spellcheck"] is True
 
     def test_spellcheck_flag_overrides_project_default(self, tmp_path):
-        with patch("mempalace.miner.mine") as mock_mine:
+        with patch("mempalace_code.miner.mine") as mock_mine:
             run_mine_cli(["mempalace", "mine", str(tmp_path), "--spellcheck"])
 
         assert mock_mine.call_args.kwargs["spellcheck"] is True
 
     def test_no_spellcheck_flag_overrides_convos_default(self, tmp_path):
-        with patch("mempalace.convo_miner.mine_convos") as mock_mine_convos:
+        with patch("mempalace_code.convo_miner.mine_convos") as mock_mine_convos:
             run_mine_cli(
                 ["mempalace", "mine", str(tmp_path), "--mode", "convos", "--no-spellcheck"]
             )
@@ -358,7 +358,7 @@ class TestMineSpellcheckFlags:
             '{"spellcheck_enabled": false}', encoding="utf-8"
         )
 
-        with patch("mempalace.convo_miner.mine_convos") as mock_mine_convos:
+        with patch("mempalace_code.convo_miner.mine_convos") as mock_mine_convos:
             run_mine_cli(["mempalace", "mine", str(tmp_path), "--mode", "convos"])
 
         assert mock_mine_convos.call_args.kwargs["spellcheck"] is False
@@ -370,7 +370,7 @@ class TestMineSpellcheckFlags:
             '{"spellcheck_enabled": true}', encoding="utf-8"
         )
 
-        with patch("mempalace.convo_miner.mine_convos") as mock_mine_convos:
+        with patch("mempalace_code.convo_miner.mine_convos") as mock_mine_convos:
             run_mine_cli(
                 ["mempalace", "mine", str(tmp_path), "--mode", "convos", "--no-spellcheck"]
             )
@@ -380,7 +380,7 @@ class TestMineSpellcheckFlags:
 
 class TestMineGeneralEmotionalFlag:
     def test_mine_convos_general_defaults_extract_categories(self, tmp_path):
-        with patch("mempalace.convo_miner.mine_convos") as mock_mine_convos:
+        with patch("mempalace_code.convo_miner.mine_convos") as mock_mine_convos:
             run_mine_cli(
                 [
                     "mempalace",
@@ -396,7 +396,7 @@ class TestMineGeneralEmotionalFlag:
         assert mock_mine_convos.call_args.kwargs["extract_categories"] is None
 
     def test_mine_convos_general_include_emotional_dispatches_categories(self, tmp_path):
-        with patch("mempalace.convo_miner.mine_convos") as mock_mine_convos:
+        with patch("mempalace_code.convo_miner.mine_convos") as mock_mine_convos:
             run_mine_cli(
                 [
                     "mempalace",
@@ -604,7 +604,7 @@ class TestDiaryWrite:
 
     def test_diary_write_store_error(self, tmp_path, capsys):
         palace = str(tmp_path / "palace")
-        from mempalace import storage
+        from mempalace_code import storage
 
         with patch.object(
             sys,
@@ -711,7 +711,7 @@ class TestRepairRollbackCommand:
 
     def test_repair_rollback_live_no_candidate_exits_1(self, tmp_path, capsys):
         """F-2 regression: --rollback live mode exits 1 when no candidate version found."""
-        from mempalace.storage import LanceStore
+        from mempalace_code.storage import LanceStore
 
         palace = str(tmp_path / "palace")
         store = open_store(palace, create=True)
@@ -743,7 +743,7 @@ class TestRepairRollbackCommand:
 
     def test_repair_rollback_live_restore_exception_exits_1(self, tmp_path, capsys):
         """F-3 regression: --rollback exits 1 with clean message when restore() raises."""
-        from mempalace.storage import LanceStore
+        from mempalace_code.storage import LanceStore
 
         palace = str(tmp_path / "palace")
         store = open_store(palace, create=True)
@@ -784,7 +784,7 @@ class TestBackupCommand:
 
     def test_backup_list_populated(self, tmp_path, capsys):
         """backup list shows archive name and drawer count."""
-        from mempalace.backup import create_backup
+        from mempalace_code.backup import create_backup
 
         palace = str(tmp_path / "palace")
         store = open_store(palace, create=True)
@@ -805,7 +805,7 @@ class TestBackupCommand:
 
     def test_backup_list_extra_dir(self, tmp_path, capsys):
         """backup list --dir includes archives outside <palace_parent>/backups/."""
-        from mempalace.backup import create_backup
+        from mempalace_code.backup import create_backup
 
         palace = str(tmp_path / "palace")
         store = open_store(palace, create=True)
@@ -933,7 +933,7 @@ class TestMineCommand:
     def test_mine_full_flag(self, tmp_path):
         """AC-1: --full wires incremental=False to mine()."""
         palace = str(tmp_path / "palace")
-        with patch("mempalace.miner.mine") as mock_mine:
+        with patch("mempalace_code.miner.mine") as mock_mine:
             with patch.object(
                 sys,
                 "argv",
@@ -945,7 +945,7 @@ class TestMineCommand:
     def test_mine_default_incremental(self, tmp_path):
         """AC-2: omitting --full wires incremental=True to mine()."""
         palace = str(tmp_path / "palace")
-        with patch("mempalace.miner.mine") as mock_mine:
+        with patch("mempalace_code.miner.mine") as mock_mine:
             with patch.object(
                 sys,
                 "argv",
@@ -999,8 +999,8 @@ class TestMineAllCommand:
         def fake_mine(**kwargs):
             mine_calls.append(kwargs)
 
-        with patch("mempalace.miner.mine", side_effect=fake_mine):
-            with patch("mempalace.storage.open_store") as mock_store:
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {}
                 self._run_mine_all(palace, str(dev))
 
@@ -1017,8 +1017,8 @@ class TestMineAllCommand:
         dev.mkdir()
         _make_initialized_project(dev, "proj_a")
 
-        with patch("mempalace.miner.mine") as mock_mine:
-            with patch("mempalace.storage.open_store") as mock_open_store:
+        with patch("mempalace_code.miner.mine") as mock_mine:
+            with patch("mempalace_code.storage.open_store") as mock_open_store:
                 self._run_mine_all(palace, str(dev), ["--dry-run"])
 
         mock_mine.assert_not_called()
@@ -1040,8 +1040,8 @@ class TestMineAllCommand:
         def fake_mine(**kwargs):
             mine_calls.append(kwargs)
 
-        with patch("mempalace.miner.mine", side_effect=fake_mine):
-            with patch("mempalace.storage.open_store") as mock_store:
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {"existing": 10}
                 self._run_mine_all(palace, str(dev))
 
@@ -1061,8 +1061,8 @@ class TestMineAllCommand:
         def fake_mine(**kwargs):
             mine_calls.append(kwargs)
 
-        with patch("mempalace.miner.mine", side_effect=fake_mine):
-            with patch("mempalace.storage.open_store") as mock_store:
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {"existing": 10}
                 self._run_mine_all(palace, str(dev), ["--force"])
 
@@ -1075,8 +1075,8 @@ class TestMineAllCommand:
         dev = tmp_path / "dev"
         dev.mkdir()
 
-        with patch("mempalace.miner.mine"):
-            with patch("mempalace.storage.open_store"):
+        with patch("mempalace_code.miner.mine"):
+            with patch("mempalace_code.storage.open_store"):
                 self._run_mine_all(palace, str(dev))
 
         out = capsys.readouterr().out
@@ -1097,8 +1097,8 @@ class TestMineAllCommand:
             if kwargs["wing_override"] == "bad":
                 raise RuntimeError("oops")
 
-        with patch("mempalace.miner.mine", side_effect=fake_mine):
-            with patch("mempalace.storage.open_store") as mock_store:
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {}
                 with pytest.raises(SystemExit) as exc_info:
                     self._run_mine_all(palace, str(dev))
@@ -1112,8 +1112,8 @@ class TestMineAllCommand:
         dev.mkdir()
         _make_uninit_project(dev, "uninit")
 
-        with patch("mempalace.miner.mine") as mock_mine:
-            with patch("mempalace.storage.open_store") as mock_store:
+        with patch("mempalace_code.miner.mine") as mock_mine:
+            with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {}
                 self._run_mine_all(palace, str(dev))
 
@@ -1128,8 +1128,8 @@ class TestMineAllCommand:
         dev.mkdir()
         _make_initialized_project(dev, "proj")
 
-        with patch("mempalace.miner.mine"):
-            with patch("mempalace.storage.open_store") as mock_store:
+        with patch("mempalace_code.miner.mine"):
+            with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {}
                 # Should not raise SystemExit
                 self._run_mine_all(palace, str(dev))
@@ -1141,8 +1141,8 @@ class TestMineAllCommand:
         dev.mkdir()
         _make_initialized_project(dev, "boom")
 
-        with patch("mempalace.miner.mine", side_effect=RuntimeError("fail")):
-            with patch("mempalace.storage.open_store") as mock_store:
+        with patch("mempalace_code.miner.mine", side_effect=RuntimeError("fail")):
+            with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {}
                 with pytest.raises(SystemExit) as exc_info:
                     self._run_mine_all(palace, str(dev))
@@ -1155,8 +1155,8 @@ class TestMineAllCommand:
         dev.mkdir()
         _make_initialized_project(dev, "proj")
 
-        with patch("mempalace.miner.mine", side_effect=SystemExit(1)):
-            with patch("mempalace.storage.open_store") as mock_store:
+        with patch("mempalace_code.miner.mine", side_effect=SystemExit(1)):
+            with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {}
                 with pytest.raises(SystemExit) as exc_info:
                     self._run_mine_all(palace, str(dev))
@@ -1177,10 +1177,10 @@ class TestMineAllCommand:
             mine_calls.append(kwargs)
 
         # Force both projects to derive the same wing name
-        with patch("mempalace.miner.mine", side_effect=fake_mine):
-            with patch("mempalace.storage.open_store") as mock_store:
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {}
-                with patch("mempalace.miner.derive_wing_name", return_value="shared_wing"):
+                with patch("mempalace_code.miner.derive_wing_name", return_value="shared_wing"):
                     self._run_mine_all(palace, str(dev))
 
         # Only the first project should be mined; second skipped due to name clash
@@ -1202,7 +1202,7 @@ class TestMigrateStorageCommand:
 
         # Use distinct counts so a src/dst swap in the print statement is detectable.
         with patch(
-            "mempalace.migrate.migrate_chroma_to_lance", return_value=(10, 7)
+            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(10, 7)
         ) as mock_migrate:
             self._run(["mempalace", "migrate-storage", src, dst])
 
@@ -1221,13 +1221,13 @@ class TestMigrateStorageCommand:
 
     def test_migrate_storage_cli_verify_fail(self, tmp_path, capsys):
         """AC-2: VerificationError exits with code 1, stderr includes 'Verification failed:'."""
-        from mempalace.migrate import VerificationError
+        from mempalace_code.migrate import VerificationError
 
         src = str(tmp_path / "src")
         dst = str(tmp_path / "dst")
 
         with patch(
-            "mempalace.migrate.migrate_chroma_to_lance",
+            "mempalace_code.migrate.migrate_chroma_to_lance",
             side_effect=VerificationError("wing count mismatch"),
         ):
             with pytest.raises(SystemExit) as exc:
@@ -1244,7 +1244,7 @@ class TestMigrateStorageCommand:
         backup = str(tmp_path / "backups")
 
         with patch(
-            "mempalace.migrate.migrate_chroma_to_lance", return_value=(5, 5)
+            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(5, 5)
         ) as mock_migrate:
             self._run(["mempalace", "migrate-storage", src, dst, "--backup-dir", backup])
 
@@ -1256,7 +1256,7 @@ class TestMigrateStorageCommand:
         dst = str(tmp_path / "dst")
 
         with patch(
-            "mempalace.migrate.migrate_chroma_to_lance", return_value=(3, 3)
+            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(3, 3)
         ) as mock_migrate:
             self._run(["mempalace", "migrate-storage", src, dst, "--force"])
 

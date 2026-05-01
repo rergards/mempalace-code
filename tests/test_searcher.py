@@ -6,9 +6,9 @@ Tests the library-facing search interface (not the CLI print variant).
 
 import pytest
 
-from mempalace.language_catalog import sorted_searchable_languages
-from mempalace.searcher import code_search, search_memories
-from mempalace.storage import open_store
+from mempalace_code.language_catalog import sorted_searchable_languages
+from mempalace_code.searcher import code_search, search_memories
+from mempalace_code.storage import open_store
 
 
 class TestSearchMemories:
@@ -84,7 +84,7 @@ class TestSearchMemories:
                 "source_file": "/project/src/auth.py",
             }
         )
-        monkeypatch.setattr("mempalace.searcher.open_store", lambda *_args, **_kwargs: store)
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_args, **_kwargs: store)
 
         result = search_memories("authentication", "/fake/palace")
 
@@ -92,7 +92,7 @@ class TestSearchMemories:
 
     def test_search_memories_missing_source_file_fallback(self, monkeypatch):
         store = self.FakeSearchStore({"wing": "project", "room": "backend"})
-        monkeypatch.setattr("mempalace.searcher.open_store", lambda *_args, **_kwargs: store)
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_args, **_kwargs: store)
 
         result = search_memories("authentication", "/fake/palace")
 
@@ -146,7 +146,7 @@ class TestCodeSearch:
         def fail_open_store(*_args, **_kwargs):
             raise AssertionError("invalid language validation should run before storage open")
 
-        monkeypatch.setattr("mempalace.searcher.open_store", fail_open_store)
+        monkeypatch.setattr("mempalace_code.searcher.open_store", fail_open_store)
 
         result = code_search("/unused/palace", "something", language="notareallangnnn")
 
@@ -242,7 +242,7 @@ class TestReactLanguageSupport:
     @pytest.fixture
     def react_palace_path(self, monkeypatch):
         store = self.FakeReactStore()
-        monkeypatch.setattr("mempalace.searcher.open_store", lambda *_args, **_kwargs: store)
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_args, **_kwargs: store)
         return "/fake/react-palace"
 
     def test_code_search_jsx_language(self, react_palace_path):
@@ -284,7 +284,7 @@ class TestDotNetLanguages:
 
     @pytest.fixture
     def dotnet_collection(self, palace_path):
-        from mempalace.storage import open_store
+        from mempalace_code.storage import open_store
 
         store = open_store(palace_path, create=True)
         store.add(

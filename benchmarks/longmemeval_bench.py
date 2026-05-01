@@ -248,7 +248,7 @@ def build_palace_and_retrieve_aaak(entry, granularity="session", n_results=50):
     Query still uses raw question text — tests whether compressed representations
     retain enough semantic signal for retrieval.
     """
-    from mempalace.dialect import Dialect
+    from mempalace_code.dialect import Dialect
 
     dialect = Dialect()
 

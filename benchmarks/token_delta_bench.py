@@ -28,13 +28,13 @@ import tempfile
 import time
 from pathlib import Path
 
-# Add project root to path so we can import mempalace
+# Add project root to path so we can import mempalace_code
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from mempalace.miner import load_config, process_file, scan_project  # noqa: E402
-from mempalace.searcher import search_memories  # noqa: E402
-from mempalace.storage import open_store  # noqa: E402
+from mempalace_code.miner import load_config, process_file, scan_project  # noqa: E402
+from mempalace_code.searcher import search_memories  # noqa: E402
+from mempalace_code.storage import open_store  # noqa: E402
 
 
 # =============================================================================

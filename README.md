@@ -52,9 +52,10 @@ uvx --from mempalace-code mempalace-code --help  # try without installing
 `mempalace-code` is the default command name so this fork can coexist with
 upstream/vanilla `mempalace` on the same machine. If `mempalace` is unused on
 your PATH and you want the shorter alias, run `mempalace-code install-alias`.
-For side-by-side use with vanilla MemPalace, prefer `uv tool install` or `pipx`;
-the Python import package is still `mempalace`, so do not install both projects
-into the same virtualenv.
+Packaged installs use the Python import package `mempalace_code`, so they can
+coexist with vanilla MemPalace in the same Python environment. Source checkouts
+keep a small `mempalace.mcp_server` shim only so older repo-local MCP configs
+that run with `PYTHONPATH=/path/to/mempalace-code` continue to start.
 
 Then ask your AI to read [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) — it will handle setup, MCP wiring, prompt injection, and verification automatically.
 
@@ -65,7 +66,7 @@ Then ask your AI to read [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) — it
 mempalace-code init ~/projects/myapp       # detect rooms, download embedding model (~80 MB)
 mempalace-code init ~/projects/myapp --detect-entities  # optional people/project detection for notes/convos
 mempalace-code mine ~/projects/myapp       # index your codebase
-claude mcp add mempalace-code -- python -m mempalace.mcp_server  # connect to Claude Code
+claude mcp add mempalace-code -- python -m mempalace_code.mcp_server  # connect to Claude Code
 ```
 
 **Optional: auto-sync on commit** (requires `[watch]` extra — see [Auto-Watch](#auto-watch)):
@@ -93,11 +94,11 @@ Read https://github.com/rergards/mempalace-code/blob/main/docs/AGENT_INSTALL.md
 
 mempalace-code works with any [MCP](https://modelcontextprotocol.io/)-compatible client:
 
-- **Claude Code** (CLI, desktop, web) — `claude mcp add mempalace-code -- python -m mempalace.mcp_server`
+- **Claude Code** (CLI, desktop, web) — `claude mcp add mempalace-code -- python -m mempalace_code.mcp_server`
 - **Claude Desktop** — add to `claude_desktop_config.json`
 - **Cursor** — add as MCP server in settings
 - **Windsurf** — add as MCP server in settings
-- **Any MCP client** — point it at `python -m mempalace.mcp_server` (stdio transport)
+- **Any MCP client** — point it at `python -m mempalace_code.mcp_server` (stdio transport)
 
 For local models without MCP support (Llama, Mistral, etc.), use `mempalace-code wake-up` to pipe context into the system prompt — see [Memory Layers](#memory-layers).
 
@@ -263,7 +264,7 @@ mempalace-code organizes memories into a navigable structure — the same mental
 ### MCP Server — 28 Tools
 
 ```bash
-claude mcp add mempalace-code -- python -m mempalace.mcp_server
+claude mcp add mempalace-code -- python -m mempalace_code.mcp_server
 ```
 
 The MCP server registration name defaults to `mempalace-code`. The MCP tool
@@ -638,7 +639,7 @@ Code mining is automatic via `mempalace-code watch`. For conversation context (d
 
 ```
 mempalace/
-├── mempalace/
+├── mempalace_code/
 │   ├── cli.py              ← CLI entry point
 │   ├── mcp_server.py       ← MCP server (28 tools)
 │   ├── storage.py          ← LanceDB vector storage
@@ -648,6 +649,7 @@ mempalace/
 │   ├── knowledge_graph.py  ← temporal entity graph (SQLite)
 │   ├── palace_graph.py     ← room navigation graph
 │   └── layers.py           ← 4-layer memory stack
+├── mempalace/              ← source-only MCP compatibility shim
 ├── benchmarks/             ← reproducible benchmark runners
 ├── hooks/                  ← Claude Code auto-save hooks (legacy, optional)
 ├── examples/               ← usage examples

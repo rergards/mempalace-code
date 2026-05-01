@@ -5,13 +5,13 @@
 Run the MCP server:
 
 ```bash
-python -m mempalace.mcp_server
+python -m mempalace_code.mcp_server
 ```
 
 Or add it to Claude Code:
 
 ```bash
-claude mcp add mempalace-code -- python -m mempalace.mcp_server
+claude mcp add mempalace-code -- python -m mempalace_code.mcp_server
 ```
 
 ## Available Tools

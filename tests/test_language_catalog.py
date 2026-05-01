@@ -1,7 +1,7 @@
 """Contract tests for shared language catalog metadata."""
 
-from mempalace import language_catalog as catalog
-from mempalace import miner
+from mempalace_code import language_catalog as catalog
+from mempalace_code import miner
 
 
 def test_catalog_preserves_current_detection_labels():

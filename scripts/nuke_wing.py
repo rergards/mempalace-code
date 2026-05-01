@@ -3,7 +3,7 @@
 
 import sys
 from pathlib import Path
-from mempalace.storage import open_store
+from mempalace_code.storage import open_store
 
 PALACE = str(Path.home() / ".mempalace" / "palace")
 

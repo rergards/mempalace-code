@@ -9,8 +9,8 @@ This module is only importable when the [chroma] extra is installed::
 Importing this file without chromadb present raises ``ImportError`` immediately
 (top-level ``import chromadb`` ensures a clean failure surface).
 
-Internal module — use ``mempalace.storage.open_store(..., backend="chroma")`` or
-``from mempalace.storage import ChromaStore`` from external code.
+Internal module — use ``mempalace_code.storage.open_store(..., backend="chroma")`` or
+``from mempalace_code.storage import ChromaStore`` from external code.
 """
 
 from __future__ import annotations

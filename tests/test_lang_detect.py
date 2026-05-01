@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from mempalace.miner import detect_language
+from mempalace_code.miner import detect_language
 
 # =============================================================================
 # Extension-based detection

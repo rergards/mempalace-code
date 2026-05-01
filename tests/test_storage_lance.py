@@ -30,7 +30,13 @@ Covers:
 
 import pytest
 
-from mempalace.storage import _META_DEFAULTS, _META_KEYS, LanceStore, _detect_backend, open_store
+from mempalace_code.storage import (
+    _META_DEFAULTS,
+    _META_KEYS,
+    LanceStore,
+    _detect_backend,
+    open_store,
+)
 
 # ─── TestAddGet ───────────────────────────────────────────────────────────────
 

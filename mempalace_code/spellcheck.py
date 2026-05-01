@@ -15,7 +15,7 @@ Corrects:
   - Common fat-finger words (3am → 3am, knoe → know)
 
 Usage:
-    from mempalace.spellcheck import spellcheck_user_text
+    from mempalace_code.spellcheck import spellcheck_user_text
     corrected = spellcheck_user_text("lsresdy knoe the question befor")
     # → "already know the question before"  (best effort)
 """
@@ -115,7 +115,7 @@ def _should_skip(token: str, known_names: set) -> bool:
 def _load_known_names() -> set:
     """Pull all registered names from EntityRegistry. Returns empty set on failure."""
     try:
-        from mempalace.entity_registry import EntityRegistry
+        from mempalace_code.entity_registry import EntityRegistry
 
         reg = EntityRegistry.load()
         names = set()

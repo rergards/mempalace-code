@@ -17,11 +17,11 @@ import pyarrow as pa
 import pytest
 import yaml
 
-from mempalace import export as exp
-from mempalace.convo_miner import mine_convos
-from mempalace.knowledge_graph import KnowledgeGraph
-from mempalace.miner import mine
-from mempalace.storage import open_store
+from mempalace_code import export as exp
+from mempalace_code.convo_miner import mine_convos
+from mempalace_code.knowledge_graph import KnowledgeGraph
+from mempalace_code.miner import mine
+from mempalace_code.storage import open_store
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -61,8 +61,8 @@ _PY_MODULE = (
 
 def _patch_mcp(monkeypatch, palace_path: str, kg, base_tmp: Path):
     """Patch mcp_server globals for an isolated MCP test."""
-    from mempalace import mcp_server
-    from mempalace.config import MempalaceConfig
+    from mempalace_code import mcp_server
+    from mempalace_code.config import MempalaceConfig
 
     cfg_dir = str(base_tmp / "mcp_config")
     os.makedirs(cfg_dir, exist_ok=True)
@@ -216,7 +216,12 @@ def test_mcp_session_lifecycle(tmp_path, monkeypatch):
     kg = KnowledgeGraph(db_path=str(tmp_path / "kg.sqlite3"))
     _patch_mcp(monkeypatch, palace_path, kg, tmp_path)
 
-    from mempalace.mcp_server import tool_add_drawer, tool_delete_drawer, tool_search, tool_status
+    from mempalace_code.mcp_server import (
+        tool_add_drawer,
+        tool_delete_drawer,
+        tool_search,
+        tool_status,
+    )
 
     # Step 1: status on empty (not-yet-created) palace — must not error
     status = tool_status()
@@ -278,7 +283,7 @@ def test_code_search_file_context(tmp_path):
     palace_path = str(tmp_path / "palace")
     mine(str(project_root), palace_path)
 
-    from mempalace.searcher import code_search
+    from mempalace_code.searcher import code_search
 
     result = code_search(palace_path=palace_path, query="authentication user token JWT sessions")
     assert "results" in result, f"code_search returned error: {result}"
@@ -394,7 +399,7 @@ def test_diary_write_read_continuity(tmp_path, monkeypatch):
     kg = KnowledgeGraph(db_path=str(tmp_path / "kg.sqlite3"))
     _patch_mcp(monkeypatch, palace_path, kg, tmp_path)
 
-    from mempalace.mcp_server import tool_diary_read, tool_diary_write
+    from mempalace_code.mcp_server import tool_diary_read, tool_diary_write
 
     topics = ["arch", "debug", "deploy", "review", "retro"]
     agent = "e2e_diary_agent"
@@ -445,8 +450,8 @@ def test_offline_gate(tmp_path, monkeypatch):
         Path(hf_home).mkdir()
     monkeypatch.setenv("HF_HOME", hf_home)
 
-    from mempalace.cli import fetch_model
-    from mempalace.storage import DEFAULT_EMBED_MODEL
+    from mempalace_code.cli import fetch_model
+    from mempalace_code.storage import DEFAULT_EMBED_MODEL
 
     fetch_model(DEFAULT_EMBED_MODEL)
 
@@ -642,7 +647,7 @@ def test_layers_wake_up_recall_search_e2e(tmp_path, monkeypatch):
     identity_path = str(tmp_path / "identity.txt")
     Path(identity_path).write_text(identity_text, encoding="utf-8")
 
-    from mempalace.layers import MemoryStack
+    from mempalace_code.layers import MemoryStack
 
     stack = MemoryStack(palace_path=palace_path, identity_path=identity_path)
 
@@ -738,7 +743,7 @@ def test_palace_graph_tunnels_e2e(tmp_path, monkeypatch):
 
     store = open_store(palace_path, create=False)
 
-    from mempalace.palace_graph import find_tunnels, graph_stats, traverse
+    from mempalace_code.palace_graph import find_tunnels, graph_stats, traverse
 
     # find_tunnels returns "architecture" as a shared room with both wings
     tunnels = find_tunnels(col=store)

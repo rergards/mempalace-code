@@ -2,7 +2,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from mempalace.entity_detector import detect_entities, scan_for_detection
+from mempalace_code.entity_detector import detect_entities, scan_for_detection
 
 
 def write_file(path: Path, content: str):

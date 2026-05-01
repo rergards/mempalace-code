@@ -4,8 +4,8 @@ import sys as _sys
 
 import pytest
 
-from mempalace import treesitter as ts_mod
-from mempalace.miner import (
+from mempalace_code import treesitter as ts_mod
+from mempalace_code.miner import (
     HARD_MAX,
     MIN_CHUNK,
     TARGET_MAX,
@@ -275,7 +275,7 @@ def test_tsx_extension_handled():
 
 def test_ts_var_toplevel_boundary(monkeypatch):
     """Top-level non-exported var declarations must create chunk boundaries (AC-1, AC-2)."""
-    from mempalace.miner import TS_BOUNDARY
+    from mempalace_code.miner import TS_BOUNDARY
 
     # AC-2: TS_BOUNDARY regex matches a plain var declaration at column 0
     assert TS_BOUNDARY.match("var foo = 'bar'"), "TS_BOUNDARY must match top-level var"
@@ -399,7 +399,7 @@ def test_go_var_block_boundary(monkeypatch):
     1. GO_BOUNDARY regex matches 'var (' (the pattern was not accidentally removed).
     2. Both constructs are preserved in the chunked output.
     """
-    from mempalace.miner import GO_BOUNDARY
+    from mempalace_code.miner import GO_BOUNDARY
 
     # Verify the regex still recognises grouped var blocks (AC-3 core).
     assert GO_BOUNDARY.match("var ("), "GO_BOUNDARY no longer matches 'var ('"
@@ -630,7 +630,7 @@ def test_dispatcher_routes_sh_to_adaptive():
         "# This script sets up the development environment for local testing.\n\n"
         "echo 'Setting up environment — installing dependencies and running checks'\n\n"
         "pip install -e '.[dev]'\n"
-        "ruff check mempalace/ tests/\n"
+        "ruff check mempalace_code/ tests/\n"
         "pytest tests/ -x -q\n"
     )
     chunks = chunk_file(sh, ".sh", "run.sh")
@@ -2090,7 +2090,7 @@ def test_csharp_chunk_expression_bodied_property_xmldoc_attached():
 
 def test_csharp_chunk_file_routing():
     """chunk_file() routes .cs files through chunk_code() (not adaptive fallback)."""
-    from mempalace.miner import chunk_file
+    from mempalace_code.miner import chunk_file
 
     code = _cs_class_with_methods("Router", ["Alpha", "Beta"])
     chunks = chunk_file(code, ".cs", "Router.cs", language="csharp")
@@ -2178,7 +2178,7 @@ def test_fsharp_du_boundary():
 
 def test_fsharp_chunk_file_routing():
     """chunk_file() routes .fs files through chunk_code() (not adaptive fallback)."""
-    from mempalace.miner import chunk_file
+    from mempalace_code.miner import chunk_file
 
     chunks = chunk_file(FSHARP_TWO_FUNCTIONS, ".fs", "Calculator.fs", language="fsharp")
     combined = "\n".join(c["content"] for c in chunks)
@@ -2239,7 +2239,7 @@ def test_vbnet_module_boundary():
 
 def test_vbnet_chunk_file_routing():
     """chunk_file() routes .vb files through chunk_code() (not adaptive fallback)."""
-    from mempalace.miner import chunk_file
+    from mempalace_code.miner import chunk_file
 
     chunks = chunk_file(VBNET_MODULE, ".vb", "Utils.vb", language="vbnet")
     combined = "\n".join(c["content"] for c in chunks)
@@ -2300,7 +2300,7 @@ def test_php_chunk_class_boundary():
 
 def test_php_chunk_file_routing():
     """chunk_file() routes .php files through chunk_code() (not adaptive fallback)."""
-    from mempalace.miner import chunk_file
+    from mempalace_code.miner import chunk_file
 
     code = (
         "<?php\n\n"

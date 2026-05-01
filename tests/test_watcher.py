@@ -21,9 +21,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from mempalace.cli import main
-from mempalace.miner import ScanFilterRules
-from mempalace.watcher import (
+from mempalace_code.cli import main
+from mempalace_code.miner import ScanFilterRules
+from mempalace_code.watcher import (
     _invalidate_gitignore_cache,
     _is_relevant_change,
     watch_and_mine,
@@ -126,14 +126,14 @@ class TestIsRelevantChange:
 
     def test_is_relevant_change_known_filenames(self, proj):
         """Files in KNOWN_FILENAMES are accepted even without a recognised extension."""
-        from mempalace.miner import KNOWN_FILENAMES
+        from mempalace_code.miner import KNOWN_FILENAMES
 
         for name in ("Dockerfile", "Makefile", "Justfile"):
             if name in KNOWN_FILENAMES:
                 assert _is_relevant_change(str(proj / name), proj), f"{name} should be accepted"
 
     def test_watcher_miner_filter_imports_remain_available(self):
-        from mempalace import watcher
+        from mempalace_code import watcher
 
         assert ".py" in watcher.READABLE_EXTENSIONS
         assert ".yaml" in watcher.READABLE_EXTENSIONS
@@ -392,7 +392,7 @@ class TestWatchAndMine:
             mine_calls.append(kwargs)
 
         with (
-            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
         ):
             watch_and_mine(str(project), str(tmp_path / "palace"))
@@ -417,7 +417,7 @@ class TestWatchAndMine:
             mine_calls.append(kwargs)
 
         with (
-            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
         ):
             watch_and_mine(str(project), str(tmp_path / "palace"))
@@ -440,7 +440,7 @@ class TestWatchAndMine:
             mine_calls.append(kwargs)
 
         with (
-            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
         ):
             watch_and_mine(str(project), str(tmp_path / "palace"))
@@ -464,7 +464,7 @@ class TestWatchAndMine:
             mine_calls.append(kwargs)
 
         with (
-            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
         ):
             watch_and_mine(str(project), str(tmp_path / "palace"), kg=fake_kg)
@@ -479,7 +479,10 @@ class TestWatchAndMine:
         def fake_watch(*args, **kwargs):
             raise KeyboardInterrupt
 
-        with patch("mempalace.watcher.mine"), patch("watchfiles.watch", side_effect=fake_watch):
+        with (
+            patch("mempalace_code.watcher.mine"),
+            patch("watchfiles.watch", side_effect=fake_watch),
+        ):
             watch_and_mine(str(project), str(tmp_path / "palace"))
 
     def test_watch_nonexistent_dir_exits_1(self, tmp_path, capsys):
@@ -498,7 +501,7 @@ class TestWatchAndMine:
             mine_calls.append(kwargs)
 
         with (
-            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
         ):
             watch_and_mine(
@@ -541,7 +544,7 @@ class TestWatchAndMine:
             mine_calls.append(kwargs)
 
         with (
-            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=fake_watch),
         ):
             watch_and_mine(str(project), str(tmp_path / "palace"))
@@ -568,8 +571,8 @@ class TestSigterm:
         script = "\n".join(
             [
                 "from unittest.mock import patch",
-                "from mempalace.watcher import watch_and_mine",
-                "with patch('mempalace.watcher.mine'):",
+                "from mempalace_code.watcher import watch_and_mine",
+                "with patch('mempalace_code.watcher.mine'):",
                 f"    watch_and_mine({str(project)!r}, {str(palace)!r})",
             ]
         )
@@ -615,7 +618,7 @@ class TestImportError:
 
 class TestCliWatchDispatch:
     def test_cli_watch_dispatches_to_watcher_module(self, tmp_path):
-        """cmd_mine imports and calls watch_and_mine() from mempalace.watcher."""
+        """cmd_mine imports and calls watch_and_mine() from mempalace_code.watcher."""
         project = tmp_path / "proj"
         _make_project(project)
         palace = tmp_path / "palace"
@@ -626,7 +629,7 @@ class TestCliWatchDispatch:
             watch_calls.append(kw)
 
         # Patch watch_and_mine at the module level before cmd_mine imports it
-        with patch("mempalace.watcher.watch_and_mine", side_effect=fake_watch):
+        with patch("mempalace_code.watcher.watch_and_mine", side_effect=fake_watch):
             argv = [
                 "mempalace",
                 "--palace",
@@ -654,7 +657,7 @@ class TestWatchAll:
         """watch_all on_commit=False reloads scan rules mid-watch; skipped file is not re-mined."""
         from watchfiles import Change
 
-        from mempalace.watcher import watch_all
+        from mempalace_code.watcher import watch_all
 
         project = tmp_path / "proj"
         project.mkdir()
@@ -684,12 +687,12 @@ class TestWatchAll:
         fake_projects = [{"path": str(project), "initialized": True}]
 
         with (
-            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=fake_watch),
-            patch("mempalace.miner.detect_projects", return_value=fake_projects),
-            patch("mempalace.miner.derive_wing_name", return_value="test_wing"),
-            patch("mempalace.knowledge_graph.KnowledgeGraph"),
-            patch("mempalace.storage.open_store"),
+            patch("mempalace_code.miner.detect_projects", return_value=fake_projects),
+            patch("mempalace_code.miner.derive_wing_name", return_value="test_wing"),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
         ):
             watch_all(str(tmp_path), str(tmp_path / "palace"), on_commit=False)
 
@@ -733,7 +736,7 @@ class TestWatchScanRuleReload:
             mine_calls.append(kwargs)
 
         with (
-            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=fake_watch),
         ):
             # Must not raise despite malformed config
@@ -769,7 +772,7 @@ class TestWatchScanRuleReload:
             mine_calls.append(kwargs)
 
         with (
-            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=fake_watch),
         ):
             watch_and_mine(str(project), str(tmp_path / "palace"))
@@ -781,7 +784,7 @@ class TestWatchScanRuleReload:
         """A batch with multiple changed files triggers exactly one config freshness check."""
         from watchfiles import Change
 
-        import mempalace.watcher as watcher_module
+        import mempalace_code.watcher as watcher_module
 
         project = tmp_path / "proj"
         project.mkdir()
@@ -806,7 +809,7 @@ class TestWatchScanRuleReload:
 
         with (
             patch.object(watcher_module._ScanRulesSnapshot, "refresh", tracking_refresh),
-            patch("mempalace.watcher.mine", return_value=None),
+            patch("mempalace_code.watcher.mine", return_value=None),
             patch("watchfiles.watch", side_effect=_fake_watch_factory([batch])),
         ):
             watch_and_mine(str(project), str(tmp_path / "palace"))
@@ -816,7 +819,7 @@ class TestWatchScanRuleReload:
 
     def test_snapshot_recovers_after_malformed_then_fixed_config(self, tmp_path, monkeypatch):
         """Bad config sets _bad_mtime; subsequent good write with new mtime reloads rules."""
-        import mempalace.watcher as watcher_module
+        import mempalace_code.watcher as watcher_module
 
         fake_home = tmp_path / "home"
         fake_home.mkdir()

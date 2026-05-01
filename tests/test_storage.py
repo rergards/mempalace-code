@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mempalace.storage import (
+from mempalace_code.storage import (
     _META_DEFAULTS,
     _META_FIELD_SPEC,
     _META_KEYS,
@@ -1091,7 +1091,7 @@ class TestSafeOptimize:
         )
 
         with patch(
-            "mempalace.backup.create_backup", side_effect=OSError("disk full")
+            "mempalace_code.backup.create_backup", side_effect=OSError("disk full")
         ) as mock_backup:
             with patch.object(store._table, "optimize") as mock_optimize:
                 result = store.safe_optimize(palace_path, backup_first=True)
@@ -1113,7 +1113,7 @@ class TestSafeOptimize:
             datetime(2026, 1, 1, 12, 0, 2),
         ]
 
-        with patch("mempalace.storage.datetime", fake_datetime):
+        with patch("mempalace_code.storage.datetime", fake_datetime):
             results = [store.safe_optimize(palace_path, backup_first=True) for _ in range(3)]
 
         assert results == [True, True, True]
@@ -1134,7 +1134,7 @@ class TestSafeOptimize:
             datetime(2026, 1, 1, 12, 1, 1),
         ]
 
-        with patch("mempalace.storage.datetime", fake_datetime):
+        with patch("mempalace_code.storage.datetime", fake_datetime):
             first = store.safe_optimize(palace_path, backup_first=True)
             second = store.safe_optimize(palace_path, backup_first=True)
 
@@ -1164,7 +1164,7 @@ class TestSafeOptimize:
         fake_datetime = MagicMock()
         fake_datetime.now.return_value = datetime(2026, 1, 1, 12, 2, 0)
 
-        with patch("mempalace.storage.datetime", fake_datetime):
+        with patch("mempalace_code.storage.datetime", fake_datetime):
             result = store.safe_optimize(palace_path, backup_first=True)
 
         assert result is True
@@ -1194,7 +1194,7 @@ class TestSafeOptimize:
         fake_datetime = MagicMock()
         fake_datetime.now.return_value = datetime(2026, 1, 1, 12, 3, 0)
 
-        with patch("mempalace.storage.datetime", fake_datetime):
+        with patch("mempalace_code.storage.datetime", fake_datetime):
             with patch("pathlib.Path.unlink", side_effect=OSError("permission denied")):
                 with caplog.at_level(logging.WARNING, logger="mempalace"):
                     result = store.safe_optimize(palace_path, backup_first=True)
@@ -1212,7 +1212,7 @@ class TestSafeOptimize:
             metadatas=[{"wing": "w", "room": "r"}],
         )
 
-        with patch("mempalace.backup.create_backup", side_effect=OSError("no space")):
+        with patch("mempalace_code.backup.create_backup", side_effect=OSError("no space")):
             with caplog.at_level(logging.ERROR, logger="mempalace"):
                 store.safe_optimize(palace_path, backup_first=True)
 
@@ -1413,7 +1413,7 @@ class TestLanceHealth:
 
     def test_health_check_healthy_palace_returns_ok(self, palace_path):
         """AC-1: health_check() on a healthy palace returns ok=True, no errors."""
-        from mempalace.storage import LanceStore
+        from mempalace_code.storage import LanceStore
 
         store = open_store(palace_path, create=True)
         assert isinstance(store, LanceStore)
@@ -1436,7 +1436,7 @@ class TestLanceHealth:
 
     def test_health_check_corrupt_store_returns_ok_false(self, palace_path):
         """AC-2: health_check() on a store with a missing fragment returns ok=False."""
-        from mempalace.storage import LanceStore
+        from mempalace_code.storage import LanceStore
 
         store = open_store(palace_path, create=True)
         assert isinstance(store, LanceStore)
@@ -1472,7 +1472,7 @@ class TestLanceHealth:
         self, palace_path, monkeypatch
     ):
         """F-1 regression: list_versions() failure must NOT cause ok=False (false-positive degraded)."""
-        from mempalace.storage import LanceStore
+        from mempalace_code.storage import LanceStore
 
         store = open_store(palace_path, create=True)
         assert isinstance(store, LanceStore)
@@ -1496,7 +1496,7 @@ class TestLanceHealth:
 
     def test_recover_dry_run_reports_candidate_and_does_not_mutate(self, palace_path):
         """AC-3: recover_to_last_working_version(dry_run=True) reports candidate, leaves store unchanged."""
-        from mempalace.storage import LanceStore
+        from mempalace_code.storage import LanceStore
 
         store = open_store(palace_path, create=True)
         assert isinstance(store, LanceStore)
@@ -1561,7 +1561,7 @@ class TestLanceHealth:
 
     def test_recover_live_restores_readable_version(self, palace_path):
         """AC-4: recover_to_last_working_version(dry_run=False) restores a healthy version."""
-        from mempalace.storage import LanceStore
+        from mempalace_code.storage import LanceStore
 
         store = open_store(palace_path, create=True)
         assert isinstance(store, LanceStore)

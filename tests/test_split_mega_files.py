@@ -1,6 +1,6 @@
 import json
 
-from mempalace import split_mega_files as smf
+from mempalace_code import split_mega_files as smf
 
 
 def test_load_known_people_falls_back_when_config_missing(monkeypatch, tmp_path):

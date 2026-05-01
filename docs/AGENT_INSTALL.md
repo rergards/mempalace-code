@@ -47,14 +47,14 @@ Exit code 0 = binary found; non-zero = not installed.
 ```bash
 MPALACE_VER=$(
   "$(pipx environment --value PIPX_LOCAL_VENVS 2>/dev/null)/mempalace-code/bin/python" \
-    -c "import mempalace; print(mempalace.__version__)" 2>/dev/null \
-  || python3 -c "import mempalace; print(mempalace.__version__)" 2>/dev/null
+    -c "import mempalace_code; print(mempalace_code.__version__)" 2>/dev/null \
+  || python3 -c "import mempalace_code; print(mempalace_code.__version__)" 2>/dev/null
 )
 echo "$MPALACE_VER"
 ```
 If this prints a version string, record `MEMPALACE_VERSION=$MPALACE_VER` and set `ALREADY_INSTALLED=true`. Skip Section 3 (Install). Continue to Step 1.3.
 
-**Note:** For pipx installs, system `python3` cannot import mempalace — only the pipx venv Python can. The two-command fallback above handles both cases.
+**Note:** For pipx installs, system `python3` cannot import mempalace_code — only the pipx venv Python can. The two-command fallback above handles both cases.
 The `mempalace` command name may belong to upstream/vanilla MemPalace; do not use it
 to detect this fork unless it was explicitly created by `mempalace-code install-alias`.
 
@@ -175,9 +175,9 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 **Skip this section if `ALREADY_INSTALLED=true`.**
 
 For side-by-side use with upstream/vanilla MemPalace, prefer an isolated user-level
-install (`uv tool install` or `pipx`). The console command is `mempalace-code`, but
-the Python import package remains `mempalace`, so do not install both projects into
-the same virtualenv.
+install (`uv tool install` or `pipx`). Packaged installs use the console command
+`mempalace-code` and the Python import package `mempalace_code`, so they can
+share a Python environment with upstream/vanilla `mempalace`.
 
 ---
 
@@ -262,14 +262,14 @@ Exit code 0 = success. Set `PYTHON=~/.mempalace/venv/bin/python`. Continue to St
 ### Step 3.4: Post-install verification
 
 ```bash
-python3 -c "import mempalace; print(mempalace.__version__)"
+python3 -c "import mempalace_code; print(mempalace_code.__version__)"
 ```
 
 **Pass →** Prints a version string (e.g. `3.0.0`). Record `MEMPALACE_VERSION`. Continue to Section 4.
 
 **Fail →** Import error. Likely cause: shell PATH not updated after pipx install. Try:
 ```bash
-hash -r && python3 -c "import mempalace; print(mempalace.__version__)"
+hash -r && python3 -c "import mempalace_code; print(mempalace_code.__version__)"
 ```
 If still failing, **ASK HUMAN:** "mempalace-code was installed but cannot be imported. This usually means the pipx venv Python is not on PATH, or install was into a different environment. Reply `retry` after sourcing your shell profile (`. ~/.bashrc` or `. ~/.zshrc`) or `abort`."
 
@@ -404,7 +404,7 @@ Wire the mempalace-code MCP server so your AI assistant can call it during conve
 Use `mempalace-code` as the MCP server registration name. The exposed MCP tool
 identifiers stay `mempalace_*` for compatibility with existing agents and usage rules.
 
-**Important:** The MCP server is `python -m mempalace.mcp_server`, not a CLI subcommand. The Python interpreter used must be the one that has `mempalace` importable:
+**Important:** The MCP server is `python -m mempalace_code.mcp_server`, not a CLI subcommand. The Python interpreter used must be the one that has `mempalace_code` importable:
 - **pipx install:** `$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace-code/bin/python`
 - **uv / pip-in-venv:** the venv Python (e.g. `~/.mempalace/venv/bin/python` or `.venv/bin/python`)
 - **pip --user install:** `python3` if the package is on PATH
@@ -412,16 +412,21 @@ identifiers stay `mempalace_*` for compatibility with existing agents and usage 
 Resolve the Python path before Step 5.1:
 ```bash
 MPALACE_PYTHON=$(python3 -c "import sys; print(sys.executable)")
-# Verify mempalace is importable from this Python:
-"$MPALACE_PYTHON" -c "import mempalace; print('ok')"
+# Verify mempalace-code is importable from this Python:
+"$MPALACE_PYTHON" -c "import mempalace_code; print('ok')"
 ```
 
 **Pass →** Output is `ok`. Use `$MPALACE_PYTHON` in all MCP wiring below.
 
+**Compatibility note:** source checkouts also provide `python -m mempalace.mcp_server`
+when the checkout is on `PYTHONPATH`, so older repo-local Codex/Autopilot MCP
+configs keep working. New installs and docs should use
+`python -m mempalace_code.mcp_server`.
+
 **Fail →** Find the pipx venv Python:
 ```bash
 MPALACE_PYTHON=$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace-code/bin/python
-"$MPALACE_PYTHON" -c "import mempalace; print('ok')"
+"$MPALACE_PYTHON" -c "import mempalace_code; print('ok')"
 ```
 
 ---
@@ -441,7 +446,7 @@ claude mcp list 2>/dev/null | grep -i mempalace-code
 
 Preferred (CLI):
 ```bash
-claude mcp add --scope user mempalace-code -- "$MPALACE_PYTHON" -m mempalace.mcp_server
+claude mcp add --scope user mempalace-code -- "$MPALACE_PYTHON" -m mempalace_code.mcp_server
 ```
 
 Exit code 0 = success. This writes to `~/.mcp.json` under the `mcpServers` key.
@@ -453,7 +458,7 @@ Exit code 0 = success. This writes to `~/.mcp.json` under the `mcpServers` key.
     "mempalace-code": {
       "type": "stdio",
       "command": "<MPALACE_PYTHON>",
-      "args": ["-m", "mempalace.mcp_server"]
+      "args": ["-m", "mempalace_code.mcp_server"]
     }
   }
 }
@@ -464,7 +469,7 @@ If `~/.mcp.json` already exists with other entries, merge only the `"mempalace-c
 
 Preferred (CLI):
 ```bash
-claude mcp add --scope project mempalace-code -- "$MPALACE_PYTHON" -m mempalace.mcp_server
+claude mcp add --scope project mempalace-code -- "$MPALACE_PYTHON" -m mempalace_code.mcp_server
 ```
 
 **Fail (CLI not available) →** Manual fallback — create or update `.mcp.json` in the current working directory:
@@ -473,7 +478,7 @@ claude mcp add --scope project mempalace-code -- "$MPALACE_PYTHON" -m mempalace.
   "mcpServers": {
     "mempalace-code": {
       "command": "<MPALACE_PYTHON>",
-      "args": ["-m", "mempalace.mcp_server"]
+      "args": ["-m", "mempalace_code.mcp_server"]
     }
   }
 }
@@ -504,7 +509,7 @@ codex mcp --help 2>/dev/null && echo "has_mcp" || echo "no_mcp"
 
 If `has_mcp`:
 ```bash
-codex mcp add mempalace-code -- "$MPALACE_PYTHON" -m mempalace.mcp_server
+codex mcp add mempalace-code -- "$MPALACE_PYTHON" -m mempalace_code.mcp_server
 ```
 
 Exit code 0 = success. Set `CODEX_WIRED=true`.
@@ -520,7 +525,7 @@ Edit `~/.codex/config.toml`. Resolve `MPALACE_PYTHON` first (see Step 5 preamble
 ```toml
 [mcp_servers.mempalace-code]
 command = "<MPALACE_PYTHON>"
-args = ["-m", "mempalace.mcp_server"]
+args = ["-m", "mempalace_code.mcp_server"]
 ```
 
 If `~/.codex/config.toml` does not exist, create the directory first:
@@ -617,7 +622,7 @@ Based on `MCP_SCOPE`:
 - `global` → Target: `~/.claude/CLAUDE.md` (or create if absent)
 - `project` → Target: `CLAUDE.md` in the current working directory
 
-If the target file already contains `mempalace` (case-insensitive), **ASK HUMAN:** "Your CLAUDE.md already mentions mempalace. Should I append the usage rules anyway? Reply `yes` or `skip`."
+If the target file already contains `mempalace` (case-insensitive), **ASK HUMAN:** "Your CLAUDE.md already mentions mempalace-code. Should I append the usage rules anyway? Reply `yes` or `skip`."
 
 ---
 
@@ -742,7 +747,7 @@ A successful install produces:
 
 | Item | Expected state |
 |------|---------------|
-| `python3 -c "import mempalace; print(mempalace.__version__)"` | Prints version string |
+| `python3 -c "import mempalace_code; print(mempalace_code.__version__)"` | Prints version string |
 | `command -v mempalace-code` | Returns path to binary |
 | `mempalace-code status` | Exit 0, shows palace path |
 | `mempalace-code search "test" --results 1` | Exit 0, formatted output |
@@ -755,7 +760,7 @@ A successful install produces:
 
 | Topic | Source |
 |-------|--------|
-| Palace path config | `mempalace/config.py:93–98` — env → config.json → default |
+| Palace path config | `mempalace_code/config.py:93–98` — env → config.json → default |
 | All CLI flags | `mempalace-code --help` / `mempalace-code <cmd> --help` |
 | MCP tool list (28 tools) | `README.md` → MCP Server section |
 | Auto-save hooks | `hooks/README.md` |

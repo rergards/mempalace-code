@@ -1,4 +1,4 @@
-# mempalace/ — Core Package
+# mempalace_code/ — Core Package
 
 The Python package that powers mempalace-code. All modules, all logic.
 

@@ -32,8 +32,8 @@ def test_search_works_offline_after_fetch(tmp_path, monkeypatch):
     monkeypatch.setenv("HF_HOME", hf_home)
 
     # Step 1 — download the model (network allowed here)
-    from mempalace.cli import fetch_model
-    from mempalace.storage import DEFAULT_EMBED_MODEL
+    from mempalace_code.cli import fetch_model
+    from mempalace_code.storage import DEFAULT_EMBED_MODEL
 
     fetch_model(DEFAULT_EMBED_MODEL)
 
@@ -42,7 +42,7 @@ def test_search_works_offline_after_fetch(tmp_path, monkeypatch):
     monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
 
     # Step 3 — open a store and query; must not touch the network
-    from mempalace.storage import LanceStore
+    from mempalace_code.storage import LanceStore
 
     palace_path = str(tmp_path / "palace")
     store = LanceStore(palace_path=palace_path, create=True)

@@ -2,172 +2,172 @@
   {
     "id": "func_detect_language",
     "query": "detect programming language from file extension filename shebang and Kubernetes yaml",
-    "expected_files": ["mempalace/miner.py"],
+    "expected_files": ["mempalace_code/miner.py"],
     "category": "function_lookup",
     "expected_symbols": ["detect_language"]
   },
   {
     "id": "func_scan_project",
     "query": "scan project readable files respecting gitignore skip directories and include ignored paths",
-    "expected_files": ["mempalace/miner.py"],
+    "expected_files": ["mempalace_code/miner.py"],
     "category": "function_lookup",
     "expected_symbols": ["scan_project"]
   },
   {
     "id": "func_process_file",
     "query": "read chunk route and file one source file into drawer storage",
-    "expected_files": ["mempalace/miner.py"],
+    "expected_files": ["mempalace_code/miner.py"],
     "category": "function_lookup",
     "expected_symbols": ["process_file"]
   },
   {
     "id": "func_open_store",
     "query": "open storage backend auto detect lance chroma create drawer store",
-    "expected_files": ["mempalace/storage.py"],
+    "expected_files": ["mempalace_code/storage.py"],
     "category": "function_lookup",
     "expected_symbols": ["open_store"]
   },
   {
     "id": "func_search",
     "query": "semantic search palace drawers by query text wing and room filters",
-    "expected_files": ["mempalace/searcher.py"],
+    "expected_files": ["mempalace_code/searcher.py"],
     "category": "function_lookup"
   },
   {
     "id": "func_add_drawers_batch",
     "query": "batch upsert drawer specs with ids documents and metadata",
-    "expected_files": ["mempalace/miner.py"],
+    "expected_files": ["mempalace_code/miner.py"],
     "category": "function_lookup",
     "expected_symbols": ["add_drawers_batch"]
   },
   {
     "id": "symbol_drawer_store",
     "query": "DrawerStore abstract interface add upsert get query delete count_by",
-    "expected_files": ["mempalace/storage.py"],
+    "expected_files": ["mempalace_code/storage.py"],
     "category": "symbol_lookup",
     "expected_symbols": ["DrawerStore"]
   },
   {
     "id": "symbol_lance_store",
     "query": "LanceStore crash safe vector database backend implementation",
-    "expected_files": ["mempalace/storage.py"],
+    "expected_files": ["mempalace_code/storage.py"],
     "category": "symbol_lookup",
     "expected_symbols": ["LanceStore"]
   },
   {
     "id": "symbol_gitignore_matcher",
     "query": "GitignoreMatcher pattern matching negation directory slash rules",
-    "expected_files": ["mempalace/miner.py"],
+    "expected_files": ["mempalace_code/miner.py"],
     "category": "symbol_lookup",
     "expected_symbols": ["GitignoreMatcher"]
   },
   {
     "id": "symbol_config",
     "query": "MempalaceConfig loads yaml validates wing rooms palace path",
-    "expected_files": ["mempalace/config.py"],
+    "expected_files": ["mempalace_code/config.py"],
     "category": "symbol_lookup",
     "expected_symbols": ["MempalaceConfig"]
   },
   {
     "id": "symbol_kg",
     "query": "KnowledgeGraph temporal triples valid_from valid_to relationship storage",
-    "expected_files": ["mempalace/knowledge_graph.py"],
+    "expected_files": ["mempalace_code/knowledge_graph.py"],
     "category": "symbol_lookup"
   },
   {
     "id": "module_miner",
     "query": "module that walks source files extracts chunks detects rooms and stores verbatim drawers",
-    "expected_files": ["mempalace/miner.py"],
+    "expected_files": ["mempalace_code/miner.py"],
     "category": "module_overview"
   },
   {
     "id": "module_storage",
     "query": "module that abstracts LanceDB and ChromaDB drawer vector storage",
-    "expected_files": ["mempalace/storage.py"],
+    "expected_files": ["mempalace_code/storage.py"],
     "category": "module_overview"
   },
   {
     "id": "module_cli",
     "query": "command line interface init mine search health repair backup watch",
-    "expected_files": ["mempalace/cli.py"],
+    "expected_files": ["mempalace_code/cli.py"],
     "category": "module_overview"
   },
   {
     "id": "module_mcp_server",
     "query": "MCP server exposing palace tools add drawer search kg query code search",
-    "expected_files": ["mempalace/mcp_server.py"],
+    "expected_files": ["mempalace_code/mcp_server.py"],
     "category": "module_overview"
   },
   {
     "id": "module_layers",
     "query": "tiered context loading wake up layers L0 L1 L2 L3",
-    "expected_files": ["mempalace/layers.py"],
+    "expected_files": ["mempalace_code/layers.py"],
     "category": "module_overview"
   },
   {
     "id": "workflow_mine",
     "query": "mine command loads config scans project opens store processes files and reports drawers",
-    "expected_files": ["mempalace/miner.py", "mempalace/cli.py"],
+    "expected_files": ["mempalace_code/miner.py", "mempalace_code/cli.py"],
     "category": "feature_workflow"
   },
   {
     "id": "workflow_mcp_code_search",
     "query": "MCP code optimized search returns symbols file path language and source metadata",
-    "expected_files": ["mempalace/mcp_server.py"],
+    "expected_files": ["mempalace_code/mcp_server.py"],
     "category": "feature_workflow"
   },
   {
     "id": "workflow_backup_restore",
     "query": "tarball backup restore scheduled backups prune retention palace archive",
-    "expected_files": ["mempalace/backup.py"],
+    "expected_files": ["mempalace_code/backup.py"],
     "category": "feature_workflow"
   },
   {
     "id": "workflow_watch",
     "query": "watch project for file changes remine changed source files launchd cron schedule",
-    "expected_files": ["mempalace/watcher.py"],
+    "expected_files": ["mempalace_code/watcher.py"],
     "category": "feature_workflow"
   },
   {
     "id": "workflow_convo_mining",
     "query": "ingest Claude ChatGPT Slack conversation exports into memory drawers",
-    "expected_files": ["mempalace/convo_miner.py"],
+    "expected_files": ["mempalace_code/convo_miner.py"],
     "category": "feature_workflow"
   },
   {
     "id": "cross_incremental_hash",
     "query": "incremental mining compares source_hash deletes stale drawers by source file",
-    "expected_files": ["mempalace/miner.py", "mempalace/storage.py"],
+    "expected_files": ["mempalace_code/miner.py", "mempalace_code/storage.py"],
     "category": "cross_file"
   },
   {
     "id": "cross_chunk_metadata",
     "query": "chunk metadata language symbol name symbol type extractor version chunker strategy",
-    "expected_files": ["mempalace/miner.py", "mempalace/storage.py"],
+    "expected_files": ["mempalace_code/miner.py", "mempalace_code/storage.py"],
     "category": "cross_file"
   },
   {
     "id": "cross_project_graph",
     "query": "dotnet solution project graph references packages targets framework output type",
-    "expected_files": ["mempalace/miner.py", "mempalace/knowledge_graph.py"],
+    "expected_files": ["mempalace_code/miner.py", "mempalace_code/knowledge_graph.py"],
     "category": "cross_file"
   },
   {
     "id": "cross_treesitter",
     "query": "tree sitter parser AST chunking Python TypeScript Go Rust fallback adaptive",
-    "expected_files": ["mempalace/treesitter.py", "mempalace/miner.py"],
+    "expected_files": ["mempalace_code/treesitter.py", "mempalace_code/miner.py"],
     "category": "cross_file"
   },
   {
     "id": "cross_export",
     "query": "export palace drawers to json markdown with metadata filters",
-    "expected_files": ["mempalace/export.py", "mempalace/cli.py"],
+    "expected_files": ["mempalace_code/export.py", "mempalace_code/cli.py"],
     "category": "cross_file"
   },
   {
     "id": "config_yaml",
     "query": "mempalace yaml config wing palace path rooms include ignored files",
-    "expected_files": ["mempalace/config.py", "mempalace/miner.py"],
+    "expected_files": ["mempalace_code/config.py", "mempalace_code/miner.py"],
     "category": "config_dependency"
   },
   {
@@ -179,13 +179,13 @@
   {
     "id": "config_lance_schema",
     "query": "LanceDB table schema metadata fields vector dimension chunker_strategy source_hash",
-    "expected_files": ["mempalace/storage.py"],
+    "expected_files": ["mempalace_code/storage.py"],
     "category": "config_dependency"
   },
   {
     "id": "config_mcp_json",
     "query": "MCP server json protocol list tools call tool request handlers",
-    "expected_files": ["mempalace/mcp_server.py"],
+    "expected_files": ["mempalace_code/mcp_server.py"],
     "category": "config_dependency"
   }
 ]

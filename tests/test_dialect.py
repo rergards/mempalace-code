@@ -5,7 +5,7 @@ Covers plain text compression, entity detection, emotion detection,
 topic extraction, key sentence extraction, zettel encoding, and stats.
 """
 
-from mempalace.dialect import Dialect
+from mempalace_code.dialect import Dialect
 
 
 class TestPlainTextCompression:

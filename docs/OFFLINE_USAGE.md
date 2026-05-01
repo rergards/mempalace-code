@@ -80,7 +80,7 @@ the model upgrade policy):
 mempalace-code fetch-model --model all-mpnet-base-v2
 
 # 2. Pass the model name when opening the store (Python API):
-from mempalace.storage import LanceStore
+from mempalace_code.storage import LanceStore
 store = LanceStore(palace_path="~/.mempalace/palace", embed_model="all-mpnet-base-v2")
 
 # 3. Or pass embed_model= wherever you open a LanceStore in your own scripts.

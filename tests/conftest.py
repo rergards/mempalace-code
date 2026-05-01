@@ -32,9 +32,9 @@ os.environ["HOMEPATH"] = os.path.splitdrive(_session_tmp)[1] or _session_tmp
 # Now it is safe to import mempalace modules that trigger initialisation.
 import pytest  # noqa: E402
 
-from mempalace.config import MempalaceConfig  # noqa: E402
-from mempalace.knowledge_graph import KnowledgeGraph  # noqa: E402
-from mempalace.storage import open_store  # noqa: E402
+from mempalace_code.config import MempalaceConfig  # noqa: E402
+from mempalace_code.knowledge_graph import KnowledgeGraph  # noqa: E402
+from mempalace_code.storage import open_store  # noqa: E402
 
 
 class _DeterministicTestEmbedder:
@@ -65,7 +65,7 @@ def _use_deterministic_test_embedder(monkeypatch, request):
     if request.node.get_closest_marker("needs_network"):
         return
 
-    from mempalace.storage import LanceStore
+    from mempalace_code.storage import LanceStore
 
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")

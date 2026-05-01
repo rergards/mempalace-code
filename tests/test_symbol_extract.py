@@ -2,7 +2,7 @@
 
 import pytest
 
-from mempalace.miner import SWIFT_BOUNDARY, chunk_code, extract_symbol
+from mempalace_code.miner import SWIFT_BOUNDARY, chunk_code, extract_symbol
 
 # =============================================================================
 # PYTHON

@@ -3,7 +3,7 @@ import os
 import tempfile
 from unittest.mock import patch
 
-from mempalace.normalize import normalize
+from mempalace_code.normalize import normalize
 
 
 def test_plain_text():
@@ -39,7 +39,7 @@ def test_json_normalize_spellcheck_enabled_calls_user_text_speller():
     json.dump(data, f)
     f.close()
     try:
-        with patch("mempalace.spellcheck.spellcheck_user_text", return_value="please help"):
+        with patch("mempalace_code.spellcheck.spellcheck_user_text", return_value="please help"):
             result = normalize(f.name, spellcheck=True)
     finally:
         os.unlink(f.name)
@@ -54,7 +54,7 @@ def test_json_normalize_spellcheck_disabled_preserves_user_text():
     json.dump(data, f)
     f.close()
     try:
-        with patch("mempalace.spellcheck.spellcheck_user_text", return_value="please help"):
+        with patch("mempalace_code.spellcheck.spellcheck_user_text", return_value="please help"):
             result = normalize(f.name, spellcheck=False)
     finally:
         os.unlink(f.name)

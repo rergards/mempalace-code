@@ -7,7 +7,7 @@ the underlying vector database. Ships with LanceDB (default, crash-safe)
 and ChromaDB (legacy, optional) backends.
 
 Usage:
-    from mempalace.storage import open_store
+    from mempalace_code.storage import open_store
 
     store = open_store("/path/to/palace")          # auto-detect or create LanceDB
     store = open_store("/path/to/palace", "lance")  # explicit backend
@@ -16,9 +16,9 @@ Usage:
 The store object exposes a collection-like API that all MemPalace code
 uses instead of calling ChromaDB/LanceDB directly.
 
-ChromaStore is defined in ``mempalace._chroma_store`` and only importable
+ChromaStore is defined in ``mempalace_code._chroma_store`` and only importable
 when the ``[chroma]`` extra is installed. For backwards compatibility,
-``from mempalace.storage import ChromaStore`` also works when chromadb is
+``from mempalace_code.storage import ChromaStore`` also works when chromadb is
 present (raises ImportError with a helpful message when it is not).
 """
 

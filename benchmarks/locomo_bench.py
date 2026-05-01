@@ -714,7 +714,7 @@ def run_benchmark(
             collection = client.create_collection("mempal_drawers")
 
             if mode == "aaak":
-                from mempalace.dialect import Dialect
+                from mempalace_code.dialect import Dialect
 
                 dialect = Dialect()
                 docs_to_ingest = [dialect.compress(doc) for doc in corpus]

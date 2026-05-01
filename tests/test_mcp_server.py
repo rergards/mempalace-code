@@ -10,12 +10,12 @@ import json
 
 import pytest
 
-from mempalace.storage import open_store
+from mempalace_code.storage import open_store
 
 
 def _patch_mcp_server(monkeypatch, config, palace_path, kg):
     """Patch the mcp_server module globals to use test fixtures."""
-    from mempalace import mcp_server
+    from mempalace_code import mcp_server
 
     assert getattr(config, "palace_path", None) == palace_path, (
         f"config.palace_path ({getattr(config, 'palace_path', None)!r}) does not match palace_path fixture ({palace_path!r})"
@@ -36,20 +36,20 @@ def _ensure_store(palace_path):
 
 class TestHandleRequest:
     def test_initialize(self):
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "initialize", "id": 1, "params": {}})
         assert resp["result"]["serverInfo"]["name"] == "mempalace-code"
         assert resp["id"] == 1
 
     def test_notifications_initialized_returns_none(self):
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "notifications/initialized", "id": None, "params": {}})
         assert resp is None
 
     def test_tools_list(self):
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 2, "params": {}})
         tools = resp["result"]["tools"]
@@ -61,7 +61,7 @@ class TestHandleRequest:
         assert "mempalace_delete_wing" in names
 
     def test_unknown_tool(self):
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request(
             {
@@ -73,14 +73,14 @@ class TestHandleRequest:
         assert resp["error"]["code"] == -32601
 
     def test_unknown_method(self):
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "unknown/method", "id": 4, "params": {}})
         assert resp["error"]["code"] == -32601
 
     def test_tools_call_dispatches(self, monkeypatch, config, palace_path, seeded_kg):
         _patch_mcp_server(monkeypatch, config, palace_path, seeded_kg)
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         # Ensure store exists
         _ensure_store(palace_path)
@@ -104,7 +104,7 @@ class TestReadTools:
     def test_status_empty_palace(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
-        from mempalace.mcp_server import tool_status
+        from mempalace_code.mcp_server import tool_status
 
         result = tool_status()
         assert result["total_drawers"] == 0
@@ -112,7 +112,7 @@ class TestReadTools:
 
     def test_status_with_data(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_status
+        from mempalace_code.mcp_server import tool_status
 
         result = tool_status()
         assert result["total_drawers"] == 4
@@ -121,7 +121,7 @@ class TestReadTools:
 
     def test_list_wings(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_list_wings
+        from mempalace_code.mcp_server import tool_list_wings
 
         result = tool_list_wings()
         assert result["wings"]["project"] == 3
@@ -129,7 +129,7 @@ class TestReadTools:
 
     def test_list_rooms_all(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_list_rooms
+        from mempalace_code.mcp_server import tool_list_rooms
 
         result = tool_list_rooms()
         assert "backend" in result["rooms"]
@@ -138,7 +138,7 @@ class TestReadTools:
 
     def test_list_rooms_filtered(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_list_rooms
+        from mempalace_code.mcp_server import tool_list_rooms
 
         result = tool_list_rooms(wing="project")
         assert "backend" in result["rooms"]
@@ -146,7 +146,7 @@ class TestReadTools:
 
     def test_get_taxonomy(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_get_taxonomy
+        from mempalace_code.mcp_server import tool_get_taxonomy
 
         result = tool_get_taxonomy()
         assert result["taxonomy"]["project"]["backend"] == 2
@@ -156,7 +156,7 @@ class TestReadTools:
     def test_no_palace_returns_error(self, monkeypatch, config, kg):
         config._file_config["palace_path"] = "/nonexistent/path"
         _patch_mcp_server(monkeypatch, config, "/nonexistent/path", kg)
-        from mempalace.mcp_server import tool_status
+        from mempalace_code.mcp_server import tool_status
 
         result = tool_status()
         assert "error" in result
@@ -165,7 +165,7 @@ class TestReadTools:
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
         monkeypatch.delenv("MEMPALACE_AAAK", raising=False)
-        from mempalace.mcp_server import tool_status
+        from mempalace_code.mcp_server import tool_status
 
         result = tool_status()
         assert "aaak_dialect" not in result
@@ -175,7 +175,7 @@ class TestReadTools:
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
         monkeypatch.setenv("MEMPALACE_AAAK", "1")
-        from mempalace.mcp_server import tool_status
+        from mempalace_code.mcp_server import tool_status
 
         result = tool_status()
         assert "aaak_dialect" in result
@@ -184,7 +184,7 @@ class TestReadTools:
     def test_get_aaak_spec_always_available(self, monkeypatch, config, palace_path, kg):
         """mempalace_get_aaak_spec returns the spec regardless of MEMPALACE_AAAK (AC-3)."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_get_aaak_spec
+        from mempalace_code.mcp_server import tool_get_aaak_spec
 
         monkeypatch.delenv("MEMPALACE_AAAK", raising=False)
         result = tool_get_aaak_spec()
@@ -203,7 +203,7 @@ class TestReadTools:
 class TestSearchTool:
     def test_search_basic(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_search
+        from mempalace_code.mcp_server import tool_search
 
         result = tool_search(query="JWT authentication tokens")
         assert "results" in result
@@ -214,14 +214,14 @@ class TestSearchTool:
 
     def test_search_with_wing_filter(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_search
+        from mempalace_code.mcp_server import tool_search
 
         result = tool_search(query="planning", wing="notes")
         assert all(r["wing"] == "notes" for r in result["results"])
 
     def test_search_with_room_filter(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_search
+        from mempalace_code.mcp_server import tool_search
 
         result = tool_search(query="database", room="backend")
         assert all(r["room"] == "backend" for r in result["results"])
@@ -244,7 +244,7 @@ class TestSearchTool:
             ],
         )
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_search
+        from mempalace_code.mcp_server import tool_search
 
         result = tool_search(query="authenticate JWT", limit=1)
 
@@ -263,7 +263,7 @@ class TestWriteTools:
         cached stub and fail with RuntimeError("Table does not exist and create=False").
         """
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_add_drawer, tool_status
+        from mempalace_code.mcp_server import tool_add_drawer, tool_status
 
         # Step 1: read-only call on a palace that has no table yet
         status_result = tool_status()
@@ -280,7 +280,7 @@ class TestWriteTools:
     def test_add_drawer(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
-        from mempalace.mcp_server import tool_add_drawer
+        from mempalace_code.mcp_server import tool_add_drawer
 
         result = tool_add_drawer(
             wing="test_wing",
@@ -296,9 +296,9 @@ class TestWriteTools:
         """tool_add_drawer must set extractor_version and chunker_strategy=manual_v1 (AC-1)."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
-        from mempalace.mcp_server import tool_add_drawer
-        from mempalace.storage import open_store
-        from mempalace.version import __version__
+        from mempalace_code.mcp_server import tool_add_drawer
+        from mempalace_code.storage import open_store
+        from mempalace_code.version import __version__
 
         result = tool_add_drawer(
             wing="test_prov",
@@ -317,7 +317,7 @@ class TestWriteTools:
     def test_add_drawer_duplicate_detection(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
-        from mempalace.mcp_server import tool_add_drawer
+        from mempalace_code.mcp_server import tool_add_drawer
 
         content = "This is a unique test memory about Rust ownership and borrowing."
         result1 = tool_add_drawer(wing="w", room="r", content=content)
@@ -329,7 +329,7 @@ class TestWriteTools:
 
     def test_delete_drawer(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import _get_store, tool_delete_drawer
+        from mempalace_code.mcp_server import _get_store, tool_delete_drawer
 
         result = tool_delete_drawer("drawer_proj_backend_aaa")
         assert result["success"] is True
@@ -339,14 +339,14 @@ class TestWriteTools:
 
     def test_delete_drawer_not_found(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_delete_drawer
+        from mempalace_code.mcp_server import tool_delete_drawer
 
         result = tool_delete_drawer("nonexistent_drawer")
         assert result["success"] is False
 
     def test_delete_wing(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import _get_store, tool_delete_wing
+        from mempalace_code.mcp_server import _get_store, tool_delete_wing
 
         result = tool_delete_wing("project")
         assert result["success"] is True
@@ -357,7 +357,7 @@ class TestWriteTools:
 
     def test_delete_wing_not_found(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_delete_wing
+        from mempalace_code.mcp_server import tool_delete_wing
 
         result = tool_delete_wing("nonexistent_wing")
         assert result["success"] is False
@@ -367,7 +367,7 @@ class TestWriteTools:
         self, monkeypatch, config, palace_path, seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import _get_store, tool_delete_wing
+        from mempalace_code.mcp_server import _get_store, tool_delete_wing
 
         store = _get_store()
 
@@ -382,7 +382,7 @@ class TestWriteTools:
 
     def test_check_duplicate(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_check_duplicate
+        from mempalace_code.mcp_server import tool_check_duplicate
 
         # Exact match text from seeded_collection should be flagged
         result = tool_check_duplicate(
@@ -406,7 +406,7 @@ class TestWriteTools:
 class TestKGTools:
     def test_kg_add(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_kg_add
+        from mempalace_code.mcp_server import tool_kg_add
 
         result = tool_kg_add(
             subject="Alice",
@@ -418,14 +418,14 @@ class TestKGTools:
 
     def test_kg_query(self, monkeypatch, config, palace_path, seeded_kg):
         _patch_mcp_server(monkeypatch, config, palace_path, seeded_kg)
-        from mempalace.mcp_server import tool_kg_query
+        from mempalace_code.mcp_server import tool_kg_query
 
         result = tool_kg_query(entity="Max")
         assert result["count"] > 0
 
     def test_kg_invalidate(self, monkeypatch, config, palace_path, seeded_kg):
         _patch_mcp_server(monkeypatch, config, palace_path, seeded_kg)
-        from mempalace.mcp_server import tool_kg_invalidate
+        from mempalace_code.mcp_server import tool_kg_invalidate
 
         result = tool_kg_invalidate(
             subject="Max",
@@ -437,14 +437,14 @@ class TestKGTools:
 
     def test_kg_timeline(self, monkeypatch, config, palace_path, seeded_kg):
         _patch_mcp_server(monkeypatch, config, palace_path, seeded_kg)
-        from mempalace.mcp_server import tool_kg_timeline
+        from mempalace_code.mcp_server import tool_kg_timeline
 
         result = tool_kg_timeline(entity="Alice")
         assert result["count"] > 0
 
     def test_kg_stats(self, monkeypatch, config, palace_path, seeded_kg):
         _patch_mcp_server(monkeypatch, config, palace_path, seeded_kg)
-        from mempalace.mcp_server import tool_kg_stats
+        from mempalace_code.mcp_server import tool_kg_stats
 
         result = tool_kg_stats()
         assert result["entities"] >= 4
@@ -457,7 +457,7 @@ class TestDiaryTools:
     def test_diary_write_and_read(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
-        from mempalace.mcp_server import tool_diary_read, tool_diary_write
+        from mempalace_code.mcp_server import tool_diary_read, tool_diary_write
 
         w = tool_diary_write(
             agent_name="TestAgent",
@@ -475,7 +475,7 @@ class TestDiaryTools:
     def test_diary_read_empty(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
-        from mempalace.mcp_server import tool_diary_read
+        from mempalace_code.mcp_server import tool_diary_read
 
         r = tool_diary_read(agent_name="Nobody")
         assert r["entries"] == []
@@ -484,7 +484,7 @@ class TestDiaryTools:
         """AC-1: two writes with identical content and same agent must both succeed with distinct IDs."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
-        from mempalace.mcp_server import tool_diary_write
+        from mempalace_code.mcp_server import tool_diary_write
 
         r1 = tool_diary_write(agent_name="TestAgent", entry="same entry", topic="test")
         r2 = tool_diary_write(agent_name="TestAgent", entry="same entry", topic="test")
@@ -500,7 +500,7 @@ class TestDiaryTools:
         # drawers in other wings so count() > the number of diary entries.
         # We verify the fetch is not artificially capped by inserting diary
         # entries directly and checking last_n is respected.
-        from mempalace.mcp_server import tool_diary_read, tool_diary_write
+        from mempalace_code.mcp_server import tool_diary_read, tool_diary_write
 
         for i in range(3):
             tool_diary_write(agent_name="BoundaryAgent", entry=f"Entry number {i}", topic="test")
@@ -516,7 +516,7 @@ class TestDiaryTools:
 class TestCodeSearchTool:
     def test_code_search_basic(self, monkeypatch, config, palace_path, code_seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="language detection file extension")
         assert "results" in result
@@ -540,7 +540,7 @@ class TestCodeSearchTool:
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="code function", language="python")
         assert "results" in result
@@ -551,7 +551,7 @@ class TestCodeSearchTool:
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="detect language user", symbol_name="detect")
         assert "results" in result
@@ -562,7 +562,7 @@ class TestCodeSearchTool:
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="code function", symbol_type="function")
         assert "results" in result
@@ -573,7 +573,7 @@ class TestCodeSearchTool:
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="code storage", file_glob="*/mempalace/*.py")
         assert "results" in result
@@ -589,7 +589,7 @@ class TestCodeSearchTool:
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="code", language="python", symbol_type="function")
         assert "results" in result
@@ -601,7 +601,7 @@ class TestCodeSearchTool:
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="something", language="cobol")
         assert "error" in result
@@ -636,7 +636,7 @@ class TestCodeSearchTool:
                 }
             ],
         )
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="project configuration", language="yaml")
         assert "error" not in result, f"Unexpected error: {result.get('error')}"
@@ -668,7 +668,7 @@ class TestCodeSearchTool:
                 }
             ],
         )
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="linked list node", language="cpp")
         assert "error" not in result, f"Unexpected error: {result.get('error')}"
@@ -681,7 +681,7 @@ class TestCodeSearchTool:
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="something", symbol_type="variable")
         assert "error" in result
@@ -692,7 +692,7 @@ class TestCodeSearchTool:
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result_zero = tool_code_search(query="code", n_results=0)
         assert "results" in result_zero
@@ -706,7 +706,7 @@ class TestCodeSearchTool:
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="code storage", wing="mempalace")
         assert "results" in result
@@ -714,7 +714,7 @@ class TestCodeSearchTool:
         assert all(r["wing"] == "mempalace" for r in result["results"])
 
     def test_code_search_in_tools_list(self):
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
         tools = {t["name"]: t for t in resp["result"]["tools"]}
@@ -736,7 +736,7 @@ class TestCodeSearchTool:
 
     def test_code_search_react_and_dart_in_language_description(self):
         """The mempalace_code_search language description must mention jsx, tsx, and dart."""
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 100, "params": {}})
         tools = {t["name"]: t for t in resp["result"]["tools"]}
@@ -748,8 +748,8 @@ class TestCodeSearchTool:
 
     def test_code_search_language_description_matches_catalog(self):
         """The language schema description exposes the sorted catalog exactly once."""
-        from mempalace.language_catalog import sorted_searchable_languages
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.language_catalog import sorted_searchable_languages
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 102, "params": {}})
         tools = {t["name"]: t for t in resp["result"]["tools"]}
@@ -767,7 +767,7 @@ class TestCodeSearchTool:
 
     def test_code_search_dart_symbol_types_in_description(self):
         """The mempalace_code_search symbol_type description must mention mixin, extension_type, constructor."""
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 101, "params": {}})
         tools = {t["name"]: t for t in resp["result"]["tools"]}
@@ -800,7 +800,7 @@ class TestAggregationRegression:
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         store = _ensure_store(palace_path)
         self._seed_multi_wing(store)
-        from mempalace.mcp_server import tool_list_wings
+        from mempalace_code.mcp_server import tool_list_wings
 
         result = tool_list_wings()
         assert set(result["wings"].keys()) == {"alpha", "beta", "gamma"}
@@ -821,7 +821,7 @@ class TestAggregationRegression:
                 {"wing": "wing2", "room": "roomC"},
             ],
         )
-        from mempalace.mcp_server import tool_list_rooms
+        from mempalace_code.mcp_server import tool_list_rooms
 
         result = tool_list_rooms(wing="wing1")
         assert set(result["rooms"].keys()) == {"roomA", "roomB"}
@@ -831,7 +831,7 @@ class TestAggregationRegression:
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         store = _ensure_store(palace_path)
         self._seed_multi_wing(store)
-        from mempalace.mcp_server import tool_status
+        from mempalace_code.mcp_server import tool_status
 
         result = tool_status()
         assert result["total_drawers"] == sum(result["wings"].values())
@@ -840,7 +840,7 @@ class TestAggregationRegression:
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         store = _ensure_store(palace_path)
         self._seed_multi_wing(store)
-        from mempalace.mcp_server import tool_get_taxonomy
+        from mempalace_code.mcp_server import tool_get_taxonomy
 
         result = tool_get_taxonomy()
         tax = result["taxonomy"]
@@ -854,7 +854,7 @@ class TestAggregationRegression:
     ):
         """New DevOps language strings must appear in the supported_languages hint (MINE-DEVOPS-INFRA)."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="something", language="notareallangnnn")
         assert "supported_languages" in result
@@ -878,7 +878,7 @@ class TestAggregationRegression:
     ):
         """Prose/data language strings must appear in the supported_languages hint (CODE-SEARCH-LANG-PROSE)."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="something", language="notareallangnnn")
         assert "supported_languages" in result
@@ -910,7 +910,7 @@ class TestAggregationRegression:
                 }
             ],
         )
-        from mempalace.mcp_server import tool_code_search
+        from mempalace_code.mcp_server import tool_code_search
 
         result = tool_code_search(query="introduction readme", language="markdown")
         assert "error" not in result, f"Unexpected error: {result.get('error')}"
@@ -938,7 +938,7 @@ class TestDegradedPalace:
             metadatas=[{"wing": "test", "room": "general"}],
         )
 
-        from mempalace import mcp_server
+        from mempalace_code import mcp_server
 
         # Force the singleton to open so we have an instance to patch
         live_store = mcp_server._get_store()
@@ -964,7 +964,7 @@ class TestDegradedPalace:
     ):
         """Healthy palace must not include 'error' in tool_status() response."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_status
+        from mempalace_code.mcp_server import tool_status
 
         result = tool_status()
         assert "error" not in result
@@ -995,7 +995,7 @@ class TestArchTools:
     ):
         """AC-1: KG has MyService implements IService → find_implementations('IService') returns MyService."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
-        from mempalace.mcp_server import tool_find_implementations
+        from mempalace_code.mcp_server import tool_find_implementations
 
         result = tool_find_implementations(interface="IService")
         assert "implementations" in result
@@ -1006,7 +1006,7 @@ class TestArchTools:
     def test_find_implementations_empty(self, monkeypatch, config, palace_path, dotnet_kg):
         """AC-2: No implementors → returns empty list, no error."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
-        from mempalace.mcp_server import tool_find_implementations
+        from mempalace_code.mcp_server import tool_find_implementations
 
         result = tool_find_implementations(interface="NoSuchInterface")
         assert result["implementations"] == []
@@ -1018,7 +1018,7 @@ class TestArchTools:
         kg.add_triple("ServiceB", "implements", "IDisposable")
         kg.add_triple("ServiceC", "implements", "IDisposable")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_find_implementations
+        from mempalace_code.mcp_server import tool_find_implementations
 
         result = tool_find_implementations(interface="IDisposable")
         assert result["count"] == 3
@@ -1033,7 +1033,7 @@ class TestArchTools:
         kg.add_triple("LanceStore", "inherits", "DrawerStore")
         kg.add_triple("ChromaStore", "inherits", "DrawerStore")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_find_implementations
+        from mempalace_code.mcp_server import tool_find_implementations
 
         result = tool_find_implementations(interface="DrawerStore")
         types = {r["type"] for r in result["implementations"]}
@@ -1047,7 +1047,7 @@ class TestArchTools:
         """AC-2: inherits edge without an implements-ABC triple → not treated as implementation."""
         kg.add_triple("Child", "inherits", "BaseClass")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_find_implementations
+        from mempalace_code.mcp_server import tool_find_implementations
 
         result = tool_find_implementations(interface="BaseClass")
         assert result["implementations"] == []
@@ -1058,7 +1058,7 @@ class TestArchTools:
         kg.add_triple("Runnable", "implements", "Protocol")
         kg.add_triple("TaskRunner", "inherits", "Runnable")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_find_implementations
+        from mempalace_code.mcp_server import tool_find_implementations
 
         result = tool_find_implementations(interface="Runnable")
         types = {r["type"] for r in result["implementations"]}
@@ -1073,7 +1073,7 @@ class TestArchTools:
         kg.add_triple("ConcreteA", "implements", "MyABC")
         kg.add_triple("ConcreteA", "inherits", "MyABC")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_find_implementations
+        from mempalace_code.mcp_server import tool_find_implementations
 
         result = tool_find_implementations(interface="MyABC")
         types = [r["type"] for r in result["implementations"]]
@@ -1085,7 +1085,7 @@ class TestArchTools:
     ):
         """AC-4: find_references('MyService') returns grouped canonical relationship categories."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
-        from mempalace.mcp_server import tool_find_references
+        from mempalace_code.mcp_server import tool_find_references
 
         result = tool_find_references(type_name="MyService")
         refs = result["references"]
@@ -1103,7 +1103,7 @@ class TestArchTools:
     ):
         """AC-4: Empty relationship categories are omitted from the response."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
-        from mempalace.mcp_server import tool_find_references
+        from mempalace_code.mcp_server import tool_find_references
 
         result = tool_find_references(type_name="MyService")
         refs = result["references"]
@@ -1115,7 +1115,7 @@ class TestArchTools:
         kg.add_triple("ConsumerProject", "depends_on", "MyApp")
         kg.add_triple("MyApp", "depends_on", "Newtonsoft.Json@13.0.3")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_find_references
+        from mempalace_code.mcp_server import tool_find_references
 
         result = tool_find_references(type_name="MyApp")
         refs = result["references"]
@@ -1131,7 +1131,7 @@ class TestArchTools:
         kg.add_triple("ConsumerProject", "references_project", "MyApp")
         kg.add_triple("MyApp", "references_project", "Shared")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_find_references
+        from mempalace_code.mcp_server import tool_find_references
 
         result = tool_find_references(type_name="MyApp")
         refs = result["references"]
@@ -1145,7 +1145,7 @@ class TestArchTools:
     def test_show_project_graph_all(self, monkeypatch, config, palace_path, dotnet_kg):
         """AC-5: show_project_graph returns all project-level predicates grouped."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
-        from mempalace.mcp_server import tool_show_project_graph
+        from mempalace_code.mcp_server import tool_show_project_graph
 
         result = tool_show_project_graph()
         graph = result["graph"]
@@ -1157,7 +1157,7 @@ class TestArchTools:
     def test_show_project_graph_solution_filter(self, monkeypatch, config, palace_path, dotnet_kg):
         """AC-6: solution= filter limits graph to projects in that solution."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
-        from mempalace.mcp_server import tool_show_project_graph
+        from mempalace_code.mcp_server import tool_show_project_graph
 
         result = tool_show_project_graph(solution="MySolution")
         graph = result["graph"]
@@ -1170,7 +1170,7 @@ class TestArchTools:
     def test_show_project_graph_unknown_solution(self, monkeypatch, config, palace_path, dotnet_kg):
         """F-2: solution= with no matching solution returns empty graph, no error."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
-        from mempalace.mcp_server import tool_show_project_graph
+        from mempalace_code.mcp_server import tool_show_project_graph
 
         result = tool_show_project_graph(solution="NoSuchSolution")
         assert result["solution"] == "NoSuchSolution"
@@ -1181,7 +1181,7 @@ class TestArchTools:
     ):
         """AC-7: type_dependencies for MyService returns ancestors and descendants."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
-        from mempalace.mcp_server import tool_show_type_dependencies
+        from mempalace_code.mcp_server import tool_show_type_dependencies
 
         result = tool_show_type_dependencies(type_name="MyService")
         assert result["type"] == "MyService"
@@ -1196,7 +1196,7 @@ class TestArchTools:
         kg.add_triple("TypeA", "inherits", "TypeB")
         kg.add_triple("TypeB", "inherits", "TypeA")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_show_type_dependencies
+        from mempalace_code.mcp_server import tool_show_type_dependencies
 
         result = tool_show_type_dependencies(type_name="TypeA")
         assert "ancestors" in result
@@ -1210,7 +1210,7 @@ class TestArchTools:
         kg.add_triple("MyService", "inherits", "BaseService")
         kg.add_triple("BaseService", "inherits", "GrandBase")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_show_type_dependencies
+        from mempalace_code.mcp_server import tool_show_type_dependencies
 
         result = tool_show_type_dependencies(type_name="MyService", max_depth=1)
         ancestor_types = {a["type"] for a in result["ancestors"]}
@@ -1219,7 +1219,7 @@ class TestArchTools:
 
     def test_arch_tools_in_tools_list(self):
         """AC-12: All 4 new tools appear in tools/list with name, description, and inputSchema."""
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
         tool_names = {t["name"] for t in resp["result"]["tools"]}
@@ -1260,7 +1260,7 @@ class TestExplainSubsystem:
     ):
         """AC-1: Returns entry_points list with required fields."""
         _patch_mcp_server(monkeypatch, config, palace_path, code_kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="vector storage backend")
         assert "entry_points" in result
@@ -1282,7 +1282,7 @@ class TestExplainSubsystem:
     def test_kg_expansion(self, monkeypatch, config, palace_path, code_seeded_collection, code_kg):
         """AC-2: symbol_graph contains KG relationships for discovered symbols."""
         _patch_mcp_server(monkeypatch, config, palace_path, code_kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="vector storage backend LanceStore")
         assert "LanceStore" in result["symbol_graph"]
@@ -1295,7 +1295,7 @@ class TestExplainSubsystem:
     ):
         """AC-3: Empty KG returns valid response — entry_points populated, symbol_graph entries empty."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="vector storage backend")
         assert "entry_points" in result
@@ -1308,7 +1308,7 @@ class TestExplainSubsystem:
     def test_wing_filter(self, monkeypatch, config, palace_path, code_seeded_collection, kg):
         """AC-4: wing filter restricts entry_points to that wing."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="language detection storage", wing="mempalace")
         assert len(result["entry_points"]) > 0
@@ -1317,7 +1317,7 @@ class TestExplainSubsystem:
     def test_language_filter(self, monkeypatch, config, palace_path, code_seeded_collection, kg):
         """AC-5: language filter restricts entry_points to that language."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="code function", language="python")
         assert len(result["entry_points"]) > 0
@@ -1328,7 +1328,7 @@ class TestExplainSubsystem:
     ):
         """AC-6: No matching code chunks → empty response, no error."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(
             query="quantum entanglement teleportation", wing="nonexistent_wing_xyz"
@@ -1345,7 +1345,7 @@ class TestExplainSubsystem:
         """AC-7: No palace → error dict with hint."""
         config._file_config["palace_path"] = "/nonexistent/path"
         _patch_mcp_server(monkeypatch, config, "/nonexistent/path", kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="anything")
         assert "error" in result
@@ -1353,7 +1353,7 @@ class TestExplainSubsystem:
 
     def test_in_tools_list(self):
         """AC-8: Tool appears in tools/list with correct schema."""
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
         tool_map = {t["name"]: t for t in resp["result"]["tools"]}
@@ -1376,7 +1376,7 @@ class TestExplainSubsystem:
         kg.add_triple("LanceStore", "implements", "OldStore", valid_to="2020-01-01")
         kg.add_triple("LanceStore", "implements", "DrawerStore")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="vector storage backend LanceStore")
         if "LanceStore" in result["symbol_graph"]:
@@ -1409,7 +1409,7 @@ class TestExplainSubsystem:
             ],
         )
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="vector storage backend", n_results=10)
         assert len(result["entry_points"]) > 0
@@ -1423,7 +1423,7 @@ class TestExplainSubsystem:
     ):
         """AC-1 (EXPLAIN-NRESULTS-CLAMP): n_results=1 returns exactly 1 entry_point."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="code", n_results=1)
         assert "error" not in result
@@ -1435,7 +1435,7 @@ class TestExplainSubsystem:
     ):
         """AC-2 (EXPLAIN-NRESULTS-CLAMP): n_results=0 is clamped to 1, returns 1 entry_point."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="code", n_results=0)
         assert "error" not in result
@@ -1447,7 +1447,7 @@ class TestExplainSubsystem:
     ):
         """AC-3 (EXPLAIN-NRESULTS-CLAMP): n_results=-1 is clamped to 1, not sliced negatively."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="code", n_results=-1)
         assert "error" not in result
@@ -1459,7 +1459,7 @@ class TestExplainSubsystem:
     ):
         """AC-4 (EXPLAIN-NRESULTS-CLAMP): unsupported language error propagates even when n_results also needs clamping."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_explain_subsystem
+        from mempalace_code.mcp_server import tool_explain_subsystem
 
         result = tool_explain_subsystem(query="code", language="not-a-language", n_results=0)
         assert "error" in result
@@ -1498,7 +1498,7 @@ class TestExtractReusable:
         kg.add_triple("MyService", "implements", "IService")
         kg.add_triple("MyService", "inherits", "BaseService")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="MyService")
         assert result["entity"] == "MyService"
@@ -1514,7 +1514,7 @@ class TestExtractReusable:
     ):
         """AC-2: WpfView depends_on WPF package and uses binds_viewmodel → classified platform."""
         _patch_mcp_server(monkeypatch, config, palace_path, extraction_kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="WpfView")
         platform = result["graph"]["platform"]
@@ -1531,7 +1531,7 @@ class TestExtractReusable:
         """AC-3: WinFormsAdapter implements IService (core) + depends_on System.Windows.Forms → glue.
         boundary_interfaces must include IService with WinFormsAdapter as implementor."""
         _patch_mcp_server(monkeypatch, config, palace_path, extraction_kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="WinFormsAdapter")
         # WinFormsAdapter is the root — verify via boundary_interfaces
@@ -1552,7 +1552,7 @@ class TestExtractReusable:
         kg.add_triple("WpfAdapter", "references_project", "WpfHost")
         kg.add_triple("WpfHost", "targets_framework", "net8.0-windows")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         root_result = tool_extract_reusable(entity="WpfAdapter")
         boundary_by_interface = {
@@ -1576,7 +1576,7 @@ class TestExtractReusable:
         kg.add_triple("CoreAdapter", "references_project", "CoreLib")
         kg.add_triple("CoreLib", "targets_framework", "netstandard2.0")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="CoreAdapter")
         assert result["boundary_interfaces"] == []
@@ -1596,7 +1596,7 @@ class TestExtractReusable:
         )
         kg.add_triple("WpfHost", "targets_framework", "net8.0-windows")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="ExpiredAdapter")
         assert result["boundary_interfaces"] == []
@@ -1608,7 +1608,7 @@ class TestExtractReusable:
     def test_empty_kg_returns_empty_graph(self, monkeypatch, config, palace_path, kg):
         """AC-4: Entity has no KG facts → valid empty response, no error."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="UnknownEntity")
         assert result["entity"] == "UnknownEntity"
@@ -1628,7 +1628,7 @@ class TestExtractReusable:
         kg.add_triple("TypeA", "depends_on", "TypeB")
         kg.add_triple("TypeB", "depends_on", "TypeA")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="TypeA")
         all_entities = (
@@ -1646,7 +1646,7 @@ class TestExtractReusable:
         kg.add_triple("InterfaceA", "extends", "InterfaceB")
         kg.add_triple("InterfaceB", "extends", "InterfaceC")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="Root", max_depth=1)
         all_entities = {e["entity"] for lst in result["graph"].values() for e in lst}
@@ -1659,7 +1659,7 @@ class TestExtractReusable:
         kg.add_triple("MyType", "implements", "OldInterface", valid_to="2020-01-01")
         kg.add_triple("MyType", "implements", "IService")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="MyType")
         all_entities = {e["entity"] for lst in result["graph"].values() for e in lst}
@@ -1668,7 +1668,7 @@ class TestExtractReusable:
 
     def test_tool_appears_in_tools_list(self):
         """AC-8: mempalace_extract_reusable appears in tools/list with correct schema."""
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
         tool_map = {t["name"]: t for t in resp["result"]["tools"]}
@@ -1686,7 +1686,7 @@ class TestExtractReusable:
         """AC-2 / package-leaf: Package entities matching PLATFORM_PACKAGE_PREFIXES are platform."""
         kg.add_triple("MyProject", "depends_on", "System.Windows.Forms@8.0")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="MyProject")
         platform_names = {e["entity"] for e in result["graph"]["platform"]}
@@ -1699,7 +1699,7 @@ class TestExtractReusable:
     ):
         """AC-10: Solution-level query expands through contains_project to project deps."""
         _patch_mcp_server(monkeypatch, config, palace_path, extraction_kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="MySolution")
         all_entities = {e["entity"] for lst in result["graph"].values() for e in lst}
@@ -1714,7 +1714,7 @@ class TestExtractReusable:
         kg.add_triple("GlueType", "inherits", "BasePlatformClass")
         kg.add_triple("GlueType", "depends_on", "System.Windows.Forms@8.0")
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="GlueType")
         bi_ifaces = {b["interface"] for b in result["boundary_interfaces"]}
@@ -1728,7 +1728,7 @@ class TestExtractReusable:
     ):
         """Summary counts must equal len() of corresponding graph lists."""
         _patch_mcp_server(monkeypatch, config, palace_path, extraction_kg)
-        from mempalace.mcp_server import tool_extract_reusable
+        from mempalace_code.mcp_server import tool_extract_reusable
 
         result = tool_extract_reusable(entity="MySolution")
         summary = result["summary"]
@@ -1802,7 +1802,7 @@ class TestFileContextTool:
         """AC-1: 3 chunks for a file → {total: 3, chunks: [...]} with all required fields."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _seed_file_context(collection, source_file="mempalace/storage.py", wing="myproject")
-        from mempalace.mcp_server import tool_file_context
+        from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context(source_file="mempalace/storage.py")
 
@@ -1827,7 +1827,7 @@ class TestFileContextTool:
     def test_missing_file_returns_empty(self, monkeypatch, config, palace_path, collection, kg):
         """AC-2: source_file not in palace → {total: 0, chunks: []} with no error key."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_file_context
+        from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context(source_file="nonexistent/file.py")
 
@@ -1857,7 +1857,7 @@ class TestFileContextTool:
                 }
             ],
         )
-        from mempalace.mcp_server import tool_file_context
+        from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context(source_file="shared/utils.py", wing="wing_a")
 
@@ -1873,7 +1873,7 @@ class TestFileContextTool:
         """
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _seed_file_context(collection, source_file="mempalace/miner.py", wing="mempalace")
-        from mempalace.mcp_server import tool_file_context
+        from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context(source_file="mempalace/miner.py")
 
@@ -1887,14 +1887,14 @@ class TestFileContextTool:
 
     def test_no_palace_returns_error(self, monkeypatch, kg):
         """AC-5: no palace (_get_store returns None) → standard error dict with 'error' and 'hint'."""
-        from mempalace import mcp_server
+        from mempalace_code import mcp_server
 
         monkeypatch.setattr(mcp_server, "_kg", kg)
         monkeypatch.setattr(mcp_server, "_store", None)
         # Simulate _get_store() returning None (palace open failed)
         monkeypatch.setattr(mcp_server, "_get_store", lambda create=False: None)
 
-        from mempalace.mcp_server import tool_file_context
+        from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context(source_file="anything.py")
 
@@ -1903,7 +1903,7 @@ class TestFileContextTool:
 
     def test_tools_list_includes_file_context(self):
         """AC-6: tools/list response includes mempalace_file_context with source_file required."""
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
         tools = {t["name"]: t for t in resp["result"]["tools"]}
@@ -1936,7 +1936,7 @@ class TestFileContextTool:
                 }
             ],
         )
-        from mempalace.mcp_server import tool_file_context
+        from mempalace_code.mcp_server import tool_file_context
 
         # Must not raise; must find the chunk (not return error or empty)
         result = tool_file_context(source_file="O'Brien/module.py")
@@ -1950,7 +1950,7 @@ class TestFileContextTool:
     ):
         """F-2: source_file='' must return an error, not scan all un-sourced rows."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_file_context
+        from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context(source_file="")
 
@@ -1958,7 +1958,7 @@ class TestFileContextTool:
 
     def test_storage_exception_returns_error_and_hint(self, monkeypatch, kg):
         """F-1: col.get() raising an exception → {"error": ..., "hint": ...} (not just error)."""
-        from mempalace import mcp_server
+        from mempalace_code import mcp_server
 
         class _FailingStore:
             def get(self, *args, **kwargs):
@@ -1967,7 +1967,7 @@ class TestFileContextTool:
         monkeypatch.setattr(mcp_server, "_kg", kg)
         monkeypatch.setattr(mcp_server, "_get_store", lambda create=False: _FailingStore())
 
-        from mempalace.mcp_server import tool_file_context
+        from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context(source_file="any/file.py")
 
@@ -1982,7 +1982,7 @@ class TestFileContextTool:
         """
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _seed_file_context(collection, source_file="dispatch/test.py", wing="myproject")
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request(
             {
@@ -2044,7 +2044,7 @@ class TestToolMine:
         """AC-1: mine a valid project directory, returns success with expected fields."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         project_dir = _make_mine_project(tmp_path)
-        from mempalace.mcp_server import tool_mine
+        from mempalace_code.mcp_server import tool_mine
 
         result = tool_mine(directory=project_dir)
 
@@ -2058,7 +2058,7 @@ class TestToolMine:
         """AC-2: full=True forces re-processing all files (files_skipped == 0)."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         project_dir = _make_mine_project(tmp_path)
-        from mempalace.mcp_server import tool_mine
+        from mempalace_code.mcp_server import tool_mine
 
         # Mine once to populate hashes
         r1 = tool_mine(directory=project_dir)
@@ -2077,7 +2077,7 @@ class TestToolMine:
     def test_nonexistent_directory(self, monkeypatch, config, palace_path, kg):
         """AC-3: non-existent directory → {success: false, error: ...} without exception."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace.mcp_server import tool_mine
+        from mempalace_code.mcp_server import tool_mine
 
         result = tool_mine(directory="/tmp/absolutely_does_not_exist_xyz123abc")
 
@@ -2089,7 +2089,7 @@ class TestToolMine:
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         a_file = tmp_path / "somefile.txt"
         a_file.write_text("content")
-        from mempalace.mcp_server import tool_mine
+        from mempalace_code.mcp_server import tool_mine
 
         result = tool_mine(directory=str(a_file))
 
@@ -2102,7 +2102,7 @@ class TestToolMine:
         bare_dir = tmp_path / "bare"
         bare_dir.mkdir()
         (bare_dir / "some_code.py").write_text("x = 1\n")
-        from mempalace.mcp_server import tool_mine
+        from mempalace_code.mcp_server import tool_mine
 
         result = tool_mine(directory=str(bare_dir))
 
@@ -2116,8 +2116,8 @@ class TestToolMine:
         """AC-4: wing='custom_wing' → mined drawers filed under custom_wing in the store."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         project_dir = _make_mine_project(tmp_path, wing="default_wing")
-        from mempalace.mcp_server import tool_mine
-        from mempalace.storage import open_store
+        from mempalace_code.mcp_server import tool_mine
+        from mempalace_code.storage import open_store
 
         result = tool_mine(directory=project_dir, wing="custom_wing")
 
@@ -2141,7 +2141,7 @@ class TestToolMine:
 
     def test_mine_appears_in_tools_list(self):
         """AC-5: mempalace_mine appears in tools/list with correct input schema."""
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
         tools = {t["name"]: t for t in resp["result"]["tools"]}
@@ -2158,7 +2158,7 @@ class TestToolMine:
         """Protocol-level: tools/call dispatch for mempalace_mine returns success result."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         project_dir = _make_mine_project(tmp_path)
-        from mempalace.mcp_server import handle_request
+        from mempalace_code.mcp_server import handle_request
 
         resp = handle_request(
             {

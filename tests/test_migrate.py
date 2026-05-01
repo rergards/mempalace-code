@@ -11,9 +11,9 @@ import pytest
 
 pytest.importorskip("chromadb")
 
-from mempalace._chroma_store import ChromaStore  # noqa: E402
-from mempalace.migrate import VerificationError, migrate_chroma_to_lance  # noqa: E402
-from mempalace.storage import LanceStore  # noqa: E402
+from mempalace_code._chroma_store import ChromaStore  # noqa: E402
+from mempalace_code.migrate import VerificationError, migrate_chroma_to_lance  # noqa: E402
+from mempalace_code.storage import LanceStore  # noqa: E402
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -49,7 +49,7 @@ def _make_store_with_ef(tmp_path):
     Patches _col._embedding_function directly so Chroma 1.x's _embed() dispatches
     to our class instead of DefaultEmbeddingFunction (which downloads a model).
     """
-    from mempalace._chroma_store import ChromaStore
+    from mempalace_code._chroma_store import ChromaStore
 
     store = ChromaStore(palace_path=str(tmp_path))
     store._col._embedding_function = _DeterministicEF()
@@ -67,12 +67,12 @@ def _seed_store(store, rows):
 
 def test_chroma_store_importable():
     """ChromaStore can be imported from the internal module."""
-    from mempalace._chroma_store import ChromaStore  # noqa: F401
+    from mempalace_code._chroma_store import ChromaStore  # noqa: F401
 
 
 def test_chroma_store_instantiation(tmp_path):
     """ChromaStore can be instantiated; exercises PersistentClient + get_or_create_collection."""
-    from mempalace._chroma_store import ChromaStore
+    from mempalace_code._chroma_store import ChromaStore
 
     store = ChromaStore(palace_path=str(tmp_path))
     assert store._col is not None
@@ -80,7 +80,7 @@ def test_chroma_store_instantiation(tmp_path):
 
 def test_chroma_store_count_empty(tmp_path):
     """count() on a fresh empty store returns 0."""
-    from mempalace._chroma_store import ChromaStore
+    from mempalace_code._chroma_store import ChromaStore
 
     store = ChromaStore(palace_path=str(tmp_path))
     assert store.count() == 0
@@ -88,7 +88,7 @@ def test_chroma_store_count_empty(tmp_path):
 
 def test_chroma_store_delete_wing_empty(tmp_path):
     """delete_wing() on an empty store returns 0 without raising."""
-    from mempalace._chroma_store import ChromaStore
+    from mempalace_code._chroma_store import ChromaStore
 
     store = ChromaStore(palace_path=str(tmp_path))
     deleted = store.delete_wing("nonexistent-wing")
@@ -97,7 +97,7 @@ def test_chroma_store_delete_wing_empty(tmp_path):
 
 def test_chroma_store_count_by_empty(tmp_path):
     """count_by/count_by_pair on a fresh empty store return empty mappings."""
-    from mempalace._chroma_store import ChromaStore
+    from mempalace_code._chroma_store import ChromaStore
 
     store = ChromaStore(palace_path=str(tmp_path))
     assert store.count_by("wing") == {}
@@ -106,7 +106,7 @@ def test_chroma_store_count_by_empty(tmp_path):
 
 def test_chroma_store_count_by_metadata_fallback(tmp_path):
     """count_by aggregates requested metadata keys from legacy Chroma rows."""
-    from mempalace._chroma_store import ChromaStore
+    from mempalace_code._chroma_store import ChromaStore
 
     store = ChromaStore(palace_path=str(tmp_path))
     _seed_store(
@@ -123,7 +123,7 @@ def test_chroma_store_count_by_metadata_fallback(tmp_path):
 
 def test_chroma_store_count_by_pair_metadata_fallback(tmp_path):
     """count_by_pair aggregates the full wing-to-room taxonomy."""
-    from mempalace._chroma_store import ChromaStore
+    from mempalace_code._chroma_store import ChromaStore
 
     store = ChromaStore(palace_path=str(tmp_path))
     _seed_store(
@@ -144,7 +144,7 @@ def test_chroma_store_count_by_pair_metadata_fallback(tmp_path):
 
 def test_chroma_store_count_helpers_skip_missing_metadata_keys(tmp_path):
     """Records missing requested metadata keys are ignored, not fatal."""
-    from mempalace._chroma_store import ChromaStore
+    from mempalace_code._chroma_store import ChromaStore
 
     store = ChromaStore(palace_path=str(tmp_path))
     _seed_store(

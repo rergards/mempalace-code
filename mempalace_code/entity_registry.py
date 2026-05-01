@@ -9,7 +9,7 @@ Built from three sources, in priority order:
   3. Researched — what we looked up via Wikipedia for unknown words
 
 Usage:
-    from mempalace.entity_registry import EntityRegistry
+    from mempalace_code.entity_registry import EntityRegistry
     registry = EntityRegistry.load()
     result = registry.lookup("Riley", context="I went with Riley today")
     # → {"type": "person", "confidence": 1.0, "source": "onboarding"}
@@ -551,7 +551,7 @@ class EntityRegistry:
         Scan session text for new entity candidates.
         Returns list of newly discovered candidates for review.
         """
-        from mempalace.entity_detector import classify_entity, extract_candidates, score_entity
+        from mempalace_code.entity_detector import classify_entity, extract_candidates, score_entity
 
         lines = text.splitlines()
         candidates = extract_candidates(text)

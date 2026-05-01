@@ -8,7 +8,7 @@ import pytest
 import torch
 import yaml
 
-from mempalace.miner import (
+from mempalace_code.miner import (
     ScanFilterRules,
     _build_csproj_room_map,
     _chunk_k8s_manifest,
@@ -22,7 +22,7 @@ from mempalace.miner import (
     process_file,
     scan_project,
 )
-from mempalace.storage import open_store
+from mempalace_code.storage import open_store
 
 
 def write_file(path: Path, content: str):
@@ -387,7 +387,7 @@ def test_scan_project_prunes_subtree_skip_globs_at_walk_time():
                 walked_roots.append(Path(root))
                 yield root, dirs, files
 
-        with patch("mempalace.miner.os.walk", _tracking_walk):
+        with patch("mempalace_code.miner.os.walk", _tracking_walk):
             result = scanned_files(
                 project_root, respect_gitignore=False, scan_rules=_SUBTREE_PRUNE_RULES
             )
@@ -456,7 +456,7 @@ def test_scan_project_wildcard_prefix_falls_back_to_file_level():
     """Subtree pruning is conservative: globs with wildcards in the prefix
     (e.g. ``*.egg-info/**``) cannot be safely literal-matched, so directory
     pruning is skipped and per-file glob matching still excludes the files."""
-    from mempalace.miner import _subtree_glob_prefix
+    from mempalace_code.miner import _subtree_glob_prefix
 
     # Wildcard in any prefix segment disqualifies subtree pruning.
     assert _subtree_glob_prefix("*.egg-info/**") is None
@@ -643,7 +643,7 @@ def test_process_file_python_preserves_function_boundaries():
 
         # No stored drawer should contain parts of two different top-level functions
         # unless they were small enough to be merged (combined size < TARGET_MAX)
-        from mempalace.miner import TARGET_MAX
+        from mempalace_code.miner import TARGET_MAX
 
         for doc in docs:
             has_alpha = "def alpha" in doc
@@ -1081,7 +1081,7 @@ def test_symbol_type_filter_query():
 
 def test_status_multi_wing(capsys):
     """status() shows all wings in a multi-wing palace (regression for limit=10000 bug)."""
-    from mempalace.miner import status
+    from mempalace_code.miner import status
 
     tmpdir = tempfile.mkdtemp()
     try:
@@ -1157,7 +1157,7 @@ def test_mine_calls_warmup_once():
         _make_palace_config(project_root)
         palace_path = str(project_root / "palace")
 
-        with patch("mempalace.miner.get_collection") as mock_get_collection:
+        with patch("mempalace_code.miner.get_collection") as mock_get_collection:
             mock_store = _make_mock_store()
             mock_get_collection.return_value = mock_store
             mine(str(project_root), palace_path)
@@ -1176,7 +1176,7 @@ def test_mine_calls_optimize_once():
         _make_palace_config(project_root)
         palace_path = str(project_root / "palace")
 
-        with patch("mempalace.miner.get_collection") as mock_get_collection:
+        with patch("mempalace_code.miner.get_collection") as mock_get_collection:
             mock_store = _make_mock_store()
             mock_get_collection.return_value = mock_store
             mine(str(project_root), palace_path)
@@ -1198,7 +1198,7 @@ def test_mine_get_source_file_hashes_called_once():
         _make_palace_config(project_root)
         palace_path = str(project_root / "palace")
 
-        with patch("mempalace.miner.get_collection") as mock_get_collection:
+        with patch("mempalace_code.miner.get_collection") as mock_get_collection:
             mock_store = _make_mock_store()
             mock_get_collection.return_value = mock_store
             mine(str(project_root), palace_path)
@@ -1380,7 +1380,7 @@ def test_provenance_fields_set_on_mine():
     """AC-6: mine() stores extractor_version and chunker_strategy on every drawer."""
     import sys
 
-    from mempalace.version import __version__
+    from mempalace_code.version import __version__
 
     # When tree-sitter-python is installed (Python 3.10+), Python files use the AST path.
     try:
@@ -1415,8 +1415,8 @@ def test_provenance_fields_set_on_convo_mine():
     """AC-7: mine_convos() stores extractor_version and chunker_strategy on every drawer."""
     import os
 
-    from mempalace.convo_miner import mine_convos
-    from mempalace.version import __version__
+    from mempalace_code.convo_miner import mine_convos
+    from mempalace_code.version import __version__
 
     tmpdir = tempfile.mkdtemp()
     try:
@@ -1652,7 +1652,7 @@ def test_mine_optimize_disabled_via_env(monkeypatch):
 
         monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
 
-        with patch("mempalace.miner.get_collection") as mock_get_collection:
+        with patch("mempalace_code.miner.get_collection") as mock_get_collection:
             mock_store = _make_mock_store()
             mock_get_collection.return_value = mock_store
             mine(str(project_root), palace_path)
@@ -1712,7 +1712,7 @@ def test_mine_backup_before_optimize_env(monkeypatch):
         monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "1")
         monkeypatch.setenv("MEMPALACE_BACKUP_BEFORE_OPTIMIZE", "1")
 
-        with patch("mempalace.miner.get_collection") as mock_get_collection:
+        with patch("mempalace_code.miner.get_collection") as mock_get_collection:
             mock_store = _make_mock_store()
             mock_get_collection.return_value = mock_store
             mine(str(project_root), palace_path)
@@ -1868,7 +1868,7 @@ def test_mine_default_calls_safe_optimize_backup_first():
 
         palace_path = os.path.join(tmpdir, "palace")
 
-        with patch("mempalace.miner.get_collection") as mock_get_collection:
+        with patch("mempalace_code.miner.get_collection") as mock_get_collection:
             from unittest.mock import MagicMock
 
             mock_store = MagicMock()
@@ -2369,7 +2369,7 @@ def test_process_file_xaml_roundtrip():
     """
     import yaml
 
-    from mempalace.knowledge_graph import KnowledgeGraph
+    from mempalace_code.knowledge_graph import KnowledgeGraph
 
     tmpdir = tempfile.mkdtemp()
     try:

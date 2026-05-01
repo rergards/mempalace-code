@@ -28,12 +28,12 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-# Add project root to path so we can import mempalace
+# Add project root to path so we can import mempalace_code
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from mempalace.miner import process_file, scan_project  # noqa: E402
-from mempalace.storage import open_store  # noqa: E402
+from mempalace_code.miner import process_file, scan_project  # noqa: E402
+from mempalace_code.storage import open_store  # noqa: E402
 
 EMBED_MODEL = "all-MiniLM-L6-v2"
 R5_THRESHOLD = 0.800

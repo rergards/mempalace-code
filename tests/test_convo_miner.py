@@ -3,8 +3,8 @@ import shutil
 import tempfile
 from unittest.mock import patch
 
-from mempalace.convo_miner import mine_convos
-from mempalace.storage import open_store
+from mempalace_code.convo_miner import mine_convos
+from mempalace_code.storage import open_store
 
 
 def test_convo_mining():
@@ -38,7 +38,7 @@ def test_mine_convos_calls_optimize_once():
             )
 
         palace_path = os.path.join(tmpdir, "palace")
-        with patch("mempalace.convo_miner.get_collection") as mock_get_collection:
+        with patch("mempalace_code.convo_miner.get_collection") as mock_get_collection:
             from unittest.mock import MagicMock
 
             mock_store = MagicMock()
@@ -63,7 +63,7 @@ def test_mine_convos_default_calls_safe_optimize_backup_first():
             )
 
         palace_path = os.path.join(tmpdir, "palace")
-        with patch("mempalace.convo_miner.get_collection") as mock_get_collection:
+        with patch("mempalace_code.convo_miner.get_collection") as mock_get_collection:
             from unittest.mock import MagicMock
 
             mock_store = MagicMock()
@@ -88,7 +88,7 @@ def test_mine_convos_passes_spellcheck_true_by_default(tmp_path):
     convo_file.write_text("{}", encoding="utf-8")
     normalized = "> pleese remember this important decision\nAssistant response.\n" * 3
 
-    with patch("mempalace.convo_miner.normalize", return_value=normalized) as mock_normalize:
+    with patch("mempalace_code.convo_miner.normalize", return_value=normalized) as mock_normalize:
         mine_convos(str(tmp_path), str(tmp_path / "palace"), wing="test", dry_run=True)
 
     assert mock_normalize.call_args.kwargs["spellcheck"] is True
@@ -99,7 +99,7 @@ def test_mine_convos_passes_spellcheck_false_when_requested(tmp_path):
     convo_file.write_text("{}", encoding="utf-8")
     normalized = "> pleese remember this important decision\nAssistant response.\n" * 3
 
-    with patch("mempalace.convo_miner.normalize", return_value=normalized) as mock_normalize:
+    with patch("mempalace_code.convo_miner.normalize", return_value=normalized) as mock_normalize:
         mine_convos(
             str(tmp_path),
             str(tmp_path / "palace"),
@@ -127,9 +127,9 @@ def test_mine_convos_general_uses_default_extract_categories(tmp_path):
     ]
 
     with (
-        patch("mempalace.convo_miner.normalize", return_value=normalized),
+        patch("mempalace_code.convo_miner.normalize", return_value=normalized),
         patch(
-            "mempalace.general_extractor.extract_memories", return_value=extracted
+            "mempalace_code.general_extractor.extract_memories", return_value=extracted
         ) as mock_extract,
     ):
         mine_convos(
@@ -156,9 +156,9 @@ def test_mine_convos_general_passes_emotional_opt_in(tmp_path):
     ]
 
     with (
-        patch("mempalace.convo_miner.normalize", return_value=normalized),
+        patch("mempalace_code.convo_miner.normalize", return_value=normalized),
         patch(
-            "mempalace.general_extractor.extract_memories", return_value=extracted
+            "mempalace_code.general_extractor.extract_memories", return_value=extracted
         ) as mock_extract,
     ):
         mine_convos(

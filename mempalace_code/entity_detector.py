@@ -80,7 +80,7 @@ PROJECT_VERB_PATTERNS = [
     r"\bthe\s+{name}\s+system\b",
     r"\bthe\s+{name}\s+repo\b",
     r"\b{name}\s+v\d+\b",  # MemPal v2
-    r"\b{name}\.py\b",  # mempalace.py
+    r"\b{name}\.py\b",  # mempalace_code.py
     r"\b{name}-core\b",  # mempal-core (hyphen only, not underscore)
     r"\b{name}-local\b",
     r"\bimport\s+{name}\b",

@@ -56,7 +56,7 @@ items:
 
       Codex can display `Starting MCP servers ... mempalace` for about a minute even though the server is not hard-broken. Manual probing on 2026-05-01 showed raw stdio `initialize` and `tools/list` work, and `mempalace_list_wings` can read the real `/Users/rerg/.mempalace/palace`, but startup/read paths still pay heavy import and embedding costs.
 
-      Current `mempalace/mcp_server.py` imports `mempalace.miner` at module import time. `mempalace/miner.py` computes `BATCH_SIZE` by importing `torch`, and `LanceStore.__init__` initializes the sentence-transformers embedder even for count/taxonomy read calls.
+      Current `mempalace_code/mcp_server.py` imports `mempalace_code.miner` at module import time. `mempalace_code/miner.py` computes `BATCH_SIZE` by importing `torch`, and `LanceStore.__init__` initializes the sentence-transformers embedder even for count/taxonomy read calls.
 
       Autopilot depends on this package for MemPalace context prefetch and provider MCP access. A fix must preserve the live contract shown by Autopilot logs such as `mempalace prefetch: phase=plan status=hit ... wings=mempalace` and must not change the Codex MCP registration shape (`pipx` Python with `PYTHONPATH=/Users/rerg/dev/mempalace`).
 
@@ -71,7 +71,7 @@ items:
 
       ## Deliverable
 
-      Patch `mempalace/mcp_server.py`, `mempalace/miner.py`, and `mempalace/storage.py` with focused tests or smoke coverage for cheap MCP startup.
+      Patch `mempalace_code/mcp_server.py`, `mempalace_code/miner.py`, and `mempalace_code/storage.py` with focused tests or smoke coverage for cheap MCP startup.
 
       ## Acceptance Criteria
 
@@ -80,7 +80,7 @@ items:
       3. `mempalace_search`, `mempalace_code_search`, `mempalace_add_drawer`, and `mempalace_mine` still initialize embeddings on demand and keep existing behavior.
       4. Autopilot MemPalace prefetch still reports `status=hit` for a known local query against the real palace or a controlled test palace, and MCP tools remain available to Codex/Claude provider sessions.
       5. The existing Codex MCP config (`/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m mempalace.mcp_server` with repo `PYTHONPATH`) remains valid; no migration of user config is required.
-      6. Add regression tests or a scriptable smoke test that fails if `import mempalace.mcp_server` imports `torch`.
+      6. Add regression tests or a scriptable smoke test that fails if `import mempalace_code.mcp_server` or the source-compat `import mempalace.mcp_server` imports `torch`.
       7. Validate with targeted MCP/storage/miner tests, an Autopilot prefetch smoke check, and ruff.
     resolution: null
   # ── FUTURE — Post-v1 Ideas ─────────────────────────────────

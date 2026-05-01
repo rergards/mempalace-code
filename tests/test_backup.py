@@ -15,8 +15,8 @@ import time
 
 import pytest
 
-from mempalace.backup import create_backup, list_backups, render_schedule, restore_backup
-from mempalace.storage import open_store
+from mempalace_code.backup import create_backup, list_backups, render_schedule, restore_backup
+from mempalace_code.storage import open_store
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -211,7 +211,7 @@ def test_roundtrip_kg(seeded_kg, seeded_collection, palace_path, tmp_dir):
     restored_kg_path = os.path.join(tmp_dir, "restored_kg.sqlite3")
     restore_backup(out, restore_dir, kg_path=restored_kg_path)
 
-    from mempalace.knowledge_graph import KnowledgeGraph
+    from mempalace_code.knowledge_graph import KnowledgeGraph
 
     restored_kg = KnowledgeGraph(db_path=restored_kg_path)
     triples = restored_kg.query_entity("Max")
@@ -231,7 +231,7 @@ def test_roundtrip_kg(seeded_kg, seeded_collection, palace_path, tmp_dir):
 class TestAutoBackupDefault:
     def test_default_is_true(self, tmp_dir):
         """AC-1: fresh MempalaceConfig() has backup_before_optimize=True."""
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         cfg = MempalaceConfig(config_dir=os.path.join(tmp_dir, "cfg"))
         assert cfg.backup_before_optimize is True
@@ -240,7 +240,7 @@ class TestAutoBackupDefault:
 
     def test_legacy_env_opt_out(self, tmp_dir, monkeypatch):
         """AC-2: MEMPALACE_BACKUP_BEFORE_OPTIMIZE=0 overrides flipped default → False."""
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         monkeypatch.setenv("MEMPALACE_BACKUP_BEFORE_OPTIMIZE", "0")
         cfg = MempalaceConfig(config_dir=os.path.join(tmp_dir, "cfg"))
@@ -250,7 +250,7 @@ class TestAutoBackupDefault:
         """AC-3: config.json with backup_before_optimize=false is honored."""
         import json as _json
 
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         cfg_dir = os.path.join(tmp_dir, "cfg")
         os.makedirs(cfg_dir)
@@ -263,7 +263,7 @@ class TestAutoBackupDefault:
         """auto_backup_before_optimize file key takes precedence over backup_before_optimize."""
         import json as _json
 
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         cfg_dir = os.path.join(tmp_dir, "cfg")
         os.makedirs(cfg_dir)
@@ -275,7 +275,7 @@ class TestAutoBackupDefault:
 
     def test_auto_env_beats_legacy_env(self, tmp_dir, monkeypatch):
         """AC-12: MEMPALACE_AUTO_BACKUP_BEFORE_OPTIMIZE=1 wins over MEMPALACE_BACKUP_BEFORE_OPTIMIZE=0."""
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         monkeypatch.setenv("MEMPALACE_AUTO_BACKUP_BEFORE_OPTIMIZE", "1")
         monkeypatch.setenv("MEMPALACE_BACKUP_BEFORE_OPTIMIZE", "0")
@@ -284,7 +284,7 @@ class TestAutoBackupDefault:
 
     def test_backup_schedule_env_override(self, tmp_dir, monkeypatch):
         """MEMPALACE_BACKUP_SCHEDULE env var overrides the default 'off' value."""
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         monkeypatch.setenv("MEMPALACE_BACKUP_SCHEDULE", "DAILY")
         cfg = MempalaceConfig(config_dir=os.path.join(tmp_dir, "cfg"))
@@ -295,7 +295,7 @@ class TestAutoBackupDefault:
         """backup_schedule file key is honored when env var is absent."""
         import json as _json
 
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         cfg_dir = os.path.join(tmp_dir, "cfg")
         os.makedirs(cfg_dir)
@@ -306,7 +306,7 @@ class TestAutoBackupDefault:
 
     def test_backup_retain_count_default(self, tmp_dir):
         """backup_retain_count defaults to 0, which disables pruning."""
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         cfg = MempalaceConfig(config_dir=os.path.join(tmp_dir, "cfg"))
         assert cfg.backup_retain_count == 0
@@ -315,7 +315,7 @@ class TestAutoBackupDefault:
         """backup_retain_count file key is honored when env var is absent."""
         import json as _json
 
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         cfg_dir = os.path.join(tmp_dir, "cfg")
         os.makedirs(cfg_dir)
@@ -328,7 +328,7 @@ class TestAutoBackupDefault:
         """AC-5: MEMPALACE_BACKUP_RETAIN_COUNT wins over backup_retain_count."""
         import json as _json
 
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         cfg_dir = os.path.join(tmp_dir, "cfg")
         os.makedirs(cfg_dir)
@@ -344,7 +344,7 @@ class TestAutoBackupDefault:
         self, tmp_dir, monkeypatch, env_value
     ):
         """Invalid or negative env values fall back to disabled retention."""
-        from mempalace.config import MempalaceConfig
+        from mempalace_code.config import MempalaceConfig
 
         monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", env_value)
         cfg = MempalaceConfig(config_dir=os.path.join(tmp_dir, "cfg"))

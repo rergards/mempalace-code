@@ -285,7 +285,7 @@ def _messages_to_transcript(messages: list, spellcheck: bool = True) -> str:
     """Convert [(role, text), ...] to transcript format with > markers."""
     if spellcheck:
         try:
-            from mempalace.spellcheck import spellcheck_user_text
+            from mempalace_code.spellcheck import spellcheck_user_text
 
             _fix = spellcheck_user_text
         except ImportError:

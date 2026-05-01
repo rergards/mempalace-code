@@ -25,9 +25,9 @@ from typing import Iterable
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-import mempalace.miner as miner  # noqa: E402
-from mempalace.storage import DEFAULT_EMBED_MODEL, open_store  # noqa: E402
-from mempalace.version import __version__  # noqa: E402
+import mempalace_code.miner as miner  # noqa: E402
+from mempalace_code.storage import DEFAULT_EMBED_MODEL, open_store  # noqa: E402
+from mempalace_code.version import __version__  # noqa: E402
 
 SUPPORTED_MODES = ("naive", "smart", "treesitter")
 DEFAULT_DATASET = Path(__file__).resolve().parent / "data" / "code_retrieval_queries.json"

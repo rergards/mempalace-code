@@ -43,7 +43,7 @@ You can manually define who you are and what projects you work on by creating/ed
 Register mempalace-code as an MCP server so Gemini CLI can use its tools.
 
 ```bash
-gemini mcp add mempalace-code /absolute/path/to/mempalace-code/.venv/bin/python3 -m mempalace.mcp_server --scope user
+gemini mcp add mempalace-code /absolute/path/to/mempalace-code/.venv/bin/python3 -m mempalace_code.mcp_server --scope user
 ```
 *Note: Use the absolute path to ensure it works from any directory.*
 
