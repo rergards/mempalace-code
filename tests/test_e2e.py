@@ -546,8 +546,7 @@ def test_convo_miner_claude_json_e2e(tmp_path, monkeypatch):
     convo_dir.mkdir()
     palace_path = str(tmp_path / "palace")
 
-    # Synthetic Claude.ai JSON export (flat messages list).
-    # 3 user turns ensures chunk_exchanges() takes the exchange-pair path after normalize.
+    # Synthetic Claude.ai JSON export — flat messages list, 3 user/assistant turns.
     export_data = [
         {"role": "user", "content": "What database should we use for the retry queue?"},
         {
@@ -574,7 +573,7 @@ def test_convo_miner_claude_json_e2e(tmp_path, monkeypatch):
     count_after_first = store.count()
     assert count_after_first > 0, "mine_convos produced no drawers"
 
-    # AC-10: all stored drawers carry the expected provenance metadata
+    # all stored drawers carry the expected provenance metadata
     all_result = store.get(include=["documents", "metadatas"], limit=100)
     all_docs = all_result["documents"]
     all_metas = all_result["metadatas"]
@@ -589,7 +588,7 @@ def test_convo_miner_claude_json_e2e(tmp_path, monkeypatch):
         "Not all drawers have chunker_strategy=convo_turn_v1"
     )
 
-    # AC-10: semantic search finds the unique decision phrase
+    # semantic search finds the unique decision phrase
     search_result = store.query(
         query_texts=["sqlite retry budget decision three attempts"],
         n_results=count_after_first,
@@ -600,7 +599,7 @@ def test_convo_miner_claude_json_e2e(tmp_path, monkeypatch):
         "Search did not return the retry-related drawer"
     )
 
-    # AC-11: re-mine same directory — drawer count must not change
+    # re-mine same directory — drawer count must not change
     mine_convos(str(convo_dir), palace_path, wing="convo_e2e", spellcheck=False)
     count_after_second = open_store(palace_path, create=False).count()
     assert count_after_second == count_after_first, (
@@ -647,45 +646,45 @@ def test_layers_wake_up_recall_search_e2e(tmp_path, monkeypatch):
 
     stack = MemoryStack(palace_path=palace_path, identity_path=identity_path)
 
-    # AC-12: L0 identity renders the seeded file exactly
+    # L0 identity renders the seeded file exactly
     l0_text = stack.l0.render()
     assert l0_text == identity_text, f"Layer0 did not read identity file: {l0_text!r}"
     l0_tokens = len(l0_text) // 4
 
-    # AC-12: wake_up() = L0 + L1 must be strictly larger than L0 alone
+    # wake_up() = L0 + L1 must be strictly larger than L0 alone
     wakeup_text = stack.wake_up(wing=wing)
     wakeup_tokens = len(wakeup_text) // 4
     assert l0_tokens < wakeup_tokens, (
         f"L0 tokens ({l0_tokens}) not < wake_up tokens ({wakeup_tokens}); L1 may be empty"
     )
 
-    # AC-12: L1 section is present and contains project content
+    # L1 section is present and contains project content
     assert "## L1" in wakeup_text, "wake_up() missing ## L1 section"
     assert any(kw in wakeup_text.lower() for kw in ("compute", "dataprocessor", "backend")), (
         f"wake_up() L1 missing expected project content:\n{wakeup_text}"
     )
 
-    # AC-12: L2 recall adds content on top of wake_up
+    # L2 recall adds content on top of wake_up
     recall_text = stack.recall(wing=wing, room="backend")
     recall_tokens = len(recall_text) // 4
     assert recall_tokens > 0, (
         f"recall() returned empty for wing={wing} room=backend: {recall_text!r}"
     )
 
-    # AC-12: L2 header present and contains expected project content
+    # L2 header present and contains expected project content
     assert "## L2" in recall_text, "recall() missing ## L2 header"
     assert any(kw in recall_text.lower() for kw in ("compute", "dataprocessor", "service")), (
         f"recall() missing expected backend content:\n{recall_text}"
     )
 
-    # AC-12: L3 search returns project content
+    # L3 search returns project content
     search_text = stack.search("compute result function", wing=wing)
     assert "## L3" in search_text, "search() missing ## L3 header"
     assert any(kw in search_text.lower() for kw in ("compute", "result", "dataprocessor")), (
         f"search() missing expected project content:\n{search_text}"
     )
 
-    # AC-13: recall with missing wing returns no-drawers message, does not raise
+    # recall with missing wing returns no-drawers message, does not raise
     missing_recall = stack.recall(wing="missing_wing_xyz_e2e")
     assert "no drawers found" in missing_recall.lower(), (
         f"recall with missing wing should report no drawers, got: {missing_recall!r}"
@@ -741,7 +740,7 @@ def test_palace_graph_tunnels_e2e(tmp_path, monkeypatch):
 
     from mempalace.palace_graph import find_tunnels, graph_stats, traverse
 
-    # AC-14: find_tunnels returns "architecture" as a shared room with both wings
+    # find_tunnels returns "architecture" as a shared room with both wings
     tunnels = find_tunnels(col=store)
     tunnel_room_names = [t["room"] for t in tunnels]
     assert "architecture" in tunnel_room_names, (
@@ -755,7 +754,7 @@ def test_palace_graph_tunnels_e2e(tmp_path, monkeypatch):
         f"proj_beta missing from architecture tunnel wings: {arch_tunnel['wings']}"
     )
 
-    # AC-14: traverse from "architecture" reaches "backend" through the shared wing
+    # traverse from "architecture" reaches "backend" through the shared wing
     traversal = traverse("architecture", col=store)
     assert isinstance(traversal, list), f"traverse should return a list, got: {traversal!r}"
     traversal_rooms = [r["room"] for r in traversal]
@@ -767,13 +766,13 @@ def test_palace_graph_tunnels_e2e(tmp_path, monkeypatch):
         f"backend not connected via proj_alpha: {backend_entry}"
     )
 
-    # AC-14: graph_stats reports at least one tunnel room
+    # graph_stats reports at least one tunnel room
     stats = graph_stats(col=store)
     assert stats["tunnel_rooms"] >= 1, (
         f"Expected at least 1 tunnel room in graph_stats, got: {stats}"
     )
 
-    # AC-15: traverse on a non-existent room returns error dict with suggestions key
+    # traverse on a non-existent room returns error dict with suggestions key
     missing = traverse("nonexistent-room-xyz", col=store)
     assert isinstance(missing, dict), (
         f"traverse of missing room should return dict, got {type(missing).__name__}: {missing!r}"
