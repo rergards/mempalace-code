@@ -135,19 +135,27 @@ dataset targets `jasontaylordev/CleanArchitecture` tag `v7.0.0` at commit
 `5a600ab8749c110384bc3bd436b9c67f3067b489`.
 
 ```bash
-git clone --branch v7.0.0 --depth 1 \
-  https://github.com/jasontaylordev/CleanArchitecture.git \
-  /tmp/CleanArchitecture-v7.0.0
+# Fetch the pinned commit (reproducible; does not depend on a mutable tag)
+git init /tmp/CleanArchitecture
+git -C /tmp/CleanArchitecture remote add origin https://github.com/jasontaylordev/CleanArchitecture.git
+git -C /tmp/CleanArchitecture fetch --depth=1 origin 5a600ab8749c110384bc3bd436b9c67f3067b489
+git -C /tmp/CleanArchitecture checkout --detach FETCH_HEAD
 
 # Validate that the known-answer files exist in the pinned corpus
 python benchmarks/dotnet_bench.py \
-  --repo-dir /tmp/CleanArchitecture-v7.0.0 \
+  --repo-dir /tmp/CleanArchitecture \
   --validate-queries
 
-# Run the benchmark and write a JSON report
+# Run the benchmark and write a JSON report (warning-only, local dev)
 python benchmarks/dotnet_bench.py \
-  --repo-dir /tmp/CleanArchitecture-v7.0.0 \
+  --repo-dir /tmp/CleanArchitecture \
   --out /tmp/dotnet-bench.json
+
+# Run with the CI gate threshold (exits 1 when R@5 < 0.800)
+python benchmarks/dotnet_bench.py \
+  --repo-dir /tmp/CleanArchitecture \
+  --out /tmp/dotnet-bench.json \
+  --fail-under-r5 0.800
 ```
 
 The benchmark mines the target repo into a temporary LanceDB palace, then
@@ -164,10 +172,29 @@ Current v1.6.0 baseline on the pinned corpus:
 | Embed time | 10.0s |
 | Avg query latency | 13.9ms |
 
-R@5 is below the warning threshold (`0.800`). The benchmark is therefore useful
-as a reproducible baseline, not yet as a passing CI gate; `BENCH-DOTNET-CI-GATE`
-tracks adding the regression gate once the target threshold is either met or
-reset deliberately.
+> **Note:** R@5 is currently 0.600, below the CI gate threshold of 0.800. The
+> `.NET Benchmark` GitHub Actions workflow will therefore **fail on every run**
+> until retrieval quality improves. This is intentional — the gate documents the
+> quality target, not the current state. Do not lower the threshold; track
+> quality improvement separately.
+
+### CI Gate
+
+The workflow `.github/workflows/dotnet-bench.yml` runs on every pull request to
+`main` and every push to `main`. It:
+
+1. Fetches `jasontaylordev/CleanArchitecture` at the pinned commit
+   `5a600ab8749c110384bc3bd436b9c67f3067b489` and verifies `HEAD` matches.
+2. Runs `--validate-queries` to confirm expected files are present in the corpus.
+3. Runs the benchmark with `--fail-under-r5 0.800`; exits 1 when overall R@5
+   falls below 0.800.
+4. Uploads `benchmarks/results_dotnet_bench_ci.json` as a build artifact, even
+   on failure, so the report is always available.
+
+To skip the benchmark on a pull request (e.g. for documentation-only changes),
+add the **`skip-bench`** label. The job is skipped before cloning
+CleanArchitecture or downloading the embedding model. Pushes to `main` always
+run the benchmark regardless of labels.
 
 ## What Each Benchmark Tests
 

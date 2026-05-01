@@ -427,6 +427,13 @@ def main():
         "--out",
         help="Output JSON path (default: benchmarks/results_dotnet_bench_<date>.json)",
     )
+    parser.add_argument(
+        "--fail-under-r5",
+        type=float,
+        default=None,
+        metavar="THRESHOLD",
+        help="Exit 1 when overall R@5 is below THRESHOLD (e.g. 0.800); default: warn only",
+    )
     args = parser.parse_args()
 
     repo_dir = str(Path(args.repo_dir).resolve())
@@ -470,6 +477,17 @@ def main():
     with open(out_path, "w") as f:
         json.dump(output, f, indent=2)
     print(f"Results saved to: {out_path}")
+
+    # Threshold gate — enforce only when explicitly requested (CI path)
+    if args.fail_under_r5 is not None:
+        r5 = bench_results["code_retrieval"]["R@5"]
+        threshold = args.fail_under_r5
+        if r5 < threshold:
+            print(
+                f"\nFAIL: R@5 {r5:.3f} is below --fail-under-r5 threshold {threshold:.3f}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":

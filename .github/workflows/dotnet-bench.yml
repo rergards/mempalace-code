@@ -1,0 +1,73 @@
+name: .NET Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  dotnet-bench:
+    runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'skip-bench')) }}
+    env:
+      HF_HOME: ${{ github.workspace }}/.cache/huggingface
+      CLEAN_ARCHITECTURE_COMMIT: 5a600ab8749c110384bc3bd436b9c67f3067b489
+      R5_THRESHOLD: "0.800"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+
+      - name: Restore HuggingFace model cache
+        id: hf-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2
+          key: hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-
+
+      - run: pip install -e ".[dev,treesitter]"
+
+      - name: Fetch embedding model (no-op on cache hit)
+        run: mempalace-code fetch-model
+
+      - name: Fetch CleanArchitecture at pinned commit
+        run: |
+          git init /tmp/CleanArchitecture
+          git -C /tmp/CleanArchitecture remote add origin https://github.com/jasontaylordev/CleanArchitecture.git
+          git -C /tmp/CleanArchitecture fetch --depth=1 origin "$CLEAN_ARCHITECTURE_COMMIT"
+          git -C /tmp/CleanArchitecture checkout --detach FETCH_HEAD
+          ACTUAL=$(git -C /tmp/CleanArchitecture rev-parse HEAD)
+          if [ "$ACTUAL" != "$CLEAN_ARCHITECTURE_COMMIT" ]; then
+            echo "Commit mismatch: expected $CLEAN_ARCHITECTURE_COMMIT got $ACTUAL"
+            exit 1
+          fi
+
+      - name: Validate benchmark query set
+        run: |
+          python benchmarks/dotnet_bench.py \
+            --repo-dir /tmp/CleanArchitecture \
+            --validate-queries
+
+      - name: Run .NET retrieval benchmark with R@5 gate
+        run: |
+          python benchmarks/dotnet_bench.py \
+            --repo-dir /tmp/CleanArchitecture \
+            --out benchmarks/results_dotnet_bench_ci.json \
+            --fail-under-r5 ${{ env.R5_THRESHOLD }}
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-bench-results
+          path: benchmarks/results_dotnet_bench_ci.json
