@@ -383,3 +383,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: CODE-TREESITTER-PYTHON-DETACH-TEST
+      summary: Add negative test for detached-comment gap detection in _chunk_python_treesitter
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run

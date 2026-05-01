@@ -56,37 +56,6 @@ items:
       Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
 
     resolution: null
-  - key: CODE-TREESITTER-PYTHON-DETACH-TEST
-    summary: Add negative test for detached-comment gap detection in _chunk_python_treesitter
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: quality
-    labels: [testing, chunking, ast, python]
-    description: |-
-      ## Scope
-
-      Add a dedicated test function test_ast_detached_comment_not_absorbed to tests/test_chunking.py that verifies _chunk_python_treesitter's blank-line gap check correctly excludes detached comments from the following definition's chunk.
-
-      ## Problem
-
-      _chunk_python_treesitter uses b'\n\n' in source_bytes[prev.end_byte:next_sibling.start_byte] to decide whether a comment is attached to the following definition. The existing test test_ast_leading_comment_attached_to_def checks the positive case (attached comment IS in the same chunk) but has no negative assertion.
-
-      Because adaptive_merge_split merges small chunks, the current PYTHON_COMMENT_ATTACHED fixture produces a single merged output chunk at test scale, making it impossible to assert 'detached comment is NOT in standalone chunk'.
-
-      ## Deliverable
-
-      1. Extend PYTHON_COMMENT_ATTACHED fixture OR create a new fixture where def standalone has >= 400 chars of body, so it stays in its own final chunk after adaptive_merge_split.
-      2. Assert that the chunk containing 'def standalone' does NOT contain the detached comment text.
-
-      ## Acceptance Criteria
-
-      1. New test passes when tree-sitter-python is installed (Python 3.10+)
-      2. New test skips when tree-sitter-python is absent (uses _skip_if_no_ast guard)
-      3. New test would FAIL if the b'\n\n' gap check were removed from _chunk_python_treesitter
-      4. ruff check and ruff format pass
-    hardening_round_1: "2026-05-01 — fixed F-1 (low): test asserted only that the detached comment was absent from the standalone chunk, leaving a hypothetical comment-loss bug undetectable; added positive assertions that 'A detached comment' lands in the previous (def process) chunk and that the two chunks are distinct objects. Audit at docs/audits/CODE-TREESITTER-PYTHON-DETACH-TEST-round-1.md."
   - key: CODE-TREESITTER-GO-RUST-DETACH-TEST
     summary: Add negative tests for detached-comment gap detection in Go and Rust AST chunkers
     type: task
