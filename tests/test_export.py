@@ -401,6 +401,12 @@ class TestExportStreamsLargePalace:
         store = _store(palace)
         export_file = str(tmp_path / "large_export.jsonl")
 
+        # Skip real embeddings — AC: "No model loading required". The store still
+        # loads the embedder once via open_store() to read ndims(), but we bypass
+        # the per-document embed cost during the 5k-drawer seed.
+        ndims = store._embedder.ndims()  # type: ignore[attr-defined]
+        monkeypatch.setattr(store, "_embed", lambda texts: [[0.0] * ndims for _ in texts])
+
         n = 5000
         ids = [f"stream_{i:04d}" for i in range(n)]
         documents = [
@@ -452,12 +458,21 @@ class TestExportStreamsLargePalace:
         for dr in drawer_records:
             assert dr["embedding"] is None
 
-        # AC-2 / AC-3: at least one iter_all call must have produced >1 batch
+        # AC-2 / AC-3: at least one iter_all call must have produced >1 batch and
+        # the batches must sum to n (proves no rows lost in streaming).
+        assert per_call_batch_sizes, "iter_all was never invoked — export skipped streaming path"
         multi_batch_calls = [sizes for sizes in per_call_batch_sizes if len(sizes) > 1]
         assert multi_batch_calls, (
             f"No iter_all call observed more than one batch — batching is broken. "
             f"Per-call batch sizes: {per_call_batch_sizes}"
         )
+        for sizes in multi_batch_calls:
+            assert sum(sizes) == n, (
+                f"Batched iter_all yielded {sum(sizes)} rows, expected {n}: {sizes}"
+            )
+            assert max(sizes) <= 1000, (
+                f"At least one batch exceeded default batch_size=1000: {sizes}"
+            )
 
 
 # ── Version mismatch warning ─────────────────────────────────────────────────
