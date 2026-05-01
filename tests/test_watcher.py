@@ -11,6 +11,7 @@ Covers:
 
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -26,6 +27,7 @@ from mempalace_code.miner import ScanFilterRules
 from mempalace_code.watcher import (
     _invalidate_gitignore_cache,
     _is_relevant_change,
+    render_watch_schedule,
     watch_and_mine,
 )
 
@@ -645,6 +647,22 @@ class TestCliWatchDispatch:
         assert watch_calls[0]["project_dir"] == str(project)
         assert watch_calls[0]["palace_path"] == str(palace)
         assert watch_calls[0]["respect_gitignore"] is True
+
+
+# ---------------------------------------------------------------------------
+# Watch scheduler rendering
+# ---------------------------------------------------------------------------
+
+
+class TestRenderWatchSchedule:
+    def test_default_bin_falls_back_to_mempalace_code_module(self, tmp_path, monkeypatch):
+        """Generated daemon snippets should run the renamed package module."""
+        monkeypatch.setattr("shutil.which", lambda _name: None)
+
+        out = render_watch_schedule(str(tmp_path), "linux")
+
+        assert f"{shlex.quote(sys.executable)} -m mempalace_code watch" in out
+        assert "-m mempalace watch" not in out
 
 
 # ---------------------------------------------------------------------------

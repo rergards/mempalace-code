@@ -1,6 +1,6 @@
 [project]
 name = "mempalace-code"
-version = "1.6.2"
+version = "1.7.0"
 description = "Developer memory tool — mine codebases and conversations into a LanceDB-backed searchable palace. No API key required."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,10 +22,9 @@ classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Utilities",

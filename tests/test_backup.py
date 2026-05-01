@@ -10,6 +10,8 @@ Uses the shared fixtures from conftest.py:
 
 import json
 import os
+import shlex
+import sys
 import tarfile
 import time
 
@@ -542,16 +544,21 @@ class TestRenderSchedule:
 
     def test_cron_bin_with_spaces_is_shell_quoted(self, palace_path):
         """F-8: shell-quoting applied to binary path with spaces in cron snippet."""
-        import shlex
-
         bin_with_space = "/home/user/my apps/mempalace"
         out = render_schedule("daily", palace_path, "linux", mempalace_bin=bin_with_space)
         assert shlex.quote(bin_with_space) in out
 
     def test_plist_bin_with_spaces_is_shell_quoted(self, palace_path):
         """F-8: shell-quoting applied to binary path with spaces in launchd plist."""
-        import shlex
-
         bin_with_space = "/home/user/my apps/mempalace"
         out = render_schedule("daily", palace_path, "darwin", mempalace_bin=bin_with_space)
         assert shlex.quote(bin_with_space) in out
+
+    def test_default_bin_falls_back_to_mempalace_code_module(self, palace_path, monkeypatch):
+        """Packaged docs and generated schedules must use the renamed import module."""
+        monkeypatch.setattr("shutil.which", lambda _name: None)
+
+        out = render_schedule("daily", palace_path, "linux")
+
+        assert f"{shlex.quote(sys.executable)} -m mempalace_code backup create" in out
+        assert "-m mempalace backup" not in out

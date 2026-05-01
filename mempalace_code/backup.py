@@ -359,13 +359,16 @@ def render_schedule(
     backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
 
     if mempalace_bin is None:
-        mempalace_bin = _shutil.which("mempalace-code")
-        if mempalace_bin is None:
-            mempalace_bin = f"{sys.executable} -m mempalace"
+        resolved_bin = _shutil.which("mempalace-code")
+        if resolved_bin is None:
+            safe_bin = f"{_shlex.quote(sys.executable)} -m mempalace_code"
+        else:
+            safe_bin = _shlex.quote(resolved_bin)
+    else:
+        safe_bin = _shlex.quote(mempalace_bin)
 
     # F-8: shell-quote binary and dir to handle paths with spaces or special characters.
     # The $(date ...) suffix is kept unquoted so the shell expands it at runtime.
-    safe_bin = _shlex.quote(mempalace_bin)
     safe_dir = _shlex.quote(backups_dir)
     out_arg = f"{safe_dir}/scheduled_$(date +%Y%m%d_%H%M%S).tar.gz"
 

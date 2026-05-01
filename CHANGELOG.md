@@ -5,6 +5,36 @@ Current command/package names: the CLI is `mempalace-code`, the import package i
 Older historical entries may mention legacy `mempalace` names that were valid
 when those changes landed.
 
+## v1.7.0 — Unreleased
+
+### Added
+
+- Architecture extraction mode: `mempalace-code mine` now emits higher-level KG
+  facts for .NET (C#, F#, VB.NET) and Python projects, including pattern, layer,
+  namespace, and project membership facts.
+- Multi-repo palace sync: `mempalace-code mine-all` now mines multiple initialized
+  projects into one palace with one wing per project, explicit `wing:` overrides,
+  git-remote/folder wing auto-naming, duplicate-wing rejection before mining, and
+  incremental per-repo re-mining by default.
+- Release-grade coverage for backup/restore CLI dispatch, storage migration CLI
+  passthrough/error handling, Python multi-import dependency extraction,
+  devops/config file scanning, benchmark CI gates, watcher rule reloads, and
+  tree-sitter detached-comment behavior.
+
+### Changed
+
+- The shipped Python import namespace is `mempalace_code`; docs and generated
+  scheduler snippets prefer `mempalace-code` / `python -m mempalace_code` while
+  preserving the source-checkout `mempalace.mcp_server` compatibility shim.
+- Package metadata now matches the Python 3.11+ support floor.
+
+### Fixed
+
+- Watchers reload `scan_skip_dirs`, `scan_skip_files`, and `scan_skip_globs`
+  without restarting `mempalace-code watch`.
+- Generated backup/watch scheduler fallbacks no longer reference the legacy
+  `python -m mempalace` module path.
+
 ## 2026-05-02 · ARCH-EXTRACTION-MODE
 
 Architecture extraction mode: `mempalace-code mine` now runs a post-mining pass

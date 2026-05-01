@@ -686,11 +686,14 @@ def render_watch_schedule(
     safe_dir = _shlex.quote(str(Path(parent_dir).expanduser().resolve()))
 
     if mempalace_bin is None:
-        mempalace_bin = _shutil.which("mempalace-code")
-        if mempalace_bin is None:
-            mempalace_bin = f"{sys.executable} -m mempalace"
+        resolved_bin = _shutil.which("mempalace-code")
+        if resolved_bin is None:
+            safe_bin = f"{_shlex.quote(sys.executable)} -m mempalace_code"
+        else:
+            safe_bin = _shlex.quote(resolved_bin)
+    else:
+        safe_bin = _shlex.quote(mempalace_bin)
 
-    safe_bin = _shlex.quote(mempalace_bin)
     cmd = f"{safe_bin} watch {safe_dir}"
 
     if platform == "linux":
