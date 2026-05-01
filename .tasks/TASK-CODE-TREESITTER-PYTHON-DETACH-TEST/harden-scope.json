@@ -1,0 +1,10 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/BACKLOG.yaml",
+    "docs/audits/CODE-TREESITTER-PYTHON-DETACH-TEST-round-1.md",
+    "tests/test_chunking.py"
+  ],
+  "before_sha": "7287bb2",
+  "timestamp": "2026-05-01T20:01:54Z"
+}
