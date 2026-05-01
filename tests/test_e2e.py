@@ -671,9 +671,6 @@ def test_layers_wake_up_recall_search_e2e(tmp_path, monkeypatch):
     assert recall_tokens > 0, (
         f"recall() returned empty for wing={wing} room=backend: {recall_text!r}"
     )
-    assert wakeup_tokens < wakeup_tokens + recall_tokens, (
-        "recall tokens are zero — L2 returned no content"
-    )
 
     # AC-12: L2 header present and contains expected project content
     assert "## L2" in recall_text, "recall() missing ## L2 header"
