@@ -77,32 +77,6 @@ items:
       Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
 
     resolution: null
-  - key: STORE-SCHEMA-PARTIAL-MIGRATE-TEST
-    summary: 'Add test: partial schema migration roundtrip (intermediate-column-count palace)'
-    type: task
-    status: done
-    priority: low
-    size: S
-    section_id: quality
-    labels: [storage, testing, migration]
-    description: |-
-      ## Problem
-      The existing TestSchemaMigration tests only cover migration from the bare 9-column legacy schema to the current full schema. No test exercises the intermediate case — a palace created at an intermediate release that already has some newer columns but not all.
-
-      ## Scope
-      tests/test_storage.py::TestSchemaMigration — add one new test method.
-
-      ## Deliverable
-      test_write_with_all_metadata_after_partial_migration: build a 12-column legacy table (9 original + hall + language + symbol_name), open it to trigger partial migration, store.add() with all _META_FIELD_SPEC fields, store.get() and assert every field roundtrips.
-
-      ## Acceptance Criteria
-      1. A 12-column legacy table (includes hall/language/symbol_name, excludes source_hash/extractor_version/chunker_strategy) is created directly via lancedb.
-      2. open_store triggers migration adding only the missing columns.
-      3. store.add() succeeds with all _META_FIELD_SPEC sentinel values.
-      4. store.get() returns all fields with correct sentinel values.
-      5. ruff clean.
-    resolution: "2026-05-01: Added TestSchemaMigration.test_write_with_all_metadata_after_partial_migration seeding a 12-column intermediate palace (9 original + hall/language/symbol_name) with one pre-existing row, opening via open_store to trigger partial migration, then asserting (a) the migration log lists exactly the absent columns, (b) the pre-existing row preserves its 12-column values and gets _META_FIELD_SPEC defaults for newly-added columns, and (c) full _META_FIELD_SPEC roundtrip for a freshly written drawer. Hardening replaced bare-substring log checks with list-repr-quoted matches and strengthened `any` to `all` so every absent column must appear in the migration log."
-    done_summary: "Partial schema migration is now covered by an integration test that builds a 12-col intermediate table directly via lancedb, exercises open_store-triggered migration, and verifies pre-existing-row preservation, default-fill for absent columns, and full-metadata roundtrip after migration. 9/9 TestSchemaMigration tests pass."
   - key: BENCH-RESULTS-MISSING-FILES
     summary: Commit or document missing benchmark results files (results_*.jsonl)
     type: task
