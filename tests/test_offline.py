@@ -17,12 +17,11 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.needs_network
-def test_search_works_offline_after_fetch(tmp_path, monkeypatch):
-    """After fetch_model, querying the store must succeed with HF offline flags set."""
-    # Use a CI-provided shared cache when available; otherwise isolate to a fresh temp dir.
-    # MEMPALACE_TEST_HF_HOME is set by the model-backed CI job so the downloaded model
-    # survives across test runs without being re-downloaded into a throwaway directory.
+def _configure_hf_home(tmp_path: Path, monkeypatch) -> str:
+    """Select and configure HF_HOME, mirroring the CI-cache/tmp-cache branch logic.
+
+    Returns the resolved HF_HOME string after setting it via monkeypatch.
+    """
     ci_hf_home = os.environ.get("MEMPALACE_TEST_HF_HOME")
     if ci_hf_home:
         hf_home = ci_hf_home
@@ -30,6 +29,41 @@ def test_search_works_offline_after_fetch(tmp_path, monkeypatch):
         hf_home = str(tmp_path / "hf")
         Path(hf_home).mkdir()
     monkeypatch.setenv("HF_HOME", hf_home)
+    return hf_home
+
+
+@pytest.mark.parametrize(
+    "use_ci_cache",
+    [True, False],
+    ids=["ci_cache", "tmp_cache"],
+)
+def test_hf_home_selection(tmp_path, monkeypatch, use_ci_cache):
+    """Branch-selection unit test: no model download, runs without needs_network."""
+    if use_ci_cache:
+        ci_path = str(tmp_path / "shared_hf")
+        monkeypatch.setenv("MEMPALACE_TEST_HF_HOME", ci_path)
+    else:
+        monkeypatch.delenv("MEMPALACE_TEST_HF_HOME", raising=False)
+
+    result = _configure_hf_home(tmp_path, monkeypatch)
+
+    if use_ci_cache:
+        assert result == str(tmp_path / "shared_hf")
+        assert os.environ["HF_HOME"] == str(tmp_path / "shared_hf")
+        assert not (tmp_path / "hf").exists()
+    else:
+        assert result == str(tmp_path / "hf")
+        assert os.environ["HF_HOME"] == str(tmp_path / "hf")
+        assert (tmp_path / "hf").is_dir()
+
+
+@pytest.mark.needs_network
+def test_search_works_offline_after_fetch(tmp_path, monkeypatch):
+    """After fetch_model, querying the store must succeed with HF offline flags set."""
+    # Use a CI-provided shared cache when available; otherwise isolate to a fresh temp dir.
+    # MEMPALACE_TEST_HF_HOME is set by the model-backed CI job so the downloaded model
+    # survives across test runs without being re-downloaded into a throwaway directory.
+    _configure_hf_home(tmp_path, monkeypatch)
 
     # Step 1 — download the model (network allowed here)
     from mempalace_code.cli import fetch_model
