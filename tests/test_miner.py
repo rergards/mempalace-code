@@ -350,6 +350,109 @@ def test_scan_project_include_override_beats_app_scan_excludes():
 
 
 # =============================================================================
+# MINE-SCAN-GLOB-DIR-PRUNE — Subtree skip-glob directory pruning
+# =============================================================================
+
+_SUBTREE_PRUNE_RULES = ScanFilterRules(
+    skip_dirs=frozenset(),
+    skip_files=frozenset(),
+    skip_globs=["build/**", "generated/**/*", "dist/**"],
+)
+
+_FILE_LEVEL_GLOB_RULES = ScanFilterRules(
+    skip_dirs=frozenset(),
+    skip_files=frozenset(),
+    skip_globs=["generated/**/*.js"],
+)
+
+
+def test_scan_project_prunes_subtree_skip_globs_at_walk_time():
+    """AC-1: subtree-coverage globs prune directories at walk time."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "build" / "output.py", "x = 1\n" * 20)
+        write_file(project_root / "build" / "nested" / "deep.py", "y = 2\n" * 20)
+        write_file(project_root / "generated" / "bundle.js", "var x=1;\n" * 20)
+        write_file(project_root / "generated" / "sub" / "api.py", "z = 3\n" * 20)
+        write_file(project_root / "dist" / "app.min.js", "var y=2;\n" * 20)
+        write_file(project_root / "src" / "main.py", "def main(): pass\n" * 20)
+
+        walked_roots = []
+        _real_walk = os.walk
+
+        def _tracking_walk(path, **kwargs):
+            for root, dirs, files in _real_walk(path, **kwargs):
+                walked_roots.append(Path(root))
+                yield root, dirs, files
+
+        with patch("mempalace.miner.os.walk", _tracking_walk):
+            result = scanned_files(
+                project_root, respect_gitignore=False, scan_rules=_SUBTREE_PRUNE_RULES
+            )
+
+        assert "src/main.py" in result
+        assert "build/output.py" not in result
+        assert "build/nested/deep.py" not in result
+        assert "generated/bundle.js" not in result
+        assert "generated/sub/api.py" not in result
+        assert "dist/app.min.js" not in result
+
+        walked_rel = {
+            r.relative_to(project_root).as_posix() for r in walked_roots if r != project_root
+        }
+        assert "build" not in walked_rel, "os.walk should not have descended into build/"
+        assert "build/nested" not in walked_rel
+        assert "generated" not in walked_rel, "os.walk should not have descended into generated/"
+        assert "generated/sub" not in walked_rel
+        assert "dist" not in walked_rel, "os.walk should not have descended into dist/"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_keeps_non_coverage_globs_file_level_only():
+    """AC-3: file-specific globs don't prune the directory — only matching files are excluded."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "generated" / "bundle.js", "var x=1;\n" * 20)
+        write_file(project_root / "generated" / "data.py", "x = 1\n" * 20)
+
+        result = scanned_files(
+            project_root, respect_gitignore=False, scan_rules=_FILE_LEVEL_GLOB_RULES
+        )
+
+        assert "generated/bundle.js" not in result
+        assert "generated/data.py" in result
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_include_override_beats_subtree_skip_glob():
+    """AC-4: include_ignored path inside a subtree-pruned dir is still returned."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "build" / "special.py", "x = 1\n" * 20)
+        write_file(project_root / "build" / "other.py", "y = 2\n" * 20)
+
+        result = scanned_files(
+            project_root,
+            respect_gitignore=False,
+            include_ignored=["build/special.py"],
+            scan_rules=_SUBTREE_PRUNE_RULES,
+        )
+
+        assert "build/special.py" in result
+        assert "build/other.py" not in result
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+# =============================================================================
 # Integration tests — smart chunking through process_file() and mine()
 # =============================================================================
 

@@ -23,6 +23,7 @@ from .miner import (
     SKIP_FILENAMES,
     ScanFilterRules,
     get_scan_filter_rules,
+    is_dir_subtree_excluded,
     is_exact_force_include,
     is_force_included,
     is_gitignored,
@@ -78,6 +79,12 @@ def _is_relevant_change(
             scan_rules is not None and part in scan_rules.skip_dirs
         )
         if excluded_dir and not is_force_included(parent_path, project_path, include_paths):
+            return False
+        if (
+            scan_rules is not None
+            and is_dir_subtree_excluded(parent_path, project_path, scan_rules)
+            and not is_force_included(parent_path, project_path, include_paths)
+        ):
             return False
 
     force_include = is_force_included(file_path, project_path, include_paths)

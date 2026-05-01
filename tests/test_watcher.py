@@ -251,6 +251,59 @@ class TestIsRelevantChange:
             scan_rules=rules,
         )
 
+    # --- MINE-SCAN-GLOB-DIR-PRUNE: subtree skip-glob pruning ---
+
+    def test_subtree_skip_glob_rejects_descendant_change(self, proj):
+        """AC-2: _is_relevant_change() returns False for paths under a subtree skip glob."""
+        rules = ScanFilterRules(
+            skip_dirs=frozenset(),
+            skip_files=frozenset(),
+            skip_globs=["build/**"],
+        )
+        assert not _is_relevant_change(str(proj / "build" / "output.py"), proj, scan_rules=rules)
+        assert not _is_relevant_change(
+            str(proj / "build" / "sub" / "deep.py"), proj, scan_rules=rules
+        )
+
+    def test_subtree_skip_glob_multi_segment_prefix(self, proj):
+        """Subtree glob with a multi-segment prefix (src/generated/**) prunes the right dir."""
+        rules = ScanFilterRules(
+            skip_dirs=frozenset(),
+            skip_files=frozenset(),
+            skip_globs=["src/generated/**"],
+        )
+        assert not _is_relevant_change(
+            str(proj / "src" / "generated" / "api.py"), proj, scan_rules=rules
+        )
+        # Sibling directory is not affected
+        assert _is_relevant_change(str(proj / "src" / "app.py"), proj, scan_rules=rules)
+
+    def test_non_coverage_globs_remain_file_level_only(self, proj):
+        """AC-3: file-specific globs don't prune the directory."""
+        rules = ScanFilterRules(
+            skip_dirs=frozenset(),
+            skip_files=frozenset(),
+            skip_globs=["generated/**/*.js"],
+        )
+        assert not _is_relevant_change(
+            str(proj / "generated" / "bundle.js"), proj, scan_rules=rules
+        )
+        assert _is_relevant_change(str(proj / "generated" / "data.py"), proj, scan_rules=rules)
+
+    def test_include_override_beats_subtree_skip_glob(self, proj):
+        """AC-4: include_ignored path inside a subtree-pruned dir is accepted."""
+        rules = ScanFilterRules(
+            skip_dirs=frozenset(),
+            skip_files=frozenset(),
+            skip_globs=["build/**"],
+        )
+        assert _is_relevant_change(
+            str(proj / "build" / "special.py"),
+            proj,
+            include_ignored=["build/special.py"],
+            scan_rules=rules,
+        )
+
 
 # ---------------------------------------------------------------------------
 # _invalidate_gitignore_cache() unit tests

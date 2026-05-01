@@ -391,6 +391,48 @@ def is_scan_excluded(
     return False
 
 
+def _subtree_glob_prefix(pattern: str) -> Optional[str]:
+    """Return the literal directory prefix if *pattern* covers an entire subtree, else None.
+
+    A pattern covers a whole subtree when every segment at and after the first ``**``
+    is either ``**`` or a bare ``*`` (no extension, no character class, no literal suffix).
+    Examples that return a prefix: ``build/**`` → ``"build"``, ``generated/**/*`` → ``"generated"``,
+    ``src/gen/**`` → ``"src/gen"``, ``**`` → ``""``.
+    Examples that return None: ``generated/**/*.js``, ``**/*.py``, ``**/bundle.*``.
+    """
+    parts = pattern.split("/")
+    if "**" not in parts:
+        return None
+    star_idx = parts.index("**")
+    for part in parts[star_idx:]:
+        if part not in ("**", "*"):
+            return None
+    return "/".join(parts[:star_idx]).strip("/")
+
+
+def is_dir_subtree_excluded(dir_path: Path, project_path: Path, rules: ScanFilterRules) -> bool:
+    """Return True if *dir_path* is fully covered by a subtree skip glob.
+
+    Only unambiguous whole-subtree patterns (e.g. ``build/**``, ``generated/**/*``) are
+    eligible. File-specific patterns like ``generated/**/*.js`` are not, and continue to
+    be evaluated per-file via ``is_scan_excluded``.
+    """
+    if not rules.skip_globs:
+        return False
+    try:
+        rel = dir_path.relative_to(project_path).as_posix().strip("/")
+    except ValueError:
+        return False
+    for pattern in rules.skip_globs:
+        prefix = _subtree_glob_prefix(pattern)
+        if prefix is None:
+            continue
+        # Empty prefix means the pattern covers the entire project tree.
+        if not prefix or rel == prefix or rel.startswith(f"{prefix}/"):
+            return True
+    return False
+
+
 # =============================================================================
 # CONFIG
 # =============================================================================
@@ -2608,6 +2650,7 @@ def scan_project(
                 should_skip_dir(d)
                 or (dotnet_project and d == "bin")
                 or is_scan_excluded(root_path / d, project_path, scan_rules, is_dir=True)
+                or is_dir_subtree_excluded(root_path / d, project_path, scan_rules)
             )
         ]
         if respect_gitignore and active_matchers:
