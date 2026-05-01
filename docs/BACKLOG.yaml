@@ -166,35 +166,6 @@ items:
     links:
       - type: is-blocked-by
         key: CLARIFY-MINE-ANSIBLE
-  - key: BENCH-DOTNET-CI-GATE
-    summary: Add CI gate for dotnet benchmark R@5 regression detection
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: quality
-    labels: [bench, dotnet, ci, quality]
-    hardening_round_1: "2026-05-01 — 4 findings, all dismissed (no fixes required). F-1: JSON-written-before-gate ordering is load-bearing for the if:always() artifact upload, verified by test_threshold_fail. F-2: argparse permits out-of-range thresholds but workflow pins R5_THRESHOLD=0.800 so misuse is bounded. F-3: workflow omits timeout-minutes/permissions to match ci.yml style. F-4: test stub bypasses run_bench aggregation but that is appropriate scoping for a gate unit test. Audit at docs/audits/BENCH-DOTNET-CI-GATE-round-1.md."
-    description: |-
-      ## Problem
-      dotnet_bench.py prints a warning when R@5 < 0.800 but exits 0, so regressions in C#/.NET mining quality are silent. No automated run exists in CI.
-
-      ## Scope
-      - Add a GitHub Actions workflow that clones jasontaylordev/CleanArchitecture at a pinned commit and runs dotnet_bench.py.
-      - Make the job fail with exit code 1 when overall R@5 < R5_THRESHOLD (0.800).
-      - Archive results JSON as a build artifact.
-      - Pin the CleanArchitecture commit hash in the workflow or a fixture file.
-
-      ## Acceptance Criteria
-      - [ ] CI workflow runs dotnet_bench.py on PR and main pushes (can be skipped with label 'skip-bench').
-      - [ ] Job fails with exit code 1 when overall R@5 < 0.800.
-      - [ ] Results JSON is uploaded as artifact.
-      - [ ] Pinned CleanArchitecture commit hash is documented.
-
-      ## Constraints
-      - BENCH-DOTNET-CLONE-REPO is complete: use CleanArchitecture tag v7.0.0 at 5a600ab8749c110384bc3bd436b9c67f3067b489.
-      - Current pinned-corpus baseline is R@5=0.600 / R@10=0.850, below the existing R5_THRESHOLD=0.800 warning level.
-      - CI machine must have Python 3.9+ and sentence-transformers available.
   - key: ARCH-EXTRACTION-MODE
     summary: 'Architecture extraction mode: produce higher-level entities'
     type: task
