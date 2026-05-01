@@ -418,3 +418,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: STORE-MIGRATE-CLI-TEST-EXPAND
+      summary: 'Expand migrate-storage CLI tests: --verify, --embed-model, RuntimeError exit path'
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
