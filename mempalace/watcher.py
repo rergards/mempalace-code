@@ -9,6 +9,7 @@ Install the optional extra before use:
     pip install 'mempalace[watch]'
 """
 
+import json
 import os
 import signal
 import sys
@@ -16,6 +17,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Optional
+
+_UNSET: object = object()  # sentinel for _ScanRulesSnapshot._bad_mtime
 
 from .miner import (
     KNOWN_FILENAMES,
@@ -44,6 +47,50 @@ def _invalidate_gitignore_cache(changes, matcher_cache: dict) -> None:
     for _change_type, path in changes:
         if Path(path).name == ".gitignore":
             matcher_cache.pop(Path(path).parent, None)
+
+
+class _ScanRulesSnapshot:
+    """Polls ~/.mempalace/config.json mtime and refreshes ScanFilterRules per batch.
+
+    Designed for use at debounce batch boundaries in watcher loops. Missing config,
+    permission errors, and malformed JSON are handled gracefully — the last good rules
+    are retained and the watcher keeps running.
+    """
+
+    def __init__(self, rules: ScanFilterRules) -> None:
+        self._rules = rules
+        self._config_path = Path(os.path.expanduser("~/.mempalace/config.json"))
+        self._last_mtime: Optional[float] = self._read_mtime()
+        self._bad_mtime: object = _UNSET
+
+    def _read_mtime(self) -> Optional[float]:
+        try:
+            return self._config_path.stat().st_mtime
+        except OSError:
+            return None
+
+    def refresh(self) -> ScanFilterRules:
+        """Check config mtime; reload ScanFilterRules if the file changed.
+
+        Returns the current (possibly refreshed) rules. Call once per watchfiles
+        batch before relevance filtering. Safe without locks — ScanFilterRules is
+        immutable and batches are processed sequentially.
+        """
+        current_mtime = self._read_mtime()
+        if current_mtime == self._last_mtime:
+            return self._rules
+        if self._bad_mtime is not _UNSET and current_mtime == self._bad_mtime:
+            return self._rules
+        try:
+            if self._config_path.exists():
+                with open(self._config_path, encoding="utf-8") as f:
+                    json.load(f)  # validate JSON before delegating to full reload
+            self._rules = get_scan_filter_rules()
+            self._last_mtime = current_mtime
+            self._bad_mtime = _UNSET
+        except (OSError, ValueError):
+            self._bad_mtime = current_mtime
+        return self._rules
 
 
 def _is_relevant_change(
@@ -165,8 +212,9 @@ def watch_and_mine(
         print(f"  Error: directory not found: {project_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Load app-level scan rules once; reuse for every _is_relevant_change() call.
+    # Load app-level scan rules; snapshot polls config mtime at each batch boundary.
     scan_rules = get_scan_filter_rules()
+    snapshot = _ScanRulesSnapshot(scan_rules)
 
     print(f"  Watching: {project_path}")
     print(f"  Palace:   {palace_path}")
@@ -220,6 +268,9 @@ def watch_and_mine(
             # Evict stale gitignore matchers before filtering — same-batch events
             # (e.g. .gitignore change + affected file) must see fresh state.
             _invalidate_gitignore_cache(changes, matcher_cache)
+
+            # Refresh scan rules once per batch before relevance filtering.
+            scan_rules = snapshot.refresh()
 
             # Discard irrelevant OS events (compiled files, git internals, etc.)
             relevant = [
@@ -433,8 +484,9 @@ def watch_all(
         watch_paths = [str(p) for p in project_map]
         git_to_project = {}
 
-    # Load app-level scan rules once; reuse for every _is_relevant_change() call.
+    # Load app-level scan rules; snapshot polls config mtime at each batch boundary.
     scan_rules = get_scan_filter_rules()
+    snapshot = _ScanRulesSnapshot(scan_rules)
 
     matcher_cache: dict = {}
     shutdown_event = threading.Event()
@@ -505,6 +557,9 @@ def watch_all(
             else:
                 # File-save mode: filter and group by project
                 _invalidate_gitignore_cache(changes, matcher_cache)
+
+                # Refresh scan rules once per batch before relevance filtering.
+                scan_rules = snapshot.refresh()
 
                 by_project: dict = {}
                 for change_type, path in changes:

@@ -9,9 +9,12 @@ Covers:
   - CLI dispatch: cmd_mine dispatches to watch_and_mine() with correct args
 """
 
+import json
+import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -20,7 +23,11 @@ import yaml
 
 from mempalace.cli import main
 from mempalace.miner import ScanFilterRules
-from mempalace.watcher import _invalidate_gitignore_cache, _is_relevant_change, watch_and_mine
+from mempalace.watcher import (
+    _invalidate_gitignore_cache,
+    _is_relevant_change,
+    watch_and_mine,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -504,6 +511,44 @@ class TestWatchAndMine:
         assert mine_calls[0]["respect_gitignore"] is False
         assert mine_calls[0]["include_ignored"] == ["vendor/special.py"]
 
+    def test_watch_reload_scan_rules_after_config_edit(self, tmp_path, monkeypatch):
+        """Config edit adding workspace.json to scan_skip_files filters the next batch."""
+        from watchfiles import Change
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        mempalace_dir = fake_home / ".mempalace"
+        mempalace_dir.mkdir()
+        config_file = mempalace_dir / "config.json"
+        config_file.write_text(json.dumps({"scan_skip_files": []}), encoding="utf-8")
+        past = time.time() - 2
+        os.utime(config_file, (past, past))
+
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        def fake_watch(*args, stop_event=None, **kwargs):
+            config_file.write_text(
+                json.dumps({"scan_skip_files": ["workspace.json"]}), encoding="utf-8"
+            )
+            yield {(Change.modified, str(project / "workspace.json"))}
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with (
+            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=fake_watch),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        # Only the initial mine — workspace.json was filtered by the refreshed rules
+        assert len(mine_calls) == 1
+
 
 # ---------------------------------------------------------------------------
 # SIGTERM handling — subprocess (slow)
@@ -597,3 +642,174 @@ class TestCliWatchDispatch:
         assert watch_calls[0]["project_dir"] == str(project)
         assert watch_calls[0]["palace_path"] == str(palace)
         assert watch_calls[0]["respect_gitignore"] is True
+
+
+# ---------------------------------------------------------------------------
+# watch_all() — on_commit=False live-reload test (AC-2)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchAll:
+    def test_watch_all_on_save_reload_scan_rules_after_config_edit(self, tmp_path, monkeypatch):
+        """watch_all on_commit=False reloads scan rules mid-watch; skipped file is not re-mined."""
+        from watchfiles import Change
+
+        from mempalace.watcher import watch_all
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        mempalace_dir = fake_home / ".mempalace"
+        mempalace_dir.mkdir()
+        config_file = mempalace_dir / "config.json"
+        config_file.write_text(json.dumps({"scan_skip_files": []}), encoding="utf-8")
+        past = time.time() - 2
+        os.utime(config_file, (past, past))
+
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        def fake_watch(*args, stop_event=None, **kwargs):
+            config_file.write_text(
+                json.dumps({"scan_skip_files": ["workspace.json"]}), encoding="utf-8"
+            )
+            yield {(Change.modified, str(project / "workspace.json"))}
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        fake_projects = [{"path": str(project), "initialized": True}]
+
+        with (
+            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=fake_watch),
+            patch("mempalace.miner.detect_projects", return_value=fake_projects),
+            patch("mempalace.miner.derive_wing_name", return_value="test_wing"),
+            patch("mempalace.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace.storage.open_store"),
+        ):
+            watch_all(str(tmp_path), str(tmp_path / "palace"), on_commit=False)
+
+        # Only the initial mine — workspace.json was filtered by the refreshed rules
+        assert len(mine_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# _ScanRulesSnapshot unit tests (AC-3, AC-4, AC-5)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchScanRuleReload:
+    def test_malformed_config_keeps_last_good_rules(self, tmp_path, monkeypatch):
+        """Malformed config.json does not raise; previous ScanFilterRules decide relevance."""
+        from watchfiles import Change
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        mempalace_dir = fake_home / ".mempalace"
+        mempalace_dir.mkdir()
+        config_file = mempalace_dir / "config.json"
+        config_file.write_text(
+            json.dumps({"scan_skip_files": ["workspace.json"]}), encoding="utf-8"
+        )
+        past = time.time() - 2
+        os.utime(config_file, (past, past))
+
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        def fake_watch(*args, stop_event=None, **kwargs):
+            config_file.write_text("{bad json", encoding="utf-8")
+            yield {(Change.modified, str(project / "workspace.json"))}
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with (
+            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=fake_watch),
+        ):
+            # Must not raise despite malformed config
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        # Previous rules (skip workspace.json) still apply — no re-mine triggered
+        assert len(mine_calls) == 1
+
+    def test_config_created_after_watch_start_reloads_rules(self, tmp_path, monkeypatch):
+        """Config created mid-watch causes rules to reload on the next batch."""
+        from watchfiles import Change
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        (fake_home / ".mempalace").mkdir()
+        config_file = fake_home / ".mempalace" / "config.json"
+        # No config initially — defaults apply (workspace.json not in skip_files)
+
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        def fake_watch(*args, stop_event=None, **kwargs):
+            config_file.write_text(
+                json.dumps({"scan_skip_files": ["workspace.json"]}), encoding="utf-8"
+            )
+            yield {(Change.modified, str(project / "workspace.json"))}
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with (
+            patch("mempalace.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=fake_watch),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        # Config created mid-watch loaded new rules; workspace.json filtered — no re-mine
+        assert len(mine_calls) == 1
+
+    def test_reload_check_runs_once_per_batch(self, tmp_path, monkeypatch):
+        """A batch with multiple changed files triggers exactly one config freshness check."""
+        from watchfiles import Change  # noqa: E402
+
+        import mempalace.watcher as watcher_module
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        (fake_home / ".mempalace").mkdir()
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        batch = {
+            (Change.modified, str(project / "a.py")),
+            (Change.modified, str(project / "b.py")),
+            (Change.modified, str(project / "c.py")),
+        }
+
+        refresh_calls = []
+        original_refresh = watcher_module._ScanRulesSnapshot.refresh
+
+        def tracking_refresh(self):
+            refresh_calls.append(True)
+            return original_refresh(self)
+
+        with (
+            patch.object(watcher_module._ScanRulesSnapshot, "refresh", tracking_refresh),
+            patch("mempalace.watcher.mine", return_value=None),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([batch])),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        # One batch → exactly one refresh call
+        assert len(refresh_calls) == 1
