@@ -173,8 +173,11 @@ class TestInitNonInteractiveOnboarding:
         import yaml
 
         cfg = yaml.safe_load(config_path.read_text())
-        assert cfg["wing"] == "myproject", f"wing must derive from dir name, got {cfg.get('wing')!r}"
-        assert isinstance(cfg["rooms"], list) and len(cfg["rooms"]) >= 1
+        assert cfg["wing"] == "myproject", (
+            f"wing must derive from dir name, got {cfg.get('wing')!r}"
+        )
+        assert isinstance(cfg["rooms"], list)
+        assert len(cfg["rooms"]) >= 1
         assert all("name" in r for r in cfg["rooms"]), "every room must have a name"
 
     # AC-2: --interactive calls room review prompt and still writes config
@@ -265,7 +268,8 @@ class TestInitNonInteractiveOnboarding:
 
         cfg = yaml.safe_load((project_dir / "mempalace.yaml").read_text())
         assert cfg["wing"] == "myproject"
-        assert isinstance(cfg["rooms"], list) and len(cfg["rooms"]) >= 1
+        assert isinstance(cfg["rooms"], list)
+        assert len(cfg["rooms"]) >= 1
 
     # AC-7: missing directory with --detect-entities exits before entity scan
     def test_init_missing_directory_with_entity_detection_exits_before_scan(
