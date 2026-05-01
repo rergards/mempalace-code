@@ -265,9 +265,11 @@ class TestWriteTools:
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace_code.mcp_server import tool_add_drawer, tool_status
 
-        # Step 1: read-only call on a palace that has no table yet
+        # Step 1: read-only call on a palace that has no lance dir yet.
+        # New behaviour: returns _no_palace() rather than a zero-count stub,
+        # and must NOT cache the missing-store sentinel (so step 2 can write).
         status_result = tool_status()
-        assert status_result["total_drawers"] == 0
+        assert "error" in status_result, f"Expected _no_palace() error, got: {status_result}"
 
         # Step 2: write call must succeed — not hit the cached broken stub
         add_result = tool_add_drawer(
@@ -2176,3 +2178,177 @@ class TestToolMine:
         data = json.loads(resp["result"]["content"][0]["text"])
         assert data["success"] is True
         assert "drawers_filed" in data
+
+
+# ── Lazy Startup (MCP-LAZY-STARTUP) ──────────────────────────────────────
+
+
+class TestLazyStartup:
+    """AC-1 through AC-6 for lazy MCP startup."""
+
+    def test_ac1_initialize_and_tools_list_without_torch_or_miner(self, tmp_path):
+        """AC-1: initialize + tools/list succeed in a subprocess that blocks torch/miner imports."""
+        import subprocess
+        import sys
+
+        script = f"""
+import sys
+import json
+
+# Block imports that must NOT be triggered by initialize/tools-list
+class _Blocker:
+    _BLOCKED = frozenset({{
+        "torch",
+        "sentence_transformers",
+        "mempalace_code.miner",
+    }})
+    def find_module(self, name, path=None):
+        if name in self._BLOCKED:
+            return self
+        return None
+    def load_module(self, name):
+        raise ImportError("Blocked by test: " + name)
+
+sys.meta_path.insert(0, _Blocker())
+
+# HOME isolation so KG init writes to a throwaway dir
+import tempfile, os
+_tmp = tempfile.mkdtemp()
+os.environ["HOME"] = _tmp
+os.environ["USERPROFILE"] = _tmp
+
+from mempalace_code.mcp_server import handle_request
+
+resp1 = handle_request({{"method": "initialize", "id": 1, "params": {{}}}})
+assert resp1["result"]["serverInfo"]["name"] == "mempalace-code", resp1
+resp2 = handle_request({{"method": "tools/list", "id": 2, "params": {{}}}})
+tool_names = {{t["name"] for t in resp2["result"]["tools"]}}
+assert "mempalace_mine" in tool_names, tool_names
+print("OK")
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, (
+            f"subprocess failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert "OK" in result.stdout, f"unexpected output: {result.stdout}"
+
+    def test_ac2_metadata_reads_skip_embedder(
+        self, monkeypatch, config, palace_path, seeded_collection, kg
+    ):
+        """AC-2: status/list_wings/get_taxonomy work even when _get_embedder raises."""
+        from mempalace_code.storage import LanceStore
+
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+
+        # Override the deterministic-test-embedder patch with one that raises,
+        # AFTER the seeded palace already exists on disk.
+        def _embedder_raises(self):
+            raise RuntimeError("embedder must not be called for read-only metadata ops")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_raises)
+
+        from mempalace_code.mcp_server import tool_get_taxonomy, tool_list_wings, tool_status
+
+        status = tool_status()
+        assert "error" not in status, f"tool_status raised embedder: {status}"
+        assert status["total_drawers"] == 4
+
+        wings = tool_list_wings()
+        assert "error" not in wings
+        assert "project" in wings["wings"]
+
+        taxonomy = tool_get_taxonomy()
+        assert "error" not in taxonomy
+        assert "project" in taxonomy["taxonomy"]
+
+    def test_ac3_read_then_write_cache_upgrade(self, monkeypatch, config, palace_path, kg):
+        """AC-3: status (read) caches store, add_drawer (write) succeeds, status shows new count."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _ensure_store(palace_path)
+
+        from mempalace_code.mcp_server import tool_add_drawer, tool_status
+
+        # Step 1: read — caches a read-only store
+        status1 = tool_status()
+        assert status1["total_drawers"] == 0
+
+        # Step 2: write — must succeed despite read-only cache
+        add_result = tool_add_drawer(
+            wing="lazy_test",
+            room="general",
+            content="Content written after status caches read-only store.",
+        )
+        assert add_result["success"] is True, f"add_drawer failed: {add_result}"
+
+        # Step 3: read again — must reflect the new drawer
+        status2 = tool_status()
+        assert status2["total_drawers"] == 1
+
+    def test_ac4_status_missing_palace_no_directory_created(self, monkeypatch, tmp_path, kg):
+        """AC-4: status with a missing palace_path returns error and does not create the directory."""
+        from mempalace_code.config import MempalaceConfig
+
+        missing = tmp_path / "never_created"
+        assert not missing.exists()
+
+        # Build a config pointing at the missing path
+        cfg_dir = str(tmp_path / "cfg")
+        import os
+
+        os.makedirs(cfg_dir)
+        import json
+
+        with open(os.path.join(cfg_dir, "config.json"), "w") as f:
+            json.dump({"palace_path": str(missing)}, f)
+        cfg = MempalaceConfig(config_dir=cfg_dir)
+
+        from mempalace_code import mcp_server
+
+        monkeypatch.setattr(mcp_server, "_config", cfg)
+        monkeypatch.setattr(mcp_server, "_kg", kg)
+        monkeypatch.setattr(mcp_server, "_store", None)
+        monkeypatch.setattr(mcp_server, "_store_read_only", False)
+
+        from mempalace_code.mcp_server import tool_status
+
+        result = tool_status()
+        assert "error" in result, f"Expected error for missing palace, got: {result}"
+        assert not missing.exists(), "Missing palace directory must not be created by read tools"
+
+    def test_ac5_mine_invalid_dir_no_miner_import(self, monkeypatch, config, palace_path, kg):
+        """AC-5: tool_mine with non-existent dir returns {success:false} without importing miner."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+
+        # Block miner import so we can verify it was never triggered
+        import sys
+
+        original_modules = dict(sys.modules)
+
+        class _MinerBlocker:
+            def find_module(self, name, path=None):
+                if name in ("mempalace_code.miner", "torch"):
+                    return self
+                return None
+
+            def load_module(self, name):
+                raise ImportError(f"Blocked by test: {name}")
+
+        blocker = _MinerBlocker()
+        sys.meta_path.insert(0, blocker)
+        try:
+            from mempalace_code.mcp_server import tool_mine
+
+            result = tool_mine(directory="/nonexistent/path/that/does/not/exist")
+            assert result["success"] is False, f"Expected failure for non-existent dir: {result}"
+            assert "error" in result
+        finally:
+            sys.meta_path.remove(blocker)
+            # Restore any modules that may have been affected
+            for key in list(sys.modules):
+                if key not in original_modules:
+                    sys.modules.pop(key, None)

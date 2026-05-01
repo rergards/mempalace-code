@@ -1144,6 +1144,60 @@ def test_detect_batch_size_cpu_low_ram():
 
 
 # =============================================================================
+# get_batch_size() tests — lazy cached helper (MCP-LAZY-STARTUP AC-6)
+# =============================================================================
+
+
+def test_get_batch_size_returns_int():
+    """get_batch_size() returns a positive integer."""
+    from mempalace_code.miner import get_batch_size
+
+    result = get_batch_size()
+    assert isinstance(result, int)
+    assert result > 0
+
+
+def test_get_batch_size_cached():
+    """get_batch_size() returns the same value on repeated calls (caching)."""
+    import mempalace_code.miner as miner_mod
+    from mempalace_code.miner import get_batch_size
+
+    # Reset the cache so we get a clean call
+    original = miner_mod._batch_size
+    miner_mod._batch_size = None
+    try:
+        v1 = get_batch_size()
+        v2 = get_batch_size()
+        assert v1 == v2
+    finally:
+        miner_mod._batch_size = original
+
+
+def test_ac6_get_batch_size_fallback_when_torch_unavailable():
+    """AC-6: get_batch_size() returns fallback 128 when torch import fails."""
+    import sys
+
+    import mempalace_code.miner as miner_mod
+    from mempalace_code.miner import get_batch_size
+
+    # Reset the lazy cache so detection runs fresh
+    original_cache = miner_mod._batch_size
+    miner_mod._batch_size = None
+    # Make torch appear unimportable inside _detect_batch_size
+    original_torch = sys.modules.get("torch")
+    sys.modules["torch"] = None  # type: ignore[assignment]  # signals ImportError on import
+    try:
+        result = get_batch_size()
+        assert result == 128, f"Expected fallback 128 when torch unavailable, got {result}"
+    finally:
+        miner_mod._batch_size = original_cache
+        if original_torch is None:
+            sys.modules.pop("torch", None)
+        else:
+            sys.modules["torch"] = original_torch
+
+
+# =============================================================================
 # mine() integration tests for bulk prefetch, warmup, and optimize
 # =============================================================================
 

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from .config import MempalaceConfig
-from .miner import BATCH_SIZE, add_drawers_batch
+from .miner import get_batch_size, add_drawers_batch
 from .normalize import normalize
 from .storage import open_store
 from .version import __version__
@@ -387,7 +387,7 @@ def mine_convos(
             file_spec_count += 1
 
         print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{file_spec_count}")
-        if len(batch_buffer) >= BATCH_SIZE:
+        if len(batch_buffer) >= get_batch_size():
             flush_batch()
 
     if not dry_run:

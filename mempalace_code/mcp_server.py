@@ -39,37 +39,65 @@ from pathlib import Path
 from typing import Optional
 
 from .config import MempalaceConfig
-from .knowledge_graph import KnowledgeGraph
 from .language_catalog import code_search_language_description
-from .miner import mine
-from .palace_graph import find_tunnels, graph_stats, traverse
-from .searcher import code_search, search_memories
 from .storage import DrawerStore, LanceStore, open_store
 from .version import __version__
-
-_kg = KnowledgeGraph()
 
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 logger = logging.getLogger("mempalace_mcp")
 
 _config = MempalaceConfig()
 
-# Singleton store — opened once, reused across all tool calls
+# Singleton store — opened once, reused across all tool calls.
+# _store_read_only tracks whether the cached handle is read-only.
 _store: Optional[DrawerStore] = None
+_store_read_only: bool = False
+
+# Lazy KG singleton — initialized on first KG tool call.
+_kg = None
 
 
-def _get_store(create=False) -> Optional[DrawerStore]:
-    """Return the drawer store, or None on failure."""
-    global _store
+def _get_kg():
+    """Return the KnowledgeGraph singleton, creating it on first call."""
+    global _kg
+    if _kg is None:
+        from .knowledge_graph import KnowledgeGraph
+
+        _kg = KnowledgeGraph()
+    return _kg
+
+
+def _get_store(create: bool = False) -> Optional[DrawerStore]:
+    """Return the drawer store, or None on failure.
+
+    Read tools call with create=False; write tools call with create=True.
+    A read-only cached handle is replaced when a write-capable handle is needed.
+    """
+    global _store, _store_read_only
+
+    # Upgrade: if write access is needed but cached handle is read-only, clear it.
+    if create and _store is not None and _store_read_only:
+        _store = None
+
     if _store is not None:
         return _store
+
+    read_only = not create
     try:
-        new_store = open_store(_config.palace_path, create=create)
-        # Don't cache a LanceStore whose backing table is missing: a subsequent
-        # call with create=True would get the stub and fail.  Keep retrying
-        # until the palace is actually initialised.
-        if not (isinstance(new_store, LanceStore) and new_store._table is None):
-            _store = new_store
+        new_store = open_store(_config.palace_path, create=create, read_only=read_only)
+        table_missing = isinstance(new_store, LanceStore) and new_store._table is None
+        if table_missing:
+            db_absent = isinstance(new_store, LanceStore) and new_store._db is None
+            if db_absent:
+                # Lance dir missing — no palace on disk; signal with None so tools
+                # return _no_palace() instead of a misleading empty-store response.
+                return None
+            # Lance dir exists but table not yet created (palace dir exists, not yet
+            # initialised with mempalace-code init).  Return the empty stub without
+            # caching so a later create=True call opens a fresh write-capable handle.
+            return new_store
+        _store = new_store
+        _store_read_only = read_only
         return new_store
     except Exception:
         return None
@@ -198,6 +226,8 @@ def tool_get_taxonomy():
 
 
 def tool_search(query: str, limit: int = 5, wing: str = None, room: str = None):
+    from .searcher import search_memories
+
     return search_memories(
         query,
         palace_path=_config.palace_path,
@@ -216,6 +246,8 @@ def tool_code_search(
     wing: str = None,
     n_results: int = 10,
 ):
+    from .searcher import code_search
+
     return code_search(
         palace_path=_config.palace_path,
         query=query,
@@ -270,6 +302,8 @@ def tool_get_aaak_spec():
 
 def tool_traverse_graph(start_room: str, max_hops: int = 2):
     """Walk the palace graph from a room. Find connected ideas across wings."""
+    from .palace_graph import traverse
+
     col = _get_store()
     if not col:
         return _no_palace()
@@ -278,6 +312,8 @@ def tool_traverse_graph(start_room: str, max_hops: int = 2):
 
 def tool_find_tunnels(wing_a: str = None, wing_b: str = None):
     """Find rooms that bridge two wings — the hallways connecting domains."""
+    from .palace_graph import find_tunnels
+
     col = _get_store()
     if not col:
         return _no_palace()
@@ -286,6 +322,8 @@ def tool_find_tunnels(wing_a: str = None, wing_b: str = None):
 
 def tool_graph_stats():
     """Palace graph overview: nodes, tunnels, edges, connectivity."""
+    from .palace_graph import graph_stats
+
     col = _get_store()
     if not col:
         return _no_palace()
@@ -376,6 +414,8 @@ def _mine_quiet(**kwargs) -> dict:
     (e.g. from sentence-transformers) and buffered Python writes do not corrupt
     the MCP stdio JSON-RPC stream.
     """
+    from .miner import mine  # lazy import — miner imports torch at module level
+
     devnull = os.open(os.devnull, os.O_WRONLY)
     old_out = os.dup(1)
     old_err = os.dup(2)
@@ -445,7 +485,7 @@ def tool_mine(directory: str, wing: str = None, full: bool = False):
             palace_path=palace_path,
             wing_override=wing,
             incremental=not full,
-            kg=_kg,
+            kg=_get_kg(),
         )
         return {"success": True, **stats}
     except (Exception, SystemExit) as e:
@@ -457,7 +497,7 @@ def tool_mine(directory: str, wing: str = None, full: bool = False):
 
 def tool_kg_query(entity: str, as_of: str = None, direction: str = "both"):
     """Query the knowledge graph for an entity's relationships."""
-    results = _kg.query_entity(entity, as_of=as_of, direction=direction)
+    results = _get_kg().query_entity(entity, as_of=as_of, direction=direction)
     return {"entity": entity, "as_of": as_of, "facts": results, "count": len(results)}
 
 
@@ -465,7 +505,7 @@ def tool_kg_add(
     subject: str, predicate: str, object: str, valid_from: str = None, source_closet: str = None
 ):
     """Add a relationship to the knowledge graph."""
-    triple_id = _kg.add_triple(
+    triple_id = _get_kg().add_triple(
         subject, predicate, object, valid_from=valid_from, source_closet=source_closet
     )
     return {"success": True, "triple_id": triple_id, "fact": f"{subject} → {predicate} → {object}"}
@@ -473,7 +513,7 @@ def tool_kg_add(
 
 def tool_kg_invalidate(subject: str, predicate: str, object: str, ended: str = None):
     """Mark a fact as no longer true (set end date)."""
-    _kg.invalidate(subject, predicate, object, ended=ended)
+    _get_kg().invalidate(subject, predicate, object, ended=ended)
     return {
         "success": True,
         "fact": f"{subject} → {predicate} → {object}",
@@ -483,13 +523,13 @@ def tool_kg_invalidate(subject: str, predicate: str, object: str, ended: str = N
 
 def tool_kg_timeline(entity: str = None):
     """Get chronological timeline of facts, optionally for one entity."""
-    results = _kg.timeline(entity)
+    results = _get_kg().timeline(entity)
     return {"entity": entity or "all", "timeline": results, "count": len(results)}
 
 
 def tool_kg_stats():
     """Knowledge graph overview: entities, triples, relationship types."""
-    return _kg.stats()
+    return _get_kg().stats()
 
 
 # ==================== ARCHITECTURE TOOLS ====================
@@ -545,7 +585,7 @@ _PY_ABC_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 
 def tool_find_implementations(interface: str) -> dict:
     """Find all types that implement a given interface in the KG."""
-    incoming_facts = _kg.query_entity(interface, direction="incoming")
+    incoming_facts = _get_kg().query_entity(interface, direction="incoming")
 
     seen: set = set()
     implementations = []
@@ -562,7 +602,7 @@ def tool_find_implementations(interface: str) -> dict:
 
     # Python ABC heuristic: if the interface itself has an outgoing implements-to-ABC/Protocol
     # edge, it is a user-defined abstract base class and incoming inherits edges also count.
-    outgoing_facts = _kg.query_entity(interface, direction="outgoing")
+    outgoing_facts = _get_kg().query_entity(interface, direction="outgoing")
     is_abc = any(
         f["predicate"] == "implements" and f["object"] in _PY_ABC_BASES and f["current"]
         for f in outgoing_facts
@@ -587,7 +627,7 @@ def tool_find_implementations(interface: str) -> dict:
 
 def tool_find_references(type_name: str) -> dict:
     """Find all usages of a type — incoming and outgoing KG relationships grouped by category."""
-    facts = _kg.query_entity(type_name, direction="both")
+    facts = _get_kg().query_entity(type_name, direction="both")
     current_facts = [f for f in facts if f["current"]]
 
     # Map (direction, predicate) → canonical category name
@@ -632,22 +672,22 @@ def tool_show_project_graph(solution: str = None) -> dict:
 
     all_triples: dict = {}
     for pred in PROJECT_PREDICATES:
-        rows = _kg.query_relationship(pred)
+        rows = _get_kg().query_relationship(pred)
         all_triples[pred] = [r for r in rows if r["current"]]
 
     if solution is not None:
-        sol_id = _kg._entity_id(solution)
+        sol_id = _get_kg()._entity_id(solution)
         # Projects contained in this solution
         contained_projects = {
             r["object"]
             for r in all_triples.get("contains_project", [])
-            if _kg._entity_id(r["subject"]) == sol_id
+            if _get_kg()._entity_id(r["subject"]) == sol_id
         }
         filtered: dict = {}
         for pred in PROJECT_PREDICATES:
             if pred == "contains_project":
                 filtered[pred] = [
-                    r for r in all_triples[pred] if _kg._entity_id(r["subject"]) == sol_id
+                    r for r in all_triples[pred] if _get_kg()._entity_id(r["subject"]) == sol_id
                 ]
             else:
                 filtered[pred] = [
@@ -663,7 +703,7 @@ def tool_show_project_graph(solution: str = None) -> dict:
 
 def tool_show_type_dependencies(type_name: str, max_depth: int = 3) -> dict:
     """Show inheritance/implementation chain for a type — ancestors and descendants."""
-    return _kg.type_dependency_chain(type_name, max_depth=max_depth)
+    return _get_kg().type_dependency_chain(type_name, max_depth=max_depth)
 
 
 def tool_explain_subsystem(
@@ -690,6 +730,8 @@ def tool_explain_subsystem(
     n_results = max(1, min(50, n_results))
 
     # Over-fetch to compensate for post-filtering non-code hits (mixed palace)
+    from .searcher import code_search
+
     raw = code_search(
         palace_path=_config.palace_path,
         query=query,
@@ -726,7 +768,7 @@ def tool_explain_subsystem(
 
     symbol_graph: dict = {}
     for symbol in symbols:
-        facts = _kg.query_entity(symbol, direction="both")
+        facts = _get_kg().query_entity(symbol, direction="both")
         current_facts = [f for f in facts if f["current"]]
         categories: dict = {}
         for fact in current_facts:
@@ -782,7 +824,7 @@ def tool_extract_reusable(entity: str, max_depth: int = 3) -> dict:
         if name in visited:
             continue
         visited.add(name)
-        facts = _kg.query_entity(name, direction="outgoing")
+        facts = _get_kg().query_entity(name, direction="outgoing")
         current_facts = [f for f in facts if f["current"]]
         nodes[name] = {"depth": depth, "facts": current_facts, "via": via}
 

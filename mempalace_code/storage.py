@@ -270,17 +270,45 @@ class LanceStore(DrawerStore):
     an interrupted write does not corrupt the entire dataset.
     """
 
-    def __init__(self, palace_path: str, create: bool = True, embed_model: Optional[str] = None):
-        import logging
-
+    def __init__(
+        self,
+        palace_path: str,
+        create: bool = True,
+        embed_model: Optional[str] = None,
+        read_only: bool = False,
+    ):
         import lancedb
 
         self._model_name = embed_model or DEFAULT_EMBED_MODEL
-        self._db = lancedb.connect(os.path.join(palace_path, "lance"))
+        self._read_only = read_only
+        self._embedder = None  # lazy — initialized by _ensure_embedder()
 
-        # Suppress noisy HF/safetensors output (BertModel LOAD REPORT, tqdm bars,
-        # unauthenticated-request warnings).  Must redirect at the OS fd level
-        # because the noise comes from C/Rust code, not Python.
+        lance_dir = os.path.join(palace_path, "lance")
+        if read_only and not os.path.isdir(lance_dir):
+            # Palace absent — return a stub without touching the filesystem.
+            self._db = None
+            self._table = None
+            return
+
+        self._db = lancedb.connect(lance_dir)
+        self._table = self._open_or_create(create)
+
+    def _get_embedder(self):
+        """Load the sentence-transformers embedding model."""
+        from lancedb.embeddings import get_registry
+
+        return get_registry().get("sentence-transformers").create(name=self._model_name)
+
+    def _ensure_embedder(self) -> None:
+        """Initialize the embedding model on first use.
+
+        Suppresses noisy HF/safetensors output at the OS fd level so C-extension
+        writes don't leak to stdout/stderr.
+        """
+        if self._embedder is not None:
+            return
+        import logging
+
         hf_logger = logging.getLogger("huggingface_hub")
         prev_level = hf_logger.level
         hf_logger.setLevel(logging.ERROR)
@@ -291,7 +319,6 @@ class LanceStore(DrawerStore):
             os.dup2(devnull, 1)
             os.dup2(devnull, 2)
             self._embedder = self._get_embedder()
-            self._table = self._open_or_create(create)
         finally:
             os.dup2(old_stdout, 1)
             os.dup2(old_stderr, 2)
@@ -300,14 +327,20 @@ class LanceStore(DrawerStore):
             os.close(old_stderr)
             hf_logger.setLevel(prev_level)
 
-    def _get_embedder(self):
-        """Load the sentence-transformers embedding model."""
-        from lancedb.embeddings import get_registry
-
-        return get_registry().get("sentence-transformers").create(name=self._model_name)
-
     def _open_or_create(self, create: bool):
         """Open existing table or create a new one, migrating schema if needed."""
+        if self._read_only:
+            # Read-only: open if present, return None without creating or migrating.
+            if self._db is None:
+                return None
+            try:
+                return self._db.open_table(_LANCE_TABLE)
+            except Exception as e:
+                logger.debug("Table %r not found (read_only=True): %s", _LANCE_TABLE, e)
+                return None
+
+        # Write path: need embedder for schema dimensions.
+        self._ensure_embedder()
         dim = self._embedder.ndims()
         target = _target_drawer_schema(dim)
 
@@ -345,6 +378,7 @@ class LanceStore(DrawerStore):
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for a list of texts."""
+        self._ensure_embedder()
         return self._embedder.compute_source_embeddings(texts)
 
     @staticmethod
@@ -369,6 +403,8 @@ class LanceStore(DrawerStore):
         return self._table.count_rows()
 
     def add(self, ids, documents, metadatas):
+        if self._read_only:
+            raise RuntimeError("Cannot add to a read-only LanceStore")
         if self._table is None:
             raise RuntimeError("Table does not exist and create=False")
 
@@ -385,6 +421,8 @@ class LanceStore(DrawerStore):
 
     def upsert(self, ids, documents, metadatas):
         # LanceDB merge_insert for upsert
+        if self._read_only:
+            raise RuntimeError("Cannot upsert a read-only LanceStore")
         if self._table is None:
             raise RuntimeError("Table does not exist and create=False")
 
@@ -1050,6 +1088,7 @@ def open_store(
     collection_name: str = "mempalace_drawers",
     create: bool = True,
     embed_model: Optional[str] = None,
+    read_only: bool = False,
 ) -> DrawerStore:
     """
     Open a drawer store. Auto-detects backend if not specified.
@@ -1060,15 +1099,22 @@ def open_store(
         collection_name: Collection name (ChromaDB only).
         create: Create table/collection if it doesn't exist.
         embed_model: Embedding model name (LanceDB only). None = default.
+        read_only: When True, skip directory creation, schema migration, and embedder
+            initialization for read-only metadata access (LanceDB only).
     """
-    os.makedirs(palace_path, exist_ok=True)
+    if not read_only:
+        os.makedirs(palace_path, exist_ok=True)
 
     if backend is None:
         backend = _detect_backend(palace_path)
 
     if backend == "lance":
-        return LanceStore(palace_path, create=create, embed_model=embed_model)
+        return LanceStore(palace_path, create=create, embed_model=embed_model, read_only=read_only)
     elif backend == "chroma":
+        if read_only:
+            logger.warning(
+                "read_only=True is not supported for the ChromaDB backend; opening as writable"
+            )
         try:
             from ._chroma_store import ChromaStore
         except ImportError as exc:

@@ -110,7 +110,15 @@ def _detect_batch_size() -> int:
         return 128
 
 
-BATCH_SIZE = _detect_batch_size()
+_batch_size: Optional[int] = None
+
+
+def get_batch_size() -> int:
+    """Return the appropriate batch size, detecting hardware on first call only."""
+    global _batch_size
+    if _batch_size is None:
+        _batch_size = _detect_batch_size()
+    return _batch_size
 
 
 # =============================================================================
@@ -3539,7 +3547,7 @@ def mine(
             print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{len(specs)}")
 
             batch_buffer.extend(specs)
-            if len(batch_buffer) >= BATCH_SIZE:
+            if len(batch_buffer) >= get_batch_size():
                 flush_batch()
 
         if not dry_run:

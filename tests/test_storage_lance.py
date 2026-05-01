@@ -875,3 +875,141 @@ class TestOpenStoreFactory:
         """AC-24: open_store() with backend='invalid' raises ValueError."""
         with pytest.raises(ValueError, match="Unknown storage backend"):
             open_store(str(tmp_path), backend="invalid")
+
+
+# ─── TestReadOnlyStore ────────────────────────────────────────────────────────
+
+
+class TestReadOnlyStore:
+    """AC-25 through AC-29: read_only=True LanceStore behavior.
+
+    AC-25: open_store with read_only=True on a missing palace returns _table=None
+           without creating the directory.
+    AC-26: open_store with read_only=True on an existing seeded palace returns the
+           correct row counts via count()/count_by()/count_by_pair() without ever
+           calling _get_embedder().
+    AC-27: read-only store add() raises RuntimeError.
+    AC-28: read-only store upsert() raises RuntimeError.
+    AC-29: existing palace opened read_only=True with a missing newer column still
+           returns valid taxonomy (simulates pre-migration schema).
+    """
+
+    def test_ac25_missing_palace_no_directory_created(self, tmp_path):
+        """AC-25: read_only=True on a missing palace returns _table=None and skips mkdir."""
+        missing = tmp_path / "never_created"
+        assert not missing.exists()
+
+        store = open_store(str(missing), read_only=True)
+
+        assert isinstance(store, LanceStore)
+        assert store._table is None
+        assert store.count() == 0
+        assert not missing.exists(), "read_only=True must not create the palace directory"
+
+    def test_ac26_metadata_reads_skip_embedder(self, tmp_path, monkeypatch):
+        """AC-26: count/count_by/count_by_pair work read_only=True without loading embedder."""
+        # First create the palace with normal (write) mode
+        store_rw = open_store(str(tmp_path), create=True)
+        store_rw.add(
+            ids=["r1", "r2", "r3"],
+            documents=["content alpha", "content beta", "content gamma"],
+            metadatas=[
+                {"wing": "w1", "room": "roomA"},
+                {"wing": "w1", "room": "roomB"},
+                {"wing": "w2", "room": "roomA"},
+            ],
+        )
+
+        # Patch _get_embedder to raise — read-only open must NOT call it
+        def _no_embedder(self):
+            raise RuntimeError("_get_embedder must not be called for read-only open")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _no_embedder)
+
+        store_ro = open_store(str(tmp_path), read_only=True)
+        assert isinstance(store_ro, LanceStore)
+        assert store_ro._table is not None
+
+        assert store_ro.count() == 3
+
+        wings = store_ro.count_by("wing")
+        assert wings == {"w1": 2, "w2": 1}
+
+        taxonomy = store_ro.count_by_pair("wing", "room")
+        assert taxonomy["w1"]["roomA"] == 1
+        assert taxonomy["w1"]["roomB"] == 1
+        assert taxonomy["w2"]["roomA"] == 1
+
+    def test_ac27_read_only_add_raises(self, tmp_path):
+        """AC-27: add() on a read-only store raises RuntimeError."""
+        store_rw = open_store(str(tmp_path), create=True)
+        store_rw.add(
+            ids=["seed"],
+            documents=["seed content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        store_ro = open_store(str(tmp_path), read_only=True)
+        with pytest.raises(RuntimeError, match="read-only"):
+            store_ro.add(
+                ids=["new"],
+                documents=["new content"],
+                metadatas=[{"wing": "w", "room": "r"}],
+            )
+
+    def test_ac28_read_only_upsert_raises(self, tmp_path):
+        """AC-28: upsert() on a read-only store raises RuntimeError."""
+        store_rw = open_store(str(tmp_path), create=True)
+        store_rw.add(
+            ids=["seed"],
+            documents=["seed content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        store_ro = open_store(str(tmp_path), read_only=True)
+        with pytest.raises(RuntimeError, match="read-only"):
+            store_ro.upsert(
+                ids=["seed"],
+                documents=["updated content"],
+                metadatas=[{"wing": "w", "room": "r"}],
+            )
+
+    def test_ac29_pre_migration_schema_read_only_taxonomy(self, tmp_path):
+        """AC-29: existing palace missing a newer column still returns valid taxonomy read_only."""
+        import pyarrow as pa
+
+        import lancedb
+
+        # Create a minimal table without the newer 'source_hash' column
+        db = lancedb.connect(str(tmp_path / "lance"))
+        minimal_schema = pa.schema(
+            [
+                pa.field("id", pa.string()),
+                pa.field("text", pa.string()),
+                pa.field("vector", pa.list_(pa.float32(), 384)),
+                pa.field("wing", pa.string()),
+                pa.field("room", pa.string()),
+            ]
+        )
+        tbl = db.create_table("mempalace_drawers", schema=minimal_schema)
+        tbl.add(
+            [
+                {
+                    "id": "old_row",
+                    "text": "legacy content",
+                    "vector": [0.0] * 384,
+                    "wing": "legacy_wing",
+                    "room": "legacy_room",
+                }
+            ]
+        )
+
+        # read_only=True: open without migration — should still return taxonomy
+        store_ro = LanceStore(str(tmp_path), create=False, read_only=True)
+        assert store_ro.count() == 1
+
+        wings = store_ro.count_by("wing")
+        assert wings == {"legacy_wing": 1}
+
+        taxonomy = store_ro.count_by_pair("wing", "room")
+        assert taxonomy == {"legacy_wing": {"legacy_room": 1}}
