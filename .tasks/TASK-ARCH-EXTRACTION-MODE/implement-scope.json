@@ -1,0 +1,14 @@
+{
+  "phase": "implement",
+  "files": [
+    "CHANGELOG.md",
+    "README.md",
+    "mempalace_code/architecture.py",
+    "mempalace_code/knowledge_graph.py",
+    "mempalace_code/miner.py",
+    "tests/test_architecture_extraction.py",
+    "tests/test_mcp_server.py"
+  ],
+  "before_sha": "1f8f6dd",
+  "timestamp": "2026-05-01T23:00:19Z"
+}

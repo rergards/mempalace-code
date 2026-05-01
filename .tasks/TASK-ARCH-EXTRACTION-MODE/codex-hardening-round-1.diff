@@ -1,0 +1,1288 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 26de77a..84f8338 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -5,6 +5,27 @@ Current command/package names: the CLI is `mempalace-code`, the import package i
+ Older historical entries may mention legacy `mempalace` names that were valid
+ when those changes landed.
+ 
++## 2026-05-02 · ARCH-EXTRACTION-MODE
++
++Architecture extraction mode: `mempalace-code mine` now runs a post-mining pass
++that emits higher-level KG facts for .NET (C#, F#, VB.NET) and Python projects.
++
++### Added
++
++- `mempalace_code/architecture.py` — new module with pattern detection
++  (`is_pattern`: Service, Repository, Controller, ViewModel, Factory), layer
++  classification (`is_layer`: UI, Business, Data, Infrastructure), namespace
++  tagging (`in_namespace`), and project membership (`in_project`).
++- `KnowledgeGraph.invalidate_by_source_file` gains an optional `predicates`
++  parameter so architecture facts can be refreshed without expiring type
++  dependency facts (implements, inherits, depends_on, etc.).
++- Architecture config block in `mempalace.yaml` under `architecture:` — supports
++  custom `patterns` (name, suffixes, explicit `type_names`) and `layers`
++  (name, namespace_globs, type_suffixes, priority). Invalid rule entries are
++  silently ignored; the pass continues with built-in defaults.
++- KG queries: `entity="Service", direction="incoming"` shows all services;
++  `entity="Data", direction="incoming"` shows all data-layer types.
++
+ ## 2026-05-02 · FUT-MULTI-REPO
+ 
+ Multi-repo palace sync: `mine-all` command mines multiple project directories into one palace with per-repo wing isolation, wing auto-naming from git remote/folder, and incremental per-repo re-mining.
+diff --git a/README.md b/README.md
+index a51b6ff..0657a2b 100644
+--- a/README.md
++++ b/README.md
+@@ -331,6 +331,8 @@ usage rules.
+ | `mempalace_show_type_dependencies` | Inheritance/implementation chain (ancestors + descendants) |
+ | `mempalace_explain_subsystem` | Explain how a subsystem works: semantic search + KG expansion |
+ | `mempalace_extract_reusable` | Classify deps as core/platform/glue; identify extraction boundary |
++| `mempalace_kg_query` (entity="Service", direction="incoming") | Show all services in the project |
++| `mempalace_kg_query` (entity="Data",    direction="incoming") | Show all types in the data layer |
+ 
+ </details>
+ 
+@@ -368,6 +370,36 @@ kg.invalidate("myapp", "uses", "Postgres", ended="2026-03-01")  # fact expired
+ 
+ **Good candidates:** version numbers, team assignments, tech stack choices, deployment states, deadlines.
+ 
++**Architecture extraction** — `mempalace-code mine` automatically emits higher-level KG facts for .NET and Python projects after each mine:
++
++| Predicate | Example | Query |
++|-----------|---------|-------|
++| `is_pattern` | `UserService → is_pattern → Service` | `kg_query(entity="Service", direction="incoming")` |
++| `is_layer` | `UserRepository → is_layer → Data` | `kg_query(entity="Data", direction="incoming")` |
++| `in_namespace` | `UserService → in_namespace → Company.App` | `kg_query(entity="UserService")` |
++| `in_project` | `UserService → in_project → myapp` | `kg_query(entity="myapp", direction="incoming")` |
++
++Default patterns: Service, Repository, Controller, ViewModel, Factory.
++Default layers: UI (`*.UI`, `*.Web`, `*.Presentation`), Business (`*.Application`, `*.Domain`), Data (`*.Data`, `*.Persistence`), Infrastructure (`*.Infrastructure`).
++
++Override or extend via the `architecture:` block in `mempalace.yaml`:
++
++```yaml
++architecture:
++  enabled: true
++  patterns:
++    - name: Service
++      suffixes: [Service]
++      type_names: [AuditHandler]   # explicit names bypass suffix matching
++  layers:
++    - name: Business
++      namespace_globs: ["*.Application", "*.Domain", "*.Audit"]
++      type_suffixes: [Service]
++      priority: 1
++```
++
++Set `enabled: false` to disable the pass entirely.
++
+ ---
+ 
+ ### Memory Layers
+diff --git a/mempalace_code/architecture.py b/mempalace_code/architecture.py
+new file mode 100644
+index 0000000..34d2292
+--- /dev/null
++++ b/mempalace_code/architecture.py
+@@ -0,0 +1,384 @@
++"""
++architecture.py — Post-mining architecture extraction pass for MemPalace.
++
++Scans source files after mining to produce higher-level KG facts:
++  - (<type>, "is_pattern", "Service" | "Repository" | "Controller" | "ViewModel" | "Factory")
++  - (<type>, "is_layer",   "UI" | "Business" | "Data" | "Infrastructure")
++  - (<type>, "in_namespace", <namespace>)
++  - (<type>, "in_project",   <project>)
++  - (<namespace>, "in_project", <project>)
++
++These are queryable via mempalace_kg_query:
++  - "Show all services":   entity="Service",  direction="incoming" (filter predicate=is_pattern)
++  - "Show data layer":     entity="Data",     direction="incoming" (filter predicate=is_layer)
++  - "Types in namespace":  entity="Foo.Bar",  direction="incoming" (filter predicate=in_namespace)
++
++Config block in mempalace.yaml:
++
++  architecture:
++    enabled: true          # set false to disable entirely
++    patterns:
++      - name: Service
++        suffixes: [Service]
++        type_names: []     # optional explicit names (e.g. AuditHandler)
++      - name: Repository
++        suffixes: [Repository]
++    layers:
++      - name: UI
++        namespace_globs: ["*.UI", "*.Web", "*.Presentation"]
++        type_suffixes: [Controller, ViewModel]
++        priority: 1
++      - name: Business
++        namespace_globs: ["*.Application", "*.Domain"]
++        type_suffixes: [Service]
++        priority: 2
++
++Omitting the architecture: block entirely uses the built-in defaults.
++Invalid rule entries are silently ignored; the pass continues with valid rules.
++"""
++
++import fnmatch
++import re
++from pathlib import Path
++
++# Predicates owned by this pass.  Only these are expired before re-emission.
++ARCH_PREDICATES = ("is_pattern", "is_layer", "in_namespace", "in_project")
++
++# source_file value used for namespace→project triples whose subject spans many files.
++_NS_PROJECT_SENTINEL = "__arch_ns_project__"
++
++# ── Default rules (common .NET conventions) ──────────────────────────────────
++
++DEFAULT_PATTERNS = [
++    {"name": "Service", "suffixes": ["Service"], "type_names": []},
++    {"name": "Repository", "suffixes": ["Repository"], "type_names": []},
++    {"name": "Controller", "suffixes": ["Controller"], "type_names": []},
++    {"name": "ViewModel", "suffixes": ["ViewModel", "VM"], "type_names": []},
++    {"name": "Factory", "suffixes": ["Factory"], "type_names": []},
++]
++
++DEFAULT_LAYERS = [
++    {
++        "name": "UI",
++        "namespace_globs": ["*.UI", "*.Web", "*.Presentation"],
++        "type_suffixes": ["Controller", "ViewModel"],
++        "priority": 1,
++    },
++    {
++        "name": "Business",
++        "namespace_globs": ["*.Application", "*.Domain"],
++        "type_suffixes": ["Service"],
++        "priority": 2,
++    },
++    {
++        "name": "Data",
++        "namespace_globs": ["*.Data", "*.Persistence"],
++        "type_suffixes": ["Repository"],
++        "priority": 3,
++    },
++    {
++        "name": "Infrastructure",
++        "namespace_globs": ["*.Infrastructure"],
++        "type_suffixes": [],
++        "priority": 4,
++    },
++]
++
++
++# ── Config parsing ────────────────────────────────────────────────────────────
++
++
++def load_arch_config(raw_config) -> dict:
++    """Parse the ``architecture:`` block from a mempalace.yaml config dict.
++
++    Returns a normalised dict with keys ``enabled``, ``patterns``, ``layers``.
++    Invalid rule entries are silently dropped; falls back to built-in defaults
++    when the whole section is missing or malformed.
++    """
++    if not isinstance(raw_config, dict):
++        return {"enabled": True, "patterns": list(DEFAULT_PATTERNS), "layers": list(DEFAULT_LAYERS)}
++    arch = raw_config.get("architecture", {})
++    if not isinstance(arch, dict):
++        return {"enabled": True, "patterns": list(DEFAULT_PATTERNS), "layers": list(DEFAULT_LAYERS)}
++
++    enabled = arch.get("enabled", True)
++    if not isinstance(enabled, bool):
++        enabled = True
++
++    patterns = _parse_patterns(arch.get("patterns"))
++    layers = _parse_layers(arch.get("layers"))
++
++    return {"enabled": enabled, "patterns": patterns, "layers": layers}
++
++
++def _parse_patterns(raw) -> list:
++    if raw is None:
++        return list(DEFAULT_PATTERNS)
++    if not isinstance(raw, list):
++        return list(DEFAULT_PATTERNS)
++    result = []
++    for entry in raw:
++        if not isinstance(entry, dict):
++            continue
++        name = entry.get("name")
++        if not isinstance(name, str) or not name.strip():
++            continue
++        suffixes = entry.get("suffixes", [])
++        if not isinstance(suffixes, list):
++            continue
++        type_names = entry.get("type_names", [])
++        if not isinstance(type_names, list):
++            type_names = []
++        result.append(
++            {
++                "name": name.strip(),
++                "suffixes": [s for s in suffixes if isinstance(s, str)],
++                "type_names": [t for t in type_names if isinstance(t, str)],
++            }
++        )
++    return result if result else list(DEFAULT_PATTERNS)
++
++
++def _parse_layers(raw) -> list:
++    if raw is None:
++        return list(DEFAULT_LAYERS)
++    if not isinstance(raw, list):
++        return list(DEFAULT_LAYERS)
++    result = []
++    for entry in raw:
++        if not isinstance(entry, dict):
++            continue
++        name = entry.get("name")
++        if not isinstance(name, str) or not name.strip():
++            continue
++        namespace_globs = entry.get("namespace_globs", [])
++        if not isinstance(namespace_globs, list):
++            continue
++        type_suffixes = entry.get("type_suffixes", [])
++        if not isinstance(type_suffixes, list):
++            type_suffixes = []
++        priority = entry.get("priority", 99)
++        if not isinstance(priority, (int, float)):
++            priority = 99
++        result.append(
++            {
++                "name": name.strip(),
++                "namespace_globs": [g for g in namespace_globs if isinstance(g, str)],
++                "type_suffixes": [s for s in type_suffixes if isinstance(s, str)],
++                "priority": int(priority),
++            }
++        )
++    return result if result else list(DEFAULT_LAYERS)
++
++
++# ── Source-file scanning ──────────────────────────────────────────────────────
++
++_CS_NAMESPACE_RE = re.compile(r"^\s*namespace\s+([\w.]+)", re.MULTILINE)
++_CS_TYPE_RE = re.compile(
++    r"^\s*(?:(?:public|private|protected|internal|sealed|abstract|static"
++    r"|partial|new|readonly|unsafe|override|virtual|extern)\s+)*"
++    r"(?:class|struct|interface|enum|record)\s+(\w+)",
++    re.MULTILINE,
++)
++
++_FS_NAMESPACE_RE = re.compile(r"^\s*namespace\s+([\w.]+)", re.MULTILINE)
++_FS_TYPE_RE = re.compile(r"^\s*type\s+(\w+)", re.MULTILINE)
++
++_VB_NAMESPACE_RE = re.compile(r"^\s*Namespace\s+([\w.]+)", re.MULTILINE | re.IGNORECASE)
++_VB_TYPE_RE = re.compile(
++    r"^\s*(?:(?:Public|Private|Protected|Friend|MustInherit|NotInheritable"
++    r"|Partial|Shadows)\s+)*"
++    r"(?:Class|Structure|Interface|Enum)\s+(\w+)",
++    re.MULTILINE | re.IGNORECASE,
++)
++
++_PY_CLASS_RE = re.compile(r"^\s*class\s+(\w+)", re.MULTILINE)
++
++_ARCH_SOURCE_EXTENSIONS = frozenset({".cs", ".fs", ".fsi", ".vb", ".py"})
++
++
++def extract_type_inventory(files: list, project_root: Path) -> list:
++    """Scan source files and return a list of type-info dicts.
++
++    Each dict has keys: ``type_name``, ``namespace``, ``source_file``.
++    Only ``.cs``, ``.fs``/``.fsi``, ``.vb``, and ``.py`` files are scanned.
++    Files that cannot be read are silently skipped.
++    """
++    results: list = []
++    for filepath in files:
++        fp = Path(filepath)
++        ext = fp.suffix.lower()
++        if ext not in _ARCH_SOURCE_EXTENSIONS:
++            continue
++        try:
++            text = fp.read_text(encoding="utf-8", errors="ignore")
++        except OSError:
++            continue
++        if ext == ".cs":
++            _scan_cs(fp, text, results)
++        elif ext in (".fs", ".fsi"):
++            _scan_fs(fp, text, results)
++        elif ext == ".vb":
++            _scan_vb(fp, text, results)
++        elif ext == ".py":
++            _scan_py(fp, text, project_root, results)
++    return results
++
++
++def _scan_cs(filepath: Path, text: str, out: list) -> None:
++    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
++    text = re.sub(r"//[^\n]*", "", text)
++    namespace = ""
++    m = _CS_NAMESPACE_RE.search(text)
++    if m:
++        namespace = m.group(1)
++    for m in _CS_TYPE_RE.finditer(text):
++        name = m.group(1)
++        if name and name[0].isupper():
++            out.append({"type_name": name, "namespace": namespace, "source_file": str(filepath)})
++
++
++def _scan_fs(filepath: Path, text: str, out: list) -> None:
++    namespace = ""
++    m = _FS_NAMESPACE_RE.search(text)
++    if m:
++        namespace = m.group(1)
++    for m in _FS_TYPE_RE.finditer(text):
++        name = m.group(1)
++        if name and name[0].isupper():
++            out.append({"type_name": name, "namespace": namespace, "source_file": str(filepath)})
++
++
++def _scan_vb(filepath: Path, text: str, out: list) -> None:
++    namespace = ""
++    m = _VB_NAMESPACE_RE.search(text)
++    if m:
++        namespace = m.group(1)
++    for m in _VB_TYPE_RE.finditer(text):
++        name = m.group(1)
++        if name and name[0].isupper():
++            out.append({"type_name": name, "namespace": namespace, "source_file": str(filepath)})
++
++
++def _scan_py(filepath: Path, text: str, project_root: Path, out: list) -> None:
++    try:
++        rel = filepath.relative_to(project_root)
++        parts = rel.parent.parts
++        namespace = ".".join(parts) if parts else ""
++    except ValueError:
++        namespace = ""
++    text = re.sub(r"#[^\n]*", "", text)
++    for m in _PY_CLASS_RE.finditer(text):
++        name = m.group(1)
++        if name and name[0].isupper():
++            out.append({"type_name": name, "namespace": namespace, "source_file": str(filepath)})
++
++
++# ── Pattern and layer matching ────────────────────────────────────────────────
++
++
++def detect_patterns(type_name: str, patterns: list) -> list:
++    """Return pattern names that apply to *type_name* (non-exclusive).
++
++    Matching order per pattern:
++      1. Explicit ``type_names`` override — exact string match.
++      2. ``suffixes`` — substring match (``suffix in type_name`` and
++         ``type_name != suffix`` to skip trivial single-word matches).
++    """
++    matched: list = []
++    for p in patterns:
++        name = p.get("name", "")
++        if not name:
++            continue
++        if type_name in p.get("type_names", []):
++            if name not in matched:
++                matched.append(name)
++            continue
++        for suffix in p.get("suffixes", []):
++            if suffix and isinstance(suffix, str) and suffix in type_name and type_name != suffix:
++                if name not in matched:
++                    matched.append(name)
++                break
++    return matched
++
++
++def detect_layer(type_name: str, namespace: str, layers: list) -> str | None:
++    """Return the single layer name for *type_name* / *namespace*, or ``None``.
++
++    Layer selection is exclusive — at most one is_layer fact per type.
++    Priority: lower ``priority`` number wins.  Namespace glob matching
++    is evaluated before type-suffix matching so that an explicit namespace
++    placement always beats a name-based heuristic.
++    """
++    sorted_layers = sorted(layers, key=lambda lr: (lr.get("priority", 99), lr.get("name", "")))
++
++    for layer in sorted_layers:
++        for glob in layer.get("namespace_globs", []):
++            if namespace and isinstance(glob, str) and fnmatch.fnmatch(namespace, glob):
++                return layer["name"]
++
++    for layer in sorted_layers:
++        for suffix in layer.get("type_suffixes", []):
++            if suffix and isinstance(suffix, str) and suffix in type_name and type_name != suffix:
++                return layer["name"]
++
++    return None
++
++
++# ── KG emission ───────────────────────────────────────────────────────────────
++
++
++def run_arch_pass(inventory: list, arch_config: dict, project_name: str, kg) -> int:
++    """Emit architecture KG triples for all types in *inventory*.
++
++    Returns the number of new triples written (dedup-skipped triples
++    are not counted since add_triple returns the existing ID for those).
++
++    Call ``kg.invalidate_by_source_file(f, predicates=list(ARCH_PREDICATES))``
++    for each walked file and for ``_NS_PROJECT_SENTINEL`` before this call
++    so that stale arch facts from a previous mine are expired first.
++    """
++    if not arch_config.get("enabled", True):
++        return 0
++
++    patterns = arch_config.get("patterns", DEFAULT_PATTERNS)
++    layers = arch_config.get("layers", DEFAULT_LAYERS)
++
++    emitted = 0
++    seen_ns_project: set = set()
++
++    for entry in inventory:
++        type_name = entry["type_name"]
++        namespace = entry["namespace"]
++        source_file = entry["source_file"]
++
++        for pattern_name in detect_patterns(type_name, patterns):
++            tid = kg.add_triple(type_name, "is_pattern", pattern_name, source_file=source_file)
++            if tid:
++                emitted += 1
++
++        layer = detect_layer(type_name, namespace, layers)
++        if layer:
++            tid = kg.add_triple(type_name, "is_layer", layer, source_file=source_file)
++            if tid:
++                emitted += 1
++
++        if namespace:
++            tid = kg.add_triple(type_name, "in_namespace", namespace, source_file=source_file)
++            if tid:
++                emitted += 1
++
++            ns_proj_key = (namespace, project_name)
++            if ns_proj_key not in seen_ns_project:
++                seen_ns_project.add(ns_proj_key)
++                tid = kg.add_triple(
++                    namespace, "in_project", project_name, source_file=_NS_PROJECT_SENTINEL
++                )
++                if tid:
++                    emitted += 1
++
++        tid = kg.add_triple(type_name, "in_project", project_name, source_file=source_file)
++        if tid:
++            emitted += 1
++
++    return emitted
+diff --git a/mempalace_code/knowledge_graph.py b/mempalace_code/knowledge_graph.py
+index 5a0ccb3..4fe5a8e 100644
+--- a/mempalace_code/knowledge_graph.py
++++ b/mempalace_code/knowledge_graph.py
+@@ -167,18 +167,52 @@ class KnowledgeGraph:
+         conn.close()
+         return triple_id
+ 
+-    def invalidate_by_source_file(self, source_file: str, ended: str = None):
++    def invalidate_by_source_file(self, source_file: str, ended: str = None, predicates=None):
+         """Set valid_to on all active triples (valid_to IS NULL) whose source_file matches.
+ 
+-        Used by the miner before re-parsing a changed or deleted .NET config file so that
+-        stale KG triples are expired rather than left as contradictory active facts.
+-        Temporal invalidation (not physical deletion) preserves history.
++        When *predicates* is a non-empty list/tuple of predicate strings, only triples
++        whose predicate is in that set are expired — other predicates are left untouched.
++        Omit *predicates* (or pass ``None``) to expire all active triples for the file,
++        which is the original behaviour used by the per-file KG extraction pass.
++
++        Used by the miner before re-parsing a changed or deleted source file and by the
++        architecture extraction pass to refresh only architecture predicates without
++        expiring type-dependency facts (implements, inherits, depends_on, etc.).
++        """
++        ended = ended or date.today().isoformat()
++        conn = self._conn()
++        if predicates:
++            placeholders = ",".join("?" * len(predicates))
++            conn.execute(
++                f"UPDATE triples SET valid_to=? WHERE source_file=? AND valid_to IS NULL"
++                f" AND predicate IN ({placeholders})",
++                [ended, source_file, *predicates],
++            )
++        else:
++            conn.execute(
++                "UPDATE triples SET valid_to=? WHERE source_file=? AND valid_to IS NULL",
++                (ended, source_file),
++            )
++        conn.commit()
++        conn.close()
++
++    def invalidate_by_predicates(self, predicates: list, ended: str = None) -> None:
++        """Expire all active triples (valid_to IS NULL) whose predicate is in *predicates*.
++
++        Used by the architecture extraction pass to globally reset arch facts (is_pattern,
++        is_layer, in_namespace, in_project) before re-emitting a fresh picture from the
++        current walked file set.  Works correctly across both incremental and full-rebuild
++        mine modes without needing to track which files were deleted.
+         """
++        if not predicates:
++            return
+         ended = ended or date.today().isoformat()
+         conn = self._conn()
++        placeholders = ",".join("?" * len(predicates))
+         conn.execute(
+-            "UPDATE triples SET valid_to=? WHERE source_file=? AND valid_to IS NULL",
+-            (ended, source_file),
++            f"UPDATE triples SET valid_to=? WHERE valid_to IS NULL"
++            f" AND predicate IN ({placeholders})",
++            [ended, *predicates],
+         )
+         conn.commit()
+         conn.close()
+diff --git a/mempalace_code/miner.py b/mempalace_code/miner.py
+index bb2a7b9..cd9412a 100644
+--- a/mempalace_code/miner.py
++++ b/mempalace_code/miner.py
+@@ -3572,6 +3572,30 @@ def mine(
+                     if kg is not None and Path(stale_path).suffix.lower() in _KG_EXTRACT_EXTENSIONS:
+                         kg.invalidate_by_source_file(stale_path)
+ 
++            # Architecture extraction pass: derive pattern/layer/namespace/project
++            # KG facts from the full walked file set.  Runs after the stale sweep so
++            # deleted-file triples are already expired before we re-emit.
++            if kg is not None and limit == 0:
++                from mempalace_code.architecture import (
++                    ARCH_PREDICATES,
++                    extract_type_inventory,
++                    load_arch_config,
++                    run_arch_pass,
++                )
++
++                arch_cfg = load_arch_config(config)
++                if arch_cfg.get("enabled", True):
++                    arch_pred_list = list(ARCH_PREDICATES)
++                    # Global reset: expire all arch triples before re-emitting.
++                    # This handles deleted files in both incremental and full-rebuild modes
++                    # without needing to enumerate stale paths separately.
++                    kg.invalidate_by_predicates(arch_pred_list)
++                    arch_files = [Path(f) for f in walked_paths]
++                    inventory = extract_type_inventory(arch_files, project_path)
++                    n_arch = run_arch_pass(inventory, arch_cfg, wing, kg)
++                    if n_arch:
++                        print(f"  >> Architecture: {n_arch} KG triples emitted", flush=True)
++
+             config = MempalaceConfig()
+             if skip_optimize:
+                 pass  # caller will optimize later
+diff --git a/tests/test_architecture_extraction.py b/tests/test_architecture_extraction.py
+new file mode 100644
+index 0000000..b7e990f
+--- /dev/null
++++ b/tests/test_architecture_extraction.py
+@@ -0,0 +1,683 @@
++"""
++test_architecture_extraction.py — Tests for the architecture extraction pass.
++
++Covers: config parsing, pattern detection, layer detection, type inventory
++scanning, KG emission, mining integration, stale-fact invalidation, and
++malformed-rule robustness.
++"""
++
++import os
++import shutil
++import tempfile
++from pathlib import Path
++
++import yaml
++
++from mempalace_code.architecture import (
++    _NS_PROJECT_SENTINEL,
++    ARCH_PREDICATES,
++    DEFAULT_LAYERS,
++    DEFAULT_PATTERNS,
++    detect_layer,
++    detect_patterns,
++    extract_type_inventory,
++    load_arch_config,
++    run_arch_pass,
++)
++from mempalace_code.knowledge_graph import KnowledgeGraph
++
++# ── Helpers ───────────────────────────────────────────────────────────────────
++
++
++def _active_triples(kg):
++    conn = kg._conn()
++    rows = conn.execute(
++        "SELECT subject, predicate, object FROM triples WHERE valid_to IS NULL"
++    ).fetchall()
++    conn.close()
++    return {(r[0], r[1], r[2]) for r in rows}
++
++
++# ── load_arch_config ──────────────────────────────────────────────────────────
++
++
++class TestLoadArchConfig:
++    def test_no_architecture_key_returns_defaults(self):
++        cfg = load_arch_config({"wing": "myapp"})
++        assert cfg["enabled"] is True
++        assert cfg["patterns"] == list(DEFAULT_PATTERNS)
++        assert cfg["layers"] == list(DEFAULT_LAYERS)
++
++    def test_enabled_false(self):
++        cfg = load_arch_config({"architecture": {"enabled": False}})
++        assert cfg["enabled"] is False
++
++    def test_enabled_non_bool_defaults_true(self):
++        cfg = load_arch_config({"architecture": {"enabled": "yes"}})
++        assert cfg["enabled"] is True
++
++    def test_custom_patterns_parsed(self):
++        raw = {
++            "architecture": {
++                "patterns": [
++                    {"name": "Handler", "suffixes": ["Handler"], "type_names": ["AuditProcessor"]}
++                ]
++            }
++        }
++        cfg = load_arch_config(raw)
++        assert len(cfg["patterns"]) == 1
++        p = cfg["patterns"][0]
++        assert p["name"] == "Handler"
++        assert p["suffixes"] == ["Handler"]
++        assert p["type_names"] == ["AuditProcessor"]
++
++    def test_custom_patterns_replaces_defaults(self):
++        raw = {"architecture": {"patterns": [{"name": "Service", "suffixes": ["Service"]}]}}
++        cfg = load_arch_config(raw)
++        names = [p["name"] for p in cfg["patterns"]]
++        assert "Service" in names
++        assert "Repository" not in names  # default patterns not merged in
++
++    def test_custom_layers_parsed(self):
++        raw = {
++            "architecture": {
++                "layers": [{"name": "Business", "namespace_globs": ["*.Audit"], "priority": 1}]
++            }
++        }
++        cfg = load_arch_config(raw)
++        assert len(cfg["layers"]) == 1
++        assert cfg["layers"][0]["name"] == "Business"
++        assert cfg["layers"][0]["namespace_globs"] == ["*.Audit"]
++
++    # AC-3: malformed rule entries are silently ignored
++
++    def test_scalar_pattern_list_ignored(self):
++        raw = {"architecture": {"patterns": "Service"}}
++        cfg = load_arch_config(raw)
++        assert cfg["patterns"] == list(DEFAULT_PATTERNS)
++
++    def test_non_dict_pattern_entry_ignored(self):
++        raw = {"architecture": {"patterns": ["Service", None, 42]}}
++        cfg = load_arch_config(raw)
++        # No valid dict entries → falls back to defaults
++        assert cfg["patterns"] == list(DEFAULT_PATTERNS)
++
++    def test_pattern_missing_name_ignored(self):
++        raw = {
++            "architecture": {
++                "patterns": [
++                    {"suffixes": ["Service"]},  # no name key
++                    {"name": "Factory", "suffixes": ["Factory"]},
++                ]
++            }
++        }
++        cfg = load_arch_config(raw)
++        assert len(cfg["patterns"]) == 1
++        assert cfg["patterns"][0]["name"] == "Factory"
++
++    def test_pattern_non_string_name_ignored(self):
++        raw = {"architecture": {"patterns": [{"name": 123, "suffixes": ["Service"]}]}}
++        cfg = load_arch_config(raw)
++        assert cfg["patterns"] == list(DEFAULT_PATTERNS)
++
++    def test_layer_non_list_namespace_globs_ignored(self):
++        raw = {
++            "architecture": {"layers": [{"name": "UI", "namespace_globs": "*.UI", "priority": 1}]}
++        }
++        cfg = load_arch_config(raw)
++        # namespace_globs is not a list → entry dropped → fallback to defaults
++        assert cfg["layers"] == list(DEFAULT_LAYERS)
++
++    def test_non_dict_raw_config(self):
++        cfg = load_arch_config(None)
++        assert cfg["enabled"] is True
++        assert cfg["patterns"] == list(DEFAULT_PATTERNS)
++
++    def test_non_dict_architecture_block(self):
++        cfg = load_arch_config({"architecture": "enabled"})
++        assert cfg["enabled"] is True
++        assert cfg["patterns"] == list(DEFAULT_PATTERNS)
++
++
++# ── detect_patterns ───────────────────────────────────────────────────────────
++
++
++class TestDetectPatterns:
++    def test_service_suffix(self):
++        assert detect_patterns("UserService", DEFAULT_PATTERNS) == ["Service"]
++
++    def test_repository_suffix(self):
++        assert detect_patterns("UserRepository", DEFAULT_PATTERNS) == ["Repository"]
++
++    def test_controller_suffix(self):
++        assert detect_patterns("UserController", DEFAULT_PATTERNS) == ["Controller"]
++
++    def test_viewmodel_suffix(self):
++        assert detect_patterns("MainViewModel", DEFAULT_PATTERNS) == ["ViewModel"]
++
++    def test_vm_suffix(self):
++        assert detect_patterns("OrderVM", DEFAULT_PATTERNS) == ["ViewModel"]
++
++    def test_factory_suffix(self):
++        assert detect_patterns("OrderFactory", DEFAULT_PATTERNS) == ["Factory"]
++
++    def test_no_match(self):
++        assert detect_patterns("AuditHandler", DEFAULT_PATTERNS) == []
++
++    def test_exact_suffix_name_not_matched(self):
++        # "Service" alone should not self-match (type_name == suffix)
++        assert detect_patterns("Service", DEFAULT_PATTERNS) == []
++
++    # AC-5: multiple pattern facts (non-exclusive)
++    def test_multiple_patterns(self):
++        patterns = detect_patterns("BillingServiceFactory", DEFAULT_PATTERNS)
++        assert "Service" in patterns
++        assert "Factory" in patterns
++
++    def test_explicit_type_names_override(self):
++        patterns_cfg = [{"name": "Service", "suffixes": [], "type_names": ["AuditHandler"]}]
++        result = detect_patterns("AuditHandler", patterns_cfg)
++        assert result == ["Service"]
++
++    def test_explicit_type_names_no_suffix_needed(self):
++        # AuditHandler has no Service suffix but is in type_names
++        patterns_cfg = [
++            {"name": "Service", "suffixes": ["Service"], "type_names": ["AuditHandler"]}
++        ]
++        result = detect_patterns("AuditHandler", patterns_cfg)
++        assert "Service" in result
++
++    def test_empty_patterns_list(self):
++        assert detect_patterns("UserService", []) == []
++
++
++# ── detect_layer ─────────────────────────────────────────────────────────────
++
++
++class TestDetectLayer:
++    def test_namespace_glob_ui(self):
++        assert detect_layer("SomeClass", "Company.Web", DEFAULT_LAYERS) == "UI"
++
++    def test_namespace_glob_data(self):
++        assert detect_layer("SomeClass", "Company.Persistence", DEFAULT_LAYERS) == "Data"
++
++    def test_namespace_glob_business(self):
++        assert detect_layer("SomeClass", "Company.Application", DEFAULT_LAYERS) == "Business"
++
++    def test_namespace_glob_infrastructure(self):
++        assert (
++            detect_layer("SomeClass", "Company.Infrastructure", DEFAULT_LAYERS) == "Infrastructure"
++        )
++
++    def test_type_suffix_service_business(self):
++        assert detect_layer("UserService", "", DEFAULT_LAYERS) == "Business"
++
++    def test_type_suffix_repository_data(self):
++        assert detect_layer("UserRepository", "", DEFAULT_LAYERS) == "Data"
++
++    def test_type_suffix_controller_ui(self):
++        assert detect_layer("UserController", "", DEFAULT_LAYERS) == "UI"
++
++    def test_type_suffix_viewmodel_ui(self):
++        assert detect_layer("MainViewModel", "", DEFAULT_LAYERS) == "UI"
++
++    def test_no_match(self):
++        assert detect_layer("AuditProcessor", "Company.Core", DEFAULT_LAYERS) is None
++
++    # AC-5: namespace glob takes precedence over type suffix
++    def test_namespace_wins_over_suffix(self):
++        # BillingServiceFactory is under Infrastructure namespace → Infrastructure layer
++        # even though "Service" suffix would map to Business
++        layer = detect_layer("BillingServiceFactory", "Company.Infrastructure", DEFAULT_LAYERS)
++        assert layer == "Infrastructure"
++
++    # AC-5: single layer fact
++    def test_returns_single_layer(self):
++        layer = detect_layer("BillingServiceFactory", "Company.Infrastructure", DEFAULT_LAYERS)
++        assert isinstance(layer, str)
++
++    def test_priority_order(self):
++        # UI has priority 1, Business priority 2 — both could match if we had *.Web namespace
++        # and Service type suffix. Namespace glob (UI, priority 1) wins.
++        layer = detect_layer("FrontendService", "Company.Web", DEFAULT_LAYERS)
++        assert layer == "UI"
++
++    def test_custom_layer_config(self):
++        layers = [
++            {"name": "Audit", "namespace_globs": ["*.Audit"], "priority": 1, "type_suffixes": []}
++        ]
++        assert detect_layer("AuditHandler", "Company.Audit", layers) == "Audit"
++
++
++# ── extract_type_inventory ────────────────────────────────────────────────────
++
++
++class TestExtractTypeInventory:
++    def setup_method(self):
++        self.tmpdir = Path(tempfile.mkdtemp())
++
++    def teardown_method(self):
++        shutil.rmtree(str(self.tmpdir))
++
++    def test_cs_class_extracted(self):
++        f = self.tmpdir / "UserService.cs"
++        f.write_text("namespace Company.Services;\npublic class UserService { }", encoding="utf-8")
++        inv = extract_type_inventory([f], self.tmpdir)
++        types = [e["type_name"] for e in inv]
++        assert "UserService" in types
++        ns = next(e["namespace"] for e in inv if e["type_name"] == "UserService")
++        assert ns == "Company.Services"
++
++    def test_cs_multiple_types(self):
++        f = self.tmpdir / "Types.cs"
++        f.write_text(
++            "namespace Company.Domain;\n"
++            "public class UserEntity { }\n"
++            "public interface IUserRepository { }\n",
++            encoding="utf-8",
++        )
++        inv = extract_type_inventory([f], self.tmpdir)
++        types = {e["type_name"] for e in inv}
++        assert "UserEntity" in types
++        assert "IUserRepository" in types
++
++    def test_cs_block_comment_stripped(self):
++        f = self.tmpdir / "Example.cs"
++        f.write_text(
++            "/* class FakeClass {} */\nnamespace Foo;\npublic class RealClass { }", encoding="utf-8"
++        )
++        inv = extract_type_inventory([f], self.tmpdir)
++        types = {e["type_name"] for e in inv}
++        assert "RealClass" in types
++        assert "FakeClass" not in types
++
++    def test_fs_type_extracted(self):
++        f = self.tmpdir / "Domain.fs"
++        f.write_text("namespace Company.Domain\ntype UserAggregate = { Id: int }", encoding="utf-8")
++        inv = extract_type_inventory([f], self.tmpdir)
++        types = {e["type_name"] for e in inv}
++        assert "UserAggregate" in types
++
++    def test_vb_class_extracted(self):
++        f = self.tmpdir / "UserService.vb"
++        f.write_text(
++            "Namespace Company.Services\nPublic Class UserService\nEnd Class",
++            encoding="utf-8",
++        )
++        inv = extract_type_inventory([f], self.tmpdir)
++        types = {e["type_name"] for e in inv}
++        assert "UserService" in types
++
++    def test_py_class_extracted(self):
++        pkg = self.tmpdir / "company" / "services"
++        pkg.mkdir(parents=True)
++        f = pkg / "user_service.py"
++        f.write_text("class UserService:\n    pass\n", encoding="utf-8")
++        inv = extract_type_inventory([f], self.tmpdir)
++        assert any(e["type_name"] == "UserService" for e in inv)
++        ns = next(e["namespace"] for e in inv if e["type_name"] == "UserService")
++        assert ns == "company.services"
++
++    def test_non_source_file_skipped(self):
++        f = self.tmpdir / "README.md"
++        f.write_text("# class FakeClass\n", encoding="utf-8")
++        inv = extract_type_inventory([f], self.tmpdir)
++        assert inv == []
++
++    def test_unreadable_file_skipped(self):
++        inv = extract_type_inventory([self.tmpdir / "nonexistent.cs"], self.tmpdir)
++        assert inv == []
++
++    def test_lowercase_type_ignored(self):
++        f = self.tmpdir / "helpers.cs"
++        f.write_text("namespace Foo;\nclass helper { }\npublic class Helper { }", encoding="utf-8")
++        inv = extract_type_inventory([f], self.tmpdir)
++        types = {e["type_name"] for e in inv}
++        assert "Helper" in types
++        assert "helper" not in types
++
++    def test_source_file_path_stored(self):
++        f = self.tmpdir / "Service.cs"
++        f.write_text("namespace A;\npublic class UserService { }", encoding="utf-8")
++        inv = extract_type_inventory([f], self.tmpdir)
++        assert inv[0]["source_file"] == str(f)
++
++
++# ── run_arch_pass ─────────────────────────────────────────────────────────────
++
++
++class TestRunArchPass:
++    def setup_method(self):
++        self.tmpdir = Path(tempfile.mkdtemp())
++
++    def teardown_method(self):
++        shutil.rmtree(str(self.tmpdir))
++
++    def _make_kg(self):
++        return KnowledgeGraph(db_path=str(self.tmpdir / "kg.sqlite3"))
++
++    def test_is_pattern_emitted(self):
++        kg = self._make_kg()
++        inventory = [
++            {"type_name": "UserService", "namespace": "Company.Domain", "source_file": "a.cs"}
++        ]
++        run_arch_pass(inventory, load_arch_config({}), "myapp", kg)
++        results = kg.query_entity("Service", direction="incoming")
++        subjects = {r["subject"] for r in results if r["predicate"] == "is_pattern"}
++        assert "UserService" in subjects
++
++    def test_is_layer_emitted(self):
++        kg = self._make_kg()
++        inventory = [
++            {"type_name": "UserRepository", "namespace": "Company.Data", "source_file": "a.cs"}
++        ]
++        run_arch_pass(inventory, load_arch_config({}), "myapp", kg)
++        results = kg.query_entity("Data", direction="incoming")
++        subjects = {r["subject"] for r in results if r["predicate"] == "is_layer"}
++        assert "UserRepository" in subjects
++
++    def test_in_namespace_emitted(self):
++        kg = self._make_kg()
++        inventory = [
++            {"type_name": "UserService", "namespace": "Company.Services", "source_file": "a.cs"}
++        ]
++        run_arch_pass(inventory, load_arch_config({}), "myapp", kg)
++        results = kg.query_entity("UserService", direction="outgoing")
++        ns_facts = [r for r in results if r["predicate"] == "in_namespace"]
++        assert any(r["object"] == "Company.Services" for r in ns_facts)
++
++    def test_in_project_emitted(self):
++        kg = self._make_kg()
++        inventory = [
++            {"type_name": "UserService", "namespace": "Company.Services", "source_file": "a.cs"}
++        ]
++        run_arch_pass(inventory, load_arch_config({}), "myapp", kg)
++        results = kg.query_entity("UserService", direction="outgoing")
++        proj_facts = [r for r in results if r["predicate"] == "in_project"]
++        assert any(r["object"] == "myapp" for r in proj_facts)
++
++    def test_namespace_in_project_emitted_with_sentinel(self):
++        kg = self._make_kg()
++        inventory = [
++            {"type_name": "UserService", "namespace": "Company.Services", "source_file": "a.cs"}
++        ]
++        run_arch_pass(inventory, load_arch_config({}), "myapp", kg)
++        conn = kg._conn()
++        rows = conn.execute(
++            "SELECT source_file FROM triples WHERE subject=? AND predicate='in_project' AND valid_to IS NULL",
++            (kg._entity_id("Company.Services"),),
++        ).fetchall()
++        conn.close()
++        assert any(r[0] == _NS_PROJECT_SENTINEL for r in rows)
++
++    # AC-1: fixture project
++    def test_ac1_service_and_data_layer(self):
++        kg = self._make_kg()
++        inventory = [
++            {"type_name": "UserService", "namespace": "Company.App", "source_file": "s.cs"},
++            {"type_name": "UserRepository", "namespace": "Company.Data", "source_file": "r.cs"},
++            {"type_name": "UserController", "namespace": "Company.Web", "source_file": "c.cs"},
++            {"type_name": "MainViewModel", "namespace": "Company.UI", "source_file": "v.cs"},
++            {"type_name": "OrderFactory", "namespace": "Company.App", "source_file": "f.cs"},
++        ]
++        run_arch_pass(inventory, load_arch_config({}), "myapp", kg)
++
++        svc_hits = kg.query_entity("Service", direction="incoming")
++        assert any(
++            r["subject"] == "UserService" and r["predicate"] == "is_pattern" for r in svc_hits
++        )
++
++        data_hits = kg.query_entity("Data", direction="incoming")
++        assert any(
++            r["subject"] == "UserRepository" and r["predicate"] == "is_layer" for r in data_hits
++        )
++
++    # AC-2: custom config (AuditHandler classified as Service by type_names)
++    def test_ac2_custom_type_names_config(self):
++        raw_config = {
++            "wing": "audit",
++            "architecture": {
++                "patterns": [
++                    {"name": "Service", "suffixes": ["Service"], "type_names": ["AuditHandler"]}
++                ],
++                "layers": [
++                    {
++                        "name": "Business",
++                        "namespace_globs": ["*.Audit"],
++                        "priority": 1,
++                        "type_suffixes": [],
++                    }
++                ],
++            },
++        }
++        kg = self._make_kg()
++        inventory = [
++            {"type_name": "AuditHandler", "namespace": "Company.Audit", "source_file": "a.cs"}
++        ]
++        run_arch_pass(inventory, load_arch_config(raw_config), "audit", kg)
++
++        svc_hits = kg.query_entity("Service", direction="incoming")
++        assert any(
++            r["subject"] == "AuditHandler" and r["predicate"] == "is_pattern" for r in svc_hits
++        )
++
++        biz_hits = kg.query_entity("Business", direction="incoming")
++        assert any(
++            r["subject"] == "AuditHandler" and r["predicate"] == "is_layer" for r in biz_hits
++        )
++
++    # AC-5: BillingServiceFactory gets Service + Factory patterns, single Infrastructure layer
++    def test_ac5_multiple_patterns_single_layer(self):
++        kg = self._make_kg()
++        inventory = [
++            {
++                "type_name": "BillingServiceFactory",
++                "namespace": "Company.Infrastructure",
++                "source_file": "b.cs",
++            }
++        ]
++        run_arch_pass(inventory, load_arch_config({}), "myapp", kg)
++
++        active = _active_triples(kg)
++        entity_id = kg._entity_id("BillingServiceFactory")
++        service_id = kg._entity_id("Service")
++        factory_id = kg._entity_id("Factory")
++        infra_id = kg._entity_id("Infrastructure")
++
++        assert (entity_id, "is_pattern", service_id) in active
++        assert (entity_id, "is_pattern", factory_id) in active
++
++        layer_triples = [(s, p, o) for s, p, o in active if s == entity_id and p == "is_layer"]
++        assert len(layer_triples) == 1
++        assert layer_triples[0][2] == infra_id
++
++    def test_enabled_false_emits_nothing(self):
++        kg = self._make_kg()
++        inventory = [
++            {"type_name": "UserService", "namespace": "Company.App", "source_file": "s.cs"}
++        ]
++        cfg = {"enabled": False, "patterns": list(DEFAULT_PATTERNS), "layers": list(DEFAULT_LAYERS)}
++        n = run_arch_pass(inventory, cfg, "myapp", kg)
++        assert n == 0
++
++    def test_no_namespace_skips_in_namespace(self):
++        kg = self._make_kg()
++        inventory = [{"type_name": "UserService", "namespace": "", "source_file": "s.cs"}]
++        run_arch_pass(inventory, load_arch_config({}), "myapp", kg)
++        results = kg.query_entity("UserService", direction="outgoing")
++        ns_facts = [r for r in results if r["predicate"] == "in_namespace"]
++        assert ns_facts == []
++
++
++# ── Invalidation (predicates filter) ─────────────────────────────────────────
++
++
++class TestPredicatesFilter:
++    def setup_method(self):
++        self.tmpdir = Path(tempfile.mkdtemp())
++
++    def teardown_method(self):
++        shutil.rmtree(str(self.tmpdir))
++
++    def test_predicate_filter_expires_only_matching(self):
++        kg = KnowledgeGraph(db_path=str(self.tmpdir / "kg.sqlite3"))
++        kg.add_triple("UserService", "is_pattern", "Service", source_file="a.cs")
++        kg.add_triple("UserService", "inherits", "BaseService", source_file="a.cs")
++
++        kg.invalidate_by_source_file("a.cs", predicates=["is_pattern"])
++
++        active = _active_triples(kg)
++        svc_id = kg._entity_id("UserService")
++        svc_obj = kg._entity_id("Service")
++        base_obj = kg._entity_id("BaseService")
++        assert (svc_id, "is_pattern", svc_obj) not in active  # expired
++        assert (svc_id, "inherits", base_obj) in active  # preserved
++
++    def test_no_predicate_filter_expires_all(self):
++        kg = KnowledgeGraph(db_path=str(self.tmpdir / "kg.sqlite3"))
++        kg.add_triple("UserService", "is_pattern", "Service", source_file="a.cs")
++        kg.add_triple("UserService", "inherits", "BaseService", source_file="a.cs")
++
++        kg.invalidate_by_source_file("a.cs")
++
++        active = _active_triples(kg)
++        svc_id = kg._entity_id("UserService")
++        svc_obj = kg._entity_id("Service")
++        base_obj = kg._entity_id("BaseService")
++        assert (svc_id, "is_pattern", svc_obj) not in active
++        assert (svc_id, "inherits", base_obj) not in active
++
++    def test_predicate_filter_different_file_not_affected(self):
++        kg = KnowledgeGraph(db_path=str(self.tmpdir / "kg.sqlite3"))
++        kg.add_triple("UserService", "is_pattern", "Service", source_file="a.cs")
++        kg.add_triple("OrderService", "is_pattern", "Service", source_file="b.cs")
++
++        kg.invalidate_by_source_file("a.cs", predicates=["is_pattern"])
++
++        active = _active_triples(kg)
++        usr_id = kg._entity_id("UserService")
++        ord_id = kg._entity_id("OrderService")
++        svc_obj = kg._entity_id("Service")
++        assert (usr_id, "is_pattern", svc_obj) not in active  # file a.cs expired
++        assert (ord_id, "is_pattern", svc_obj) in active  # file b.cs untouched
++
++    def test_all_arch_predicates_selectively_expired(self):
++        kg = KnowledgeGraph(db_path=str(self.tmpdir / "kg.sqlite3"))
++        kg.add_triple("UserService", "is_pattern", "Service", source_file="a.cs")
++        kg.add_triple("UserService", "is_layer", "Business", source_file="a.cs")
++        kg.add_triple("UserService", "in_namespace", "Company.App", source_file="a.cs")
++        kg.add_triple("UserService", "in_project", "myapp", source_file="a.cs")
++        kg.add_triple("UserService", "inherits", "BaseService", source_file="a.cs")
++
++        kg.invalidate_by_source_file("a.cs", predicates=list(ARCH_PREDICATES))
++
++        active = _active_triples(kg)
++        svc_id = kg._entity_id("UserService")
++        base_obj = kg._entity_id("BaseService")
++        assert (svc_id, "inherits", base_obj) in active  # non-arch preserved
++        for subj, pred, _ in active:
++            if subj == svc_id and pred in ARCH_PREDICATES:
++                raise AssertionError(f"Arch predicate {pred!r} was not expired for UserService")
++
++
++# ── Mining integration (AC-4 stale fact invalidation) ────────────────────────
++
++
++class TestMiningIntegration:
++    def setup_method(self):
++        self.tmpdir = tempfile.mkdtemp()
++
++    def teardown_method(self):
++        shutil.rmtree(self.tmpdir)
++
++    def _write(self, rel_path, content):
++        p = Path(self.tmpdir) / rel_path
++        p.parent.mkdir(parents=True, exist_ok=True)
++        p.write_text(content, encoding="utf-8")
++        return p
++
++    def _make_project(self, extra_config=None):
++        cfg = {"wing": "test_arch", "rooms": [{"name": "general", "description": "General"}]}
++        if extra_config:
++            cfg.update(extra_config)
++        self._write(
++            "mempalace.yaml",
++            yaml.dump(cfg, default_flow_style=False),
++        )
++
++    def _mine(self, incremental=True):
++        from mempalace_code.knowledge_graph import KnowledgeGraph
++        from mempalace_code.miner import mine
++
++        kg_path = os.path.join(self.tmpdir, "kg.sqlite3")
++        kg = KnowledgeGraph(db_path=kg_path)
++        palace_path = os.path.join(self.tmpdir, "palace")
++        mine(self.tmpdir, palace_path, kg=kg, incremental=incremental)
++        return kg
++
++    # AC-1: basic pattern + layer queryability after mining
++    def test_ac1_service_pattern_queryable_after_mine(self):
++        self._make_project()
++        self._write(
++            "src/UserService.cs",
++            "namespace Company.Application;\npublic class UserService { }",
++        )
++        self._write(
++            "src/UserRepository.cs",
++            "namespace Company.Data;\npublic class UserRepository { }",
++        )
++        # Minimal .cs content to give the miner something to chunk
++        kg = self._mine(incremental=False)
++
++        results = kg.query_entity("Service", direction="incoming")
++        assert any(
++            r["subject"] == "UserService" and r["predicate"] == "is_pattern" for r in results
++        )
++
++        results = kg.query_entity("Data", direction="incoming")
++        assert any(
++            r["subject"] == "UserRepository" and r["predicate"] == "is_layer" for r in results
++        )
++
++    # AC-3: malformed architecture: block in mempalace.yaml → no exception
++    def test_ac3_malformed_arch_config_no_exception(self):
++        cfg = {
++            "wing": "test_arch",
++            "rooms": [{"name": "general", "description": "General"}],
++            "architecture": {"patterns": "Service"},  # invalid: scalar instead of list
++        }
++        self._write("mempalace.yaml", yaml.dump(cfg, default_flow_style=False))
++        self._write("src/UserService.cs", "namespace A;\npublic class UserService { }")
++        kg = self._mine(incremental=False)
++        # Should complete without exception; no arch facts from malformed rules
++        results = kg.query_entity("Service", direction="incoming")
++        # With malformed patterns, defaults are used — Service is still detected
++        # The important thing is no exception was raised
++        assert isinstance(results, list)
++
++    # AC-4: stale fact removed when file is replaced
++    def test_ac4_stale_fact_invalidated_on_rename(self):
++        self._make_project()
++        svc_file = Path(self.tmpdir) / "src" / "UserService.cs"
++        svc_file.parent.mkdir(parents=True, exist_ok=True)
++        svc_file.write_text("namespace A;\npublic class UserService { }", encoding="utf-8")
++
++        kg = self._mine(incremental=False)
++
++        results = kg.query_entity("Service", direction="incoming")
++        assert any(r["subject"] == "UserService" for r in results)
++
++        # Replace UserService.cs with UserManager.cs
++        svc_file.unlink()
++        mgr_file = Path(self.tmpdir) / "src" / "UserManager.cs"
++        mgr_file.write_text("namespace A;\npublic class UserManager { }", encoding="utf-8")
++
++        kg2 = self._mine(incremental=False)
++
++        # UserService fact must no longer be current
++        results_after = kg2.query_entity("Service", direction="incoming")
++        current_subjects = {r["subject"] for r in results_after if r["valid_to"] is None}
++        assert "UserService" not in current_subjects
++
++        # UserManager has no Service suffix → no Service pattern fact
++        assert "UserManager" not in current_subjects
+diff --git a/tests/test_mcp_server.py b/tests/test_mcp_server.py
+index 686ec74..2677a37 100644
+--- a/tests/test_mcp_server.py
++++ b/tests/test_mcp_server.py
+@@ -451,6 +451,24 @@ class TestKGTools:
+         result = tool_kg_stats()
+         assert result["entities"] >= 4
+ 
++    def test_kg_query_arch_facts_queryable(self, monkeypatch, config, palace_path, kg):
++        """Architecture is_pattern and is_layer facts are queryable via mempalace_kg_query."""
++        _patch_mcp_server(monkeypatch, config, palace_path, kg)
++        from mempalace_code.mcp_server import tool_kg_query
++
++        kg.add_triple("UserService", "is_pattern", "Service")
++        kg.add_triple("UserRepository", "is_layer", "Data")
++
++        svc_result = tool_kg_query(entity="Service", direction="incoming")
++        assert svc_result["count"] > 0
++        subjects = {r["subject"] for r in svc_result["facts"]}
++        assert "UserService" in subjects
++
++        data_result = tool_kg_query(entity="Data", direction="incoming")
++        assert data_result["count"] > 0
++        subjects = {r["subject"] for r in data_result["facts"]}
++        assert "UserRepository" in subjects
++
+ 
+ # ── Diary Tools ─────────────────────────────────────────────────────────
+ 
