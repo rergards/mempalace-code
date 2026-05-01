@@ -19,6 +19,10 @@ DEFAULT_BACKUP_SCHEDULE = "off"  # Scheduled backup frequency: off|daily|weekly|
 DEFAULT_SPELLCHECK_ENABLED = None  # None lets each ingest mode choose its own default
 DEFAULT_ENTITY_DETECTION = False
 
+DEFAULT_SCAN_SKIP_DIRS = [".kotlin-lsp"]
+DEFAULT_SCAN_SKIP_FILES = []
+DEFAULT_SCAN_SKIP_GLOBS = []
+
 DEFAULT_TOPIC_WINGS = [
     "emotions",
     "consciousness",
@@ -221,6 +225,24 @@ class MempalaceConfig:
                 return parsed
         return DEFAULT_ENTITY_DETECTION
 
+    @property
+    def scan_skip_dirs(self) -> list:
+        """Directory basenames excluded from scan_project() and watcher filtering."""
+        raw = self._file_config.get("scan_skip_dirs", DEFAULT_SCAN_SKIP_DIRS)
+        return _normalize_scan_list(raw, DEFAULT_SCAN_SKIP_DIRS)
+
+    @property
+    def scan_skip_files(self) -> list:
+        """File basenames excluded from scan_project() and watcher filtering."""
+        raw = self._file_config.get("scan_skip_files", DEFAULT_SCAN_SKIP_FILES)
+        return _normalize_scan_list(raw, DEFAULT_SCAN_SKIP_FILES)
+
+    @property
+    def scan_skip_globs(self) -> list:
+        """Project-relative POSIX glob patterns excluded during scanning."""
+        raw = self._file_config.get("scan_skip_globs", DEFAULT_SCAN_SKIP_GLOBS)
+        return _normalize_scan_list(raw, DEFAULT_SCAN_SKIP_GLOBS)
+
     def init(self):
         """Create config directory and write default config.json if it doesn't exist."""
         self._config_dir.mkdir(parents=True, exist_ok=True)
@@ -231,6 +253,9 @@ class MempalaceConfig:
                 "entity_detection": DEFAULT_ENTITY_DETECTION,
                 "topic_wings": DEFAULT_TOPIC_WINGS,
                 "hall_keywords": DEFAULT_HALL_KEYWORDS,
+                "scan_skip_dirs": DEFAULT_SCAN_SKIP_DIRS,
+                "scan_skip_files": DEFAULT_SCAN_SKIP_FILES,
+                "scan_skip_globs": DEFAULT_SCAN_SKIP_GLOBS,
             }
             with open(self._config_file, "w") as f:
                 json.dump(default_config, f, indent=2)
@@ -246,6 +271,24 @@ class MempalaceConfig:
         with open(self._people_map_file, "w") as f:
             json.dump(people_map, f, indent=2)
         return self._people_map_file
+
+
+def _normalize_scan_list(value, default: list) -> list:
+    """Normalize a scan_skip_* config value to a deduplicated list of non-empty strings.
+
+    Accepts list/tuple; ignores non-string items via str() coercion; falls back to default
+    when the top-level value has the wrong type.
+    """
+    if not isinstance(value, (list, tuple)):
+        return list(default)
+    seen: set = set()
+    result = []
+    for item in value:
+        entry = item.strip() if isinstance(item, str) else str(item).strip()
+        if entry and entry not in seen:
+            seen.add(entry)
+            result.append(entry)
+    return result
 
 
 def _parse_optional_bool(value):

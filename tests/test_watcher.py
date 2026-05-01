@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 from mempalace.cli import main
+from mempalace.miner import ScanFilterRules
 from mempalace.watcher import _invalidate_gitignore_cache, _is_relevant_change, watch_and_mine
 
 # ---------------------------------------------------------------------------
@@ -203,6 +204,52 @@ class TestIsRelevantChange:
         """With respect_gitignore=False, gitignored files are accepted."""
         (proj / ".gitignore").write_text("secrets.txt\n", encoding="utf-8")
         assert _is_relevant_change(str(proj / "secrets.txt"), proj, respect_gitignore=False)
+
+    # --- App-level scan excludes ---
+
+    def test_app_scan_excludes_match_scan_project(self, proj):
+        """AC-4: _is_relevant_change() rejects dirs, files, and globs that scan_project() excludes."""
+        rules = ScanFilterRules(
+            skip_dirs=frozenset([".kotlin-lsp"]),
+            skip_files=frozenset(["workspace.json"]),
+            skip_globs=["generated/**/*.js"],
+        )
+
+        # File inside excluded directory
+        assert not _is_relevant_change(
+            str(proj / ".kotlin-lsp" / "index.py"), proj, scan_rules=rules
+        )
+        # Excluded filename
+        assert not _is_relevant_change(str(proj / "workspace.json"), proj, scan_rules=rules)
+        # File matching glob pattern
+        assert not _is_relevant_change(
+            str(proj / "generated" / "bundle.js"), proj, scan_rules=rules
+        )
+        # Normal source file — still accepted
+        assert _is_relevant_change(str(proj / "main.py"), proj, scan_rules=rules)
+
+    def test_include_ignored_bypasses_app_scan_exclude(self, proj):
+        """AC-6b: include_ignored paths bypass both app-level dir and file excludes."""
+        rules = ScanFilterRules(
+            skip_dirs=frozenset([".kotlin-lsp"]),
+            skip_files=frozenset(["workspace.json"]),
+            skip_globs=[],
+        )
+
+        # workspace.json bypassed by explicit include
+        assert _is_relevant_change(
+            str(proj / "workspace.json"),
+            proj,
+            include_ignored=["workspace.json"],
+            scan_rules=rules,
+        )
+        # File inside excluded dir bypassed by explicit include of that file
+        assert _is_relevant_change(
+            str(proj / ".kotlin-lsp" / "special.py"),
+            proj,
+            include_ignored=[".kotlin-lsp/special.py"],
+            scan_rules=rules,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -428,6 +428,48 @@ Also available: `mempalace export --only-manual` for JSONL export of manually-st
 
 ---
 
+### Scan Excludes
+
+By default `mempalace mine` already skips common generated directories (`node_modules`,
+`__pycache__`, `.git`, etc.). For project-specific noise — generated LSP state, build
+artifacts, IDE files — configure app-level excludes in `~/.mempalace/config.json`:
+
+```json
+{
+  "scan_skip_dirs":  [".kotlin-lsp"],
+  "scan_skip_files": ["workspace.json"],
+  "scan_skip_globs": ["generated/**/*.js", "build/**"]
+}
+```
+
+| Key | Match rule | Default |
+|-----|------------|---------|
+| `scan_skip_dirs` | directory **basename** — prunes the whole subtree | `[".kotlin-lsp"]` |
+| `scan_skip_files` | file **basename** — skips matching files anywhere | `[]` |
+| `scan_skip_globs` | project-relative POSIX glob — skips matching file paths | `[]` |
+
+**`workspace.json` as opt-in example:** a root `workspace.json` can be a legitimate
+monorepo config file, so it is *not* excluded by default. Add it to `scan_skip_files`
+only if your LSP generates it as noise inside generated directories.
+
+These rules apply to both `mempalace mine` and the auto-watcher (`mempalace mine --watch`
+and `mempalace watch`). Force-include paths (`--include-ignored`) always win over
+app-level excludes.
+
+**Removing previously indexed noise:** scan excludes prevent *future* scans from indexing
+the excluded paths. To remove content that was indexed before adding the exclusion, run a
+full re-mine:
+
+```bash
+mempalace mine <dir> --full
+```
+
+`--full` forces a clean rebuild and sweeps drawers from files that are no longer
+discovered by the scanner — including previously indexed files that now fall under an
+exclusion rule.
+
+---
+
 ### Health & Repair
 
 ```bash

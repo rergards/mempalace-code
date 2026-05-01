@@ -21,9 +21,12 @@ from .miner import (
     KNOWN_FILENAMES,
     READABLE_EXTENSIONS,
     SKIP_FILENAMES,
+    ScanFilterRules,
+    get_scan_filter_rules,
     is_exact_force_include,
     is_force_included,
     is_gitignored,
+    is_scan_excluded,
     load_gitignore_matcher,
     mine,
     normalize_include_paths,
@@ -48,12 +51,13 @@ def _is_relevant_change(
     respect_gitignore: bool = True,
     include_ignored: Optional[list] = None,
     matcher_cache: Optional[dict] = None,
+    scan_rules: Optional[ScanFilterRules] = None,
 ) -> bool:
     """Return True if the changed path should trigger a re-mine.
 
     Mirrors scan_project() filtering: READABLE_EXTENSIONS, KNOWN_FILENAMES,
-    SKIP_FILENAMES, should_skip_dir() on parents, gitignore, include_ignored.
-    Works for deleted paths (no file-existence check required).
+    SKIP_FILENAMES, should_skip_dir() on parents, app-level scan_rules, gitignore,
+    include_ignored. Works for deleted paths (no file-existence check required).
     """
     file_path = Path(path)
     filename = file_path.name
@@ -66,13 +70,15 @@ def _is_relevant_change(
 
     include_paths = normalize_include_paths(include_ignored or [])
 
-    # Reject files inside skip dirs, unless a descendant is explicitly force-included.
+    # Reject files inside skip dirs (built-in or app-level), unless force-included.
     # Mirrors the dirs[:] pruning in scan_project().
     for i, part in enumerate(relative.parts[:-1]):
-        if should_skip_dir(part):
-            parent_path = project_path.joinpath(*relative.parts[: i + 1])
-            if not is_force_included(parent_path, project_path, include_paths):
-                return False
+        parent_path = project_path.joinpath(*relative.parts[: i + 1])
+        excluded_dir = should_skip_dir(part) or (
+            scan_rules is not None and part in scan_rules.skip_dirs
+        )
+        if excluded_dir and not is_force_included(parent_path, project_path, include_paths):
+            return False
 
     force_include = is_force_included(file_path, project_path, include_paths)
     exact_force_include = is_exact_force_include(file_path, project_path, include_paths)
@@ -80,6 +86,11 @@ def _is_relevant_change(
     # Reject known-skip filenames unless the file is explicitly force-included.
     if not force_include and filename in SKIP_FILENAMES:
         return False
+
+    # Reject app-level file/glob excludes unless force-included.
+    if scan_rules is not None and not force_include:
+        if is_scan_excluded(file_path, project_path, scan_rules, is_dir=False):
+            return False
 
     # Reject files with non-readable extensions unless explicitly included or a known
     # special filename (Dockerfile, Makefile, etc.).
@@ -147,6 +158,9 @@ def watch_and_mine(
         print(f"  Error: directory not found: {project_path}", file=sys.stderr)
         sys.exit(1)
 
+    # Load app-level scan rules once; reuse for every _is_relevant_change() call.
+    scan_rules = get_scan_filter_rules()
+
     print(f"  Watching: {project_path}")
     print(f"  Palace:   {palace_path}")
     print("  Initial mine...", flush=True)
@@ -210,6 +224,7 @@ def watch_and_mine(
                     respect_gitignore=respect_gitignore,
                     include_ignored=include_ignored,
                     matcher_cache=matcher_cache,
+                    scan_rules=scan_rules,
                 )
             ]
 
@@ -411,6 +426,9 @@ def watch_all(
         watch_paths = [str(p) for p in project_map]
         git_to_project = {}
 
+    # Load app-level scan rules once; reuse across all file-save _is_relevant_change() calls.
+    watch_all_scan_rules = get_scan_filter_rules()
+
     matcher_cache: dict = {}
     shutdown_event = threading.Event()
     original_sigterm = signal.getsignal(signal.SIGTERM)
@@ -494,6 +512,7 @@ def watch_all(
                             proj_path,
                             respect_gitignore=respect_gitignore,
                             matcher_cache=matcher_cache,
+                            scan_rules=watch_all_scan_rules,
                         ):
                             by_project.setdefault(proj_path, []).append((change_type, path))
                         break

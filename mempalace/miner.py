@@ -16,7 +16,7 @@ import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from .config import MempalaceConfig
 from .language_catalog import (
@@ -321,6 +321,73 @@ def is_force_included(path: Path, project_path: Path, include_paths: set) -> boo
         if include_path.startswith(f"{relative}/"):
             return True
 
+    return False
+
+
+# =============================================================================
+# APP-LEVEL SCAN FILTER RULES
+# =============================================================================
+
+
+class ScanFilterRules(NamedTuple):
+    """Immutable app-level scan exclusion rules loaded from ~/.mempalace/config.json."""
+
+    skip_dirs: frozenset  # directory basenames to exclude
+    skip_files: frozenset  # file basenames to exclude
+    skip_globs: list  # project-relative POSIX glob patterns to exclude
+
+
+def get_scan_filter_rules(config=None) -> ScanFilterRules:
+    """Return ScanFilterRules from app config (or defaults when config is None)."""
+    if config is None:
+        config = MempalaceConfig()
+    return ScanFilterRules(
+        skip_dirs=frozenset(config.scan_skip_dirs),
+        skip_files=frozenset(config.scan_skip_files),
+        skip_globs=list(config.scan_skip_globs),
+    )
+
+
+def _glob_match(rel_posix: str, pattern: str) -> bool:
+    """Match a project-relative POSIX path against a glob pattern.
+
+    Supports ** as a zero-or-more-segments wildcard, matching both direct children
+    and deeper descendants (e.g. ``generated/**/*.js`` matches ``generated/bundle.js``
+    and ``generated/sub/bundle.js``).
+    """
+    if fnmatch.fnmatch(rel_posix, pattern):
+        return True
+    if "**" not in pattern:
+        return False
+    # Also try treating **/ as matching zero segments (direct children)
+    alt = pattern.replace("**/", "")
+    return bool(alt != pattern and fnmatch.fnmatch(rel_posix, alt))
+
+
+def is_scan_excluded(
+    path: Path, project_path: Path, rules: ScanFilterRules, is_dir: bool = False
+) -> bool:
+    """Return True when path matches an app-level scan exclusion rule.
+
+    Directories are matched by basename only. Files are matched by basename, then
+    by project-relative POSIX glob patterns. Force-include precedence is the
+    caller's responsibility.
+    """
+    name = path.name
+    if is_dir:
+        if name in rules.skip_dirs:
+            return True
+    else:
+        if name in rules.skip_files:
+            return True
+    if rules.skip_globs:
+        try:
+            rel_posix = path.relative_to(project_path).as_posix()
+        except ValueError:
+            return False
+        for pattern in rules.skip_globs:
+            if _glob_match(rel_posix, pattern):
+                return True
     return False
 
 
@@ -2507,6 +2574,7 @@ def scan_project(
     project_dir: str,
     respect_gitignore: bool = True,
     include_ignored: list = None,
+    scan_rules: Optional[ScanFilterRules] = None,
 ) -> list:
     """Return list of all readable file paths."""
     project_path = Path(project_dir).expanduser().resolve()
@@ -2515,6 +2583,9 @@ def scan_project(
     matcher_cache = {}
     include_paths = normalize_include_paths(include_ignored)
     dotnet_project = _is_dotnet_project(project_path)
+
+    if scan_rules is None:
+        scan_rules = get_scan_filter_rules()
 
     for root, dirs, filenames in os.walk(project_path):
         root_path = Path(root)
@@ -2533,7 +2604,11 @@ def scan_project(
             d
             for d in dirs
             if is_force_included(root_path / d, project_path, include_paths)
-            or not (should_skip_dir(d) or (dotnet_project and d == "bin"))
+            or not (
+                should_skip_dir(d)
+                or (dotnet_project and d == "bin")
+                or is_scan_excluded(root_path / d, project_path, scan_rules, is_dir=True)
+            )
         ]
         if respect_gitignore and active_matchers:
             dirs[:] = [
@@ -2549,6 +2624,8 @@ def scan_project(
             exact_force_include = is_exact_force_include(filepath, project_path, include_paths)
 
             if not force_include and filename in SKIP_FILENAMES:
+                continue
+            if not force_include and is_scan_excluded(filepath, project_path, scan_rules):
                 continue
             if filepath.suffix.lower() not in READABLE_EXTENSIONS and not exact_force_include:
                 if filename not in KNOWN_FILENAMES:
@@ -3263,10 +3340,12 @@ def mine(
                 wing = sln_wing
         csproj_room_map = _build_csproj_room_map(project_path)
 
+    scan_rules = get_scan_filter_rules(MempalaceConfig())
     files = scan_project(
         project_dir,
         respect_gitignore=respect_gitignore,
         include_ignored=include_ignored,
+        scan_rules=scan_rules,
     )
     if limit > 0:
         files = files[:limit]

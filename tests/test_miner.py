@@ -9,6 +9,7 @@ import torch
 import yaml
 
 from mempalace.miner import (
+    ScanFilterRules,
     _build_csproj_room_map,
     _chunk_k8s_manifest,
     _detect_batch_size,
@@ -254,6 +255,96 @@ def test_scan_project_skip_dirs_still_apply_without_override():
         write_file(project_root / "main.py", "print('main')\n" * 20)
 
         assert scanned_files(project_root, respect_gitignore=False) == ["main.py"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+# =============================================================================
+# App-level scan filter rules (MINE-APP-SCAN-EXCLUDES-PR4)
+# =============================================================================
+
+_NO_RULES = ScanFilterRules(
+    skip_dirs=frozenset(),
+    skip_files=frozenset(),
+    skip_globs=[],
+)
+
+_KOTLIN_LSP_RULES = ScanFilterRules(
+    skip_dirs=frozenset([".kotlin-lsp"]),
+    skip_files=frozenset(["workspace.json"]),
+    skip_globs=["generated/**/*.js"],
+)
+
+
+def test_scan_project_applies_app_scan_excludes():
+    """AC-3: scan_project() excludes .kotlin-lsp dirs, configured filenames, and globs."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        # Normal source file — should be kept
+        write_file(project_root / "main.py", "print('hello')\n" * 20)
+        # File inside .kotlin-lsp dir — should be excluded by skip_dirs
+        write_file(project_root / ".kotlin-lsp" / "index.py", "x = 1\n" * 20)
+        # workspace.json at root — should be excluded by skip_files
+        write_file(project_root / "workspace.json", '{"version":1}\n' * 5)
+        # File matching glob pattern — should be excluded
+        write_file(project_root / "generated" / "bundle.js", "var x=1;\n" * 20)
+        # Non-matching JS file — should be kept
+        write_file(project_root / "src" / "app.js", "var y=2;\n" * 20)
+
+        result = scanned_files(project_root, respect_gitignore=False, scan_rules=_KOTLIN_LSP_RULES)
+
+        assert "main.py" in result
+        assert "src/app.js" in result
+        assert ".kotlin-lsp/index.py" not in result
+        assert "workspace.json" not in result
+        assert "generated/bundle.js" not in result
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_keeps_workspace_json_without_configured_file_skip():
+    """AC-5: workspace.json appears in scan output when scan_skip_files is empty."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "workspace.json", '{"version":1}\n' * 5)
+
+        result = scanned_files(project_root, respect_gitignore=False, scan_rules=_NO_RULES)
+
+        assert "workspace.json" in result
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_include_override_beats_app_scan_excludes():
+    """AC-6a: include_ignored paths override app-level scan excludes."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        # workspace.json normally excluded by _KOTLIN_LSP_RULES
+        write_file(project_root / "workspace.json", '{"version":1}\n' * 5)
+        # File inside .kotlin-lsp also excluded, but force-include overrides dir exclusion
+        write_file(project_root / ".kotlin-lsp" / "special.py", "x = 1\n" * 20)
+
+        result_ws = scanned_files(
+            project_root,
+            respect_gitignore=False,
+            include_ignored=["workspace.json"],
+            scan_rules=_KOTLIN_LSP_RULES,
+        )
+        assert "workspace.json" in result_ws
+
+        result_kt = scanned_files(
+            project_root,
+            respect_gitignore=False,
+            include_ignored=[".kotlin-lsp/special.py"],
+            scan_rules=_KOTLIN_LSP_RULES,
+        )
+        assert ".kotlin-lsp/special.py" in result_kt
     finally:
         shutil.rmtree(tmpdir)
 

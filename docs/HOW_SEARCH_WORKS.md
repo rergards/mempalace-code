@@ -82,8 +82,25 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 - **Language filters share the miner catalog.** `code_search(language=...)` validates against the same language labels the miner emits, and the MCP schema hint is generated from that catalog.
 - **Markdown location survives retrieval.** For `.md` files, `search_memories()` results include `heading`, `heading_level`, `heading_path`, `doc_section_type`, `contains_mermaid`, `contains_code`, and `contains_table` when the drawer came from a headed section.
 
+## What Gets Indexed
+
+`scan_project()` in `miner.py` decides which files are passed to the chunker and embedder.
+Files are skipped before any embedding happens if they match:
+
+1. **Built-in hardcoded skips** — `node_modules`, `__pycache__`, `.git`, and similar common
+   generated directories; `SKIP_FILENAMES` like `package-lock.json` and `mempalace.yaml`.
+2. **App-level scan excludes** — configured in `~/.mempalace/config.json` as
+   `scan_skip_dirs`, `scan_skip_files`, and `scan_skip_globs`. These run before the vector
+   indexing pipeline and apply equally to `mempalace mine` and the auto-watcher.
+3. **Gitignore rules** — applied when `respect_gitignore=True` (the default).
+
+Previously indexed files that now fall under an exclusion rule are **not automatically
+removed** from the palace. Run `mempalace mine <dir> --full` to force a clean rebuild
+that sweeps stale drawers for files no longer discovered by the scanner.
+
 ## Where the Code Lives
 
 - `mempalace/searcher.py` — high-level `search()` and `search_memories()` functions.
 - `mempalace/storage.py` — `LanceStore.query()`, which owns the embedding model, the LanceDB handle, and the actual vector search call.
 - `mempalace/miner.py` — smart chunker, language detection, symbol extraction, and the batch embedding loop used during `mempalace mine`.
+- `mempalace/config.py` — `MempalaceConfig.scan_skip_dirs/files/globs` properties that expose app-level scan exclusion config.
