@@ -153,38 +153,6 @@ items:
     links:
       - type: is-blocked-by
         key: CLARIFY-MINE-ANSIBLE
-  - key: ARCH-EXTRACTION-MODE
-    summary: 'Architecture extraction mode: produce higher-level entities'
-    type: task
-    status: open
-    priority: low
-    size: L
-    section_id: future
-    description: |-
-      ## Problem
-
-      Issue #1 requests producing higher-level architectural entities beyond code chunks.
-
-      ## Scope
-
-      Post-mining pass that:
-      1. Clusters types by namespace/project
-      2. Detects patterns: Repository, Service, Controller, ViewModel, Factory
-      3. Detects layers: UI, Business, Data, Infrastructure
-      4. Stores as KG triples: ("UserService", "is_layer", "Business")
-      5. Enables queries like "show all services" or "show data layer"
-
-      ## References
-
-      - GitHub issue: rergards/mempalace-code#1 (Nice To Have #4)
-      - Depends on: MCP-ARCH-TOOLS, ARCH-RETRIEVAL
-
-      ## Acceptance Criteria
-
-      - [ ] Pattern detection for common .NET patterns
-      - [ ] Layer detection with configurable rules
-      - [ ] Results stored in KG
-      - [ ] Queryable via mempalace_kg_query
   - key: CLARIFY-MINE-RUBY-SMART
     summary: "Clarify scope for MINE-RUBY-SMART before planning can proceed"
     type: task
