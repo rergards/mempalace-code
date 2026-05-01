@@ -178,7 +178,7 @@ def test_scan_skip_config_defaults_and_overrides():
 
 def test_scan_skip_invalid_values_fall_back_safely():
     """AC-2: Non-list values fall back to defaults; non-string entries in lists are
-    coerced or dropped, and defaults remain usable without a crash.
+    dropped (no silent str() coercion), and defaults remain usable without a crash.
     """
     tmpdir = tempfile.mkdtemp()
     # Wrong type at top level — fall back to default
@@ -188,14 +188,15 @@ def test_scan_skip_invalid_values_fall_back_safely():
     assert cfg.scan_skip_dirs == [".kotlin-lsp"]  # default
     assert cfg.scan_skip_files == []  # default
 
-    # Non-string items inside a list — str() coercion keeps non-empty results
+    # Non-string items inside a list — dropped, only valid strings kept (no coercion).
     tmpdir2 = tempfile.mkdtemp()
     with open(os.path.join(tmpdir2, "config.json"), "w") as f:
         json.dump({"scan_skip_files": [None, "", "workspace.json", 123]}, f)
     cfg2 = MempalaceConfig(config_dir=tmpdir2)
-    # None → "None", "" → dropped, "workspace.json" kept, 123 → "123"
-    assert "workspace.json" in cfg2.scan_skip_files
-    assert "" not in cfg2.scan_skip_files
+    # None / 123 / "" all dropped; only "workspace.json" survives.
+    assert cfg2.scan_skip_files == ["workspace.json"]
+    assert "None" not in cfg2.scan_skip_files
+    assert "123" not in cfg2.scan_skip_files
 
 
 def test_scan_skip_init_writes_defaults_for_fresh_install():

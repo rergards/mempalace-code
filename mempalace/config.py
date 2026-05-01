@@ -276,15 +276,18 @@ class MempalaceConfig:
 def _normalize_scan_list(value, default: list) -> list:
     """Normalize a scan_skip_* config value to a deduplicated list of non-empty strings.
 
-    Accepts list/tuple; ignores non-string items via str() coercion; falls back to default
-    when the top-level value has the wrong type.
+    Accepts list/tuple; non-string items are dropped (silent coercion would turn
+    ``None``/``123`` into bogus exclusion entries). Falls back to default when the
+    top-level value has the wrong type.
     """
     if not isinstance(value, (list, tuple)):
         return list(default)
     seen: set = set()
     result = []
     for item in value:
-        entry = item.strip() if isinstance(item, str) else str(item).strip()
+        if not isinstance(item, str):
+            continue
+        entry = item.strip()
         if entry and entry not in seen:
             seen.add(entry)
             result.append(entry)
