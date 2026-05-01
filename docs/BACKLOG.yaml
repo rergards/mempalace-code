@@ -77,37 +77,6 @@ items:
       Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
 
     resolution: null
-  - key: CORE-EXPORT-IMPORT-STREAM-TEST
-    summary: 'Add test_export_streams_large_palace: verify iter_all streams without OOM on 5k-drawer palaces'
-    type: task
-    status: done
-    priority: low
-    size: S
-    section_id: quality
-    assignee: bot
-    labels: [test, export, performance]
-    description: |-
-      ## Problem
-      export.py exports via iter_all() which uses PyArrow batches — but there is no test that confirms the implementation does not inadvertently load all rows into memory at once on a large palace.
-
-      ## Scope
-      tests/test_export.py — add one new test class.
-
-      ## Acceptance criteria
-      - test_export_streams_large_palace seeds a synthetic 5k-drawer store and exports it
-      - Peak RSS or tracemalloc allocation during export is below 200 MB
-      - OR: iter_all batch count > 1 (proves batching is happening)
-      - Must complete in < 30s in CI
-      - No model loading required (mock or pre-built LanceDB table)
-
-      ## Deliverable
-      A test that seeds a synthetic 5k-drawer store, exports it, and asserts batch streaming is active via tracemalloc or batch-count instrumentation.
-
-      ## Constraints
-      - Deferred from CORE-EXPORT-IMPORT per plan (iter_all itself guarantees streaming; test is for regression protection)
-      - Must not slow the test suite materially
-    resolution: "2026-05-01: Added TestExportStreamsLargePalace.test_export_streams_large_palace seeding a 5000-drawer store and instrumenting iter_all to record per-call batch sizes. Hardening monkeypatched _embed to satisfy the 'No model loading required' AC, separated the iter_all-not-called failure mode from the no-multi-batch failure mode, and tightened the batching assertion to require sum-of-batches == n and max-batch-size <= 1000."
-    done_summary: "5k-drawer streaming test verifies iter_all yields multiple batches that sum to n with no batch exceeding the default 1000 chunksize. Embeddings mocked so the test is deterministic without HF cache. AC OR-branch (batch count > 1) chosen; tracemalloc branch left dismissed."
   - key: STORE-SCHEMA-PARTIAL-MIGRATE-TEST
     summary: 'Add test: partial schema migration roundtrip (intermediate-column-count palace)'
     type: task
