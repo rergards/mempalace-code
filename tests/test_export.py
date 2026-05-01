@@ -391,6 +391,75 @@ class TestExportHeaderIsFirstLine:
         assert header["filters"].get("wing") == "notes"
 
 
+# ── Streaming: large palace export batches ───────────────────────────────────
+
+
+class TestExportStreamsLargePalace:
+    def test_export_streams_large_palace(self, tmp_path, monkeypatch):
+        """5k-drawer export: iter_all must yield >1 batch, proving streaming not one-shot load."""
+        palace = str(tmp_path / "palace")
+        store = _store(palace)
+        export_file = str(tmp_path / "large_export.jsonl")
+
+        n = 5000
+        ids = [f"stream_{i:04d}" for i in range(n)]
+        documents = [
+            f"Synthetic drawer document number {i:04d} for streaming test." for i in range(n)
+        ]
+        metadatas = [
+            {
+                "wing": "stream_test",
+                "room": "general",
+                "source_file": "",
+                "chunk_index": i,
+                "added_by": "test",
+                "filed_at": "2026-01-01T00:00:00",
+                "chunker_strategy": "manual_v1",
+                "extractor_version": "3.0.0",
+            }
+            for i in range(n)
+        ]
+        store.add(ids=ids, documents=documents, metadatas=metadatas)
+        assert store.count() == n
+
+        # Instrument iter_all on the store instance to record per-call batch sizes.
+        per_call_batch_sizes = []
+        original_iter_all = store.iter_all
+
+        def instrumented_iter_all(*args, **kwargs):
+            batch_sizes = []
+            for batch in original_iter_all(*args, **kwargs):
+                batch_sizes.append(len(batch))
+                yield batch
+            per_call_batch_sizes.append(batch_sizes)
+
+        monkeypatch.setattr(store, "iter_all", instrumented_iter_all)
+
+        summary = write_jsonl(path=export_file, store=store, palace_path=palace)
+
+        # AC-1: all count surfaces agree on 5000
+        assert summary["drawer_count"] == n
+
+        records = list(read_jsonl(export_file))
+        header = records[0]
+        assert header["type"] == "export_header"
+        assert header["drawer_count"] == n
+
+        drawer_records = [r for r in records if r["type"] == "drawer"]
+        assert len(drawer_records) == n
+
+        # AC-4: default export omits vectors
+        for dr in drawer_records:
+            assert dr["embedding"] is None
+
+        # AC-2 / AC-3: at least one iter_all call must have produced >1 batch
+        multi_batch_calls = [sizes for sizes in per_call_batch_sizes if len(sizes) > 1]
+        assert multi_batch_calls, (
+            f"No iter_all call observed more than one batch — batching is broken. "
+            f"Per-call batch sizes: {per_call_batch_sizes}"
+        )
+
+
 # ── Version mismatch warning ─────────────────────────────────────────────────
 
 
