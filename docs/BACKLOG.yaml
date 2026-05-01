@@ -96,36 +96,6 @@ items:
       Mine multiple project directories into a single palace with wing-per-repo isolation. Enables cross-project knowledge search. Needs: wing auto-naming from git remote/folder, conflict resolution for shared file names, incremental per-repo re-mining.
 
     resolution: null
-  - key: QUAL-E2E-REMAINING-MODULES
-    summary: Add e2e scenario tests for convo_miner, layers, and palace_graph modules
-    type: task
-    status: done
-    priority: low
-    size: M
-    section_id: quality
-    labels: [test, e2e, quality]
-    description: |-
-      ## Problem
-
-      test_e2e.py covers 7 of 9 key modules (storage, miner, searcher, knowledge_graph, mcp_server, export, cli). Three significant modules — convo_miner.py (conversation mining), layers.py (tiered context loading L0–L3), and palace_graph.py (graph traversal / tunnel detection) — have no end-to-end scenario tests.
-
-      ## Scope
-
-      tests/test_e2e.py (or new tests/test_e2e_graph.py) — 3 new scenario test functions, each self-contained with a tmp palace.
-
-      ## Deliverable
-
-      - AC-10: Convo miner — ingest a synthetic Claude export JSON, verify drawers are indexed and searchable
-      - AC-11: Layers — mine a project, call wake_up() L0→L1→L2, verify token counts increase monotonically and content is correct
-      - AC-12: Graph traversal — mine 2 wings with overlapping concepts, call traverse() and find_tunnels(), verify cross-wing links detected
-
-      ## Acceptance Criteria
-
-      1. Three new passing e2e scenario tests covering convo_miner, layers, and palace_graph
-      2. No test depends on external network or shared palace state
-      3. ruff check passes
-    resolution: "2026-05-01: Added 3 e2e scenarios to tests/test_e2e.py covering convo_miner (AC-10/AC-11 — Claude.ai JSON ingest with provenance metadata + idempotent re-mine), layers (AC-12/AC-13 — L0/L1/L2/L3 monotonic growth with project content + missing-wing graceful response), and palace_graph (AC-14/AC-15 — find_tunnels detects shared room across two wings, traverse reaches connected rooms via shared wing, missing-room returns error dict with suggestions key). Round-1 hardening removed one tautological assertion in the layers test and dismissed three info-level findings (idempotency content stability already covered by file_already_mined short-circuit, pyright import-resolution warnings are environment-only, pre-existing pyright warnings on diary topic indexing are out of scope)."
-    done_summary: "tests/test_e2e.py now exercises convo_miner, layers, and palace_graph end-to-end. All three new tests are self-contained with tmp palaces, assert on specific values (not just no-error), and cover both happy paths and one boundary case each. Full e2e suite + ruff check pass."
   - key: CODE-TREESITTER-PYTHON-DETACH-TEST
     summary: Add negative test for detached-comment gap detection in _chunk_python_treesitter
     type: task
