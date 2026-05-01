@@ -313,3 +313,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: MINE-APP-SCAN-EXCLUDES-PR4
+      summary: 'Evaluate PR #4 app-level scan excludes as a separate mining feature'
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
