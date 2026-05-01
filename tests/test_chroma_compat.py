@@ -173,31 +173,41 @@ def test_chroma_store_lifecycle(tmp_path):
     """add → query → get → delete → count exercises all five ChromaStore wrapper ops."""
     store = _make_store_with_ef(tmp_path)
 
-    ids = ["d1", "d2"]
-    docs = ["LanceDB is the default storage backend.", "ChromaDB is the legacy backend."]
+    # Three docs across two wings so the where filter has something to filter out.
+    ids = ["d1", "d2", "d3"]
+    docs = [
+        "LanceDB is the default storage backend.",
+        "ChromaDB is the legacy backend.",
+        "Unrelated content in another wing.",
+    ]
     metas = [
         {"wing": "mempalace", "room": "storage"},
         {"wing": "mempalace", "room": "storage"},
+        {"wing": "other", "room": "misc"},
     ]
 
     store.add(ids=ids, documents=docs, metadatas=metas)
-    assert store.count() == 2
+    assert store.count() == 3
 
-    # query — proves the where filter is forwarded through the wrapper
+    # query with where: must drop the other-wing doc, proving the filter is
+    # forwarded through the wrapper rather than silently swallowed.
     results = store.query(
         query_texts=["vector storage backend"],
-        n_results=2,
+        n_results=5,
         where={"wing": "mempalace"},
     )
-    assert len(results["ids"][0]) == 2
+    assert sorted(results["ids"][0]) == ["d1", "d2"]
 
-    # get by id — proves the id is retrievable
+    # get by id — verify id and document content roundtrip
     fetched = store.get(ids=["d1"])
     assert fetched["ids"] == ["d1"]
+    assert fetched["documents"] == [docs[0]]
 
-    # delete — count must drop
+    # delete — count drops AND the right id is gone (not a sibling).
     store.delete(ids=["d1"])
-    assert store.count() == 1
+    assert store.count() == 2
+    remaining = store.get()
+    assert sorted(remaining["ids"]) == ["d2", "d3"]
 
 
 def test_chroma_store_missing_ids(tmp_path):
