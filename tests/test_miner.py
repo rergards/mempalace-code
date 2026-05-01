@@ -1876,20 +1876,30 @@ def test_scan_project_includes_mk_files():
 
 
 def test_scan_project_includes_containerfile():
-    """AC-4: extensionless Containerfile is returned by scan_project via known filename handling."""
+    """AC-4: extensionless Containerfile is returned by scan_project via known filename handling.
+
+    A sibling extensionless file with an unknown name is asserted absent to prove inclusion
+    relies on the KNOWN_FILENAMES allowlist rather than blanket extensionless acceptance.
+    """
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
         write_file(project_root / "Containerfile", "FROM fedora:38\nRUN dnf install -y python3\n")
+        write_file(project_root / "RandomExtensionless", "not a known filename\n")
 
         files = scanned_files(project_root)
         assert "Containerfile" in files
+        assert "RandomExtensionless" not in files
     finally:
         shutil.rmtree(tmpdir)
 
 
 def test_scan_project_includes_vagrantfile():
-    """AC-5: extensionless Vagrantfile is returned by scan_project via known filename handling."""
+    """AC-5: extensionless Vagrantfile is returned by scan_project via known filename handling.
+
+    A sibling extensionless file with an unknown name is asserted absent to prove inclusion
+    relies on the KNOWN_FILENAMES allowlist rather than blanket extensionless acceptance.
+    """
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
@@ -1897,9 +1907,11 @@ def test_scan_project_includes_vagrantfile():
             project_root / "Vagrantfile",
             'Vagrant.configure("2") do |config|\n  config.vm.box = "ubuntu/focal64"\nend\n',
         )
+        write_file(project_root / "RandomExtensionless", "not a known filename\n")
 
         files = scanned_files(project_root)
         assert "Vagrantfile" in files
+        assert "RandomExtensionless" not in files
     finally:
         shutil.rmtree(tmpdir)
 

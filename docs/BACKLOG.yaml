@@ -102,6 +102,7 @@ items:
     size: S
     section_id: quality
     labels: [mining, testing, devops]
+    hardening_round_1: "2026-05-01 — fixed F-1 (low): test_scan_project_includes_containerfile and test_scan_project_includes_vagrantfile claimed 'via known filename handling' but lacked a negative control, so a regression that loosened scan_project's suffix-check to accept any extensionless file would not have failed them; added a sibling 'RandomExtensionless' file to both tests and asserted it is absent, pinning the KNOWN_FILENAMES allowlist contract. Audit at docs/audits/MINE-DEVOPS-SCAN-COVERAGE-round-1.md."
     description: |-
       ## Problem
 
