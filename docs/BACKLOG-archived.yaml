@@ -368,3 +368,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: MINE-SCAN-RULES-LIVE-RELOAD
+      summary: Live-reload scan_skip_* config in watcher loops without restart
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run

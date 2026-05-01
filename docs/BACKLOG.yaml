@@ -531,15 +531,6 @@ items:
       - Owner confirms test-only versus test-plus-fixture scope.
       - CLARIFY-CODE-TREESITTER-GO-RUST-DETACH-TEST is marked done, or its is-blocked-by link is removed from CODE-TREESITTER-GO-RUST-DETACH-TEST.
       - Autopilot can re-run CODE-TREESITTER-GO-RUST-DETACH-TEST planning without timing out on ambiguous scope.
-  - key: MINE-SCAN-RULES-LIVE-RELOAD
-    summary: "Live-reload scan_skip_* config in watcher loops without restart"
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: coding_first
-    labels: [mining, watcher, config]
-    description: "## Problem\n`watch_and_mine()` and `watch_all()` load `scan_rules` once at start via\n`get_scan_filter_rules()`. Edits to `~/.mempalace/config.json` while a watcher is running\nare ignored until the user kills and restarts the daemon. For long-running watchers this is\nsurprising — users expect config edits to take effect on the next file event.\n\n## Scope\nDetect `~/.mempalace/config.json` modifications and refresh the in-memory `ScanFilterRules`\non the next event batch. Either via the same `watchfiles` event stream (the config path is\ntypically outside the project) or via mtime polling at batch boundaries.\n\n## Acceptance criteria\n- After editing `scan_skip_*` keys mid-watch, the next file event uses the new rules.\n- Concurrency-safe: no torn reads (rules are an immutable NamedTuple, swap atomically).\n- No additional process startup latency on watcher boot.\n- Test simulates a config edit and asserts new rules apply on the next `_is_relevant_change`.\n\n## Constraints\n- Avoid polling on every event — check at most once per debounce batch.\n- Bad/unparseable config writes must not crash the watcher; fall back to last good rules."
   - key: CI-CACHING-TEST-ENV-BRANCH
     summary: "Cover MEMPALACE_TEST_HF_HOME branch selection in offline test helpers"
     type: task
