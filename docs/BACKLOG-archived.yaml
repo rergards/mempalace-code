@@ -378,3 +378,8 @@ items:
       resolution: '2026-05-01: Added 3 e2e scenarios to tests/test_e2e.py covering convo_miner (AC-10/AC-11 — Claude.ai JSON ingest with provenance metadata + idempotent re-mine), layers (AC-12/AC-13 — L0/L1/L2/L3 monotonic growth with project content + missing-wing graceful response), and palace_graph (AC-14/AC-15 — find_tunnels detects shared room across two wings, traverse reaches connected rooms via shared wing, missing-room returns error dict with suggestions key). Round-1 hardening removed one tautological assertion in the layers test and dismissed three info-level findings (idempotency content stability already covered by file_already_mined short-circuit, pyright import-resolution warnings are environment-only, pre-existing pyright warnings on diary topic indexing are out of scope).'
       archived_date: "2026-05-01"
       done_summary: tests/test_e2e.py now exercises convo_miner, layers, and palace_graph end-to-end. All three new tests are self-contained with tmp palaces, assert on specific values (not just no-error), and cover both happy paths and one boundary case each. Full e2e suite + ruff check pass.
+    - key: MCP-LAZY-STARTUP
+      summary: Make MCP startup cheap with lazy imports and read-only store open
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
