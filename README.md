@@ -160,10 +160,18 @@ Tree-sitter is optional (`pip install "mempalace-code[treesitter]"`). When a gra
 mempalace-code mine ~/projects/myapp                  # all supported file types
 mempalace-code mine ~/projects/myapp --wing myapp     # tag with a specific wing
 mempalace-code mine ~/chats/ --mode convos            # mine conversation exports
-mempalace-code mine-all ~/projects/                   # batch mine all projects in a directory
+mempalace-code mine-all ~/projects/                   # sync all projects incrementally (one wing per project)
+mempalace-code mine-all ~/projects/ --new-only        # skip projects whose wing already exists (first-run only)
 ```
 
 Mining is **incremental** by default — content-hash based, only changed files are re-chunked. Use `--full` to force a rebuild.
+
+**Multi-project wing naming** — `mine-all` assigns one wing per project using this priority:
+1. `wing:` in the project's `mempalace.yaml` (explicit override)
+2. Git origin repo name (e.g. `my-repo.git` → `my_repo`)
+3. Normalized folder name
+
+If two projects resolve to the same wing name, `mine-all` exits with an error before mining anything. Fix this by adding a unique `wing:` value to each project's `mempalace.yaml`. Use `--new-only` to skip projects already present in the palace (useful for first-run batch ingestion).
 
 ### Optional Entity Detection
 
@@ -593,7 +601,8 @@ mempalace-code mine <dir> --wing myapp                 # tag with wing
 mempalace-code mine <dir> --mode convos                # mine conversations
 mempalace-code mine <dir> --full                       # force full rebuild
 mempalace-code mine <dir> --watch                      # auto-incremental on file changes
-mempalace-code mine-all <parent-dir>                   # batch mine all projects in a directory
+mempalace-code mine-all <parent-dir>                   # sync all projects incrementally (one wing per project)
+mempalace-code mine-all <parent-dir> --new-only        # only mine projects not yet in the palace
 
 # Watch (multi-project auto-sync)
 mempalace-code watch <parent-dir>                      # watch all initialized projects

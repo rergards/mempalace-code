@@ -699,6 +699,80 @@ class TestWatchAll:
         # Only the initial mine — workspace.json was filtered by the refreshed rules
         assert len(mine_calls) == 1
 
+    def test_watch_all_duplicate_wings_exit_before_initial_mine(self, tmp_path, capsys):
+        """AC-6: two initialized projects resolving to the same wing → exit 1 before mine/watch."""
+        from mempalace_code.watcher import watch_all
+
+        proj_a = tmp_path / "proj_a"
+        proj_a.mkdir()
+        (proj_a / "mempalace.yaml").write_text("wing: same_wing\n")
+
+        proj_b = tmp_path / "proj_b"
+        proj_b.mkdir()
+        (proj_b / "mempalace.yaml").write_text("wing: same_wing\n")
+
+        fake_projects = [
+            {"path": str(proj_a), "initialized": True},
+            {"path": str(proj_b), "initialized": True},
+        ]
+
+        mine_calls = []
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=mine_calls.append),
+            patch("mempalace_code.miner.detect_projects", return_value=fake_projects),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                watch_all(str(tmp_path), str(tmp_path / "palace"))
+
+        assert exc_info.value.code == 1
+        assert len(mine_calls) == 0
+
+        err = capsys.readouterr().err
+        assert "same_wing" in err
+        assert "proj_a" in err
+        assert "proj_b" in err
+
+    def test_watch_all_uses_configured_wings(self, tmp_path, monkeypatch):
+        """watch_all reads wing from mempalace.yaml and passes it to mine()."""
+        from watchfiles import Change
+
+        from mempalace_code.watcher import watch_all
+
+        project = tmp_path / "my_proj"
+        project.mkdir()
+        (project / "mempalace.yaml").write_text("wing: configured_wing\n")
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        (fake_home / ".mempalace").mkdir()
+        config_file = fake_home / ".mempalace" / "config.json"
+        config_file.write_text(json.dumps({}), encoding="utf-8")
+        past = time.time() - 2
+        os.utime(config_file, (past, past))
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        def fake_watch(*args, stop_event=None, **kwargs):
+            return iter([])
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        fake_projects = [{"path": str(project), "initialized": True}]
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=fake_watch),
+            patch("mempalace_code.miner.detect_projects", return_value=fake_projects),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            watch_all(str(tmp_path), str(tmp_path / "palace"), on_commit=False)
+
+        assert any(c["wing_override"] == "configured_wing" for c in mine_calls)
+
 
 # ---------------------------------------------------------------------------
 # _ScanRulesSnapshot unit tests (AC-3, AC-4, AC-5)

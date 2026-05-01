@@ -3757,6 +3757,39 @@ def derive_wing_name(project_dir: str) -> str:
     return _normalize_wing_name(project_path.name)
 
 
+def resolve_wing_for_project(project_dir: str) -> str:
+    """Resolve wing name for a project directory using this priority order:
+
+    1. Explicit ``wing:`` key in ``mempalace.yaml`` / ``mempal.yaml`` (normalized).
+    2. Git origin repo name, via :func:`derive_wing_name`.
+    3. Normalized folder name, via :func:`derive_wing_name`.
+
+    Raises :class:`ValueError` if a config file exists but cannot be parsed
+    (e.g. invalid YAML), so callers can report the error rather than silently
+    falling back to an unrelated wing name.
+    """
+    import yaml
+
+    project_path = Path(project_dir).expanduser().resolve()
+
+    for config_name in ("mempalace.yaml", "mempal.yaml"):
+        config_path = project_path / config_name
+        if not config_path.exists():
+            continue
+        try:
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise ValueError(f"cannot parse {config_path}: {exc}") from exc
+        if isinstance(config, dict):
+            wing = config.get("wing", "")
+            if wing and isinstance(wing, str) and wing.strip():
+                return _normalize_wing_name(wing.strip())
+        # config file exists but has no usable wing — stop looking, fall through
+        break
+
+    return derive_wing_name(project_dir)
+
+
 def _normalize_wing_name(name: str) -> str:
     """Lowercase, replace spaces/hyphens with underscores, strip other special chars."""
     name = name.lower().replace("-", "_").replace(" ", "_")

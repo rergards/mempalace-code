@@ -334,7 +334,7 @@ def _resolve_spellcheck(args, config: MempalaceConfig) -> bool:
 def cmd_mine_all(args):
     """Mine all detected projects in a parent directory."""
     from .knowledge_graph import KnowledgeGraph
-    from .miner import derive_wing_name, detect_projects, mine
+    from .miner import detect_projects, mine, resolve_wing_for_project
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
 
@@ -349,11 +349,23 @@ def cmd_mine_all(args):
         print(f"  No projects found in {parent_dir}")
         return
 
-    # Derive wing names for all projects
+    # Resolve wing names; config parse errors are fatal before any mining starts.
     project_entries = []
+    config_errors = []
     for proj in projects:
-        wing_name = derive_wing_name(proj["path"])
-        project_entries.append({**proj, "wing": wing_name})
+        try:
+            wing_name = resolve_wing_for_project(proj["path"])
+            project_entries.append({**proj, "wing": wing_name})
+        except ValueError as exc:
+            config_errors.append((Path(proj["path"]).name, str(exc)))
+            print(f"  ERROR  {Path(proj['path']).name}: {exc}", file=sys.stderr)
+
+    if config_errors:
+        print(
+            f"  {len(config_errors)} project(s) had config parse errors — fix them and retry.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     print(f"\n  Found {len(project_entries)} project(s) in {parent_dir}\n")
 
@@ -376,30 +388,28 @@ def cmd_mine_all(args):
         print(f"  Error opening palace at {palace_path}: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Detect duplicate wing names within this batch — batch error, exit before mining.
+    # Mining two unrelated repos into the same wing silently corrupts the palace.
+    wing_to_paths: dict = {}
+    for entry in project_entries:
+        wing_to_paths.setdefault(entry["wing"], []).append(entry["path"])
+
+    duplicate_wings = {w: paths for w, paths in wing_to_paths.items() if len(paths) > 1}
+    if duplicate_wings:
+        for w, paths in sorted(duplicate_wings.items()):
+            path_list = ", ".join(str(p) for p in paths)
+            print(
+                f"  ERROR  duplicate wing '{w}': {path_list}\n"
+                f"         Configure a unique 'wing:' in each project's mempalace.yaml.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+
     mined = 0
     skipped = 0
     errors: list = []
 
-    # Detect duplicate wing names within this batch — mining both into the same wing
-    # would silently merge two unrelated codebases, even with --force.
-    seen_wing_to_path: dict = {}
-    unique_entries = []
-    for entry in project_entries:
-        w = entry["wing"]
-        if w in seen_wing_to_path:
-            first_name = Path(seen_wing_to_path[w]).name
-            this_name = Path(entry["path"]).name
-            print(
-                f"  WARN  {this_name}: wing '{w}' already assigned to {first_name} "
-                f"in this batch — skipping to avoid data merge. Rename the folder or "
-                f"configure a unique wing in mempalace.yaml.",
-                file=sys.stderr,
-            )
-            skipped += 1
-        else:
-            seen_wing_to_path[w] = entry["path"]
-            unique_entries.append(entry)
-    project_entries = unique_entries
+    new_only = getattr(args, "new_only", False)
 
     include_ignored: list = []
     for raw in args.include_ignored or []:
@@ -415,9 +425,9 @@ def cmd_mine_all(args):
             skipped += 1
             continue
 
-        if wing_name in existing_wings and not args.force:
+        if new_only and wing_name in existing_wings:
             print(
-                f"  SKIP  {proj_name}  (wing '{wing_name}' already exists — use --force to re-mine)"
+                f"  SKIP  {proj_name}  (wing '{wing_name}' already exists — skipped by --new-only)"
             )
             skipped += 1
             continue
@@ -1276,7 +1286,13 @@ def main():
     p_mine_all.add_argument(
         "--force",
         action="store_true",
-        help="Re-mine even if the wing already exists in the palace",
+        help="Deprecated — mine-all now syncs all wings incrementally by default; accepted for compatibility",
+    )
+    p_mine_all.add_argument(
+        "--new-only",
+        dest="new_only",
+        action="store_true",
+        help="Skip projects whose wing already exists in the palace (old default behavior)",
     )
     p_mine_all.add_argument(
         "--no-gitignore",

@@ -1028,7 +1028,7 @@ class TestMineAllCommand:
         assert "Dry run" in out or "dry run" in out.lower()
 
     def test_mine_all_skip_existing(self, tmp_path):
-        """AC-3: wing already in palace -> skipped; others still mined."""
+        """--new-only: wing already in palace -> skipped; others still mined."""
         palace = str(tmp_path / "palace")
         dev = tmp_path / "dev"
         dev.mkdir()
@@ -1043,7 +1043,7 @@ class TestMineAllCommand:
         with patch("mempalace_code.miner.mine", side_effect=fake_mine):
             with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {"existing": 10}
-                self._run_mine_all(palace, str(dev))
+                self._run_mine_all(palace, str(dev), ["--new-only"])
 
         wings_called = [c["wing_override"] for c in mine_calls]
         assert "existing" not in wings_called
@@ -1164,28 +1164,33 @@ class TestMineAllCommand:
         assert exc_info.value.code == 1
 
     def test_mine_all_dedup_wing_names(self, tmp_path):
-        """F-1 fix: two projects that derive the same wing name — second is skipped with warning."""
+        """Two projects resolving to the same wing → exit 1 before any mining."""
         palace = str(tmp_path / "palace")
         dev = tmp_path / "dev"
         dev.mkdir()
-        _make_initialized_project(dev, "alpha")
-        _make_initialized_project(dev, "alpha-copy")  # will derive different folder name
+        # Both projects declare the same wing in their mempalace.yaml
+        proj_a = dev / "alpha"
+        proj_a.mkdir()
+        (proj_a / ".git").mkdir()
+        (proj_a / "mempalace.yaml").write_text("wing: shared_wing\n")
+        proj_b = dev / "alpha-copy"
+        proj_b.mkdir()
+        (proj_b / ".git").mkdir()
+        (proj_b / "mempalace.yaml").write_text("wing: shared_wing\n")
 
         mine_calls = []
 
         def fake_mine(**kwargs):
             mine_calls.append(kwargs)
 
-        # Force both projects to derive the same wing name
         with patch("mempalace_code.miner.mine", side_effect=fake_mine):
             with patch("mempalace_code.storage.open_store") as mock_store:
                 mock_store.return_value.count_by.return_value = {}
-                with patch("mempalace_code.miner.derive_wing_name", return_value="shared_wing"):
+                with pytest.raises(SystemExit) as exc_info:
                     self._run_mine_all(palace, str(dev))
 
-        # Only the first project should be mined; second skipped due to name clash
-        assert len(mine_calls) == 1
-        assert mine_calls[0]["wing_override"] == "shared_wing"
+        assert exc_info.value.code == 1
+        assert len(mine_calls) == 0
 
     def test_mine_all_include_ignored_comma_splits_to_mine(self, tmp_path):
         """mine-all splits --include-ignored on commas and trims whitespace before forwarding to mine()."""
@@ -1208,6 +1213,171 @@ class TestMineAllCommand:
 
         assert len(mine_calls) == 1
         assert mine_calls[0]["include_ignored"] == ["ignored/a.py", "ignored/b.py"]
+
+    # ------------------------------------------------------------------
+    # AC-1: incremental sync by default
+    # ------------------------------------------------------------------
+
+    def test_mine_all_syncs_existing_wings_incrementally_by_default(self, tmp_path):
+        """AC-1: wing already in palace is still mined (incremental=True) by default."""
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        dev.mkdir()
+        _make_initialized_project(dev, "alpha")
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
+                # Pretend wing 'alpha' already exists in palace
+                mock_store.return_value.count_by.return_value = {"alpha": 10}
+                self._run_mine_all(palace, str(dev))
+
+        assert len(mine_calls) == 1
+        assert mine_calls[0]["wing_override"] == "alpha"
+        assert mine_calls[0]["incremental"] is True
+
+    # ------------------------------------------------------------------
+    # AC-2: --new-only skip behavior
+    # ------------------------------------------------------------------
+
+    def test_mine_all_new_only_skips_existing_wings(self, tmp_path, capsys):
+        """AC-2: --new-only skips existing wings; new projects are still mined."""
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        dev.mkdir()
+        _make_initialized_project(dev, "alpha")
+        _make_initialized_project(dev, "beta")
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
+                mock_store.return_value.count_by.return_value = {"alpha": 5}
+                self._run_mine_all(palace, str(dev), ["--new-only"])
+
+        wings_called = [c["wing_override"] for c in mine_calls]
+        assert "alpha" not in wings_called
+        assert "beta" in wings_called
+
+        out = capsys.readouterr().out
+        assert "already exists" in out or "--new-only" in out
+
+    # ------------------------------------------------------------------
+    # AC-4: duplicate wing batch error
+    # ------------------------------------------------------------------
+
+    def test_mine_all_duplicate_wings_fail_before_mining(self, tmp_path, capsys):
+        """AC-4: two projects resolving same wing → exit 1 before any mine() call."""
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        dev.mkdir()
+        proj_a = dev / "proj-a"
+        proj_a.mkdir()
+        (proj_a / ".git").mkdir()
+        (proj_a / "mempalace.yaml").write_text("wing: collision\n")
+        proj_b = dev / "proj-b"
+        proj_b.mkdir()
+        (proj_b / ".git").mkdir()
+        (proj_b / "mempalace.yaml").write_text("wing: collision\n")
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
+                mock_store.return_value.count_by.return_value = {}
+                with pytest.raises(SystemExit) as exc_info:
+                    self._run_mine_all(palace, str(dev))
+
+        assert exc_info.value.code == 1
+        assert len(mine_calls) == 0
+
+        # stderr must name the duplicate wing and both project paths
+        err = capsys.readouterr().err
+        assert "collision" in err
+        assert "proj-a" in err
+        assert "proj-b" in err
+
+    # ------------------------------------------------------------------
+    # AC-5: same relative filenames stay separate by wing
+    # ------------------------------------------------------------------
+
+    def test_mine_all_same_relative_filenames_stay_separate_by_wing(self, tmp_path):
+        """AC-5: two repos with src/settings.py produce distinct mine() calls with different wings."""
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        dev.mkdir()
+
+        repo_a = dev / "repo_a"
+        repo_a.mkdir()
+        (repo_a / ".git").mkdir()
+        (repo_a / "mempalace.yaml").write_text("wing: alpha\n")
+        (repo_a / "src").mkdir()
+        (repo_a / "src" / "settings.py").write_text("X = 1")
+
+        repo_b = dev / "repo_b"
+        repo_b.mkdir()
+        (repo_b / ".git").mkdir()
+        (repo_b / "mempalace.yaml").write_text("wing: beta\n")
+        (repo_b / "src").mkdir()
+        (repo_b / "src" / "settings.py").write_text("Y = 2")
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
+                mock_store.return_value.count_by.return_value = {}
+                self._run_mine_all(palace, str(dev))
+
+        assert len(mine_calls) == 2
+        wings = {c["wing_override"] for c in mine_calls}
+        assert wings == {"alpha", "beta"}
+
+        dirs = {c["project_dir"] for c in mine_calls}
+        assert str(repo_a) in dirs
+        assert str(repo_b) in dirs
+        # No two calls share the same (project_dir, wing) — no cross-repo collision
+        assert mine_calls[0]["wing_override"] != mine_calls[1]["wing_override"]
+
+    # ------------------------------------------------------------------
+    # Configured wing override used (resolver reads mempalace.yaml)
+    # ------------------------------------------------------------------
+
+    def test_mine_all_configured_wing_override_used(self, tmp_path):
+        """Wing declared in mempalace.yaml is used instead of folder name."""
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        dev.mkdir()
+        proj = dev / "folder_name"
+        proj.mkdir()
+        (proj / ".git").mkdir()
+        # Wing in config differs from folder name
+        (proj / "mempalace.yaml").write_text("wing: custom_wing\n")
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with patch("mempalace_code.miner.mine", side_effect=fake_mine):
+            with patch("mempalace_code.storage.open_store") as mock_store:
+                mock_store.return_value.count_by.return_value = {}
+                self._run_mine_all(palace, str(dev))
+
+        assert len(mine_calls) == 1
+        assert mine_calls[0]["wing_override"] == "custom_wing"
 
 
 class TestMigrateStorageCommand:

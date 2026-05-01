@@ -20,6 +20,7 @@ from mempalace_code.miner import (
     detect_room,
     mine,
     process_file,
+    resolve_wing_for_project,
     scan_project,
 )
 from mempalace_code.storage import open_store
@@ -2721,6 +2722,127 @@ class TestDeriveWingName:
         with patch("subprocess.run", side_effect=OSError("no git")):
             result = derive_wing_name(str(proj))
         assert result == "fallback_proj"
+
+
+# =============================================================================
+# MULTI-PROJECT WING RESOLUTION — resolve_wing_for_project()
+# =============================================================================
+
+
+class TestMultiProjectWingResolution:
+    """AC-3: resolve_wing_for_project() prefers config → git remote → folder name."""
+
+    def test_resolution_prefers_config_then_git_remote_then_folder(self, tmp_path):
+        """Wing resolution order: explicit config > git remote > folder name."""
+        # 1. Explicit wing in config wins over everything
+        proj_config = tmp_path / "proj_config"
+        proj_config.mkdir()
+        (proj_config / "mempalace.yaml").write_text("wing: explicit_wing\n")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "https://github.com/user/git-wing.git\n"
+            result = resolve_wing_for_project(str(proj_config))
+        assert result == "explicit_wing"
+
+        # 2. No config → git remote wins
+        proj_git = tmp_path / "proj_git"
+        proj_git.mkdir()
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "https://github.com/user/git-wing.git\n"
+            result = resolve_wing_for_project(str(proj_git))
+        assert result == "git_wing"
+
+        # 3. No config, no git remote → folder name
+        proj_folder = tmp_path / "my-folder-name"
+        proj_folder.mkdir()
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+            mock_run.return_value.stdout = ""
+            result = resolve_wing_for_project(str(proj_folder))
+        assert result == "my_folder_name"
+
+    def test_resolution_normalizes_config_wing(self, tmp_path):
+        """Wing value from config is normalized (lowercase, spaces→underscores)."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("wing: My-Cool Project\n")
+        result = resolve_wing_for_project(str(proj))
+        assert result == "my_cool_project"
+
+    def test_resolution_legacy_config_name(self, tmp_path):
+        """mempal.yaml is accepted as a legacy config filename."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempal.yaml").write_text("wing: legacy_wing\n")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+            mock_run.return_value.stdout = ""
+            result = resolve_wing_for_project(str(proj))
+        assert result == "legacy_wing"
+
+    def test_resolution_config_empty_wing_falls_back_to_git(self, tmp_path):
+        """Config with blank/empty wing falls back to git/folder, not an error."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("wing: \n")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "https://github.com/org/my-repo.git\n"
+            result = resolve_wing_for_project(str(proj))
+        assert result == "my_repo"
+
+    def test_resolution_config_no_wing_key_falls_back_to_git(self, tmp_path):
+        """Config that exists but has no 'wing' key falls back to git/folder."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("rooms:\n  - name: general\n")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+            mock_run.return_value.stdout = ""
+            result = resolve_wing_for_project(str(proj))
+        assert result == "proj"
+
+    def test_resolution_malformed_config_raises_value_error(self, tmp_path):
+        """Config file that exists but cannot be parsed raises ValueError."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("{invalid: yaml: :\n")
+        with pytest.raises(ValueError, match="cannot parse"):
+            resolve_wing_for_project(str(proj))
+
+    def test_resolution_no_config_no_git_uses_folder(self, tmp_path):
+        """With no config and no git remote, folder name is the final fallback."""
+        proj = tmp_path / "cool-project"
+        proj.mkdir()
+        with patch("subprocess.run", side_effect=OSError("no git")):
+            result = resolve_wing_for_project(str(proj))
+        assert result == "cool_project"
+
+    def test_resolution_drawer_ids_are_distinct_across_repos(self, tmp_path):
+        """Same relative filename in two repos produces distinct source_file paths."""
+        repo_a = tmp_path / "repo_a"
+        repo_a.mkdir()
+        (repo_a / "mempalace.yaml").write_text("wing: alpha\n")
+        (repo_a / "src").mkdir()
+        (repo_a / "src" / "settings.py").write_text("X = 1")
+
+        repo_b = tmp_path / "repo_b"
+        repo_b.mkdir()
+        (repo_b / "mempalace.yaml").write_text("wing: beta\n")
+        (repo_b / "src").mkdir()
+        (repo_b / "src" / "settings.py").write_text("Y = 2")
+
+        wing_a = resolve_wing_for_project(str(repo_a))
+        wing_b = resolve_wing_for_project(str(repo_b))
+        assert wing_a == "alpha"
+        assert wing_b == "beta"
+        # Distinct wings guarantee no drawer-id collision even for same-basename files
+        assert wing_a != wing_b
+
+        src_a = str(repo_a / "src" / "settings.py")
+        src_b = str(repo_b / "src" / "settings.py")
+        assert src_a != src_b
 
 
 # =============================================================================

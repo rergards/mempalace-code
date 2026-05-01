@@ -409,7 +409,7 @@ def watch_all(
         sys.exit(1)
 
     from .knowledge_graph import KnowledgeGraph
-    from .miner import derive_wing_name, detect_projects
+    from .miner import detect_projects, resolve_wing_for_project
     from .storage import open_store
 
     parent_path = Path(parent_dir).expanduser().resolve()
@@ -425,12 +425,41 @@ def watch_all(
         print("  Run 'mempalace-code init <dir>' on projects first.")
         sys.exit(1)
 
-    # Build project path -> wing name mapping
+    # Build project path -> wing name mapping using config-aware resolver.
     project_map: dict = {}  # resolved Path -> wing name
+    config_errors = []
     for proj in initialized:
         proj_path = Path(proj["path"]).resolve()
-        wing = derive_wing_name(proj["path"])
-        project_map[proj_path] = wing
+        try:
+            wing = resolve_wing_for_project(proj["path"])
+            project_map[proj_path] = wing
+        except ValueError as exc:
+            print(f"  ERROR  {proj_path.name}: {exc}", file=sys.stderr)
+            config_errors.append(proj_path)
+
+    if config_errors:
+        print(
+            f"  {len(config_errors)} project(s) had config parse errors — fix them and retry.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Guard against duplicate wings — two repos mapped to the same wing would
+    # silently corrupt the palace on every re-mine.
+    wing_to_paths: dict = {}
+    for pp, wing in project_map.items():
+        wing_to_paths.setdefault(wing, []).append(pp)
+
+    duplicate_wings = {w: paths for w, paths in wing_to_paths.items() if len(paths) > 1}
+    if duplicate_wings:
+        for w, paths in sorted(duplicate_wings.items()):
+            path_list = ", ".join(str(p) for p in paths)
+            print(
+                f"  ERROR  duplicate wing '{w}': {path_list}\n"
+                f"         Configure a unique 'wing:' in each project's mempalace.yaml.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
 
     mode_label = "on commit" if on_commit else "on file save"
     print(f"  Watching {len(project_map)} project(s) ({mode_label}):")
