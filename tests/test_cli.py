@@ -41,7 +41,9 @@ class TestInitEntityDetection:
         mock_scan.assert_not_called()
         mock_detect.assert_not_called()
         mock_confirm.assert_not_called()
-        mock_rooms.assert_called_once_with(project_dir=str(project_dir), yes=False, interactive=False)
+        mock_rooms.assert_called_once_with(
+            project_dir=str(project_dir), yes=False, interactive=False
+        )
         assert not (project_dir / "entities.json").exists()
 
     def test_init_detect_entities_runs_scan(self, tmp_path, monkeypatch):
@@ -100,7 +102,9 @@ class TestInitEntityDetection:
 
         mock_scan.assert_not_called()
         mock_confirm.assert_not_called()
-        mock_rooms.assert_called_once_with(project_dir=str(project_dir), yes=True, interactive=False)
+        mock_rooms.assert_called_once_with(
+            project_dir=str(project_dir), yes=True, interactive=False
+        )
         assert not (project_dir / "entities.json").exists()
 
     def test_init_config_entity_detection_true_runs_scan(self, tmp_path, monkeypatch):
@@ -169,9 +173,9 @@ class TestInitNonInteractiveOnboarding:
         import yaml
 
         cfg = yaml.safe_load(config_path.read_text())
-        assert "wing" in cfg, "config must have a wing"
-        assert "rooms" in cfg, "config must have rooms"
-        assert len(cfg["rooms"]) >= 1, "config must have at least one room"
+        assert cfg["wing"] == "myproject", f"wing must derive from dir name, got {cfg.get('wing')!r}"
+        assert isinstance(cfg["rooms"], list) and len(cfg["rooms"]) >= 1
+        assert all("name" in r for r in cfg["rooms"]), "every room must have a name"
 
     # AC-2: --interactive calls room review prompt and still writes config
     def test_init_interactive_prompts_for_room_review(self, tmp_path, monkeypatch):
@@ -215,7 +219,7 @@ class TestInitNonInteractiveOnboarding:
         import yaml
 
         cfg = yaml.safe_load((project_dir / "mempalace.yaml").read_text())
-        assert "wing" in cfg
+        assert cfg["wing"] == "flat_project"
         room_names = [r["name"] for r in cfg["rooms"]]
         assert "general" in room_names, f"expected 'general' room, got {room_names}"
 
@@ -260,8 +264,8 @@ class TestInitNonInteractiveOnboarding:
         import yaml
 
         cfg = yaml.safe_load((project_dir / "mempalace.yaml").read_text())
-        assert "wing" in cfg
-        assert "rooms" in cfg
+        assert cfg["wing"] == "myproject"
+        assert isinstance(cfg["rooms"], list) and len(cfg["rooms"]) >= 1
 
     # AC-7: missing directory with --detect-entities exits before entity scan
     def test_init_missing_directory_with_entity_detection_exits_before_scan(
@@ -273,9 +277,7 @@ class TestInitNonInteractiveOnboarding:
         def _fail_if_called(*args, **kwargs):
             raise AssertionError("scan_for_detection must not be called when dir is missing")
 
-        with patch(
-            "mempalace.entity_detector.scan_for_detection", side_effect=_fail_if_called
-        ):
+        with patch("mempalace.entity_detector.scan_for_detection", side_effect=_fail_if_called):
             with pytest.raises(SystemExit) as exc:
                 self._run_init(
                     [
