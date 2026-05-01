@@ -779,7 +779,7 @@ class TestWatchScanRuleReload:
 
     def test_reload_check_runs_once_per_batch(self, tmp_path, monkeypatch):
         """A batch with multiple changed files triggers exactly one config freshness check."""
-        from watchfiles import Change  # noqa: E402
+        from watchfiles import Change
 
         import mempalace.watcher as watcher_module
 
@@ -813,3 +813,41 @@ class TestWatchScanRuleReload:
 
         # One batch → exactly one refresh call
         assert len(refresh_calls) == 1
+
+    def test_snapshot_recovers_after_malformed_then_fixed_config(self, tmp_path, monkeypatch):
+        """Bad config sets _bad_mtime; subsequent good write with new mtime reloads rules."""
+        import mempalace.watcher as watcher_module
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        mempalace_dir = fake_home / ".mempalace"
+        mempalace_dir.mkdir()
+        config_file = mempalace_dir / "config.json"
+        config_file.write_text(json.dumps({"scan_skip_files": []}), encoding="utf-8")
+        os.utime(config_file, (time.time() - 10, time.time() - 10))
+
+        monkeypatch.setenv("HOME", str(fake_home))
+
+        initial_rules = ScanFilterRules(
+            skip_dirs=frozenset(),
+            skip_files=frozenset(),
+            skip_globs=[],
+        )
+        snapshot = watcher_module._ScanRulesSnapshot(initial_rules)
+
+        # Step 1: write malformed JSON with a newer mtime — refresh keeps last-good rules.
+        config_file.write_text("{not valid json", encoding="utf-8")
+        os.utime(config_file, (time.time() - 5, time.time() - 5))
+        rules_after_bad = snapshot.refresh()
+        assert rules_after_bad is initial_rules
+        assert snapshot._bad_mtime is not watcher_module._UNSET
+
+        # Step 2: write good JSON with a newer mtime — refresh reloads and clears bad_mtime.
+        config_file.write_text(
+            json.dumps({"scan_skip_files": ["workspace.json"]}), encoding="utf-8"
+        )
+        os.utime(config_file, (time.time(), time.time()))
+        rules_after_fix = snapshot.refresh()
+        assert rules_after_fix is not initial_rules
+        assert "workspace.json" in rules_after_fix.skip_files
+        assert snapshot._bad_mtime is watcher_module._UNSET
