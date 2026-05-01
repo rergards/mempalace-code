@@ -1283,3 +1283,43 @@ class TestMigrateStorageCommand:
             self._run(["mempalace", "migrate-storage", src, dst, "--force"])
 
         assert mock_migrate.call_args.kwargs["force"] is True
+
+    def test_migrate_storage_cli_verify_passthrough(self, tmp_path):
+        """AC-1: --verify flag reaches migrate_chroma_to_lance as verify=True."""
+        src = str(tmp_path / "src")
+        dst = str(tmp_path / "dst")
+
+        with patch(
+            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(0, 0)
+        ) as mock_migrate:
+            self._run(["mempalace", "migrate-storage", src, dst, "--verify"])
+
+        assert mock_migrate.call_args.kwargs["verify"] is True
+
+    def test_migrate_storage_cli_embed_model_passthrough(self, tmp_path):
+        """AC-2: --embed-model VALUE reaches migrate_chroma_to_lance as embed_model='VALUE'."""
+        src = str(tmp_path / "src")
+        dst = str(tmp_path / "dst")
+
+        with patch(
+            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(0, 0)
+        ) as mock_migrate:
+            self._run(["mempalace", "migrate-storage", src, dst, "--embed-model", "test-model"])
+
+        assert mock_migrate.call_args.kwargs["embed_model"] == "test-model"
+
+    def test_migrate_storage_cli_runtime_error_exits_1(self, tmp_path, capsys):
+        """AC-3: RuntimeError from migrator exits with code 1 and writes 'Error:' to stderr."""
+        src = str(tmp_path / "src")
+        dst = str(tmp_path / "dst")
+
+        with patch(
+            "mempalace_code.migrate.migrate_chroma_to_lance",
+            side_effect=RuntimeError("boom"),
+        ):
+            with pytest.raises(SystemExit) as exc:
+                self._run(["mempalace", "migrate-storage", src, dst])
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert "Error: boom" in captured.err
