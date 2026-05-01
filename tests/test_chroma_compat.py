@@ -10,11 +10,50 @@ embedding computation and therefore no network access:
     - count() on an empty store
     - delete_wing() on an empty store
     - count_by()/count_by_pair() metadata fallbacks
+    - lifecycle: add → query → get → delete → count (via deterministic offline EF)
+    - missing-id safety: get and delete on absent ids do not raise
 """
+
+import hashlib
 
 import pytest
 
 chromadb = pytest.importorskip("chromadb")  # skip entire module if not installed
+
+
+class _DeterministicEF:
+    """Offline embedding function for tests — no model downloads, fully deterministic.
+
+    Chroma 1.x Collection._embed calls __call__(input=...) for documents and
+    embed_query(input=...) for query texts, so both must be implemented.
+    """
+
+    DIM = 8
+
+    def __call__(self, input):  # noqa: A002
+        result = []
+        for s in input:
+            h = int(hashlib.md5(s.encode()).hexdigest(), 16)
+            result.append([(h >> (i * 4) & 0xF) / 15.0 for i in range(self.DIM)])
+        return result
+
+    def embed_query(self, input):  # noqa: A002
+        # Chroma 1.x _embed passes query_texts already wrapped: [["text"]] not "text"
+        flat = input[0] if input and isinstance(input[0], list) else input
+        return self.__call__(flat)
+
+
+def _make_store_with_ef(tmp_path):
+    """Return a ChromaStore whose collection uses the deterministic offline EF.
+
+    Patches _col._embedding_function directly so Chroma 1.x's _embed() dispatches
+    to our class instead of DefaultEmbeddingFunction (which downloads a model).
+    """
+    from mempalace._chroma_store import ChromaStore
+
+    store = ChromaStore(palace_path=str(tmp_path))
+    store._col._embedding_function = _DeterministicEF()
+    return store
 
 
 def _seed_store(store, rows):
@@ -123,3 +162,50 @@ def test_chroma_store_count_helpers_skip_missing_metadata_keys(tmp_path):
         "code": {"storage": 1},
         "docs": {"plans": 1},
     }
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle tests — require offline embedding function (no model downloads)
+# ---------------------------------------------------------------------------
+
+
+def test_chroma_store_lifecycle(tmp_path):
+    """add → query → get → delete → count exercises all five ChromaStore wrapper ops."""
+    store = _make_store_with_ef(tmp_path)
+
+    ids = ["d1", "d2"]
+    docs = ["LanceDB is the default storage backend.", "ChromaDB is the legacy backend."]
+    metas = [
+        {"wing": "mempalace", "room": "storage"},
+        {"wing": "mempalace", "room": "storage"},
+    ]
+
+    store.add(ids=ids, documents=docs, metadatas=metas)
+    assert store.count() == 2
+
+    # query — proves the where filter is forwarded through the wrapper
+    results = store.query(
+        query_texts=["vector storage backend"],
+        n_results=2,
+        where={"wing": "mempalace"},
+    )
+    assert len(results["ids"][0]) == 2
+
+    # get by id — proves the id is retrievable
+    fetched = store.get(ids=["d1"])
+    assert fetched["ids"] == ["d1"]
+
+    # delete — count must drop
+    store.delete(ids=["d1"])
+    assert store.count() == 1
+
+
+def test_chroma_store_missing_ids(tmp_path):
+    """get and delete on absent ids are safe and leave count at 0."""
+    store = _make_store_with_ef(tmp_path)
+
+    fetched = store.get(ids=["nonexistent-id"])
+    assert fetched["ids"] == []
+
+    store.delete(ids=["nonexistent-id"])  # must not raise
+    assert store.count() == 0

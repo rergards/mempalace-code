@@ -17,6 +17,18 @@ jobs:
       - run: pip install -e ".[dev,treesitter]"
       - run: python3 -m pytest tests/ -v -m "not needs_network"
 
+  chroma-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev,chroma]"
+      - name: ChromaStore compatibility tests
+        run: python -m pytest tests/test_chroma_compat.py -v
+      - run: python -m pytest tests/ -v -m "not needs_network"
+
   lint:
     runs-on: ubuntu-latest
     steps:
