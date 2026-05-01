@@ -452,6 +452,77 @@ def test_scan_project_include_override_beats_subtree_skip_glob():
         shutil.rmtree(tmpdir)
 
 
+def test_scan_project_wildcard_prefix_falls_back_to_file_level():
+    """Subtree pruning is conservative: globs with wildcards in the prefix
+    (e.g. ``*.egg-info/**``) cannot be safely literal-matched, so directory
+    pruning is skipped and per-file glob matching still excludes the files."""
+    from mempalace.miner import _subtree_glob_prefix
+
+    # Wildcard in any prefix segment disqualifies subtree pruning.
+    assert _subtree_glob_prefix("*.egg-info/**") is None
+    assert _subtree_glob_prefix("*/build/**") is None
+    assert _subtree_glob_prefix("foo?/bar/**") is None
+    assert _subtree_glob_prefix("[Bb]uild/**") is None
+    # Pure literal prefixes still work.
+    assert _subtree_glob_prefix("build/**") == "build"
+    assert _subtree_glob_prefix("src/gen/**") == "src/gen"
+    # Bare ``**`` is the "match everything" sentinel — empty prefix.
+    assert _subtree_glob_prefix("**") == ""
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(project_root / "mypkg.egg-info" / "PKG-INFO", "x\n" * 5)
+        write_file(project_root / "mypkg.egg-info" / "data.py", "x = 1\n" * 20)
+        write_file(project_root / "src" / "main.py", "def main(): pass\n" * 20)
+
+        rules = ScanFilterRules(
+            skip_dirs=frozenset(),
+            skip_files=frozenset(),
+            skip_globs=["*.egg-info/**"],
+        )
+        result = scanned_files(project_root, respect_gitignore=False, scan_rules=rules)
+
+        # Per-file glob matching still removes the files even though the
+        # directory wasn't pruned at walk time.
+        assert "mypkg.egg-info/data.py" not in result
+        assert "src/main.py" in result
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_double_star_matches_everything_prunes_all():
+    """Skip-glob ``**`` covers the entire tree — no scanned files.
+
+    Force-included paths are still returned (force-include precedence is preserved)."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(project_root / "a.py", "x\n" * 20)
+        write_file(project_root / "sub" / "b.py", "y\n" * 20)
+        write_file(project_root / "sub" / "keep.py", "z\n" * 20)
+
+        rules = ScanFilterRules(
+            skip_dirs=frozenset(),
+            skip_files=frozenset(),
+            skip_globs=["**"],
+        )
+
+        all_excluded = scanned_files(project_root, respect_gitignore=False, scan_rules=rules)
+        assert all_excluded == []
+
+        with_force = scanned_files(
+            project_root,
+            respect_gitignore=False,
+            scan_rules=rules,
+            include_ignored=["sub/keep.py"],
+        )
+        assert "sub/keep.py" in with_force
+        assert "a.py" not in with_force
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 # =============================================================================
 # Integration tests — smart chunking through process_file() and mine()
 # =============================================================================

@@ -394,11 +394,16 @@ def is_scan_excluded(
 def _subtree_glob_prefix(pattern: str) -> Optional[str]:
     """Return the literal directory prefix if *pattern* covers an entire subtree, else None.
 
-    A pattern covers a whole subtree when every segment at and after the first ``**``
-    is either ``**`` or a bare ``*`` (no extension, no character class, no literal suffix).
+    A pattern covers a whole subtree when:
+      1. Every segment at and after the first ``**`` is either ``**`` or a bare ``*``
+         (no extension, no character class, no literal suffix), AND
+      2. Every segment **before** the first ``**`` is a literal path segment with no
+         glob meta-characters (``*``, ``?``, ``[``).
+
     Examples that return a prefix: ``build/**`` → ``"build"``, ``generated/**/*`` → ``"generated"``,
     ``src/gen/**`` → ``"src/gen"``, ``**`` → ``""``.
-    Examples that return None: ``generated/**/*.js``, ``**/*.py``, ``**/bundle.*``.
+    Examples that return None: ``generated/**/*.js``, ``**/*.py``, ``**/bundle.*``,
+    ``*.egg-info/**`` (wildcard in prefix), ``*/build/**`` (wildcard in prefix).
     """
     parts = pattern.split("/")
     if "**" not in parts:
@@ -406,6 +411,11 @@ def _subtree_glob_prefix(pattern: str) -> Optional[str]:
     star_idx = parts.index("**")
     for part in parts[star_idx:]:
         if part not in ("**", "*"):
+            return None
+    # Prefix must be entirely literal — startswith() can't match glob wildcards.
+    # When wildcards appear in the prefix, fall back to per-file glob matching.
+    for part in parts[:star_idx]:
+        if any(ch in part for ch in "*?["):
             return None
     return "/".join(parts[:star_idx]).strip("/")
 
