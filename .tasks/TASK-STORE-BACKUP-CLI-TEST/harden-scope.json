@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/STORE-BACKUP-CLI-TEST-round-1.md",
+    "tests/test_backup_cli.py"
+  ],
+  "before_sha": "529dc0e",
+  "timestamp": "2026-05-01T20:16:16Z"
+}

@@ -1,0 +1,8 @@
+{
+  "phase": "implement",
+  "files": [
+    "tests/test_backup_cli.py"
+  ],
+  "before_sha": "240acf7",
+  "timestamp": "2026-05-01T20:09:54Z"
+}
