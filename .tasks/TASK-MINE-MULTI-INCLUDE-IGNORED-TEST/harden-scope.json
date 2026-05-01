@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/BACKLOG.yaml",
+    "docs/audits/MINE-MULTI-INCLUDE-IGNORED-TEST-round-1.md"
+  ],
+  "before_sha": "b7efbd0",
+  "timestamp": "2026-05-01T20:57:16Z"
+}
