@@ -1404,6 +1404,39 @@ def test_py_import_deduplicated(tmp_path):
     assert len(os_triples) == 1
 
 
+def test_py_multi_import_all_modules(tmp_path):
+    """import os, sys → (Test, depends_on, os) and (Test, depends_on, sys) — AC-1."""
+    triples = _py(tmp_path, "import os, sys\n")
+    assert ("Test", "depends_on", "os") in triples
+    assert ("Test", "depends_on", "sys") in triples
+
+
+def test_py_multi_import_alias_stripped(tmp_path):
+    """import os, sys as system, pathlib → os/sys/pathlib, not 'system' — AC-2."""
+    triples = _py(tmp_path, "import os, sys as system, pathlib\n")
+    depends_on_objs = {t[2] for t in triples if t[1] == "depends_on"}
+    assert "os" in depends_on_objs
+    assert "sys" in depends_on_objs
+    assert "pathlib" in depends_on_objs
+    assert "system" not in depends_on_objs
+
+
+def test_py_multi_import_comment_skipped(tmp_path):
+    """# import os, sys on a comment line produces no depends_on triples — AC-3."""
+    triples = _py(tmp_path, "# import os, sys\nclass Real:\n    pass\n")
+    depends_on = [t for t in triples if t[1] == "depends_on"]
+    assert len(depends_on) == 0
+
+
+def test_py_multi_import_deduplication(tmp_path):
+    """import os then import os, sys → exactly one os triple and one sys triple — AC-4."""
+    triples = _py(tmp_path, "import os\nimport os, sys\n")
+    os_triples = [t for t in triples if t[1] == "depends_on" and t[2] == "os"]
+    sys_triples = [t for t in triples if t[1] == "depends_on" and t[2] == "sys"]
+    assert len(os_triples) == 1
+    assert len(sys_triples) == 1
+
+
 def test_py_indented_class(tmp_path):
     """Indented class (e.g. nested in function body) is still matched."""
     triples = _py(tmp_path, "def outer():\n    class Inner(Base):\n        pass\n")

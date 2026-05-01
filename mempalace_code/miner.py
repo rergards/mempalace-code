@@ -3037,7 +3037,8 @@ def _vbnet_type_rels(filepath: Path) -> list:
 
 # Compiled patterns for Python type-relationship extraction.
 _PY_CLASS_RE = re.compile(r"^\s*class\s+(\w+)\s*\(([^)]*)\)\s*:", re.MULTILINE)
-_PY_IMPORT_RE = re.compile(r"^import\s+([\w.]+)", re.MULTILINE)
+_PY_IMPORT_RE = re.compile(r"^import\s+(.+)", re.MULTILINE)
+_PY_MODULE_TOKEN_RE = re.compile(r"^[\w][\w.]*$")
 _PY_FROM_IMPORT_RE = re.compile(r"^from\s+([a-zA-Z][\w.]*)\s+import\s+", re.MULTILINE)
 # Base class names that receive the 'implements' predicate in Python.
 _PY_ABC_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
@@ -3095,10 +3096,15 @@ def _python_type_rels(filepath: Path) -> list:
 
     # Import extraction — emit depends_on triples for module-level imports.
     for m in _PY_IMPORT_RE.finditer(text):
-        key = (module_name, "depends_on", m.group(1))
-        if key not in seen:
-            seen.add(key)
-            triples.append(key)
+        for segment in m.group(1).split(","):
+            # Strip optional "as <alias>" suffix, then whitespace.
+            mod = segment.split(" as ")[0].strip()
+            if not _PY_MODULE_TOKEN_RE.match(mod):
+                continue
+            key = (module_name, "depends_on", mod)
+            if key not in seen:
+                seen.add(key)
+                triples.append(key)
     for m in _PY_FROM_IMPORT_RE.finditer(text):
         key = (module_name, "depends_on", m.group(1))
         if key not in seen:
