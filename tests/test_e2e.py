@@ -225,7 +225,7 @@ def test_mcp_session_lifecycle(tmp_path, monkeypatch):
 
     # Step 1: status on empty (not-yet-created) palace — must not error
     status = tool_status()
-    assert status["total_drawers"] == 0
+    assert "error" in status, f"Expected no-palace error on lazy startup, got: {status}"
 
     # Step 2: search on empty palace — must return results key without crashing
     search_empty = tool_search(query="authentication JWT tokens")

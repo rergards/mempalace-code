@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from .config import MempalaceConfig
-from .miner import get_batch_size, add_drawers_batch
+from .miner import add_drawers_batch, get_batch_size
 from .normalize import normalize
 from .storage import open_store
 from .version import __version__

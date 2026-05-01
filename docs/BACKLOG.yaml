@@ -83,6 +83,7 @@ items:
       6. Add regression tests or a scriptable smoke test that fails if `import mempalace_code.mcp_server` or the source-compat `import mempalace.mcp_server` imports `torch`.
       7. Validate with targeted MCP/storage/miner tests, an Autopilot prefetch smoke check, and ruff.
     resolution: null
+    hardening_round_1: "2026-05-01 — fixed F-1 (high): AC-1 and AC-5 import-blockers used the deprecated find_module/load_module API which Python 3.12+ silently ignores, so the central regression gates would have passed even if lazy imports were reverted. Switched both helpers to find_spec, added sys.modules post-call assertions, and moved AC-5 into a subprocess to defeat sys.modules pollution from earlier tests. Fixed F-2 (low): convo_miner.py import order. Dismissed F-3 (info, dead defensive branch) and F-4 (info, fd-leak under EMFILE — same observation already dismissed in MCP-MINE-TRIGGER round 1)."
   # ── FUTURE — Post-v1 Ideas ─────────────────────────────────
   - key: FUT-MULTI-REPO
     summary: "Multi-repo palace — mine multiple projects into one palace"

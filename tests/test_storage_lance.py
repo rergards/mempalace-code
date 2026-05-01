@@ -976,9 +976,8 @@ class TestReadOnlyStore:
 
     def test_ac29_pre_migration_schema_read_only_taxonomy(self, tmp_path):
         """AC-29: existing palace missing a newer column still returns valid taxonomy read_only."""
-        import pyarrow as pa
-
         import lancedb
+        import pyarrow as pa
 
         # Create a minimal table without the newer 'source_hash' column
         db = lancedb.connect(str(tmp_path / "lance"))

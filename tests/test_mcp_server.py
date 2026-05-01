@@ -2187,27 +2187,30 @@ class TestLazyStartup:
     """AC-1 through AC-6 for lazy MCP startup."""
 
     def test_ac1_initialize_and_tools_list_without_torch_or_miner(self, tmp_path):
-        """AC-1: initialize + tools/list succeed in a subprocess that blocks torch/miner imports."""
+        """AC-1: initialize + tools/list succeed in a subprocess that blocks torch/miner imports.
+
+        Uses the modern importlib find_spec API (find_module/load_module are silently
+        ignored in Python 3.12+, so the legacy form would falsely pass). Also asserts
+        post-call sys.modules to detect any import that slipped through.
+        """
         import subprocess
         import sys
 
         script = """
 import sys
-import json
 
-# Block imports that must NOT be triggered by initialize/tools-list
+# Block imports that must NOT be triggered by initialize/tools-list.
+# Uses find_spec (PEP 451) — find_module is deprecated and ignored in 3.12+.
 class _Blocker:
     _BLOCKED = frozenset({
         "torch",
         "sentence_transformers",
         "mempalace_code.miner",
     })
-    def find_module(self, name, path=None):
+    def find_spec(self, name, path=None, target=None):
         if name in self._BLOCKED:
-            return self
+            raise ImportError("Blocked by test: " + name)
         return None
-    def load_module(self, name):
-        raise ImportError("Blocked by test: " + name)
 
 sys.meta_path.insert(0, _Blocker())
 
@@ -2224,6 +2227,12 @@ assert resp1["result"]["serverInfo"]["name"] == "mempalace-code", resp1
 resp2 = handle_request({"method": "tools/list", "id": 2, "params": {}})
 tool_names = {t["name"] for t in resp2["result"]["tools"]}
 assert "mempalace_mine" in tool_names, tool_names
+
+# Defense in depth: even if the blocker were a no-op, these would catch a
+# regression that re-introduces eager imports.
+for mod in ("torch", "sentence_transformers", "mempalace_code.miner"):
+    assert mod not in sys.modules, mod + " was imported during init/tools-list"
+
 print("OK")
 """
         result = subprocess.run(
@@ -2321,34 +2330,52 @@ print("OK")
         assert not missing.exists(), "Missing palace directory must not be created by read tools"
 
     def test_ac5_mine_invalid_dir_no_miner_import(self, monkeypatch, config, palace_path, kg):
-        """AC-5: tool_mine with non-existent dir returns {success:false} without importing miner."""
-        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        """AC-5: tool_mine with non-existent dir validates path before importing miner.
 
-        # Block miner import so we can verify it was never triggered
+        Verifies the early-return guards in tool_mine fire before _mine_quiet runs the
+        lazy `from .miner import mine`. Uses subprocess + find_spec because (a) other
+        tests in this run may have already imported mempalace_code.miner, polluting
+        sys.modules, and (b) find_module is a no-op in Python 3.12+.
+        """
+        import subprocess
         import sys
 
-        original_modules = dict(sys.modules)
+        script = """
+import sys
 
-        class _MinerBlocker:
-            def find_module(self, name, path=None):
-                if name in ("mempalace_code.miner", "torch"):
-                    return self
-                return None
+class _MinerBlocker:
+    _BLOCKED = frozenset({"mempalace_code.miner", "torch"})
+    def find_spec(self, name, path=None, target=None):
+        if name in self._BLOCKED:
+            raise ImportError("Blocked by test: " + name)
+        return None
 
-            def load_module(self, name):
-                raise ImportError(f"Blocked by test: {name}")
+sys.meta_path.insert(0, _MinerBlocker())
 
-        blocker = _MinerBlocker()
-        sys.meta_path.insert(0, blocker)
-        try:
-            from mempalace_code.mcp_server import tool_mine
+import tempfile, os
+_tmp = tempfile.mkdtemp()
+os.environ["HOME"] = _tmp
+os.environ["USERPROFILE"] = _tmp
 
-            result = tool_mine(directory="/nonexistent/path/that/does/not/exist")
-            assert result["success"] is False, f"Expected failure for non-existent dir: {result}"
-            assert "error" in result
-        finally:
-            sys.meta_path.remove(blocker)
-            # Restore any modules that may have been affected
-            for key in list(sys.modules):
-                if key not in original_modules:
-                    sys.modules.pop(key, None)
+from mempalace_code.mcp_server import tool_mine
+
+result = tool_mine(directory="/nonexistent/path/that/does/not/exist")
+assert result["success"] is False, "Expected failure for non-existent dir: " + repr(result)
+assert "error" in result
+assert "Directory not found" in result["error"], result["error"]
+
+for mod in ("mempalace_code.miner", "torch"):
+    assert mod not in sys.modules, mod + " was imported during invalid-dir tool_mine"
+
+print("OK")
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, (
+            f"subprocess failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert "OK" in result.stdout, f"unexpected output: {result.stdout}"
