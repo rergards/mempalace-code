@@ -1174,7 +1174,9 @@ class TestMigrateStorageCommand:
         src = str(tmp_path / "src")
         dst = str(tmp_path / "dst")
 
-        with patch("mempalace.migrate.migrate_chroma_to_lance", return_value=(10, 10)) as mock_migrate:
+        with patch(
+            "mempalace.migrate.migrate_chroma_to_lance", return_value=(10, 10)
+        ) as mock_migrate:
             self._run(["mempalace", "migrate-storage", src, dst])
 
         mock_migrate.assert_called_once_with(
@@ -1215,7 +1217,9 @@ class TestMigrateStorageCommand:
         dst = str(tmp_path / "dst")
         backup = str(tmp_path / "backups")
 
-        with patch("mempalace.migrate.migrate_chroma_to_lance", return_value=(5, 5)) as mock_migrate:
+        with patch(
+            "mempalace.migrate.migrate_chroma_to_lance", return_value=(5, 5)
+        ) as mock_migrate:
             self._run(["mempalace", "migrate-storage", src, dst, "--backup-dir", backup])
 
         assert mock_migrate.call_args.kwargs["backup_dir"] == backup
@@ -1225,7 +1229,9 @@ class TestMigrateStorageCommand:
         src = str(tmp_path / "src")
         dst = str(tmp_path / "dst")
 
-        with patch("mempalace.migrate.migrate_chroma_to_lance", return_value=(3, 3)) as mock_migrate:
+        with patch(
+            "mempalace.migrate.migrate_chroma_to_lance", return_value=(3, 3)
+        ) as mock_migrate:
             self._run(["mempalace", "migrate-storage", src, dst, "--force"])
 
         assert mock_migrate.call_args.kwargs["force"] is True
