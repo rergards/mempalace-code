@@ -991,6 +991,67 @@ def standalone():
     return []
 """
 
+# Padded variant: def standalone body exceeds TARGET_MAX so adaptive_merge_split
+# cannot fold it into the preceding chunk, keeping the detached-comment boundary
+# visible in the final output.
+PYTHON_COMMENT_DETACHED_PADDED = """\
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# This leading comment must be attached to the function directly below it.
+# It spans two lines and has no blank line between it and the def keyword.
+def process(data):
+    \"\"\"Process the given data and return a transformed result string.\"\"\"
+    logger.info("processing %d items", len(data))
+    return [str(x) for x in data]
+
+
+# A detached comment separated by a blank line — must NOT be in standalone's chunk.
+
+def standalone():
+    \"\"\"Padded function separated from its preceding comment by a blank line.
+
+    The body is padded above TARGET_MAX so adaptive_merge_split keeps
+    this chunk isolated from the preceding chunk in the final output.
+    \"\"\"
+    step_01 = "validate input parameters and check all preconditions before any processing"
+    step_02 = "initialize the primary data structures required by the algorithm to run"
+    step_03 = "iterate over the input collection and apply the transformation function"
+    step_04 = "accumulate intermediate results in a temporary buffer for later assembly"
+    step_05 = "apply secondary filtering rules to remove invalid or duplicate entries"
+    step_06 = "sort the filtered results according to the configured ordering criteria"
+    step_07 = "merge overlapping ranges and collapse adjacent entries into single records"
+    step_08 = "compute aggregate statistics such as the total count and average value"
+    step_09 = "format the final output according to the serialization schema requirements"
+    step_10 = "write results to the output stream and flush any pending buffered data"
+    step_11 = "update the internal state cache to reflect the newly processed records"
+    step_12 = "log a summary of processing steps and record the elapsed wall-clock time"
+    step_13 = "release any acquired resources including file handles and network sockets"
+    step_14 = "notify downstream consumers that new results are available for consumption"
+    step_15 = "return the final assembled result list for the caller to inspect or store"
+    step_16 = "validate output schema compliance before dispatching to downstream systems"
+    step_17 = "emit telemetry events for observability pipelines to capture throughput"
+    step_18 = "perform idempotency checks to guard against duplicate processing runs"
+    step_19 = "checkpoint progress to durable storage so restarts can resume correctly"
+    step_20 = "clean up temporary files and intermediate artifacts created during the run"
+    step_21 = "increment global operation counters used by health check endpoints"
+    step_22 = "signal the event loop that all pending callbacks have been dispatched"
+    step_23 = "flush in-memory write buffers before closing the underlying file handle"
+    step_24 = "propagate cancellation tokens to any spawned background worker threads"
+    step_25 = "confirm the distributed lock was released after the critical section ended"
+    step_26 = "archive processed records to cold storage for long-term audit retention"
+    step_27 = "purge expired entries from the least-recently-used eviction cache layer"
+    step_28 = "broadcast the completion event to all registered notification subscribers"
+    return [
+        step_01, step_02, step_03, step_04, step_05, step_06, step_07,
+        step_08, step_09, step_10, step_11, step_12, step_13, step_14,
+        step_15, step_16, step_17, step_18, step_19, step_20, step_21,
+        step_22, step_23, step_24, step_25, step_26, step_27, step_28,
+    ]
+"""
+
 
 def _skip_if_no_ast():
     """Skip test if tree-sitter Python AST path is not active."""
@@ -1054,6 +1115,15 @@ def test_ast_leading_comment_attached_to_def():
             break
     else:
         pytest.fail("def process not found in any chunk")
+
+
+def test_ast_detached_comment_not_absorbed():
+    """AC-2/AC-3: comment separated from def standalone by a blank line is not in that chunk."""
+    _skip_if_no_ast()
+    chunks = chunk_code(PYTHON_COMMENT_DETACHED_PADDED, ".py", "test.py")
+    standalone_chunk = next((c for c in contents(chunks) if "def standalone" in c), None)
+    assert standalone_chunk is not None, "def standalone not found in any chunk"
+    assert "A detached comment" not in standalone_chunk
 
 
 def test_ast_empty_file_returns_empty():
