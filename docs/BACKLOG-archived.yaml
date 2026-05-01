@@ -403,3 +403,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: MINE-MULTI-INCLUDE-IGNORED-TEST
+      summary: Add test verifying --include-ignored comma-splitting and pass-through in mine-all
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run
