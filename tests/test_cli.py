@@ -1160,3 +1160,72 @@ class TestMineAllCommand:
         # Only the first project should be mined; second skipped due to name clash
         assert len(mine_calls) == 1
         assert mine_calls[0]["wing_override"] == "shared_wing"
+
+
+class TestMigrateStorageCommand:
+    """CLI-level tests for migrate-storage argparse wiring and dispatch."""
+
+    def _run(self, argv):
+        with patch.object(sys, "argv", argv):
+            main()
+
+    def test_migrate_storage_cli_happy_path(self, tmp_path, capsys):
+        """AC-1: happy path calls migrate_chroma_to_lance with expected defaults and prints counts."""
+        src = str(tmp_path / "src")
+        dst = str(tmp_path / "dst")
+
+        with patch("mempalace.migrate.migrate_chroma_to_lance", return_value=(10, 10)) as mock_migrate:
+            self._run(["mempalace", "migrate-storage", src, dst])
+
+        mock_migrate.assert_called_once_with(
+            src_path=src,
+            dst_path=dst,
+            backup_dir=None,
+            force=False,
+            embed_model=None,
+            verify=False,
+            no_backup=False,
+        )
+        captured = capsys.readouterr()
+        assert "Source drawers" in captured.out
+        assert "Destination drawers" in captured.out
+        assert "10" in captured.out
+
+    def test_migrate_storage_cli_verify_fail(self, tmp_path, capsys):
+        """AC-2: VerificationError exits with code 1, stderr includes 'Verification failed:'."""
+        from mempalace.migrate import VerificationError
+
+        src = str(tmp_path / "src")
+        dst = str(tmp_path / "dst")
+
+        with patch(
+            "mempalace.migrate.migrate_chroma_to_lance",
+            side_effect=VerificationError("wing count mismatch"),
+        ):
+            with pytest.raises(SystemExit) as exc:
+                self._run(["mempalace", "migrate-storage", src, dst])
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert "Verification failed:" in captured.err
+
+    def test_migrate_storage_cli_backup_dir_passthrough(self, tmp_path, capsys):
+        """AC-3: --backup-dir <dir> reaches migrate_chroma_to_lance as backup_dir."""
+        src = str(tmp_path / "src")
+        dst = str(tmp_path / "dst")
+        backup = str(tmp_path / "backups")
+
+        with patch("mempalace.migrate.migrate_chroma_to_lance", return_value=(5, 5)) as mock_migrate:
+            self._run(["mempalace", "migrate-storage", src, dst, "--backup-dir", backup])
+
+        assert mock_migrate.call_args.kwargs["backup_dir"] == backup
+
+    def test_migrate_storage_cli_force_passthrough(self, tmp_path, capsys):
+        """AC-4: --force reaches migrate_chroma_to_lance with force=True."""
+        src = str(tmp_path / "src")
+        dst = str(tmp_path / "dst")
+
+        with patch("mempalace.migrate.migrate_chroma_to_lance", return_value=(3, 3)) as mock_migrate:
+            self._run(["mempalace", "migrate-storage", src, dst, "--force"])
+
+        assert mock_migrate.call_args.kwargs["force"] is True
