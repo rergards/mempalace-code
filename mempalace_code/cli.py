@@ -351,18 +351,18 @@ def cmd_mine_all(args):
 
     # Resolve wing names; config parse errors are fatal before any mining starts.
     project_entries = []
-    config_errors = []
+    config_error_count = 0
     for proj in projects:
         try:
             wing_name = resolve_wing_for_project(proj["path"])
             project_entries.append({**proj, "wing": wing_name})
         except ValueError as exc:
-            config_errors.append((Path(proj["path"]).name, str(exc)))
+            config_error_count += 1
             print(f"  ERROR  {Path(proj['path']).name}: {exc}", file=sys.stderr)
 
-    if config_errors:
+    if config_error_count:
         print(
-            f"  {len(config_errors)} project(s) had config parse errors — fix them and retry.",
+            f"  {config_error_count} project(s) had config parse errors — fix them and retry.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -411,7 +411,7 @@ def cmd_mine_all(args):
     skipped = 0
     errors: list = []
 
-    new_only = getattr(args, "new_only", False)
+    new_only = args.new_only
 
     include_ignored: list = []
     for raw in args.include_ignored or []:

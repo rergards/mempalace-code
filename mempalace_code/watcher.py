@@ -427,7 +427,7 @@ def watch_all(
 
     # Build project path -> wing name mapping using config-aware resolver.
     project_map: dict = {}  # resolved Path -> wing name
-    config_errors = []
+    config_error_count = 0
     for proj in initialized:
         proj_path = Path(proj["path"]).resolve()
         try:
@@ -435,11 +435,11 @@ def watch_all(
             project_map[proj_path] = wing
         except ValueError as exc:
             print(f"  ERROR  {proj_path.name}: {exc}", file=sys.stderr)
-            config_errors.append(proj_path)
+            config_error_count += 1
 
-    if config_errors:
+    if config_error_count:
         print(
-            f"  {len(config_errors)} project(s) had config parse errors — fix them and retry.",
+            f"  {config_error_count} project(s) had config parse errors — fix them and retry.",
             file=sys.stderr,
         )
         sys.exit(1)
