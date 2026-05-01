@@ -1826,6 +1826,84 @@ def test_scan_project_includes_makefile():
         shutil.rmtree(tmpdir)
 
 
+def test_scan_project_includes_jinja2_files():
+    """AC-1: .j2 and .jinja2 template files are returned by scan_project."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(
+            project_root / "templates" / "site.j2", "<!DOCTYPE html>\n<html>{{ title }}</html>\n"
+        )
+        write_file(project_root / "templates" / "app.jinja2", "{% block body %}{% endblock %}\n")
+
+        files = scanned_files(project_root)
+        assert "templates/site.j2" in files
+        assert "templates/app.jinja2" in files
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_includes_config_files():
+    """AC-2: .conf, .cfg, and .ini files are returned by scan_project; unknown extensions are excluded."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(project_root / "nginx.conf", "server { listen 80; }\n")
+        write_file(project_root / "setup.cfg", "[metadata]\nname = myapp\n")
+        write_file(project_root / "settings.ini", "[DEFAULT]\ndebug = false\n")
+        write_file(project_root / "notes.unknown", "some random text\n")
+
+        files = scanned_files(project_root)
+        assert "nginx.conf" in files
+        assert "setup.cfg" in files
+        assert "settings.ini" in files
+        assert "notes.unknown" not in files
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_includes_mk_files():
+    """AC-3: .mk make include files are returned by scan_project."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(project_root / "make" / "rules.mk", "CFLAGS ?= -O2\n")
+
+        files = scanned_files(project_root)
+        assert "make/rules.mk" in files
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_includes_containerfile():
+    """AC-4: extensionless Containerfile is returned by scan_project via known filename handling."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(project_root / "Containerfile", "FROM fedora:38\nRUN dnf install -y python3\n")
+
+        files = scanned_files(project_root)
+        assert "Containerfile" in files
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_includes_vagrantfile():
+    """AC-5: extensionless Vagrantfile is returned by scan_project via known filename handling."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(
+            project_root / "Vagrantfile",
+            'Vagrant.configure("2") do |config|\n  config.vm.box = "ubuntu/focal64"\nend\n',
+        )
+
+        files = scanned_files(project_root)
+        assert "Vagrantfile" in files
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_scan_project_skips_terraform_dir():
     """AC-6: .terraform/ directory is entirely skipped by scan_project."""
     tmpdir = tempfile.mkdtemp()
