@@ -1,0 +1,7 @@
+README.md
+mempalace_code/cli.py
+mempalace_code/miner.py
+mempalace_code/watcher.py
+tests/test_cli.py
+tests/test_miner.py
+tests/test_watcher.py

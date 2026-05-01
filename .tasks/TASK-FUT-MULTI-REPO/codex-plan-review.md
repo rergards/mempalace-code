@@ -1,0 +1,10 @@
+verdict: READY
+gaps:
+  - severity: medium
+    claim: "Plan changes mine-all default from skip-existing to incremental sync, but does not explicitly call out that two existing tests in TestMineAllCommand will start failing under the new default and must be updated, not just extended."
+    evidence: "tests/test_cli.py:1030 (test_mine_all_skip_existing asserts mine() is NOT called for an existing wing without --force); tests/test_cli.py:1166 (test_mine_all_dedup_wing_names asserts first-wins behavior with len(mine_calls) == 1, which contradicts the plan's new strict 'duplicate wings → exit 1, mine() never called for the colliding pair' behavior described in Design Notes and AC-4)."
+    suggested_fix: "In the files-list entry for tests/test_cli.py, add explicit 'update test_mine_all_skip_existing to reflect incremental-by-default (or move its assertion under --new-only)' and 'update test_mine_all_dedup_wing_names to assert SystemExit(1) and mine() never called, replacing the current first-wins assertion'. This avoids the implementer accidentally leaving stale assertions that pass for the wrong reason."
+  - severity: low
+    claim: "AC-5 asserts 'no duplicate drawer-id collision' but does not state how the test observes drawer ids — it talks about search/code-search output and source_file paths, while drawer ids are stored on the storage row, not surfaced by search output."
+    evidence: "docs/plans/FUT-MULTI-REPO.md AC-5; mempalace_code/miner.py:2468 and :2550 (drawer_id format already includes wing prefix and md5 of absolute source_file, so collision is structurally impossible across distinct absolute paths in distinct wings)."
+    suggested_fix: "Either reword AC-5 as 'two distinct rows are written, identified by full absolute source_file and wing, with no overwritten/merged drawer for the shared basename', or have the test peek at the storage layer (e.g. via collection.get_source_file_hashes per wing) to confirm both source_files are present under their respective wings."

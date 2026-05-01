@@ -1,0 +1,12 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/BACKLOG.yaml",
+    "docs/audits/FUT-MULTI-REPO-round-1.md",
+    "mempalace_code/cli.py",
+    "tests/test_cli.py",
+    "tests/test_watcher.py"
+  ],
+  "before_sha": "555b3c9",
+  "timestamp": "2026-05-01T22:30:02Z"
+}
