@@ -866,17 +866,19 @@ class TestSchemaMigration:
         ]
         assert len(migrating) == 1, f"expected exactly one migration log, got: {migrating}"
         log_msg = migrating[0]
-        assert "hall" not in log_msg, "hall already present in 12-col schema; must not be re-added"
-        assert "language" not in log_msg, (
-            "language already present in 12-col schema; must not be re-added"
-        )
-        assert "symbol_name" not in log_msg, (
-            "symbol_name already present in 12-col schema; must not be re-added"
-        )
+        # Match the Python list-repr form ("'col'") rather than a bare substring,
+        # so future column names that happen to contain "hall"/"language"/etc.
+        # cannot mask a regression by accident.
+        for already_present in ("hall", "language", "symbol_name"):
+            assert f"'{already_present}'" not in log_msg, (
+                f"{already_present!r} already present in 12-col schema; must not be re-added — "
+                f"got: {log_msg!r}"
+            )
         absent_cols = [name for name, _, _ in _META_FIELD_SPEC if name not in PARTIAL_12_COLS]
-        assert any(col in log_msg for col in absent_cols), (
-            f"expected at least one newly-added column in migration log, got: {log_msg!r}"
-        )
+        for col in absent_cols:
+            assert f"'{col}'" in log_msg, (
+                f"expected newly-added column {col!r} in migration log, got: {log_msg!r}"
+            )
 
         # AC-3: pre-existing row keeps intermediate column values; absent columns use defaults
         existing = store.get(ids=["partial_migration_row"], include=["metadatas"])

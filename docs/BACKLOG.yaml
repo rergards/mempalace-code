@@ -80,7 +80,7 @@ items:
   - key: STORE-SCHEMA-PARTIAL-MIGRATE-TEST
     summary: 'Add test: partial schema migration roundtrip (intermediate-column-count palace)'
     type: task
-    status: open
+    status: done
     priority: low
     size: S
     section_id: quality
@@ -101,6 +101,8 @@ items:
       3. store.add() succeeds with all _META_FIELD_SPEC sentinel values.
       4. store.get() returns all fields with correct sentinel values.
       5. ruff clean.
+    resolution: "2026-05-01: Added TestSchemaMigration.test_write_with_all_metadata_after_partial_migration seeding a 12-column intermediate palace (9 original + hall/language/symbol_name) with one pre-existing row, opening via open_store to trigger partial migration, then asserting (a) the migration log lists exactly the absent columns, (b) the pre-existing row preserves its 12-column values and gets _META_FIELD_SPEC defaults for newly-added columns, and (c) full _META_FIELD_SPEC roundtrip for a freshly written drawer. Hardening replaced bare-substring log checks with list-repr-quoted matches and strengthened `any` to `all` so every absent column must appear in the migration log."
+    done_summary: "Partial schema migration is now covered by an integration test that builds a 12-col intermediate table directly via lancedb, exercises open_store-triggered migration, and verifies pre-existing-row preservation, default-fill for absent columns, and full-metadata roundtrip after migration. 9/9 TestSchemaMigration tests pass."
   - key: BENCH-RESULTS-MISSING-FILES
     summary: Commit or document missing benchmark results files (results_*.jsonl)
     type: task
