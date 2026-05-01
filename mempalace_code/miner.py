@@ -3096,7 +3096,10 @@ def _python_type_rels(filepath: Path) -> list:
 
     # Import extraction — emit depends_on triples for module-level imports.
     for m in _PY_IMPORT_RE.finditer(text):
-        for segment in m.group(1).split(","):
+        # Drop anything after ';' so "import os; print()" still yields os, matching
+        # pre-multi-module behavior. Subsequent statements on the line are not parsed.
+        content = m.group(1).split(";", 1)[0]
+        for segment in content.split(","):
             # Strip optional "as <alias>" suffix, then whitespace.
             mod = segment.split(" as ")[0].strip()
             if not _PY_MODULE_TOKEN_RE.match(mod):

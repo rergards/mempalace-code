@@ -1429,12 +1429,24 @@ def test_py_multi_import_comment_skipped(tmp_path):
 
 
 def test_py_multi_import_deduplication(tmp_path):
-    """import os then import os, sys → exactly one os triple and one sys triple — AC-4."""
-    triples = _py(tmp_path, "import os\nimport os, sys\n")
-    os_triples = [t for t in triples if t[1] == "depends_on" and t[2] == "os"]
-    sys_triples = [t for t in triples if t[1] == "depends_on" and t[2] == "sys"]
+    """import os then import os, sys → exactly one os triple and one sys triple — AC-4.
+
+    Uses the raw list from extract_type_relationships (not the set helper) so that
+    list-level duplicates would fail the assertion.
+    """
+    f = tmp_path / "Test.py"
+    f.write_text("import os\nimport os, sys\n", encoding="utf-8")
+    raw_triples = extract_type_relationships(f)
+    os_triples = [t for t in raw_triples if t[1] == "depends_on" and t[2] == "os"]
+    sys_triples = [t for t in raw_triples if t[1] == "depends_on" and t[2] == "sys"]
     assert len(os_triples) == 1
     assert len(sys_triples) == 1
+
+
+def test_py_import_semicolon_first_module(tmp_path):
+    """import os; print() → still yields 'os'; subsequent statements are ignored."""
+    triples = _py(tmp_path, "import os; print('hi')\n")
+    assert ("Test", "depends_on", "os") in triples
 
 
 def test_py_indented_class(tmp_path):
