@@ -2191,17 +2191,17 @@ class TestLazyStartup:
         import subprocess
         import sys
 
-        script = f"""
+        script = """
 import sys
 import json
 
 # Block imports that must NOT be triggered by initialize/tools-list
 class _Blocker:
-    _BLOCKED = frozenset({{
+    _BLOCKED = frozenset({
         "torch",
         "sentence_transformers",
         "mempalace_code.miner",
-    }})
+    })
     def find_module(self, name, path=None):
         if name in self._BLOCKED:
             return self
@@ -2219,10 +2219,10 @@ os.environ["USERPROFILE"] = _tmp
 
 from mempalace_code.mcp_server import handle_request
 
-resp1 = handle_request({{"method": "initialize", "id": 1, "params": {{}}}})
+resp1 = handle_request({"method": "initialize", "id": 1, "params": {}})
 assert resp1["result"]["serverInfo"]["name"] == "mempalace-code", resp1
-resp2 = handle_request({{"method": "tools/list", "id": 2, "params": {{}}}})
-tool_names = {{t["name"] for t in resp2["result"]["tools"]}}
+resp2 = handle_request({"method": "tools/list", "id": 2, "params": {}})
+tool_names = {t["name"] for t in resp2["result"]["tools"]}
 assert "mempalace_mine" in tool_names, tool_names
 print("OK")
 """
