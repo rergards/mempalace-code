@@ -393,3 +393,8 @@ items:
       resolution: '2026-05-01: completed in pipeline run'
       archived_date: "2026-05-01"
       done_summary: completed in pipeline run
+    - key: MINE-DEVOPS-SCAN-COVERAGE
+      summary: Add scan_project integration tests for remaining DevOps extensions (.j2, .conf, .ini, .mk, Vagrantfile, Containerfile)
+      resolution: '2026-05-01: completed in pipeline run'
+      archived_date: "2026-05-01"
+      done_summary: completed in pipeline run

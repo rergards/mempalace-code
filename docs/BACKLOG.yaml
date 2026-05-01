@@ -94,48 +94,6 @@ items:
     links:
       - type: is-blocked-by
         key: CLARIFY-CODE-TREESITTER-GO-RUST-DETACH-TEST
-  - key: MINE-DEVOPS-SCAN-COVERAGE
-    summary: Add scan_project integration tests for remaining DevOps extensions (.j2, .conf, .ini, .mk, Vagrantfile, Containerfile)
-    type: task
-    status: open
-    priority: low
-    size: S
-    section_id: quality
-    labels: [mining, testing, devops]
-    hardening_round_1: "2026-05-01 — fixed F-1 (low): test_scan_project_includes_containerfile and test_scan_project_includes_vagrantfile claimed 'via known filename handling' but lacked a negative control, so a regression that loosened scan_project's suffix-check to accept any extensionless file would not have failed them; added a sibling 'RandomExtensionless' file to both tests and asserted it is absent, pinning the KNOWN_FILENAMES allowlist contract. Audit at docs/audits/MINE-DEVOPS-SCAN-COVERAGE-round-1.md."
-    description: |-
-      ## Problem
-
-      MINE-DEVOPS-INFRA added scan_project integration tests for Terraform, Dockerfile, and Makefile, but the following new file types have no scan_project test:
-      - Jinja2 templates (.j2, .jinja2)
-      - Config files (.conf, .cfg, .ini)
-      - Make include files (.mk)
-      - Containerfile (extensionless, maps to dockerfile)
-      - Vagrantfile (extensionless, maps to ruby)
-
-      These are covered by unit tests in test_lang_detect.py, but there are no integration-level tests confirming they flow through scan_project correctly.
-
-      ## Scope
-
-      tests/test_miner.py — new test functions using tempdir pattern
-
-      ## Deliverable
-
-      Additional test functions in tests/test_miner.py verifying each missing type appears in scan_project output.
-
-      ## Acceptance Criteria
-
-      1. test_scan_project_includes_jinja2_files — .j2 and .jinja2 files appear in scan results
-      2. test_scan_project_includes_config_files — .conf, .cfg, .ini files appear in scan results
-      3. test_scan_project_includes_mk_files — .mk files appear in scan results
-      4. test_scan_project_includes_containerfile — Containerfile appears in scan results
-      5. test_scan_project_includes_vagrantfile — Vagrantfile appears in scan results
-      6. All tests pass
-
-      ## Constraints
-
-      - Tests must use tempfile.mkdtemp() + shutil.rmtree() pattern (no pytest fixtures)
-      - No palace/embedding needed — pure scan_project() call tests
   - key: MINE-RUBY-SMART
     summary: Add smart symbol extraction for Ruby
     type: feature
