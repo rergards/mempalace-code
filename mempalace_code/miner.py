@@ -3584,12 +3584,12 @@ def mine(
                 )
 
                 arch_cfg = load_arch_config(config)
+                # Always expire stale arch triples before deciding whether to re-emit.
+                # This ensures that flipping `architecture.enabled` to False on a
+                # subsequent mine actually removes previously-emitted arch facts
+                # rather than leaving them queryable.
+                kg.invalidate_by_predicates(list(ARCH_PREDICATES))
                 if arch_cfg.get("enabled", True):
-                    arch_pred_list = list(ARCH_PREDICATES)
-                    # Global reset: expire all arch triples before re-emitting.
-                    # This handles deleted files in both incremental and full-rebuild modes
-                    # without needing to enumerate stale paths separately.
-                    kg.invalidate_by_predicates(arch_pred_list)
                     arch_files = [Path(f) for f in walked_paths]
                     inventory = extract_type_inventory(arch_files, project_path)
                     n_arch = run_arch_pass(inventory, arch_cfg, wing, kg)

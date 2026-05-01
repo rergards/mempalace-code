@@ -655,6 +655,38 @@ class TestMiningIntegration:
         # The important thing is no exception was raised
         assert isinstance(results, list)
 
+    # Regression: disabling architecture between mines must expire prior arch facts
+    def test_disabling_architecture_expires_prior_facts(self):
+        # First mine with default (enabled) config produces arch facts.
+        self._make_project()
+        svc_file = self._write(
+            "src/UserService.cs",
+            "namespace Company.Application;\npublic class UserService { }",
+        )
+
+        kg = self._mine(incremental=False)
+
+        results = kg.query_entity("Service", direction="incoming")
+        active_subjects = {r["subject"] for r in results if r["valid_to"] is None}
+        assert "UserService" in active_subjects
+
+        # Second mine with architecture.enabled: false must expire the prior facts,
+        # so they no longer surface as current.
+        cfg = {
+            "wing": "test_arch",
+            "rooms": [{"name": "general", "description": "General"}],
+            "architecture": {"enabled": False},
+        }
+        self._write("mempalace.yaml", yaml.dump(cfg, default_flow_style=False))
+        # Touch the source file so its content is unchanged but config flips.
+        svc_file.write_text(svc_file.read_text(encoding="utf-8"), encoding="utf-8")
+
+        kg2 = self._mine(incremental=False)
+
+        results_after = kg2.query_entity("Service", direction="incoming")
+        current_subjects = {r["subject"] for r in results_after if r["valid_to"] is None}
+        assert "UserService" not in current_subjects
+
     # AC-4: stale fact removed when file is replaced
     def test_ac4_stale_fact_invalidated_on_rename(self):
         self._make_project()

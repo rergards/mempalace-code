@@ -1,0 +1,11 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/BACKLOG.yaml",
+    "docs/audits/ARCH-EXTRACTION-MODE-round-1.md",
+    "mempalace_code/miner.py",
+    "tests/test_architecture_extraction.py"
+  ],
+  "before_sha": "d92a23f",
+  "timestamp": "2026-05-01T23:07:43Z"
+}
