@@ -133,7 +133,8 @@ if [ "$SINCE_LAST" -ge "$SAVE_INTERVAL" ] && [ "$EXCHANGE_COUNT" -gt 0 ]; then
         if command -v mempalace-code >/dev/null 2>&1; then
             mempalace-code mine "$MEMPAL_DIR" >> "$STATE_DIR/hook.log" 2>&1 &
         else
-            python3 -m mempalace mine "$MEMPAL_DIR" >> "$STATE_DIR/hook.log" 2>&1 &
+            PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
+                python3 -m mempalace_code mine "$MEMPAL_DIR" >> "$STATE_DIR/hook.log" 2>&1 &
         fi
     fi
 

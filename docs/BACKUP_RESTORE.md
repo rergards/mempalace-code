@@ -5,7 +5,7 @@
 The intuitive "fix my palace" workflow is:
 
 ```bash
-rm -rf ~/.mempalace/palace && mempalace mine ~/projects/my_app
+rm -rf ~/.mempalace/palace && mempalace-code mine ~/projects/my_app
 ```
 
 This silently destroys:
@@ -23,7 +23,7 @@ The miner only regenerates code-chunked drawers (`chunker_strategy: regex_struct
 **Step 1 — Export your manual drawers and KG before nuking:**
 
 ```bash
-mempalace export --only-manual --with-kg --out ~/.mempalace/backup.jsonl
+mempalace-code export --only-manual --with-kg --out ~/.mempalace/backup.jsonl
 ```
 
 This produces a JSONL file containing:
@@ -34,13 +34,13 @@ This produces a JSONL file containing:
 
 ```bash
 rm -rf ~/.mempalace/palace
-mempalace mine ~/projects/my_app
+mempalace-code mine ~/projects/my_app
 ```
 
 **Step 3 — Restore from backup:**
 
 ```bash
-mempalace import ~/.mempalace/backup.jsonl
+mempalace-code import ~/.mempalace/backup.jsonl
 ```
 
 Import deduplicates against the freshly-mined palace so you won't get doubles.
@@ -51,19 +51,19 @@ Import deduplicates against the freshly-mined palace so you won't get doubles.
 
 ```bash
 # Restore drawers + KG from a backup
-mempalace import backup.jsonl
+mempalace-code import backup.jsonl
 
 # Restore drawers only, skip KG
-mempalace import backup.jsonl --skip-kg
+mempalace-code import backup.jsonl --skip-kg
 
 # Dry run — see what would be imported without writing
-mempalace import backup.jsonl --dry-run
+mempalace-code import backup.jsonl --dry-run
 
 # Override wing for all imported drawers
-mempalace import backup.jsonl --wing-override my_project
+mempalace-code import backup.jsonl --wing-override my_project
 
 # Skip dedup check (force-import all records)
-mempalace import backup.jsonl --skip-dedup
+mempalace-code import backup.jsonl --skip-dedup
 ```
 
 ---
@@ -76,8 +76,8 @@ Exports only drawers that the miner **cannot regenerate**:
 
 | `chunker_strategy` | Source | Regenerable by miner? |
 |--------------------|--------|-----------------------|
-| `regex_structural_v1` | `mempalace mine` | Yes — skip |
-| `convo_turn_v1` | `mempalace mine --mode convos` | Yes — skip |
+| `regex_structural_v1` | `mempalace-code mine` | Yes — skip |
+| `convo_turn_v1` | `mempalace-code mine --mode convos` | Yes — skip |
 | `manual_v1` | MCP `add_drawer` tool | **No — include** |
 | `diary_v1` | MCP `diary_write` / CLI `diary write` | **No — include** |
 
@@ -89,13 +89,13 @@ Scope the export to a subset of your palace:
 
 ```bash
 # Only the 'people' wing
-mempalace export --out backup.jsonl --wing people
+mempalace-code export --out backup.jsonl --wing people
 
 # Decisions room in the mempalace wing
-mempalace export --out backup.jsonl --wing mempalace --room decisions
+mempalace-code export --out backup.jsonl --wing mempalace --room decisions
 
 # Only drawers filed on or after 2026-01-01
-mempalace export --out backup.jsonl --since 2026-01-01
+mempalace-code export --out backup.jsonl --since 2026-01-01
 ```
 
 ### `--with-embeddings`
@@ -112,7 +112,7 @@ To move your palace to an airgapped machine or a new workstation:
 
 ```bash
 # Full export (not --only-manual, to preserve everything)
-mempalace export --with-kg --out palace_full.jsonl
+mempalace-code export --with-kg --out palace_full.jsonl
 ```
 
 Copy `palace_full.jsonl` to the target machine (USB, encrypted transfer, etc.).
@@ -121,10 +121,10 @@ Copy `palace_full.jsonl` to the target machine (USB, encrypted transfer, etc.).
 
 ```bash
 # Ensure embedding model is cached first
-mempalace fetch-model
+mempalace-code fetch-model
 
 # Import — will re-embed content using the local model
-mempalace import palace_full.jsonl
+mempalace-code import palace_full.jsonl
 ```
 
 The JSONL format is backend-agnostic. If the source used ChromaDB and the target uses LanceDB, import still works.
@@ -150,24 +150,24 @@ The format is human-readable, version-control-friendly, and streamable. You can 
 For full binary snapshots (faster, includes everything, not human-readable):
 
 ```bash
-mempalace backup create                    # creates ~/.mempalace/backups/palace_YYYYMMDD_HHMMSS.tar.gz
-mempalace backup create --out ~/safe.tar.gz
-mempalace backup list                      # show existing backups
-mempalace restore ~/safe.tar.gz            # restore (prompts before overwrite)
-mempalace restore ~/safe.tar.gz --force    # overwrite without prompt
+mempalace-code backup create                    # creates ~/.mempalace/backups/palace_YYYYMMDD_HHMMSS.tar.gz
+mempalace-code backup create --out ~/safe.tar.gz
+mempalace-code backup list                      # show existing backups
+mempalace-code restore ~/safe.tar.gz            # restore (prompts before overwrite)
+mempalace-code restore ~/safe.tar.gz --force    # overwrite without prompt
 ```
 
 ### Scheduled Backups
 
 ```bash
-mempalace backup schedule --freq daily     # prints launchd plist (macOS) or cron line (Linux)
+mempalace-code backup schedule --freq daily     # prints launchd plist (macOS) or cron line (Linux)
 ```
 
-Install the printed snippet manually — mempalace does not write to system directories.
+Install the printed snippet manually — mempalace-code does not write to system directories.
 
 ### Auto-Backup Before Optimize
 
-Enabled by default. Every `mempalace mine` creates a backup before compacting storage:
+Enabled by default. Every `mempalace-code mine` creates a backup before compacting storage:
 
 ```
 ~/.mempalace/backups/pre_optimize_YYYYMMDD_HHMMSS.tar.gz
@@ -182,15 +182,15 @@ To disable: set `auto_backup_before_optimize: false` in `~/.mempalace/config.jso
 If your palace seems corrupted (search returns empty, counts don't match):
 
 ```bash
-mempalace health              # probe for fragment corruption
-mempalace health --json       # machine-readable report
+mempalace-code health              # probe for fragment corruption
+mempalace-code health --json       # machine-readable report
 ```
 
 If corruption is detected:
 
 ```bash
-mempalace repair --dry-run    # show what would be recovered, how many rows lost
-mempalace repair --rollback   # roll back to last working LanceDB version
+mempalace-code repair --dry-run    # show what would be recovered, how many rows lost
+mempalace-code repair --rollback   # roll back to last working LanceDB version
 ```
 
 This uses LanceDB's version history to find the most recent uncorrupted state. Data added after corruption is lost — this is why auto-backup exists.

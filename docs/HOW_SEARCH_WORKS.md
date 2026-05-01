@@ -4,7 +4,7 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 
 ## The Algorithm in 5 Steps
 
-1. **During mining** (`mempalace mine`), every source file is split into chunks. Each chunk is passed through the `all-MiniLM-L6-v2` model, which converts the text into a **384-dimensional vector** — a numeric fingerprint of its meaning. The vector is stored in LanceDB alongside metadata (`wing`, `room`, `source_file`, `language`, `symbol_name`, `symbol_type`). Markdown drawers also store section metadata (`heading`, `heading_level`, `heading_path`, `doc_section_type`) and flags for Mermaid diagrams, fenced code blocks, and tables.
+1. **During mining** (`mempalace-code mine`), every source file is split into chunks. Each chunk is passed through the `all-MiniLM-L6-v2` model, which converts the text into a **384-dimensional vector** — a numeric fingerprint of its meaning. The vector is stored in LanceDB alongside metadata (`wing`, `room`, `source_file`, `language`, `symbol_name`, `symbol_type`). Markdown drawers also store section metadata (`heading`, `heading_level`, `heading_path`, `doc_section_type`) and flags for Mermaid diagrams, fenced code blocks, and tables.
 
 2. **At query time**, the query string (e.g. `"detect language file extension"`) goes through the same model and produces another 384-dimensional vector in the same semantic space.
 
@@ -91,16 +91,18 @@ Files are skipped before any embedding happens if they match:
    generated directories; `SKIP_FILENAMES` like `package-lock.json` and `mempalace.yaml`.
 2. **App-level scan excludes** — configured in `~/.mempalace/config.json` as
    `scan_skip_dirs`, `scan_skip_files`, and `scan_skip_globs`. These run before the vector
-   indexing pipeline and apply equally to `mempalace mine` and the auto-watcher.
+   indexing pipeline and apply equally to `mempalace-code mine` and the auto-watcher.
+   Watcher loops reload these rules between scan cycles, so app-level config edits
+   apply to subsequent re-mines without a watcher restart.
 3. **Gitignore rules** — applied when `respect_gitignore=True` (the default).
 
 Previously indexed files that now fall under an exclusion rule are **not automatically
-removed** from the palace. Run `mempalace mine <dir> --full` to force a clean rebuild
+removed** from the palace. Run `mempalace-code mine <dir> --full` to force a clean rebuild
 that sweeps stale drawers for files no longer discovered by the scanner.
 
 ## Where the Code Lives
 
-- `mempalace/searcher.py` — high-level `search()` and `search_memories()` functions.
-- `mempalace/storage.py` — `LanceStore.query()`, which owns the embedding model, the LanceDB handle, and the actual vector search call.
-- `mempalace/miner.py` — smart chunker, language detection, symbol extraction, and the batch embedding loop used during `mempalace mine`.
-- `mempalace/config.py` — `MempalaceConfig.scan_skip_dirs/files/globs` properties that expose app-level scan exclusion config.
+- `mempalace_code/searcher.py` — high-level `search()` and `search_memories()` functions.
+- `mempalace_code/storage.py` — `LanceStore.query()`, which owns the embedding model, the LanceDB handle, and the actual vector search call.
+- `mempalace_code/miner.py` — smart chunker, language detection, symbol extraction, and the batch embedding loop used during `mempalace-code mine`.
+- `mempalace_code/config.py` — `MempalaceConfig.scan_skip_dirs/files/globs` properties that expose app-level scan exclusion config.

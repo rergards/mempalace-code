@@ -57,7 +57,7 @@ Graphify's graph is static — it is rebuilt from the current source tree. There
 
 ### 3. Conversation mining
 
-`mempalace mine ~/chats/ --mode convos` ingests Claude, ChatGPT, Slack, and other chat exports into the same palace as code. You can then search across past design discussions and debugging sessions the same way you search source files.
+`mempalace-code mine ~/chats/ --mode convos` ingests Claude, ChatGPT, Slack, and other chat exports into the same palace as code. You can then search across past design discussions and debugging sessions the same way you search source files.
 
 Graphify does not ingest conversations.
 

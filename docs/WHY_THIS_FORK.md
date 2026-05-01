@@ -38,7 +38,7 @@ Direct effects:
 
 ### 6. Mine Progress Output
 
-Previously, `mempalace mine` on a large repo would appear to hang for 5+ minutes: the embedding model was loading, then it was running per-file "already mined?" checks, and nothing was printed until the first chunk was written.
+Previously, `mempalace-code mine` on a large repo would appear to hang for 5+ minutes: the embedding model was loading, then it was running per-file "already mined?" checks, and nothing was printed until the first chunk was written.
 
 Now:
 

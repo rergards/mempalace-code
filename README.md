@@ -468,6 +468,10 @@ These rules apply to both `mempalace-code mine` and the auto-watcher (`mempalace
 and `mempalace-code watch`). Force-include paths (`--include-ignored`) always win over
 app-level excludes.
 
+Watcher loops reload these app-level rules between scan cycles, so edits to
+`~/.mempalace/config.json` apply to subsequent re-mines without restarting
+`mempalace-code watch`.
+
 **Removing previously indexed noise:** scan excludes prevent *future* scans from indexing
 the excluded paths. To remove content that was indexed before adding the exclusion, run a
 full re-mine:

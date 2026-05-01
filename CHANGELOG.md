@@ -1,5 +1,42 @@
 # Changelog
 
+Current command/package names: the CLI is `mempalace-code`, the import package is
+`mempalace_code`, and the MCP module is `python -m mempalace_code.mcp_server`.
+Older historical entries may mention legacy `mempalace` names that were valid
+when those changes landed.
+
+## 2026-05-01 · Recent completed task review
+
+### Added
+
+- `MINE-SCAN-RULES-LIVE-RELOAD`: watcher loops now reload `scan_skip_dirs`,
+  `scan_skip_files`, and `scan_skip_globs` between scan cycles, so app-level
+  exclude changes take effect without restarting `mempalace-code watch`.
+- `QUAL-E2E-REMAINING-MODULES`: end-to-end coverage now includes `convo_miner`,
+  `layers`, and `palace_graph` scenarios, including idempotent conversation
+  re-mining, tiered context loading, tunnel detection, traversal, and missing-room
+  boundary behavior.
+
+### Changed
+
+- `CLEAN-ONBOARDING`: `mempalace-code init` is config-file-first by default;
+  interactive guided setup is routed through explicit onboarding paths instead
+  of blocking the normal init flow.
+- The shipped Python import namespace is now `mempalace_code`. Packaged
+  `mempalace-code` installs no longer claim the top-level `mempalace` module,
+  allowing same-environment coexistence with upstream/vanilla MemPalace.
+- New MCP setup examples use `python -m mempalace_code.mcp_server`. Source
+  checkouts keep a minimal `mempalace.mcp_server` shim so older repo-local
+  Codex/Autopilot configs with checkout `PYTHONPATH` continue to start.
+
+### Fixed
+
+- `MINE-SCAN-GLOB-DIR-PRUNE`: glob rules that cover an entire generated
+  directory now prune that subtree during the walk instead of filtering only
+  after file discovery.
+- Legacy hook fallbacks and active docs now call `mempalace-code` or
+  `python -m mempalace_code`, matching the renamed package.
+
 ## 2026-05-01 · MINE-APP-SCAN-EXCLUDES-PR4
 
 App-level scan excludes (`scan_skip_dirs`, `scan_skip_files`, `scan_skip_globs`) implemented in miner and watcher with hardened, tested outputs.

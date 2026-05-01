@@ -64,7 +64,7 @@ Line length: 100. Target: py39. Quote style: double.
 | Module | Purpose |
 |--------|---------|
 | `storage.py` | LanceDB vector storage — add, search, delete, health_check, recover |
-| `backup.py` | Tarball backup/restore — `mempalace backup`, scheduled backups |
+| `backup.py` | Tarball backup/restore — `mempalace-code backup`, scheduled backups |
 | `miner.py` | Code project miner — walks source files, extracts drawers |
 | `convo_miner.py` | Conversation miner — ingests Claude/ChatGPT/Slack exports |
 | `searcher.py` | Semantic search — query palace with optional wing/room filters |
