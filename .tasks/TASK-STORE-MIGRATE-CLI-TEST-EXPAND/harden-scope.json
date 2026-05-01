@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/BACKLOG.yaml",
+    "docs/audits/STORE-MIGRATE-CLI-TEST-EXPAND-round-1.md"
+  ],
+  "before_sha": "97f62ac",
+  "timestamp": "2026-05-01T21:29:33Z"
+}
