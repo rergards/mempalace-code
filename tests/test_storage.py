@@ -797,6 +797,133 @@ class TestSchemaMigration:
             elif type_tag == "float32":
                 assert abs(m[name] - 0.75) < 0.01, f"{name}: expected ~0.75, got {m[name]!r}"
 
+    def test_write_with_all_metadata_after_partial_migration(self, palace_path, caplog):
+        """AC-1/AC-2/AC-3: Partial-migration roundtrip — 12-column intermediate palace."""
+        import lancedb
+        import pyarrow as pa
+
+        # 9 original columns + hall, language, symbol_name (intermediate release)
+        db = lancedb.connect(os.path.join(palace_path, "lance"))
+        partial_schema = pa.schema(
+            [
+                pa.field("id", pa.string()),
+                pa.field("text", pa.string()),
+                pa.field("vector", pa.list_(pa.float32(), 384)),
+                pa.field("wing", pa.string()),
+                pa.field("room", pa.string()),
+                pa.field("source_file", pa.string()),
+                pa.field("chunk_index", pa.int32()),
+                pa.field("added_by", pa.string()),
+                pa.field("filed_at", pa.string()),
+                pa.field("hall", pa.string()),
+                pa.field("language", pa.string()),
+                pa.field("symbol_name", pa.string()),
+            ]
+        )
+        raw_table = db.create_table("mempalace_drawers", schema=partial_schema)
+        raw_table.add(
+            [
+                {
+                    "id": "partial_migration_row",
+                    "text": "pre-existing content",
+                    "vector": [0.0] * 384,
+                    "wing": "test_wing",
+                    "room": "general",
+                    "source_file": "/old/partial.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2025-06-01T00:00:00",
+                    "hall": "session-42",
+                    "language": "python",
+                    "symbol_name": "MyClass",
+                }
+            ]
+        )
+
+        PARTIAL_12_COLS = {
+            "id",
+            "text",
+            "vector",
+            "wing",
+            "room",
+            "source_file",
+            "chunk_index",
+            "added_by",
+            "filed_at",
+            "hall",
+            "language",
+            "symbol_name",
+        }
+
+        # AC-2: migration log lists absent columns only — not the 3 already-present intermediate ones
+        with caplog.at_level(logging.INFO, logger="mempalace"):
+            store = open_store(palace_path, create=False)
+
+        migrating = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno == logging.INFO and "Migrating palace schema" in r.getMessage()
+        ]
+        assert len(migrating) == 1, f"expected exactly one migration log, got: {migrating}"
+        log_msg = migrating[0]
+        assert "hall" not in log_msg, "hall already present in 12-col schema; must not be re-added"
+        assert "language" not in log_msg, (
+            "language already present in 12-col schema; must not be re-added"
+        )
+        assert "symbol_name" not in log_msg, (
+            "symbol_name already present in 12-col schema; must not be re-added"
+        )
+        absent_cols = [name for name, _, _ in _META_FIELD_SPEC if name not in PARTIAL_12_COLS]
+        assert any(col in log_msg for col in absent_cols), (
+            f"expected at least one newly-added column in migration log, got: {log_msg!r}"
+        )
+
+        # AC-3: pre-existing row keeps intermediate column values; absent columns use defaults
+        existing = store.get(ids=["partial_migration_row"], include=["metadatas"])
+        assert len(existing["metadatas"]) == 1
+        pre = existing["metadatas"][0]
+        assert pre["hall"] == "session-42", f"hall must survive migration, got {pre['hall']!r}"
+        assert pre["language"] == "python", (
+            f"language must survive migration, got {pre['language']!r}"
+        )
+        assert pre["symbol_name"] == "MyClass", (
+            f"symbol_name must survive migration, got {pre['symbol_name']!r}"
+        )
+        for name, type_tag, default in _META_FIELD_SPEC:
+            if name not in PARTIAL_12_COLS:
+                assert pre[name] == default, (
+                    f"absent column {name!r}: expected default {default!r}, got {pre[name]!r}"
+                )
+
+        # AC-1: full metadata roundtrip for a drawer written after partial migration
+        sentinel_meta: dict = {}
+        for name, type_tag, _ in _META_FIELD_SPEC:
+            if type_tag == "string":
+                sentinel_meta[name] = f"sentinel_{name}"
+            elif type_tag == "int32":
+                sentinel_meta[name] = 42
+            elif type_tag == "float32":
+                sentinel_meta[name] = 0.75
+
+        store.add(
+            ids=["partial_sentinel_drawer"],
+            documents=["roundtrip content for partial-migration metadata test"],
+            metadatas=[sentinel_meta],
+        )
+
+        result = store.get(ids=["partial_sentinel_drawer"], include=["metadatas"])
+        assert len(result["metadatas"]) == 1
+        m = result["metadatas"][0]
+        for name, type_tag, _ in _META_FIELD_SPEC:
+            assert name in m, f"field {name!r} missing from get() result"
+            if type_tag == "string":
+                expected = f"sentinel_{name}"
+                assert m[name] == expected, f"{name}: expected {expected!r}, got {m[name]!r}"
+            elif type_tag == "int32":
+                assert m[name] == 42, f"{name}: expected 42, got {m[name]!r}"
+            elif type_tag == "float32":
+                assert abs(m[name] - 0.75) < 0.01, f"{name}: expected ~0.75, got {m[name]!r}"
+
 
 class TestDeleteBySourceFile:
     def test_deletes_drawers_for_source_file(self, palace_path):
