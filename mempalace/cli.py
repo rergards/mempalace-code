@@ -98,6 +98,13 @@ def cmd_init(args):
     from .room_detector_local import detect_rooms_local
 
     config = MempalaceConfig()
+
+    # Validate directory before any side effects — must precede entity scanning (AC-7)
+    project_path = Path(args.dir).expanduser().resolve()
+    if not project_path.is_dir():
+        print(f"  Error: directory not found: {args.dir}", file=sys.stderr)
+        sys.exit(1)
+
     detect_entities_enabled = getattr(args, "detect_entities", False) or config.entity_detection
 
     if detect_entities_enabled:
@@ -114,7 +121,7 @@ def cmd_init(args):
                 confirmed = confirm_entities(detected, yes=getattr(args, "yes", False))
                 # Save confirmed entities to <project>/entities.json for the miner
                 if confirmed["people"] or confirmed["projects"]:
-                    entities_path = Path(args.dir).expanduser().resolve() / "entities.json"
+                    entities_path = project_path / "entities.json"
                     with open(entities_path, "w") as f:
                         json.dump(confirmed, f, indent=2)
                     print(f"  Entities saved: {entities_path}")
@@ -122,7 +129,11 @@ def cmd_init(args):
                 print("  No entities detected — proceeding with directory-based rooms.")
 
     # Detect rooms from folder structure
-    detect_rooms_local(project_dir=args.dir, yes=getattr(args, "yes", False))
+    detect_rooms_local(
+        project_dir=args.dir,
+        yes=getattr(args, "yes", False),
+        interactive=getattr(args, "interactive", False),
+    )
     config.init()
 
     if not getattr(args, "skip_model_download", False):
@@ -136,6 +147,13 @@ def cmd_init(args):
             print(
                 "  Run 'mempalace fetch-model' manually when network is available.", file=sys.stderr
             )
+
+
+def cmd_onboarding(args):
+    """Guided onboarding: seeds people, projects, and wing taxonomy interactively."""
+    from .onboarding import run_onboarding
+
+    run_onboarding(directory=args.dir)
 
 
 def cmd_mine(args):
@@ -1073,7 +1091,14 @@ def main():
     p_init = sub.add_parser("init", help="Detect rooms from your folder structure")
     p_init.add_argument("dir", help="Project directory to set up")
     p_init.add_argument(
-        "--yes", action="store_true", help="Auto-accept init prompts (non-interactive)"
+        "--yes",
+        action="store_true",
+        help="Backward-compatible flag: accepted but no longer required (init is non-interactive by default)",
+    )
+    p_init.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Prompt to review, edit, or add rooms before saving mempalace.yaml",
     )
     p_init.add_argument(
         "--detect-entities",
@@ -1086,6 +1111,13 @@ def main():
         dest="skip_model_download",
         help="Skip automatic embedding model download (run 'fetch-model' later)",
     )
+
+    # onboarding
+    p_onboarding = sub.add_parser(
+        "onboarding",
+        help="Guided onboarding: set up people, projects, and wing taxonomy interactively",
+    )
+    p_onboarding.add_argument("dir", help="Project directory to configure")
 
     # mine
     p_mine = sub.add_parser("mine", help="Mine files into the palace")
@@ -1496,6 +1528,7 @@ def main():
 
     dispatch = {
         "init": cmd_init,
+        "onboarding": cmd_onboarding,
         "mine": cmd_mine,
         "mine-all": cmd_mine_all,
         "watch": cmd_watch,

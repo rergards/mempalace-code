@@ -311,13 +311,18 @@ def save_config(project_dir: str, project_name: str, rooms: list, dotnet_structu
     print(f"\n{'=' * 55}\n")
 
 
-def detect_rooms_local(project_dir: str, yes: bool = False):
-    """Main entry point for local setup."""
+def detect_rooms_local(project_dir: str, yes: bool = False, interactive: bool = False):
+    """Main entry point for local setup.
+
+    By default (interactive=False) rooms are accepted automatically without prompting.
+    Pass interactive=True to invoke the room review/edit/add prompt.
+    The yes parameter is accepted for backward compatibility; it maps to interactive=False.
+    """
     project_path = Path(project_dir).expanduser().resolve()
     project_name = project_path.name.lower().replace(" ", "_").replace("-", "_")
 
     if not project_path.exists():
-        print(f"ERROR: Directory not found: {project_dir}")
+        print(f"  Error: directory not found: {project_dir}", file=sys.stderr)
         sys.exit(1)
 
     # Count files
@@ -353,8 +358,8 @@ def detect_rooms_local(project_dir: str, yes: bool = False):
             source = "fallback (flat project)"
 
     print_proposed_structure(project_name, rooms, len(files), source)
-    if yes:
-        approved_rooms = rooms
-    else:
+    if interactive:
         approved_rooms = get_user_approval(rooms)
+    else:
+        approved_rooms = rooms
     save_config(project_dir, project_name, approved_rooms, dotnet_structure=dotnet_structure)

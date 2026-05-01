@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-onboarding.py — MemPalace first-run setup.
+onboarding.py — MemPalace guided onboarding (opt-in).
 
 Asks the user:
   1. How they're using MemPalace (work / personal / combo)
@@ -11,9 +11,13 @@ Asks the user:
 Seeds the entity_registry with confirmed data so MemPalace knows your world
 from minute one — before a single session is indexed.
 
+This is an opt-in path for personal/notes-heavy setups.
+For code projects, `mempalace init <dir>` generates mempalace.yaml
+from folder structure without any prompts.
+
 Usage:
-    python3 -m mempalace.onboarding
-    or: mempalace init
+    mempalace onboarding <dir>       (guided, interactive)
+    mempalace init <dir>             (config-file-first, non-interactive)
 """
 
 from pathlib import Path

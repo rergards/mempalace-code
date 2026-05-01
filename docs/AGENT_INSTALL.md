@@ -311,10 +311,12 @@ print('palace_path written')
 
 Run:
 ```bash
-mempalace init "<MINE_PATH>" --yes
+mempalace init "<MINE_PATH>"
 ```
 
-The `--yes` flag auto-accepts init prompts and is required for non-interactive execution.
+`mempalace init` is non-interactive by default — it detects rooms from the folder structure
+and writes `mempalace.yaml` without prompting. The `--yes` flag is accepted for backward
+compatibility with existing scripts but is no longer required.
 Heuristic people/project entity detection is opt-in; add `--detect-entities` only when the
 human explicitly wants entity detection during initialization.
 
@@ -328,7 +330,7 @@ are confirmed, init writes `<MINE_PATH>/entities.json` with:
 {"people": ["Alice"], "projects": ["Apollo"]}
 ```
 
-For unattended setup, use `--detect-entities --yes` only after the human accepts the
+For unattended setup, use `--detect-entities` only after the human accepts the
 tradeoff: detected people/projects are auto-accepted and uncertain candidates are skipped.
 Do not add the flag just because a directory is a source repo; code symbols are handled by
 `mempalace mine`, and broad entity scans over code create false positives.

@@ -41,7 +41,7 @@ class TestInitEntityDetection:
         mock_scan.assert_not_called()
         mock_detect.assert_not_called()
         mock_confirm.assert_not_called()
-        mock_rooms.assert_called_once_with(project_dir=str(project_dir), yes=False)
+        mock_rooms.assert_called_once_with(project_dir=str(project_dir), yes=False, interactive=False)
         assert not (project_dir / "entities.json").exists()
 
     def test_init_detect_entities_runs_scan(self, tmp_path, monkeypatch):
@@ -100,7 +100,7 @@ class TestInitEntityDetection:
 
         mock_scan.assert_not_called()
         mock_confirm.assert_not_called()
-        mock_rooms.assert_called_once_with(project_dir=str(project_dir), yes=True)
+        mock_rooms.assert_called_once_with(project_dir=str(project_dir), yes=True, interactive=False)
         assert not (project_dir / "entities.json").exists()
 
     def test_init_config_entity_detection_true_runs_scan(self, tmp_path, monkeypatch):
@@ -141,6 +141,155 @@ class TestInitEntityDetection:
         mock_confirm.assert_called_once_with(detected, yes=False)
         saved = json.loads((project_dir / "entities.json").read_text(encoding="utf-8"))
         assert saved == confirmed
+
+
+class TestInitNonInteractiveOnboarding:
+    """AC-1 through AC-7: config-file-first init and onboarding subcommand dispatch."""
+
+    def _run_init(self, argv):
+        with patch.object(sys, "argv", argv):
+            main()
+
+    # AC-1: default init writes config without any input() prompt
+    def test_init_default_writes_config_without_prompt(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        (project_dir / "pyproject.toml").write_text("[project]\nname = 'myproject'\n")
+        (project_dir / "src").mkdir()
+
+        def _raise_if_called(*args, **kwargs):
+            raise AssertionError("input() must not be called in non-interactive mode")
+
+        with patch("builtins.input", side_effect=_raise_if_called):
+            self._run_init(["mempalace", "init", str(project_dir), "--skip-model-download"])
+
+        config_path = project_dir / "mempalace.yaml"
+        assert config_path.exists(), "mempalace.yaml must be written"
+        import yaml
+
+        cfg = yaml.safe_load(config_path.read_text())
+        assert "wing" in cfg, "config must have a wing"
+        assert "rooms" in cfg, "config must have rooms"
+        assert len(cfg["rooms"]) >= 1, "config must have at least one room"
+
+    # AC-2: --interactive calls room review prompt and still writes config
+    def test_init_interactive_prompts_for_room_review(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        (project_dir / "pyproject.toml").write_text("[project]\nname = 'myproject'\n")
+
+        with patch("builtins.input", return_value="") as mock_input:
+            self._run_init(
+                ["mempalace", "init", str(project_dir), "--interactive", "--skip-model-download"]
+            )
+
+        mock_input.assert_called()
+        assert (project_dir / "mempalace.yaml").exists(), "mempalace.yaml must be written"
+
+    # AC-3: missing directory exits non-zero before writing config
+    def test_init_missing_directory_exits_before_config(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        missing = tmp_path / "does_not_exist"
+
+        with pytest.raises(SystemExit) as exc:
+            self._run_init(["mempalace", "init", str(missing), "--skip-model-download"])
+
+        assert exc.value.code != 0
+        assert not (missing / "mempalace.yaml").exists()
+
+    # AC-4: flat project (README.md only) gets a general room without prompting
+    def test_init_flat_project_generates_general_room_without_prompt(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "flat_project"
+        project_dir.mkdir()
+        (project_dir / "README.md").write_text("# Flat project\n")
+
+        def _raise_if_called(*args, **kwargs):
+            raise AssertionError("input() must not be called in non-interactive mode")
+
+        with patch("builtins.input", side_effect=_raise_if_called):
+            self._run_init(["mempalace", "init", str(project_dir), "--skip-model-download"])
+
+        import yaml
+
+        cfg = yaml.safe_load((project_dir / "mempalace.yaml").read_text())
+        assert "wing" in cfg
+        room_names = [r["name"] for r in cfg["rooms"]]
+        assert "general" in room_names, f"expected 'general' room, got {room_names}"
+
+    # AC-5: onboarding subcommand dispatches to run_onboarding; init does not
+    def test_onboarding_command_dispatches_guided_flow(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+
+        with patch("mempalace.onboarding.run_onboarding") as mock_onboarding:
+            with patch.object(sys, "argv", ["mempalace", "onboarding", str(project_dir)]):
+                main()
+
+        mock_onboarding.assert_called_once_with(directory=str(project_dir))
+
+    def test_init_does_not_call_run_onboarding(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+
+        with patch("mempalace.onboarding.run_onboarding") as mock_onboarding:
+            with patch("mempalace.room_detector_local.detect_rooms_local"):
+                self._run_init(["mempalace", "init", str(project_dir), "--skip-model-download"])
+
+        mock_onboarding.assert_not_called()
+
+    # AC-6: --yes is backward-compatible; must not trigger room review prompt
+    def test_init_yes_compatibility_is_non_interactive(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        (project_dir / "README.md").write_text("# project\n")
+
+        def _raise_if_called(*args, **kwargs):
+            raise AssertionError("input() must not be called with --yes")
+
+        with patch("builtins.input", side_effect=_raise_if_called):
+            self._run_init(
+                ["mempalace", "init", str(project_dir), "--yes", "--skip-model-download"]
+            )
+
+        import yaml
+
+        cfg = yaml.safe_load((project_dir / "mempalace.yaml").read_text())
+        assert "wing" in cfg
+        assert "rooms" in cfg
+
+    # AC-7: missing directory with --detect-entities exits before entity scan
+    def test_init_missing_directory_with_entity_detection_exits_before_scan(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        missing = tmp_path / "does_not_exist"
+
+        def _fail_if_called(*args, **kwargs):
+            raise AssertionError("scan_for_detection must not be called when dir is missing")
+
+        with patch(
+            "mempalace.entity_detector.scan_for_detection", side_effect=_fail_if_called
+        ):
+            with pytest.raises(SystemExit) as exc:
+                self._run_init(
+                    [
+                        "mempalace",
+                        "init",
+                        str(missing),
+                        "--detect-entities",
+                        "--skip-model-download",
+                    ]
+                )
+
+        assert exc.value.code != 0
+        assert not (missing / "mempalace.yaml").exists()
+        assert not (missing / "entities.json").exists()
 
 
 class TestMineSpellcheckFlags:

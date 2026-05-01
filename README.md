@@ -165,8 +165,8 @@ the directory contains prose where people or project names matter, such as meeti
 client notes, personal notes, or conversation exports:
 
 ```bash
-mempalace init ~/notes --detect-entities
-mempalace init ~/notes --detect-entities --yes  # auto-accept detected people/projects
+mempalace init ~/notes --detect-entities        # prompts to confirm detected people/projects
+mempalace init ~/notes --detect-entities --yes  # auto-accept entity confirmation (no room prompts)
 ```
 
 The detector is a lightweight bootstrap step, not the main miner. It samples up to 10
