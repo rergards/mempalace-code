@@ -1,8 +1,9 @@
 """
-test_e2e.py — End-to-end user scenario tests covering 9 real-world workflows.
+test_e2e.py — End-to-end user scenario tests covering 12 real-world workflows.
 
 Each test is self-contained with its own temp palace, KG, and config. No shared
-state between tests. Follows the plan at docs/plans/QUAL-E2E-USER-SCENARIOS.md.
+state between tests. Follows the plan at docs/plans/QUAL-E2E-USER-SCENARIOS.md
+and docs/plans/QUAL-E2E-REMAINING-MODULES.md.
 """
 
 import json
@@ -17,6 +18,7 @@ import pytest
 import yaml
 
 from mempalace import export as exp
+from mempalace.convo_miner import mine_convos
 from mempalace.knowledge_graph import KnowledgeGraph
 from mempalace.miner import mine
 from mempalace.storage import open_store
@@ -531,3 +533,253 @@ def test_large_palace_search_latency(tmp_path):
 
     assert "documents" in results
     assert elapsed_ms < 500, f"Search took {elapsed_ms:.1f}ms — expected < 500ms"
+
+
+# ── AC-10/AC-11: convo_miner idempotent ingest ────────────────────────────────
+
+
+def test_convo_miner_claude_json_e2e(tmp_path, monkeypatch):
+    """AC-10/AC-11: mine_convos ingests Claude JSON export; idempotent on re-run."""
+    monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
+
+    convo_dir = tmp_path / "convos"
+    convo_dir.mkdir()
+    palace_path = str(tmp_path / "palace")
+
+    # Synthetic Claude.ai JSON export (flat messages list).
+    # 3 user turns ensures chunk_exchanges() takes the exchange-pair path after normalize.
+    export_data = [
+        {"role": "user", "content": "What database should we use for the retry queue?"},
+        {
+            "role": "assistant",
+            "content": "SQLite is the right choice for the retry queue — simple and reliable.",
+        },
+        {"role": "user", "content": "How many retries should we budget per job?"},
+        {
+            "role": "assistant",
+            "content": "The sqlite retry budget decision is three attempts per job with exponential backoff.",
+        },
+        {"role": "user", "content": "Should we use a deadline or a counter?"},
+        {
+            "role": "assistant",
+            "content": "Use a counter — simpler to reason about and audit in the logs.",
+        },
+    ]
+    export_file = convo_dir / "db_convo.json"
+    export_file.write_text(json.dumps(export_data), encoding="utf-8")
+
+    mine_convos(str(convo_dir), palace_path, wing="convo_e2e", spellcheck=False)
+
+    store = open_store(palace_path, create=False)
+    count_after_first = store.count()
+    assert count_after_first > 0, "mine_convos produced no drawers"
+
+    # AC-10: all stored drawers carry the expected provenance metadata
+    all_result = store.get(include=["documents", "metadatas"], limit=100)
+    all_docs = all_result["documents"]
+    all_metas = all_result["metadatas"]
+
+    assert any("retry" in doc.lower() for doc in all_docs), (
+        "Seeded 'retry' phrase not found in any stored drawer"
+    )
+    assert all(m.get("ingest_mode") == "convos" for m in all_metas), (
+        "Not all drawers have ingest_mode=convos"
+    )
+    assert all(m.get("chunker_strategy") == "convo_turn_v1" for m in all_metas), (
+        "Not all drawers have chunker_strategy=convo_turn_v1"
+    )
+
+    # AC-10: semantic search finds the unique decision phrase
+    search_result = store.query(
+        query_texts=["sqlite retry budget decision three attempts"],
+        n_results=count_after_first,
+        include=["documents"],
+    )
+    search_docs = search_result["documents"][0]
+    assert any("retry" in d.lower() for d in search_docs), (
+        "Search did not return the retry-related drawer"
+    )
+
+    # AC-11: re-mine same directory — drawer count must not change
+    mine_convos(str(convo_dir), palace_path, wing="convo_e2e", spellcheck=False)
+    count_after_second = open_store(palace_path, create=False).count()
+    assert count_after_second == count_after_first, (
+        f"Idempotency broken: count went {count_after_first} → {count_after_second} on re-run"
+    )
+
+
+# ── AC-12/AC-13: layers wake_up / recall / search ─────────────────────────────
+
+
+def test_layers_wake_up_recall_search_e2e(tmp_path, monkeypatch):
+    """AC-12/AC-13: MemoryStack token estimates grow monotonically; missing filter no-crash."""
+    monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
+
+    # Mine a small project with content routed to the "backend" room via folder path
+    project_root = tmp_path / "project"
+    (project_root / "backend").mkdir(parents=True)
+    _write_file(project_root / "backend" / "service.py", _PY_MODULE)
+    wing = "layers_e2e"
+    with open(project_root / "mempalace.yaml", "w") as f:
+        yaml.dump(
+            {
+                "wing": wing,
+                "rooms": [
+                    {"name": "backend", "description": "Backend code"},
+                    {"name": "general", "description": "General"},
+                ],
+            },
+            f,
+        )
+
+    palace_path = str(tmp_path / "palace")
+    mine(str(project_root), palace_path)
+
+    store = open_store(palace_path, create=False)
+    assert store.count() > 0, "Mine produced no drawers — layers test cannot proceed"
+
+    # Short fixed identity (~60 chars) so L0 tokens << L0+L1 tokens
+    identity_text = "I am TestAgent. Traits: focused. Project: e2e layers test."
+    identity_path = str(tmp_path / "identity.txt")
+    Path(identity_path).write_text(identity_text, encoding="utf-8")
+
+    from mempalace.layers import MemoryStack
+
+    stack = MemoryStack(palace_path=palace_path, identity_path=identity_path)
+
+    # AC-12: L0 identity renders the seeded file exactly
+    l0_text = stack.l0.render()
+    assert l0_text == identity_text, f"Layer0 did not read identity file: {l0_text!r}"
+    l0_tokens = len(l0_text) // 4
+
+    # AC-12: wake_up() = L0 + L1 must be strictly larger than L0 alone
+    wakeup_text = stack.wake_up(wing=wing)
+    wakeup_tokens = len(wakeup_text) // 4
+    assert l0_tokens < wakeup_tokens, (
+        f"L0 tokens ({l0_tokens}) not < wake_up tokens ({wakeup_tokens}); L1 may be empty"
+    )
+
+    # AC-12: L1 section is present and contains project content
+    assert "## L1" in wakeup_text, "wake_up() missing ## L1 section"
+    assert any(kw in wakeup_text.lower() for kw in ("compute", "dataprocessor", "backend")), (
+        f"wake_up() L1 missing expected project content:\n{wakeup_text}"
+    )
+
+    # AC-12: L2 recall adds content on top of wake_up
+    recall_text = stack.recall(wing=wing, room="backend")
+    recall_tokens = len(recall_text) // 4
+    assert recall_tokens > 0, (
+        f"recall() returned empty for wing={wing} room=backend: {recall_text!r}"
+    )
+    assert wakeup_tokens < wakeup_tokens + recall_tokens, (
+        "recall tokens are zero — L2 returned no content"
+    )
+
+    # AC-12: L2 header present and contains expected project content
+    assert "## L2" in recall_text, "recall() missing ## L2 header"
+    assert any(kw in recall_text.lower() for kw in ("compute", "dataprocessor", "service")), (
+        f"recall() missing expected backend content:\n{recall_text}"
+    )
+
+    # AC-12: L3 search returns project content
+    search_text = stack.search("compute result function", wing=wing)
+    assert "## L3" in search_text, "search() missing ## L3 header"
+    assert any(kw in search_text.lower() for kw in ("compute", "result", "dataprocessor")), (
+        f"search() missing expected project content:\n{search_text}"
+    )
+
+    # AC-13: recall with missing wing returns no-drawers message, does not raise
+    missing_recall = stack.recall(wing="missing_wing_xyz_e2e")
+    assert "no drawers found" in missing_recall.lower(), (
+        f"recall with missing wing should report no drawers, got: {missing_recall!r}"
+    )
+    assert "compute" not in missing_recall.lower(), (
+        "recall with missing wing leaked real project content"
+    )
+
+
+# ── AC-14/AC-15: palace_graph tunnel detection and traversal ──────────────────
+
+
+def test_palace_graph_tunnels_e2e(tmp_path, monkeypatch):
+    """AC-14/AC-15: Tunnel detection, traversal, graph stats, and missing-room error shape."""
+    monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
+
+    palace_path = str(tmp_path / "palace")
+
+    # Project A: wing=proj_alpha — architecture room + backend room
+    proj_a = tmp_path / "proj_alpha"
+    (proj_a / "architecture").mkdir(parents=True)
+    (proj_a / "backend").mkdir()
+    _write_file(proj_a / "architecture" / "design.py", _PY_MODULE)
+    _write_file(proj_a / "backend" / "service.py", _PY_MODULE)
+    with open(proj_a / "mempalace.yaml", "w") as f:
+        yaml.dump(
+            {
+                "wing": "proj_alpha",
+                "rooms": [
+                    {"name": "architecture", "description": "Architecture"},
+                    {"name": "backend", "description": "Backend"},
+                ],
+            },
+            f,
+        )
+    mine(str(proj_a), palace_path)
+
+    # Project B: wing=proj_beta — architecture room only (shared with proj_alpha → tunnel)
+    proj_b = tmp_path / "proj_beta"
+    (proj_b / "architecture").mkdir(parents=True)
+    _write_file(proj_b / "architecture" / "design.py", _PY_MODULE)
+    with open(proj_b / "mempalace.yaml", "w") as f:
+        yaml.dump(
+            {
+                "wing": "proj_beta",
+                "rooms": [{"name": "architecture", "description": "Architecture"}],
+            },
+            f,
+        )
+    mine(str(proj_b), palace_path)
+
+    store = open_store(palace_path, create=False)
+
+    from mempalace.palace_graph import find_tunnels, graph_stats, traverse
+
+    # AC-14: find_tunnels returns "architecture" as a shared room with both wings
+    tunnels = find_tunnels(col=store)
+    tunnel_room_names = [t["room"] for t in tunnels]
+    assert "architecture" in tunnel_room_names, (
+        f"'architecture' not found in tunnel rooms: {tunnel_room_names}"
+    )
+    arch_tunnel = next(t for t in tunnels if t["room"] == "architecture")
+    assert "proj_alpha" in arch_tunnel["wings"], (
+        f"proj_alpha missing from architecture tunnel wings: {arch_tunnel['wings']}"
+    )
+    assert "proj_beta" in arch_tunnel["wings"], (
+        f"proj_beta missing from architecture tunnel wings: {arch_tunnel['wings']}"
+    )
+
+    # AC-14: traverse from "architecture" reaches "backend" through the shared wing
+    traversal = traverse("architecture", col=store)
+    assert isinstance(traversal, list), f"traverse should return a list, got: {traversal!r}"
+    traversal_rooms = [r["room"] for r in traversal]
+    assert "backend" in traversal_rooms, (
+        f"'backend' not reachable from 'architecture' via traversal: {traversal_rooms}"
+    )
+    backend_entry = next(r for r in traversal if r["room"] == "backend")
+    assert "proj_alpha" in backend_entry.get("connected_via", []), (
+        f"backend not connected via proj_alpha: {backend_entry}"
+    )
+
+    # AC-14: graph_stats reports at least one tunnel room
+    stats = graph_stats(col=store)
+    assert stats["tunnel_rooms"] >= 1, (
+        f"Expected at least 1 tunnel room in graph_stats, got: {stats}"
+    )
+
+    # AC-15: traverse on a non-existent room returns error dict with suggestions key
+    missing = traverse("nonexistent-room-xyz", col=store)
+    assert isinstance(missing, dict), (
+        f"traverse of missing room should return dict, got {type(missing).__name__}: {missing!r}"
+    )
+    assert "error" in missing, f"Missing-room response has no 'error' key: {missing}"
+    assert "suggestions" in missing, f"Missing-room response has no 'suggestions' key: {missing}"
