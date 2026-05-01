@@ -1,0 +1,10 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/BACKLOG.yaml",
+    "docs/audits/MINE-DEVOPS-SCAN-COVERAGE-round-1.md",
+    "tests/test_miner.py"
+  ],
+  "before_sha": "5225346",
+  "timestamp": "2026-05-01T20:29:06Z"
+}

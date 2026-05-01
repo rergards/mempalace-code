@@ -1,0 +1,8 @@
+{
+  "phase": "implement",
+  "files": [
+    "tests/test_miner.py"
+  ],
+  "before_sha": "eaf4af3",
+  "timestamp": "2026-05-01T20:24:10Z"
+}
