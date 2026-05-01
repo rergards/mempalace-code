@@ -11,14 +11,15 @@ Run explicitly when a network connection is available:
     pytest tests/test_offline.py -v
 """
 
+import os
+from pathlib import Path
+
 import pytest
 
 
 @pytest.mark.needs_network
 def test_search_works_offline_after_fetch(tmp_path, monkeypatch):
     """After fetch_model, querying the store must succeed with HF offline flags set."""
-    import os
-
     # Use a CI-provided shared cache when available; otherwise isolate to a fresh temp dir.
     # MEMPALACE_TEST_HF_HOME is set by the model-backed CI job so the downloaded model
     # survives across test runs without being re-downloaded into a throwaway directory.
@@ -27,9 +28,7 @@ def test_search_works_offline_after_fetch(tmp_path, monkeypatch):
         hf_home = ci_hf_home
     else:
         hf_home = str(tmp_path / "hf")
-        import pathlib
-
-        pathlib.Path(hf_home).mkdir()
+        Path(hf_home).mkdir()
     monkeypatch.setenv("HF_HOME", hf_home)
 
     # Step 1 — download the model (network allowed here)
