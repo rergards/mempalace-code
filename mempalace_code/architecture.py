@@ -112,8 +112,6 @@ def load_arch_config(raw_config) -> dict:
 
 
 def _parse_patterns(raw) -> list:
-    if raw is None:
-        return list(DEFAULT_PATTERNS)
     if not isinstance(raw, list):
         return list(DEFAULT_PATTERNS)
     result = []
@@ -140,8 +138,6 @@ def _parse_patterns(raw) -> list:
 
 
 def _parse_layers(raw) -> list:
-    if raw is None:
-        return list(DEFAULT_LAYERS)
     if not isinstance(raw, list):
         return list(DEFAULT_LAYERS)
     result = []
@@ -181,7 +177,6 @@ _CS_TYPE_RE = re.compile(
     re.MULTILINE,
 )
 
-_FS_NAMESPACE_RE = re.compile(r"^\s*namespace\s+([\w.]+)", re.MULTILINE)
 _FS_TYPE_RE = re.compile(r"^\s*type\s+(\w+)", re.MULTILINE)
 
 _VB_NAMESPACE_RE = re.compile(r"^\s*Namespace\s+([\w.]+)", re.MULTILINE | re.IGNORECASE)
@@ -204,7 +199,7 @@ def extract_type_inventory(files: list, project_root: Path) -> list:
     Only ``.cs``, ``.fs``/``.fsi``, ``.vb``, and ``.py`` files are scanned.
     Files that cannot be read are silently skipped.
     """
-    results: list = []
+    results = []
     for filepath in files:
         fp = Path(filepath)
         ext = fp.suffix.lower()
@@ -240,7 +235,7 @@ def _scan_cs(filepath: Path, text: str, out: list) -> None:
 
 def _scan_fs(filepath: Path, text: str, out: list) -> None:
     namespace = ""
-    m = _FS_NAMESPACE_RE.search(text)
+    m = _CS_NAMESPACE_RE.search(text)
     if m:
         namespace = m.group(1)
     for m in _FS_TYPE_RE.finditer(text):
@@ -285,7 +280,7 @@ def detect_patterns(type_name: str, patterns: list) -> list:
       2. ``suffixes`` — substring match (``suffix in type_name`` and
          ``type_name != suffix`` to skip trivial single-word matches).
     """
-    matched: list = []
+    matched = []
     for p in patterns:
         name = p.get("name", "")
         if not name:
@@ -345,7 +340,7 @@ def run_arch_pass(inventory: list, arch_config: dict, project_name: str, kg) -> 
     layers = arch_config.get("layers", DEFAULT_LAYERS)
 
     emitted = 0
-    seen_ns_project: set = set()
+    seen_ns_project = set()
 
     for entry in inventory:
         type_name = entry["type_name"]
