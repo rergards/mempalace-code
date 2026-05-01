@@ -181,7 +181,7 @@ reset deliberately.
 
 ## Results Files
 
-Raw results are in `benchmarks/results_*.jsonl` and `benchmarks/results_*.json`. Each file contains every question, every retrieved document, and every score — fully auditable.
+Historical raw result files from the original benchmark runs are not committed to this repository. The benchmark scripts write full result JSONL/JSON files when run — every question, every retrieved document, every score. Regenerate them using the commands above. See `benchmarks/BENCHMARKS.md` for the full list of expected output filenames per mode.
 
 ## Requirements
 
