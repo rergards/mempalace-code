@@ -89,7 +89,7 @@ def _is_relevant_change(
 
     # Reject app-level file/glob excludes unless force-included.
     if scan_rules is not None and not force_include:
-        if is_scan_excluded(file_path, project_path, scan_rules, is_dir=False):
+        if is_scan_excluded(file_path, project_path, scan_rules):
             return False
 
     # Reject files with non-readable extensions unless explicitly included or a known
@@ -426,8 +426,8 @@ def watch_all(
         watch_paths = [str(p) for p in project_map]
         git_to_project = {}
 
-    # Load app-level scan rules once; reuse across all file-save _is_relevant_change() calls.
-    watch_all_scan_rules = get_scan_filter_rules()
+    # Load app-level scan rules once; reuse for every _is_relevant_change() call.
+    scan_rules = get_scan_filter_rules()
 
     matcher_cache: dict = {}
     shutdown_event = threading.Event()
@@ -512,7 +512,7 @@ def watch_all(
                             proj_path,
                             respect_gitignore=respect_gitignore,
                             matcher_cache=matcher_cache,
-                            scan_rules=watch_all_scan_rules,
+                            scan_rules=scan_rules,
                         ):
                             by_project.setdefault(proj_path, []).append((change_type, path))
                         break
