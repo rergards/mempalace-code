@@ -314,8 +314,6 @@ def save_config(project_dir: str, project_name: str, rooms: list, dotnet_structu
 def detect_rooms_local(project_dir: str, yes: bool = False, interactive: bool = False):
     """Main entry point for local setup.
 
-    By default (interactive=False) rooms are accepted automatically without prompting.
-    Pass interactive=True to invoke the room review/edit/add prompt.
     The yes parameter is accepted for backward compatibility; it maps to interactive=False.
     """
     project_path = Path(project_dir).expanduser().resolve()
