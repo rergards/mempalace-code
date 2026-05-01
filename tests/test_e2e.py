@@ -432,9 +432,16 @@ def test_diary_write_read_continuity(tmp_path, monkeypatch):
 @pytest.mark.needs_network
 def test_offline_gate(tmp_path, monkeypatch):
     """AC-8: fetch_model → set HF_HUB_OFFLINE=1 → mine → search → export — no network needed."""
-    hf_home = tmp_path / "hf"
-    hf_home.mkdir()
-    monkeypatch.setenv("HF_HOME", str(hf_home))
+    # Use a CI-provided shared cache when available; otherwise isolate to a fresh temp dir.
+    # MEMPALACE_TEST_HF_HOME is set by the model-backed CI job so the downloaded model
+    # survives across test runs without being re-downloaded into a throwaway directory.
+    ci_hf_home = os.environ.get("MEMPALACE_TEST_HF_HOME")
+    if ci_hf_home:
+        hf_home = ci_hf_home
+    else:
+        hf_home = str(tmp_path / "hf")
+        Path(hf_home).mkdir()
+    monkeypatch.setenv("HF_HOME", hf_home)
 
     from mempalace.cli import fetch_model
     from mempalace.storage import DEFAULT_EMBED_MODEL
