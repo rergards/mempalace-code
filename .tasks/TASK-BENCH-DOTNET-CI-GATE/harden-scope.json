@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/BACKLOG.yaml",
+    "docs/audits/BENCH-DOTNET-CI-GATE-round-1.md"
+  ],
+  "before_sha": "5bc94bf",
+  "timestamp": "2026-05-01T20:46:58Z"
+}
