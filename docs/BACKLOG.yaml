@@ -174,6 +174,7 @@ items:
     size: S
     section_id: quality
     labels: [bench, dotnet, ci, quality]
+    hardening_round_1: "2026-05-01 — 4 findings, all dismissed (no fixes required). F-1: JSON-written-before-gate ordering is load-bearing for the if:always() artifact upload, verified by test_threshold_fail. F-2: argparse permits out-of-range thresholds but workflow pins R5_THRESHOLD=0.800 so misuse is bounded. F-3: workflow omits timeout-minutes/permissions to match ci.yml style. F-4: test stub bypasses run_bench aggregation but that is appropriate scoping for a gate unit test. Audit at docs/audits/BENCH-DOTNET-CI-GATE-round-1.md."
     description: |-
       ## Problem
       dotnet_bench.py prints a warning when R@5 < 0.800 but exits 0, so regressions in C#/.NET mining quality are silent. No automated run exists in CI.
