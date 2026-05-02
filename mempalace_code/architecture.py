@@ -57,6 +57,7 @@ def namespace_project_source_file(project_name: str) -> str:
     """
     return f"{_NS_PROJECT_SENTINEL}:{project_name}"
 
+
 # ── Default rules (common .NET conventions) ──────────────────────────────────
 
 DEFAULT_PATTERNS = [

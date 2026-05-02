@@ -237,14 +237,20 @@ class KnowledgeGraph:
         so trailing separators and symlinks are handled transparently.  Stored
         ``source_file`` values are already resolved absolute paths (written by the miner),
         so the comparison is between two canonical paths.
+
+        SQL ``LIKE`` metacharacters (``_`` and ``%``) in the resolved root are escaped
+        with an explicit ``ESCAPE`` clause so that paths like ``/tmp/a_b`` only match
+        files actually under ``/tmp/a_b/`` and never under sibling ``/tmp/aXb/``.
         """
         if not predicates:
             return
         ended = ended or date.today().isoformat()
         resolved = str(Path(project_root).resolve())
-        # LIKE pattern: resolved_root + '/' + '%' — matches any file under the root
-        # while the trailing '/' prevents sibling-prefix matches like /tmp/proj-other/.
-        prefix_pattern = resolved + "/%"
+        # Escape SQL LIKE wildcards in the resolved root so that '_' and '%' in
+        # project paths match literally rather than as wildcards. Escape the
+        # escape char itself first to keep substitution unambiguous.
+        escaped_root = resolved.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        prefix_pattern = escaped_root + "/%"
 
         pred_placeholders = ",".join("?" * len(predicates))
         params: list = [ended, *predicates, resolved, prefix_pattern]
@@ -259,8 +265,39 @@ class KnowledgeGraph:
         conn.execute(
             f"UPDATE triples SET valid_to=? WHERE valid_to IS NULL"
             f" AND predicate IN ({pred_placeholders})"
-            f" AND (source_file = ? OR source_file LIKE ?{sentinel_clauses})",
+            f" AND (source_file = ? OR source_file LIKE ? ESCAPE '\\'{sentinel_clauses})",
             params,
+        )
+        conn.commit()
+        conn.close()
+
+    def invalidate_legacy_arch_ns_project_for_wing(
+        self,
+        legacy_sentinel: str,
+        wing_name: str,
+        ended: str = None,
+    ) -> None:
+        """Expire pre-WING-SCOPE namespace→project rows for a single wing.
+
+        Pre-WING-SCOPE releases stored namespace→project triples with a single
+        shared ``source_file`` sentinel (e.g. ``__arch_ns_project__``) that did
+        not include the wing name. Those legacy rows are not matched by
+        ``invalidate_arch_by_project_root``'s wing-scoped sentinel
+        (``__arch_ns_project__:<wing>``) and so persist forever as orphaned
+        current facts after upgrade.
+
+        This helper expires only the legacy rows whose ``object`` resolves to
+        *wing_name*, leaving other wings' legacy rows intact until they are
+        themselves mined.  After every wing has been mined once on the new
+        release, all legacy sentinel rows have been retired.
+        """
+        ended = ended or date.today().isoformat()
+        obj_id = self._entity_id(wing_name)
+        conn = self._conn()
+        conn.execute(
+            "UPDATE triples SET valid_to=? WHERE valid_to IS NULL"
+            " AND source_file=? AND predicate='in_project' AND object=?",
+            (ended, legacy_sentinel, obj_id),
         )
         conn.commit()
         conn.close()

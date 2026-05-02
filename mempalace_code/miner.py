@@ -3577,6 +3577,7 @@ def mine(
             # deleted-file triples are already expired before we re-emit.
             if kg is not None and limit == 0:
                 from mempalace_code.architecture import (
+                    _NS_PROJECT_SENTINEL,
                     ARCH_PREDICATES,
                     extract_type_inventory,
                     load_arch_config,
@@ -3594,6 +3595,11 @@ def mine(
                     project_root=str(project_path),
                     sentinels=[namespace_project_source_file(wing)],
                 )
+                # Migration: pre-WING-SCOPE releases stored namespace→project rows
+                # under a single shared sentinel without the wing suffix.  Expire
+                # only this wing's legacy rows (scoped by the in_project object) so
+                # other wings' legacy data persists until those wings are mined.
+                kg.invalidate_legacy_arch_ns_project_for_wing(_NS_PROJECT_SENTINEL, wing)
                 if arch_cfg.get("enabled", True):
                     arch_files = [Path(f) for f in walked_paths]
                     inventory = extract_type_inventory(arch_files, project_path)

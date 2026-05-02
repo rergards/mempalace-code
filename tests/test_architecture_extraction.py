@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from mempalace_code.architecture import (
+    _NS_PROJECT_SENTINEL,
     ARCH_PREDICATES,
     DEFAULT_LAYERS,
     DEFAULT_PATTERNS,
@@ -638,6 +639,60 @@ class TestPredicatesFilter:
         assert (alpha_id, "is_pattern", svc_id) not in active3
         assert (beta_id, "is_pattern", svc_id) in active3
 
+    def test_project_root_with_like_wildcards_does_not_match_siblings(self):
+        """Project roots containing SQL LIKE metacharacters (`_`, `%`) must not
+        match sibling paths that happen to satisfy the wildcard pattern.
+
+        Regression for HARDEN round 1: an unescaped `LIKE '/tmp/a_b/%'` would
+        also match `/tmp/aXb/...` because `_` is treated as a wildcard.
+        """
+        kg = KnowledgeGraph(db_path=str(self.tmpdir / "kg_wild.sqlite3"))
+
+        # Use real tempdir subdirs so Path.resolve() is accurate. Stored
+        # source_file values must use resolved roots to match what
+        # invalidate_arch_by_project_root computes via Path.resolve().
+        os.makedirs(str(self.tmpdir / "a_b"), exist_ok=True)
+        os.makedirs(str(self.tmpdir / "aXb"), exist_ok=True)
+        os.makedirs(str(self.tmpdir / "p%t"), exist_ok=True)
+        os.makedirs(str(self.tmpdir / "pANYt"), exist_ok=True)
+        proj_root_under = str((self.tmpdir / "a_b").resolve())
+        proj_root_pct = str((self.tmpdir / "p%t").resolve())
+
+        # These siblings must NOT be matched by the LIKE pattern when escaped.
+        # `aXb` would match `a_b` if `_` is treated as a single-char wildcard.
+        # `pANYt` would match `p%t` if `%` is treated as multi-char wildcard.
+        sibling_under = str((self.tmpdir / "aXb").resolve()) + "/Beta.cs"
+        sibling_pct = str((self.tmpdir / "pANYt").resolve()) + "/Gamma.cs"
+
+        proj_file_under = proj_root_under + "/src/Alpha.cs"
+        proj_file_pct = proj_root_pct + "/src/Delta.cs"
+
+        kg.add_triple("Alpha", "is_pattern", "Service", source_file=proj_file_under)
+        kg.add_triple("Beta", "is_pattern", "Service", source_file=sibling_under)
+        kg.add_triple("Delta", "is_pattern", "Service", source_file=proj_file_pct)
+        kg.add_triple("Gamma", "is_pattern", "Service", source_file=sibling_pct)
+
+        # Mine `a_b` — only Alpha should expire.
+        kg.invalidate_arch_by_project_root(["is_pattern"], project_root=proj_root_under)
+
+        active = _active_triples(kg)
+        svc_id = kg._entity_id("Service")
+        assert (kg._entity_id("Alpha"), "is_pattern", svc_id) not in active
+        assert (kg._entity_id("Beta"), "is_pattern", svc_id) in active, (
+            "sibling /tmp/aXb/... must not be expired by LIKE pattern for /tmp/a_b/"
+        )
+        assert (kg._entity_id("Delta"), "is_pattern", svc_id) in active
+        assert (kg._entity_id("Gamma"), "is_pattern", svc_id) in active
+
+        # Now mine `p%t` — only Delta should expire.
+        kg.invalidate_arch_by_project_root(["is_pattern"], project_root=proj_root_pct)
+
+        active = _active_triples(kg)
+        assert (kg._entity_id("Delta"), "is_pattern", svc_id) not in active
+        assert (kg._entity_id("Gamma"), "is_pattern", svc_id) in active, (
+            "sibling /tmp/pANYt/... must not be expired by LIKE pattern for /tmp/p%t/"
+        )
+
     def test_all_arch_predicates_selectively_expired(self):
         kg = KnowledgeGraph(db_path=str(self.tmpdir / "kg.sqlite3"))
         kg.add_triple("UserService", "is_pattern", "Service", source_file="a.cs")
@@ -824,7 +879,9 @@ class TestMiningIntegration:
         current_data = {
             r["subject"] for r in data_hits if r["current"] and r["predicate"] == "is_layer"
         }
-        assert "AlphaRepository" in current_data, "AlphaRepository layer fact must survive beta mine"
+        assert "AlphaRepository" in current_data, (
+            "AlphaRepository layer fact must survive beta mine"
+        )
 
     # AC-2: namespace→project sentinel is scoped per wing
 
@@ -907,13 +964,9 @@ class TestMiningIntegration:
 
         alpha_dir = self._make_wing_dir("alpha_project")
         alpha_svc = Path(alpha_dir) / "AlphaService.cs"
-        alpha_svc.write_text(
-            "namespace Pkg;\npublic class AlphaService { }", encoding="utf-8"
-        )
+        alpha_svc.write_text("namespace Pkg;\npublic class AlphaService { }", encoding="utf-8")
         alpha_ctrl = Path(alpha_dir) / "AlphaController.cs"
-        alpha_ctrl.write_text(
-            "namespace Pkg;\npublic class AlphaController { }", encoding="utf-8"
-        )
+        alpha_ctrl.write_text("namespace Pkg;\npublic class AlphaController { }", encoding="utf-8")
 
         beta_dir = self._make_wing_dir("beta_project")
         (Path(beta_dir) / "BetaService.cs").write_text(
@@ -931,7 +984,9 @@ class TestMiningIntegration:
         current_svc = {
             r["subject"] for r in svc_hits if r["current"] and r["predicate"] == "is_pattern"
         }
-        assert "AlphaService" not in current_svc, "AlphaService fact must be gone after file deleted"
+        assert "AlphaService" not in current_svc, (
+            "AlphaService fact must be gone after file deleted"
+        )
         assert "BetaService" in current_svc, "BetaService fact must be unaffected"
 
         ctrl_hits = kg.query_entity("Controller", direction="incoming")
@@ -939,6 +994,40 @@ class TestMiningIntegration:
             r["subject"] for r in ctrl_hits if r["current"] and r["predicate"] == "is_pattern"
         }
         assert "AlphaController" in current_ctrl, "AlphaController fact must be re-emitted"
+
+    def test_legacy_ns_project_sentinel_expired_for_current_wing_only(self):
+        """HARDEN round 1: pre-WING-SCOPE namespace→project rows used a single
+        shared sentinel with no wing suffix.  After upgrade, mining a wing must
+        retire only that wing's legacy rows; other wings' legacy rows survive
+        until those wings are themselves mined.
+        """
+        kg = self._shared_kg()
+
+        # Seed legacy rows (as if written by a pre-WING-SCOPE release).
+        kg.add_triple("Pkg", "in_project", "alpha_project", source_file=_NS_PROJECT_SENTINEL)
+        kg.add_triple("Pkg", "in_project", "beta_project", source_file=_NS_PROJECT_SENTINEL)
+
+        # Mine alpha. The legacy row for alpha must be expired.
+        alpha_dir = self._make_wing_dir("alpha_project")
+        (Path(alpha_dir) / "AlphaService.cs").write_text(
+            "namespace Pkg;\npublic class AlphaService { }", encoding="utf-8"
+        )
+        self._mine_wing(alpha_dir, kg)
+
+        conn = kg._conn()
+        rows = conn.execute(
+            "SELECT object, valid_to FROM triples WHERE source_file=? AND predicate='in_project'",
+            (_NS_PROJECT_SENTINEL,),
+        ).fetchall()
+        conn.close()
+
+        legacy_state = {obj: valid_to for obj, valid_to in rows}
+        assert legacy_state[kg._entity_id("alpha_project")] is not None, (
+            "alpha legacy ns_project sentinel row must be expired after alpha mine"
+        )
+        assert legacy_state[kg._entity_id("beta_project")] is None, (
+            "beta legacy ns_project sentinel row must survive until beta is mined"
+        )
 
     # AC-4: stale fact removed when file is replaced
     def test_ac4_stale_fact_invalidated_on_rename(self):
