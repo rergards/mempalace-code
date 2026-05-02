@@ -5,13 +5,16 @@ Current command/package names: the CLI is `mempalace-code`, the import package i
 Older historical entries may mention legacy `mempalace` names that were valid
 when those changes landed.
 
-## v1.7.0 — Unreleased
+## v1.7.0 — 2026-05-02
 
 ### Added
 
 - Architecture extraction mode: `mempalace-code mine` now emits higher-level KG
   facts for .NET (C#, F#, VB.NET) and Python projects, including pattern, layer,
   namespace, and project membership facts.
+- Architecture fact refresh is now wing-scoped, so re-mining one project no
+  longer invalidates architecture KG facts from other projects in the same
+  palace.
 - Multi-repo palace sync: `mempalace-code mine-all` now mines multiple initialized
   projects into one palace with one wing per project, explicit `wing:` overrides,
   git-remote/folder wing auto-naming, duplicate-wing rejection before mining, and
