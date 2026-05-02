@@ -85,6 +85,226 @@ items:
       4. `benchmarks/README.md` records the new baseline and reproduction output.
       5. Ruff and relevant tests pass.
 
+  - key: MCP-REQUEST-COMPAT-UPSTREAM
+    summary: Harden MCP request handling using upstream compatibility fixes as examples
+    type: bug
+    status: open
+    priority: high
+    size: S
+    section_id: mcp_developer_tools
+    labels: [mcp, compatibility, upstream, hardening]
+    description: |-
+      ## Symptom
+
+      Upstream vanilla MemPalace fixed several MCP protocol compatibility edges
+      after this fork split. Our state is too different for a direct port, but
+      the behavior is relevant to `mempalace-code`:
+
+      - `handle_request()` crashes when a client sends `tools/call` with
+        `"arguments": null`.
+      - Extra client arguments such as Gemini-style `wait_for_previous` reach
+        handlers and produce internal tool errors.
+      - Unknown `notifications/*` methods return errors instead of being ignored
+        as notifications.
+
+      These were reproduced locally against `mempalace_code.mcp_server`.
+
+      ## Steps to reproduce
+
+      Run a tiny Python snippet that calls `handle_request()` with:
+
+      1. `{"method": "tools/call", "params": {"name": "mempalace_status", "arguments": null}}`
+      2. `{"method": "tools/call", "params": {"name": "mempalace_status", "arguments": {"wait_for_previous": false}}}`
+      3. `{"method": "notifications/cancelled", "params": {}}`
+
+      Current behavior: case 1 raises `AttributeError`, case 2 returns an
+      internal tool error, and case 3 returns an unknown-method response.
+
+      ## Scope
+
+      - Treat missing/null tool arguments as `{}` before type coercion.
+      - Drop known client compatibility noise arguments that are not in the
+        selected tool schema.
+      - Return no response for `notifications/*` methods.
+      - Keep the current `mempalace-code` server/tool names unchanged.
+
+      ## Acceptance Criteria
+
+      1. `tools/call` with `"arguments": null` succeeds for an argument-free
+         tool such as `mempalace_status`.
+      2. `tools/call` with `wait_for_previous` on a normal tool does not produce
+         an internal tool error.
+      3. Unknown `notifications/*` methods return `None` / no JSON-RPC response.
+      4. Existing MCP request tests still pass.
+      5. Ruff clean.
+
+  - key: MINE-SKIP-GENERATED-ENTITIES
+    summary: Skip generated entities.json during project mining
+    type: bug
+    status: open
+    priority: high
+    size: XS
+    section_id: coding_first
+    labels: [miner, init, upstream, hygiene]
+    description: |-
+      ## Symptom
+
+      Upstream vanilla MemPalace now skips generated `entities.json` during
+      mining. Our fork already skips `mempalace.yaml`, `mempal.yml`, and
+      `.gitignore`, but `entities.json` is still mined as project content.
+
+      ## Steps to reproduce
+
+      Create a temporary project directory containing:
+
+      - `mempalace.yaml`
+      - `entities.json`
+      - `notes.txt`
+
+      Then call `scan_project(project_dir, respect_gitignore=False)`.
+
+      Current behavior: the returned file list includes `entities.json`.
+
+      ## Scope
+
+      - Add `entities.json` to the generated/config file skip path.
+      - Preserve `include_ignored` / force-include behavior for users who
+        explicitly ask to mine that file.
+      - Do not change entity detection output or `init` behavior.
+
+      ## Acceptance Criteria
+
+      1. `scan_project()` excludes `entities.json` by default.
+      2. Explicit force-include can still include `entities.json`.
+      3. Existing `mempalace.yaml` / `mempal.yml` skip behavior is unchanged.
+      4. Focused miner tests pass.
+      5. Ruff clean.
+
+  - key: READ-PATH-NONE-METADATA-HARDEN
+    summary: Tolerate None documents and metadata on search and graph read paths
+    type: bug
+    status: open
+    priority: high
+    size: S
+    section_id: storage_reliability
+    labels: [search, graph, robustness, upstream, migration]
+    description: |-
+      ## Symptom
+
+      Upstream hardened read paths for palaces that contain rows with missing
+      documents or metadata. LanceDB should normally preserve metadata, but
+      `mempalace-code` can still see bad rows via legacy Chroma imports,
+      partial/corrupt data, or direct store manipulation.
+
+      ## Steps to reproduce
+
+      Use small fake stores or monkeypatches that return valid result rows mixed
+      with `None` metadata/documents:
+
+      - `search_memories()` crashes when one result metadata entry is `None`.
+      - `palace_graph.build_graph()` crashes when one batch metadata entry is
+        `None`.
+
+      ## Scope
+
+      - Treat `None` metadata as an empty dict on search result rendering.
+      - Treat `None` documents as empty text where ranking/rendering needs a
+        string.
+      - Skip `None` metadata rows in `build_graph()` rather than failing the
+        entire graph/tunnel request.
+      - Add small tests with fake stores; do not require corrupt LanceDB fixtures.
+
+      ## Acceptance Criteria
+
+      1. `search_memories()` returns sentinel metadata values instead of raising
+         on `None` metadata.
+      2. `code_search()` handles `None` metadata/doc rows without raising.
+      3. `palace_graph.build_graph()` skips `None` metadata rows.
+      4. Relevant search and graph tests pass.
+      5. Ruff clean.
+
+  - key: CONVO-NORMALIZE-GEMINI-CLAUDE-TOOLS
+    summary: Extend conversation normalization with Gemini CLI and Claude Code tool-block cleanup
+    type: feature
+    status: open
+    priority: medium
+    size: M
+    section_id: cleanup
+    labels: [conversation, normalize, gemini, claude-code, upstream]
+    description: |-
+      ## Problem
+
+      Upstream vanilla MemPalace added Gemini CLI JSONL support and improved
+      Claude Code JSONL cleanup/tool-block formatting. Our normalizer supports
+      Claude.ai JSON, ChatGPT JSON, Claude Code JSONL, Codex JSONL, Slack JSON,
+      and plain text, but not Gemini CLI JSONL.
+
+      Direct port is not appropriate because this fork keeps different package
+      names, spellcheck behavior, and conversation-mining priorities. Use
+      upstream as an example only.
+
+      ## Scope
+
+      - Add a local Gemini CLI JSONL parser for the current Gemini CLI transcript
+        shape.
+      - Preserve existing Codex JSONL and spellcheck behavior.
+      - Improve Claude Code JSONL handling for tool_use/tool_result blocks and
+        line-anchored system/hook noise, without deleting user prose.
+      - Update module docs/tests for supported formats.
+
+      ## Acceptance Criteria
+
+      1. Gemini CLI JSONL fixture normalizes into `> user` / assistant-style
+         transcript text.
+      2. Claude Code tool_use/tool_result blocks are represented compactly and
+         deterministically.
+      3. Noise stripping is line/tag anchored and cannot eat neighboring user
+         content.
+      4. Existing normalize tests still pass.
+      5. Ruff clean.
+
+  - key: SEARCH-HYBRID-RERANK-EVAL
+    summary: Evaluate BM25 plus vector reranking for code and project-file retrieval
+    type: task
+    status: open
+    priority: medium
+    size: M
+    section_id: quality
+    labels: [search, benchmark, retrieval, upstream, bm25]
+    description: |-
+      ## Problem
+
+      Upstream vanilla MemPalace added BM25 + vector hybrid reranking. Our fork's
+      current .NET benchmark misses include exact-ish project dependency queries
+      where README/generated files outrank `.csproj` project files. BM25 may help,
+      but this fork has LanceDB, code metadata, and benchmark constraints that
+      differ from upstream, so the upstream implementation should be treated as
+      an example, not a direct port.
+
+      This item is separate from the currently-running
+      `BENCH-DOTNET-R5-IMPROVE`; close or narrow it if that task already lands an
+      equivalent measured solution.
+
+      ## Scope
+
+      - Prototype BM25 or metadata-aware reranking on top of current LanceDB
+        candidate retrieval.
+      - Measure impact on `benchmarks/dotnet_bench.py`, especially the
+        `project_dependency` category.
+      - Avoid hard-coding expected benchmark filenames.
+      - Decide whether the reranker belongs in general search, `code_search`,
+        benchmark-only experiment code, or not at all.
+
+      ## Acceptance Criteria
+
+      1. Benchmark before/after output is recorded.
+      2. Any production reranker has focused tests for exact-token boosts and
+         `None` document safety.
+      3. Reranking does not regress existing search/code_search tests.
+      4. If no production change is kept, document why and close the item with
+         measured evidence.
+      5. Ruff clean.
+
   - key: CODE-TREESITTER-GO-RUST-DETACH-TEST
     summary: Add negative tests for detached-comment gap detection in Go and Rust AST chunkers
     type: task
