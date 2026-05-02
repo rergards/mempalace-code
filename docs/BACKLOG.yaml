@@ -43,6 +43,48 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
+  - key: BENCH-DOTNET-R5-IMPROVE
+    summary: Raise .NET retrieval benchmark R@5 from 0.600 to 0.800
+    type: task
+    status: open
+    priority: high
+    size: M
+    section_id: quality
+    labels: [benchmark, dotnet, retrieval, ci]
+    description: |-
+      ## Problem
+
+      The pinned CleanArchitecture .NET retrieval benchmark currently scores
+      R@5=0.600 / R@10=0.850 on 20 known-answer queries. CI gates at the measured
+      0.600 baseline so main stays green while still catching regressions, but
+      the original quality target was R@5 >= 0.800.
+
+      The weakest category is project_dependency (R@5=0.200 / R@10=0.600), where
+      README and generated/client files often outrank `.csproj` files. Several
+      misses are hit@10, which suggests reranking, metadata-aware query routing,
+      or project-file-specific retrieval could lift R@5 without changing the
+      corpus.
+
+      ## Scope
+
+      - Analyze the 8 current R@5 misses from `benchmarks/dotnet_bench.py`.
+      - Improve retrieval for project files and architecture-oriented .NET
+        queries without hard-coding benchmark expected filenames.
+      - Keep the benchmark pinned to
+        `jasontaylordev/CleanArchitecture@5a600ab8749c110384bc3bd436b9c67f3067b489`.
+      - Raise `.github/workflows/dotnet-bench.yml` `R5_THRESHOLD` only after the
+        measured benchmark reaches the new threshold.
+
+      ## Acceptance Criteria
+
+      1. `python benchmarks/dotnet_bench.py --repo-dir /tmp/CleanArchitecture`
+         reports R@5 >= 0.800 on the pinned corpus.
+      2. Project dependency category improves above the current R@5=0.200.
+      3. `.github/workflows/dotnet-bench.yml` raises `R5_THRESHOLD` to the new
+         measured baseline.
+      4. `benchmarks/README.md` records the new baseline and reproduction output.
+      5. Ruff and relevant tests pass.
+
   - key: CODE-TREESITTER-GO-RUST-DETACH-TEST
     summary: Add negative tests for detached-comment gap detection in Go and Rust AST chunkers
     type: task

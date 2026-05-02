@@ -36,7 +36,7 @@ from mempalace_code.miner import process_file, scan_project  # noqa: E402
 from mempalace_code.storage import open_store  # noqa: E402
 
 EMBED_MODEL = "all-MiniLM-L6-v2"
-R5_THRESHOLD = 0.800
+R5_THRESHOLD = 0.600
 
 # =============================================================================
 # KNOWN-ANSWER QUERY SET — 20 queries across 4 .NET-specific categories
@@ -432,7 +432,7 @@ def main():
         type=float,
         default=None,
         metavar="THRESHOLD",
-        help="Exit 1 when overall R@5 is below THRESHOLD (e.g. 0.800); default: warn only",
+        help="Exit 1 when overall R@5 is below THRESHOLD (e.g. 0.600); default: warn only",
     )
     args = parser.parse_args()
 

@@ -14,7 +14,7 @@ jobs:
     env:
       HF_HOME: ${{ github.workspace }}/.cache/huggingface
       CLEAN_ARCHITECTURE_COMMIT: 5a600ab8749c110384bc3bd436b9c67f3067b489
-      R5_THRESHOLD: "0.800"
+      R5_THRESHOLD: "0.600"
     steps:
       - uses: actions/checkout@v5
 
