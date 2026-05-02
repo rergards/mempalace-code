@@ -1,6 +1,12 @@
-# MemPal Benchmarks — Reproduction Guide
+# Historical MemPal Benchmarks — Reproduction Guide
 
-Run the exact same benchmarks we report. Clone, install, run.
+This file preserves the inherited conversation-memory benchmark reproduction
+commands from the old `mempal` benchmark branch. It is not the current
+mempalace-code release benchmark. Current release-facing token-savings numbers
+live in [`../docs/BENCH_TOKEN_DELTA.md`](../docs/BENCH_TOKEN_DELTA.md).
+
+Run these commands only when reproducing the historical LongMemEval/LoCoMo/
+ConvoMem results discussed in [`BENCHMARKS.md`](BENCHMARKS.md).
 
 ## Setup
 
@@ -210,9 +216,10 @@ run the benchmark regardless of labels.
 
 Historical raw result files from the original benchmark runs are not committed to this repository. The benchmark scripts write full result JSONL/JSON files when run — every question, every retrieved document, every score. Regenerate them using the commands above. See `benchmarks/BENCHMARKS.md` for the full list of expected output filenames per mode.
 
-## Requirements
+## Requirements for the Historical Benchmark Branch
 
-- Python 3.9+
+- Python 3.9+ for the historical `ben/benchmarking` branch; the current
+  mempalace-code package requires Python 3.11+
 - `chromadb` (the only dependency)
 - ~300MB disk for LongMemEval data
 - ~5 minutes for each full benchmark run

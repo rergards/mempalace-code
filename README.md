@@ -6,9 +6,9 @@
 
 ### Your AI's long-term memory. Local. Instant. Private.
 
-One command indexes your codebase. Your AI remembers *everything* — architecture decisions, debugging sessions, API patterns — across sessions and projects. **Forever.**
+Index your codebase once. Your AI can recall architecture decisions, debugging sessions, and API patterns across sessions and projects without re-reading the repo.
 
-No cloud. No API keys. No subscription. Nothing leaves your machine.
+No cloud service, no API keys, no subscription. After the one-time embedding model download, indexing and search stay on your machine.
 
 [![][version-shield]][release-link]
 [![][python-shield]][python-link]
@@ -29,7 +29,7 @@ No cloud. No API keys. No subscription. Nothing leaves your machine.
 <tr>
 <td align="center"><strong>595x Token Savings</strong><br><sub>measured peak · median 80x<br><a href="docs/BENCH_TOKEN_DELTA.md">scales with project size</a></sub></td>
 <td align="center"><strong>Cross-Project Tunnels</strong><br><sub>Search <code>auth</code> in one project<br>find it everywhere</sub></td>
-<td align="center"><strong>1515 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>fully offline after install</sub></td>
+<td align="center"><strong>1515 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>offline after model setup</sub></td>
 </tr>
 </table>
 
@@ -113,6 +113,7 @@ mempalace-code **indexes it once** into a local vector store, then your AI finds
 **What gets indexed:**
 - Code files — structural chunks for Python, TypeScript/JS/TSX/JSX, Go, Rust, Java, Kotlin, C#, F#, VB.NET, XAML, Swift, PHP, Scala, Dart, Terraform/HCL, Markdown, and Kubernetes manifests; adaptive chunks for C/C++, Ruby, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, and config files
 - .NET solutions — `.sln`/`.csproj` project graphs, cross-project symbol relationships, interface implementations
+- Architecture facts — pattern, layer, namespace, and project membership facts for .NET and Python projects
 - Conversation exports — Claude, ChatGPT, Slack
 - Architecture notes, decisions, anything you store manually
 
@@ -382,6 +383,10 @@ kg.invalidate("myapp", "uses", "Postgres", ended="2026-03-01")  # fact expired
 Default patterns: Service, Repository, Controller, ViewModel, Factory.
 Default layers: UI (`*.UI`, `*.Web`, `*.Presentation`), Business (`*.Application`, `*.Domain`), Data (`*.Data`, `*.Persistence`), Infrastructure (`*.Infrastructure`).
 
+Re-mining a project refreshes architecture facts for that project's wing only,
+so a multi-project palace can update one repo without expiring facts from
+another.
+
 Override or extend via the `architecture:` block in `mempalace.yaml`:
 
 ```yaml
@@ -557,9 +562,9 @@ This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla
 | Upstream | This fork |
 |---|---|
 | ChromaDB — [silently deletes data on version bump](https://github.com/milla-jovovich/mempalace/issues/469) | LanceDB — crash-safe Arrow storage, no version-cliff |
-| "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace-code init` downloads model explicitly; fully offline after |
+| "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace-code init` downloads model explicitly; offline after model setup |
 | "100% R@5" — [unverifiable](https://github.com/milla-jovovich/mempalace/issues/27) | Number removed. Methodology caveats documented |
-| ~30% test coverage | 1312 tests, every feature acceptance-gated |
+| ~30% test coverage | 1515 tests, every feature acceptance-gated |
 | No backup, no recovery | `backup` / `restore` / `export` / `import` |
 | No incremental mining | Content-hash incremental: only changed files re-chunked |
 | No code-search | `code_search` — filter by language, symbol, glob |
@@ -698,7 +703,7 @@ mempalace/
 ├── benchmarks/             ← reproducible benchmark runners
 ├── hooks/                  ← Claude Code auto-save hooks (legacy, optional)
 ├── examples/               ← usage examples
-└── tests/                  ← 1312 tests
+└── tests/                  ← 1515 tests
 ```
 
 </details>

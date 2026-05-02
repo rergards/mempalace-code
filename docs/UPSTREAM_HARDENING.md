@@ -1,25 +1,31 @@
 # Upstream Hardening — What the Fork Keeps, Negates, and Ignores
 
+> Historical audit note: this document preserves the April 2026 upstream-hardening
+> analysis. Status lines have been updated where release blockers were resolved,
+> but old backlog IDs and command names may still appear inside task descriptions
+> for traceability. Current install and CLI instructions live in
+> [`README.md`](../README.md) and [`docs/AGENT_INSTALL.md`](AGENT_INSTALL.md).
+
 The upstream project `milla-jovovich/mempalace` went viral in early April 2026 and was immediately the subject of several large community audits. Three issues document the core findings:
 
 - **`milla-jovovich/mempalace#27`** — "Multiple issues between README claims and codebase" (by `@lhl`) — the canonical 7-item punch list
 - **`milla-jovovich/mempalace#524`** — "Remove Baldfaced Lies Please" (by `@nanoscopic`) — community pushback, closed without full resolution
 - **`milla-jovovich/mempalace#469`** — "palace data gone after upgrade to v3.1.0" (by `@R0uter`) — ChromaDB version-cliff data-loss bug
 
-This fork (`rergards/mempalace`, `feat/lancedb-backend`) is a code-first rewrite that inherited the codebase in early-April state and has since diverged significantly. This document catalogs the upstream findings against the fork's current state and explains what is already resolved, what we will resolve before v1.0, and what we consider out-of-scope.
+This fork (`rergards/mempalace-code`) is a code-first rewrite that inherited the codebase in early-April state and has since diverged significantly. This document catalogs the upstream findings against the fork's current state and explains what is already resolved, what was resolved before launch, and what we consider out-of-scope.
 
 ## Summary Table
 
 | Upstream issue | Source | Fork status | Action |
 |---|---|---|---|
 | "Contradiction detection" feature does not exist | #27 item 1 | **Already negated** — `fact_checker.py` is not in the fork at all, and our README makes no such claim | None — verify in FORK-README-NEGATE-STALE-CLAIMS |
-| "30× lossless" AAAK claim is false | #27 item 2 | **Partially live** — `AAAK Dialect` section still describes it as compressed memory format; phrasing softer than upstream but needs explicit "lossy, not lossless" label | **FORK-README-NEGATE-STALE-CLAIMS** |
-| 96.6% LongMemEval R@5 attributed to palace structure is misleading | #27 item 3 | **Partially live** — README still displays the 96.6% and "100% with Haiku rerank" numbers in the Benchmarks table, with a soft caveat that they're upstream numbers | **FORK-README-NEGATE-STALE-CLAIMS** |
+| "30× lossless" AAAK claim is false | #27 item 2 | **Resolved in release docs** — README no longer presents AAAK as lossless; benchmark caveats document the 96.6% → 84.2% regression | None |
+| 96.6% LongMemEval R@5 attributed to palace structure is misleading | #27 item 3 | **Resolved in README** — release-facing retrieval quality keeps the inherited 96.6% only with methodology caveats; the benchmark file is marked historical | None |
 | "+34% palace structure boost" is metadata filtering, not novel | #27 item 4 | **Already negated** — not claimed in the fork README | None |
-| "100% with Haiku rerank" unverifiable | #27 item 5 | **Partially live** — 100% number appears in Benchmarks table row | **FORK-README-NEGATE-STALE-CLAIMS** |
+| "100% with Haiku rerank" unverifiable | #27 item 5 | **Resolved in README** — the 100% number is not a release headline; the historical benchmark file warns not to quote it without caveats | None |
 | "Closets as compressed summaries" nomenclature mismatch | #27 item 6 | **Already negated** — closets are referenced in the ASCII diagram only, not claimed as a feature | None |
 | Hall types not enforced at retrieval time | #27 item 7 | **Already negated** — fork describes halls as metadata connections, makes no enforcement claim | None |
-| "Local, no network after install" is false (ChromaDB ONNX model downloads from AWS S3 on first use) | #524 `@gaby` | **Inherited via sentence-transformers** — our fork uses `lancedb.embeddings.get_registry().get("sentence-transformers")` which downloads `all-MiniLM-L6-v2` from HuggingFace on first use. README line 318 says "No internet after install. Everything local" — this is false as written | **FORK-MODEL-OFFLINE-HANDOFF** — block pre-release |
+| "Local, no network after install" is false (ChromaDB ONNX model downloads from AWS S3 on first use) | #524 `@gaby` | **Resolved in fork docs and CLI** — `mempalace-code init` and `mempalace-code fetch-model` make the one-time `all-MiniLM-L6-v2` download explicit; release docs state that indexing/search are offline after model setup | None |
 | LongMemEval benchmark game: `n_results=min(n_results, len(corpus))` degenerates R@k into ranking over a fully-retrieved set when corpus ≤ 50 | #524 `@jtatum` | **Inherited** — `benchmarks/longmemeval_bench.py:225,303,456,606,689` use the same pattern | **FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT** |
 | LongMemEval benchmark drops assistant turns at line 189-190 | #242 `@bobmatnyc` | **Partially addressed** — fork's `longmemeval_bench.py` has a `Full-turn mode` (line 641) that indexes user+assistant turns; needs audit to confirm upstream bias is fully removed | Fold into `FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT` |
 | v3.0.0 → v3.1.0 silently tightens ChromaDB version and deletes users' palace data (no migration path) | #469 | **Already negated by architecture** — LanceDB is now the default backend with crash-safe columnar Arrow storage. ChromaDB is opt-in `.[chroma]` extra, marked deprecated. Upgrade path for existing LanceDB palaces is tracked by `STORE-MIGRATION-CLI` already in pre_release | Document the chroma-extra caveat in FORK-DOCS-CLEANUP |
@@ -34,26 +40,26 @@ These are items from the upstream issues that are either (a) architectural diffe
 
 No action required. These are listed here for auditability so a future contributor can confirm the negation still holds.
 
-## Will Negate Before v1.0 (4 backlog tasks, all autopilot-ready)
+## Resolved Before Launch (historical backlog tasks)
 
-### FORK-MODEL-OFFLINE-HANDOFF — **pre_release blocker**
+### FORK-MODEL-OFFLINE-HANDOFF — **completed before v1.0**
 
-**Problem**: README line 318 says "No internet after install. Everything local." This is false. On first `mempalace mine` or first `mempalace search`, the `sentence-transformers` package downloads `all-MiniLM-L6-v2` (80 MB) from HuggingFace Hub. This is the same class of overclaim gaby caught upstream in #524.
+**Problem**: An older README said "No internet after install. Everything local." This was false. On first mine or first search, `sentence-transformers` downloads `all-MiniLM-L6-v2` (80 MB) from HuggingFace Hub. This is the same class of overclaim gaby caught upstream in #524.
 
-**Fix**: add a `mempalace fetch-model [--model MODEL_NAME]` subcommand that explicitly downloads the embedding model during setup, then rewrite README line 318 to: "Python 3.9+. No API keys, no cloud calls — after a one-time ~80 MB model download during setup, everything is fully offline." The fetch-model command is also automatically invoked by `mempalace init` so the happy path stays one command.
+**Fix**: `mempalace-code fetch-model [--model MODEL_NAME]` explicitly downloads the embedding model during setup, and `mempalace-code init` calls it unless `--skip-model-download` is passed. Current docs say: after a one-time model download during setup, indexing and search run locally without API calls.
 
 **Acceptance**:
-- `mempalace fetch-model` downloads the configured embedding model into the sentence-transformers cache and verifies it can be loaded with `HF_HUB_OFFLINE=1` set
-- `mempalace init <dir>` calls `fetch-model` automatically unless `--skip-model-download` is passed
-- README line 318 rewritten to be honest about the one-time download
-- A new `docs/OFFLINE_USAGE.md` explains how to run on an airgapped machine (pre-seed `~/.cache/huggingface/hub/`)
-- Integration test: run `HF_HUB_OFFLINE=1 mempalace search "test"` after `fetch-model` succeeds — must not hit the network
+- `mempalace-code fetch-model` downloads the configured embedding model into the sentence-transformers cache and verifies it can be loaded with `HF_HUB_OFFLINE=1` set
+- `mempalace-code init <dir>` calls `fetch-model` automatically unless `--skip-model-download` is passed
+- README explains the one-time download plainly
+- `docs/OFFLINE_USAGE.md` explains how to run on an airgapped machine (pre-seed `~/.cache/huggingface/hub/`)
+- Offline verification is documented with `HF_HUB_OFFLINE=1 mempalace-code search "test"`
 
-**Why pre_release**: Draft A positioning tagline ("Nothing leaves your machine, ever") depends on this being resolved. Shipping the tagline with a silent HF download on first use repeats exactly upstream's mistake — that's a non-starter for a launch that explicitly positions against upstream.
+**Why it mattered**: shipping a local-first tagline with a silent HuggingFace download on first use would repeat exactly upstream's mistake.
 
-### FORK-README-NEGATE-STALE-CLAIMS — **pre_release**
+### FORK-README-NEGATE-STALE-CLAIMS — **completed before v1.0**
 
-**Problem**: The fork's README still carries three inherited upstream claims flagged by `@lhl` in #27 and `@lhl`/`@nanoscopic` in #524:
+**Problem**: Older README drafts carried three inherited upstream claims flagged by `@lhl` in #27 and `@lhl`/`@nanoscopic` in #524:
 
 1. Lines 381-386: Benchmarks table displays "LongMemEval R@5 — Raw verbatim (ChromaDB) — 96.6%" and "LongMemEval R@5 — Hybrid + Haiku rerank — 100%". The 100% Haiku rerank number is specifically the one lhl flagged as "unverifiable from the repo as shipped" and upstream ultimately removed from its headline.
 2. Lines 390-395: `AAAK Dialect` section describes AAAK as "compressed memory format…readable by any LLM without a decoder". Upstream's own LongMemEval regresses 96.6 → 84.2% under AAAK — a 12.4pp loss, disqualifying the "lossless" adjective.
@@ -67,7 +73,7 @@ No action required. These are listed here for auditability so a future contribut
 4. **Rewrites line 318** per FORK-MODEL-OFFLINE-HANDOFF.
 5. **Adds a pointer** from the README to this document (`docs/UPSTREAM_HARDENING.md`) so the audit trail is discoverable.
 
-**Acceptance**: All four items above committed in one pass; `rtk grep "lossless\|100% with Haiku\|No internet after install"` returns no matches in README.md.
+**Acceptance**: Completed. Current README avoids the lossless AAAK claim, avoids the 100% Haiku headline, and is explicit about the one-time model download.
 
 ### FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT — **completed 2026-04-12**
 
@@ -79,7 +85,7 @@ No action required. These are listed here for auditability so a future contribut
 
 **(B) — correct the methodology**: change the cap to `n_results = max(5, len(corpus) // 10)` or `min(5, len(corpus))` depending on the question, so R@5 measures genuine retrieval-over-larger-corpus. This changes the headline number and is a bigger scope.
 
-**Owner preference required**: option (A) is the pragmatic pre-launch move — honest label, don't relitigate the upstream benchmark, scope it as "inherited, documented". Option (B) is the right move long-term but requires rerunning the full benchmark grid and changes the numbers we'd ship with v1.0. **Recommend (A) for pre_release, (B) for post-launch tracked separately.**
+**Decision recorded at launch**: option (A) was the pragmatic move — honest label, don't relitigate the upstream benchmark, scope it as "inherited, documented". Option (B) remains the right move long-term but requires rerunning the full benchmark grid.
 
 **Acceptance**: `benchmarks/BENCHMARKS.md` has a `## Methodology Caveats` section that names the corpus-cap issue and links to upstream #524; every results table in the doc links back to that caveat section.
 
@@ -115,7 +121,7 @@ Not in the fork. Not claimed. No action required beyond the verification pass in
 
 ### Knowledge graph "identical-triple blocking is the only dedup"
 
-Upstream audit correctly noted that `knowledge_graph.py` only blocks identical open triples and does not detect conflicting values (two different `married_to` targets accumulate silently). Our fork has the same limitation. Fixing it requires wiring per-predicate cardinality rules ("single-valued predicates like `married_to` should invalidate the previous active triple when a new one is added") and is genuinely useful future work — but it is a v1.1 design topic, not a pre-launch fix. No backlog item filed yet; candidate for post-launch roadmap.
+Upstream audit correctly noted that `knowledge_graph.py` only blocks identical open triples and does not detect conflicting values (two different `married_to` targets accumulate silently). Our fork has the same limitation. Fixing it requires wiring per-predicate cardinality rules ("single-valued predicates like `married_to` should invalidate the previous active triple when a new one is added") and is genuinely useful future work, not a launch-blocking documentation issue.
 
 ### Upstream `#242` — assistant-turn drop in longmemeval_bench.py line 189-190
 
@@ -127,10 +133,10 @@ Not upstream-driven, but related: the decision to NOT ship an always-on hook by 
 
 ## Bottom Line
 
-Of the three upstream issues the user asked about:
+Of the three upstream issues this audit tracks:
 
-- **#27 punch list** — 5 of 7 items are already negated by architectural choices or by simply not making the claim. 2 items (AAAK framing, Benchmarks table) need a README pass before launch.
-- **#524 "baldfaced lies"** — 1 critical finding applies to our fork too (the offline-install overclaim via sentence-transformers). It is promoted to a pre_release blocker: `FORK-MODEL-OFFLINE-HANDOFF`.
+- **#27 punch list** — resolved or negated in release-facing docs. Inherited benchmark details are retained only with caveats.
+- **#524 "baldfaced lies"** — the one-time model download is now explicit in CLI and docs; indexing/search are local after model setup.
 - **#469 data loss on chromadb upgrade** — architecturally immune because LanceDB is the default backend. The opt-in chroma legacy path inherits the risk and gets a documentation warning.
 
-No upstream issue is ignored without justification. The complete action set is four backlog items in `pre_release` (one new blocker, one new reminder, one new bench audit, one fold-in to FORK-DOCS-CLEANUP) plus this document as the audit trail.
+No upstream issue is ignored without justification. This document remains as the audit trail; current install, privacy, and benchmark positioning should be read from the README and release-facing docs.

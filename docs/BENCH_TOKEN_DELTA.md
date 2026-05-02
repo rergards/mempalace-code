@@ -87,7 +87,7 @@ A full-stack application with backend, frontend, infrastructure, tests, and docu
 
 ### Scaling observation
 
-Token savings grow with project size. On a 555-chunk project, the median is 13x. On a 19k-chunk project, it's 80x. The reason: grep noise scales linearly with project size (more files contain the keyword), while mempalace search stays constant (top-5 semantically relevant chunks regardless of project size).
+Token savings grow with project size. On a 555-chunk project, the median is 13x. On a 19k-chunk project, it's 80x. The reason: grep noise scales linearly with project size (more files contain the keyword), while `mempalace-code search` stays constant (top-5 semantically relevant chunks regardless of project size).
 
 ## How to reproduce
 

@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-10
 **Graphify version surveyed**: v4 / 0.3.28 (21.7k stars, `safishamsi/graphify`)
-**mempalace-code version surveyed**: v1.0 target state (`feat/lancedb-backend` branch)
+**mempalace-code version surveyed**: v1.7.0 release state
 
 This document is written for prospective users trying to decide which project fits their needs. It is deliberately honest about where each wins. There is no single "better" tool — the two projects solve adjacent problems using orthogonal techniques and their strengths do not overlap much.
 
@@ -21,7 +21,7 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 | Core data structure | NetworkX MultiDiGraph | LanceDB columnar vector store + SQLite KG |
 | Code understanding | tree-sitter AST, 20 languages | language-aware mining: optional tree-sitter chunks for Python/JS/TS/TSX/JSX/Go/Rust, regex structural chunks for supported languages, YAML-aware Kubernetes, adaptive config/prose chunks |
 | Semantic layer | Claude subagent extracts concepts into graph nodes | `all-MiniLM-L6-v2` embeddings (384d, local) |
-| Graph clustering | **Leiden community detection** (produces "god nodes" + clusters) | none — query-time ranked retrieval only |
+| Graph clustering | **Leiden community detection** (produces "god nodes" + clusters) | no clustering; architecture extraction emits pattern/layer/namespace/project KG facts for .NET and Python |
 | Search primitive | graph traversal, BFS with hop limits | cosine distance over vectors, filtered by wing/room |
 | Temporal facts | none | SQLite KG triples with `valid_from` / `valid_until` |
 | Cross-project memory | per-project `graphify-out/` directory | single palace spans all wings |
@@ -29,13 +29,13 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 | Multimodal | **PDFs, images, videos, YouTube links** (via host LLM API) | text only |
 | Visualization | **interactive HTML graph** (pyvis) | none |
 | Incremental rebuild | **SHA256 file-level cache** | content-hash incremental mining; only changed files are re-chunked |
-| Privacy on ingest | code stays local; **docs/PDFs/images sent to host LLM API** | **nothing leaves the host, ever** (fully offline) |
+| Privacy on ingest | code stays local; **docs/PDFs/images sent to host LLM API** | no content leaves the host; one-time embedding model download during setup |
 | Embedding dependency | none | 80 MB `all-MiniLM-L6-v2` model downloaded once |
-| MCP surface | `/graphify query`, `/graphify path`, `/graphify explain` | 27 MCP tools (search, traverse, diary, KG, arch-retrieval, stats, …) |
+| MCP surface | `/graphify query`, `/graphify path`, `/graphify explain` | 28 MCP tools (search, traverse, diary, KG, arch-retrieval, stats, …) |
 | Always-on integration | **PreToolUse hook** fires before every Glob/Grep/Bash | none — agent calls tools explicitly |
 | Supported agents | Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Aider, OpenClaw, Factory Droid, Trae | Claude Code, Codex, any MCP client; hooks not shipped |
-| Installation | `pip install graphifyy` + `graphify install --platform <x>` | `uv pip install -e .` + `~/.mcp.json` entry |
-| Stars / visibility | 21.7k (launched ~Mar 2026) | fork of upstream, pre-launch |
+| Installation | `pip install graphifyy` + `graphify install --platform <x>` | `uv tool install mempalace-code` + MCP registration as `mempalace-code` |
+| Stars / visibility | 21.7k (launched ~Mar 2026) | newer fork of upstream, lower public visibility |
 
 ## Where mempalace-code Wins
 
@@ -43,7 +43,7 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 
 Graphify's docs-and-multimodal layer sends PDFs, images, and video frames to the **host LLM API** (Claude, GPT, Gemini) during extraction to produce concept nodes. Code stays local, but the non-code layer does not.
 
-mempalace-code has no API dependency at any stage. The embedding model runs locally, the chunker is pure Python, the KG is SQLite. There is no network path from mine → store → query.
+mempalace-code has no content-ingest API dependency. The embedding model is downloaded once during setup (`init` or `fetch-model`); after that, the model runs locally, the chunker is pure Python, and the KG is SQLite. There is no network path from mine → store → query.
 
 **Who this matters for**: consultants, regulated industries, researchers under NDA, anyone running on an air-gapped machine.
 
@@ -97,7 +97,7 @@ mempalace-code uses tree-sitter for chunk boundaries when optional grammars are 
 
 The Leiden algorithm identifies tightly-coupled clusters and high-degree hub nodes. This is genuine structural insight — "this file is a god node, changes here ripple everywhere" — and it is surfaced at the top of graphify's `GRAPH_REPORT.md`.
 
-mempalace-code has no equivalent. There is `palace_graph.py` with tunnel detection, but that is for cross-wing drawer connections, not for structural analysis of source code.
+mempalace-code has partial architecture KG extraction now: it records pattern, layer, namespace, and project facts for .NET and Python. That is still not equivalent to Leiden clustering or a full structural graph. `palace_graph.py` handles cross-wing drawer connections, not source-code community detection.
 
 ### 4. Multimodal ingest (PDFs, images, videos)
 
@@ -125,7 +125,7 @@ This is graphify's flagship ergonomic feature and it deserves a separate section
 
 Graphify's landing page claims **71.5× token reduction per query** on a 100-file Python repo. The methodology is not published but the number is out there and it is memorable.
 
-mempalace-code has internal embedding-model A/B benchmarks (`BENCH-EMBED-AB`) but no user-facing "tokens saved per query" number. This is filed as `LAUNCH-BENCH-TOKEN-DELTA` (owner task).
+mempalace-code publishes token-savings methodology in `docs/BENCH_TOKEN_DELTA.md`: on a 19k-chunk project, measured retrieval used 595x fewer tokens at peak and 80x fewer tokens at median than grep + read.
 
 ## The Always-On Hook: Evidence Against Making It Default
 
@@ -177,9 +177,9 @@ These are genuinely good ideas from graphify that mempalace can incorporate with
 |------|------|-------|--------|
 | **Broader AST coverage / call graph extraction** | L | high | Post-launch candidate — current tree-sitter support is chunk-boundary only for Python/JS/TS/TSX/JSX/Go/Rust |
 | **Explicit per-edge / per-drawer provenance label** | S | medium | New (not in backlog yet) — e.g. `confidence`, `extractor_version` |
-| **`benchmarks/TOKEN_DELTA.md` with one public number** | S | high | Filed as `LAUNCH-BENCH-TOKEN-DELTA` (owner task) |
+| **Token-delta benchmark with one public number** | S | high | Done — see `docs/BENCH_TOKEN_DELTA.md` |
 | **Minimal static HTML visualization** of palace structure (wings × rooms × drawer counts) | M | medium | New candidate for post-launch |
-| **Per-platform installer** (`mempalace install --platform codex\|cursor\|gemini`) | L | low | Not urgent — Claude Code + Codex both have native MCP; per-platform hooks are maintenance burden |
+| **Per-platform installer** (`mempalace-code install --platform codex\|cursor\|gemini`) | L | low | Not urgent — Claude Code + Codex both have native MCP; per-platform hooks are maintenance burden |
 | **Tree-sitter grammars beyond Python/JS/TS/Go/Rust** | M | medium | Not urgent — current regex/adaptive chunkers cover the launch languages, but not full AST semantics |
 
 Note: the always-on PreToolUse hook is intentionally absent from this list. See the preceding section for why.

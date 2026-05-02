@@ -27,7 +27,7 @@ python3 --version
 
 Parse `major.minor` from stdout (e.g. `Python 3.11.4` → `3.11`).
 
-**Pass →** `major >= 3` and `minor >= 9`. Record Python binary as `PYTHON=python3`. Continue to Step 1.2.
+**Pass →** Python is 3.11 or later. Record Python binary as `PYTHON=python3`. Continue to Step 1.2.
 
 **Fail →** Python is absent or version < 3.11. **ASK HUMAN:** "Python 3.11 or later is required but was not found (or is too old). Please install Python 3.11+ and re-run this script. Reply `ready` when done."
 Wait for `ready`. Re-run Step 1.1. If still failing after one retry, halt and report: "Cannot proceed — Python 3.11+ is required."

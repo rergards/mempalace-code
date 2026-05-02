@@ -2,6 +2,13 @@
 
 **March 2026 — The complete record from baseline to state-of-the-art.**
 
+> Historical benchmark note: this file preserves the inherited conversation-memory
+> benchmark record and its methodology caveats. It is not the current
+> mempalace-code product benchmark. Current release-facing token-savings numbers
+> live in [`docs/BENCH_TOKEN_DELTA.md`](../docs/BENCH_TOKEN_DELTA.md), and every
+> LongMemEval/LoCoMo number below should be read with the caveats in
+> [Methodology Caveats](#methodology-caveats).
+
 ---
 
 ## The Core Finding
@@ -21,9 +28,10 @@ Nobody published this result because nobody tried the simple thing and measured 
 
 ---
 
-## The Two Honest Numbers
+## Historical Conversation-Memory Numbers
 
-These are different claims. They need to be presented as a pair.
+These are different historical benchmark claims. They are retained for
+reproducibility, not for release headline copy.
 
 | Mode | LongMemEval R@5 | LLM Required | Cost per Query |
 |---|---|---|---|
@@ -31,11 +39,11 @@ These are different claims. They need to be presented as a pair.
 | **Hybrid v4 + Haiku rerank** | **100%** | Haiku (optional) | ~$0.001 |
 | **Hybrid v4 + Sonnet rerank** | **100%** | Sonnet (optional) | ~$0.003 |
 
-The 96.6% is the product story: free, private, one dependency, no API key, runs entirely offline.
+The 96.6% raw run is the clean zero-API baseline from the inherited benchmark harness.
 
-The 100% is the competitive story: a perfect score on the standard benchmark for AI memory, verified across all 500 questions and all 6 question types — reproducible with either Haiku or Sonnet as the reranker.
+The 100% rerank runs are retained as an audit trail, but they are not suitable as an uncaveated headline because later sections document corpus-cap, assistant-turn, and overfitting caveats.
 
-Both are real. Both are reproducible. Neither is the whole picture alone.
+Both are reproducible historical runs. Neither is the whole picture alone.
 
 > **Methodology note**: these numbers are measured on LongMemEval-S (30–50 sessions per question) with `n_results=50`, so R@5 is a ranking quality score, not a needle-in-haystack recall score. See [Methodology Caveats](#methodology-caveats) for details.
 
@@ -50,16 +58,16 @@ Both are real. Both are reproducible. Neither is the whole picture alone.
 | 3 | MemPal (hybrid v3 + rerank) | 99.4% | Optional | Haiku | Reproducible |
 | 3 | MemPal (palace + rerank) | 99.4% | Optional | Haiku | Independent architecture |
 | 4 | Mastra | 94.87% | Yes | GPT-5-mini | — |
-| 5 | **MemPal (raw, no LLM)** | **96.6%** | **None** | **None** | **Highest zero-API score published** |
+| 5 | **MemPal (raw, no LLM)** | **96.6%** | **None** | **None** | Zero-API baseline |
 | 6 | Hindsight | 91.4% | Yes | Gemini-3 | — |
 | 7 | Supermemory (production) | ~85% | Yes | Undisclosed | — |
 | 8 | Stella (dense retriever) | ~85% | None | None | Academic baseline |
 | 9 | Contriever | ~78% | None | None | Academic baseline |
 | 10 | BM25 (sparse) | ~70% | None | None | Keyword baseline |
 
-**MemPal raw (96.6%) is the highest published LongMemEval score that requires no API key, no cloud, and no LLM at any stage.**
+**MemPal raw (96.6%) is the zero-API LongMemEval baseline retained from the inherited benchmark harness.**
 
-**MemPal hybrid v4 + Haiku rerank (100%) is the first perfect score on LongMemEval — 500/500 questions, all 6 question types at 100%.**
+**MemPal hybrid v4 + Haiku rerank (100%) is a historical rerank run; do not quote it without the caveats below.**
 
 > **Methodology note**: LongMemEval-S has 30–50 sessions per question; with `n_results=50` the full corpus is returned and R@5 measures ranking quality rather than haystack recall. See [Methodology Caveats](#methodology-caveats).
 

@@ -73,7 +73,7 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 
 ## Key Details
 
-- **The model runs locally.** No API keys, no network — everything happens on CPU/GPU on the host machine.
+- **The model runs locally after setup.** `mempalace-code init` or `mempalace-code fetch-model` downloads the ~80 MB embedding model once; indexing and search then run from the cached model without API calls.
 - **Model context window is 256 tokens (~1000 characters).** Chunks larger than that get their tail silently truncated. This is why `miner.py` does *smart chunking*: it cuts on structural boundaries (`def`, `class`) and targets 400–2500 characters per chunk.
 - **Cosine distance, not Euclidean.** Vectors are normalized — what matters is direction, not magnitude.
 - **The ANN index is approximate.** LanceDB uses IVF-PQ, which trades a tiny amount of recall for a massive speedup. On palaces with ~20k rows, the difference between the ANN search and exact brute force is negligible.

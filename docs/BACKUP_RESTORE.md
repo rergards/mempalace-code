@@ -150,7 +150,7 @@ The format is human-readable, version-control-friendly, and streamable. You can 
 For full binary snapshots (faster, includes everything, not human-readable):
 
 ```bash
-mempalace-code backup create                    # creates ~/.mempalace/backups/palace_YYYYMMDD_HHMMSS.tar.gz
+mempalace-code backup create                    # creates ~/.mempalace/backups/mempalace_backup_YYYYMMDD_HHMMSS.tar.gz
 mempalace-code backup create --out ~/safe.tar.gz
 mempalace-code backup list                      # show existing backups
 mempalace-code restore ~/safe.tar.gz            # restore (prompts before overwrite)
