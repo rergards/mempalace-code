@@ -28,7 +28,7 @@ jobs:
 
       - name: Restore HuggingFace model cache
         id: hf-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ github.workspace }}/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2
           key: hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-${{ hashFiles('pyproject.toml', 'uv.lock') }}
@@ -67,7 +67,7 @@ jobs:
 
       - name: Upload benchmark report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dotnet-bench-results
           path: benchmarks/results_dotnet_bench_ci.json
