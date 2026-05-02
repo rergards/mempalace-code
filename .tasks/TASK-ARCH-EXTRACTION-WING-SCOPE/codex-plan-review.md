@@ -1,0 +1,22 @@
+verdict: NEEDS_CHANGES
+
+gaps:
+  - severity: high
+    claim: "Replacing `_NS_PROJECT_SENTINEL` with a wing-scoped helper breaks existing tests that import and assert against the bare sentinel constant, but the plan does not list the required updates to those existing tests."
+    evidence: "tests/test_architecture_extraction.py:17 imports `_NS_PROJECT_SENTINEL` and tests/test_architecture_extraction.py:411 asserts `r[0] == _NS_PROJECT_SENTINEL` for the in_project sentinel row. The plan (Design Notes, line 44) says to replace `_NS_PROJECT_SENTINEL` usage with `namespace_project_source_file(project_name)` returning `__arch_ns_project__:<project_name>`, which makes the line-411 assertion fail because `run_arch_pass(..., 'myapp', kg)` will write `__arch_ns_project__:myapp`, not the bare sentinel."
+    suggested_fix: "Either (a) keep `_NS_PROJECT_SENTINEL` as a stable prefix constant and add the new helper alongside it, then update `test_namespace_in_project_emitted_with_sentinel` to assert against `namespace_project_source_file('myapp')`, or (b) explicitly call out in the plan's tests/test_architecture_extraction.py change entry that `test_namespace_in_project_emitted_with_sentinel` (and the matching import) must be updated to the new helper."
+
+  - severity: medium
+    claim: "The architecture.py change entry only mentions adding a sentinel helper, but `run_arch_pass`'s docstring (architecture.py:332-334) explicitly instructs callers to invalidate by `_NS_PROJECT_SENTINEL` per file. After this refactor that guidance is wrong and will mislead future callers."
+    evidence: "mempalace_code/architecture.py:332-334 docstring tells callers to call `kg.invalidate_by_source_file(f, predicates=list(ARCH_PREDICATES))` for each walked file and for `_NS_PROJECT_SENTINEL`. The plan does not mention updating this docstring, and miner.py is moving away from per-file pre-invalidation entirely."
+    suggested_fix: "Add an explicit bullet to the architecture.py change entry to refresh `run_arch_pass`'s docstring so it reflects the new project-root + wing-scoped sentinel invalidation contract."
+
+  - severity: medium
+    claim: "AC-2 verifies both wings' `in_project` facts for the shared namespace remain current after the second mine, but does not pin down what value the sentinel must take. Without an assertion on the sentinel source_file, the test would still pass under a buggy implementation that, for example, uses one shared `__arch_ns_project__` value but never invalidates it (the original behaviour was already accidentally non-destructive for namespace→project because the sentinel string was identical across wings — `add_triple` deduplicates on subject/predicate/object so the cross-wing fact survives even with the global sweep, except when the global sweep is the issue)."
+    evidence: "Plan AC-2 only asserts that current outgoing `in_project` facts for `Company.Shared` include both wing names. The bug being fixed is `invalidate_by_predicates(ARCH_PREDICATES)` wiping the prior wing's namespace→project triple; without a sentinel-value assertion the test cannot distinguish 'wing-scoped sentinel works' from 'global sentinel happened to round-trip through add_triple again'."
+    suggested_fix: "Strengthen AC-2 by asserting that there are two distinct active sentinel rows (one per wing) for `Company.Shared in_project ...`, e.g. by querying the triples table and confirming two distinct `source_file` values matching `namespace_project_source_file(<wing>)`. Alternatively, add a separate dedicated unit test in TestPredicatesFilter that pins down the sentinel value."
+
+  - severity: low
+    claim: "Plan does not specify how the helper handles trailing separators or symlinked project roots, both of which exist in the wild and could cause path-boundary mismatches."
+    evidence: "Design Notes line 42 says 'Normalize with `Path(...).resolve()` and use an exact-root check plus a separator-suffixed prefix or equivalent SQL conditions.' AC-5 only covers the `/tmp/proj` vs `/tmp/proj-other` boundary case; it does not cover `project_path` provided as `/tmp/proj/` (trailing slash) or as a symlink whose target lies elsewhere."
+    suggested_fix: "Either expand AC-5's test to cover trailing-slash and resolved-symlink cases, or add a one-line note in the plan that the helper resolves both stored `source_file` values and the input `project_path` via `Path(...).resolve()` before comparing."
