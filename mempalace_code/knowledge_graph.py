@@ -217,6 +217,54 @@ class KnowledgeGraph:
         conn.commit()
         conn.close()
 
+    def invalidate_arch_by_project_root(
+        self,
+        predicates: list,
+        project_root: str,
+        sentinels: list = None,
+        ended: str = None,
+    ) -> None:
+        """Expire active arch triples scoped to one project root, preserving other wings.
+
+        Expires triples whose ``predicate`` is in *predicates* AND whose ``source_file``
+        satisfies at least one of:
+          - equals ``resolved_root`` exactly (edge case: file at the root itself)
+          - starts with ``resolved_root + "/"`` (path-boundary-safe prefix)
+          - equals one of the strings in *sentinels* (for virtual sentinel source_file
+            values such as ``__arch_ns_project__:<wing>`` that have no real path)
+
+        *project_root* is resolved via ``Path(project_root).resolve()`` before comparison,
+        so trailing separators and symlinks are handled transparently.  Stored
+        ``source_file`` values are already resolved absolute paths (written by the miner),
+        so the comparison is between two canonical paths.
+        """
+        if not predicates:
+            return
+        ended = ended or date.today().isoformat()
+        resolved = str(Path(project_root).resolve())
+        # LIKE pattern: resolved_root + '/' + '%' — matches any file under the root
+        # while the trailing '/' prevents sibling-prefix matches like /tmp/proj-other/.
+        prefix_pattern = resolved + "/%"
+
+        pred_placeholders = ",".join("?" * len(predicates))
+        params: list = [ended, *predicates, resolved, prefix_pattern]
+
+        sentinel_clauses = ""
+        if sentinels:
+            for s in sentinels:
+                sentinel_clauses += " OR source_file = ?"
+                params.append(s)
+
+        conn = self._conn()
+        conn.execute(
+            f"UPDATE triples SET valid_to=? WHERE valid_to IS NULL"
+            f" AND predicate IN ({pred_placeholders})"
+            f" AND (source_file = ? OR source_file LIKE ?{sentinel_clauses})",
+            params,
+        )
+        conn.commit()
+        conn.close()
+
     def invalidate(self, subject: str, predicate: str, obj: str, ended: str = None):
         """Mark a relationship as no longer valid (set valid_to date)."""
         sub_id = self._entity_id(subject)

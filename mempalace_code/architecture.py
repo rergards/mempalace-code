@@ -44,8 +44,18 @@ from pathlib import Path
 # Predicates owned by this pass.  Only these are expired before re-emission.
 ARCH_PREDICATES = ("is_pattern", "is_layer", "in_namespace", "in_project")
 
-# source_file value used for namespace→project triples whose subject spans many files.
+# Stable prefix for namespace→project sentinel source_file values.
 _NS_PROJECT_SENTINEL = "__arch_ns_project__"
+
+
+def namespace_project_source_file(project_name: str) -> str:
+    """Return the sentinel source_file string for a namespace→project triple.
+
+    Each wing/project gets a distinct sentinel so that
+    ``invalidate_arch_by_project_root`` can expire only the current wing's
+    namespace→project triples without touching other wings'.
+    """
+    return f"{_NS_PROJECT_SENTINEL}:{project_name}"
 
 # ── Default rules (common .NET conventions) ──────────────────────────────────
 
@@ -329,9 +339,12 @@ def run_arch_pass(inventory: list, arch_config: dict, project_name: str, kg) -> 
     Returns the number of new triples written (dedup-skipped triples
     are not counted since add_triple returns the existing ID for those).
 
-    Call ``kg.invalidate_by_source_file(f, predicates=list(ARCH_PREDICATES))``
-    for each walked file and for ``_NS_PROJECT_SENTINEL`` before this call
-    so that stale arch facts from a previous mine are expired first.
+    Before calling this function, the caller should expire stale arch facts for
+    the current project by calling ``kg.invalidate_arch_by_project_root`` with
+    ``list(ARCH_PREDICATES)``, the project root path, and
+    ``sentinels=[namespace_project_source_file(project_name)]``.  This scopes
+    invalidation to the current wing so that other wings' arch facts survive
+    sequential single-wing mines.
     """
     if not arch_config.get("enabled", True):
         return 0
@@ -367,7 +380,10 @@ def run_arch_pass(inventory: list, arch_config: dict, project_name: str, kg) -> 
             if ns_proj_key not in seen_ns_project:
                 seen_ns_project.add(ns_proj_key)
                 tid = kg.add_triple(
-                    namespace, "in_project", project_name, source_file=_NS_PROJECT_SENTINEL
+                    namespace,
+                    "in_project",
+                    project_name,
+                    source_file=namespace_project_source_file(project_name),
                 )
                 if tid:
                     emitted += 1

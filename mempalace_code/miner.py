@@ -3580,15 +3580,20 @@ def mine(
                     ARCH_PREDICATES,
                     extract_type_inventory,
                     load_arch_config,
+                    namespace_project_source_file,
                     run_arch_pass,
                 )
 
                 arch_cfg = load_arch_config(config)
-                # Always expire stale arch triples before deciding whether to re-emit.
-                # This ensures that flipping `architecture.enabled` to False on a
-                # subsequent mine actually removes previously-emitted arch facts
-                # rather than leaving them queryable.
-                kg.invalidate_by_predicates(list(ARCH_PREDICATES))
+                # Expire stale arch triples for the current wing only — other wings'
+                # arch facts are preserved so sequential single-wing mines don't wipe
+                # each other's KG data.  The namespace→project sentinel is wing-scoped
+                # (includes the wing name) so it is also correctly targeted here.
+                kg.invalidate_arch_by_project_root(
+                    list(ARCH_PREDICATES),
+                    project_root=str(project_path),
+                    sentinels=[namespace_project_source_file(wing)],
+                )
                 if arch_cfg.get("enabled", True):
                     arch_files = [Path(f) for f in walked_paths]
                     inventory = extract_type_inventory(arch_files, project_path)

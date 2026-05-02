@@ -14,7 +14,6 @@ from pathlib import Path
 import yaml
 
 from mempalace_code.architecture import (
-    _NS_PROJECT_SENTINEL,
     ARCH_PREDICATES,
     DEFAULT_LAYERS,
     DEFAULT_PATTERNS,
@@ -22,6 +21,7 @@ from mempalace_code.architecture import (
     detect_patterns,
     extract_type_inventory,
     load_arch_config,
+    namespace_project_source_file,
     run_arch_pass,
 )
 from mempalace_code.knowledge_graph import KnowledgeGraph
@@ -408,7 +408,7 @@ class TestRunArchPass:
             (kg._entity_id("Company.Services"),),
         ).fetchall()
         conn.close()
-        assert any(r[0] == _NS_PROJECT_SENTINEL for r in rows)
+        assert any(r[0] == namespace_project_source_file("myapp") for r in rows)
 
     # AC-1: fixture project
     def test_ac1_service_and_data_layer(self):
@@ -561,6 +561,83 @@ class TestPredicatesFilter:
         assert (usr_id, "is_pattern", svc_obj) not in active  # file a.cs expired
         assert (ord_id, "is_pattern", svc_obj) in active  # file b.cs untouched
 
+    def test_project_prefix_invalidation_respects_path_boundaries(self):
+        """AC-5: project-root invalidation honours path boundary; trailing slash and
+        symlinked project_path inputs behave identically to the canonical path."""
+        import os
+
+        kg = KnowledgeGraph(db_path=str(self.tmpdir / "kg_ac5.sqlite3"))
+
+        # Use real tempdir subdirs so that Path.resolve() is accurate.
+        # Build all paths from the resolved root so stored source_file values match
+        # what invalidate_arch_by_project_root computes via Path.resolve().
+        proj_root = str((self.tmpdir / "proj").resolve())
+        sibling = str((self.tmpdir / "proj-other").resolve())
+        os.makedirs(proj_root, exist_ok=True)
+        os.makedirs(sibling, exist_ok=True)
+
+        proj_file = os.path.join(proj_root, "src", "AlphaService.cs")
+        sibling_file = os.path.join(sibling, "BetaService.cs")
+        sentinel = namespace_project_source_file("myapp")
+
+        kg.add_triple("AlphaService", "is_pattern", "Service", source_file=proj_file)
+        kg.add_triple("AlphaService", "in_namespace", "Pkg", source_file=proj_file)
+        kg.add_triple("Pkg", "in_project", "myapp", source_file=sentinel)
+        kg.add_triple("BetaService", "is_pattern", "Service", source_file=sibling_file)
+        # Non-arch predicate under proj_root must survive
+        kg.add_triple("AlphaService", "inherits", "Base", source_file=proj_file)
+
+        kg.invalidate_arch_by_project_root(
+            list(ARCH_PREDICATES),
+            project_root=proj_root,
+            sentinels=[sentinel],
+        )
+
+        active = _active_triples(kg)
+        alpha_id = kg._entity_id("AlphaService")
+        beta_id = kg._entity_id("BetaService")
+        svc_id = kg._entity_id("Service")
+        pkg_id = kg._entity_id("Pkg")
+        myapp_id = kg._entity_id("myapp")
+        base_id = kg._entity_id("Base")
+
+        # Arch predicates under proj_root must be expired
+        assert (alpha_id, "is_pattern", svc_id) not in active
+        assert (alpha_id, "in_namespace", pkg_id) not in active
+        assert (pkg_id, "in_project", myapp_id) not in active
+        # Sibling-prefix triple must survive (path boundary honoured)
+        assert (beta_id, "is_pattern", svc_id) in active
+        # Non-arch predicate must survive
+        assert (alpha_id, "inherits", base_id) in active
+
+        # --- Trailing-slash variant ---
+        kg2 = KnowledgeGraph(db_path=str(self.tmpdir / "kg_ac5_slash.sqlite3"))
+        kg2.add_triple("AlphaService", "is_pattern", "Service", source_file=proj_file)
+        kg2.add_triple("BetaService", "is_pattern", "Service", source_file=sibling_file)
+        kg2.invalidate_arch_by_project_root(
+            ["is_pattern"],
+            project_root=proj_root + "/",
+            sentinels=[],
+        )
+        active2 = _active_triples(kg2)
+        assert (alpha_id, "is_pattern", svc_id) not in active2
+        assert (beta_id, "is_pattern", svc_id) in active2
+
+        # --- Symlink variant ---
+        sym_path = str(self.tmpdir / "sym_proj")
+        os.symlink(proj_root, sym_path)
+        kg3 = KnowledgeGraph(db_path=str(self.tmpdir / "kg_ac5_sym.sqlite3"))
+        kg3.add_triple("AlphaService", "is_pattern", "Service", source_file=proj_file)
+        kg3.add_triple("BetaService", "is_pattern", "Service", source_file=sibling_file)
+        kg3.invalidate_arch_by_project_root(
+            ["is_pattern"],
+            project_root=sym_path,
+            sentinels=[],
+        )
+        active3 = _active_triples(kg3)
+        assert (alpha_id, "is_pattern", svc_id) not in active3
+        assert (beta_id, "is_pattern", svc_id) in active3
+
     def test_all_arch_predicates_selectively_expired(self):
         kg = KnowledgeGraph(db_path=str(self.tmpdir / "kg.sqlite3"))
         kg.add_triple("UserService", "is_pattern", "Service", source_file="a.cs")
@@ -686,6 +763,182 @@ class TestMiningIntegration:
         results_after = kg2.query_entity("Service", direction="incoming")
         current_subjects = {r["subject"] for r in results_after if r["valid_to"] is None}
         assert "UserService" not in current_subjects
+
+    # ── Multi-wing helpers ────────────────────────────────────────────────
+
+    def _make_wing_dir(self, wing_name, extra_config=None):
+        """Create a project subdirectory with its own mempalace.yaml."""
+        wing_dir = os.path.join(self.tmpdir, wing_name)
+        os.makedirs(wing_dir, exist_ok=True)
+        cfg = {"wing": wing_name, "rooms": [{"name": "general", "description": "General"}]}
+        if extra_config:
+            cfg.update(extra_config)
+        (Path(wing_dir) / "mempalace.yaml").write_text(
+            yaml.dump(cfg, default_flow_style=False), encoding="utf-8"
+        )
+        return wing_dir
+
+    def _mine_wing(self, project_dir, kg):
+        from mempalace_code.miner import mine
+
+        palace_path = os.path.join(self.tmpdir, "palace")
+        mine(project_dir, palace_path, kg=kg, incremental=False)
+
+    def _shared_kg(self):
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        return KnowledgeGraph(db_path=os.path.join(self.tmpdir, "kg.sqlite3"))
+
+    # AC-1: sequential single-wing mines must not wipe other wings' arch facts
+
+    def test_sequential_wing_mines_preserve_prior_arch_facts(self):
+        kg = self._shared_kg()
+
+        alpha_dir = self._make_wing_dir("alpha_project")
+        (Path(alpha_dir) / "AlphaService.cs").write_text(
+            "namespace Alpha.App;\npublic class AlphaService { }", encoding="utf-8"
+        )
+        (Path(alpha_dir) / "AlphaRepository.cs").write_text(
+            "namespace Alpha.Data;\npublic class AlphaRepository { }", encoding="utf-8"
+        )
+
+        beta_dir = self._make_wing_dir("beta_project")
+        (Path(beta_dir) / "BetaService.cs").write_text(
+            "namespace Beta.App;\npublic class BetaService { }", encoding="utf-8"
+        )
+        (Path(beta_dir) / "BetaDataAdapter.cs").write_text(
+            "namespace Beta.Data;\npublic class BetaDataAdapter { }", encoding="utf-8"
+        )
+
+        self._mine_wing(alpha_dir, kg)
+        self._mine_wing(beta_dir, kg)
+
+        svc_hits = kg.query_entity("Service", direction="incoming")
+        current_svc = {
+            r["subject"] for r in svc_hits if r["current"] and r["predicate"] == "is_pattern"
+        }
+        assert "AlphaService" in current_svc, "AlphaService must survive beta mine"
+        assert "BetaService" in current_svc
+
+        data_hits = kg.query_entity("Data", direction="incoming")
+        current_data = {
+            r["subject"] for r in data_hits if r["current"] and r["predicate"] == "is_layer"
+        }
+        assert "AlphaRepository" in current_data, "AlphaRepository layer fact must survive beta mine"
+
+    # AC-2: namespace→project sentinel is scoped per wing
+
+    def test_namespace_project_sentinel_is_scoped_per_wing(self):
+        kg = self._shared_kg()
+
+        alpha_dir = self._make_wing_dir("alpha_project")
+        (Path(alpha_dir) / "AlphaSharedUtil.cs").write_text(
+            "namespace Company.Shared;\npublic class AlphaSharedUtil { }", encoding="utf-8"
+        )
+
+        beta_dir = self._make_wing_dir("beta_project")
+        (Path(beta_dir) / "BetaSharedUtil.cs").write_text(
+            "namespace Company.Shared;\npublic class BetaSharedUtil { }", encoding="utf-8"
+        )
+
+        self._mine_wing(alpha_dir, kg)
+        self._mine_wing(beta_dir, kg)
+
+        # Both in_project facts for Company.Shared must be current
+        ns_facts = kg.query_entity("Company.Shared", direction="outgoing")
+        current_projects = {
+            r["object"] for r in ns_facts if r["current"] and r["predicate"] == "in_project"
+        }
+        assert "alpha_project" in current_projects
+        assert "beta_project" in current_projects
+
+        # Active sentinel source_file values must be distinct (one per wing)
+        conn = kg._conn()
+        rows = conn.execute(
+            "SELECT DISTINCT source_file FROM triples"
+            " WHERE predicate='in_project' AND valid_to IS NULL AND subject=?",
+            (kg._entity_id("Company.Shared"),),
+        ).fetchall()
+        conn.close()
+        sentinel_values = {r[0] for r in rows}
+        assert namespace_project_source_file("alpha_project") in sentinel_values
+        assert namespace_project_source_file("beta_project") in sentinel_values
+
+    # AC-3: disabling architecture on one wing must not expire other wings' arch facts
+
+    def test_disabling_architecture_expires_only_current_wing_facts(self):
+        kg = self._shared_kg()
+
+        alpha_dir = self._make_wing_dir("alpha_project")
+        (Path(alpha_dir) / "AlphaService.cs").write_text(
+            "namespace Pkg;\npublic class AlphaService { }", encoding="utf-8"
+        )
+
+        beta_dir = self._make_wing_dir("beta_project")
+        (Path(beta_dir) / "BetaService.cs").write_text(
+            "namespace Pkg;\npublic class BetaService { }", encoding="utf-8"
+        )
+
+        self._mine_wing(alpha_dir, kg)
+        self._mine_wing(beta_dir, kg)
+
+        # Re-mine alpha with architecture disabled
+        alpha_dir_disabled = self._make_wing_dir(
+            "alpha_project",
+            extra_config={"architecture": {"enabled": False}},
+        )
+        # Carry over the source file
+        (Path(alpha_dir_disabled) / "AlphaService.cs").write_text(
+            "namespace Pkg;\npublic class AlphaService { }", encoding="utf-8"
+        )
+        self._mine_wing(alpha_dir_disabled, kg)
+
+        svc_hits = kg.query_entity("Service", direction="incoming")
+        current_after = {
+            r["subject"] for r in svc_hits if r["current"] and r["predicate"] == "is_pattern"
+        }
+        assert "AlphaService" not in current_after, "Alpha arch facts must be expired"
+        assert "BetaService" in current_after, "Beta arch facts must be unaffected"
+
+    # AC-4: deleting a source file in one wing must not expire other wings' arch facts
+
+    def test_deleted_source_expires_current_wing_arch_facts_without_touching_other_wings(self):
+        kg = self._shared_kg()
+
+        alpha_dir = self._make_wing_dir("alpha_project")
+        alpha_svc = Path(alpha_dir) / "AlphaService.cs"
+        alpha_svc.write_text(
+            "namespace Pkg;\npublic class AlphaService { }", encoding="utf-8"
+        )
+        alpha_ctrl = Path(alpha_dir) / "AlphaController.cs"
+        alpha_ctrl.write_text(
+            "namespace Pkg;\npublic class AlphaController { }", encoding="utf-8"
+        )
+
+        beta_dir = self._make_wing_dir("beta_project")
+        (Path(beta_dir) / "BetaService.cs").write_text(
+            "namespace Pkg;\npublic class BetaService { }", encoding="utf-8"
+        )
+
+        self._mine_wing(alpha_dir, kg)
+        self._mine_wing(beta_dir, kg)
+
+        # Delete AlphaService.cs and re-mine alpha
+        alpha_svc.unlink()
+        self._mine_wing(alpha_dir, kg)
+
+        svc_hits = kg.query_entity("Service", direction="incoming")
+        current_svc = {
+            r["subject"] for r in svc_hits if r["current"] and r["predicate"] == "is_pattern"
+        }
+        assert "AlphaService" not in current_svc, "AlphaService fact must be gone after file deleted"
+        assert "BetaService" in current_svc, "BetaService fact must be unaffected"
+
+        ctrl_hits = kg.query_entity("Controller", direction="incoming")
+        current_ctrl = {
+            r["subject"] for r in ctrl_hits if r["current"] and r["predicate"] == "is_pattern"
+        }
+        assert "AlphaController" in current_ctrl, "AlphaController fact must be re-emitted"
 
     # AC-4: stale fact removed when file is replaced
     def test_ac4_stale_fact_invalidated_on_rename(self):
