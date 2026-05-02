@@ -443,3 +443,8 @@ items:
       resolution: '2026-05-02: completed in pipeline run'
       archived_date: "2026-05-02"
       done_summary: completed in pipeline run
+    - key: MINE-SKIP-GENERATED-ENTITIES
+      summary: Skip generated entities.json during project mining
+      resolution: '2026-05-03: completed in pipeline run'
+      archived_date: "2026-05-03"
+      done_summary: completed in pipeline run

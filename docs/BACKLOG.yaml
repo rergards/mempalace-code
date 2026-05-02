@@ -242,47 +242,6 @@ items:
       3. Unknown `notifications/*` methods return `None` / no JSON-RPC response.
       4. Existing MCP request tests still pass.
       5. Ruff clean.
-  - key: MINE-SKIP-GENERATED-ENTITIES
-    summary: Skip generated entities.json during project mining
-    type: bug
-    status: open
-    priority: high
-    size: XS
-    section_id: coding_first
-    labels: [miner, init, upstream, hygiene]
-    description: |-
-      ## Symptom
-
-      Upstream vanilla MemPalace now skips generated `entities.json` during
-      mining. Our fork already skips `mempalace.yaml`, `mempal.yml`, and
-      `.gitignore`, but `entities.json` is still mined as project content.
-
-      ## Steps to reproduce
-
-      Create a temporary project directory containing:
-
-      - `mempalace.yaml`
-      - `entities.json`
-      - `notes.txt`
-
-      Then call `scan_project(project_dir, respect_gitignore=False)`.
-
-      Current behavior: the returned file list includes `entities.json`.
-
-      ## Scope
-
-      - Add `entities.json` to the generated/config file skip path.
-      - Preserve `include_ignored` / force-include behavior for users who
-        explicitly ask to mine that file.
-      - Do not change entity detection output or `init` behavior.
-
-      ## Acceptance Criteria
-
-      1. `scan_project()` excludes `entities.json` by default.
-      2. Explicit force-include can still include `entities.json`.
-      3. Existing `mempalace.yaml` / `mempal.yml` skip behavior is unchanged.
-      4. Focused miner tests pass.
-      5. Ruff clean.
   - key: READ-PATH-NONE-METADATA-HARDEN
     summary: Tolerate None documents and metadata on search and graph read paths
     type: bug
