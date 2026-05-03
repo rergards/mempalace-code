@@ -478,3 +478,8 @@ items:
       resolution: '2026-05-03: completed in pipeline run'
       archived_date: "2026-05-03"
       done_summary: completed in pipeline run
+    - key: SEARCH-HYBRID-RERANK-EVAL
+      summary: Evaluate BM25 plus vector reranking for code and project-file retrieval
+      resolution: '2026-05-03: completed in pipeline run'
+      archived_date: "2026-05-03"
+      done_summary: completed in pipeline run

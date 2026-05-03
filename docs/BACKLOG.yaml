@@ -43,47 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: SEARCH-HYBRID-RERANK-EVAL
-    summary: Evaluate BM25 plus vector reranking for code and project-file retrieval
-    type: task
-    status: open
-    priority: medium
-    size: M
-    section_id: quality
-    labels: [search, benchmark, retrieval, upstream, bm25]
-    description: |-
-      ## Problem
-
-      Upstream vanilla MemPalace added BM25 + vector hybrid reranking. Our fork's
-      current .NET benchmark misses include exact-ish project dependency queries
-      where README/generated files outrank `.csproj` project files. BM25 may help,
-      but this fork has LanceDB, code metadata, and benchmark constraints that
-      differ from upstream, so the upstream implementation should be treated as
-      an example, not a direct port.
-
-      This item is separate from the currently-running
-      `BENCH-DOTNET-R5-IMPROVE`; close or narrow it if that task already lands an
-      equivalent measured solution.
-
-      ## Scope
-
-      - Prototype BM25 or metadata-aware reranking on top of current LanceDB
-        candidate retrieval.
-      - Measure impact on `benchmarks/dotnet_bench.py`, especially the
-        `project_dependency` category.
-      - Avoid hard-coding expected benchmark filenames.
-      - Decide whether the reranker belongs in general search, `code_search`,
-        benchmark-only experiment code, or not at all.
-
-      ## Acceptance Criteria
-
-      1. Benchmark before/after output is recorded.
-      2. Any production reranker has focused tests for exact-token boosts and
-         `None` document safety.
-      3. Reranking does not regress existing search/code_search tests.
-      4. If no production change is kept, document why and close the item with
-         measured evidence.
-      5. Ruff clean.
   - key: CODE-TREESITTER-GO-RUST-DETACH-TEST
     summary: Add negative tests for detached-comment gap detection in Go and Rust AST chunkers
     type: task
