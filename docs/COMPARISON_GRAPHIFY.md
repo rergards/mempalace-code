@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-10
 **Graphify version surveyed**: v4 / 0.3.28 (21.7k stars, `safishamsi/graphify`)
-**mempalace-code version surveyed**: v1.8.0 release state
+**mempalace-code version surveyed**: v1.8.1 release state
 
 This document is written for prospective users trying to decide which project fits their needs. It is deliberately honest about where each wins. There is no single "better" tool — the two projects solve adjacent problems using orthogonal techniques and their strengths do not overlap much.
 

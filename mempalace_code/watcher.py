@@ -248,13 +248,13 @@ def watch_and_mine(
 
     # Initial incremental mine — brings the palace up to date before watching.
     # Skip if disk budget is too low; still start the watcher so it re-checks each cycle.
-    _last_budget_log: list = [0.0]  # mutable container for closure
+    _last_budget_log: list = [None]  # mutable container for closure
 
     def _should_run() -> bool:
         budget = check_watch_budget(palace_path, min_free)
         if not budget.allowed:
             now = time.monotonic()
-            if now - _last_budget_log[0] >= _BUDGET_LOG_INTERVAL:
+            if _last_budget_log[0] is None or now - _last_budget_log[0] >= _BUDGET_LOG_INTERVAL:
                 msg = _format_budget_skip_message(budget, palace_path)
                 print(msg, flush=True)
                 _last_budget_log[0] = now
@@ -534,13 +534,16 @@ def watch_all(
         sys.exit(1)
 
     min_free = _load_watch_min_free()
-    _last_budget_log_all: list = [0.0]
+    _last_budget_log_all: list = [None]
 
     def _should_run_all() -> bool:
         budget = check_watch_budget(palace_path, min_free)
         if not budget.allowed:
             now = time.monotonic()
-            if now - _last_budget_log_all[0] >= _BUDGET_LOG_INTERVAL:
+            if (
+                _last_budget_log_all[0] is None
+                or now - _last_budget_log_all[0] >= _BUDGET_LOG_INTERVAL
+            ):
                 msg = _format_budget_skip_message(budget, palace_path)
                 print(msg, flush=True)
                 _last_budget_log_all[0] = now

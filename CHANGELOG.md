@@ -5,6 +5,14 @@ Current command/package names: the CLI is `mempalace-code`, the import package i
 Older historical entries may mention legacy `mempalace` names that were valid
 when those changes landed.
 
+## v1.8.1 — 2026-05-03
+
+### Fixed
+
+- Watcher disk-budget skip warnings now print on the first skipped cycle even
+  on fresh systems where the monotonic process clock is still below the
+  throttle interval.
+
 ## v1.8.0 — 2026-05-03
 
 ### Added

@@ -1062,6 +1062,7 @@ class TestWatchAndMineDiskBudget:
             patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
             patch("mempalace_code.disk_budget.free_bytes", return_value=0),
+            patch("mempalace_code.watcher.time.monotonic", return_value=1.0),
         ):
             watch_and_mine(str(project), str(tmp_path / "palace"))
 
@@ -1156,6 +1157,7 @@ class TestWatchAndMineDiskBudget:
             patch("mempalace_code.disk_budget.free_bytes", return_value=0),
             # Throttle interval set to a large value so only first message is printed
             patch("mempalace_code.watcher._BUDGET_LOG_INTERVAL", 9999),
+            patch("mempalace_code.watcher.time.monotonic", return_value=1.0),
         ):
             watch_and_mine(str(project), str(tmp_path / "palace"))
 
