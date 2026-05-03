@@ -73,6 +73,7 @@ SKIP_FILENAMES = {
     "mempal.yml",
     ".gitignore",
     "package-lock.json",
+    "entities.json",
 }
 
 MIN_CHUNK = 100  # chars — skip tiny fragments
@@ -1660,6 +1661,11 @@ def _chunk_k8s_manifest(content: str, source_file: str) -> list:
 
 def chunk_file(content: str, ext: str, source_file: str, language: str = None) -> list:
     """Dispatcher — route to the right chunking strategy based on language."""
+    # .csproj/.fsproj/.vbproj: verbatim project-XML chunker (ext-based, before language lookup
+    # so the generic XML fallback is preserved for all other XML files as per design notes).
+    if ext in _DOTNET_PROJECT_FILE_EXTS:
+        return _chunk_dotnet_project_xml(content, source_file)
+
     if language is None:
         language = EXTENSION_LANG_MAP.get(ext, "unknown")
 
@@ -2340,6 +2346,27 @@ def chunk_adaptive_lines(content: str, source_file: str) -> list:
             return [{"content": content.strip(), "chunk_index": 0}]
         return []
     return adaptive_merge_split(raw, source_file)
+
+
+def _chunk_dotnet_project_xml(content: str, source_file: str) -> list:
+    """
+    Verbatim chunker for .csproj / .fsproj / .vbproj files.
+
+    Emits the entire file as a single chunk so that PackageReference,
+    ProjectReference, and TargetFramework blocks are co-embedded rather than
+    split into sub-MIN_CHUNK fragments by blank-line splitting in the generic
+    fallback. Tags with chunker_strategy='dotnet_project_xml_v1'.
+    """
+    stripped = content.strip()
+    if len(stripped) < MIN_CHUNK:
+        return []
+    return [
+        {
+            "content": stripped,
+            "chunk_index": 0,
+            "chunker_strategy": "dotnet_project_xml_v1",
+        }
+    ]
 
 
 def adaptive_merge_split(raw_chunks: list, source_file: str) -> list:
@@ -3156,6 +3183,9 @@ _SLN_PROJECT_RE = re.compile(
 # Extensions that identify real project files within a solution (vs. SolutionFolders)
 _SLN_PROJECT_EXTS = frozenset({".csproj", ".fsproj", ".vbproj"})
 
+# Extensions routed through the verbatim project-XML chunker
+_DOTNET_PROJECT_FILE_EXTS = frozenset({".csproj", ".fsproj", ".vbproj"})
+
 
 def parse_dotnet_project_file(filepath: Path) -> list:
     """Parse a .csproj/.fsproj/.vbproj file and return KG triples.
@@ -3882,8 +3912,18 @@ def _build_csproj_room_map(project_path: Path) -> "dict[Path, str]":
 # =============================================================================
 
 
+def _fmt_bytes(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n = n / 1024
+    return f"{n:.1f} TB"
+
+
 def status(palace_path: str):
     """Show what's been filed in the palace."""
+    from .storage import LanceStore
+
     try:
         store = open_store(palace_path, create=False)
     except Exception:
@@ -3903,4 +3943,23 @@ def status(palace_path: str):
         for room, count in sorted(rooms.items(), key=lambda x: x[1], reverse=True):
             print(f"    ROOM: {room:20} {count:5} drawers")
         print()
+
+    if isinstance(store, LanceStore):
+        try:
+            s = store.storage_stats()
+            print(
+                f"  Storage: logical={_fmt_bytes(s['logical_bytes'])} "
+                f"on-disk={_fmt_bytes(s['on_disk_bytes'])} "
+                f"reclaimable={_fmt_bytes(s['estimated_reclaimable_bytes'])}"
+            )
+            print(
+                f"  Versions: {s['version_count']}  "
+                f"data-files: current={s['current_data_files']} "
+                f"on-disk={s['on_disk_data_files']}  "
+                f"deletion-files: current={s['current_deletion_files']} "
+                f"on-disk={s['on_disk_deletion_files']}"
+            )
+        except Exception:
+            pass
+
     print(f"{'=' * 55}\n")

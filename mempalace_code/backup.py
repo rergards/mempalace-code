@@ -26,11 +26,93 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("mempalace")
 
+# Filename prefix for each managed backup kind.
+_KIND_PREFIXES: Dict[str, str] = {
+    "manual": "mempalace_backup_",
+    "scheduled": "scheduled_",
+    "pre_optimize": "pre_optimize_",
+}
+
+
+def estimate_backup_source_bytes(palace_path: str, kg_path: Optional[str] = None) -> int:
+    """Return the total byte size of files that will be archived.
+
+    Walks ``<palace>/lance/`` and adds the KG SQLite file when present.
+    Used for disk-space preflight before creating the temp tar.
+    """
+    from .knowledge_graph import DEFAULT_KG_PATH
+
+    if kg_path is None:
+        kg_path = DEFAULT_KG_PATH
+
+    total = 0
+    lance_dir = os.path.join(palace_path, "lance")
+    if os.path.isdir(lance_dir):
+        for dirpath, _, filenames in os.walk(lance_dir):
+            for fname in filenames:
+                try:
+                    total += os.path.getsize(os.path.join(dirpath, fname))
+                except OSError:
+                    pass
+
+    if os.path.isfile(kg_path):
+        try:
+            total += os.path.getsize(kg_path)
+        except OSError:
+            pass
+
+    return total
+
+
+def prune_managed_backups(backups_dir: str, kind: str, retain_count: int) -> List[str]:
+    """Delete old archives of *kind* inside *backups_dir*, keeping the newest *retain_count*.
+
+    Returns the list of paths that were deleted.  Deletion errors are logged as
+    warnings and do not raise — a failed prune must never mask a successful backup.
+    """
+    if retain_count <= 0 or not os.path.isdir(backups_dir):
+        return []
+
+    prefix = _KIND_PREFIXES.get(kind, "")
+    if not prefix:
+        return []
+
+    candidates = []
+    for fname in os.listdir(backups_dir):
+        if not fname.startswith(prefix) or not fname.endswith(".tar.gz"):
+            continue
+        fpath = os.path.join(backups_dir, fname)
+        if not os.path.isfile(fpath):
+            continue
+        try:
+            mtime = os.stat(fpath).st_mtime
+            candidates.append((mtime, fname, fpath))
+        except OSError as exc:
+            logger.warning("Backup pruning: could not stat %s: %s", fpath, exc)
+
+    # Sort newest-first by mtime, then by filename DESC as a stable secondary key.
+    # All managed prefixes embed a sortable YYYYMMDD_HHMMSS timestamp, so DESC filename
+    # also corresponds to "newer first" when mtimes tie (e.g. same-second creation).
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+    pruned = []
+    for _, _, fpath in candidates[retain_count:]:
+        try:
+            os.unlink(fpath)
+            pruned.append(fpath)
+            logger.info("Pruned managed backup: %s", fpath)
+        except OSError as exc:
+            logger.warning("Backup pruning failed for %s: %s", fpath, exc)
+
+    return pruned
+
 
 def create_backup(
     palace_path: str,
     out_path: Optional[str] = None,
     kg_path: Optional[str] = None,
+    kind: str = "manual",
+    config=None,
 ) -> tuple:
     """Create a .tar.gz backup of the palace.
 
@@ -40,17 +122,33 @@ def create_backup(
         Root directory of the palace (``lance/`` subdirectory lives here).
     out_path:
         Destination ``.tar.gz`` file.  Defaults to
-        ``<palace_parent>/backups/mempalace_backup_YYYYMMDD_HHMMSS.tar.gz``.
+        ``<palace_parent>/backups/<kind_prefix>YYYYMMDD_HHMMSS.tar.gz``.
+        When not given the archive is placed in the managed backups directory
+        and retention pruning runs after a successful write.
     kg_path:
         Path to the knowledge-graph SQLite file.  Defaults to
         ``knowledge_graph.DEFAULT_KG_PATH``.
+    kind:
+        Backup kind: ``manual`` (default), ``scheduled``, or ``pre_optimize``.
+        Controls the filename prefix when *out_path* is None and which
+        per-kind archives are pruned by retention.
+    config:
+        Optional :class:`~mempalace_code.config.MempalaceConfig` instance.
+        Created internally when not provided.
 
     Returns
     -------
     tuple
         ``(metadata, out_path)`` — the metadata dict written to ``metadata.json``
         and the resolved output path of the archive.
+
+    Raises
+    ------
+    DiskBudgetError
+        When the disk-space guard rejects the backup.
     """
+    from .config import MempalaceConfig
+    from .disk_budget import DiskBudgetError, check_backup_budget, format_bytes
     from .knowledge_graph import DEFAULT_KG_PATH
     from .storage import open_store
     from .version import __version__
@@ -58,12 +156,45 @@ def create_backup(
     if kg_path is None:
         kg_path = DEFAULT_KG_PATH
 
+    if config is None:
+        from .config import MempalaceConfig
+
+        config = MempalaceConfig()
+
+    # Determine output path and whether this is a managed-dir backup.
+    _managed_dir: Optional[str]
     if out_path is None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
         os.makedirs(backups_dir, exist_ok=True)
-        os.chmod(backups_dir, 0o700)  # F-9: restrict to owner only — backups contain personal data
-        out_path = os.path.join(backups_dir, f"mempalace_backup_{ts}.tar.gz")
+        os.chmod(backups_dir, 0o700)  # F-9: restrict to owner only
+        prefix = _KIND_PREFIXES.get(kind, "mempalace_backup_")
+        out_path = os.path.join(backups_dir, f"{prefix}{ts}.tar.gz")
+        _managed_dir = backups_dir
+    else:
+        _managed_dir = None  # explicit path — retention does not apply
+
+    out_dir = os.path.dirname(os.path.abspath(out_path))
+    os.makedirs(out_dir, exist_ok=True)  # F-10: auto-create parent dir for explicit --out paths
+
+    # Disk-budget guard: refuse before opening any file handles when the projected
+    # post-backup free space would fall below the configured floor. The legacy
+    # MEMPALACE_BACKUP_MIN_FREE_BYTES setting is folded into backup_disk_min_free_bytes.
+    min_free = config.backup_disk_min_free_bytes
+    if min_free > 0:
+        try:
+            budget = check_backup_budget(palace_path, out_path, min_free, kg_path=kg_path)
+        except OSError as exc:
+            logger.warning("Backup disk-budget check skipped for %s: %s", out_path, exc)
+        else:
+            if not budget.allowed:
+                raise DiskBudgetError(
+                    f"disk budget: not enough free space to create backup. "
+                    f"Free: {format_bytes(budget.free_bytes)}, "
+                    f"required floor after archive: {format_bytes(budget.min_free_bytes)}. "
+                    f"Palace: {palace_path}. "
+                    f"Free up disk space or lower backup_disk_min_free_bytes."
+                )
 
     # Gather metadata — open store read-only; tolerate missing palace.
     try:
@@ -83,24 +214,18 @@ def create_backup(
     }
 
     lance_dir = os.path.join(palace_path, "lance")
-    out_dir = os.path.dirname(os.path.abspath(out_path))
-    os.makedirs(out_dir, exist_ok=True)  # F-10: auto-create parent dir for explicit --out paths
 
     # Write atomically: build archive in a temp file, then rename into place.
-    # A partial/interrupted write therefore never corrupts the destination.
     tmp_fd, tmp_path = tempfile.mkstemp(dir=out_dir, suffix=".tar.gz.tmp")
     os.close(tmp_fd)
     try:
         with tarfile.open(tmp_path, "w:gz") as tar:
-            # Lance vector data
             if os.path.isdir(lance_dir):
                 tar.add(lance_dir, arcname="mempalace_backup/lance")
 
-            # Knowledge graph (optional — may not exist)
             if os.path.isfile(kg_path):
                 tar.add(kg_path, arcname="mempalace_backup/knowledge_graph.sqlite3")
 
-            # Metadata JSON (in-memory, no temp file needed)
             meta_bytes = json.dumps(metadata, indent=2).encode()
             info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
             info.size = len(meta_bytes)
@@ -114,6 +239,11 @@ def create_backup(
         except OSError:
             pass
         raise
+
+    if _managed_dir is not None:
+        retain_count = config.backup_retain_count
+        if retain_count > 0:
+            prune_managed_backups(_managed_dir, kind, retain_count)
 
     return metadata, out_path
 
@@ -157,7 +287,6 @@ def restore_backup(
 
     lance_dir = os.path.join(palace_path, "lance")
 
-    # AC-4 — non-empty palace guard
     if os.path.isdir(lance_dir) and os.listdir(lance_dir):
         if not force:
             raise FileExistsError(
@@ -171,26 +300,22 @@ def restore_backup(
     with tarfile.open(archive_path, "r:gz") as tar:
         member_names = {m.name for m in tar.getmembers()}
 
-        # Read metadata first (always available, no extraction needed)
         if "mempalace_backup/metadata.json" in member_names:
             f = tar.extractfile(tar.getmember("mempalace_backup/metadata.json"))
             if f is not None:
                 metadata = json.loads(f.read().decode())
 
-        # Safe manual extraction into a temp dir to prevent path traversal
         with tempfile.TemporaryDirectory(prefix="mempalace_restore_") as tmpdir:
             for member in tar.getmembers():
                 name = member.name
 
-                # Only process entries inside our known prefix
                 if not name.startswith("mempalace_backup/"):
                     continue
 
                 rel = name[len("mempalace_backup/") :]
                 if not rel:
-                    continue  # skip the prefix directory entry itself
+                    continue
 
-                # Reject any path-traversal attempts
                 parts = rel.replace("\\", "/").split("/")
                 if any(p in ("", "..") for p in parts):
                     continue
@@ -206,13 +331,11 @@ def restore_backup(
                         with open(dest, "wb") as dst:
                             dst.write(src.read())
 
-            # Move lance/ into the target palace
             extracted_lance = os.path.join(tmpdir, "lance")
             if os.path.isdir(extracted_lance):
                 os.makedirs(palace_path, exist_ok=True)
                 shutil.copytree(extracted_lance, lance_dir)
 
-            # Move KG into its canonical location (atomic: copy to .tmp, then rename)
             extracted_kg = os.path.join(tmpdir, "knowledge_graph.sqlite3")
             if os.path.isfile(extracted_kg):
                 if os.path.isfile(kg_path):
@@ -229,7 +352,11 @@ def restore_backup(
     return metadata
 
 
-def list_backups(palace_path: str, extra_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+def list_backups(
+    palace_path: str,
+    extra_dir: Optional[str] = None,
+    config=None,
+) -> List[Dict[str, Any]]:
     """List backup archives under <palace_parent>/backups/ (plus extra_dir if given).
 
     Parameters
@@ -238,12 +365,20 @@ def list_backups(palace_path: str, extra_dir: Optional[str] = None) -> List[Dict
         Root directory of the palace.
     extra_dir:
         Optional additional directory to scan (e.g. a legacy CWD backup location).
+    config:
+        Optional :class:`~mempalace_code.config.MempalaceConfig` instance.
+        Created internally when not provided.
 
     Returns
     -------
     list of dicts, sorted newest-first, each with keys:
-        path, size_bytes, mtime, timestamp, drawer_count, wings, kind
+        path, size_bytes, mtime, timestamp, drawer_count, wings, kind, stale, oversized
     """
+    if config is None:
+        from .config import MempalaceConfig
+
+        config = MempalaceConfig()
+
     backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
 
     dirs_to_scan = [backups_dir]
@@ -279,10 +414,10 @@ def list_backups(palace_path: str, extra_dir: Optional[str] = None) -> List[Dict
                 "drawer_count": None,
                 "wings": [],
                 "kind": _classify_backup_kind(fname),
+                "stale": False,
+                "oversized": False,
             }
 
-            # Try to open the archive and read metadata.
-            # If the tar itself is unreadable, skip the entry entirely.
             try:
                 with tarfile.open(fpath, "r:gz") as tar:
                     members = {m.name for m in tar.getmembers()}
@@ -302,8 +437,23 @@ def list_backups(palace_path: str, extra_dir: Optional[str] = None) -> List[Dict
 
             entries.append(entry)
 
-    # Sort newest-first by mtime
     entries.sort(key=lambda e: e["mtime"], reverse=True)
+
+    retain_count = config.backup_retain_count
+    warn_size = config.backup_warn_size_bytes
+
+    by_kind: Dict[str, List[Dict[str, Any]]] = {}
+    for e in entries:
+        by_kind.setdefault(e["kind"], []).append(e)
+
+    for kind_entries in by_kind.values():
+        # kind_entries is already sorted newest-first (inherited from global sort)
+        for i, e in enumerate(kind_entries):
+            if retain_count > 0 and i >= retain_count:
+                e["stale"] = True
+            if warn_size > 0 and e["size_bytes"] > warn_size:
+                e["oversized"] = True
+
     return entries
 
 
@@ -331,7 +481,7 @@ def render_schedule(
     freq:
         One of: daily, weekly, hourly.
     palace_path:
-        Root directory of the palace (determines the output backup directory).
+        Root directory of the palace (used to pin ``--palace`` in the snippet).
     platform:
         'darwin' for launchd plist, 'linux' for cron line.
     mempalace_bin:
@@ -356,8 +506,6 @@ def render_schedule(
     if platform not in ("darwin", "linux"):
         raise ValueError(f"Unsupported platform {platform!r}; must be 'darwin' or 'linux'")
 
-    backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
-
     if mempalace_bin is None:
         resolved_bin = _shutil.which("mempalace-code")
         if resolved_bin is None:
@@ -367,24 +515,22 @@ def render_schedule(
     else:
         safe_bin = _shlex.quote(mempalace_bin)
 
-    # F-8: shell-quote binary and dir to handle paths with spaces or special characters.
-    # The $(date ...) suffix is kept unquoted so the shell expands it at runtime.
-    safe_dir = _shlex.quote(backups_dir)
-    out_arg = f"{safe_dir}/scheduled_$(date +%Y%m%d_%H%M%S).tar.gz"
+    # Pin the palace path so the daemon backs up the right palace regardless of cwd.
+    # Note: --palace is a top-level argparse argument, so it must precede the 'backup' subcommand.
+    safe_palace = _shlex.quote(os.path.abspath(palace_path))
+    cmd_args = f"--palace {safe_palace} backup create --kind scheduled"
 
     if platform == "linux":
-        # cron: minute hour dom month dow command
         if freq == "daily":
             cron_time = "0 3 * * *"
         elif freq == "weekly":
             cron_time = "0 3 * * 0"
         else:  # hourly
             cron_time = "0 * * * *"
-        return f"{cron_time} {safe_bin} backup create --out {out_arg}\n"
+        return f"{cron_time} {safe_bin} {cmd_args}\n"
 
     # darwin: launchd plist
     def _xml_escape(s: str) -> str:
-        """Escape XML special characters for embedding in a plist <string> element."""
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     label = "com.mempalace.backup"
@@ -426,7 +572,7 @@ def render_schedule(
         "    <array>\n"
         "        <string>/bin/sh</string>\n"
         "        <string>-c</string>\n"
-        f"        <string>{_xml_escape(f'{safe_bin} backup create --out {out_arg}')}</string>\n"
+        f"        <string>{_xml_escape(f'{safe_bin} {cmd_args}')}</string>\n"
         "    </array>\n"
         f"{schedule_xml}\n"
         "    <key>RunAtLoad</key>\n"

@@ -5,6 +5,42 @@ Current command/package names: the CLI is `mempalace-code`, the import package i
 Older historical entries may mention legacy `mempalace` names that were valid
 when those changes landed.
 
+## v1.8.0 — 2026-05-03
+
+### Added
+
+- LanceDB storage cleanup: `mempalace-code cleanup` reclaims stale Lance
+  versions/fragments after optimization, with dry default retention and an
+  explicit `--unsafe-now` emergency mode.
+- Disk-budget guards for backup and watcher loops. Backups now fail before
+  opening archive files when projected post-backup free space would fall below
+  the configured floor; watchers skip write cycles while the palace is under
+  budget.
+- `mempalace-code watch <dir> status` reports free space, palace/backups size,
+  configured threshold, and macOS launchd state.
+- `code_search(..., rerank="hybrid")` and the MCP `mempalace_code_search`
+  `rerank` argument expose BM25-style token-overlap reranking for code search.
+- Conversation normalization now covers Gemini CLI JSONL and compacts Claude
+  Code tool-use/tool-result blocks.
+
+### Changed
+
+- .NET retrieval benchmark baseline on the pinned CleanArchitecture corpus is
+  now R@5 0.900 / R@10 1.000 in vector mode; local hybrid rerank comparison
+  measured R@5 1.000 / R@10 1.000 on 2026-05-03.
+- Generated `entities.json` files from init/entity detection are skipped during
+  project mining by default, unless explicitly force-included.
+- `MEMPALACE_BACKUP_MIN_FREE_BYTES` and `backup_min_free_bytes` remain supported
+  as compatibility aliases for the newer `backup_disk_min_free_bytes` floor.
+- The collected test suite is now 1769 tests.
+
+### Fixed
+
+- MCP request handling tolerates `params: null`, `arguments: null`,
+  notification messages, and client noise keys such as `wait_for_previous`.
+- Search/read paths tolerate rows with missing or `None` metadata without
+  crashing.
+
 ## v1.7.0 — 2026-05-02
 
 ### Added

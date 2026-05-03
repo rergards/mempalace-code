@@ -73,6 +73,8 @@ def search(query: str, palace_path: str, wing: str = None, room: str = None, n_r
     print(f"{'=' * 60}\n")
 
     for i, (doc, meta, dist) in enumerate(zip(docs, metas, dists), 1):
+        meta = meta or {}
+        doc = doc or ""
         similarity = round(1 - dist, 3)
         source = Path(meta.get("source_file", "?")).name
         wing_name = meta.get("wing", "?")
@@ -135,6 +137,8 @@ def search_memories(
 
     hits = []
     for doc, meta, dist in zip(docs, metas, dists):
+        meta = meta or {}
+        doc = doc or ""
         hits.append(
             {
                 "text": doc,
@@ -216,6 +220,7 @@ def code_search(
     file_glob: str = None,
     wing: str = None,
     n_results: int = 10,
+    rerank: str = None,
 ) -> dict:
     """
     Code-optimized semantic search. Returns symbol name, type, language, and
@@ -228,7 +233,17 @@ def code_search(
 
     Over-fetches n_results*3 (capped at 150) to compensate for post-filter
     discard, then truncates to n_results.
+
+    rerank: Optional reranking mode. Only "hybrid" is accepted. Hybrid mode
+        applies BM25-style token overlap reranking before post-filters.
+        search_memories and the print-oriented search() are unaffected.
     """
+    if rerank is not None and rerank != "hybrid":
+        return {
+            "error": f"Invalid rerank mode: {rerank!r}",
+            "valid_rerank_modes": ["hybrid"],
+        }
+
     if language is not None:
         language = language.lower()
         if language not in SUPPORTED_LANGUAGES:
@@ -271,7 +286,10 @@ def code_search(
     elif len(conditions) == 1:
         where = conditions[0]
 
-    fetch_count = min(n_results * 3, 150)
+    if rerank == "hybrid":
+        fetch_count = min(n_results * 5, 200)
+    else:
+        fetch_count = min(n_results * 3, 150)
 
     try:
         kwargs = {
@@ -290,18 +308,14 @@ def code_search(
     metas = results["metadatas"][0]
     dists = results["distances"][0]
 
-    hits = []
+    # Build raw hit dicts for the full fetched pool (before post-filters)
+    raw_hits = []
     for doc, meta, dist in zip(docs, metas, dists):
+        meta = meta or {}
+        doc = doc or ""
         sym_name = meta.get("symbol_name", "") or ""
         src_file = meta.get("source_file", "") or ""
-
-        if symbol_name and symbol_name.lower() not in sym_name.lower():
-            continue
-
-        if file_glob and not fnmatch.fnmatch(src_file, file_glob):
-            continue
-
-        hits.append(
+        raw_hits.append(
             {
                 "text": doc,
                 "wing": meta.get("wing", "unknown"),
@@ -315,6 +329,20 @@ def code_search(
             }
         )
 
+    # Apply hybrid reranking before post-filters so the reranker sees the full pool
+    if rerank == "hybrid":
+        from .search_reranker import hybrid_rerank
+
+        raw_hits = hybrid_rerank(query, raw_hits)
+
+    # Apply Python post-filters and truncate to n_results
+    hits = []
+    for hit in raw_hits:
+        if symbol_name and symbol_name.lower() not in hit["symbol_name"].lower():
+            continue
+        if file_glob and not fnmatch.fnmatch(hit["source_file"], file_glob):
+            continue
+        hits.append(hit)
         if len(hits) >= n_results:
             break
 

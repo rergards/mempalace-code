@@ -212,3 +212,142 @@ def test_scan_skip_init_writes_defaults_for_fresh_install():
     assert ".kotlin-lsp" in data["scan_skip_dirs"]
     assert data["scan_skip_files"] == []
     assert data["scan_skip_globs"] == []
+
+
+# =============================================================================
+# Disk-budget config tests
+# =============================================================================
+
+_ONE_GIB = 1 * 1024 * 1024 * 1024
+
+
+def test_disk_min_free_bytes_default(monkeypatch):
+    """disk_min_free_bytes defaults to 1 GiB when no env or file config is set."""
+    monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.disk_min_free_bytes == _ONE_GIB
+
+
+def test_watch_disk_min_free_bytes_falls_back_to_global(monkeypatch):
+    """watch_disk_min_free_bytes falls back to disk_min_free_bytes when not explicitly set."""
+    monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.delenv("MEMPALACE_WATCH_DISK_MIN_FREE_BYTES", raising=False)
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.watch_disk_min_free_bytes == cfg.disk_min_free_bytes
+
+
+def test_backup_disk_min_free_bytes_falls_back_to_global(monkeypatch):
+    """backup_disk_min_free_bytes falls back to disk_min_free_bytes when not explicitly set."""
+    monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.delenv("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES", raising=False)
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.backup_disk_min_free_bytes == cfg.disk_min_free_bytes
+
+
+def test_disk_min_free_bytes_env_override(monkeypatch):
+    """MEMPALACE_DISK_MIN_FREE_BYTES env sets global threshold."""
+    monkeypatch.setenv("MEMPALACE_DISK_MIN_FREE_BYTES", "500000000")
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.disk_min_free_bytes == 500_000_000
+
+
+def test_watch_disk_min_free_bytes_env_override(monkeypatch):
+    """MEMPALACE_WATCH_DISK_MIN_FREE_BYTES env sets watcher-specific threshold."""
+    monkeypatch.setenv("MEMPALACE_WATCH_DISK_MIN_FREE_BYTES", "200000000")
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.watch_disk_min_free_bytes == 200_000_000
+
+
+def test_backup_disk_min_free_bytes_env_override(monkeypatch):
+    """MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES env sets backup-specific threshold."""
+    monkeypatch.setenv("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES", "300000000")
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.backup_disk_min_free_bytes == 300_000_000
+
+
+def test_backup_disk_min_free_bytes_legacy_env_alias(monkeypatch):
+    """Legacy MEMPALACE_BACKUP_MIN_FREE_BYTES still sets the backup disk budget."""
+    monkeypatch.delenv("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.setenv("MEMPALACE_BACKUP_MIN_FREE_BYTES", "2GiB")
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.backup_disk_min_free_bytes == 2 * 1024**3
+
+
+def test_backup_disk_min_free_bytes_new_env_overrides_legacy_env(monkeypatch):
+    """The explicit backup_disk env key wins over the legacy env alias."""
+    monkeypatch.setenv("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES", "300000000")
+    monkeypatch.setenv("MEMPALACE_BACKUP_MIN_FREE_BYTES", "200000000")
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.backup_disk_min_free_bytes == 300_000_000
+
+
+def test_watch_overrides_global_disk_budget(monkeypatch):
+    """watch_disk_min_free_bytes file key overrides the global disk_min_free_bytes."""
+    monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.delenv("MEMPALACE_WATCH_DISK_MIN_FREE_BYTES", raising=False)
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"disk_min_free_bytes": 1000, "watch_disk_min_free_bytes": 2000}, f)
+    cfg = MempalaceConfig(config_dir=tmpdir)
+    assert cfg.disk_min_free_bytes == 1000
+    assert cfg.watch_disk_min_free_bytes == 2000
+
+
+def test_backup_overrides_global_disk_budget(monkeypatch):
+    """backup_disk_min_free_bytes file key overrides the global disk_min_free_bytes."""
+    monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.delenv("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.delenv("MEMPALACE_BACKUP_MIN_FREE_BYTES", raising=False)
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"disk_min_free_bytes": 1000, "backup_disk_min_free_bytes": 3000}, f)
+    cfg = MempalaceConfig(config_dir=tmpdir)
+    assert cfg.backup_disk_min_free_bytes == 3000
+
+
+def test_backup_legacy_file_key_sets_disk_budget(monkeypatch):
+    """Legacy backup_min_free_bytes file key remains a backup_disk_min_free_bytes alias."""
+    monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.delenv("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.delenv("MEMPALACE_BACKUP_MIN_FREE_BYTES", raising=False)
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"disk_min_free_bytes": 1000, "backup_min_free_bytes": "4KiB"}, f)
+    cfg = MempalaceConfig(config_dir=tmpdir)
+    assert cfg.backup_disk_min_free_bytes == 4 * 1024
+
+
+def test_disk_budget_env_suffix_gib(monkeypatch):
+    """Env value with GiB suffix is parsed correctly."""
+    monkeypatch.setenv("MEMPALACE_DISK_MIN_FREE_BYTES", "2GiB")
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.disk_min_free_bytes == 2 * 1024**3
+
+
+def test_disk_budget_invalid_env_falls_back_to_default(monkeypatch):
+    """Invalid env value for disk_min_free_bytes falls back to 1 GiB default."""
+    # Unset the conftest override first, then set an invalid value
+    monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.setenv("MEMPALACE_DISK_MIN_FREE_BYTES", "not_a_number")
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.disk_min_free_bytes == _ONE_GIB
+
+
+def test_disk_budget_invalid_file_value_falls_back_to_default(monkeypatch):
+    """Invalid file config value for disk_min_free_bytes falls back to 1 GiB default."""
+    monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"disk_min_free_bytes": "bad_value"}, f)
+    cfg = MempalaceConfig(config_dir=tmpdir)
+    assert cfg.disk_min_free_bytes == _ONE_GIB
+
+
+def test_watch_env_takes_precedence_over_file_config(monkeypatch):
+    """MEMPALACE_WATCH_DISK_MIN_FREE_BYTES env overrides watch_disk_min_free_bytes file key."""
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"watch_disk_min_free_bytes": 999}, f)
+    monkeypatch.setenv("MEMPALACE_WATCH_DISK_MIN_FREE_BYTES", "12345")
+    cfg = MempalaceConfig(config_dir=tmpdir)
+    assert cfg.watch_disk_min_free_bytes == 12345

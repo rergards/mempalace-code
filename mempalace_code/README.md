@@ -6,13 +6,16 @@ The Python package that powers mempalace-code. All modules, all logic.
 
 | Module | What it does |
 |--------|-------------|
-| `cli.py` | CLI entry point — routes to init, mine, search, watch, backup/restore, export/import, health, and wake-up |
-| `config.py` | Configuration loading — `~/.mempalace/config.json`, env vars, defaults |
+| `cli.py` | CLI entry point — routes to init, mine, search, watch, backup/restore, export/import, health, cleanup, and wake-up |
+| `config.py` | Configuration loading — `~/.mempalace/config.json`, env vars, defaults, scan excludes, disk-budget floors |
+| `disk_budget.py` | Shared disk-budget parsing, footprint measurement, and watcher/backup guard checks |
 | `language_catalog.py` | Shared language metadata for miner detection, `code_search` validation, and MCP language hints |
-| `normalize.py` | Converts 5 chat formats (Claude Code JSONL, Claude.ai JSON, ChatGPT JSON, Slack JSON, plain text) to standard transcript format |
+| `normalize.py` | Converts 7 chat formats (Claude Code JSONL, Codex CLI JSONL, Gemini CLI JSONL, Claude.ai JSON, ChatGPT JSON, Slack JSON, plain text) to standard transcript format |
 | `miner.py` | Project file ingest — scans directories, detects languages, chunks code/prose/config, stores drawers; Markdown chunks keep heading path and section metadata |
 | `convo_miner.py` | Conversation ingest — chunks by exchange pair (Q+A), detects rooms from content |
 | `searcher.py` | Semantic search via LanceDB vectors — filters by wing/room/language/symbol, returns verbatim text, scores, and stored metadata such as Markdown heading path |
+| `retrieval_rerank.py` | Deterministic project-file and CamelCase symbol reranking for code retrieval |
+| `search_reranker.py` | Optional hybrid token-overlap reranker for `code_search(rerank="hybrid")` and benchmark comparisons |
 | `layers.py` | 4-layer memory stack: L0 (identity), L1 (critical facts), L2 (room recall), L3 (deep search) |
 | `dialect.py` | AAAK lossy summary dialect — entity codes, topic markers, and token-saving estimates |
 | `knowledge_graph.py` | Temporal entity-relationship graph — SQLite, time-filtered queries, fact invalidation |

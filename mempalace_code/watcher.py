@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from .config import MempalaceConfig
+from .disk_budget import DiskBudgetStatus, check_watch_budget, format_bytes
 from .miner import (
     KNOWN_FILENAMES,
     READABLE_EXTENSIONS,
@@ -36,6 +38,28 @@ from .miner import (
 )
 
 _UNSET: object = object()  # sentinel for _ScanRulesSnapshot._bad_mtime
+
+# Throttle: print disk-budget skip message at most once per this many seconds.
+_BUDGET_LOG_INTERVAL = 300  # 5 minutes
+
+
+def _load_watch_min_free() -> int:
+    """Load the watcher disk-budget threshold from config."""
+    return MempalaceConfig().watch_disk_min_free_bytes
+
+
+def _format_budget_skip_message(status: DiskBudgetStatus, palace_path: str) -> str:
+    """Build the actionable disk-budget skip message for watcher cycles."""
+    lines = [
+        "  [disk budget] Skipping watcher cycle — not enough free disk space.",
+        f"  Palace:   {palace_path}",
+        f"  Free:     {format_bytes(status.free_bytes)} (need {format_bytes(status.min_free_bytes)})",
+        f"  Palace:   {format_bytes(status.palace_bytes)} used,"
+        f" backups: {format_bytes(status.backups_bytes)} used",
+        "  To stop:  launchctl unload ~/Library/LaunchAgents/com.mempalace.watch.plist",
+        "  (or Ctrl-C if running interactively)",
+    ]
+    return "\n".join(lines)
 
 
 def _invalidate_gitignore_cache(changes, matcher_cache: dict) -> None:
@@ -216,29 +240,52 @@ def watch_and_mine(
     scan_rules = get_scan_filter_rules()
     snapshot = _ScanRulesSnapshot(scan_rules)
 
+    min_free = _load_watch_min_free()
+
     print(f"  Watching: {project_path}")
     print(f"  Palace:   {palace_path}")
     print("  Initial mine...", flush=True)
 
     # Initial incremental mine — brings the palace up to date before watching.
-    stats = _quiet_mine(
-        project_dir=str(project_path),
-        palace_path=palace_path,
-        wing_override=wing_override,
-        agent=agent,
-        limit=0,
-        dry_run=False,
-        respect_gitignore=respect_gitignore,
-        include_ignored=include_ignored,
-        incremental=True,
-        kg=kg,
-    )
-    filed = stats.get("drawers_filed", 0)
-    if filed:
-        print(
-            f"    {stats['files_processed']} file(s), {filed} drawer(s)",
-            flush=True,
+    # Skip if disk budget is too low; still start the watcher so it re-checks each cycle.
+    _last_budget_log: list = [0.0]  # mutable container for closure
+
+    def _should_run() -> bool:
+        budget = check_watch_budget(palace_path, min_free)
+        if not budget.allowed:
+            now = time.monotonic()
+            if now - _last_budget_log[0] >= _BUDGET_LOG_INTERVAL:
+                msg = _format_budget_skip_message(budget, palace_path)
+                print(msg, flush=True)
+                _last_budget_log[0] = now
+            return False
+        return True
+
+    if _should_run():
+        stats = _quiet_mine(
+            project_dir=str(project_path),
+            palace_path=palace_path,
+            wing_override=wing_override,
+            agent=agent,
+            limit=0,
+            dry_run=False,
+            respect_gitignore=respect_gitignore,
+            include_ignored=include_ignored,
+            incremental=True,
+            kg=kg,
+            skip_optimize=True,
         )
+        filed = stats.get("drawers_filed", 0)
+        if filed:
+            print(
+                f"    {stats['files_processed']} file(s), {filed} drawer(s)",
+                flush=True,
+            )
+            # Guarded optimize: only if drawers were filed and budget still allows it
+            if _should_run():
+                from .storage import open_store
+
+                _optimize_once(palace_path, open_store)
 
     print("  Watching for changes... (Ctrl-C to stop)", flush=True)
 
@@ -289,6 +336,10 @@ def watch_and_mine(
             if not relevant:
                 continue
 
+            # Budget check before re-mine — skip whole cycle if disk is low.
+            if not _should_run():
+                continue
+
             stats = _quiet_mine(
                 project_dir=str(project_path),
                 palace_path=palace_path,
@@ -315,6 +366,11 @@ def watch_and_mine(
                     f"{filed} drawer(s) ({secs:.0f}s)",
                     flush=True,
                 )
+                # Guarded optimize after batch
+                if _should_run():
+                    from .storage import open_store
+
+                    _optimize_once(palace_path, open_store)
             cycles += 1
             event_count += len(relevant)
 
@@ -331,12 +387,28 @@ def watch_and_mine(
 
 
 def _optimize_once(palace_path: str, open_store_fn) -> None:
-    """Run a single optimize pass on the palace store."""
+    """Run a single optimize pass on the palace store.
+
+    Prefers ``safe_optimize`` when the store exposes it, routing the optional
+    pre-backup through the shared disk-guard and retention policy.  Falls back
+    to raw ``optimize()`` for stores that do not implement ``safe_optimize``.
+    If the backup gate rejects the backup, the optimize is reported as skipped
+    and the function returns without modifying the store.
+    """
+    from .config import MempalaceConfig
+
     try:
         t0 = time.time()
         print("  >> Optimizing storage...", end="", flush=True)
         store = open_store_fn(palace_path, create=False)
-        store.optimize()
+        if hasattr(store, "safe_optimize"):
+            config = MempalaceConfig()
+            ok = store.safe_optimize(palace_path, backup_first=config.backup_before_optimize)
+            if not ok:
+                print(" skipped (backup gate failed)", flush=True)
+                return
+        else:
+            store.optimize()
         print(f" done ({time.time() - t0:.1f}s)", flush=True)
     except Exception as exc:
         print(f" skipped ({exc})", flush=True)
@@ -461,6 +533,20 @@ def watch_all(
             )
         sys.exit(1)
 
+    min_free = _load_watch_min_free()
+    _last_budget_log_all: list = [0.0]
+
+    def _should_run_all() -> bool:
+        budget = check_watch_budget(palace_path, min_free)
+        if not budget.allowed:
+            now = time.monotonic()
+            if now - _last_budget_log_all[0] >= _BUDGET_LOG_INTERVAL:
+                msg = _format_budget_skip_message(budget, palace_path)
+                print(msg, flush=True)
+                _last_budget_log_all[0] = now
+            return False
+        return True
+
     mode_label = "on commit" if on_commit else "on file save"
     print(f"  Watching {len(project_map)} project(s) ({mode_label}):")
     for pp in sorted(project_map):
@@ -471,30 +557,31 @@ def watch_all(
     # per project that actually had changes.
     print("  Initial mine...", flush=True)
     total_init_filed = 0
-    for proj_path, wing in project_map.items():
-        kg = KnowledgeGraph()
-        stats = _quiet_mine(
-            project_dir=str(proj_path),
-            palace_path=palace_path,
-            wing_override=wing,
-            agent=agent,
-            limit=0,
-            dry_run=False,
-            respect_gitignore=respect_gitignore,
-            incremental=True,
-            kg=kg,
-            skip_optimize=True,
-        )
-        filed = stats.get("drawers_filed", 0)
-        total_init_filed += filed
-        if filed:
-            print(
-                f"    {wing}: {stats['files_processed']} file(s), {filed} drawer(s)",
-                flush=True,
+    if _should_run_all():
+        for proj_path, wing in project_map.items():
+            kg = KnowledgeGraph()
+            stats = _quiet_mine(
+                project_dir=str(proj_path),
+                palace_path=palace_path,
+                wing_override=wing,
+                agent=agent,
+                limit=0,
+                dry_run=False,
+                respect_gitignore=respect_gitignore,
+                incremental=True,
+                kg=kg,
+                skip_optimize=True,
             )
+            filed = stats.get("drawers_filed", 0)
+            total_init_filed += filed
+            if filed:
+                print(
+                    f"    {wing}: {stats['files_processed']} file(s), {filed} drawer(s)",
+                    flush=True,
+                )
 
-    # Single optimize after all initial mines (only if something was filed)
-    if total_init_filed:
+    # Single guarded optimize after all initial mines (only if something was filed)
+    if total_init_filed and _should_run_all():
         _optimize_once(palace_path, open_store)
 
     print("  Watching for changes... (Ctrl-C to stop)", flush=True)
@@ -557,6 +644,10 @@ def watch_all(
                         except ValueError:
                             continue
 
+                # Budget check before re-mine batch
+                if not _should_run_all():
+                    continue
+
                 for proj_path, wing in triggered.items():
                     kg = KnowledgeGraph()
                     stats = _quiet_mine(
@@ -611,6 +702,10 @@ def watch_all(
                 if not by_project:
                     continue
 
+                # Budget check before re-mine batch
+                if not _should_run_all():
+                    continue
+
                 for proj_path, relevant in by_project.items():
                     wing = project_map[proj_path]
                     kg = KnowledgeGraph()
@@ -639,8 +734,8 @@ def watch_all(
                     cycles += 1
                     event_count += len(relevant)
 
-            # Optimize only when something was actually filed
-            if batch_filed:
+            # Guarded optimize: only when something was filed and budget still allows it
+            if batch_filed and _should_run_all():
                 _optimize_once(palace_path, open_store)
 
     except KeyboardInterrupt:

@@ -165,6 +165,16 @@ mempalace-code backup schedule --freq daily     # prints launchd plist (macOS) o
 
 Install the printed snippet manually — mempalace-code does not write to system directories.
 
+### Backup Kinds
+
+Each backup has a kind that controls its filename prefix and per-kind retention:
+
+| Kind | Prefix | Created by |
+|------|--------|-----------|
+| `manual` | `mempalace_backup_` | `backup create` (default) |
+| `scheduled` | `scheduled_` | `backup create --kind scheduled` / cron |
+| `pre_optimize` | `pre_optimize_` | Auto-backup before optimize |
+
 ### Auto-Backup Before Optimize
 
 Enabled by default. Every `mempalace-code mine` creates a backup before compacting storage:
@@ -175,6 +185,53 @@ Enabled by default. Every `mempalace-code mine` creates a backup before compacti
 
 To disable: set `auto_backup_before_optimize: false` in `~/.mempalace/config.json` or `MEMPALACE_AUTO_BACKUP_BEFORE_OPTIMIZE=0`.
 
+### Retention (automatic pruning)
+
+By default retention is disabled (`backup_retain_count: 0`). To enable, set a per-kind limit:
+
+```bash
+# Keep only the 5 newest backups of each kind
+export MEMPALACE_BACKUP_RETAIN_COUNT=5
+# Or in ~/.mempalace/config.json:
+# {"backup_retain_count": 5}
+```
+
+Retention prunes **only the managed backups directory** (`<palace_parent>/backups/`). Archives written with explicit `--out` paths are never pruned.
+
+`backup list` annotates stale (would-be-pruned) archives with `[stale]` and oversized ones with `[oversized]`.
+
+### Disk-budget quick setup
+
+To change the backup disk floor:
+
+```bash
+export MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES=2GiB    # require 2 GiB projected free after backup
+# Legacy alias still accepted:
+export MEMPALACE_BACKUP_MIN_FREE_BYTES=2GiB
+```
+
+The guard is enabled by default through `disk_min_free_bytes` (1 GiB). See the
+full [Disk-Budget Guard](#disk-budget-guard) section below for precedence and
+failure behavior.
+
+### Emergency cleanup
+
+If the backups directory has grown large, inspect with:
+
+```bash
+mempalace-code backup list
+```
+
+Then delete old archives manually, or set `MEMPALACE_BACKUP_RETAIN_COUNT` to let future backups prune automatically.
+
+If LanceDB stale versions/fragments are the problem rather than backup archives,
+run storage cleanup after confirming no writer process is active:
+
+```bash
+mempalace-code cleanup --older-than-days 7
+mempalace-code cleanup --unsafe-now  # emergency only; no watcher/miner may be running
+```
+
 ---
 
 ## Health Check and Repair
@@ -184,6 +241,7 @@ If your palace seems corrupted (search returns empty, counts don't match):
 ```bash
 mempalace-code health              # probe for fragment corruption
 mempalace-code health --json       # machine-readable report
+mempalace-code cleanup --older-than-days 7  # reclaim stale Lance versions
 ```
 
 If corruption is detected:
@@ -194,6 +252,81 @@ mempalace-code repair --rollback   # roll back to last working LanceDB version
 ```
 
 This uses LanceDB's version history to find the most recent uncorrupted state. Data added after corruption is lost — this is why auto-backup exists.
+
+---
+
+## Disk-Budget Guard
+
+`backup create` checks available disk space before opening any file handles. If the projected post-backup free space would fall below the configured floor, the command exits with an error and **no archive or temp file is written**.
+
+```
+Error: disk budget: not enough free space to create backup.
+Free: 450.0 MiB, required floor after archive: 1.0 GiB.
+Palace: /Users/you/.mempalace/palace.
+Free up disk space or lower backup_disk_min_free_bytes.
+```
+
+The projection is conservative: it assumes the archive size equals the uncompressed palace + KG size. Actual compressed archives are usually smaller, but the guard refuses when even the worst-case estimate would leave insufficient headroom.
+
+### Configuring the backup floor
+
+```bash
+# Preferred environment variable
+export MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES=2GiB
+
+# Legacy alias accepted for existing installs
+export MEMPALACE_BACKUP_MIN_FREE_BYTES=2GiB
+
+# ~/.mempalace/config.json
+{
+  "backup_disk_min_free_bytes": 2147483648   // 2 GiB
+}
+```
+
+The backup floor resolves as:
+
+1. `MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES`
+2. legacy `MEMPALACE_BACKUP_MIN_FREE_BYTES`
+3. `backup_disk_min_free_bytes` in `~/.mempalace/config.json`
+4. legacy `backup_min_free_bytes` in `~/.mempalace/config.json`
+5. `disk_min_free_bytes`
+6. **1 GiB default**
+
+### Emergency cleanup
+
+If the backup guard refuses because disk is nearly full:
+
+1. Check what is taking space:
+   ```bash
+   du -sh ~/.mempalace/palace ~/.mempalace/backups
+   ```
+2. List existing backups and remove old ones manually:
+   ```bash
+   mempalace-code backup list
+   ls -lh ~/.mempalace/backups/
+   rm ~/.mempalace/backups/pre_optimize_<old_date>.tar.gz
+   ```
+3. Re-run the backup once enough space is freed.
+
+### Relationship to watcher thresholds
+
+The watcher (`mempalace-code watch`) uses its own `watch_disk_min_free_bytes` threshold (also defaults to 1 GiB via `disk_min_free_bytes`). Set `disk_min_free_bytes` once to control both:
+
+```json
+{
+  "disk_min_free_bytes": 1073741824
+}
+```
+
+Or set them independently to give the watcher a tighter budget:
+
+```json
+{
+  "disk_min_free_bytes": 1073741824,
+  "watch_disk_min_free_bytes": 2147483648,
+  "backup_disk_min_free_bytes": 1073741824
+}
+```
 
 ---
 

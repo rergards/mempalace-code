@@ -2589,3 +2589,101 @@ def test_chunk_code_dart_nullable_return_type():
     assert nullable_chunk is not None, (
         "No chunk found for 'String? getDeviceId()' — nullable return type not detected as boundary"
     )
+
+
+# =============================================================================
+# .NET project-file chunking (dotnet_project_xml_v1) — AC-6
+# =============================================================================
+
+_CSPROJ_FIXTURE = """\
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MediatR" Version="12.0.1" />
+    <PackageReference Include="FluentValidation" Version="11.5.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\\Domain\\Domain.csproj" />
+  </ItemGroup>
+
+</Project>"""
+
+
+def test_dotnet_project_xml_preserves_short_blocks():
+    """Short Project Sdk and ProjectReference blocks are preserved verbatim (AC-6)."""
+    chunks = chunk_file(_CSPROJ_FIXTURE, ".csproj", "Application/Application.csproj")
+    assert len(chunks) == 1, f"Expected 1 chunk, got {len(chunks)}"
+    text = chunks[0]["content"]
+    assert 'Sdk="Microsoft.NET.Sdk"' in text
+    assert "<ProjectReference" in text
+    assert "<PackageReference" in text
+    assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v1"
+
+
+def test_dotnet_project_xml_preserves_targetframework():
+    """TargetFramework element is present in the emitted chunk."""
+    chunks = chunk_file(_CSPROJ_FIXTURE, ".csproj", "Application/Application.csproj")
+    assert "TargetFramework" in chunks[0]["content"]
+
+
+def test_dotnet_fsproj_uses_same_strategy():
+    """The dotnet_project_xml_v1 chunker also handles .fsproj files."""
+    content = """\
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\\Domain\\Domain.fsproj" />
+  </ItemGroup>
+</Project>"""
+    chunks = chunk_file(content, ".fsproj", "App/App.fsproj")
+    assert len(chunks) == 1
+    assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v1"
+    assert "<ProjectReference" in chunks[0]["content"]
+
+
+def test_dotnet_project_xml_single_chunk_index_zero():
+    """The emitted single chunk has chunk_index == 0."""
+    chunks = chunk_file(_CSPROJ_FIXTURE, ".csproj", "Application/Application.csproj")
+    assert chunks[0]["chunk_index"] == 0
+
+
+def test_dotnet_project_xml_generic_xml_fallback_unchanged():
+    """A .xml file still goes through chunk_adaptive_lines, not the project-XML chunker."""
+    xml = """\
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <appSettings>
+    <add key="Foo" value="Bar" />
+  </appSettings>
+</configuration>"""
+    chunks = chunk_file(xml, ".xml", "config/app.config")
+    # Generic XML must NOT carry the dotnet_project_xml_v1 strategy tag
+    for chunk in chunks:
+        assert chunk.get("chunker_strategy") != "dotnet_project_xml_v1"
+
+
+def test_dotnet_vbproj_uses_same_strategy():
+    """.vbproj files route through the verbatim project-XML chunker."""
+    content = """\
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <RootNamespace>App</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\\Domain\\Domain.vbproj" />
+  </ItemGroup>
+</Project>"""
+    chunks = chunk_file(content, ".vbproj", "App/App.vbproj")
+    assert len(chunks) == 1
+    assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v1"
+    assert "<ProjectReference" in chunks[0]["content"]
+    assert "TargetFramework" in chunks[0]["content"]

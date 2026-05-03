@@ -944,3 +944,310 @@ class TestWatchScanRuleReload:
         assert rules_after_fix is not initial_rules
         assert "workspace.json" in rules_after_fix.skip_files
         assert snapshot._bad_mtime is watcher_module._UNSET
+
+
+# ---------------------------------------------------------------------------
+# _optimize_once — disk-guard gate tests (AC-7)
+# ---------------------------------------------------------------------------
+
+
+class TestOptimizeOnce:
+    """Watcher optimize routing through safe_optimize and the backup gate (AC-7).
+
+    When backup_before_optimize=True and safe_optimize returns False (disk guard
+    rejected the pre-optimize backup), _optimize_once must report the skip and
+    must NOT fall through to raw store.optimize().
+    """
+
+    def test_backup_gate_rejected_skips_optimize(self, capsys):
+        """safe_optimize returns False → output reports skipped, optimize() not called."""
+        from mempalace_code.watcher import _optimize_once
+
+        mock_store = MagicMock()
+        mock_store.safe_optimize.return_value = False
+        mock_open = MagicMock(return_value=mock_store)
+
+        with patch("mempalace_code.config.MempalaceConfig") as mock_cfg_cls:
+            mock_cfg_cls.return_value.backup_before_optimize = True
+            _optimize_once("/fake/palace", mock_open)
+
+        mock_store.safe_optimize.assert_called_once_with("/fake/palace", backup_first=True)
+        mock_store.optimize.assert_not_called()
+        captured = capsys.readouterr()
+        assert "skipped (backup gate failed)" in captured.out
+
+    def test_backup_gate_success_prints_done(self, capsys):
+        """safe_optimize returns True → optimize completes, output shows done."""
+        from mempalace_code.watcher import _optimize_once
+
+        mock_store = MagicMock()
+        mock_store.safe_optimize.return_value = True
+        mock_open = MagicMock(return_value=mock_store)
+
+        with patch("mempalace_code.config.MempalaceConfig") as mock_cfg_cls:
+            mock_cfg_cls.return_value.backup_before_optimize = True
+            _optimize_once("/fake/palace", mock_open)
+
+        mock_store.safe_optimize.assert_called_once()
+        mock_store.optimize.assert_not_called()
+        captured = capsys.readouterr()
+        assert "done" in captured.out
+
+    def test_store_without_safe_optimize_uses_raw_optimize(self, capsys):
+        """Stores without safe_optimize fall back to raw optimize()."""
+        from mempalace_code.watcher import _optimize_once
+
+        class _StoreNoSafe:
+            def optimize(self):
+                pass
+
+        mock_store = MagicMock(spec=_StoreNoSafe)
+        mock_open = MagicMock(return_value=mock_store)
+
+        _optimize_once("/fake/palace", mock_open)
+
+        mock_store.optimize.assert_called_once()
+        captured = capsys.readouterr()
+        assert "done" in captured.out
+
+
+# Disk-budget gating tests (AC-1, AC-2, AC-3)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchAndMineDiskBudget:
+    """Unit tests for disk-budget gating in watch_and_mine()."""
+
+    def test_ac1_budget_ok_mine_is_called(self, tmp_path, monkeypatch):
+        """AC-1: when disk budget is OK, mine() is called and progress is printed."""
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            return {"drawers_filed": 1, "files_processed": 2, "elapsed_secs": 0}
+
+        # Large free space → budget check passes
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=10 * 1024**3),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        # Initial mine was called
+        assert len(mine_calls) >= 1
+        assert mine_calls[0].get("skip_optimize") is True
+
+    def test_ac2_low_disk_skips_mine_and_prints_message(self, tmp_path, capsys):
+        """AC-2: low-disk cycle is skipped; stdout/stderr contains disk budget info."""
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            return {}
+
+        from watchfiles import Change
+
+        changes = [{(Change.modified, str(project / "app.py"))}]
+
+        # free_bytes=0 → budget check always fails
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=0),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+
+        # No mine calls (initial mine skipped, re-mine cycle skipped)
+        assert len(mine_calls) == 0
+        # Message contains required fields (AC-2)
+        assert "disk budget" in combined
+        assert str(tmp_path / "palace") in combined
+        assert "0 B" in combined  # free bytes reported (exact format_bytes output)
+        assert "launchctl" in combined
+
+    def test_ac3_exactly_at_threshold_allows_mine(self, tmp_path):
+        """AC-3: free == threshold is allowed; free == threshold-1 is skipped."""
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        threshold = 512 * 1024 * 1024  # 512 MiB
+        mine_calls_ok = []
+        mine_calls_low = []
+
+        def fake_mine_ok(**kwargs):
+            mine_calls_ok.append(kwargs)
+            return {}
+
+        def fake_mine_low(**kwargs):
+            mine_calls_low.append(kwargs)
+            return {}
+
+        # free == threshold: mine must be called
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine_ok),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=threshold),
+            patch("mempalace_code.watcher._load_watch_min_free", return_value=threshold),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        assert len(mine_calls_ok) >= 1
+
+        # free == threshold - 1: mine must NOT be called
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine_low),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=threshold - 1),
+            patch("mempalace_code.watcher._load_watch_min_free", return_value=threshold),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace2"))
+
+        assert len(mine_calls_low) == 0
+
+    def test_initial_mine_uses_skip_optimize(self, tmp_path):
+        """Initial mine in watch_and_mine() must pass skip_optimize=True."""
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            return {}
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=10 * 1024**3),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        # Initial mine call must have skip_optimize=True
+        assert mine_calls[0].get("skip_optimize") is True
+
+    def test_low_disk_message_throttled(self, tmp_path, capsys):
+        """Disk-budget skip message is not repeated for every skipped cycle."""
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        from watchfiles import Change
+
+        # Three change batches, all skipped due to low disk
+        changes = [
+            {(Change.modified, str(project / "a.py"))},
+            {(Change.modified, str(project / "b.py"))},
+            {(Change.modified, str(project / "c.py"))},
+        ]
+
+        with (
+            patch("mempalace_code.watcher.mine"),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=0),
+            # Throttle interval set to a large value so only first message is printed
+            patch("mempalace_code.watcher._BUDGET_LOG_INTERVAL", 9999),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        captured = capsys.readouterr()
+        # Message should appear exactly once (throttled)
+        assert captured.out.count("disk budget") == 1
+
+
+# ---------------------------------------------------------------------------
+# watch status CLI tests (AC-5, AC-6)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchStatusCli:
+    def _run_status(self, tmp_path, argv_extra=None):
+        palace = str(tmp_path / "palace")
+        argv = ["mempalace-code", "--palace", palace, "watch", str(tmp_path), "status"]
+        if argv_extra:
+            argv += argv_extra
+        with patch.object(sys, "argv", argv):
+            main()
+
+    def test_ac6_non_macos_exits_0_and_prints_summary(self, tmp_path, capsys):
+        """AC-6: on non-macOS, exit 0 and print disk-budget summary + launchd unavailable."""
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        with (
+            patch("sys.platform", "linux"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=5 * 1024**3),
+        ):
+            self._run_status(tmp_path)
+
+        captured = capsys.readouterr()
+        assert str(palace) in captured.out
+        assert "Free:" in captured.out
+        assert "launchd is macOS-only" in captured.out or "not available" in captured.out
+
+    def test_ac6_macos_unloaded_launchd_reports_not_loaded(self, tmp_path, capsys):
+        """AC-6: on macOS where launchctl returns non-zero, report not loaded and exit 0."""
+
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+
+        with (
+            patch("sys.platform", "darwin"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=5 * 1024**3),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            self._run_status(tmp_path)
+
+        captured = capsys.readouterr()
+        assert "not loaded" in captured.out or "not loaded" in captured.err
+        assert str(palace) in captured.out
+
+    def test_ac5_macos_loaded_prints_required_fields(self, tmp_path, capsys):
+        """AC-5: on macOS with running daemon, stdout includes com.mempalace.watch and state."""
+
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        watched_root = str(tmp_path / "watched_dir")
+        fake_launchctl_output = (
+            "com.mempalace.watch = {\n"
+            "    state = running\n"
+            "    program = /usr/local/bin/mempalace-code\n"
+            "    arguments = {\n"
+            "        /bin/sh\n"
+            "        -c\n"
+            f"        /usr/local/bin/mempalace-code watch {watched_root}\n"
+            "    }\n"
+            "}\n"
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = fake_launchctl_output
+
+        with (
+            patch("sys.platform", "darwin"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=5 * 1024**3),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            self._run_status(tmp_path)
+
+        captured = capsys.readouterr()
+        out = captured.out
+        assert "com.mempalace.watch" in out
+        assert "running" in out
+        assert str(palace) in out
+        assert "Free:" in out

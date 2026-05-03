@@ -21,6 +21,7 @@ Commands:
     mempalace-code wake-up --wing my_app       Wake-up for a specific project
     mempalace-code status                      Show what's been filed
     mempalace-code health [--json]             Probe palace for fragment corruption
+    mempalace-code cleanup [--older-than-days N] [--unsafe-now] [--json]  Reclaim stale Lance versions
     mempalace-code repair [--rollback] [--dry-run]  Repair palace (rollback or full rebuild)
     mempalace-code backup [--out FILE]         Snapshot palace to a .tar.gz archive
     mempalace-code restore FILE [--force]      Restore palace from a .tar.gz archive
@@ -656,8 +657,92 @@ def cmd_health(args):
             print("  Warnings:")
             for w in report["warnings"]:
                 print(f"    [{w['kind']}] {w['probe']}: {w['message']}")
+        s = report.get("storage")
+        if s and not s.get("error"):
+            print(
+                f"  Storage: logical={_fmt_bytes(s['logical_bytes'])} "
+                f"on-disk={_fmt_bytes(s['on_disk_bytes'])} "
+                f"reclaimable={_fmt_bytes(s['estimated_reclaimable_bytes'])}"
+            )
+            print(
+                f"  Versions: {s['version_count']}  "
+                f"data-files: current={s['current_data_files']} "
+                f"on-disk={s['on_disk_data_files']}  "
+                f"deletion-files: current={s['current_deletion_files']} "
+                f"on-disk={s['on_disk_deletion_files']}"
+            )
 
     if not report["ok"]:
+        sys.exit(1)
+
+
+def _fmt_bytes(n: int) -> str:
+    """Human-readable byte count."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n = n / 1024
+    return f"{n:.1f} TB"
+
+
+def cmd_cleanup(args):
+    """Reclaim disk space from stale Lance versions after repeated mine/watch cycles."""
+    import json as _json
+
+    from .storage import LanceStore, LanceStoreDependencyError, open_store
+
+    palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+
+    if not os.path.isdir(palace_path):
+        print(f"  No palace found at {palace_path}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        store = open_store(palace_path, create=False)
+    except Exception as e:
+        print(f"  Cannot open palace at {palace_path}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not isinstance(store, LanceStore):
+        print("  cleanup is only supported for LanceDB palaces", file=sys.stderr)
+        sys.exit(1)
+
+    unsafe_now = args.unsafe_now
+    older_than_days = args.older_than_days
+
+    if unsafe_now and not getattr(args, "json", False):
+        print(
+            "  WARNING: --unsafe-now is for known-no-writer maintenance only.\n"
+            "  Do not run this while any mine/watch process is active."
+        )
+
+    try:
+        result = store.cleanup_stale_fragments(
+            older_than_days=older_than_days,
+            unsafe_now=unsafe_now,
+        )
+    except LanceStoreDependencyError as e:
+        print(f"  Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"  Cleanup failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if getattr(args, "json", False):
+        print(_json.dumps(result, indent=2))
+    else:
+        status = "ok" if result["ok"] else "FAILED"
+        print(f"  Status: {status}")
+        print(f"  Rows before: {result['rows_before']}  Rows after: {result['rows_after']}")
+        print(
+            f"  Versions before: {result['version_count_before']}  "
+            f"after: {result['version_count_after']}"
+        )
+        print(f"  Freed: {_fmt_bytes(result['freed_bytes'])}")
+        if not result["ok"]:
+            print(f"  Error: {result.get('error', 'unknown')}", file=sys.stderr)
+
+    if not result["ok"]:
         sys.exit(1)
 
 
@@ -912,6 +997,9 @@ def cmd_watch(args):
     if watch_command == "schedule":
         cmd_watch_schedule(args)
         return
+    if watch_command == "status":
+        cmd_watch_status(args)
+        return
 
     # Default: run the watcher
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
@@ -977,13 +1065,83 @@ def cmd_watch_schedule(args):
         print("\n  # To install: crontab -e  (paste the line above)", file=sys.stderr)
 
 
+def cmd_watch_status(args):
+    """Print disk-budget summary and launchd state for the watch daemon."""
+    import subprocess
+
+    palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+
+    from .disk_budget import check_watch_budget, format_bytes
+
+    cfg = MempalaceConfig()
+    min_free = cfg.watch_disk_min_free_bytes
+
+    try:
+        status = check_watch_budget(palace_path, min_free)
+    except Exception as exc:
+        print(f"  Error checking disk budget: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"  Palace:   {palace_path}")
+    print(f"  Free:     {format_bytes(status.free_bytes)}")
+    print(f"  Required: {format_bytes(status.min_free_bytes)} (watch_disk_min_free_bytes)")
+    print(f"  Palace sz:{format_bytes(status.palace_bytes)}")
+    print(f"  Backups:  {format_bytes(status.backups_bytes)}")
+    runnable = "yes" if status.allowed else "no  (disk budget exceeded)"
+    print(f"  Runnable: {runnable}")
+
+    # LaunchAgent state (macOS only)
+    if sys.platform.startswith("darwin"):
+        try:
+            uid = os.getuid()
+            result = subprocess.run(
+                ["launchctl", "print", f"gui/{uid}/com.mempalace.watch"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                output = result.stdout
+                state = "unknown"
+                watched_root = None
+                for line in output.splitlines():
+                    stripped = line.strip()
+                    if stripped.startswith("state ="):
+                        state = stripped.split("=", 1)[1].strip()
+                    # Command in launchctl print output looks like:
+                    #   /path/to/mempalace-code watch /watched/dir
+                    if "mempalace" in stripped and "watch" in stripped:
+                        parts = stripped.split()
+                        for i, part in enumerate(parts):
+                            if part in ("watch", "watch_all") and i + 1 < len(parts):
+                                candidate = parts[i + 1]
+                                if candidate.startswith("/") and candidate != palace_path:
+                                    watched_root = candidate
+                                break
+                print(f"  LaunchAgent: com.mempalace.watch  state = {state}")
+                if watched_root:
+                    print(f"  Watched root: {watched_root}")
+            else:
+                print("  LaunchAgent: com.mempalace.watch  (not loaded)")
+        except FileNotFoundError:
+            print("  LaunchAgent: launchctl not found")
+        except subprocess.TimeoutExpired:
+            print("  LaunchAgent: state unavailable (launchctl timed out)")
+        except Exception as exc:
+            print(f"  LaunchAgent: state unavailable ({exc})")
+    else:
+        print("  LaunchAgent: not available (launchd is macOS-only)")
+
+
 def cmd_backup_create(args):
     from .backup import create_backup
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+    kind = getattr(args, "kind", "manual") or "manual"
     try:
-        meta, out_path = create_backup(palace_path, out_path=args.out or None)
+        meta, out_path = create_backup(palace_path, out_path=args.out or None, kind=kind)
     except Exception as exc:
+        # Includes the disk-space guard's RuntimeError("insufficient free space …").
         print(f"  Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
@@ -997,9 +1155,10 @@ def cmd_backup_list(args):
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
     extra_dir = getattr(args, "dir", None)
+    config = MempalaceConfig()
 
     try:
-        entries = list_backups(palace_path, extra_dir=extra_dir)
+        entries = list_backups(palace_path, extra_dir=extra_dir, config=config)
     except Exception as exc:
         print(f"  Error: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -1008,9 +1167,9 @@ def cmd_backup_list(args):
         print("No backups found.")
         return
 
-    # Fixed-width table: TIMESTAMP  SIZE  DRAWERS  KIND  PATH
-    print(f"{'TIMESTAMP':<25}  {'SIZE':>10}  {'DRAWERS':>7}  {'KIND':<14}  PATH")
-    print("-" * 80)
+    # Fixed-width table: TIMESTAMP  SIZE  DRAWERS  KIND  FLAGS  PATH
+    print(f"{'TIMESTAMP':<25}  {'SIZE':>10}  {'DRAWERS':>7}  {'KIND':<14}  {'FLAGS':<10}  PATH")
+    print("-" * 90)
     for e in entries:
         ts = e["timestamp"] or "unknown"
         if len(ts) > 19:
@@ -1019,7 +1178,28 @@ def cmd_backup_list(args):
         drawers = str(e["drawer_count"]) if e["drawer_count"] is not None else "?"
         kind = e["kind"]
         path = e["path"]
-        print(f"{ts:<25}  {size_kb:>9.1f}K  {drawers:>7}  {kind:<14}  {path}")
+        flags_parts = []
+        if e.get("stale"):
+            flags_parts.append("stale")
+        if e.get("oversized"):
+            flags_parts.append("oversized")
+        flags = ",".join(flags_parts) if flags_parts else ""
+        print(f"{ts:<25}  {size_kb:>9.1f}K  {drawers:>7}  {kind:<14}  {flags:<10}  {path}")
+
+    # Totals by kind
+    print()
+    by_kind: dict = {}
+    for e in entries:
+        k = e["kind"]
+        if k not in by_kind:
+            by_kind[k] = {"count": 0, "bytes": 0}
+        by_kind[k]["count"] += 1
+        by_kind[k]["bytes"] += e["size_bytes"]
+
+    print("Totals by kind:")
+    for k in sorted(by_kind):
+        total_mb = by_kind[k]["bytes"] / (1024 * 1024)
+        print(f"  {k:<14}  {by_kind[k]['count']} archive(s)  {total_mb:.1f} MB")
 
 
 def cmd_backup_schedule(args):
@@ -1412,6 +1592,34 @@ def main():
         help="Emit raw JSON report instead of human-readable output",
     )
 
+    # cleanup
+    p_cleanup = sub.add_parser(
+        "cleanup",
+        help="Reclaim disk space from stale Lance versions (LanceDB palaces only)",
+    )
+    p_cleanup.add_argument(
+        "--older-than-days",
+        type=int,
+        default=7,
+        dest="older_than_days",
+        metavar="DAYS",
+        help="Remove versions older than this many days (default: 7)",
+    )
+    p_cleanup.add_argument(
+        "--unsafe-now",
+        action="store_true",
+        dest="unsafe_now",
+        help=(
+            "Remove ALL stale versions immediately (cleanup_older_than=0, delete_unverified=True). "
+            "Only safe when no other writer process is active."
+        ),
+    )
+    p_cleanup.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit raw JSON result instead of human-readable output",
+    )
+
     # repair
     p_repair = sub.add_parser(
         "repair",
@@ -1482,6 +1690,12 @@ def main():
     )
     watch_sub = p_watch.add_subparsers(dest="watch_command")
 
+    # watch status
+    watch_sub.add_parser(
+        "status",
+        help="Print disk-budget summary and launchd state for the watch daemon",
+    )
+
     # watch schedule
     p_watch_schedule = watch_sub.add_parser(
         "schedule",
@@ -1516,7 +1730,13 @@ def main():
         "--out",
         default=None,
         metavar="FILE",
-        help="Output .tar.gz path (default: <palace_parent>/backups/mempalace_backup_<ts>.tar.gz)",
+        help="Output .tar.gz path (default: <palace_parent>/backups/<kind_prefix><ts>.tar.gz)",
+    )
+    p_backup_create.add_argument(
+        "--kind",
+        choices=["manual", "scheduled", "pre_optimize"],
+        default="manual",
+        help="Backup kind — affects filename prefix and retention bucket (default: manual)",
     )
 
     # backup list
@@ -1639,6 +1859,7 @@ def main():
         "wake-up": cmd_wakeup,
         "migrate-storage": cmd_migrate_storage,
         "health": cmd_health,
+        "cleanup": cmd_cleanup,
         "repair": cmd_repair,
         "status": cmd_status,
         "diary": cmd_diary,

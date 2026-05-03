@@ -29,7 +29,7 @@ No cloud service, no API keys, no subscription. After the one-time embedding mod
 <tr>
 <td align="center"><strong>595x Token Savings</strong><br><sub>measured peak · median 80x<br><a href="docs/BENCH_TOKEN_DELTA.md">scales with project size</a></sub></td>
 <td align="center"><strong>Cross-Project Tunnels</strong><br><sub>Search <code>auth</code> in one project<br>find it everywhere</sub></td>
-<td align="center"><strong>1515 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>offline after model setup</sub></td>
+<td align="center"><strong>1769 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>offline after model setup</sub></td>
 </tr>
 </table>
 
@@ -114,8 +114,12 @@ mempalace-code **indexes it once** into a local vector store, then your AI finds
 - Code files — structural chunks for Python, TypeScript/JS/TSX/JSX, Go, Rust, Java, Kotlin, C#, F#, VB.NET, XAML, Swift, PHP, Scala, Dart, Terraform/HCL, Markdown, and Kubernetes manifests; adaptive chunks for C/C++, Ruby, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, and config files
 - .NET solutions — `.sln`/`.csproj` project graphs, cross-project symbol relationships, interface implementations
 - Architecture facts — pattern, layer, namespace, and project membership facts for .NET and Python projects
-- Conversation exports — Claude, ChatGPT, Slack
+- Conversation exports — Claude, ChatGPT, Slack, Gemini CLI
 - Architecture notes, decisions, anything you store manually
+
+Generated helper files such as `entities.json` are skipped during project
+mining by default, because they are created by init/entity detection and should
+not become source-code drawers unless explicitly force-included.
 
 **How you use it:** After setup, your AI calls mempalace tools automatically. You don't type search commands.
 
@@ -234,6 +238,36 @@ launchctl load ~/Library/LaunchAgents/com.mempalace.watch.plist
 
 Starts at login, restarts if crashed. Logs to `/tmp/mempalace-watch.log`.
 
+**Disk-budget guard:** the daemon automatically skips mine/optimize cycles when free disk space falls below the configured floor (default **1 GiB**). Use `watch status` to check the current state:
+
+```bash
+mempalace-code watch ~/projects/ status      # print disk-budget summary + launchd state
+```
+
+To pause or stop the daemon when disk is low:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.mempalace.watch.plist   # stop until next login
+launchctl load   ~/Library/LaunchAgents/com.mempalace.watch.plist   # re-enable after freeing space
+```
+
+Configure the threshold via environment variable or `~/.mempalace/config.json`:
+
+```bash
+# Environment variable (bytes or human suffix)
+export MEMPALACE_WATCH_DISK_MIN_FREE_BYTES=2GiB    # watcher-specific floor
+export MEMPALACE_DISK_MIN_FREE_BYTES=1GiB          # global floor (watcher + backup)
+
+# ~/.mempalace/config.json
+{
+  "disk_min_free_bytes": 1073741824,         // 1 GiB global default
+  "watch_disk_min_free_bytes": 2147483648,   // 2 GiB for watcher specifically
+  "backup_disk_min_free_bytes": 2147483648   // 2 GiB for backups specifically
+}
+```
+
+MCP read/search behavior is **not affected** by a paused watcher — agents can still search the palace while the daemon waits for disk space.
+
 ---
 
 ### The Palace
@@ -290,7 +324,7 @@ usage rules.
 | `mempalace_list_rooms` | Rooms within a wing |
 | `mempalace_get_taxonomy` | Full wing → room → count tree |
 | `mempalace_search` | Semantic search with optional wing/room filters; Markdown hits include heading path and section metadata |
-| `mempalace_code_search` | Filter by language, symbol name/type, file glob |
+| `mempalace_code_search` | Filter by language, symbol name/type, file glob; optional `rerank="hybrid"` |
 | `mempalace_file_context` | All indexed chunks for a source file, ordered by chunk_index |
 | `mempalace_check_duplicate` | Similarity check before filing (0.9 threshold) |
 
@@ -429,15 +463,24 @@ For local models (Llama, Mistral) that don't speak MCP, pipe `wake-up` into the 
 ```bash
 mempalace-code backup create                           # create backup archive (default: <palace_parent>/backups/)
 mempalace-code backup create --out ~/safe/my.tar.gz   # custom path
+mempalace-code backup create --kind scheduled          # create with 'scheduled' kind prefix
 mempalace-code backup                                  # back-compat: same as 'backup create'
 mempalace-code backup --out ~/safe/my.tar.gz           # back-compat: same as 'backup create --out ...'
-mempalace-code backup list                             # list existing backups
+mempalace-code backup list                             # list existing backups (with stale/oversized flags)
 mempalace-code backup list --dir ~/old_backups/        # include extra directory in discovery
 mempalace-code restore palace_backup_2026-04-14.tar.gz # restore
 mempalace-code restore backup.tar.gz --force           # overwrite existing
 ```
 
 Backups are written to `<palace_parent>/backups/` by default. For a palace at `~/.mempalace/palace`, that is `~/.mempalace/backups/`.
+
+**Backup kinds:** Each archive has a kind that controls its filename prefix and per-kind retention:
+
+| Kind | Prefix | Created by |
+|------|--------|-----------|
+| `manual` | `mempalace_backup_` | `backup create` (default) |
+| `scheduled` | `scheduled_` | `backup create --kind scheduled` / cron |
+| `pre_optimize` | `pre_optimize_` | Auto-backup before optimize |
 
 **Scheduled backups:**
 
@@ -453,8 +496,32 @@ launchctl load ~/Library/LaunchAgents/com.mempalace.backup.plist
 
 # Linux: paste the printed cron line into crontab -e
 mempalace-code backup schedule --freq daily
-# → 0 3 * * * /usr/local/bin/mempalace-code backup create --out /path/to/backups/scheduled_$(date +%Y%m%d_%H%M%S).tar.gz
+# → 0 3 * * * /usr/local/bin/mempalace-code backup create --kind scheduled --palace /path/to/palace
 ```
+
+**Retention (automatic pruning, disabled by default):**
+
+```bash
+export MEMPALACE_BACKUP_RETAIN_COUNT=5   # keep newest 5 of each kind; 0 = disabled (default)
+```
+
+Or in `~/.mempalace/config.json`: `{"backup_retain_count": 5}`. Retention only affects archives in the managed `backups/` directory; explicit `--out` archives are never pruned.
+
+`backup list` shows `[stale]` for archives that would be pruned at the current retain count, and `[oversized]` for archives larger than `MEMPALACE_BACKUP_WARN_SIZE_BYTES`.
+
+**Disk-budget guard (1 GiB default):**
+
+```bash
+export MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES=2GiB    # require 2 GiB projected free after backup
+# Legacy alias still accepted:
+export MEMPALACE_BACKUP_MIN_FREE_BYTES=2GiB
+```
+
+When projected free space after the archive would fall below the configured
+floor, backup raises a `disk budget` error before writing the archive and
+optimize is skipped (fail-closed). The backup floor falls back to
+`backup_disk_min_free_bytes` → `disk_min_free_bytes` → **1 GiB default**.
+Set the backup-specific floor to `0` to disable the backup guard.
 
 **Auto-backup before optimize (on by default):**
 
@@ -536,6 +603,8 @@ exclusion rule.
 ```bash
 mempalace-code health              # probe palace for fragment corruption
 mempalace-code health --json       # machine-readable report
+mempalace-code cleanup --older-than-days 7  # reclaim stale Lance versions
+mempalace-code cleanup --unsafe-now         # emergency cleanup; only with no writers active
 
 mempalace-code repair --dry-run    # show what would be recovered
 mempalace-code repair --rollback   # roll back to last working version
@@ -564,7 +633,7 @@ This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla
 | ChromaDB — [silently deletes data on version bump](https://github.com/milla-jovovich/mempalace/issues/469) | LanceDB — crash-safe Arrow storage, no version-cliff |
 | "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace-code init` downloads model explicitly; offline after model setup |
 | "100% R@5" — [unverifiable](https://github.com/milla-jovovich/mempalace/issues/27) | Number removed. Methodology caveats documented |
-| ~30% test coverage | 1515 tests, every feature acceptance-gated |
+| ~30% test coverage | 1769 tests, every feature acceptance-gated |
 | No backup, no recovery | `backup` / `restore` / `export` / `import` |
 | No incremental mining | Content-hash incremental: only changed files re-chunked |
 | No code-search | `code_search` — filter by language, symbol, glob |
@@ -591,6 +660,8 @@ Token savings **scale with project size** — grep noise grows linearly (more fi
 |-----------|-------|
 | Code retrieval R@5 (MiniLM, 469 chunks) | **95.0%** |
 | Code retrieval R@10 | **100%** |
+| .NET retrieval R@5 (CleanArchitecture pinned corpus, vector) | **90.0%** |
+| .NET retrieval R@5 (same corpus, `rerank="hybrid"`) | **100%** |
 
 Upstream LongMemEval result (96.6% R@5 on conversations) retained with [methodology caveats](benchmarks/BENCHMARKS.md).
 
@@ -644,6 +715,7 @@ mempalace-code mine-all <parent-dir> --new-only        # only mine projects not 
 # Watch (multi-project auto-sync)
 mempalace-code watch <parent-dir>                      # watch all initialized projects
 mempalace-code watch <parent-dir> schedule             # print launchd/cron daemon snippet
+mempalace-code watch <parent-dir> status               # disk-budget + launchd state
 
 # Search
 mempalace-code search "query"                          # search everything
@@ -658,6 +730,7 @@ mempalace-code restore <archive>                       # restore from backup
 mempalace-code export --only-manual                    # JSONL export
 mempalace-code import <file>                           # JSONL import
 mempalace-code health                                  # probe for fragment corruption
+mempalace-code cleanup                                 # reclaim stale Lance versions
 mempalace-code repair --rollback                       # roll back to last working version
 
 # Context
@@ -703,7 +776,7 @@ mempalace/
 ├── benchmarks/             ← reproducible benchmark runners
 ├── hooks/                  ← Claude Code auto-save hooks (legacy, optional)
 ├── examples/               ← usage examples
-└── tests/                  ← 1515 tests
+└── tests/                  ← 1769 tests
 ```
 
 </details>
@@ -723,7 +796,7 @@ python -m pytest tests/ -x -q    # full suite, all local, no network
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.7.0-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.8.0-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

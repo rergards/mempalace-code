@@ -7,7 +7,7 @@ Tests the library-facing search interface (not the CLI print variant).
 import pytest
 
 from mempalace_code.language_catalog import sorted_searchable_languages
-from mempalace_code.searcher import code_search, search_memories
+from mempalace_code.searcher import code_search, search, search_memories
 from mempalace_code.storage import open_store
 
 
@@ -719,3 +719,263 @@ class TestCodeSearchDart:
             assert sym in result["valid_symbol_types"], (
                 f"Symbol type {sym!r} missing from valid_symbol_types hint"
             )
+
+
+class _FakeNoneMetaStore:
+    """Fake store that returns results containing None metadata or documents."""
+
+    def __init__(self, documents, metadatas, distances=None):
+        self._documents = documents
+        self._metadatas = metadatas
+        self._distances = distances or [0.1] * len(documents)
+
+    def query(self, **_kwargs):
+        return {
+            "documents": [self._documents],
+            "metadatas": [self._metadatas],
+            "distances": [self._distances],
+        }
+
+
+class TestNoneMetadataRobustness:
+    """AC-1/AC-2/AC-3: search_memories() and code_search() tolerate None metadata/documents."""
+
+    def test_search_memories_tolerates_none_metadata(self, monkeypatch):
+        """AC-1: None metadata row returns fallback sentinel values without raising."""
+        store = _FakeNoneMetaStore(
+            documents=["def authenticate(): return current_user"],
+            metadatas=[None],
+            distances=[0.125],
+        )
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: store)
+
+        result = search_memories("authentication", "/fake/palace")
+
+        assert "error" not in result
+        assert len(result["results"]) == 1
+        hit = result["results"][0]
+        assert hit["text"] == "def authenticate(): return current_user"
+        assert hit["wing"] == "unknown"
+        assert hit["room"] == "unknown"
+        assert hit["source_file"] == "?"
+        assert hit["symbol_name"] == ""
+        assert hit["similarity"] == round(1 - 0.125, 3)
+
+    def test_code_search_tolerates_none_document_and_metadata(self, monkeypatch):
+        """AC-2: None document and None metadata row returns empty-text result without raising."""
+        store = _FakeNoneMetaStore(
+            documents=[None],
+            metadatas=[None],
+            distances=[0.2],
+        )
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: store)
+
+        result = code_search("/fake/palace", "anything")
+
+        assert "error" not in result
+        assert len(result["results"]) == 1
+        hit = result["results"][0]
+        assert hit["text"] == ""
+        assert hit["wing"] == "unknown"
+        assert hit["room"] == "unknown"
+        assert hit["source_file"] == ""
+        assert hit["symbol_name"] == ""
+        assert hit["line_range"] is None
+        assert hit["similarity"] == round(1 - 0.2, 3)
+
+    def test_code_search_skips_none_metadata_when_post_filters_require_fields(self, monkeypatch):
+        """AC-3: None-metadata hit is filtered out when symbol_name or file_glob is specified."""
+        store = _FakeNoneMetaStore(
+            documents=[None, "def authenticate(): JWT validation"],
+            metadatas=[
+                None,
+                {
+                    "wing": "project",
+                    "room": "backend",
+                    "source_file": "/src/auth.py",
+                    "symbol_name": "authenticate",
+                    "symbol_type": "function",
+                },
+            ],
+            distances=[0.1, 0.15],
+        )
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: store)
+
+        result = code_search("/fake/palace", "auth", symbol_name="authenticate")
+
+        assert "error" not in result
+        assert len(result["results"]) == 1
+        assert result["results"][0]["symbol_name"] == "authenticate"
+
+    def test_code_search_none_metadata_excluded_by_file_glob(self, monkeypatch):
+        """None-metadata hit is excluded when file_glob filter is active."""
+        store = _FakeNoneMetaStore(
+            documents=[None, "func handleRequest()"],
+            metadatas=[
+                None,
+                {
+                    "wing": "backend",
+                    "room": "api",
+                    "source_file": "/src/handler.go",
+                    "symbol_name": "handleRequest",
+                    "symbol_type": "function",
+                },
+            ],
+            distances=[0.05, 0.12],
+        )
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: store)
+
+        result = code_search("/fake/palace", "handler", file_glob="*.go")
+
+        assert "error" not in result
+        assert len(result["results"]) == 1
+        assert result["results"][0]["source_file"] == "/src/handler.go"
+
+    def test_search_cli_tolerates_none_metadata_and_document(self, monkeypatch, capsys):
+        """CLI search() does not crash when metadata or document is None and prints fallback values."""
+        store = _FakeNoneMetaStore(
+            documents=[None],
+            metadatas=[None],
+            distances=[0.3],
+        )
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: store)
+
+        search("query", "/fake/palace")
+
+        captured = capsys.readouterr()
+        assert "[1] ? / ?" in captured.out
+        assert "Source: ?" in captured.out
+        assert "Match:  0.7" in captured.out
+
+
+class TestCodeSearchHybridRerank:
+    """AC-5 / AC-6: Hybrid reranking in code_search."""
+
+    class FakeCsprojStore:
+        """Fake store that returns README before .csproj in vector order."""
+
+        README_DOC = "# README for Infrastructure layer — overview and architecture"
+        CSPROJ_DOC = (
+            '<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="7.0.0" />'
+        )
+        README_META = {
+            "wing": "dotnet",
+            "room": "backend",
+            "source_file": "/src/Infrastructure/README.md",
+            "language": "markdown",
+            "symbol_name": "",
+            "symbol_type": "",
+            "chunk_index": 0,
+            "added_by": "miner",
+            "filed_at": "2026-01-01T00:00:00",
+        }
+        CSPROJ_META = {
+            "wing": "dotnet",
+            "room": "backend",
+            "source_file": "/src/Infrastructure/Infrastructure.csproj",
+            "language": "xml",
+            "symbol_name": "",
+            "symbol_type": "",
+            "chunk_index": 0,
+            "added_by": "miner",
+            "filed_at": "2026-01-01T00:00:00",
+        }
+
+        def query(self, **kwargs):
+            # README has better vector distance (closer = lower cosine distance)
+            return {
+                "documents": [[self.README_DOC, self.CSPROJ_DOC]],
+                "metadatas": [[self.README_META, self.CSPROJ_META]],
+                "distances": [[0.10, 0.35]],
+            }
+
+    @pytest.fixture
+    def csproj_palace_path(self, monkeypatch):
+        store = self.FakeCsprojStore()
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_args, **_kwargs: store)
+        return "/fake/dotnet-palace"
+
+    def test_default_ordering_preserved_without_rerank(self, csproj_palace_path):
+        """AC-5: Without rerank, vector order is unchanged — README remains first."""
+        result = code_search(
+            csproj_palace_path,
+            "Microsoft EntityFrameworkCore SqlServer NuGet PackageReference",
+            n_results=2,
+        )
+
+        assert "error" not in result
+        assert len(result["results"]) == 2
+        assert result["results"][0]["source_file"].endswith("README.md"), (
+            f"Default mode must keep README first (vector order), "
+            f"got: {result['results'][0]['source_file']}"
+        )
+
+    def test_hybrid_rerank_promotes_csproj_over_readme(self, csproj_palace_path):
+        """AC-6: Hybrid reranking promotes .csproj over README for PackageReference query."""
+        result = code_search(
+            csproj_palace_path,
+            "Microsoft EntityFrameworkCore SqlServer NuGet PackageReference",
+            n_results=2,
+            rerank="hybrid",
+        )
+
+        assert "error" not in result
+        assert len(result["results"]) == 2
+        assert result["results"][0]["source_file"].endswith(".csproj"), (
+            f"Hybrid mode must promote .csproj first, got: {result['results'][0]['source_file']}"
+        )
+
+    def test_hybrid_rerank_result_count_limited_to_n_results(self, csproj_palace_path):
+        """AC-6: Result set is still limited to n_results after hybrid reranking."""
+        result = code_search(
+            csproj_palace_path,
+            "Microsoft EntityFrameworkCore SqlServer NuGet PackageReference",
+            n_results=1,
+            rerank="hybrid",
+        )
+
+        assert "error" not in result
+        assert len(result["results"]) == 1
+
+    def test_hybrid_rerank_result_fields_unchanged(self, csproj_palace_path):
+        """Hybrid mode returns the same field set as vector mode."""
+        default_result = code_search(
+            csproj_palace_path,
+            "Microsoft EntityFrameworkCore SqlServer NuGet PackageReference",
+            n_results=2,
+        )
+        hybrid_result = code_search(
+            csproj_palace_path,
+            "Microsoft EntityFrameworkCore SqlServer NuGet PackageReference",
+            n_results=2,
+            rerank="hybrid",
+        )
+
+        default_keys = set(default_result["results"][0].keys())
+        hybrid_keys = set(hybrid_result["results"][0].keys())
+        assert default_keys == hybrid_keys, (
+            "Hybrid mode must return the same field set as vector mode"
+        )
+
+    def test_invalid_rerank_mode_returns_error_without_querying_store(self, csproj_palace_path):
+        """Invalid rerank mode returns an error without opening the store."""
+        result = code_search(csproj_palace_path, "any query", rerank="bad_mode")
+        assert "error" in result
+        assert "bad_mode" in result["error"]
+        assert "valid_rerank_modes" in result
+
+    def test_filters_dict_shape_unchanged_with_hybrid_rerank(self, csproj_palace_path):
+        """Hybrid rerank does not alter the filters key shape (AC-5 regression guard)."""
+        result = code_search(
+            csproj_palace_path,
+            "query",
+            n_results=1,
+            rerank="hybrid",
+        )
+        assert set(result["filters"].keys()) == {
+            "language",
+            "symbol_name",
+            "symbol_type",
+            "file_glob",
+            "wing",
+        }
