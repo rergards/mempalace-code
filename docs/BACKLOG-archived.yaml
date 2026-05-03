@@ -463,3 +463,8 @@ items:
       resolution: '2026-05-03: completed in pipeline run'
       archived_date: "2026-05-03"
       done_summary: completed in pipeline run
+    - key: READ-PATH-NONE-METADATA-HARDEN
+      summary: Tolerate None documents and metadata on search and graph read paths
+      resolution: '2026-05-03: completed in pipeline run'
+      archived_date: "2026-05-03"
+      done_summary: completed in pipeline run

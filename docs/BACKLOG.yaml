@@ -95,48 +95,6 @@ items:
       3. Unknown `notifications/*` methods return `None` / no JSON-RPC response.
       4. Existing MCP request tests still pass.
       5. Ruff clean.
-  - key: READ-PATH-NONE-METADATA-HARDEN
-    summary: Tolerate None documents and metadata on search and graph read paths
-    type: bug
-    status: open
-    priority: high
-    size: S
-    section_id: storage_reliability
-    labels: [search, graph, robustness, upstream, migration]
-    description: |-
-      ## Symptom
-
-      Upstream hardened read paths for palaces that contain rows with missing
-      documents or metadata. LanceDB should normally preserve metadata, but
-      `mempalace-code` can still see bad rows via legacy Chroma imports,
-      partial/corrupt data, or direct store manipulation.
-
-      ## Steps to reproduce
-
-      Use small fake stores or monkeypatches that return valid result rows mixed
-      with `None` metadata/documents:
-
-      - `search_memories()` crashes when one result metadata entry is `None`.
-      - `palace_graph.build_graph()` crashes when one batch metadata entry is
-        `None`.
-
-      ## Scope
-
-      - Treat `None` metadata as an empty dict on search result rendering.
-      - Treat `None` documents as empty text where ranking/rendering needs a
-        string.
-      - Skip `None` metadata rows in `build_graph()` rather than failing the
-        entire graph/tunnel request.
-      - Add small tests with fake stores; do not require corrupt LanceDB fixtures.
-
-      ## Acceptance Criteria
-
-      1. `search_memories()` returns sentinel metadata values instead of raising
-         on `None` metadata.
-      2. `code_search()` handles `None` metadata/doc rows without raising.
-      3. `palace_graph.build_graph()` skips `None` metadata rows.
-      4. Relevant search and graph tests pass.
-      5. Ruff clean.
   - key: CONVO-NORMALIZE-GEMINI-CLAUDE-TOOLS
     summary: Extend conversation normalization with Gemini CLI and Claude Code tool-block cleanup
     type: feature
