@@ -43,58 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: MCP-REQUEST-COMPAT-UPSTREAM
-    summary: Harden MCP request handling using upstream compatibility fixes as examples
-    type: bug
-    status: open
-    priority: high
-    size: S
-    section_id: mcp_developer_tools
-    labels: [mcp, compatibility, upstream, hardening]
-    description: |-
-      ## Symptom
-
-      Upstream vanilla MemPalace fixed several MCP protocol compatibility edges
-      after this fork split. Our state is too different for a direct port, but
-      the behavior is relevant to `mempalace-code`:
-
-      - `handle_request()` crashes when a client sends `tools/call` with
-        `"arguments": null`.
-      - Extra client arguments such as Gemini-style `wait_for_previous` reach
-        handlers and produce internal tool errors.
-      - Unknown `notifications/*` methods return errors instead of being ignored
-        as notifications.
-
-      These were reproduced locally against `mempalace_code.mcp_server`.
-
-      ## Steps to reproduce
-
-      Run a tiny Python snippet that calls `handle_request()` with:
-
-      1. `{"method": "tools/call", "params": {"name": "mempalace_status", "arguments": null}}`
-      2. `{"method": "tools/call", "params": {"name": "mempalace_status", "arguments": {"wait_for_previous": false}}}`
-      3. `{"method": "notifications/cancelled", "params": {}}`
-
-      Current behavior: case 1 raises `AttributeError`, case 2 returns an
-      internal tool error, and case 3 returns an unknown-method response.
-
-      ## Scope
-
-      - Treat missing/null tool arguments as `{}` before type coercion.
-      - Drop known client compatibility noise arguments that are not in the
-        selected tool schema.
-      - Return no response for `notifications/*` methods.
-      - Keep the current `mempalace-code` server/tool names unchanged.
-
-      ## Acceptance Criteria
-
-      1. `tools/call` with `"arguments": null` succeeds for an argument-free
-         tool such as `mempalace_status`.
-      2. `tools/call` with `wait_for_previous` on a normal tool does not produce
-         an internal tool error.
-      3. Unknown `notifications/*` methods return `None` / no JSON-RPC response.
-      4. Existing MCP request tests still pass.
-      5. Ruff clean.
   - key: CONVO-NORMALIZE-GEMINI-CLAUDE-TOOLS
     summary: Extend conversation normalization with Gemini CLI and Claude Code tool-block cleanup
     type: feature

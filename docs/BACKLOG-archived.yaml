@@ -468,3 +468,8 @@ items:
       resolution: '2026-05-03: completed in pipeline run'
       archived_date: "2026-05-03"
       done_summary: completed in pipeline run
+    - key: MCP-REQUEST-COMPAT-UPSTREAM
+      summary: Harden MCP request handling using upstream compatibility fixes as examples
+      resolution: '2026-05-03: completed in pipeline run'
+      archived_date: "2026-05-03"
+      done_summary: completed in pipeline run
