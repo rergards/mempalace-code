@@ -771,6 +771,199 @@ class TestRepairRollbackCommand:
         assert "restore failed" in (captured.err + captured.out).lower()
 
 
+class TestCleanupCommand:
+    """CLI tests for the cleanup subcommand (STORAGE-LANCE-STALE-FRAGMENT-CLEANUP)."""
+
+    def test_cleanup_defaults_exit_zero(self, tmp_path, capsys):
+        """cleanup with defaults exits 0 on a healthy Lance palace."""
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        for i in range(3):
+            store.add(
+                ids=[f"cl{i}"],
+                documents=[f"cleanup cli test drawer {i} content"],
+                metadatas=[{"wing": "w", "room": "r"}],
+            )
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "cleanup"]):
+            main()  # must not raise
+
+        captured = capsys.readouterr()
+        assert "ok" in captured.out.lower()
+
+    def test_cleanup_json_output_ok_true(self, tmp_path, capsys):
+        """cleanup --json emits JSON with ok=true and row counts (AC-1)."""
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["cj1"],
+            documents=["cleanup json output test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "cleanup", "--json"]):
+            main()
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["ok"] is True
+        assert data["rows_before"] == data["rows_after"]
+
+    def test_cleanup_unsafe_now_warns_and_exits_zero(self, tmp_path, capsys):
+        """cleanup --unsafe-now shows no-writer warning and exits 0 (AC-3)."""
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["cu1"],
+            documents=["cleanup unsafe now test content here"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        with patch.object(
+            sys, "argv", ["mempalace", "--palace", palace, "cleanup", "--unsafe-now"]
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        assert "no other writer" in captured.out.lower() or "writer" in captured.out.lower()
+
+    def test_cleanup_unsafe_now_json_delete_unverified_true(self, tmp_path, capsys):
+        """cleanup --unsafe-now --json has delete_unverified=true in output (AC-3)."""
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["cuj1"],
+            documents=["cleanup unsafe json test content here"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "cleanup", "--unsafe-now", "--json"],
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["delete_unverified"] is True
+        assert data["cleanup_older_than_days"] == 0
+
+    def test_cleanup_nonexistent_palace_exits_nonzero(self, tmp_path, capsys):
+        """cleanup exits non-zero with message when palace does not exist."""
+        palace = str(tmp_path / "nonexistent")
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "cleanup"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code != 0
+
+    def test_cleanup_dependency_error_exits_cleanly(self, tmp_path, capsys):
+        """AC-4: LanceStoreDependencyError exits non-zero with a clean hint, no traceback."""
+        from mempalace_code.storage import LanceStore, LanceStoreDependencyError
+
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["dep1"],
+            documents=["cleanup dependency error test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        def _raise_dep(*args, **kwargs):
+            raise LanceStoreDependencyError(
+                "Lance cleanup requires an updated lancedb installation. "
+                "Run: pip install 'mempalace-code' --upgrade"
+            )
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "cleanup", "--json"]):
+            with patch.object(LanceStore, "cleanup_stale_fragments", _raise_dep):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+
+        assert exc.value.code != 0
+        captured = capsys.readouterr()
+        # Must print a clean error hint, not a raw traceback
+        assert "Traceback" not in captured.err
+        assert "upgrade" in captured.err.lower() or "install" in captured.err.lower()
+
+    def test_cleanup_older_than_days_flag(self, tmp_path, capsys):
+        """--older-than-days is passed through to cleanup_stale_fragments."""
+        from mempalace_code.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["otd1"],
+            documents=["cleanup older than days flag test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        calls = []
+
+        _real_cleanup = LanceStore.cleanup_stale_fragments
+
+        def _capture(self, older_than_days=7, unsafe_now=False):
+            calls.append({"older_than_days": older_than_days, "unsafe_now": unsafe_now})
+            return _real_cleanup(self, older_than_days=older_than_days, unsafe_now=unsafe_now)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "cleanup", "--older-than-days", "14"],
+        ):
+            with patch.object(LanceStore, "cleanup_stale_fragments", _capture):
+                main()
+
+        assert len(calls) == 1
+        assert calls[0]["older_than_days"] == 14
+
+
+class TestHealthCommandWithStorage:
+    """AC-5: health command exposes storage metrics in both human and JSON output."""
+
+    def test_health_human_output_includes_storage_metrics(self, tmp_path, capsys):
+        """health human output includes Storage: and Versions: lines."""
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["hhs1"],
+            documents=["health human storage metrics test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "health"]):
+            main()
+
+        captured = capsys.readouterr()
+        assert "Storage:" in captured.out
+        assert "Versions:" in captured.out
+
+    def test_health_json_output_includes_storage_keys(self, tmp_path, capsys):
+        """health --json output includes storage dict with expected keys."""
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["hjs1"],
+            documents=["health json storage keys test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "health", "--json"]):
+            main()
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert "storage" in data
+        for key in (
+            "version_count",
+            "logical_bytes",
+            "on_disk_bytes",
+            "estimated_reclaimable_bytes",
+        ):
+            assert key in data["storage"], f"storage missing key: {key}"
+
+
 class TestBackupCommand:
     """CLI tests for the backup subcommands."""
 
@@ -844,7 +1037,7 @@ class TestBackupCommand:
         captured = capsys.readouterr()
         assert "<?xml" in captured.out
         assert "StartCalendarInterval" in captured.out
-        assert "scheduled_" in captured.out
+        assert "--kind scheduled" in captured.out
 
     def test_backup_schedule_hourly_darwin(self, tmp_path, capsys, monkeypatch):
         """darwin hourly → StartInterval and 3600."""
@@ -877,8 +1070,8 @@ class TestBackupCommand:
             main()
         captured = capsys.readouterr()
         assert re.search(r"0\s+3\s+\*\s+\*\s+\*", captured.out)
-        assert "--out" in captured.out
-        assert "scheduled_" in captured.out
+        assert "--kind scheduled" in captured.out
+        assert "--palace" in captured.out
 
     def test_backup_schedule_install_rejected(self, tmp_path, capsys):
         """AC-15: --install exits non-zero with 'owner action required' message."""

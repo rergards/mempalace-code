@@ -1109,11 +1109,14 @@ class TestSafeOptimize:
         fake_datetime = MagicMock()
         fake_datetime.now.side_effect = [
             datetime(2026, 1, 1, 12, 0, 0),
+            datetime(2026, 1, 1, 12, 0, 0),  # metadata timestamp
             datetime(2026, 1, 1, 12, 0, 1),
+            datetime(2026, 1, 1, 12, 0, 1),  # metadata timestamp
             datetime(2026, 1, 1, 12, 0, 2),
+            datetime(2026, 1, 1, 12, 0, 2),  # metadata timestamp
         ]
 
-        with patch("mempalace_code.storage.datetime", fake_datetime):
+        with patch("mempalace_code.backup.datetime", fake_datetime):
             results = [store.safe_optimize(palace_path, backup_first=True) for _ in range(3)]
 
         assert results == [True, True, True]
@@ -1131,10 +1134,12 @@ class TestSafeOptimize:
         fake_datetime = MagicMock()
         fake_datetime.now.side_effect = [
             datetime(2026, 1, 1, 12, 1, 0),
+            datetime(2026, 1, 1, 12, 1, 0),  # metadata timestamp
             datetime(2026, 1, 1, 12, 1, 1),
+            datetime(2026, 1, 1, 12, 1, 1),  # metadata timestamp
         ]
 
-        with patch("mempalace_code.storage.datetime", fake_datetime):
+        with patch("mempalace_code.backup.datetime", fake_datetime):
             first = store.safe_optimize(palace_path, backup_first=True)
             second = store.safe_optimize(palace_path, backup_first=True)
 
@@ -1164,7 +1169,7 @@ class TestSafeOptimize:
         fake_datetime = MagicMock()
         fake_datetime.now.return_value = datetime(2026, 1, 1, 12, 2, 0)
 
-        with patch("mempalace_code.storage.datetime", fake_datetime):
+        with patch("mempalace_code.backup.datetime", fake_datetime):
             result = store.safe_optimize(palace_path, backup_first=True)
 
         assert result is True
@@ -1194,8 +1199,8 @@ class TestSafeOptimize:
         fake_datetime = MagicMock()
         fake_datetime.now.return_value = datetime(2026, 1, 1, 12, 3, 0)
 
-        with patch("mempalace_code.storage.datetime", fake_datetime):
-            with patch("pathlib.Path.unlink", side_effect=OSError("permission denied")):
+        with patch("mempalace_code.backup.datetime", fake_datetime):
+            with patch("mempalace_code.backup.os.unlink", side_effect=OSError("permission denied")):
                 with caplog.at_level(logging.WARNING, logger="mempalace"):
                     result = store.safe_optimize(palace_path, backup_first=True)
 
@@ -1682,3 +1687,306 @@ class TestWhereToArrowMaskIn:
             store, {"$and": [{"wing": {"$in": ["alpha", "beta"]}}, {"room": "general"}]}
         )
         assert result == {"a1", "b1"}
+
+
+# =============================================================================
+# storage_stats() and cleanup_stale_fragments() (STORAGE-LANCE-STALE-FRAGMENT-CLEANUP)
+# =============================================================================
+
+
+class _OptimizableTable(_ProjectedTable):
+    """Fake Lance table that also captures optimize() calls."""
+
+    def __init__(self, rows, *, versions=None):
+        super().__init__(rows, versions=versions)
+        self.optimize_calls = []
+
+    def optimize(self, *, cleanup_older_than=None, delete_unverified=False, retrain=False):
+        self.optimize_calls.append(
+            {
+                "cleanup_older_than": cleanup_older_than,
+                "delete_unverified": delete_unverified,
+            }
+        )
+
+    def search(self):
+        return _ProjectedSearch(self)
+
+
+class TestStorageStats:
+    def test_keys_present_and_non_negative(self, palace_path):
+        """storage_stats() returns all expected keys with non-negative values."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["s1"],
+            documents=["storage stats test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+        s = store.storage_stats()
+        for key in (
+            "version_count",
+            "logical_bytes",
+            "on_disk_bytes",
+            "current_data_files",
+            "on_disk_data_files",
+            "current_deletion_files",
+            "on_disk_deletion_files",
+            "estimated_reclaimable_bytes",
+        ):
+            assert key in s, f"missing key: {key}"
+            assert isinstance(s[key], int), f"{key} must be int, got {type(s[key])}"
+            assert s[key] >= 0, f"{key} must be >= 0, got {s[key]}"
+
+    def test_version_count_increments_on_add(self, palace_path):
+        """version_count reflects the actual number of Lance versions."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["v1"],
+            documents=["version one drawer content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+        v1 = store.storage_stats()["version_count"]
+        store.add(
+            ids=["v2"],
+            documents=["version two drawer content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+        v2 = store.storage_stats()["version_count"]
+        assert v2 > v1
+
+    def test_on_disk_bytes_positive_after_add(self, palace_path):
+        """on_disk_bytes > 0 after at least one drawer is added."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["od1"],
+            documents=["on disk bytes test content here"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+        assert store.storage_stats()["on_disk_bytes"] > 0
+
+    def test_none_table_returns_zeros(self):
+        """storage_stats() on a store with _table=None returns all zeros."""
+        store = LanceStore.__new__(LanceStore)
+        store._table = None
+        store._table_dir = "/nonexistent/path"
+        s = store.storage_stats()
+        for key, val in s.items():
+            assert val == 0, f"{key} should be 0 for None table, got {val}"
+
+    def test_logical_bytes_from_version_metadata(self):
+        """storage_stats() extracts logical_bytes from list_versions() metadata."""
+        table = _OptimizableTable(
+            [{"wing": "w", "room": "r"}],
+            versions=[
+                {
+                    "version": 1,
+                    "metadata": {
+                        "total_files_size": "12345",
+                        "total_data_files": "3",
+                        "total_deletion_files": "1",
+                    },
+                }
+            ],
+        )
+        store = LanceStore.__new__(LanceStore)
+        store._table = table
+        store._table_dir = "/nonexistent/path"
+        s = store.storage_stats()
+        assert s["logical_bytes"] == 12345
+        assert s["current_data_files"] == 3
+        assert s["current_deletion_files"] == 1
+        assert s["version_count"] == 1
+
+    def test_health_check_includes_storage_section(self, palace_path):
+        """health_check() response includes storage section with expected keys (AC-5)."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["hcs1"],
+            documents=["health check storage section test content"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+        report = store.health_check()
+        assert "storage" in report
+        s = report["storage"]
+        for key in (
+            "version_count",
+            "logical_bytes",
+            "on_disk_bytes",
+            "estimated_reclaimable_bytes",
+        ):
+            assert key in s, f"health_check storage missing key: {key}"
+
+
+class TestCleanupStaleFragments:
+    def test_default_params_passed_to_optimize(self):
+        """AC-2: Default cleanup_stale_fragments() passes cleanup_older_than=timedelta(7), delete_unverified=False."""
+        from datetime import timedelta
+
+        table = _OptimizableTable(
+            [{"wing": "w", "room": "r"}],
+            versions=[
+                {
+                    "version": 1,
+                    "metadata": {
+                        "total_files_size": "0",
+                        "total_data_files": "1",
+                        "total_deletion_files": "0",
+                    },
+                }
+            ],
+        )
+        store = LanceStore.__new__(LanceStore)
+        store._table = table
+        store._table_dir = "/nonexistent/path"
+
+        store.cleanup_stale_fragments(older_than_days=7, unsafe_now=False)
+
+        assert len(table.optimize_calls) == 1
+        call = table.optimize_calls[0]
+        assert call["cleanup_older_than"] == timedelta(days=7)
+        assert call["delete_unverified"] is False
+
+    def test_unsafe_now_passes_zero_timedelta_and_delete_unverified(self):
+        """AC-3: unsafe_now=True passes cleanup_older_than=timedelta(0) and delete_unverified=True."""
+        from datetime import timedelta
+
+        table = _OptimizableTable(
+            [{"wing": "w", "room": "r"}],
+            versions=[
+                {
+                    "version": 1,
+                    "metadata": {
+                        "total_files_size": "0",
+                        "total_data_files": "1",
+                        "total_deletion_files": "0",
+                    },
+                }
+            ],
+        )
+        store = LanceStore.__new__(LanceStore)
+        store._table = table
+        store._table_dir = "/nonexistent/path"
+
+        store.cleanup_stale_fragments(unsafe_now=True)
+
+        assert len(table.optimize_calls) == 1
+        call = table.optimize_calls[0]
+        assert call["cleanup_older_than"] == timedelta(0)
+        assert call["delete_unverified"] is True
+
+    def test_result_records_delete_unverified_flag(self):
+        """cleanup_stale_fragments returns delete_unverified=True when unsafe_now=True."""
+        table = _OptimizableTable(
+            [{"wing": "w", "room": "r"}],
+            versions=[
+                {
+                    "version": 1,
+                    "metadata": {
+                        "total_files_size": "0",
+                        "total_data_files": "1",
+                        "total_deletion_files": "0",
+                    },
+                }
+            ],
+        )
+        store = LanceStore.__new__(LanceStore)
+        store._table = table
+        store._table_dir = "/nonexistent/path"
+
+        result = store.cleanup_stale_fragments(unsafe_now=True)
+        assert result["delete_unverified"] is True
+
+        result2 = store.cleanup_stale_fragments(unsafe_now=False)
+        assert result2["delete_unverified"] is False
+
+    def test_lance_module_not_found_raises_dependency_error(self):
+        """AC-4: ModuleNotFoundError with 'lance' raises LanceStoreDependencyError with install hint."""
+        from mempalace_code.storage import LanceStoreDependencyError
+
+        table = _OptimizableTable([{"wing": "w", "room": "r"}])
+
+        def _raise(*args, **kwargs):
+            raise ModuleNotFoundError("No module named 'lance'")
+
+        table.optimize = _raise
+
+        store = LanceStore.__new__(LanceStore)
+        store._table = table
+        store._table_dir = "/nonexistent/path"
+
+        with pytest.raises(LanceStoreDependencyError) as exc_info:
+            store.cleanup_stale_fragments()
+
+        msg = str(exc_info.value)
+        assert "upgrade" in msg.lower() or "install" in msg.lower()
+
+    def test_pylance_module_not_found_raises_dependency_error(self):
+        """AC-4: ModuleNotFoundError with 'pylance' also raises LanceStoreDependencyError."""
+        from mempalace_code.storage import LanceStoreDependencyError
+
+        table = _OptimizableTable([{"wing": "w", "room": "r"}])
+
+        def _raise(*args, **kwargs):
+            raise ImportError("cannot import name 'pylance'")
+
+        table.optimize = _raise
+
+        store = LanceStore.__new__(LanceStore)
+        store._table = table
+        store._table_dir = "/nonexistent/path"
+
+        with pytest.raises(LanceStoreDependencyError):
+            store.cleanup_stale_fragments()
+
+    def test_none_table_returns_ok_false(self):
+        """cleanup_stale_fragments() on None table returns ok=False without raising."""
+        store = LanceStore.__new__(LanceStore)
+        store._table = None
+        store._table_dir = "/nonexistent/path"
+
+        result = store.cleanup_stale_fragments()
+        assert result["ok"] is False
+        assert "error" in result
+
+    def test_optimize_exception_returns_ok_false(self):
+        """optimize() raising a generic exception returns ok=False in result dict."""
+        table = _OptimizableTable([{"wing": "w", "room": "r"}])
+
+        def _raise(*args, **kwargs):
+            raise RuntimeError("disk full")
+
+        table.optimize = _raise
+
+        store = LanceStore.__new__(LanceStore)
+        store._table = table
+        store._table_dir = "/nonexistent/path"
+
+        result = store.cleanup_stale_fragments()
+        assert result["ok"] is False
+        assert "disk full" in result.get("error", "")
+
+    def test_real_store_preserves_rows_and_reduces_versions(self, palace_path):
+        """AC-1: cleanup on a real store with stale versions preserves rows; freed_bytes>0 or version_count decreases."""
+        store = open_store(palace_path, create=True)
+        for i in range(3):
+            store.add(
+                ids=[f"cl{i}"],
+                documents=[f"cleanup integration test drawer number {i} content"],
+                metadatas=[{"wing": "w", "room": "r"}],
+            )
+        rows_before = store.count()
+
+        result = store.cleanup_stale_fragments(older_than_days=0, unsafe_now=True)
+
+        assert result["ok"] is True
+        assert result["rows_before"] == rows_before
+        assert result["rows_after"] == rows_before
+        # Either versions decreased or bytes were freed (LanceDB version-dependent)
+        freed_or_compacted = (
+            result["freed_bytes"] > 0
+            or result["version_count_after"] < result["version_count_before"]
+        )
+        assert freed_or_compacted, f"Expected freed_bytes>0 or version_count decrease; got {result}"
+        # Post-cleanup reads must succeed
+        post = store.get(limit=10)
+        assert len(post["ids"]) == rows_before

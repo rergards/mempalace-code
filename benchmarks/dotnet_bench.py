@@ -16,6 +16,8 @@ Usage:
     python benchmarks/dotnet_bench.py --repo-dir /path/to/CleanArchitecture
     python benchmarks/dotnet_bench.py --repo-dir /path/to/CleanArchitecture --validate-queries
     python benchmarks/dotnet_bench.py --repo-dir /path/to/CleanArchitecture --out results.json
+    python benchmarks/dotnet_bench.py --repo-dir /path/to/CleanArchitecture --rerank-mode hybrid
+    python benchmarks/dotnet_bench.py --repo-dir /path/to/CleanArchitecture --compare-rerank
 """
 
 import argparse
@@ -36,7 +38,10 @@ from mempalace_code.miner import process_file, scan_project  # noqa: E402
 from mempalace_code.storage import open_store  # noqa: E402
 
 EMBED_MODEL = "all-MiniLM-L6-v2"
-R5_THRESHOLD = 0.600
+R5_THRESHOLD = 0.900
+
+# Candidate pool size used for hybrid rerank in single-mode and compare-mode runs
+HYBRID_POOL_SIZE = 20
 
 # =============================================================================
 # KNOWN-ANSWER QUERY SET — 20 queries across 4 .NET-specific categories
@@ -204,13 +209,68 @@ def mine_project(repo_dir, palace_path):
 
 
 # =============================================================================
+# HELPERS
+# =============================================================================
+
+
+def _aggregate_query_results(query_results):
+    """Compute R@5, R@10, per_category from a list of per-query result dicts."""
+    r5 = sum(1 for r in query_results if r["hit_at_5"]) / len(query_results)
+    r10 = sum(1 for r in query_results if r["hit_at_10"]) / len(query_results)
+
+    per_category = defaultdict(lambda: {"hits5": 0, "hits10": 0, "total": 0})
+    for r in query_results:
+        cat = r["category"]
+        per_category[cat]["total"] += 1
+        if r["hit_at_5"]:
+            per_category[cat]["hits5"] += 1
+        if r["hit_at_10"]:
+            per_category[cat]["hits10"] += 1
+
+    cat_scores = {
+        cat: {
+            "R@5": counts["hits5"] / counts["total"],
+            "R@10": counts["hits10"] / counts["total"],
+        }
+        for cat, counts in per_category.items()
+    }
+
+    return {"R@5": r5, "R@10": r10, "per_category": cat_scores, "per_query": query_results}
+
+
+def _build_candidates(docs, metas):
+    """Build candidate dicts for hybrid_rerank from store query output."""
+    return [
+        {
+            "text": doc,
+            "source_file": (meta.get("source_file") or ""),
+            "symbol_name": (meta.get("symbol_name") or ""),
+            "symbol_type": (meta.get("symbol_type") or ""),
+            "language": (meta.get("language") or ""),
+            "room": (meta.get("room") or ""),
+            "wing": (meta.get("wing") or ""),
+            "_meta": meta,
+        }
+        for doc, meta in zip(docs, metas)
+    ]
+
+
+# =============================================================================
 # BENCHMARK
 # =============================================================================
 
 
-def run_bench(repo_dir):
-    """Mine repo, run 20 queries, return results dict."""
+def run_bench(repo_dir, rerank_mode="vector"):
+    """Mine repo, run 20 queries, return results dict.
+
+    rerank_mode: "vector" (default) uses LanceDB order; "hybrid" applies
+    BM25-style reranking over a larger candidate pool before evaluation.
+    """
+    from mempalace_code.search_reranker import hybrid_rerank
+
     print(f"\nMining {repo_dir} with {EMBED_MODEL}...")
+    if rerank_mode == "hybrid":
+        print(f"Rerank mode: hybrid (pool size {HYBRID_POOL_SIZE})")
 
     tmp_dir = tempfile.mkdtemp(prefix="dotnet_bench_")
     try:
@@ -233,15 +293,30 @@ def run_bench(repo_dir):
 
         for q in QUERIES:
             t0 = time.time()
+
+            if rerank_mode == "hybrid":
+                fetch_n = HYBRID_POOL_SIZE
+            else:
+                fetch_n = 10
+
             results = store.query(
                 query_texts=[q["query"]],
-                n_results=10,
+                n_results=fetch_n,
                 include=["documents", "metadatas", "distances"],
             )
             latency_ms = (time.time() - t0) * 1000
             query_latencies.append(latency_ms)
 
-            metas = results["metadatas"][0] if results["metadatas"] else []
+            docs_raw = results["documents"][0] if results["documents"] else []
+            metas_raw = results["metadatas"][0] if results["metadatas"] else []
+
+            if rerank_mode == "hybrid":
+                candidates = _build_candidates(docs_raw, metas_raw)
+                reranked = hybrid_rerank(q["query"], candidates)
+                metas = [c["_meta"] for c in reranked]
+            else:
+                metas = metas_raw
+
             h5 = hit_at_k(metas, q["expected_files"], 5)
             h10 = hit_at_k(metas, q["expected_files"], 10)
 
@@ -256,25 +331,7 @@ def run_bench(repo_dir):
                 }
             )
 
-        # Aggregate
-        r5 = sum(1 for r in query_results if r["hit_at_5"]) / len(query_results)
-        r10 = sum(1 for r in query_results if r["hit_at_10"]) / len(query_results)
-
-        per_category = defaultdict(lambda: {"hits5": 0, "hits10": 0, "total": 0})
-        for r in query_results:
-            cat = r["category"]
-            per_category[cat]["total"] += 1
-            if r["hit_at_5"]:
-                per_category[cat]["hits5"] += 1
-            if r["hit_at_10"]:
-                per_category[cat]["hits10"] += 1
-
-        cat_scores = {}
-        for cat, counts in per_category.items():
-            cat_scores[cat] = {
-                "R@5": counts["hits5"] / counts["total"],
-                "R@10": counts["hits10"] / counts["total"],
-            }
+        agg = _aggregate_query_results(query_results)
 
         avg_latency = sum(query_latencies) / len(query_latencies)
         # p95: index n*0.95-1 (floor) to avoid max==p95 issue (BENCH-EMBED-AB F-002)
@@ -282,11 +339,118 @@ def run_bench(repo_dir):
         p95_latency = sorted(query_latencies)[p95_idx]
 
         return {
+            "code_retrieval": agg,
+            "performance": {
+                "embed_time_s": round(embed_time, 1),
+                "chunk_count": chunk_count,
+                "query_latency_avg_ms": round(avg_latency, 1),
+                "query_latency_p95_ms": round(p95_latency, 1),
+                "index_size_mb": round(index_mb, 1),
+            },
+        }
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def run_compare_bench(repo_dir):
+    """Mine repo once, evaluate both vector and hybrid modes, return comparison dict.
+
+    Both modes query the same index with the same pool size (HYBRID_POOL_SIZE)
+    so the only difference between them is the candidate ordering.
+    """
+    from mempalace_code.search_reranker import hybrid_rerank
+
+    print(f"\nMining {repo_dir} with {EMBED_MODEL} (compare-rerank mode)...")
+
+    tmp_dir = tempfile.mkdtemp(prefix="dotnet_compare_bench_")
+    try:
+        t0 = time.time()
+        store, chunk_count = mine_project(repo_dir, tmp_dir)
+        embed_time = time.time() - t0
+        print(f"Mined {chunk_count} chunks in {embed_time:.1f}s")
+
+        lance_dir = Path(tmp_dir) / "lance"
+        if lance_dir.exists():
+            index_bytes = sum(f.stat().st_size for f in lance_dir.rglob("*") if f.is_file())
+        else:
+            index_bytes = 0
+        index_mb = index_bytes / (1024 * 1024)
+
+        vec_results = []
+        hyb_results = []
+        query_latencies = []
+
+        for q in QUERIES:
+            t0 = time.time()
+            results = store.query(
+                query_texts=[q["query"]],
+                n_results=HYBRID_POOL_SIZE,
+                include=["documents", "metadatas", "distances"],
+            )
+            latency_ms = (time.time() - t0) * 1000
+            query_latencies.append(latency_ms)
+
+            docs = results["documents"][0] if results["documents"] else []
+            metas = results["metadatas"][0] if results["metadatas"] else []
+
+            # Vector mode: original LanceDB order
+            h5v = hit_at_k(metas, q["expected_files"], 5)
+            h10v = hit_at_k(metas, q["expected_files"], 10)
+            vec_results.append(
+                {
+                    "query": q["query"],
+                    "category": q["category"],
+                    "expected_files": q["expected_files"],
+                    "hit_at_5": h5v,
+                    "hit_at_10": h10v,
+                    "top5_files": [m.get("source_file", "").rsplit("/", 1)[-1] for m in metas[:5]],
+                }
+            )
+
+            # Hybrid mode: rerank the same candidate pool
+            candidates = _build_candidates(docs, metas)
+            reranked = hybrid_rerank(q["query"], candidates)
+            reranked_metas = [c["_meta"] for c in reranked]
+
+            h5h = hit_at_k(reranked_metas, q["expected_files"], 5)
+            h10h = hit_at_k(reranked_metas, q["expected_files"], 10)
+            hyb_results.append(
+                {
+                    "query": q["query"],
+                    "category": q["category"],
+                    "expected_files": q["expected_files"],
+                    "hit_at_5": h5h,
+                    "hit_at_10": h10h,
+                    "top5_files": [
+                        m.get("source_file", "").rsplit("/", 1)[-1] for m in reranked_metas[:5]
+                    ],
+                }
+            )
+
+        vec_agg = _aggregate_query_results(vec_results)
+        hyb_agg = _aggregate_query_results(hyb_results)
+
+        # Per-category deltas: hybrid R@5 minus vector R@5
+        all_cats = set(vec_agg["per_category"]) | set(hyb_agg["per_category"])
+        comparison_cats = {}
+        for cat in sorted(all_cats):
+            v = vec_agg["per_category"].get(cat, {}).get("R@5", 0.0)
+            h = hyb_agg["per_category"].get(cat, {}).get("R@5", 0.0)
+            comparison_cats[cat] = {"delta_R@5": round(h - v, 3)}
+
+        avg_latency = sum(query_latencies) / len(query_latencies)
+        p95_idx = max(0, int(len(query_latencies) * 0.95) - 1)
+        p95_latency = sorted(query_latencies)[p95_idx]
+
+        return {
             "code_retrieval": {
-                "R@5": r5,
-                "R@10": r10,
-                "per_category": cat_scores,
-                "per_query": query_results,
+                "modes": {
+                    "vector": vec_agg,
+                    "hybrid": hyb_agg,
+                }
+            },
+            "comparison": {
+                "per_category": comparison_cats,
             },
             "performance": {
                 "embed_time_s": round(embed_time, 1),
@@ -406,6 +570,39 @@ def print_report(bench_results):
     print(f"\n{'=' * 60}\n")
 
 
+def print_compare_report(compare_results):
+    """Print before/after comparison table to stdout."""
+    modes = compare_results["code_retrieval"]["modes"]
+    comp = compare_results["comparison"]
+    perf = compare_results["performance"]
+
+    print(f"\n{'=' * 60}")
+    print("  BENCH-DOTNET Compare-Rerank Results")
+    print(f"{'=' * 60}")
+    print(f"\n  Model:      {EMBED_MODEL}")
+    print(f"  Chunks:     {perf['chunk_count']}")
+    print(f"  Embed time: {perf['embed_time_s']}s")
+    print(f"  Pool size:  {HYBRID_POOL_SIZE} candidates per query")
+
+    for mode_name in ("vector", "hybrid"):
+        mode = modes[mode_name]
+        print(f"\n  [{mode_name.upper()}]  R@5={mode['R@5']:.3f}  R@10={mode['R@10']:.3f}")
+
+    print("\n  Per-category comparison (hybrid delta vs vector):\n")
+    categories = ["symbol_lookup", "cross_project", "interface_impl", "project_dependency"]
+    for cat in categories:
+        v = modes["vector"]["per_category"].get(cat, {})
+        h = modes["hybrid"]["per_category"].get(cat, {})
+        delta = comp["per_category"].get(cat, {}).get("delta_R@5", 0)
+        sign = "+" if delta >= 0 else ""
+        print(
+            f"    {cat:<22}  vector R@5={v.get('R@5', 0):.3f}  "
+            f"hybrid R@5={h.get('R@5', 0):.3f}  delta={sign}{delta:.3f}"
+        )
+
+    print(f"\n{'=' * 60}\n")
+
+
 # =============================================================================
 # MAIN
 # =============================================================================
@@ -434,6 +631,17 @@ def main():
         metavar="THRESHOLD",
         help="Exit 1 when overall R@5 is below THRESHOLD (e.g. 0.600); default: warn only",
     )
+    parser.add_argument(
+        "--rerank-mode",
+        choices=["vector", "hybrid"],
+        default="vector",
+        help="Retrieval mode: 'vector' (default) or 'hybrid' (BM25-style reranking)",
+    )
+    parser.add_argument(
+        "--compare-rerank",
+        action="store_true",
+        help="Mine once and compare vector vs hybrid modes side-by-side",
+    )
     args = parser.parse_args()
 
     repo_dir = str(Path(args.repo_dir).resolve())
@@ -449,11 +657,47 @@ def main():
         validate_queries(repo_dir)
         return
 
-    bench_results = run_bench(repo_dir)
+    today = time.strftime("%Y-%m-%d")
+
+    # ── Compare mode ────────────────────────────────────────────────────────
+    if args.compare_rerank:
+        compare_results = run_compare_bench(repo_dir)
+        print_compare_report(compare_results)
+
+        out_path = args.out
+        if not out_path:
+            date_compact = time.strftime("%Y-%m-%d")
+            out_path = str(
+                _PROJECT_ROOT / "benchmarks" / f"results_dotnet_hybrid_{date_compact}.json"
+            )
+
+        output = {
+            "meta": {
+                "date": today,
+                "repo": "jasontaylordev/CleanArchitecture",
+                "repo_tag": "v7.0.0",
+                "expected_repo_commit": "5a600ab8749c110384bc3bd436b9c67f3067b489",
+                "repo_commit": get_repo_commit(repo_dir),
+                "embed_model": EMBED_MODEL,
+                "query_count": len(QUERIES),
+                "compare_rerank": True,
+                "pool_size": HYBRID_POOL_SIZE,
+            },
+            "code_retrieval": compare_results["code_retrieval"],
+            "comparison": compare_results["comparison"],
+            "performance": compare_results["performance"],
+        }
+
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w") as f:
+            json.dump(output, f, indent=2)
+        print(f"Results saved to: {out_path}")
+        return
+
+    # ── Single mode (vector or hybrid) ──────────────────────────────────────
+    bench_results = run_bench(repo_dir, rerank_mode=args.rerank_mode)
     print_report(bench_results)
 
-    # Build output JSON
-    today = time.strftime("%Y-%m-%d")
     out_path = args.out
     if not out_path:
         date_compact = time.strftime("%Y-%m-%d")
@@ -468,6 +712,7 @@ def main():
             "repo_commit": get_repo_commit(repo_dir),
             "embed_model": EMBED_MODEL,
             "query_count": len(QUERIES),
+            "rerank_mode": args.rerank_mode,
         },
         "code_retrieval": bench_results["code_retrieval"],
         "performance": bench_results["performance"],

@@ -49,6 +49,8 @@ def build_graph(col=None, config=None):
     while offset < total:
         batch = col.get(limit=1000, offset=offset, include=["metadatas"])
         for meta in batch["metadatas"]:
+            if not meta:
+                continue
             room = meta.get("room", "")
             wing = meta.get("wing", "")
             hall = meta.get("hall", "")

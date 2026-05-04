@@ -12,7 +12,7 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 
 4. **Optional `wing` / `room` filters** are applied as standard SQL `WHERE` predicates. LanceDB decides whether to pre-filter before the vector search or post-filter after it.
 
-5. **Top-N results are returned** with a `similarity = 1 - distance` score (1.0 = perfect match, 0.0 = unrelated). Programmatic search returns the stored metadata with each hit so agents can cite the file, symbol, language, and Markdown section path when available.
+5. **Top-N results are returned** with a `similarity = 1 - distance` score (1.0 = perfect match, 0.0 = unrelated). Programmatic search returns the stored metadata with each hit so agents can cite the file, symbol, language, and Markdown section path when available. Code search also has a deterministic rerank pass for .NET project-file and CamelCase symbol-intent queries, plus an optional `rerank="hybrid"` mode that applies BM25-style token overlap over the retrieved candidate pool.
 
 ## ASCII Diagram
 
@@ -80,6 +80,7 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 - **Similarity is not a probability.** A score of 0.396 does not mean "40% match". Scores are only comparable *within the same query* — 0.4 beats 0.3 for the same query, but a 0.4 on one query and a 0.4 on another are not the same thing.
 - **`wing` / `room` filters are cheap.** They are plain columns in LanceDB, evaluated as SQL predicates.
 - **Language filters share the miner catalog.** `code_search(language=...)` validates against the same language labels the miner emits, and the MCP schema hint is generated from that catalog.
+- **Code-search reranking is bounded and local.** Project-file/symbol-intent queries overfetch a capped candidate pool and then rerank locally. `code_search(rerank="hybrid")` adds token-overlap scoring for cases where exact identifiers or package names matter, without changing embeddings or making network calls.
 - **Markdown location survives retrieval.** For `.md` files, `search_memories()` results include `heading`, `heading_level`, `heading_path`, `doc_section_type`, `contains_mermaid`, `contains_code`, and `contains_table` when the drawer came from a headed section.
 
 ## What Gets Indexed
@@ -88,7 +89,8 @@ mempalace-code does **semantic vector search** — it finds content by *meaning*
 Files are skipped before any embedding happens if they match:
 
 1. **Built-in hardcoded skips** — `node_modules`, `__pycache__`, `.git`, and similar common
-   generated directories; `SKIP_FILENAMES` like `package-lock.json` and `mempalace.yaml`.
+   generated directories; `SKIP_FILENAMES` like `package-lock.json`, `mempalace.yaml`,
+   and generated `entities.json`.
 2. **App-level scan excludes** — configured in `~/.mempalace/config.json` as
    `scan_skip_dirs`, `scan_skip_files`, and `scan_skip_globs`. These run before the vector
    indexing pipeline and apply equally to `mempalace-code mine` and the auto-watcher.
@@ -103,6 +105,8 @@ that sweeps stale drawers for files no longer discovered by the scanner.
 ## Where the Code Lives
 
 - `mempalace_code/searcher.py` — high-level `search()` and `search_memories()` functions.
-- `mempalace_code/storage.py` — `LanceStore.query()`, which owns the embedding model, the LanceDB handle, and the actual vector search call.
+- `mempalace_code/storage.py` — `LanceStore.query()`, which owns the embedding model, the LanceDB handle, the actual vector search call, and the deterministic project-file/symbol rerank.
+- `mempalace_code/retrieval_rerank.py` — deterministic overfetch/rerank for project-file and CamelCase symbol-intent queries.
+- `mempalace_code/search_reranker.py` — optional hybrid token-overlap reranker used by `code_search(rerank="hybrid")` and the .NET benchmark comparison.
 - `mempalace_code/miner.py` — smart chunker, language detection, symbol extraction, and the batch embedding loop used during `mempalace-code mine`.
 - `mempalace_code/config.py` — `MempalaceConfig.scan_skip_dirs/files/globs` properties that expose app-level scan exclusion config.

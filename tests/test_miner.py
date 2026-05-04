@@ -261,6 +261,69 @@ def test_scan_project_skip_dirs_still_apply_without_override():
 
 
 # =============================================================================
+# Generated / config filename skips (MINE-SKIP-GENERATED-ENTITIES)
+# =============================================================================
+
+
+def test_scan_project_skips_generated_entities_json_by_default():
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "mempalace.yaml", "wing: test\n")
+        write_file(project_root / "entities.json", '{"entities":[]}\n')
+        write_file(project_root / "notes.txt", "some notes\n" * 20)
+
+        result = scanned_files(project_root, respect_gitignore=False)
+
+        assert result == ["notes.txt"]
+        assert "entities.json" not in result
+        assert "mempalace.yaml" not in result
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_can_force_include_generated_entities_json():
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "mempalace.yaml", "wing: test\n")
+        write_file(project_root / "entities.json", '{"entities":[]}\n')
+        write_file(project_root / "notes.txt", "some notes\n" * 20)
+
+        result = scanned_files(
+            project_root,
+            respect_gitignore=False,
+            include_ignored=["entities.json"],
+        )
+
+        assert "entities.json" in result
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_generated_config_file_skips_are_unchanged():
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "mempalace.yaml", "wing: test\n")
+        write_file(project_root / "mempalace.yml", "wing: test\n")
+        write_file(project_root / "mempal.yaml", "wing: test\n")
+        write_file(project_root / "mempal.yml", "wing: test\n")
+        write_file(project_root / ".gitignore", "*.log\n")
+        write_file(project_root / "entities.json", '{"entities":[]}\n')
+        write_file(project_root / "notes.txt", "some notes\n" * 20)
+
+        result = scanned_files(project_root, respect_gitignore=False)
+
+        assert result == ["notes.txt"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+# =============================================================================
 # App-level scan filter rules (MINE-APP-SCAN-EXCLUDES-PR4)
 # =============================================================================
 
@@ -1104,6 +1167,31 @@ def test_status_multi_wing(capsys):
         assert "alpha_wing" in captured
         assert "beta_wing" in captured
         assert "gamma_wing" in captured
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_status_shows_storage_metrics(capsys):
+    """status() prints Storage: and Versions: lines for Lance palaces (AC-5)."""
+    from mempalace_code.miner import status
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        palace_path = os.path.join(tmpdir, "palace")
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["sm1"],
+            documents=["status storage metrics test drawer content"],
+            metadatas=[{"wing": "test_wing", "room": "general"}],
+        )
+
+        status(palace_path)
+        captured = capsys.readouterr().out
+
+        assert "Storage:" in captured, f"Expected 'Storage:' in status output, got:\n{captured}"
+        assert "Versions:" in captured, f"Expected 'Versions:' in status output, got:\n{captured}"
+        # Should also still show wing content
+        assert "test_wing" in captured
     finally:
         shutil.rmtree(tmpdir)
 

@@ -96,6 +96,133 @@ class TestHandleRequest:
         content = json.loads(resp["result"]["content"][0]["text"])
         assert "total_drawers" in content
 
+    # AC-1: null arguments must not crash; tool result must contain total_drawers
+    def test_tools_call_null_arguments(self, monkeypatch, config, palace_path, seeded_kg):
+        _patch_mcp_server(monkeypatch, config, palace_path, seeded_kg)
+        _ensure_store(palace_path)
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request(
+            {
+                "method": "tools/call",
+                "id": 10,
+                "params": {"name": "mempalace_status", "arguments": None},
+            }
+        )
+        assert "result" in resp, f"expected result, got: {resp}"
+        content = json.loads(resp["result"]["content"][0]["text"])
+        assert "total_drawers" in content
+
+    # AC-1 variant: omitted arguments key also normalizes to {}
+    def test_tools_call_missing_arguments(self, monkeypatch, config, palace_path, seeded_kg):
+        _patch_mcp_server(monkeypatch, config, palace_path, seeded_kg)
+        _ensure_store(palace_path)
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request(
+            {
+                "method": "tools/call",
+                "id": 11,
+                "params": {"name": "mempalace_status"},
+            }
+        )
+        assert "result" in resp, f"expected result, got: {resp}"
+        content = json.loads(resp["result"]["content"][0]["text"])
+        assert "total_drawers" in content
+
+    # AC-2: wait_for_previous noise key is stripped, tool returns normal result
+    def test_tools_call_strips_wait_for_previous(self, monkeypatch, config, palace_path, seeded_kg):
+        _patch_mcp_server(monkeypatch, config, palace_path, seeded_kg)
+        _ensure_store(palace_path)
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request(
+            {
+                "method": "tools/call",
+                "id": 12,
+                "params": {
+                    "name": "mempalace_status",
+                    "arguments": {"wait_for_previous": False},
+                },
+            }
+        )
+        assert "result" in resp, f"expected result, got: {resp}"
+        content = json.loads(resp["result"]["content"][0]["text"])
+        assert "total_drawers" in content
+
+    # AC-2 extended: declared args survive alongside noise key
+    def test_tools_call_strips_noise_preserves_declared_args(
+        self, monkeypatch, config, palace_path, seeded_kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, seeded_kg)
+        _ensure_store(palace_path)
+        from mempalace_code.mcp_server import handle_request
+
+        # mempalace_search declares "query"; wait_for_previous is noise
+        resp = handle_request(
+            {
+                "method": "tools/call",
+                "id": 13,
+                "params": {
+                    "name": "mempalace_search",
+                    "arguments": {"query": "test query", "wait_for_previous": False},
+                },
+            }
+        )
+        # Should return a result (not an Internal tool error) because query was preserved
+        assert "result" in resp, f"expected result, got: {resp}"
+
+    # AC-3: unknown notifications/* method returns None (fire-and-forget)
+    def test_unknown_notification_returns_none(self):
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request({"method": "notifications/cancelled", "id": None, "params": {}})
+        assert resp is None
+
+    # AC-4: unknown non-notification method still returns -32601
+    def test_unknown_non_notification_method_returns_error(self):
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request({"method": "unknown/method", "id": 14, "params": {}})
+        assert resp["error"]["code"] == -32601
+
+    # AC-5: unknown tool + null arguments returns Unknown tool error, does not raise
+    def test_unknown_tool_null_arguments_no_crash(self):
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request(
+            {
+                "method": "tools/call",
+                "id": 15,
+                "params": {"name": "nonexistent_tool", "arguments": None},
+            }
+        )
+        assert "error" in resp
+        assert resp["error"]["code"] == -32601
+        assert "Unknown tool" in resp["error"]["message"]
+
+    # Non-dict arguments return -32602 (invalid params)
+    def test_tools_call_non_dict_arguments_returns_invalid_params(self):
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request(
+            {
+                "method": "tools/call",
+                "id": 16,
+                "params": {"name": "mempalace_status", "arguments": ["not", "a", "dict"]},
+            }
+        )
+        assert "error" in resp
+        assert resp["error"]["code"] == -32602
+
+    # Request-level params=null must not crash; returns Unknown tool because no name was set
+    def test_tools_call_request_params_null(self):
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/call", "id": 17, "params": None})
+        assert "error" in resp
+        assert resp["error"]["code"] == -32601
+
 
 # ── Read Tools ──────────────────────────────────────────────────────────
 
@@ -750,9 +877,21 @@ class TestCodeSearchTool:
             "file_glob",
             "wing",
             "n_results",
+            "rerank",
         }
         assert schema.get("required") == ["query"]
         assert props["n_results"]["type"] == "integer"
+        assert props["rerank"]["type"] == "string"
+
+    def test_code_search_accepts_hybrid_rerank_param(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_code_search
+
+        result = tool_code_search(query="language detection file extension", rerank="hybrid")
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        assert "results" in result
 
     def test_code_search_react_and_dart_in_language_description(self):
         """The mempalace_code_search language description must mention jsx, tsx, and dart."""

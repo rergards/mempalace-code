@@ -137,3 +137,36 @@ def test_restore_cli_missing_archive_exits_1(palace_path, tmp_dir, capsys):
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "Error:" in captured.err
+
+
+# ── Disk-budget CLI guard ──────────────────────────────────────────────────────
+
+
+def test_backup_create_cli_exits_1_on_disk_budget_error(
+    seeded_collection, palace_path, tmp_dir, capsys
+):
+    """AC-4 (CLI): 'backup create' exits 1 with 'disk budget' message when disk is low."""
+    out_path = os.path.join(tmp_dir, "rejected.tar.gz")
+
+    # free_bytes=0 → projected_free is negative → budget check fails
+    with patch("mempalace_code.disk_budget.free_bytes", return_value=0):
+        with pytest.raises(SystemExit) as exc:
+            _run(
+                [
+                    "mempalace-code",
+                    "--palace",
+                    palace_path,
+                    "backup",
+                    "create",
+                    "--out",
+                    out_path,
+                ]
+            )
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "disk budget" in captured.err
+
+    # Neither the final archive nor a temp file should have been created
+    assert not os.path.exists(out_path)
+    assert not os.path.exists(out_path + ".tmp")

@@ -8,6 +8,7 @@ Supported:
     - ChatGPT conversations.json
     - Claude Code JSONL
     - OpenAI Codex CLI JSONL
+    - Gemini CLI JSONL
     - Slack JSON export
     - Plain text (pass through for paragraph chunking)
 
@@ -16,8 +17,30 @@ No API key. No internet. Everything local.
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
+
+# --- Claude Code noise patterns ---
+# Each pattern must consume the entire line to avoid stripping inline prose.
+_NOISE_LINE_RE = re.compile(
+    r"^\s*(?:"
+    r"CURRENT TIME:\s+\S.*"  # timestamp injections
+    r"|Ran \d+ .+ hook"  # hook run notifications
+    r"|\(ctrl\+[a-z] to [\w\s]+\)"  # keyboard hint overlays
+    r")\s*$"
+)
+
+# Block-anchored: tag must open at the start of a line; strips the whole block.
+_NOISE_BLOCK_RE = re.compile(r"(?m)^<[a-zA-Z][\w-]*>[\s\S]*?</[a-zA-Z][\w-]*>\n?")
+
+_BASH_HEAD = 10
+_BASH_TAIL = 5
+_BASH_CAP = 20
+_GREP_GLOB_CAP = 20
+_GENERIC_BYTE_CAP = 500
+_TOOL_INPUT_JSON_CAP = 100
+_BASH_CMD_CAP = 80
 
 
 def normalize(filepath: str, spellcheck: bool = True) -> str:
@@ -60,6 +83,10 @@ def _try_normalize_json(content: str, spellcheck: bool = True) -> Optional[str]:
     if normalized:
         return normalized
 
+    normalized = _try_gemini_jsonl(content, spellcheck=spellcheck)
+    if normalized:
+        return normalized
+
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
@@ -73,10 +100,154 @@ def _try_normalize_json(content: str, spellcheck: bool = True) -> Optional[str]:
     return None
 
 
+def _format_tool_use(block: dict) -> str:
+    """Format a tool_use block as a compact one-line summary."""
+    name = block.get("name", "unknown")
+    raw_inp = block.get("input")
+    inp = raw_inp if isinstance(raw_inp, dict) else {}
+
+    if name == "Bash":
+        cmd = inp.get("command", "")
+        if len(cmd) > _BASH_CMD_CAP:
+            cmd = cmd[: _BASH_CMD_CAP - 3] + "..."
+        return f"[Bash: {cmd}]"
+    if name in ("Read", "Edit", "Write"):
+        path = inp.get("file_path", "")
+        return f"[{name}: {path}]" if path else f"[{name}]"
+    if name == "Grep":
+        pattern = inp.get("pattern", "")
+        return f"[Grep: {pattern}]" if pattern else "[Grep]"
+    if name == "Glob":
+        pattern = inp.get("pattern", "")
+        return f"[Glob: {pattern}]" if pattern else "[Glob]"
+
+    # Bounded fallback JSON for unknown tools. Use raw_inp here (not the
+    # dict-coerced inp) so non-dict inputs like strings/lists round-trip via
+    # json.dumps instead of being silently dropped to "{}".
+    try:
+        inp_str = json.dumps(raw_inp) if raw_inp is not None else ""
+    except (TypeError, ValueError):
+        inp_str = ""
+    if len(inp_str) > _TOOL_INPUT_JSON_CAP:
+        inp_str = inp_str[: _TOOL_INPUT_JSON_CAP - 3] + "..."
+    return f"[{name}: {inp_str}]" if inp_str and inp_str != "{}" else f"[{name}]"
+
+
+def _format_tool_result(block: dict, tool_name: str = "") -> str:
+    """Format a tool_result block compactly; omit large file-content results."""
+    raw = block.get("content", "")
+    if isinstance(raw, list):
+        parts = [
+            item.get("text", "")
+            for item in raw
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+        text = "\n".join(parts).strip()
+    elif isinstance(raw, str):
+        text = raw.strip()
+    else:
+        text = ""
+
+    if not text:
+        return ""
+
+    # Omit file-content style results (Read/Edit/Write return full file text)
+    if tool_name in ("Read", "Edit", "Write"):
+        return ""
+
+    if tool_name == "Bash":
+        result_lines = text.split("\n")
+        if len(result_lines) > _BASH_CAP:
+            head = "\n".join(result_lines[:_BASH_HEAD])
+            tail = "\n".join(result_lines[-_BASH_TAIL:])
+            return f"[{len(result_lines)} lines]\n{head}\n...\n{tail}"
+        return text
+
+    if tool_name in ("Grep", "Glob"):
+        result_lines = text.split("\n")
+        if len(result_lines) > _GREP_GLOB_CAP:
+            extra = len(result_lines) - _GREP_GLOB_CAP
+            return "\n".join(result_lines[:_GREP_GLOB_CAP]) + f"\n... ({extra} more)"
+        return text
+
+    if len(text) > _GENERIC_BYTE_CAP:
+        return text[:_GENERIC_BYTE_CAP] + "..."
+    return text
+
+
+def _strip_claude_code_noise(text: str) -> str:
+    """Remove Claude Code system injections that are line- or tag-anchored."""
+    text = _NOISE_BLOCK_RE.sub("", text)
+    cleaned = [line for line in text.split("\n") if not _NOISE_LINE_RE.match(line)]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned)).strip()
+
+
 def _try_claude_code_jsonl(content: str, spellcheck: bool = True) -> Optional[str]:
     """Claude Code JSONL sessions."""
     lines = [line.strip() for line in content.strip().split("\n") if line.strip()]
+    entries = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict):
+            entries.append(entry)
+
+    # Build tool_use_id -> tool_name map from all assistant entries
+    tool_use_map: dict = {}
+    for entry in entries:
+        if entry.get("type") == "assistant":
+            msg_content = entry.get("message", {}).get("content", [])
+            if isinstance(msg_content, list):
+                for block in msg_content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tool_id = block.get("id", "")
+                        if tool_id:
+                            tool_use_map[tool_id] = block.get("name", "")
+
     messages = []
+    for entry in entries:
+        msg_type = entry.get("type", "")
+        msg_content = entry.get("message", {}).get("content", "")
+
+        if msg_type in ("human", "user"):
+            # Tool-result-only user turns belong to the preceding assistant turn
+            if isinstance(msg_content, list) and all(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in msg_content
+            ):
+                tool_text = _extract_content(msg_content, tool_use_map=tool_use_map)
+                if tool_text and messages and messages[-1][0] == "assistant":
+                    _, prev_text = messages[-1]
+                    messages[-1] = ("assistant", prev_text + "\n" + tool_text)
+                continue
+
+            text = _extract_content(msg_content, tool_use_map=tool_use_map)
+            text = _strip_claude_code_noise(text)
+            if text:
+                messages.append(("user", text))
+
+        elif msg_type == "assistant":
+            text = _extract_content(msg_content, tool_use_map=tool_use_map)
+            text = _strip_claude_code_noise(text)
+            if text:
+                messages.append(("assistant", text))
+
+    if len(messages) >= 2:
+        return _messages_to_transcript(messages, spellcheck=spellcheck)
+    return None
+
+
+def _try_gemini_jsonl(content: str, spellcheck: bool = True) -> Optional[str]:
+    """Gemini CLI JSONL sessions.
+
+    Requires a session_metadata sentinel to distinguish from other JSONL formats.
+    Turns before the sentinel are discarded. message_update rows are skipped.
+    """
+    lines = [line.strip() for line in content.strip().split("\n") if line.strip()]
+    has_session_metadata = False
+    messages = []
+
     for line in lines:
         try:
             entry = json.loads(line)
@@ -84,16 +255,39 @@ def _try_claude_code_jsonl(content: str, spellcheck: bool = True) -> Optional[st
             continue
         if not isinstance(entry, dict):
             continue
-        msg_type = entry.get("type", "")
-        message = entry.get("message", {})
-        if msg_type in ("human", "user"):
-            text = _extract_content(message.get("content", ""))
-            if text:
-                messages.append(("user", text))
-        elif msg_type == "assistant":
-            text = _extract_content(message.get("content", ""))
-            if text:
-                messages.append(("assistant", text))
+
+        entry_type = entry.get("type", "")
+
+        if entry_type == "session_metadata":
+            has_session_metadata = True
+            continue
+
+        if not has_session_metadata:
+            continue
+
+        if entry_type == "message_update":
+            continue
+
+        content_blocks = entry.get("content", [])
+        if not isinstance(content_blocks, list) or not content_blocks:
+            continue
+
+        texts = [
+            block.get("text", "")
+            for block in content_blocks
+            if isinstance(block, dict)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+        ]
+        text = "\n".join(t for t in texts if t).strip()
+        if not text:
+            continue
+
+        if entry_type == "user":
+            messages.append(("user", text))
+        elif entry_type == "gemini":
+            messages.append(("assistant", text))
+
     if len(messages) >= 2:
         return _messages_to_transcript(messages, spellcheck=spellcheck)
     return None
@@ -264,8 +458,13 @@ def _try_slack_json(data, spellcheck: bool = True) -> Optional[str]:
     return None
 
 
-def _extract_content(content) -> str:
-    """Pull text from content — handles str, list of blocks, or dict."""
+def _extract_content(content, tool_use_map=None) -> str:
+    """Pull text from content — handles str, list of blocks, or dict.
+
+    When tool_use_map is not None (Claude Code path), tool_use and tool_result
+    blocks are formatted compactly. Without it, only text blocks are extracted,
+    preserving the existing behavior for Claude.ai JSON / ChatGPT / Slack.
+    """
     if isinstance(content, str):
         return content.strip()
     if isinstance(content, list):
@@ -273,8 +472,24 @@ def _extract_content(content) -> str:
         for item in content:
             if isinstance(item, str):
                 parts.append(item)
-            elif isinstance(item, dict) and item.get("type") == "text":
-                parts.append(item.get("text", ""))
+            elif isinstance(item, dict):
+                block_type = item.get("type")
+                if block_type == "text":
+                    text = item.get("text", "")
+                    if text:
+                        parts.append(text)
+                elif block_type == "tool_use" and tool_use_map is not None:
+                    formatted = _format_tool_use(item)
+                    if formatted:
+                        parts.append(formatted)
+                elif block_type == "tool_result" and tool_use_map is not None:
+                    tool_id = item.get("tool_use_id", "")
+                    tool_name = tool_use_map.get(tool_id, "")
+                    formatted = _format_tool_result(item, tool_name)
+                    if formatted:
+                        parts.append(formatted)
+        if tool_use_map is not None:
+            return "\n".join(parts).strip()
         return " ".join(parts).strip()
     if isinstance(content, dict):
         return content.get("text", "").strip()

@@ -29,6 +29,11 @@ os.environ["USERPROFILE"] = _session_tmp
 os.environ["HOMEDRIVE"] = os.path.splitdrive(_session_tmp)[0] or "C:"
 os.environ["HOMEPATH"] = os.path.splitdrive(_session_tmp)[1] or _session_tmp
 
+# Set disk-budget thresholds to 1 byte for the test session so existing backup/watcher
+# tests pass on CI machines regardless of available disk space. Individual tests that
+# verify disk-budget behavior mock free_bytes directly.
+os.environ.setdefault("MEMPALACE_DISK_MIN_FREE_BYTES", "1")
+
 # Now it is safe to import mempalace modules that trigger initialisation.
 import pytest  # noqa: E402
 

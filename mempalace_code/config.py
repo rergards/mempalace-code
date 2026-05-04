@@ -14,10 +14,19 @@ DEFAULT_COLLECTION_NAME = "mempalace_drawers"
 # Storage safety defaults
 DEFAULT_OPTIMIZE_AFTER_MINE = True  # Set False to disable auto-compaction
 DEFAULT_BACKUP_BEFORE_OPTIMIZE = True  # Auto-backup before risky operations (on by default)
-DEFAULT_BACKUP_RETAIN_COUNT = 0  # 0 keeps all pre-optimize backups (backwards compatible)
+DEFAULT_BACKUP_RETAIN_COUNT = 0  # 0 keeps all backups per-kind (backwards compatible)
 DEFAULT_BACKUP_SCHEDULE = "off"  # Scheduled backup frequency: off|daily|weekly|hourly
+DEFAULT_BACKUP_MIN_FREE_BYTES = (
+    0  # 0 disables the disk-space guard; set e.g. 1_073_741_824 for 1 GiB
+)
+DEFAULT_BACKUP_WARN_SIZE_BYTES = (
+    0  # 0 disables oversized-archive warnings; set e.g. 2_147_483_648 for 2 GiB
+)
 DEFAULT_SPELLCHECK_ENABLED = None  # None lets each ingest mode choose its own default
 DEFAULT_ENTITY_DETECTION = False
+
+# Disk-budget safety defaults
+DEFAULT_DISK_MIN_FREE_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
 
 DEFAULT_SCAN_SKIP_DIRS = [".kotlin-lsp"]
 DEFAULT_SCAN_SKIP_FILES = []
@@ -150,7 +159,7 @@ class MempalaceConfig:
         Priority: MEMPALACE_AUTO_BACKUP_BEFORE_OPTIMIZE env > MEMPALACE_BACKUP_BEFORE_OPTIMIZE env
                   > auto_backup_before_optimize file key > backup_before_optimize file key > default.
         """
-        # auto_ env takes highest precedence (AC-12)
+        # auto_ env takes highest precedence
         auto_env = os.environ.get("MEMPALACE_AUTO_BACKUP_BEFORE_OPTIMIZE")
         if auto_env is not None:
             return auto_env.lower() in ("1", "true", "yes")
@@ -183,6 +192,34 @@ class MempalaceConfig:
         if retain_count < 0:
             return DEFAULT_BACKUP_RETAIN_COUNT
         return retain_count
+
+    @property
+    def backup_min_free_bytes(self):
+        """Minimum free bytes required before creating a backup. 0 disables the disk guard."""
+        raw_value = os.environ.get("MEMPALACE_BACKUP_MIN_FREE_BYTES")
+        if raw_value is None:
+            raw_value = self._file_config.get(
+                "backup_min_free_bytes", DEFAULT_BACKUP_MIN_FREE_BYTES
+            )
+        try:
+            val = int(raw_value)
+        except (TypeError, ValueError):
+            return DEFAULT_BACKUP_MIN_FREE_BYTES
+        return max(0, val)
+
+    @property
+    def backup_warn_size_bytes(self):
+        """Archive size above which backup list marks the entry as oversized. 0 disables."""
+        raw_value = os.environ.get("MEMPALACE_BACKUP_WARN_SIZE_BYTES")
+        if raw_value is None:
+            raw_value = self._file_config.get(
+                "backup_warn_size_bytes", DEFAULT_BACKUP_WARN_SIZE_BYTES
+            )
+        try:
+            val = int(raw_value)
+        except (TypeError, ValueError):
+            return DEFAULT_BACKUP_WARN_SIZE_BYTES
+        return max(0, val)
 
     @property
     def backup_schedule(self):
@@ -224,6 +261,62 @@ class MempalaceConfig:
             if parsed is not None:
                 return parsed
         return DEFAULT_ENTITY_DETECTION
+
+    def _parse_bytes_config(self, raw) -> int:
+        """Parse a bytes value from int/str, falling back to DEFAULT_DISK_MIN_FREE_BYTES on error."""
+        from .disk_budget import parse_bytes as _parse_bytes
+
+        if raw is None:
+            return DEFAULT_DISK_MIN_FREE_BYTES
+        try:
+            return _parse_bytes(raw)
+        except (ValueError, TypeError):
+            return DEFAULT_DISK_MIN_FREE_BYTES
+
+    @property
+    def disk_min_free_bytes(self) -> int:
+        """Global minimum free bytes required before any write-producing palace operation.
+
+        Priority: MEMPALACE_DISK_MIN_FREE_BYTES env > disk_min_free_bytes file key > 1 GiB default.
+        """
+        raw = os.environ.get("MEMPALACE_DISK_MIN_FREE_BYTES")
+        if raw is None:
+            raw = self._file_config.get("disk_min_free_bytes")
+        return self._parse_bytes_config(raw)
+
+    @property
+    def watch_disk_min_free_bytes(self) -> int:
+        """Minimum free bytes required before each watcher mine/optimize cycle.
+
+        Priority: MEMPALACE_WATCH_DISK_MIN_FREE_BYTES env > watch_disk_min_free_bytes file key
+                  > disk_min_free_bytes (global).
+        """
+        raw = os.environ.get("MEMPALACE_WATCH_DISK_MIN_FREE_BYTES")
+        if raw is not None:
+            return self._parse_bytes_config(raw)
+        if "watch_disk_min_free_bytes" in self._file_config:
+            return self._parse_bytes_config(self._file_config["watch_disk_min_free_bytes"])
+        return self.disk_min_free_bytes
+
+    @property
+    def backup_disk_min_free_bytes(self) -> int:
+        """Minimum projected free bytes remaining after backup archive creation.
+
+        Priority: MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES env > backup_disk_min_free_bytes file key
+                  > legacy MEMPALACE_BACKUP_MIN_FREE_BYTES env > legacy backup_min_free_bytes
+                  file key > disk_min_free_bytes (global).
+        """
+        raw = os.environ.get("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES")
+        if raw is not None:
+            return self._parse_bytes_config(raw)
+        raw = os.environ.get("MEMPALACE_BACKUP_MIN_FREE_BYTES")
+        if raw is not None:
+            return self._parse_bytes_config(raw)
+        if "backup_disk_min_free_bytes" in self._file_config:
+            return self._parse_bytes_config(self._file_config["backup_disk_min_free_bytes"])
+        if "backup_min_free_bytes" in self._file_config:
+            return self._parse_bytes_config(self._file_config["backup_min_free_bytes"])
+        return self.disk_min_free_bytes
 
     @property
     def scan_skip_dirs(self) -> list:

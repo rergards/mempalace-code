@@ -243,6 +243,7 @@ def tool_code_search(
     file_glob: str = None,
     wing: str = None,
     n_results: int = 10,
+    rerank: str = None,
 ):
     from .searcher import code_search
 
@@ -255,6 +256,7 @@ def tool_code_search(
         file_glob=file_glob,
         wing=wing,
         n_results=n_results,
+        rerank=rerank,
     )
 
 
@@ -1471,6 +1473,10 @@ TOOLS = {
                     "type": "integer",
                     "description": "Max results to return, 1–50 (default 10)",
                 },
+                "rerank": {
+                    "type": "string",
+                    "description": "Optional reranker. Use 'hybrid' for BM25-style token overlap reranking; omit for vector order.",
+                },
             },
             "required": ["query"],
         },
@@ -1639,9 +1645,12 @@ TOOLS = {
 }
 
 
+_NOISE_KEYS = frozenset({"wait_for_previous"})
+
+
 def handle_request(request):
     method = request.get("method", "")
-    params = request.get("params", {})
+    params = request.get("params") or {}
     req_id = request.get("id")
 
     if method == "initialize":
@@ -1654,7 +1663,7 @@ def handle_request(request):
                 "serverInfo": {"name": "mempalace-code", "version": __version__},
             },
         }
-    elif method == "notifications/initialized":
+    elif method.startswith("notifications/"):
         return None
     elif method == "tools/list":
         return {
@@ -1669,17 +1678,31 @@ def handle_request(request):
         }
     elif method == "tools/call":
         tool_name = params.get("name")
-        tool_args = params.get("arguments", {})
+        raw_args = params.get("arguments")
+        if raw_args is None:
+            tool_args = {}
+        elif not isinstance(raw_args, dict):
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32602, "message": "Invalid params: arguments must be an object"},
+            }
+        else:
+            tool_args = dict(raw_args)
         if tool_name not in TOOLS:
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
                 "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
             }
+        # Drop known client compatibility noise keys not declared in the tool schema.
+        schema_props = TOOLS[tool_name]["input_schema"].get("properties", {})
+        for key in _NOISE_KEYS:
+            if key in tool_args and key not in schema_props:
+                del tool_args[key]
         # Coerce argument types based on input_schema.
         # MCP JSON transport may deliver integers as floats or strings;
         # ChromaDB and Python slicing require native int.
-        schema_props = TOOLS[tool_name]["input_schema"].get("properties", {})
         for key, value in list(tool_args.items()):
             prop_schema = schema_props.get(key, {})
             declared_type = prop_schema.get("type")

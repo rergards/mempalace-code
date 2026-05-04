@@ -27,33 +27,16 @@ from __future__ import annotations
 import logging
 import os
 from abc import ABC, abstractmethod
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from mempalace_code.retrieval_rerank import overfetch_limit, rerank, should_overfetch
 
 logger = logging.getLogger("mempalace")
 
 
-def _prune_pre_optimize_backups(backup_dir: str, retain_count: int) -> None:
-    """Best-effort pruning for pre-optimize archives only."""
-    if retain_count <= 0:
-        return
-
-    candidates = []
-    for path in Path(backup_dir).glob("pre_optimize_*.tar.gz"):
-        if not path.is_file():
-            continue
-        try:
-            candidates.append((path.stat().st_mtime, path.name, path))
-        except OSError as e:
-            logger.warning("Pre-optimize backup pruning failed for %s: %s", path, e)
-    candidates.sort(reverse=True)
-
-    for _, _, archive in candidates[retain_count:]:
-        try:
-            archive.unlink()
-        except OSError as e:
-            logger.warning("Pre-optimize backup pruning failed for %s: %s", archive, e)
+class LanceStoreDependencyError(RuntimeError):
+    """Raised when a required Lance cleanup dependency is not available."""
 
 
 # ─── Abstract interface ────────────────────────────────────────────────────────
@@ -284,6 +267,8 @@ class LanceStore(DrawerStore):
         self._embedder = None  # lazy — initialized by _ensure_embedder()
 
         lance_dir = os.path.join(palace_path, "lance")
+        self._lance_dir = lance_dir
+        self._table_dir = os.path.join(lance_dir, f"{_LANCE_TABLE}.lance")
         if read_only and not os.path.isdir(lance_dir):
             # Palace absent — return a stub without touching the filesystem.
             self._db = None
@@ -485,7 +470,13 @@ class LanceStore(DrawerStore):
 
         for text in query_texts:
             vec = self._embed([text])[0]
-            q = self._table.search(vec).limit(n_results)
+            # Overfetch for project-file or symbol-intent queries so the reranker
+            # has enough candidates to promote highly-relevant but lower-ranked rows.
+            if should_overfetch(text):
+                fetch_limit = overfetch_limit(n_results)
+            else:
+                fetch_limit = n_results
+            q = self._table.search(vec).limit(fetch_limit)
             if where:
                 sql = self._where_to_sql(where)
                 q = q.where(sql)
@@ -494,6 +485,9 @@ class LanceStore(DrawerStore):
                 results = q.to_list()
             except Exception:
                 results = []
+
+            if fetch_limit > n_results:
+                results = rerank(results, text, n_results)
 
             ids = [r["id"] for r in results]
             docs = [r["text"] for r in results]
@@ -735,18 +729,13 @@ class LanceStore(DrawerStore):
         if self._table is None:
             return True
 
-        palace_path = palace_path.rstrip("/\\")
-
-        # Pre-optimize backup (fail-closed gate)
+        # Pre-optimize backup via shared managed path (fail-closed gate).
+        # Disk guard and per-kind retention run inside create_backup.
         if backup_first:
             try:
                 from .backup import create_backup
 
-                backup_dir = os.path.join(os.path.dirname(palace_path), "backups")
-                os.makedirs(backup_dir, exist_ok=True)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_path = os.path.join(backup_dir, f"pre_optimize_{timestamp}.tar.gz")
-                create_backup(palace_path, backup_path)
+                _, backup_path = create_backup(palace_path, kind="pre_optimize")
                 logger.info("Pre-optimize backup: %s", backup_path)
             except Exception as e:
                 logger.error("Pre-optimize backup failed — skipping optimize: %s", e)
@@ -768,18 +757,209 @@ class LanceStore(DrawerStore):
             post_count = self._table.count_rows()
             if post_count != pre_count:
                 logger.warning("Row count changed after optimize: %d -> %d", pre_count, post_count)
-            if backup_first:
-                from .config import MempalaceConfig
-
-                backup_dir = os.path.join(os.path.dirname(palace_path), "backups")
-                _prune_pre_optimize_backups(
-                    backup_dir,
-                    MempalaceConfig().backup_retain_count,
-                )
             return True
         except Exception as e:
             logger.error("Table unreadable after optimize: %s", e)
             return False
+
+    def storage_stats(self) -> dict:
+        """Return disk and version metrics for the Lance table.
+
+        Returns dict with keys:
+          version_count: int — number of Lance versions in the table manifest
+          logical_bytes: int — bytes referenced by the current version
+          on_disk_bytes: int — total bytes across all files in the table directory
+          current_data_files: int — data files in the current version
+          on_disk_data_files: int — total data files on disk (current + stale)
+          current_deletion_files: int — deletion files in the current version
+          on_disk_deletion_files: int — total deletion files on disk
+          estimated_reclaimable_bytes: int — max(0, on_disk_bytes - logical_bytes)
+        """
+        empty = {
+            "version_count": 0,
+            "logical_bytes": 0,
+            "on_disk_bytes": 0,
+            "current_data_files": 0,
+            "on_disk_data_files": 0,
+            "current_deletion_files": 0,
+            "on_disk_deletion_files": 0,
+            "estimated_reclaimable_bytes": 0,
+        }
+        if self._table is None:
+            return empty
+
+        version_count = 0
+        logical_bytes = 0
+        current_data_files = 0
+        current_deletion_files = 0
+
+        try:
+            versions = self._table.list_versions()
+            version_count = len(versions)
+            if versions:
+                meta = versions[-1].get("metadata", {})
+                logical_bytes = int(meta.get("total_files_size", 0))
+                current_data_files = int(meta.get("total_data_files", 0))
+                current_deletion_files = int(meta.get("total_deletion_files", 0))
+        except Exception:
+            pass
+
+        on_disk_bytes = 0
+        on_disk_data_files = 0
+        on_disk_deletion_files = 0
+
+        table_dir = self._table_dir
+        if os.path.isdir(table_dir):
+            try:
+                for dirpath, _, filenames in os.walk(table_dir):
+                    for fname in filenames:
+                        try:
+                            on_disk_bytes += os.path.getsize(os.path.join(dirpath, fname))
+                        except OSError:
+                            pass
+            except Exception:
+                pass
+
+            data_dir = os.path.join(table_dir, "data")
+            if os.path.isdir(data_dir):
+                try:
+                    on_disk_data_files = sum(
+                        1 for f in os.listdir(data_dir) if os.path.isfile(os.path.join(data_dir, f))
+                    )
+                except Exception:
+                    pass
+
+            deletions_dir = os.path.join(table_dir, "_deletions")
+            if os.path.isdir(deletions_dir):
+                try:
+                    on_disk_deletion_files = sum(
+                        1
+                        for f in os.listdir(deletions_dir)
+                        if os.path.isfile(os.path.join(deletions_dir, f))
+                    )
+                except Exception:
+                    pass
+
+        return {
+            "version_count": version_count,
+            "logical_bytes": logical_bytes,
+            "on_disk_bytes": on_disk_bytes,
+            "current_data_files": current_data_files,
+            "on_disk_data_files": on_disk_data_files,
+            "current_deletion_files": current_deletion_files,
+            "on_disk_deletion_files": on_disk_deletion_files,
+            "estimated_reclaimable_bytes": max(0, on_disk_bytes - logical_bytes),
+        }
+
+    def cleanup_stale_fragments(self, older_than_days: int = 7, unsafe_now: bool = False) -> dict:
+        """Remove stale Lance versions and their data/deletion files.
+
+        Uses Table.optimize(cleanup_older_than=..., delete_unverified=...) — the
+        supported LanceDB maintenance path. Never deletes files directly.
+
+        Args:
+            older_than_days: Remove versions older than this many days. Default 7.
+                Ignored when unsafe_now=True (maps to timedelta(0)).
+            unsafe_now: Map to cleanup_older_than=timedelta(0) and
+                delete_unverified=True. Only safe when no other writer is active.
+
+        Returns dict with keys:
+          ok: bool
+          rows_before: int
+          rows_after: int
+          freed_bytes: int — max(0, on_disk_before - on_disk_after)
+          version_count_before: int
+          version_count_after: int
+          cleanup_older_than_days: int
+          delete_unverified: bool
+          error: str (only present when ok=False)
+        """
+        from datetime import timedelta
+
+        if self._table is None:
+            return {
+                "ok": False,
+                "rows_before": 0,
+                "rows_after": 0,
+                "freed_bytes": 0,
+                "version_count_before": 0,
+                "version_count_after": 0,
+                "cleanup_older_than_days": 0 if unsafe_now else older_than_days,
+                "delete_unverified": unsafe_now,
+                "error": "Table is None (not opened)",
+            }
+
+        before_stats = self.storage_stats()
+        rows_before = self._table.count_rows()
+        version_count_before = before_stats["version_count"]
+        on_disk_bytes_before = before_stats["on_disk_bytes"]
+        cleanup_older_than = timedelta(0) if unsafe_now else timedelta(days=older_than_days)
+        delete_unverified = unsafe_now
+
+        _err_base = {
+            "rows_before": rows_before,
+            "rows_after": rows_before,
+            "freed_bytes": 0,
+            "version_count_before": version_count_before,
+            "version_count_after": 0,
+            "cleanup_older_than_days": 0 if unsafe_now else older_than_days,
+            "delete_unverified": delete_unverified,
+        }
+
+        try:
+            self._table.optimize(
+                cleanup_older_than=cleanup_older_than,
+                delete_unverified=delete_unverified,
+            )
+        except (ModuleNotFoundError, ImportError) as e:
+            msg = str(e).lower()
+            if "lance" in msg or "pylance" in msg:
+                raise LanceStoreDependencyError(
+                    "Lance cleanup requires an updated lancedb installation. "
+                    "Run: pip install 'mempalace-code' --upgrade  "
+                    "(or: uv pip install 'mempalace-code' --upgrade)"
+                ) from e
+            raise
+        except Exception as e:
+            return {**_err_base, "ok": False, "error": str(e)}
+
+        # Post-cleanup verification
+        try:
+            rows_after = self._table.count_rows()
+            self._table.head(1).to_pydict()
+        except Exception as e:
+            return {
+                **_err_base,
+                "ok": False,
+                "rows_after": 0,
+                "error": f"Table unreadable after cleanup: {e}",
+            }
+
+        try:
+            arrow_tbl = self._scan_columns(["wing", "room"])
+            arrow_tbl.group_by(["wing", "room"]).aggregate([("room", "count")])
+        except Exception as e:
+            return {
+                **_err_base,
+                "ok": False,
+                "rows_after": rows_after,
+                "error": f"Column scan failed after cleanup: {e}",
+            }
+
+        after_stats = self.storage_stats()
+        version_count_after = after_stats["version_count"]
+        freed_bytes = max(0, on_disk_bytes_before - after_stats["on_disk_bytes"])
+
+        return {
+            "ok": True,
+            "rows_before": rows_before,
+            "rows_after": rows_after,
+            "freed_bytes": freed_bytes,
+            "version_count_before": version_count_before,
+            "version_count_after": version_count_after,
+            "cleanup_older_than_days": 0 if unsafe_now else older_than_days,
+            "delete_unverified": delete_unverified,
+        }
 
     def health_check(self) -> dict:
         """Probe the store for fragment-missing or read errors.
@@ -854,12 +1034,19 @@ class LanceStore(DrawerStore):
         except Exception as e:
             warnings.append({"probe": "list_versions", "kind": _classify(e), "message": str(e)})
 
+        storage = {}
+        try:
+            storage = self.storage_stats()
+        except Exception as e:
+            warnings.append({"probe": "storage_stats", "kind": "other", "message": str(e)})
+
         return {
             "ok": len(errors) == 0,
             "total_rows": total_rows,
             "current_version": current_version,
             "errors": errors,
             "warnings": warnings,
+            "storage": storage,
         }
 
     def recover_to_last_working_version(self, dry_run: bool = True) -> dict:

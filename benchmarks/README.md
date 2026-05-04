@@ -157,31 +157,52 @@ python benchmarks/dotnet_bench.py \
   --repo-dir /tmp/CleanArchitecture \
   --out /tmp/dotnet-bench.json
 
-# Run with the CI gate threshold (exits 1 when R@5 < 0.600)
+# Run with the CI gate threshold (exits 1 when R@5 < 0.900)
 python benchmarks/dotnet_bench.py \
   --repo-dir /tmp/CleanArchitecture \
   --out /tmp/dotnet-bench.json \
-  --fail-under-r5 0.600
+  --fail-under-r5 0.900
 ```
 
 The benchmark mines the target repo into a temporary LanceDB palace, then
 measures R@5/R@10 across symbol lookup, cross-project interface/implementation,
 service registration, and project dependency queries.
 
-Current v1.6.0 baseline on the pinned corpus:
+Current baseline on the pinned corpus (BENCH-DOTNET-R5-IMPROVE, 2026-05-02):
 
 | Metric | Value |
 |---|---:|
-| Chunks | 271 |
-| R@5 | 0.600 |
-| R@10 | 0.850 |
-| Embed time | 10.0s |
-| Avg query latency | 13.9ms |
+| Chunks | 270 |
+| R@5 | 0.900 |
+| R@10 | 1.000 |
+| Embed time | 10.9s |
+| Avg query latency | 50.4ms |
 
-> **Note:** R@5 is currently 0.600. The CI gate is set to that measured baseline
-> so every `main` push still catches regressions without keeping the repository
-> red by design. Raising the gate to 0.800 is tracked separately as retrieval
-> quality work.
+Per-category R@5 / R@10:
+
+| Category | R@5 | R@10 |
+|---|---:|---:|
+| symbol_lookup | 1.000 | 1.000 |
+| cross_project | 1.000 | 1.000 |
+| interface_impl | 0.800 | 1.000 |
+| project_dependency | 0.800 | 1.000 |
+
+Improvement vs v1.6.0 baseline (R@5=0.600, project_dependency R@5=0.200):
+- Overall R@5: 0.600 → 0.900 (+0.300)
+- project_dependency R@5: 0.200 → 0.800 (+0.600)
+
+Implementation: verbatim `.csproj/.fsproj/.vbproj` chunker (`dotnet_project_xml_v1`) that
+co-embeds all build elements in a single chunk, plus a deterministic overfetch-and-rerank
+step in `LanceStore.query()` that promotes project files for project-file intent queries
+and symbol-matched files for CamelCase identifier queries.
+
+Reproduction command (requires offline-cached MiniLM):
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python benchmarks/dotnet_bench.py \
+  --repo-dir /tmp/CleanArchitecture \
+  --out /tmp/dotnet-bench.json \
+  --fail-under-r5 0.900
+```
 
 ### CI Gate
 
@@ -191,8 +212,8 @@ The workflow `.github/workflows/dotnet-bench.yml` runs on every pull request to
 1. Fetches `jasontaylordev/CleanArchitecture` at the pinned commit
    `5a600ab8749c110384bc3bd436b9c67f3067b489` and verifies `HEAD` matches.
 2. Runs `--validate-queries` to confirm expected files are present in the corpus.
-3. Runs the benchmark with `--fail-under-r5 0.600`; exits 1 when overall R@5
-   falls below 0.600.
+3. Runs the benchmark with `--fail-under-r5 0.900`; exits 1 when overall R@5
+   falls below 0.900.
 4. Uploads `benchmarks/results_dotnet_bench_ci.json` as a build artifact, even
    on failure, so the report is always available.
 
@@ -223,6 +244,99 @@ Historical raw result files from the original benchmark runs are not committed t
 - ~300MB disk for LongMemEval data
 - ~5 minutes for each full benchmark run
 - No API key. No internet during benchmark (after data download). No GPU.
+
+## Benchmark 6: .NET Hybrid Rerank Comparison
+
+Evaluates whether BM25-style token-overlap reranking improves retrieval on
+the pinned CleanArchitecture corpus, specifically for `project_dependency`
+queries where README/generated files outrank `.csproj` project files in
+pure vector search.
+
+The reranker lives in `mempalace_code/search_reranker.py` and is also
+accessible via `code_search(..., rerank="hybrid")`. It works over the
+already-retrieved LanceDB candidate pool — no embedding model changes, no
+network access.
+
+### Command
+
+```bash
+# Run both modes and compare (mines once, evaluates twice)
+python benchmarks/dotnet_bench.py \
+  --repo-dir /tmp/CleanArchitecture \
+  --compare-rerank \
+  --out /tmp/dotnet-hybrid.json
+
+# Run hybrid mode only
+python benchmarks/dotnet_bench.py \
+  --repo-dir /tmp/CleanArchitecture \
+  --rerank-mode hybrid \
+  --out /tmp/dotnet-hybrid-only.json
+
+# Validate query set still resolves (unchanged from vector mode)
+python benchmarks/dotnet_bench.py \
+  --repo-dir /tmp/CleanArchitecture \
+  --validate-queries
+```
+
+### Output Structure (`--compare-rerank`)
+
+The JSON report under `--compare-rerank` contains:
+
+```
+{
+  "meta": { "compare_rerank": true, "pool_size": 20, ... },
+  "code_retrieval": {
+    "modes": {
+      "vector": { "R@5": ..., "R@10": ..., "per_category": {...}, "per_query": [...] },
+      "hybrid": { "R@5": ..., "R@10": ..., "per_category": {...}, "per_query": [...] }
+    }
+  },
+  "comparison": {
+    "per_category": {
+      "project_dependency": { "delta_R@5": ... },
+      ...
+    }
+  },
+  "performance": { ... }
+}
+```
+
+### Measured Results
+
+Measured locally on 2026-05-03 against the pinned CleanArchitecture corpus
+(`5a600ab8749c110384bc3bd436b9c67f3067b489`) with `--compare-rerank`.
+Pool size: 20 candidates per query.
+
+| Metric | Vector | Hybrid | Delta |
+|---|---:|---:|---:|
+| Overall R@5 | 0.900 | 1.000 | +0.100 |
+| Overall R@10 | 1.000 | 1.000 | +0.000 |
+| project_dependency R@5 | 0.800 | 1.000 | +0.200 |
+| symbol_lookup R@5 | 1.000 | 1.000 | +0.000 |
+| cross_project R@5 | 1.000 | 1.000 | +0.000 |
+| interface_impl R@5 | 0.800 | 1.000 | +0.200 |
+
+Run metadata:
+
+| Field | Value |
+|---|---:|
+| Chunks | 270 |
+| Embed time | 9.3s |
+| Avg query latency | 46.2ms |
+| P95 query latency | 49.3ms |
+| Index size | 4.9 MB |
+
+### Decision
+
+The hybrid reranker is wired into `code_search` via `rerank="hybrid"`, exposed
+through the MCP `mempalace_code_search` optional `rerank` argument, and wired
+into the benchmark via `--rerank-mode hybrid`. Default MCP/code search remains
+vector order for this release to avoid a global ranking behavior change outside
+the pinned benchmark corpus.
+
+**Next promotion gate**: run the same comparison on at least one additional
+non-.NET corpus and promote hybrid to default only if project-file/symbol recall
+improves without regression in broad code-search queries.
 
 ## Next Benchmarks (Planned)
 
