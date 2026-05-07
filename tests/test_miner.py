@@ -3919,3 +3919,130 @@ def test_mine_dart_roundtrip():
         )
     finally:
         shutil.rmtree(tmpdir)
+
+
+def test_mine_lua_roundtrip():
+    """AC-2/AC-3: mine() on a .lua file stores drawers with language='lua' and
+    correct symbol_type/symbol_name metadata for each declaration type.
+
+    Each Lua construct is in its own file so adaptive_merge_split keeps it as a
+    distinct drawer with the expected metadata.
+    """
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        # enemy.lua — global function (symbol_type=function)
+        global_fn = (
+            "-- Spawns an enemy unit at position x, y with the given difficulty.\n"
+            "-- Returns the newly created enemy table with initial state.\n"
+            "-- The difficulty parameter controls HP and attack speed scaling.\n"
+            "-- Call cleanup_enemy() when the enemy is defeated or despawned.\n"
+            "function spawn_enemy(x, y, difficulty)\n"
+            "  local e = { x = x, y = y, hp = difficulty * 10 }\n"
+            "  e.state = 'idle'\n"
+            "  e.attack_speed = difficulty * 1.5\n"
+            "  table.insert(enemies, e)\n"
+            "  return e\n"
+            "end\n"
+        )
+
+        # util.lua — local function (symbol_type=local_function)
+        local_fn = (
+            "-- Clamps a numeric value between lo and hi (inclusive).\n"
+            "-- Returns lo if value < lo, hi if value > hi, else value.\n"
+            "-- Used by physics and animation systems to limit output ranges.\n"
+            "-- Pure function: no side effects, safe to call from coroutines.\n"
+            "local function clamp(value, lo, hi)\n"
+            "  if value < lo then return lo end\n"
+            "  if value > hi then return hi end\n"
+            "  return value\n"
+            "end\n"
+        )
+
+        # player.lua — colon method (symbol_type=method, symbol_name=Player:move)
+        colon_method = (
+            "-- Moves the Player entity by (dx, dy) applying velocity and collision.\n"
+            "-- Updates internal position state and triggers animation transitions.\n"
+            "-- Must be called once per game tick from the update loop.\n"
+            "-- Returns true if movement succeeded, false on collision block.\n"
+            "function Player:move(dx, dy)\n"
+            "  self.x = self.x + dx\n"
+            "  self.y = self.y + dy\n"
+            "  self:check_collision()\n"
+            "  self:update_animation(dx, dy)\n"
+            "  return true\n"
+            "end\n"
+        )
+
+        # renderer.lua — dot-notation method (symbol_type=method, symbol_name=M.render)
+        dot_method = (
+            "-- Renders the current scene using the provided frame and camera state.\n"
+            "-- Applies depth sorting and occlusion culling before rasterization.\n"
+            "-- Must be called after update() and before present() each tick.\n"
+            "-- Camera table must contain x, y, zoom, and rotation fields.\n"
+            "function M.render(frame, camera)\n"
+            "  M._clear_buffers(frame)\n"
+            "  M._sort_draw_calls(frame, camera)\n"
+            "  M._rasterize(frame)\n"
+            "  M._apply_post_fx(frame)\n"
+            "end\n"
+        )
+
+        # module.lua — module table declaration (symbol_type=module, symbol_name=M)
+        module_table = (
+            "-- M is the top-level module table exported by this file.\n"
+            "-- Add all public API functions as fields of M before returning it.\n"
+            "-- Internal helpers should be local and not attached to M.\n"
+            "-- Callers require this module with: local mod = require('module').\n"
+            "local M = {}\n"
+        )
+
+        for fname, content in [
+            ("enemy.lua", global_fn),
+            ("util.lua", local_fn),
+            ("player.lua", colon_method),
+            ("renderer.lua", dot_method),
+            ("module.lua", module_table),
+        ]:
+            write_file(project_root / fname, content)
+
+        _make_palace_config(project_root)
+
+        palace_dir = str(project_root / "palace")
+        mine(str(project_root), palace_dir, wing_override="luatest")
+
+        from mempalace_code.storage import open_store
+
+        store = open_store(palace_dir, create=False)
+        result = store.get(include=["metadatas"], limit=100)
+        metadatas = result.get("metadatas", [])
+
+        # AC-2: all stored drawers must have language='lua'
+        lua_drawers = [m for m in metadatas if m.get("language") == "lua"]
+        assert lua_drawers, f"No drawers with language='lua' found. Got: {metadatas}"
+
+        sym_pairs = {(m.get("symbol_type"), m.get("symbol_name")) for m in lua_drawers}
+
+        # AC-3: global function
+        assert ("function", "spawn_enemy") in sym_pairs, (
+            f"Expected (function, spawn_enemy) in {sym_pairs}"
+        )
+
+        # AC-3: local function
+        assert ("local_function", "clamp") in sym_pairs, (
+            f"Expected (local_function, clamp) in {sym_pairs}"
+        )
+
+        # AC-3: colon method
+        assert ("method", "Player:move") in sym_pairs, (
+            f"Expected (method, Player:move) in {sym_pairs}"
+        )
+
+        # AC-3: dot method
+        assert ("method", "M.render") in sym_pairs, f"Expected (method, M.render) in {sym_pairs}"
+
+        # AC-3: module table
+        assert ("module", "M") in sym_pairs, f"Expected (module, M) in {sym_pairs}"
+    finally:
+        shutil.rmtree(tmpdir)

@@ -44,6 +44,7 @@ _EXTENSION_LANG_MAP = {
     ".scala": "scala",
     ".sc": "scala",
     ".dart": "dart",
+    ".lua": "lua",
     # devops / infrastructure
     ".tf": "terraform",
     ".tfvars": "terraform",
@@ -115,6 +116,7 @@ _READABLE_EXTENSIONS = frozenset(
         ".scala",
         ".sc",
         ".dart",
+        ".lua",
         # devops / infrastructure
         ".tf",
         ".tfvars",
@@ -161,6 +163,8 @@ _SEARCHABLE_LANGUAGES = frozenset(
         "scala",
         # Dart / Flutter
         "dart",
+        # Lua
+        "lua",
         # web
         "html",
         "css",

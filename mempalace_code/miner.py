@@ -784,6 +784,26 @@ DART_BOUNDARY = re.compile(
 )
 
 
+# Lua structural boundaries.
+# Matches:
+#   local function name(   — local-scoped function declaration
+#   function name(         — global function declaration
+#   function M.name(       — module-table function (dot notation)
+#   function obj:method(   — OOP-style colon method
+#   local M = {}           — module/table declaration
+#   M = {}                 — bare module/table declaration
+# Intentionally excludes `local x = function(...)` (anonymous assignment) and
+# inline callbacks (function appears mid-line after an argument) to avoid false positives.
+LUA_BOUNDARY = re.compile(
+    r"^(?:"
+    r"local\s+function\s+\w+\s*\("
+    r"|function\s+\w[\w.]*(?::\w+)?\s*\("
+    r"|(?:local\s+)?\w+\s*=\s*\{\}"
+    r")",
+    re.MULTILINE,
+)
+
+
 def get_boundary_pattern(language: str):
     """Return the appropriate structural boundary regex for a language string or file extension."""
     mapping = {
@@ -827,6 +847,8 @@ def get_boundary_pattern(language: str):
         ".sc": SCALA_BOUNDARY,
         "dart": DART_BOUNDARY,
         ".dart": DART_BOUNDARY,
+        "lua": LUA_BOUNDARY,
+        ".lua": LUA_BOUNDARY,
     }
     return mapping.get(language)
 
@@ -1535,6 +1557,21 @@ _DART_EXTRACT = [
     ),
 ]
 
+# Lua extraction patterns (.lua files).
+# Order (most-specific first):
+#   1. local function name(     — local_function
+#   2. function obj:method(     — method (colon syntax; capture preserves `obj:method`)
+#   3. function M.name(         — method (dot syntax; capture preserves `M.name`)
+#   4. function name(           — global function
+#   5. local M = {} / M = {}   — module/table declaration
+_LUA_EXTRACT = [
+    (re.compile(r"^local\s+function\s+(\w+)\s*\(", re.MULTILINE), "local_function"),
+    (re.compile(r"^function\s+(\w+:\w+)\s*\(", re.MULTILINE), "method"),
+    (re.compile(r"^function\s+(\w+\.\w+)\s*\(", re.MULTILINE), "method"),
+    (re.compile(r"^function\s+(\w+)\s*\(", re.MULTILINE), "function"),
+    (re.compile(r"^(?:local\s+)?(\w+)\s*=\s*\{\}", re.MULTILINE), "module"),
+]
+
 _LANG_EXTRACT_MAP = {
     "python": _PY_EXTRACT,
     "typescript": _TS_EXTRACT,
@@ -1555,6 +1592,7 @@ _LANG_EXTRACT_MAP = {
     "php": _PHP_EXTRACT,
     "scala": _SCALA_EXTRACT,
     "dart": _DART_EXTRACT,
+    "lua": _LUA_EXTRACT,
 }
 
 
@@ -1686,6 +1724,7 @@ def chunk_file(content: str, ext: str, source_file: str, language: str = None) -
         "php",
         "scala",
         "dart",
+        "lua",
     ):
         return chunk_code(content, language, source_file)
     elif language in ("terraform", "hcl"):
@@ -2096,6 +2135,10 @@ def chunk_code(content: str, language: str, source_file: str) -> list:
         # Dart uses @override, @deprecated, @immutable, @pragma annotations before
         # declarations. Extend the lookback so these lines attach to their declaration chunk.
         comment_prefixes = comment_prefixes + ("@",)
+    if canonical == "lua":
+        # Lua uses -- for line comments and --[[ for long comments. Add -- so leading
+        # comment lines stay attached to the declaration they precede.
+        comment_prefixes = comment_prefixes + ("--",)
 
     for i, line in enumerate(lines):
         stripped = line.strip()

@@ -2687,3 +2687,115 @@ def test_dotnet_vbproj_uses_same_strategy():
     assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v1"
     assert "<ProjectReference" in chunks[0]["content"]
     assert "TargetFramework" in chunks[0]["content"]
+
+
+# =============================================================================
+# Lua structural chunking — AC-2/AC-3/AC-7
+# =============================================================================
+
+# Padding to keep each function body above MIN_CHUNK (100 chars) so chunks
+# are not discarded or merged before symbol assertions can be made.
+_LUA_FILLER = (
+    "  -- padding to exceed MIN_CHUNK threshold for adaptive merge/split\n"
+    "  local result = {}\n"
+    "  for i = 1, 10 do result[i] = i * 2 end\n"
+    "  return result\n"
+)
+
+
+def test_chunk_code_lua_global_function():
+    """Global function declaration produces a chunk containing the function name."""
+    code = (
+        "-- spawns an enemy at position x,y with the given difficulty level\n"
+        "function spawn_enemy(x, y, difficulty)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "enemy.lua")
+    found = next((c for c in chunks if "spawn_enemy" in c["content"]), None)
+    assert found is not None, "No chunk found for global function spawn_enemy"
+
+
+def test_chunk_code_lua_local_function():
+    """Local function declaration produces its own chunk."""
+    code = (
+        "-- clamps value between lo and hi\n"
+        "local function clamp(value, lo, hi)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "util.lua")
+    found = next((c for c in chunks if "clamp" in c["content"]), None)
+    assert found is not None, "No chunk found for local function clamp"
+
+
+def test_chunk_code_lua_colon_method():
+    """Colon-syntax method produces its own chunk."""
+    code = (
+        "-- moves the player by dx, dy with collision detection applied\n"
+        "function Player:move(dx, dy)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "player.lua")
+    found = next((c for c in chunks if "Player:move" in c["content"]), None)
+    assert found is not None, "No chunk found for Player:move colon method"
+
+
+def test_chunk_code_lua_dot_method():
+    """Dot-syntax module function produces its own chunk."""
+    code = (
+        "-- renders the scene using the current frame state and camera\n"
+        "function M.render(frame, camera)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "renderer.lua")
+    found = next((c for c in chunks if "M.render" in c["content"]), None)
+    assert found is not None, "No chunk found for M.render dot-method"
+
+
+def test_chunk_code_lua_module_table_declaration():
+    """Module table declaration `local M = {}` is detected as a boundary."""
+    code = "local M = {}\n\n" + "function M.init(config)\n" + _LUA_FILLER + "end\n"
+    chunks = chunk_code(code, "lua", "module.lua")
+    all_content = " ".join(c["content"] for c in chunks)
+    assert "local M = {}" in all_content, "Module table declaration not found in any chunk"
+
+
+def test_chunk_code_lua_comment_attached_to_declaration():
+    """Leading -- comment stays attached to the immediately following declaration."""
+    code = (
+        "-- render the current frame using active camera position\n"
+        "function render_frame(camera, dt)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "render.lua")
+    found = next((c for c in chunks if "render_frame" in c["content"]), None)
+    assert found is not None
+    assert "-- render the current frame" in found["content"], (
+        "Leading comment should be attached to the function declaration"
+    )
+
+
+def test_chunk_file_lua_routing():
+    """chunk_file dispatches .lua files through chunk_code (not adaptive)."""
+    code = "function spawn_enemy(x, y, difficulty)\n" + _LUA_FILLER + "end\n"
+    chunks = chunk_file(code, ".lua", "enemy.lua")
+    assert len(chunks) >= 1
+    all_content = " ".join(c["content"] for c in chunks)
+    assert "spawn_enemy" in all_content
+
+
+def test_chunk_code_lua_anonymous_function_not_a_boundary():
+    """AC-7: `local x = function(...)` is not treated as a structural boundary.
+
+    An anonymous function assigned to a local variable should fall through to
+    adaptive chunking — no fake symbol should be emitted.
+    """
+    code = (
+        "local handler = function(event)\n"
+        "  -- handles the event dispatched by the game loop\n"
+        "  print(event.type)\n"
+        "  return true\n"
+        "end\n"
+    )
+    # chunk_code falls back to adaptive when no boundary matches
+    chunks = chunk_code(code, "lua", "handler.lua")
+    # All content should be present (adaptive fallback preserves it)
+    all_content = " ".join(c["content"] for c in chunks)
+    assert "handler" in all_content
+    # No chunk should have a function/local_function symbol_type attached via boundary
+    # (we can't directly inspect symbol here, but we verify no IndexError / crash)
+    assert len(chunks) >= 1
