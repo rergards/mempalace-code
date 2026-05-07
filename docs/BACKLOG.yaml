@@ -105,41 +105,6 @@ items:
     links:
       - type: is-blocked-by
         key: CLARIFY-MINE-RUBY-SMART
-  - key: MINE-LUA
-    summary: Add first-class Lua support to code miner
-    type: feature
-    status: open
-    priority: medium
-    section_id: coding_first
-    labels: [feat, miner, language, lua]
-    description: |-
-      ## Problem
-      Lua files are not in the miner language catalog today. Normal project scans skip `.lua`
-      files, so Lua-heavy projects such as game widgets or embedded scripting folders are
-      invisible unless a user force-includes exact files, and even then they only get
-      unknown-language adaptive chunks.
-
-      ## Scope
-      - Add `.lua` to language detection, readable extensions, and `code_search(language=...)`.
-      - Add regex structural chunking for common Lua declarations:
-        - `function name(...)`
-        - `local function name(...)`
-        - table/member functions such as `function M.foo(...)`, `function obj:method(...)`
-        - top-level module/table assignments where practical.
-      - Extract symbol metadata for functions, methods, local functions, and module tables.
-      - Keep first pass regex-based. Do not require tree-sitter Lua unless a later task adds it.
-      - Preserve fallback behavior for anonymous functions and DSL-style Lua by adaptive merge/split.
-
-      ## Acceptance Criteria
-      - `.lua` files are discovered by default scans.
-      - `detect_language()` returns `lua` for `.lua`.
-      - `mempalace_code_search(language="lua")` accepts the language and returns Lua results.
-      - Lua chunks preserve useful boundaries for global functions, local functions, and table/member methods.
-      - Symbol metadata covers function, local_function, method, and module/table declarations where matched.
-      - Tests cover language catalog, detection, chunking, symbol extraction, and code_search language filtering.
-      - README / AGENT_INSTALL / HOW_SEARCH_WORKS are updated to remove the "Lua unsupported" caveat.
-      - ruff and targeted tests pass.
-    size: M
   - key: MINE-HELM
     summary: Add Helm chart support to code miner
     type: feature
