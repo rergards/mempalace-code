@@ -188,6 +188,262 @@ items:
     links:
       - type: is-blocked-by
         key: CLARIFY-MINE-ANSIBLE
+  - key: MCP-TOOL-PROFILES
+    summary: Add MCP tool profiles and include/exclude subsetting
+    type: feature
+    status: open
+    priority: high
+    section_id: mcp_developer_tools
+    labels: [feat, mcp, tools, docs, issue-6]
+    description: |-
+      ## Problem
+      GitHub issue #6 reports that the MCP server exposes all 28 tools to every
+      connected client. Users with existing memory systems may only need a subset,
+      but every tool schema still adds a persistent prompt/tool-surface cost to
+      each session. Dynamic tool discovery is not the desired first fix because it
+      hurts the named-tool trigger patterns used by the usage rules.
+
+      ## Scope
+      - Add static, declarative MCP tool subsetting at server startup.
+      - Preserve today's behavior as the default `full` profile.
+      - Add curated profiles:
+        - `minimal`: search, capture, duplicate check, status.
+        - `kg`: minimal plus temporal KG query/add/invalidate/timeline.
+        - `code`: code search, file context, subsystem/type/dependency tools.
+        - `notes`: search, capture, room/wing navigation, tunnels, diary.
+        - `full`: all tools.
+      - Add explicit include/exclude CLI flags for advanced users:
+        - `python -m mempalace_code.mcp_server --profile=minimal`
+        - `python -m mempalace_code.mcp_server --tools search,add_drawer,kg_query,kg_add,kg_invalidate,diary_*`
+        - `python -m mempalace_code.mcp_server --profile=full --exclude=extract_reusable,show_project_graph`
+      - Filter `tools/list` and tool-call dispatch consistently so hidden tools are
+        not advertised and cannot be called through the MCP server.
+      - Ship matching usage-rules variants per profile or generate them from one
+        template, and update AGENT_INSTALL Section 7 so injection matches the
+        selected MCP profile.
+      - Document profiles in README, AGENT_INSTALL, LLM_USAGE_RULES, and MCP setup examples.
+
+      ## Acceptance Criteria
+      - Default MCP server startup still exposes all current tools.
+      - Each profile exposes only its documented tool set in `tools/list`.
+      - Unknown profile names, unknown tool names, and impossible include/exclude
+        combinations fail with clear errors before the server starts.
+      - Explicit `--tools` can include wildcard groups such as `diary_*` if implemented;
+        otherwise docs and tests use only exact tool identifiers.
+      - Hidden tools return a clear MCP error if called directly.
+      - Usage-rules injection can select a profile-matched rules block and never
+        instructs the agent to call tools hidden by that profile.
+      - Tests cover profile filtering, include/exclude precedence, invalid flags,
+        tool-call rejection for hidden tools, and generated/injected usage rules.
+      - Docs link or reference GitHub issue #6 and explain why static profiles were
+        chosen over lazy tool discovery.
+      - ruff and targeted MCP/docs tests pass.
+    size: M
+  - key: QUAL-PYRIGHT-ZERO
+    summary: Make Pyright a clean gating check
+    type: task
+    status: open
+    priority: high
+    section_id: quality
+    labels: [quality, typing, pyright, ci, review]
+    description: |-
+      ## Problem
+      The repo had a `[tool.pyright]` config before Pyright was installed or run by CI.
+      Pyright is now installed as a dev dependency and visible in CI as a non-gating
+      baseline, but the baseline is still expected to fail until the existing type
+      diagnostics are fixed. First local baseline with the resolved interpreter path:
+      298 errors across 74 analyzed files.
+
+      ## Scope
+      - Run `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"`
+        from the project dev environment and classify the current diagnostics by
+        module and fix family.
+      - Fix or deliberately suppress only diagnostics with a clear local justification.
+      - Remove the GitHub Actions `continue-on-error` guard once the baseline is clean.
+      - Keep the Pyright config, docs, local commands, and CI invocation aligned.
+
+      ## Acceptance Criteria
+      - `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"`
+        exits 0 locally.
+      - CI fails on Pyright diagnostics instead of treating them as advisory.
+      - Every remaining suppression has a nearby reason and a follow-up only if the
+        underlying issue is intentionally out of scope.
+      - The review finding that Pyright was configured but unused is no longer true.
+    size: M
+  - key: QUAL-OPTIONAL-ANNOTATIONS
+    summary: Normalize optional annotations for Pyright
+    type: task
+    status: open
+    priority: high
+    section_id: quality
+    labels: [quality, typing, pyright, annotations, review]
+    description: |-
+      ## Problem
+      Review found many signatures and attributes annotated as non-optional while
+      defaulting to `None`, for example `str = None`. Pyright treats these as real type
+      errors and they also hide the actual null-handling contract from readers.
+
+      ## Scope
+      - Replace non-optional annotations with `T | None` or `Optional[T]` where `None`
+        is a valid input or state.
+      - Prefer `T | None` for touched Python 3.11+ code.
+      - Preserve public behavior and CLI/API compatibility.
+      - Avoid widening types just to silence Pyright when a guard or invariant is the
+        correct fix.
+
+      ## Acceptance Criteria
+      - Pyright no longer reports default-`None` annotation errors.
+      - Tests still cover affected call paths.
+      - Ruff check and format pass on touched files.
+    size: M
+  - key: REFAC-MINER-MODULES
+    summary: Split miner.py into focused modules
+    type: task
+    status: open
+    priority: medium
+    section_id: cleanup
+    labels: [refactor, miner, maintainability, review]
+    description: |-
+      ## Problem
+      `mempalace_code/miner.py` has grown into a multi-thousand-line module mixing
+      scan policy, language detection, regex chunkers, AST chunkers, KG extraction, and
+      orchestration. The size now makes review, Pyright cleanup, and language additions
+      more expensive than necessary.
+
+      ## Scope
+      - Split scanner/project-walk logic, language catalog, chunkers, symbol extraction,
+        KG extraction, and mining orchestration into focused modules.
+      - Preserve public imports or provide compatibility shims for existing callers.
+      - Move tests gradually so behavior coverage stays intact throughout the split.
+
+      ## Acceptance Criteria
+      - Existing CLI, MCP, and test imports keep working.
+      - Language detection and chunking tests pass without broad rewrites.
+      - The split lowers module ownership boundaries enough that future language work can
+        touch a smaller file set.
+      - Ruff and targeted miner tests pass.
+    size: L
+  - key: STORE-OPTIMIZE-CONTRACT
+    summary: Replace safe_optimize hasattr shim with an explicit storage contract
+    type: task
+    status: open
+    priority: medium
+    section_id: storage_reliability
+    labels: [storage, api, cleanup, review]
+    description: |-
+      ## Problem
+      Review flagged the `safe_optimize` compatibility path as an implicit `hasattr`
+      shim. The behavior may be valid for legacy stores, but the contract is not visible
+      enough for type checking or future storage backends.
+
+      ## Scope
+      - Decide whether optimization is part of the storage interface or an explicitly
+        optional capability.
+      - Replace ad hoc probing with a typed method/protocol or a documented capability
+        adapter.
+      - Keep legacy behavior for stores that cannot compact/optimize.
+
+      ## Acceptance Criteria
+      - Callers do not need untyped `hasattr` checks for normal optimize paths.
+      - Unsupported stores return a clear no-op/status result.
+      - Storage tests cover LanceDB support and a no-optimize backend.
+    size: S
+  - key: STORE-LANCE-PYRIGHT-NARROWING
+    summary: Make LanceStore optional handles Pyright-clean
+    type: task
+    status: open
+    priority: high
+    section_id: storage_reliability
+    labels: [storage, pyright, typing, lancedb, review]
+    description: |-
+      ## Problem
+      Review found that optional LanceStore members such as `_db` and `_embedder` are
+      accessed after helper calls that establish runtime initialization. Pyright cannot
+      narrow those side effects, so the code remains noisy and the real invariants are
+      implicit.
+
+      ## Scope
+      - Introduce typed accessors, local assertions, or state objects that make initialized
+        handles explicit to Pyright and readers.
+      - Avoid blanket casts when a narrower helper can encode the invariant.
+      - Keep lazy/open behavior unchanged.
+
+      ## Acceptance Criteria
+      - Pyright no longer reports optional access errors for LanceStore handles.
+      - Tests cover operations that depend on initialized DB and embedder handles.
+      - No storage initialization behavior changes without explicit test coverage.
+    size: M
+  - key: MCP-SERVER-MODULE-SPLIT
+    summary: Split mcp_server.py by tool family
+    type: task
+    status: open
+    priority: medium
+    section_id: mcp_developer_tools
+    labels: [mcp, refactor, tools, review]
+    description: |-
+      ## Problem
+      `mcp_server.py` is a large mixed module containing tool schemas, dispatch, drawer
+      tools, KG tools, graph tools, diary tools, and status/protocol text. This makes
+      issue #6 tool profiles and future MCP changes harder to review safely.
+
+      ## Scope
+      - Split tool definitions and handlers by feature family.
+      - Keep one stable registry/dispatch layer that can support MCP-TOOL-PROFILES.
+      - Preserve existing tool names, schemas, and responses unless a change is explicitly
+        tested and documented.
+
+      ## Acceptance Criteria
+      - `tools/list` output is unchanged before any profile filtering is enabled.
+      - Existing MCP tests pass after the split.
+      - New module boundaries make profile filtering and usage-rule generation easier to
+        implement without editing one monolith.
+    size: L
+  - key: CLI-COMMAND-MODULES
+    summary: Split cli.py into command modules
+    type: task
+    status: open
+    priority: low
+    section_id: cleanup
+    labels: [cli, refactor, maintainability, review]
+    description: |-
+      ## Problem
+      Review noted that `cli.py` is oversized. It is less urgent than miner and MCP
+      cleanup, but continued command growth will make CLI behavior changes harder to
+      isolate and test.
+
+      ## Scope
+      - Move command handlers into focused modules while keeping the argparse entry point
+        stable.
+      - Preserve `mempalace-code` and `mempalace-code-alias` behavior.
+      - Keep command-level tests aligned with the new module boundaries.
+
+      ## Acceptance Criteria
+      - Existing CLI tests pass.
+      - Public command names, flags, and exit behavior remain compatible.
+      - Future command additions can be implemented without editing a single large file.
+    size: M
+  - key: GRAPH-TYPED-PAYLOADS
+    summary: Add typed payloads for palace graph state
+    type: task
+    status: open
+    priority: medium
+    section_id: quality
+    labels: [typing, graph, pyright, cleanup, review]
+    description: |-
+      ## Problem
+      Review flagged `palace_graph.py` for mixed `defaultdict` payload shapes. The current
+      dynamic dictionaries work at runtime but make type-checking and maintenance noisy.
+
+      ## Scope
+      - Introduce `TypedDict`, dataclass, or another small typed structure for graph payloads.
+      - Keep JSON/result shapes returned by public graph helpers compatible.
+      - Use the typed structure to simplify Pyright diagnostics instead of adding casts.
+
+      ## Acceptance Criteria
+      - Pyright understands the graph payload structure.
+      - Existing palace graph and MCP graph tests pass.
+      - Public response dictionaries are unchanged unless docs/tests are updated.
+    size: S
   - key: CLARIFY-MINE-RUBY-SMART
     summary: "Clarify scope for MINE-RUBY-SMART before planning can proceed"
     type: task
