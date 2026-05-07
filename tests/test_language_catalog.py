@@ -38,6 +38,7 @@ def test_catalog_preserves_current_detection_labels():
         "php",
         "scala",
         "dart",
+        "lua",
         "terraform",
         "hcl",
         "gotemplate",
@@ -117,3 +118,11 @@ def test_searchable_language_helpers_are_sorted_and_parseable():
     assert labels == tuple(sorted(catalog.searchable_languages()))
     assert [part.strip() for part in csv.split(",")] == list(labels)
     assert catalog.code_search_language_description().endswith(csv)
+
+
+def test_lua_in_catalog():
+    """AC-1: .lua maps to lua; lua is readable and searchable."""
+    assert catalog.extension_language_map().get(".lua") == "lua"
+    assert ".lua" in catalog.readable_extensions()
+    assert "lua" in catalog.searchable_languages()
+    assert "lua" in catalog.detected_languages()

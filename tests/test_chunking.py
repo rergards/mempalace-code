@@ -2687,3 +2687,144 @@ def test_dotnet_vbproj_uses_same_strategy():
     assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v1"
     assert "<ProjectReference" in chunks[0]["content"]
     assert "TargetFramework" in chunks[0]["content"]
+
+
+# =============================================================================
+# Lua structural chunking — AC-2/AC-3/AC-7
+# =============================================================================
+
+# Padding to keep each function body above MIN_CHUNK (100 chars) so chunks
+# are not discarded or merged before symbol assertions can be made.
+_LUA_FILLER = (
+    "  -- padding to exceed MIN_CHUNK threshold for adaptive merge/split\n"
+    "  local result = {}\n"
+    "  for i = 1, 10 do result[i] = i * 2 end\n"
+    "  return result\n"
+)
+
+
+def test_chunk_code_lua_global_function():
+    """Global function declaration produces a chunk containing the function name."""
+    code = (
+        "-- spawns an enemy at position x,y with the given difficulty level\n"
+        "function spawn_enemy(x, y, difficulty)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "enemy.lua")
+    found = next((c for c in chunks if "spawn_enemy" in c["content"]), None)
+    assert found is not None, "No chunk found for global function spawn_enemy"
+
+
+def test_chunk_code_lua_local_function():
+    """Local function declaration produces its own chunk."""
+    code = (
+        "-- clamps value between lo and hi\n"
+        "local function clamp(value, lo, hi)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "util.lua")
+    found = next((c for c in chunks if "clamp" in c["content"]), None)
+    assert found is not None, "No chunk found for local function clamp"
+
+
+def test_chunk_code_lua_colon_method():
+    """Colon-syntax method produces its own chunk."""
+    code = (
+        "-- moves the player by dx, dy with collision detection applied\n"
+        "function Player:move(dx, dy)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "player.lua")
+    found = next((c for c in chunks if "Player:move" in c["content"]), None)
+    assert found is not None, "No chunk found for Player:move colon method"
+
+
+def test_chunk_code_lua_dot_method():
+    """Dot-syntax module function produces its own chunk."""
+    code = (
+        "-- renders the scene using the current frame state and camera\n"
+        "function M.render(frame, camera)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "renderer.lua")
+    found = next((c for c in chunks if "M.render" in c["content"]), None)
+    assert found is not None, "No chunk found for M.render dot-method"
+
+
+def test_chunk_code_lua_module_table_declaration():
+    """Module table declaration `local M = {}` is detected as a boundary."""
+    code = "local M = {}\n\n" + "function M.init(config)\n" + _LUA_FILLER + "end\n"
+    chunks = chunk_code(code, "lua", "module.lua")
+    all_content = " ".join(c["content"] for c in chunks)
+    assert "local M = {}" in all_content, "Module table declaration not found in any chunk"
+
+
+def test_chunk_code_lua_comment_attached_to_declaration():
+    """Leading -- comment stays attached to the immediately following declaration."""
+    code = (
+        "-- render the current frame using active camera position\n"
+        "function render_frame(camera, dt)\n" + _LUA_FILLER + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "render.lua")
+    found = next((c for c in chunks if "render_frame" in c["content"]), None)
+    assert found is not None
+    assert "-- render the current frame" in found["content"], (
+        "Leading comment should be attached to the function declaration"
+    )
+
+
+def test_chunk_file_lua_routing():
+    """chunk_file dispatches .lua files through chunk_code (not adaptive)."""
+    code = "function spawn_enemy(x, y, difficulty)\n" + _LUA_FILLER + "end\n"
+    chunks = chunk_file(code, ".lua", "enemy.lua")
+    assert len(chunks) >= 1
+    all_content = " ".join(c["content"] for c in chunks)
+    assert "spawn_enemy" in all_content
+
+
+def test_chunk_code_lua_anonymous_function_not_a_boundary():
+    """AC-7: `local x = function(...)` is not treated as a structural boundary.
+
+    An anonymous function assigned to a local variable should fall through to
+    adaptive chunking — no fake symbol should be emitted.
+    """
+    code = (
+        "local handler = function(event)\n"
+        "  -- handles the event dispatched by the game loop\n"
+        "  print(event.type)\n"
+        "  return true\n"
+        "end\n"
+    )
+    # chunk_code falls back to adaptive when no boundary matches
+    chunks = chunk_code(code, "lua", "handler.lua")
+    # All content should be present (adaptive fallback preserves it)
+    all_content = " ".join(c["content"] for c in chunks)
+    assert "handler" in all_content
+    # Since no structural boundary matches, chunk_code produces a single adaptive chunk.
+    assert len(chunks) == 1, (
+        f"Expected 1 adaptive chunk for anonymous function assignment, got {len(chunks)}"
+    )
+
+
+def test_chunk_code_lua_lowercase_table_not_a_module_boundary():
+    """Regression: `local result = {}` inside a function body must NOT split the function.
+
+    The module-table detection is restricted to uppercase-starting names (Lua convention:
+    M, MyModule, Renderer). Common lowercase locals like `opts`, `result`, `t` must never
+    become structural boundaries or be classified as modules.
+    """
+    long_line = "  x_var = x_var + some_long_value_computation_here\n"
+    code = (
+        "function render_scene(camera, light)\n"
+        + long_line * 60
+        + "  local opts = {}\n"
+        + long_line * 60
+        + "  return draw(opts)\n"
+        + "end\n"
+    )
+    chunks = chunk_code(code, "lua", "scene.lua")
+    # Without the false boundary, adaptive_merge_split keeps one (large) chunk.
+    # With the false boundary, chunk_code produces 2 chunks and the second one
+    # would start with `local opts = {}` (incorrectly classified as module).
+    found_false_module = any(c["content"].lstrip().startswith("local opts = {}") for c in chunks)
+    assert not found_false_module, (
+        "local opts = {} should not be treated as a module boundary — "
+        f"got {len(chunks)} chunks; second starts with: "
+        + repr(chunks[1]["content"][:60] if len(chunks) > 1 else "N/A")
+    )

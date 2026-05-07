@@ -1,0 +1,14 @@
+verdict: READY
+
+summary:
+The plan is a coherent, end-to-end addition of Lua to the existing language pipeline that mirrors the established "extension → catalog → boundary regex → extract patterns → searcher VALID_SYMBOL_TYPES → MCP schema" pattern already used by other languages (Dart, Scala, PHP, Swift, etc.). All eight acceptance criteria are observable via specific function calls or test assertions, and they map cleanly to the listed file changes. The introduction of a new `local_function` symbol_type and the use of catalog-generated language hints are consistent with current architecture (e.g., `code_search_language_description()` already drives the MCP language schema from `sorted_searchable_languages()`, so adding `lua` to `_SEARCHABLE_LANGUAGES` automatically satisfies AC-8's language portion). Existing catalog tests (`test_language_catalog.py`) use subset assertions, so adding `lua`/`.lua` does not break invariants. The design notes correctly call out the false-positive guard for `local x = function(...)` and the Lua comment lookback (`--`/`--[[`). No architectural contradictions found. No hidden TBDs beyond the explicit out_of_scope list.
+
+gaps:
+  - severity: low
+    claim: "README.md change scope is conditional ('if any Lua-unsupported caveat needs alignment'), but the README contains a 'Language-Aware Code Mining' table at README.md:134-156 that explicitly lists every first-class language (Java, Kotlin, Scala, Swift, Dart, PHP, C#, F#, VB.NET, etc.) with its chunking strategy. Since this task is 'Add first-class Lua support', the table will be visibly incomplete without a Lua row even though no explicit 'Lua-unsupported caveat' exists today."
+    evidence: "README.md:134-156 (language table), docs/plans/MINE-LUA.md files[].path=README.md change description"
+    suggested_fix: "Tighten the README.md change description to require adding a Lua row to the language-strategy table (regex strategy, no AST), parallel to how Java/Kotlin/Scala rows are written. Keep the wording for AGENT_INSTALL.md and HOW_SEARCH_WORKS.md as conditional since those files do not enumerate languages."
+  - severity: low
+    claim: "AC-3 allows the method symbol_name to be either 'Player:move' or 'Player.move', but the existing extract_symbol contract (miner.py:895-896) requires a single capture group, and the Lua source distinguishes `:` (method-call sugar) from `.` (table-field). Allowing both forms means the test will pass with either regex shape, but the implementer has no guidance on which qualified form to canonicalize."
+    evidence: "mempalace_code/miner.py:895-896 ('Each regex has exactly one capture group for the symbol name'), docs/plans/MINE-LUA.md AC-3"
+    suggested_fix: "Add a one-line design note picking a single canonical form (e.g., preserve the source separator: capture `Player:move` for colon syntax and `M.render` for dot syntax). This avoids drift if a later refactor relies on symbol_name shape."

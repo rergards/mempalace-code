@@ -51,6 +51,7 @@ from mempalace_code.miner import detect_language
         (".scala", "scala"),
         (".sc", "scala"),
         (".dart", "dart"),
+        (".lua", "lua"),
     ],
 )
 def test_extension_detection(ext, expected):

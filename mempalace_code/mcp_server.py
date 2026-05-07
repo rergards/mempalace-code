@@ -1461,6 +1461,7 @@ TOOLS = {
                         "typealias, protocol, actor, extension, trait, namespace, "
                         "object, case_class, case_object, "
                         "mixin, extension_type, constructor, "
+                        "local_function, "
                         "deployment, service, configmap, secret, ingress, customresourcedefinition)"
                     ),
                 },

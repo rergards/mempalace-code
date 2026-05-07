@@ -2536,3 +2536,47 @@ print("OK")
             f"subprocess failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
         assert "OK" in result.stdout, f"unexpected output: {result.stdout}"
+
+
+class TestLuaMCPSchema:
+    """AC-8: MCP tools/list exposes lua in language description and local_function in symbol_type."""
+
+    def test_lua_in_language_description(self):
+        """'lua' appears in the mempalace_code_search language description."""
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 200, "params": {}})
+        tools = {t["name"]: t for t in resp["result"]["tools"]}
+        lang_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["language"][
+            "description"
+        ]
+        assert "lua" in lang_desc, f"'lua' not found in language description: {lang_desc!r}"
+
+    def test_local_function_in_symbol_type_description(self):
+        """'local_function' appears in the mempalace_code_search symbol_type description."""
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 201, "params": {}})
+        tools = {t["name"]: t for t in resp["result"]["tools"]}
+        sym_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["symbol_type"][
+            "description"
+        ]
+        assert "local_function" in sym_desc, (
+            f"'local_function' not found in symbol_type description: {sym_desc!r}"
+        )
+
+    def test_lua_in_language_description_exactly_once(self):
+        """'lua' appears exactly once in the language description (no duplicate)."""
+        from mempalace_code.language_catalog import sorted_searchable_languages
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 202, "params": {}})
+        tools = {t["name"]: t for t in resp["result"]["tools"]}
+        lang_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["language"][
+            "description"
+        ]
+        parsed = [
+            part.strip() for part in lang_desc.split("Supported languages: ", 1)[1].split(",")
+        ]
+        assert parsed.count("lua") == 1, f"'lua' should appear exactly once, got: {parsed}"
+        assert "lua" in list(sorted_searchable_languages())

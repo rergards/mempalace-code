@@ -5,6 +5,10 @@ Current command/package names: the CLI is `mempalace-code`, the import package i
 Older historical entries may mention legacy `mempalace` names that were valid
 when those changes landed.
 
+## 2026-05-07 · MINE-LUA
+
+Add first-class Lua support to the code miner: `.lua` extension detection, structural chunking for `function`, `local function`, `M.method`, and `Class:method` declarations, and `code_search(language="lua")` filtering.
+
 ## v1.8.1 — 2026-05-03
 
 ### Fixed

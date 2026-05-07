@@ -173,6 +173,7 @@ not become source-code drawers unless explicitly force-included.
 | Terraform / HCL | Terraform/HCL top-level blocks (`resource`, `module`, `variable`, `moved`, `import`, `check`, etc.) | Regex |
 | Kubernetes manifests | Deployments, Services, ConfigMaps, Secrets, Ingresses, CRDs (indexed by kind/name) | YAML-aware |
 | Markdown / plain text | Heading sections (`#`-`######`), heading paths, section metadata, paragraphs | — |
+| Lua | Functions, local functions, methods (dot/colon), module/table declarations | Regex |
 | C / C++ | Indexed and searchable with best-effort symbol metadata; chunked adaptively today | — |
 | Ruby / shell / SQL | Indexed and searchable; chunked adaptively today | — |
 | HTML / CSS / CSV | Indexed and searchable; chunked adaptively today | — |

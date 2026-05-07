@@ -201,6 +201,8 @@ VALID_SYMBOL_TYPES = {
     "mixin",
     "extension_type",
     "constructor",
+    # Lua-specific
+    "local_function",
     # Kubernetes resource kinds
     "deployment",
     "service",

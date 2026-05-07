@@ -979,3 +979,68 @@ class TestCodeSearchHybridRerank:
             "file_glob",
             "wing",
         }
+
+
+class TestLuaLanguageSupport:
+    """AC-4/AC-5/AC-6: Lua language and local_function symbol type pass code_search validation."""
+
+    @pytest.fixture
+    def lua_palace_path(self, tmp_path):
+        palace_dir = str(tmp_path / "palace")
+        store = open_store(palace_dir, create=True)
+        store.add(
+            ids=["lua_spawnEnemy"],
+            documents=[
+                "-- Spawns an enemy at position x, y.\n"
+                "function spawn_enemy(x, y, difficulty)\n"
+                "  local e = { x = x, y = y, hp = difficulty * 10 }\n"
+                "  return e\n"
+                "end\n"
+            ],
+            metadatas=[
+                {
+                    "wing": "mygame",
+                    "room": "backend",
+                    "source_file": "enemy.lua",
+                    "language": "lua",
+                    "symbol_name": "spawn_enemy",
+                    "symbol_type": "function",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                }
+            ],
+        )
+        return palace_dir
+
+    def test_code_search_lua_language(self, lua_palace_path):
+        """AC-4: code_search(language='lua') does not return an 'unsupported language' error."""
+        result = code_search(lua_palace_path, "spawn enemy", language="lua")
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        assert "results" in result
+
+    def test_code_search_lua_language_filter_in_result(self, lua_palace_path):
+        """AC-4: code_search with language='lua' exposes filters.language='lua'."""
+        result = code_search(lua_palace_path, "enemy", language="lua")
+        assert result.get("filters", {}).get("language") == "lua"
+
+    def test_lua_in_supported_languages_hint(self, lua_palace_path):
+        """AC-5: 'lua' appears in supported_languages on an invalid language query."""
+        result = code_search(lua_palace_path, "something", language="notareallangnnn")
+        assert "supported_languages" in result
+        assert "lua" in result["supported_languages"], "'lua' missing from supported_languages hint"
+
+    def test_code_search_local_function_symbol_type(self, lua_palace_path):
+        """AC-6: code_search(symbol_type='local_function') does not return an error."""
+        result = code_search(lua_palace_path, "something", symbol_type="local_function")
+        assert "invalid symbol_type" not in result.get("error", "").lower(), (
+            f"symbol_type 'local_function' should be valid, got: {result.get('error')}"
+        )
+
+    def test_local_function_in_valid_symbol_types_hint(self, lua_palace_path):
+        """AC-6: 'local_function' appears in valid_symbol_types on an invalid symbol_type query."""
+        result = code_search(lua_palace_path, "something", symbol_type="notarealtype")
+        assert "valid_symbol_types" in result
+        assert "local_function" in result["valid_symbol_types"], (
+            "'local_function' missing from valid_symbol_types hint"
+        )

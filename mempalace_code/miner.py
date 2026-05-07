@@ -784,6 +784,21 @@ DART_BOUNDARY = re.compile(
 )
 
 
+# Lua structural boundaries.
+# Intentionally excludes `local x = function(...)` (anonymous assignment) and
+# inline callbacks (function appears mid-line after an argument) to avoid false positives.
+# Module table detection requires an uppercase first letter (Lua convention: M, MyMod, Renderer)
+# to avoid false boundaries on common local variable patterns like `local result = {}`.
+LUA_BOUNDARY = re.compile(
+    r"^(?:"
+    r"local\s+function\s+\w+\s*\("
+    r"|function\s+\w[\w.]*(?::\w+)?\s*\("
+    r"|(?:local\s+)?[A-Z]\w*\s*=\s*\{\}"
+    r")",
+    re.MULTILINE,
+)
+
+
 def get_boundary_pattern(language: str):
     """Return the appropriate structural boundary regex for a language string or file extension."""
     mapping = {
@@ -827,6 +842,8 @@ def get_boundary_pattern(language: str):
         ".sc": SCALA_BOUNDARY,
         "dart": DART_BOUNDARY,
         ".dart": DART_BOUNDARY,
+        "lua": LUA_BOUNDARY,
+        ".lua": LUA_BOUNDARY,
     }
     return mapping.get(language)
 
@@ -1535,6 +1552,15 @@ _DART_EXTRACT = [
     ),
 ]
 
+# Lua extraction patterns (.lua files) — most-specific first (colon/dot before plain function).
+_LUA_EXTRACT = [
+    (re.compile(r"^local\s+function\s+(\w+)\s*\(", re.MULTILINE), "local_function"),
+    (re.compile(r"^function\s+(\w+:\w+)\s*\(", re.MULTILINE), "method"),
+    (re.compile(r"^function\s+(\w+\.\w+)\s*\(", re.MULTILINE), "method"),
+    (re.compile(r"^function\s+(\w+)\s*\(", re.MULTILINE), "function"),
+    (re.compile(r"^(?:local\s+)?([A-Z]\w*)\s*=\s*\{\}", re.MULTILINE), "module"),
+]
+
 _LANG_EXTRACT_MAP = {
     "python": _PY_EXTRACT,
     "typescript": _TS_EXTRACT,
@@ -1555,6 +1581,7 @@ _LANG_EXTRACT_MAP = {
     "php": _PHP_EXTRACT,
     "scala": _SCALA_EXTRACT,
     "dart": _DART_EXTRACT,
+    "lua": _LUA_EXTRACT,
 }
 
 
@@ -1686,6 +1713,7 @@ def chunk_file(content: str, ext: str, source_file: str, language: str = None) -
         "php",
         "scala",
         "dart",
+        "lua",
     ):
         return chunk_code(content, language, source_file)
     elif language in ("terraform", "hcl"):
@@ -2096,6 +2124,10 @@ def chunk_code(content: str, language: str, source_file: str) -> list:
         # Dart uses @override, @deprecated, @immutable, @pragma annotations before
         # declarations. Extend the lookback so these lines attach to their declaration chunk.
         comment_prefixes = comment_prefixes + ("@",)
+    if canonical == "lua":
+        # Lua uses -- for line comments and --[[ for long comments. Add -- so leading
+        # comment lines stay attached to the declaration they precede.
+        comment_prefixes = comment_prefixes + ("--",)
 
     for i, line in enumerate(lines):
         stripped = line.strip()
