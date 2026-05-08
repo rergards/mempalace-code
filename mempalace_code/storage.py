@@ -28,11 +28,45 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol, cast
 
 from mempalace_code.retrieval_rerank import overfetch_limit, rerank, should_overfetch
 
 logger = logging.getLogger("mempalace")
+
+
+# ─── Internal structural protocols for LanceDB handles ────────────────────────
+# These keep Pyright happy without importing lancedb at module load time and
+# without requiring stubs that cover every dynamic attribute (head, scanner, etc.)
+
+
+class _EmbedderProtocol(Protocol):
+    def ndims(self) -> int: ...
+    def compute_source_embeddings(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class _LanceTableProtocol(Protocol):
+    @property
+    def schema(self) -> Any: ...
+    def search(self, query: Any = None) -> Any: ...
+    def add(self, data: list) -> None: ...
+    def merge_insert(self, on: str) -> Any: ...
+    def delete(self, condition: str) -> None: ...
+    def count_rows(self, filter: str = "") -> int: ...
+    def to_arrow(self) -> Any: ...
+    def add_columns(self, transforms: dict) -> None: ...
+    def optimize(self, **kwargs: Any) -> None: ...
+    def list_versions(self) -> list: ...
+    def checkout(self, version: int) -> None: ...
+    def checkout_latest(self) -> None: ...
+    def restore(self, version: int) -> None: ...
+    def head(self, n: int) -> Any: ...
+    def scanner(self, **kwargs: Any) -> Any: ...
+
+
+class _LanceDBConnectionProtocol(Protocol):
+    def open_table(self, name: str) -> _LanceTableProtocol: ...
+    def create_table(self, name: str, schema: Any = None) -> _LanceTableProtocol: ...
 
 
 class LanceStoreDependencyError(RuntimeError):
@@ -264,18 +298,18 @@ class LanceStore(DrawerStore):
 
         self._model_name = embed_model or DEFAULT_EMBED_MODEL
         self._read_only = read_only
-        self._embedder = None  # lazy — initialized by _ensure_embedder()
+        self._embedder: _EmbedderProtocol | None = None  # lazy — initialized by _ensure_embedder()
+        self._db: _LanceDBConnectionProtocol | None = None
+        self._table: _LanceTableProtocol | None = None
 
         lance_dir = os.path.join(palace_path, "lance")
         self._lance_dir = lance_dir
         self._table_dir = os.path.join(lance_dir, f"{_LANCE_TABLE}.lance")
         if read_only and not os.path.isdir(lance_dir):
             # Palace absent — return a stub without touching the filesystem.
-            self._db = None
-            self._table = None
             return
 
-        self._db = lancedb.connect(lance_dir)
+        self._db = cast(_LanceDBConnectionProtocol, lancedb.connect(lance_dir))
         self._table = self._open_or_create(create)
 
     def _get_embedder(self):
@@ -303,7 +337,7 @@ class LanceStore(DrawerStore):
         try:
             os.dup2(devnull, 1)
             os.dup2(devnull, 2)
-            self._embedder = self._get_embedder()
+            self._embedder = cast(_EmbedderProtocol, self._get_embedder())
         finally:
             os.dup2(old_stdout, 1)
             os.dup2(old_stderr, 2)
@@ -312,27 +346,56 @@ class LanceStore(DrawerStore):
             os.close(old_stderr)
             hf_logger.setLevel(prev_level)
 
-    def _open_or_create(self, create: bool):
+    def _require_db(self) -> _LanceDBConnectionProtocol:
+        """Return the open LanceDB connection or raise RuntimeError."""
+        db = self._db
+        if db is None:
+            raise RuntimeError("LanceDB connection is not open")
+        return db
+
+    def _require_table(
+        self, message: str = "Table does not exist and create=False"
+    ) -> _LanceTableProtocol:
+        """Return the open LanceDB table or raise RuntimeError."""
+        table = self._table
+        if table is None:
+            raise RuntimeError(message)
+        return table
+
+    def _embedder_handle(self) -> _EmbedderProtocol:
+        """Return the initialized embedder or raise RuntimeError.
+
+        Always call _ensure_embedder() before this method.
+        """
+        embedder = self._embedder
+        if embedder is None:
+            raise RuntimeError("Embedder not initialized — call _ensure_embedder() first")
+        return embedder
+
+    def _open_or_create(self, create: bool) -> _LanceTableProtocol | None:
         """Open existing table or create a new one, migrating schema if needed."""
         if self._read_only:
             # Read-only: open if present, return None without creating or migrating.
-            if self._db is None:
+            db = self._db
+            if db is None:
                 return None
             try:
-                return self._db.open_table(_LANCE_TABLE)
+                return db.open_table(_LANCE_TABLE)
             except Exception as e:
                 logger.debug("Table %r not found (read_only=True): %s", _LANCE_TABLE, e)
                 return None
 
         # Write path: need embedder for schema dimensions.
         self._ensure_embedder()
-        dim = self._embedder.ndims()
+        dim = self._embedder_handle().ndims()
         target = _target_drawer_schema(dim)
 
+        db = self._require_db()
+
         # Try to open existing table first
-        _existing_table = None
+        _existing_table: _LanceTableProtocol | None = None
         try:
-            _existing_table = self._db.open_table(_LANCE_TABLE)
+            _existing_table = db.open_table(_LANCE_TABLE)
         except Exception as e:
             logger.debug("Table %r not found, will create: %s", _LANCE_TABLE, e)
 
@@ -347,7 +410,7 @@ class LanceStore(DrawerStore):
                 )
                 _existing_table.add_columns(cols_to_add)
                 # Reload the handle so its schema reflects the updated on-disk table
-                _existing_table = self._db.open_table(_LANCE_TABLE)
+                _existing_table = db.open_table(_LANCE_TABLE)
                 reloaded_names = set(_existing_table.schema.names)
                 if not set(target.names) <= reloaded_names:
                     still_missing = set(target.names) - reloaded_names
@@ -359,12 +422,13 @@ class LanceStore(DrawerStore):
         if not create:
             return None
 
-        return self._db.create_table(_LANCE_TABLE, schema=target)
+        return db.create_table(_LANCE_TABLE, schema=target)
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for a list of texts."""
         self._ensure_embedder()
-        return self._embedder.compute_source_embeddings(texts)
+        embedder = self._embedder_handle()
+        return [list(v) for v in embedder.compute_source_embeddings(texts)]
 
     @staticmethod
     def _meta_defaults(meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -383,15 +447,15 @@ class LanceStore(DrawerStore):
         return merged
 
     def count(self) -> int:
-        if self._table is None:
+        table = self._table
+        if table is None:
             return 0
-        return self._table.count_rows()
+        return table.count_rows()
 
     def add(self, ids, documents, metadatas):
         if self._read_only:
             raise RuntimeError("Cannot add to a read-only LanceStore")
-        if self._table is None:
-            raise RuntimeError("Table does not exist and create=False")
+        table = self._require_table()
 
         vectors = self._embed(documents)
         rows = []
@@ -402,14 +466,13 @@ class LanceStore(DrawerStore):
             row["vector"] = vec
             rows.append(row)
 
-        self._table.add(rows)
+        table.add(rows)
 
     def upsert(self, ids, documents, metadatas):
         # LanceDB merge_insert for upsert
         if self._read_only:
             raise RuntimeError("Cannot upsert a read-only LanceStore")
-        if self._table is None:
-            raise RuntimeError("Table does not exist and create=False")
+        table = self._require_table()
 
         vectors = self._embed(documents)
         rows = []
@@ -420,12 +483,13 @@ class LanceStore(DrawerStore):
             row["vector"] = vec
             rows.append(row)
 
-        self._table.merge_insert(
+        table.merge_insert(
             "id"
         ).when_matched_update_all().when_not_matched_insert_all().execute(rows)
 
     def get(self, ids=None, where=None, include=None, limit=10000, offset=0):
-        if self._table is None:
+        table = self._table
+        if table is None:
             return {"ids": [], "documents": [], "metadatas": []}
 
         include = include or []
@@ -436,18 +500,18 @@ class LanceStore(DrawerStore):
             # Fetch by explicit IDs
             id_list = ", ".join(f"'{id_}'" for id_ in ids)
             try:
-                results = self._table.search().where(f"id IN ({id_list})").limit(len(ids)).to_list()
+                results = table.search().where(f"id IN ({id_list})").limit(len(ids)).to_list()
             except Exception:
                 results = []
         elif where is not None:
             sql = self._where_to_sql(where)
             try:
-                results = self._table.search().where(sql).limit(limit).offset(offset).to_list()
+                results = table.search().where(sql).limit(limit).offset(offset).to_list()
             except Exception:
                 results = []
         else:
             try:
-                results = self._table.search().limit(limit).offset(offset).to_list()
+                results = table.search().limit(limit).offset(offset).to_list()
             except Exception:
                 results = []
 
@@ -462,7 +526,8 @@ class LanceStore(DrawerStore):
         return out
 
     def query(self, query_texts, n_results=5, where=None, include=None):
-        if self._table is None:
+        table = self._table
+        if table is None:
             return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
 
         include = include or []
@@ -476,7 +541,7 @@ class LanceStore(DrawerStore):
                 fetch_limit = overfetch_limit(n_results)
             else:
                 fetch_limit = n_results
-            q = self._table.search(vec).limit(fetch_limit)
+            q = table.search(vec).limit(fetch_limit)
             if where:
                 sql = self._where_to_sql(where)
                 q = q.where(sql)
@@ -515,35 +580,38 @@ class LanceStore(DrawerStore):
         return out
 
     def delete(self, ids):
-        if self._table is None:
+        table = self._table
+        if table is None:
             return
         if not ids:
             return
         id_list = ", ".join(f"'{id_}'" for id_ in ids)
-        self._table.delete(f"id IN ({id_list})")
+        table.delete(f"id IN ({id_list})")
 
     def delete_wing(self, wing: str) -> int:
-        if self._table is None:
+        table = self._table
+        if table is None:
             return 0
         escaped = wing.replace("'", "''")
-        count = self._table.count_rows(f"wing = '{escaped}'")
+        count = table.count_rows(f"wing = '{escaped}'")
         if count == 0:
             return 0
-        self._table.delete(f"wing = '{escaped}'")
+        table.delete(f"wing = '{escaped}'")
         return count
 
     def delete_by_source_file(self, source_file: str, wing: str) -> int:
         """Delete all drawers for a given source_file within a wing."""
-        if self._table is None:
+        table = self._table
+        if table is None:
             return 0
         escaped_file = source_file.replace("'", "''")
         escaped_wing = wing.replace("'", "''")
-        count = self._table.count_rows(
+        count = table.count_rows(
             f"source_file = '{escaped_file}' AND wing = '{escaped_wing}'"
         )
         if count == 0:
             return 0
-        self._table.delete(f"source_file = '{escaped_file}' AND wing = '{escaped_wing}'")
+        table.delete(f"source_file = '{escaped_file}' AND wing = '{escaped_wing}'")
         return count
 
     def get_source_file_hashes(self, wing: str) -> dict:
@@ -553,12 +621,13 @@ class LanceStore(DrawerStore):
         Deduplicates by taking the first hash per source_file.
         Returns an empty dict if the table is empty or column is absent.
         """
-        if self._table is None:
+        table = self._table
+        if table is None:
             return {}
         import pyarrow.compute as pc
 
         try:
-            arrow_tbl = self._scan_columns(["source_file", "source_hash", "wing"])
+            arrow_tbl = self._scan_columns(table, ["source_file", "source_hash", "wing"])
         except Exception:
             # Table predates migration (source_hash column missing) — return empty
             return {}
@@ -573,17 +642,19 @@ class LanceStore(DrawerStore):
         return result
 
     def count_by(self, column: str) -> Dict[str, int]:
-        if self._table is None:
+        table = self._table
+        if table is None:
             return {}
-        arrow_tbl = self._scan_columns([column])
+        arrow_tbl = self._scan_columns(table, [column])
         result = arrow_tbl.group_by(column).aggregate([(column, "count")])
         d = result.to_pydict()
         return dict(zip(d[column], d[f"{column}_count"]))
 
     def count_by_pair(self, col_a: str, col_b: str) -> Dict[str, Dict[str, int]]:
-        if self._table is None:
+        table = self._table
+        if table is None:
             return {}
-        arrow_tbl = self._scan_columns([col_a, col_b])
+        arrow_tbl = self._scan_columns(table, [col_a, col_b])
         result = arrow_tbl.group_by([col_a, col_b]).aggregate([(col_b, "count")])
         d = result.to_pydict()
         out: Dict[str, Dict[str, int]] = {}
@@ -597,19 +668,21 @@ class LanceStore(DrawerStore):
         Uses LanceDB scan-time column projection and filter — no vector scan required.
         Returns an empty set if the table is empty or doesn't exist.
         """
-        if self._table is None:
+        table = self._table
+        if table is None:
             return set()
         import pyarrow.compute as pc
 
-        arrow_tbl = self._scan_columns(["source_file", "wing"])
+        arrow_tbl = self._scan_columns(table, ["source_file", "wing"])
         filtered = arrow_tbl.filter(pc.field("wing") == wing)
         return set(filtered.column("source_file").to_pylist())
 
-    def _scan_columns(self, columns: List[str]):
+    def _scan_columns(self, table: _LanceTableProtocol, columns: List[str]):
         """Return an Arrow table from a LanceDB scan projected to *columns*."""
-        if hasattr(self._table, "scanner"):
-            return self._table.scanner(columns=columns).to_table()
-        return self._table.search().select(columns).to_arrow()
+        scanner = getattr(table, "scanner", None)
+        if scanner is not None:
+            return scanner(columns=columns).to_table()
+        return table.search().select(columns).to_arrow()
 
     def iter_all(self, where=None, batch_size=1000, include_vectors=False):
         """Yield batches of drawers as lists of dicts using PyArrow column projection.
@@ -617,17 +690,18 @@ class LanceStore(DrawerStore):
         Loads all non-vector columns via to_arrow() (no vector scan), applies an
         optional PyArrow-level filter, then yields one list of dicts per batch.
         """
-        if self._table is None:
+        table = self._table
+        if table is None:
             return
 
         meta_columns = ["id", "text"] + [name for name, _, _ in _META_FIELD_SPEC]
         columns = meta_columns + (["vector"] if include_vectors else [])
         # Only include columns that actually exist in the schema
-        existing = set(self._table.schema.names)
+        existing = set(table.schema.names)
         columns = [c for c in columns if c in existing]
 
         try:
-            arrow_tbl = self._table.to_arrow().select(columns)
+            arrow_tbl = table.to_arrow().select(columns)
         except Exception:
             return
 
@@ -653,7 +727,11 @@ class LanceStore(DrawerStore):
         Supports $and, $or, $in, and simple {field: value} equality/comparison clauses.
         """
         import pyarrow as pa
-        import pyarrow.compute as pc
+        import pyarrow.compute as _pc
+
+        # Route through getattr to avoid PyArrow stub gaps for compute functions.
+        def _f(name: str):
+            return getattr(_pc, name)
 
         if "$and" in where:
             masks = [LanceStore._where_to_arrow_mask(arrow_tbl, sub) for sub in where["$and"]]
@@ -662,7 +740,7 @@ class LanceStore(DrawerStore):
                 return None
             result = masks[0]
             for m in masks[1:]:
-                result = pc.and_(result, m)
+                result = _f("and_")(result, m)
             return result
 
         if "$or" in where:
@@ -672,16 +750,16 @@ class LanceStore(DrawerStore):
                 return None
             result = masks[0]
             for m in masks[1:]:
-                result = pc.or_(result, m)
+                result = _f("or_")(result, m)
             return result
 
         _OP_MAP = {
-            "$eq": pc.equal,
-            "$ne": pc.not_equal,
-            "$gt": pc.greater,
-            "$gte": pc.greater_equal,
-            "$lt": pc.less,
-            "$lte": pc.less_equal,
+            "$eq": _f("equal"),
+            "$ne": _f("not_equal"),
+            "$gt": _f("greater"),
+            "$gte": _f("greater_equal"),
+            "$lt": _f("less"),
+            "$lte": _f("less_equal"),
         }
 
         parts = []
@@ -690,27 +768,30 @@ class LanceStore(DrawerStore):
                 continue
             col = arrow_tbl.column(key)
             if isinstance(value, str):
-                parts.append(pc.equal(col, value))
+                parts.append(_f("equal")(col, value))
             elif isinstance(value, (int, float)):
-                parts.append(pc.equal(col, value))
+                parts.append(_f("equal")(col, value))
             elif isinstance(value, dict):
                 for op, operand in value.items():
                     fn = _OP_MAP.get(op)
                     if fn is not None:
                         parts.append(fn(col, operand))
                     elif op == "$in":
-                        parts.append(pc.is_in(col, value_set=pa.array(operand, type=col.type)))
+                        parts.append(
+                            _f("is_in")(col, value_set=pa.array(operand, type=col.type))
+                        )
         if not parts:
             return None
         result = parts[0]
         for p in parts[1:]:
-            result = pc.and_(result, p)
+            result = _f("and_")(result, p)
         return result
 
     def optimize(self) -> None:
         """Merge Lance fragments and prune old versions (post-mining compaction)."""
-        if self._table is not None:
-            self._table.optimize()
+        table = self._table
+        if table is not None:
+            table.optimize()
 
     def safe_optimize(self, palace_path: str, backup_first: bool = False) -> bool:
         """Optimize with optional pre-backup and post-verification.
@@ -726,7 +807,8 @@ class LanceStore(DrawerStore):
         Returns:
             True if optimize succeeded and table is readable, False otherwise.
         """
-        if self._table is None:
+        table = self._table
+        if table is None:
             return True
 
         # Pre-optimize backup via shared managed path (fail-closed gate).
@@ -742,19 +824,19 @@ class LanceStore(DrawerStore):
                 return False
 
         # Get row count before optimize
-        pre_count = self._table.count_rows()
+        pre_count = table.count_rows()
 
         # Run optimize — wrapped so any LanceDB exception returns False instead of propagating
         try:
-            self._table.optimize()
+            table.optimize()
         except Exception as e:
             logger.error("optimize() raised an exception: %s", e)
             return False
 
         # Verify table is still readable
         try:
-            self._table.head(1).to_pydict()
-            post_count = self._table.count_rows()
+            table.head(1).to_pydict()
+            post_count = table.count_rows()
             if post_count != pre_count:
                 logger.warning("Row count changed after optimize: %d -> %d", pre_count, post_count)
             return True
@@ -785,7 +867,8 @@ class LanceStore(DrawerStore):
             "on_disk_deletion_files": 0,
             "estimated_reclaimable_bytes": 0,
         }
-        if self._table is None:
+        table = self._table
+        if table is None:
             return empty
 
         version_count = 0
@@ -794,7 +877,7 @@ class LanceStore(DrawerStore):
         current_deletion_files = 0
 
         try:
-            versions = self._table.list_versions()
+            versions = table.list_versions()
             version_count = len(versions)
             if versions:
                 meta = versions[-1].get("metadata", {})
@@ -876,7 +959,8 @@ class LanceStore(DrawerStore):
         """
         from datetime import timedelta
 
-        if self._table is None:
+        table = self._table
+        if table is None:
             return {
                 "ok": False,
                 "rows_before": 0,
@@ -890,7 +974,7 @@ class LanceStore(DrawerStore):
             }
 
         before_stats = self.storage_stats()
-        rows_before = self._table.count_rows()
+        rows_before = table.count_rows()
         version_count_before = before_stats["version_count"]
         on_disk_bytes_before = before_stats["on_disk_bytes"]
         cleanup_older_than = timedelta(0) if unsafe_now else timedelta(days=older_than_days)
@@ -907,7 +991,7 @@ class LanceStore(DrawerStore):
         }
 
         try:
-            self._table.optimize(
+            table.optimize(
                 cleanup_older_than=cleanup_older_than,
                 delete_unverified=delete_unverified,
             )
@@ -925,8 +1009,8 @@ class LanceStore(DrawerStore):
 
         # Post-cleanup verification
         try:
-            rows_after = self._table.count_rows()
-            self._table.head(1).to_pydict()
+            rows_after = table.count_rows()
+            table.head(1).to_pydict()
         except Exception as e:
             return {
                 **_err_base,
@@ -936,7 +1020,7 @@ class LanceStore(DrawerStore):
             }
 
         try:
-            arrow_tbl = self._scan_columns(["wing", "room"])
+            arrow_tbl = self._scan_columns(table, ["wing", "room"])
             arrow_tbl.group_by(["wing", "room"]).aggregate([("room", "count")])
         except Exception as e:
             return {
@@ -977,7 +1061,8 @@ class LanceStore(DrawerStore):
           current_version: int or None — current table version number
           errors: list of dicts with keys 'probe', 'kind', 'message'
         """
-        if self._table is None:
+        table = self._table
+        if table is None:
             return {
                 "ok": False,
                 "total_rows": 0,
@@ -1007,19 +1092,19 @@ class LanceStore(DrawerStore):
 
         # Probe 1: count_rows — touches manifest
         try:
-            total_rows = self._table.count_rows()
+            total_rows = table.count_rows()
         except Exception as e:
             errors.append({"probe": "count_rows", "kind": _classify(e), "message": str(e)})
 
         # Probe 2: head(1) — touches at least one fragment's data
         try:
-            self._table.head(1).to_pydict()
+            table.head(1).to_pydict()
         except Exception as e:
             errors.append({"probe": "head", "kind": _classify(e), "message": str(e)})
 
         # Probe 3: column scan — touches every fragment's metadata (the silent-failure surface)
         try:
-            arrow_tbl = self._scan_columns(["wing", "room"])
+            arrow_tbl = self._scan_columns(table, ["wing", "room"])
             arrow_tbl.group_by(["wing", "room"]).aggregate([("room", "count")])
         except Exception as e:
             errors.append({"probe": "count_by_pair", "kind": _classify(e), "message": str(e)})
@@ -1028,7 +1113,7 @@ class LanceStore(DrawerStore):
         # false-positive DEGRADED status when data probes all pass.
         warnings = []
         try:
-            versions = self._table.list_versions()
+            versions = table.list_versions()
             if versions:
                 current_version = versions[-1]["version"]
         except Exception as e:
@@ -1070,7 +1155,8 @@ class LanceStore(DrawerStore):
           checked_versions: list of int (versions that were probed)
           walk_errors: list of dicts (probe failures during version walk)
         """
-        if self._table is None:
+        table = self._table
+        if table is None:
             return {
                 "recovered": False,
                 "candidate_version": None,
@@ -1079,7 +1165,7 @@ class LanceStore(DrawerStore):
             }
 
         try:
-            versions = self._table.list_versions()
+            versions = table.list_versions()
         except Exception as e:
             return {
                 "recovered": False,
@@ -1106,11 +1192,11 @@ class LanceStore(DrawerStore):
                 ver_num = v["version"]
                 checked_versions.append(ver_num)
                 try:
-                    self._table.checkout(ver_num)
+                    table.checkout(ver_num)
                     # Run all three probes
-                    self._table.count_rows()
-                    self._table.head(1).to_pydict()
-                    arrow_tbl = self._scan_columns(["wing", "room"])
+                    table.count_rows()
+                    table.head(1).to_pydict()
+                    arrow_tbl = self._scan_columns(table, ["wing", "room"])
                     arrow_tbl.group_by(["wing", "room"]).aggregate([("room", "count")])
                     # All probes passed
                     candidate_version = ver_num
@@ -1121,7 +1207,7 @@ class LanceStore(DrawerStore):
         finally:
             # Always return to latest version — leaves handle unpinned after dry-run walk
             try:
-                self._table.checkout_latest()
+                table.checkout_latest()
             except Exception:
                 pass
 
@@ -1143,9 +1229,10 @@ class LanceStore(DrawerStore):
             }
 
         # Perform the restore — exceptions propagate (terminal condition)
-        self._table.restore(candidate_version)
-        self._table = self._db.open_table(_LANCE_TABLE)
-        rows_after = self._table.count_rows()
+        table.restore(candidate_version)
+        reopened = self._require_db().open_table(_LANCE_TABLE)
+        self._table = reopened
+        rows_after = reopened.count_rows()
         return {
             "recovered": True,
             "restored_to": candidate_version,
