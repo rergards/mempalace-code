@@ -313,31 +313,6 @@ items:
       - Unsupported stores return a clear no-op/status result.
       - Storage tests cover LanceDB support and a no-optimize backend.
     size: S
-  - key: STORE-LANCE-PYRIGHT-NARROWING
-    summary: Make LanceStore optional handles Pyright-clean
-    type: task
-    status: open
-    priority: high
-    section_id: storage_reliability
-    labels: [storage, pyright, typing, lancedb, review]
-    description: |-
-      ## Problem
-      Review found that optional LanceStore members such as `_db` and `_embedder` are
-      accessed after helper calls that establish runtime initialization. Pyright cannot
-      narrow those side effects, so the code remains noisy and the real invariants are
-      implicit.
-
-      ## Scope
-      - Introduce typed accessors, local assertions, or state objects that make initialized
-        handles explicit to Pyright and readers.
-      - Avoid blanket casts when a narrower helper can encode the invariant.
-      - Keep lazy/open behavior unchanged.
-
-      ## Acceptance Criteria
-      - Pyright no longer reports optional access errors for LanceStore handles.
-      - Tests cover operations that depend on initialized DB and embedder handles.
-      - No storage initialization behavior changes without explicit test coverage.
-    size: M
   - key: MCP-SERVER-MODULE-SPLIT
     summary: Split mcp_server.py by tool family
     type: task

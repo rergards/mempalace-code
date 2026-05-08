@@ -662,3 +662,8 @@ items:
     - key: STORE-CHROMA-DELETE-WING-LIMIT
       summary: Fix ChromaStore.delete_wing to use self.get() so the limit wrapper applies
       archived_date: "2026-04-14"
+    - key: STORE-LANCE-PYRIGHT-NARROWING
+      summary: Make LanceStore optional handles Pyright-clean
+      resolution: '2026-05-09: completed in pipeline run'
+      archived_date: "2026-05-09"
+      done_summary: completed in pipeline run
