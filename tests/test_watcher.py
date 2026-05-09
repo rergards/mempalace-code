@@ -1010,38 +1010,6 @@ class TestOptimizeOnce:
         captured = capsys.readouterr()
         assert "done" in captured.out
 
-    def test_adapter_failure_prints_skipped(self, capsys):
-        """AC-5: optimize_store() returning ok=False causes _optimize_once to print skipped."""
-        from mempalace_code.storage import OptimizeResult
-        from mempalace_code.watcher import _optimize_once
-
-        mock_open = MagicMock()
-        with patch(
-            "mempalace_code.watcher.optimize_store",
-            return_value=OptimizeResult(ok=False, supported=True),
-        ):
-            with patch("mempalace_code.config.MempalaceConfig") as mock_cfg_cls:
-                mock_cfg_cls.return_value.backup_before_optimize = True
-                _optimize_once("/fake/palace", mock_open)
-
-        captured = capsys.readouterr()
-        assert "skipped" in captured.out
-
-    def test_unsupported_store_prints_done(self, capsys):
-        """AC-5: optimize_store() returning ok=True, supported=False causes _optimize_once to print done."""
-        from mempalace_code.storage import OptimizeResult
-        from mempalace_code.watcher import _optimize_once
-
-        mock_open = MagicMock()
-        with patch(
-            "mempalace_code.watcher.optimize_store",
-            return_value=OptimizeResult(ok=True, supported=False),
-        ):
-            _optimize_once("/fake/palace", mock_open)
-
-        captured = capsys.readouterr()
-        assert "done" in captured.out
-
 
 # Disk-budget gating tests (AC-1, AC-2, AC-3)
 # ---------------------------------------------------------------------------

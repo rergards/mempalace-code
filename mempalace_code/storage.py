@@ -190,8 +190,6 @@ class DrawerStore(ABC):
 
 @dataclass
 class OptimizeResult:
-    """Result returned by optimize_store()."""
-
     ok: bool
     supported: bool
 

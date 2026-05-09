@@ -2128,37 +2128,6 @@ def test_mine_default_calls_safe_optimize_backup_first():
         shutil.rmtree(tmpdir)
 
 
-def test_mine_default_calls_optimize_store_backup_first():
-    """AC-4: mine() with default config routes optimization through optimize_store(backup_first=True)."""
-    import tempfile
-
-    from mempalace_code.storage import OptimizeResult
-
-    tmpdir = tempfile.mkdtemp()
-    try:
-        project_root = Path(tmpdir).resolve()
-        write_file(project_root / "hello.py", "# placeholder\ndef foo():\n    pass\n")
-        _make_palace_config(project_root)
-        palace_path = os.path.join(tmpdir, "palace")
-
-        with patch("mempalace_code.miner.get_collection") as mock_get_collection:
-            mock_store = _make_mock_store()
-            mock_get_collection.return_value = mock_store
-            with patch(
-                "mempalace_code.miner.optimize_store",
-                return_value=OptimizeResult(ok=True, supported=True),
-            ) as mock_adapter:
-                mine(str(project_root), palace_path)
-
-        mock_adapter.assert_called_once()
-        _, call_kwargs = mock_adapter.call_args
-        assert call_kwargs.get("backup_first") is True or (
-            len(mock_adapter.call_args.args) > 2 and mock_adapter.call_args.args[2] is True
-        ), f"Expected backup_first=True, got {mock_adapter.call_args!r}"
-    finally:
-        shutil.rmtree(tmpdir)
-
-
 # =============================================================================
 # .NET language — process_file() roundtrip
 # =============================================================================
