@@ -14,16 +14,16 @@ from mempalace_code.storage import open_store
 
 
 def _patch_mcp_server(monkeypatch, config, palace_path, kg):
-    """Patch the mcp_server module globals to use test fixtures."""
-    from mempalace_code import mcp_server
+    """Patch the mcp runtime module globals to use test fixtures."""
+    from mempalace_code.mcp import runtime
 
     assert getattr(config, "palace_path", None) == palace_path, (
         f"config.palace_path ({getattr(config, 'palace_path', None)!r}) does not match palace_path fixture ({palace_path!r})"
     )
-    monkeypatch.setattr(mcp_server, "_config", config)
-    monkeypatch.setattr(mcp_server, "_kg", kg)
+    monkeypatch.setattr(runtime, "_config", config)
+    monkeypatch.setattr(runtime, "_kg", kg)
     # Reset the singleton store so it re-opens with the test palace
-    monkeypatch.setattr(mcp_server, "_store", None)
+    monkeypatch.setattr(runtime, "_store", None)
 
 
 def _ensure_store(palace_path):
@@ -2046,12 +2046,12 @@ class TestFileContextTool:
 
     def test_no_palace_returns_error(self, monkeypatch, kg):
         """AC-5: no palace (_get_store returns None) → standard error dict with 'error' and 'hint'."""
-        from mempalace_code import mcp_server
+        from mempalace_code.mcp import runtime
 
-        monkeypatch.setattr(mcp_server, "_kg", kg)
-        monkeypatch.setattr(mcp_server, "_store", None)
+        monkeypatch.setattr(runtime, "_kg", kg)
+        monkeypatch.setattr(runtime, "_store", None)
         # Simulate _get_store() returning None (palace open failed)
-        monkeypatch.setattr(mcp_server, "_get_store", lambda create=False: None)
+        monkeypatch.setattr(runtime, "_get_store", lambda create=False: None)
 
         from mempalace_code.mcp_server import tool_file_context
 
@@ -2117,14 +2117,14 @@ class TestFileContextTool:
 
     def test_storage_exception_returns_error_and_hint(self, monkeypatch, kg):
         """F-1: col.get() raising an exception → {"error": ..., "hint": ...} (not just error)."""
-        from mempalace_code import mcp_server
+        from mempalace_code.mcp import runtime
 
         class _FailingStore:
             def get(self, *args, **kwargs):
                 raise RuntimeError("simulated storage failure")
 
-        monkeypatch.setattr(mcp_server, "_kg", kg)
-        monkeypatch.setattr(mcp_server, "_get_store", lambda create=False: _FailingStore())
+        monkeypatch.setattr(runtime, "_kg", kg)
+        monkeypatch.setattr(runtime, "_get_store", lambda create=False: _FailingStore())
 
         from mempalace_code.mcp_server import tool_file_context
 

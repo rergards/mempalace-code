@@ -60,9 +60,9 @@ _PY_MODULE = (
 
 
 def _patch_mcp(monkeypatch, palace_path: str, kg, base_tmp: Path):
-    """Patch mcp_server globals for an isolated MCP test."""
-    from mempalace_code import mcp_server
+    """Patch mcp runtime globals for an isolated MCP test."""
     from mempalace_code.config import MempalaceConfig
+    from mempalace_code.mcp import runtime
 
     cfg_dir = str(base_tmp / "mcp_config")
     os.makedirs(cfg_dir, exist_ok=True)
@@ -70,9 +70,9 @@ def _patch_mcp(monkeypatch, palace_path: str, kg, base_tmp: Path):
         json.dump({"palace_path": palace_path}, f)
     config = MempalaceConfig(config_dir=cfg_dir)
 
-    monkeypatch.setattr(mcp_server, "_config", config)
-    monkeypatch.setattr(mcp_server, "_kg", kg)
-    monkeypatch.setattr(mcp_server, "_store", None)
+    monkeypatch.setattr(runtime, "_config", config)
+    monkeypatch.setattr(runtime, "_kg", kg)
+    monkeypatch.setattr(runtime, "_store", None)
     return config
 
 
