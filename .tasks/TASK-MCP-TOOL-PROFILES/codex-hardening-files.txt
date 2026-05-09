@@ -1,0 +1,10 @@
+README.md
+docs/AGENT_INSTALL.md
+docs/LLM_USAGE_RULES.md
+examples/mcp_setup.md
+mempalace_code/README.md
+mempalace_code/mcp_server.py
+mempalace_code/mcp_tool_profiles.py
+mempalace_code/watcher.py
+tests/test_mcp_server.py
+tests/test_mcp_tool_profiles.py

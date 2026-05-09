@@ -1,0 +1,1338 @@
+diff --git a/README.md b/README.md
+index b8ab5b1..561c0dd 100644
+--- a/README.md
++++ b/README.md
+@@ -23,7 +23,7 @@ No cloud service, no API keys, no subscription. After the one-time embedding mod
+ <table>
+ <tr>
+ <td align="center"><strong>Language-Aware Mining</strong><br><sub>AST, regex, and adaptive chunking<br>matched to each file type</sub></td>
+-<td align="center"><strong>28 MCP Tools</strong><br><sub>Any MCP-capable agent<br>search, store, traverse</sub></td>
++<td align="center"><strong>28 MCP Tools</strong><br><sub>Any MCP-capable agent<br>search, store, traverse · static profiles</sub></td>
+ <td align="center"><strong>Temporal Knowledge Graph</strong><br><sub>Facts that change over time<br>with validity windows</sub></td>
+ </tr>
+ <tr>
+@@ -75,7 +75,7 @@ codex mcp add mempalace-code -- python -m mempalace_code.mcp_server   # connect
+ mempalace-code watch ~/projects/           # re-mines on every commit, zero noise
+ ```
+ 
+-This makes the 28 tools available to your AI. For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` (or equivalent agent-instruction file) — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or let [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7 inject them for you.
++This makes all 28 tools available to your AI. To expose a reduced subset, add a `--profile` flag (e.g. `-- python -m mempalace_code.mcp_server --profile=minimal`). For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` (or equivalent agent-instruction file) — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or let [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7 inject them for you.
+ 
+ </details>
+ 
+@@ -93,7 +93,7 @@ Evaluate mempalace-code for this repo specifically, not generic memory tooling.
+ 2. Highest-ROI surfaces: rank code, docs/prose, design notes, conversation/log exports, manual decisions, KG facts, architecture relationships.
+ 3. Stack support: list supported languages/file types actually indexed; name unsupported extensions that are skipped by default. Distinguish tree-sitter AST, regex structural, Markdown/prose, Kubernetes YAML, and adaptive chunking.
+ 4. Agent workflow fit: which MCP tools should you use proactively (`mempalace_search`, `mempalace_code_search`, `mempalace_file_context`, KG, tunnels, diary, manual drawers)?
+-5. Ops fit: recommend global MCP, project-scoped MCP, or no MCP; cover 28-tool prompt surface, `mine` vs `mine-all`, `watch` cadence, backup/repair, and offline/model constraints.
++5. Ops fit: recommend global MCP, project-scoped MCP, or no MCP; cover 28-tool prompt surface and profile subsetting options (`--profile`, `--tools`, `--exclude`), `mine` vs `mine-all`, `watch` cadence, backup/repair, and offline/model constraints.
+ 6. Decision: install now, try scoped for a week, wait for a named feature, or skip. Give the first 3 commands you would run.
+ 7. If waiting: ask me whether to draft a GitHub feature request.
+ ```
+@@ -107,10 +107,11 @@ as a complement, not a replacement. A good trial order is:
+ 3. **Code mining last** — start with one high-value subproject, then expand if
+    agents actually use the results.
+ 
+-Cost caveat: the MCP server currently exposes all 28 tools, and proactive use
+-depends on adding the usage-rules block to agent instructions. That is a real
+-prompt/tool-surface floor. Prefer project-scoped MCP for trials, and keep it only
+-if searches, KG lookups, or drawer writes show up in real sessions.
++Cost caveat: the MCP server defaults to all 28 tools. Use `--profile=minimal` or
++`--tools=search,add_drawer` at startup to reduce the prompt/tool-surface cost.
++Proactive use also depends on adding the usage-rules block to agent instructions.
++Prefer project-scoped MCP for trials, and keep it only if searches, KG lookups,
++or drawer writes show up in real sessions.
+ 
+ ### Supported MCP Clients
+ 
+@@ -332,7 +333,7 @@ mempalace-code organizes memories into a navigable structure — the same mental
+ 
+ ---
+ 
+-### MCP Server — 28 Tools
++### MCP Server — 28 Tools {#mcp-tool-profiles}
+ 
+ ```bash
+ claude mcp add mempalace-code -- python -m mempalace_code.mcp_server
+@@ -342,6 +343,39 @@ The MCP server registration name defaults to `mempalace-code`. The MCP tool
+ identifiers remain `mempalace_*` for compatibility with existing agents and
+ usage rules.
+ 
++By default all 28 tools are exposed. Use startup flags to reduce the tool surface
++(GitHub issue #6 — static profiles lower prompt cost while preserving stable
++named-tool trigger patterns in usage rules):
++
++```bash
++# Named profiles — select a pre-defined subset at server startup
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=kg
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=code
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=notes
++
++# Explicit tool list (replaces profile base set)
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --tools=search,add_drawer,diary_*
++
++# Add or remove tools from a profile
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal --include=kg_query
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=full --exclude=delete_wing,delete_drawer
++```
++
++| Profile | Tools | Best for |
++|---------|-------|----------|
++| `full` _(default)_ | all 28 | Full capability; no surface reduction |
++| `minimal` | 4 | Search + store only |
++| `kg` | 8 | Minimal + temporal knowledge graph |
++| `code` | 10 | Code archaeology; no write/diary tools |
++| `notes` | 12 | Knowledge management + diary; no code-search |
++
++Selector rules for `--tools`, `--include`, `--exclude`:
++- Accept full names (`mempalace_search`), short names (`search`), or wildcards (`diary_*`).
++- `--tools` replaces the profile base set; cannot be combined with `--include`.
++- `--include` adds to the profile base set; `--exclude` removes last (wins over everything).
++- Invalid profile name, unknown selector, or empty result → process exits with nonzero status and a stderr message.
++
+ <details>
+ <summary><strong>Palace — Read</strong></summary>
+ 
+@@ -412,11 +446,7 @@ usage rules.
+ 
+ </details>
+ 
+-MCP tools are discoverable by any MCP-capable client automatically. To teach the AI *when* and *how* to use them, paste the usage rules from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) into your agent's instructions (CLAUDE.md, AGENTS.md, `.cursorrules`, etc.) — otherwise the tools are available but the assistant will not know the protocol.
+-
+-Current limitation: MCP exposure is all-or-nothing per server registration. Use
+-project-scoped wiring to limit where the 28-tool surface appears; there is no
+-per-registration `--tools search,kg,diary` subset flag yet.
++MCP tools are discoverable by any MCP-capable client automatically. To teach the AI *when* and *how* to use them, paste the usage rules from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) into your agent's instructions (CLAUDE.md, AGENTS.md, `.cursorrules`, etc.) — otherwise the tools are available but the assistant will not know the protocol. If you use a named profile, see the matching profile block in `docs/LLM_USAGE_RULES.md` for profile-scoped routing guidance.
+ 
+ ---
+ 
+@@ -796,7 +826,7 @@ Code mining is automatic via `mempalace-code watch`. For conversation context (d
+ mempalace/
+ ├── mempalace_code/
+ │   ├── cli.py              ← CLI entry point
+-│   ├── mcp_server.py       ← MCP server (28 tools)
++│   ├── mcp_server.py       ← MCP server (28 tools, profiled at startup)
+ │   ├── storage.py          ← LanceDB vector storage
+ │   ├── miner.py            ← language-aware code chunking
+ │   ├── convo_miner.py      ← conversation ingest
+diff --git a/docs/AGENT_INSTALL.md b/docs/AGENT_INSTALL.md
+index 5cccf5f..2c0dbee 100644
+--- a/docs/AGENT_INSTALL.md
++++ b/docs/AGENT_INSTALL.md
+@@ -23,7 +23,7 @@ feature checklist, not an install step.
+ | Conversation/log ingest | `mempalace-code mine <dir> --mode convos` ingests Claude Code JSONL, Codex CLI JSONL, Gemini CLI JSONL, Claude.ai JSON, ChatGPT JSON, Slack JSON, and plain text transcripts |
+ | Multi-project sync | `mempalace-code mine-all <parent>` assigns one wing per initialized project; `--new-only` skips already-known wings |
+ | Auto-watch | `mempalace-code watch <parent>` re-mines initialized projects on commit by default; `--on-save` is available but noisier |
+-| MCP tools | 28 tools: semantic search, code search, file context, manual drawers, KG, architecture retrieval, graph tunnels, diary, re-mine |
++| MCP tools | 28 tools (default `full` profile): semantic search, code search, file context, manual drawers, KG, architecture retrieval, graph tunnels, diary, re-mine; named profiles (`minimal`, `kg`, `code`, `notes`) reduce the exposed subset at startup |
+ | KG / architecture | Temporal facts plus .NET/Python architecture extraction; .NET project/type graph tools require pre-mined symbols |
+ | Local-model fallback | `mempalace-code wake-up` emits memory layers for agents without MCP support |
+ | Safety/ops | Local embeddings, no API key, backup/restore/export/import, health/repair/cleanup, scan excludes, disk-budget guards |
+@@ -45,12 +45,8 @@ Evaluation output contract:
+    curated docs for compressed narrative and reasoning.
+ 5. Recommend adoption order: KG first, docs/drawers second, one scoped code project last.
+ 6. Recommend MCP scope: `project` for trial/tool-surface control, `global` for mature cross-project use, or skip.
+-7. Name the cost: 28 MCP tools plus the injected usage rules add a prompt/tool-surface floor.
+-8. Give decision: install now, try scoped, wait for a named feature, or skip; include exact first commands.
+-
+-Current limitation to mention when relevant: MCP exposure is all-or-nothing per
+-server registration. Project-scoped MCP limits where the tools appear, but there
+-is no supported `--tools search,kg,diary` subset flag yet.
++7. Name the cost: 28 MCP tools (default `full` profile) plus the injected usage rules add a prompt/tool-surface floor. Mention that `--profile=minimal` reduces this to 4 tools.
++8. Give decision: install now, try scoped, wait for a named feature, or skip; include exact first commands. If recommending a trial, suggest `--profile=minimal` or `--profile=code` to limit tool surface.
+ 
+ ---
+ 
+@@ -823,7 +819,7 @@ A successful install produces:
+ |-------|--------|
+ | Palace path config | `mempalace_code/config.py:93–98` — env → config.json → default |
+ | All CLI flags | `mempalace-code --help` / `mempalace-code <cmd> --help` |
+-| MCP tool list (28 tools) | `README.md` → MCP Server section |
++| MCP tool list and profiles | `README.md` → MCP Server section and MCP Tool Profiles table |
+ | Auto-save hooks | `hooks/README.md` |
+ | Airgapped / offline setup | `docs/OFFLINE_USAGE.md` |
+ | Manual MCP setup examples | `examples/mcp_setup.md` |
+diff --git a/docs/LLM_USAGE_RULES.md b/docs/LLM_USAGE_RULES.md
+index c243005..0b4ccfa 100644
+--- a/docs/LLM_USAGE_RULES.md
++++ b/docs/LLM_USAGE_RULES.md
+@@ -157,6 +157,106 @@ Diary ≠ drawer. Diary is for the same agent's next run; drawer is for the team
+ 
+ ---
+ 
++## Profile-specific routing
++
++The MCP server can be started with a named tool profile to reduce prompt/tool-surface cost
++(see [README — MCP tool profiles](../README.md#mcp-tool-profiles) and GitHub issue #6).
++Each profile exposes a subset of the 28 tools. Use only the tools listed in the active profile;
++all others will return a "not enabled" error if called.
++
++<!-- mcp-profile:minimal start -->
++### Profile: minimal
++
++Active tools: `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`, `mempalace_add_drawer`.
++
++| Task | Tool |
++|------|------|
++| Palace health check | `mempalace_status` |
++| Semantic search | `mempalace_search` |
++| Duplicate check before filing | `mempalace_check_duplicate` |
++| Save a decision or note | `mempalace_add_drawer` |
++
++The `minimal` profile is ideal for agents that only need to search and write notes. It does not
++include KG, code search, diary, or graph navigation tools.
++<!-- mcp-profile:minimal end -->
++
++<!-- mcp-profile:kg start -->
++### Profile: kg
++
++Active tools: `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`,
++`mempalace_add_drawer`, `mempalace_kg_query`, `mempalace_kg_add`,
++`mempalace_kg_invalidate`, `mempalace_kg_timeline`.
++
++| Task | Tool |
++|------|------|
++| Palace health check | `mempalace_status` |
++| Semantic search | `mempalace_search` |
++| Duplicate check before filing | `mempalace_check_duplicate` |
++| Save a decision or note | `mempalace_add_drawer` |
++| Query an entity's current facts | `mempalace_kg_query` |
++| Add a temporal fact | `mempalace_kg_add` |
++| Retire an outdated fact | `mempalace_kg_invalidate` |
++| See how facts changed over time | `mempalace_kg_timeline` |
++
++The `kg` profile is a superset of `minimal` with the four core KG tools added. Suitable when
++tracking evolving facts (versions, assignments, deadlines) alongside drawer notes.
++<!-- mcp-profile:kg end -->
++
++<!-- mcp-profile:code start -->
++### Profile: code
++
++Active tools: `mempalace_status`, `mempalace_code_search`, `mempalace_file_context`,
++`mempalace_find_implementations`, `mempalace_find_references`, `mempalace_show_project_graph`,
++`mempalace_show_type_dependencies`, `mempalace_explain_subsystem`, `mempalace_extract_reusable`,
++`mempalace_mine`.
++
++| Task | Tool |
++|------|------|
++| Palace health check | `mempalace_status` |
++| Find a function/class/symbol | `mempalace_code_search` |
++| All indexed chunks for a file | `mempalace_file_context` |
++| Find types implementing an interface | `mempalace_find_implementations` |
++| Find all usages of a type | `mempalace_find_references` |
++| Project dependency graph (.NET) | `mempalace_show_project_graph` |
++| Inheritance/implementation chain | `mempalace_show_type_dependencies` |
++| Explain how a subsystem works | `mempalace_explain_subsystem` |
++| Classify deps as core/platform/glue | `mempalace_extract_reusable` |
++| Re-mine a project directory | `mempalace_mine` |
++
++The `code` profile omits drawer-write and diary tools. Use it when
++the agent's role is read-only code archaeology and architecture review.
++<!-- mcp-profile:code end -->
++
++<!-- mcp-profile:notes start -->
++### Profile: notes
++
++Active tools: `mempalace_status`, `mempalace_search`, `mempalace_add_drawer`,
++`mempalace_check_duplicate`, `mempalace_list_wings`, `mempalace_list_rooms`,
++`mempalace_get_taxonomy`, `mempalace_traverse`, `mempalace_find_tunnels`,
++`mempalace_graph_stats`, `mempalace_diary_write`, `mempalace_diary_read`.
++
++| Task | Tool |
++|------|------|
++| Palace health check | `mempalace_status` |
++| Semantic search | `mempalace_search` |
++| Save a decision or note | `mempalace_add_drawer` |
++| Duplicate check before filing | `mempalace_check_duplicate` |
++| List all wings | `mempalace_list_wings` |
++| List rooms in a wing | `mempalace_list_rooms` |
++| Full wing/room taxonomy | `mempalace_get_taxonomy` |
++| Walk the palace graph | `mempalace_traverse` |
++| Find cross-wing connections | `mempalace_find_tunnels` |
++| Graph connectivity overview | `mempalace_graph_stats` |
++| Write a session diary entry | `mempalace_diary_write` |
++| Read recent diary entries | `mempalace_diary_read` |
++
++The `notes` profile is for agents focused on knowledge management — recording decisions,
++navigating the graph, and maintaining session continuity via diary — without code-search
++or KG mutation tools.
++<!-- mcp-profile:notes end -->
++
++---
++
+ # Appendix A — Drawer template (recommended)
+ 
+ ```
+diff --git a/examples/mcp_setup.md b/examples/mcp_setup.md
+index bef3e87..3599e65 100644
+--- a/examples/mcp_setup.md
++++ b/examples/mcp_setup.md
+@@ -2,7 +2,7 @@
+ 
+ ## Setup
+ 
+-Run the MCP server:
++Run the MCP server (full 28-tool default):
+ 
+ ```bash
+ python -m mempalace_code.mcp_server
+@@ -14,14 +14,51 @@ Or add it to Claude Code:
+ claude mcp add mempalace-code -- python -m mempalace_code.mcp_server
+ ```
+ 
++## Tool Profiles
++
++Pass `--profile` to reduce the exposed tool surface at startup (GitHub issue #6):
++
++```bash
++# Named profiles
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=kg
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=code
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=notes
++
++# Explicit tool list — replaces the profile base set
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --tools=search,add_drawer,diary_*
++
++# Add or remove tools from a profile
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal --include=kg_query
++claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=full --exclude=delete_wing,delete_drawer
++```
++
++Codex CLI variant:
++
++```bash
++codex mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal
++```
++
++| Profile | Tools | Best for |
++|---------|-------|----------|
++| `full` _(default)_ | 28 | Full capability |
++| `minimal` | 4 | Search + store only |
++| `kg` | 8 | Minimal + temporal KG |
++| `code` | 10 | Code archaeology; no write/diary |
++| `notes` | 12 | Knowledge mgmt + diary; no code-search |
++
+ ## Available Tools
+ 
+-The server exposes the full mempalace-code MCP toolset. Common entry points include:
++The server exposes the full mempalace-code MCP toolset by default. Common entry points include:
+ 
+ - **mempalace_status** — palace stats (wings, rooms, drawer counts)
+ - **mempalace_search** — semantic search across all memories
+ - **mempalace_list_wings** — list all projects in the palace
+ 
++See `README.md → MCP Server section` for the complete tool list.
++
+ ## Usage in Claude Code
+ 
+ Once configured, Claude Code can search your memories directly during conversations.
++If you use a named profile, paste the matching profile block from `docs/LLM_USAGE_RULES.md`
++into your `CLAUDE.md` so the agent knows which tools are available.
+diff --git a/mempalace_code/README.md b/mempalace_code/README.md
+index 47bd15e..563a6b0 100644
+--- a/mempalace_code/README.md
++++ b/mempalace_code/README.md
+@@ -20,7 +20,7 @@ The Python package that powers mempalace-code. All modules, all logic.
+ | `dialect.py` | AAAK lossy summary dialect — entity codes, topic markers, and token-saving estimates |
+ | `knowledge_graph.py` | Temporal entity-relationship graph — SQLite, time-filtered queries, fact invalidation |
+ | `palace_graph.py` | Room-based navigation graph — BFS traversal, tunnel detection across wings |
+-| `mcp_server.py` | MCP server — 28 tools, AAAK auto-teach, Palace Protocol, agent diary |
++| `mcp_server.py` | MCP server — 28-tool full default; startup `--profile`/`--tools`/`--include`/`--exclude` flags for static subsetting; AAAK auto-teach, Palace Protocol, agent diary |
+ | `onboarding.py` | Guided first-run setup — asks about people/projects, generates AAAK bootstrap + wing config |
+ | `entity_registry.py` | Entity code registry — maps names to AAAK codes, handles ambiguous names |
+ | `entity_detector.py` | Auto-detect people and projects from file content |
+@@ -41,4 +41,4 @@ User → MCP Server → searcher → results
+                   → diary    → agent journal
+ ```
+ 
+-The palace (LanceDB) stores verbatim drawer content and vector metadata. The knowledge graph (SQLite) stores structured relationships. The MCP server exposes both to any AI tool. ChromaDB is a deprecated optional legacy backend only.
++The palace (LanceDB) stores verbatim drawer content and vector metadata. The knowledge graph (SQLite) stores structured relationships. The MCP server exposes both to any AI tool with 28 tools by default; startup profiles reduce the surface. ChromaDB is a deprecated optional legacy backend only.
+diff --git a/mempalace_code/mcp_server.py b/mempalace_code/mcp_server.py
+index 15fbe44..c16f053 100644
+--- a/mempalace_code/mcp_server.py
++++ b/mempalace_code/mcp_server.py
+@@ -1648,8 +1648,19 @@ TOOLS = {
+ 
+ _NOISE_KEYS = frozenset({"wait_for_previous"})
+ 
++# Active tool registry — None means use the full TOOLS dict (default / backward compat).
++# Set by main() after parsing startup flags; tests can pass active_registry directly.
++_active_registry: Optional[dict] = None
++
++
++def handle_request(request, active_registry=None):
++    """Handle a single JSON-RPC request and return the response dict (or None for notifications).
++
++    ``active_registry`` overrides the module-level ``_active_registry`` when provided.
++    Both default to the full TOOLS dict when None, preserving backward compatibility.
++    """
++    registry = active_registry if active_registry is not None else (_active_registry or TOOLS)
+ 
+-def handle_request(request):
+     method = request.get("method", "")
+     params = request.get("params") or {}
+     req_id = request.get("id")
+@@ -1673,7 +1684,7 @@ def handle_request(request):
+             "result": {
+                 "tools": [
+                     {"name": n, "description": t["description"], "inputSchema": t["input_schema"]}
+-                    for n, t in TOOLS.items()
++                    for n, t in registry.items()
+                 ]
+             },
+         }
+@@ -1690,14 +1701,19 @@ def handle_request(request):
+             }
+         else:
+             tool_args = dict(raw_args)
+-        if tool_name not in TOOLS:
++        if tool_name not in registry:
++            # Distinguish between truly unknown tools and tools hidden by the active profile.
++            if tool_name in TOOLS:
++                msg = f"Tool not enabled by the active MCP profile: {tool_name}"
++            else:
++                msg = f"Unknown tool: {tool_name}"
+             return {
+                 "jsonrpc": "2.0",
+                 "id": req_id,
+-                "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
++                "error": {"code": -32601, "message": msg},
+             }
+         # Drop known client compatibility noise keys not declared in the tool schema.
+-        schema_props = TOOLS[tool_name]["input_schema"].get("properties", {})
++        schema_props = registry[tool_name]["input_schema"].get("properties", {})
+         for key in _NOISE_KEYS:
+             if key in tool_args and key not in schema_props:
+                 del tool_args[key]
+@@ -1712,7 +1728,7 @@ def handle_request(request):
+             elif declared_type == "number" and not isinstance(value, (int, float)):
+                 tool_args[key] = float(value)
+         try:
+-            result = TOOLS[tool_name]["handler"](**tool_args)
++            result = registry[tool_name]["handler"](**tool_args)
+             return {
+                 "jsonrpc": "2.0",
+                 "id": req_id,
+@@ -1733,7 +1749,81 @@ def handle_request(request):
+     }
+ 
+ 
+-def main():
++def _parse_comma_list(value: str) -> list[str]:
++    """Split a comma-separated selector string into a non-empty list of stripped tokens."""
++    return [tok.strip() for tok in value.split(",") if tok.strip()]
++
++
++def main(argv=None):
++    import argparse
++
++    from .mcp_tool_profiles import resolve_active_tools
++
++    parser = argparse.ArgumentParser(
++        prog="mempalace-mcp",
++        description="MemPalace MCP Server — exposes palace tools over stdio",
++        add_help=True,
++    )
++    parser.add_argument(
++        "--profile",
++        default="full",
++        metavar="PROFILE",
++        help=(
++            "Named tool profile: minimal, kg, code, notes, full (default: full). "
++            "Determines the base tool set exposed to MCP clients."
++        ),
++    )
++    parser.add_argument(
++        "--tools",
++        default=None,
++        metavar="SELECTORS",
++        help=(
++            "Comma-separated tool selectors that REPLACE the profile base set. "
++            "Accepts full names (mempalace_search), short names (search), "
++            "or wildcards (diary_*). Cannot be combined with --include."
++        ),
++    )
++    parser.add_argument(
++        "--include",
++        default=None,
++        metavar="SELECTORS",
++        help=(
++            "Comma-separated tool selectors to ADD to the profile base set. "
++            "Applied before --exclude. Cannot be combined with --tools."
++        ),
++    )
++    parser.add_argument(
++        "--exclude",
++        default=None,
++        metavar="SELECTORS",
++        help=(
++            "Comma-separated tool selectors to REMOVE from the active set. "
++            "Applied last; exclude wins over include."
++        ),
++    )
++
++    args = parser.parse_args(argv)
++
++    tools_list = _parse_comma_list(args.tools) if args.tools else None
++    include_list = _parse_comma_list(args.include) if args.include else None
++    exclude_list = _parse_comma_list(args.exclude) if args.exclude else None
++
++    all_tool_names = frozenset(TOOLS)
++    try:
++        active_names = resolve_active_tools(
++            all_tool_names,
++            profile=args.profile,
++            tools=tools_list,
++            include=include_list,
++            exclude=exclude_list,
++        )
++    except ValueError as exc:
++        print(str(exc), file=sys.stderr)
++        sys.exit(1)
++
++    global _active_registry
++    _active_registry = {k: v for k, v in TOOLS.items() if k in active_names}
++
+     logger.info("MemPalace MCP Server starting...")
+     while True:
+         try:
+diff --git a/mempalace_code/mcp_tool_profiles.py b/mempalace_code/mcp_tool_profiles.py
+new file mode 100644
+index 0000000..c5bb7ae
+--- /dev/null
++++ b/mempalace_code/mcp_tool_profiles.py
+@@ -0,0 +1,173 @@
++"""
++MCP tool profile definitions and startup-time selector resolution.
++
++Profiles are static, declarative subsets of the full TOOLS registry.
++They are resolved once at server startup; no runtime tool negotiation.
++
++Design rationale (GitHub issue #6): exposing all 28 tools to every connected
++client adds a persistent prompt/tool-surface cost per session. Static profiles
++let users reduce that surface while preserving stable named-tool trigger patterns
++in their usage rules.
++"""
++
++from __future__ import annotations
++
++import fnmatch
++from typing import Optional
++
++# Full-name tool sets per named profile.
++# "full" is a sentinel (empty frozenset) — resolved to all_tool_names at call time.
++PROFILES: dict[str, frozenset[str]] = {
++    "minimal": frozenset(
++        {
++            "mempalace_status",
++            "mempalace_search",
++            "mempalace_check_duplicate",
++            "mempalace_add_drawer",
++        }
++    ),
++    "kg": frozenset(
++        {
++            "mempalace_status",
++            "mempalace_search",
++            "mempalace_check_duplicate",
++            "mempalace_add_drawer",
++            "mempalace_kg_query",
++            "mempalace_kg_add",
++            "mempalace_kg_invalidate",
++            "mempalace_kg_timeline",
++        }
++    ),
++    "code": frozenset(
++        {
++            "mempalace_status",
++            "mempalace_code_search",
++            "mempalace_file_context",
++            "mempalace_find_implementations",
++            "mempalace_find_references",
++            "mempalace_show_project_graph",
++            "mempalace_show_type_dependencies",
++            "mempalace_explain_subsystem",
++            "mempalace_extract_reusable",
++            "mempalace_mine",
++        }
++    ),
++    "notes": frozenset(
++        {
++            "mempalace_status",
++            "mempalace_search",
++            "mempalace_add_drawer",
++            "mempalace_check_duplicate",
++            "mempalace_list_wings",
++            "mempalace_list_rooms",
++            "mempalace_get_taxonomy",
++            "mempalace_traverse",
++            "mempalace_find_tunnels",
++            "mempalace_graph_stats",
++            "mempalace_diary_write",
++            "mempalace_diary_read",
++        }
++    ),
++    "full": frozenset(),  # sentinel: resolved to all_tool_names at call time
++}
++
++KNOWN_PROFILES: frozenset[str] = frozenset(PROFILES)
++
++
++def _expand_one_selector(selector: str, all_tool_names: frozenset[str]) -> frozenset[str]:
++    """Expand one selector string to a set of matching full tool names.
++
++    Accepts:
++    - Full name: ``mempalace_search`` → ``{mempalace_search}``
++    - Short name: ``search`` → ``{mempalace_search}``
++    - Wildcard on full name: ``mempalace_diary_*`` → matching names
++    - Wildcard on short name: ``diary_*`` → ``mempalace_diary_*`` matching names
++
++    Raises ``ValueError`` if the selector matches no known tool.
++    """
++    if "*" in selector:
++        patterns = [selector]
++        if not selector.startswith("mempalace_"):
++            patterns.append("mempalace_" + selector)
++        matches: frozenset[str] = frozenset()
++        for pattern in patterns:
++            matches = matches | frozenset(n for n in all_tool_names if fnmatch.fnmatch(n, pattern))
++        if not matches:
++            raise ValueError(
++                f"Unknown MCP tool selector: {selector!r} (wildcard matches no known tools)"
++            )
++        return matches
++
++    # Exact name — try full name first, then with mempalace_ prefix.
++    candidates = [selector]
++    if not selector.startswith("mempalace_"):
++        candidates.append("mempalace_" + selector)
++    for candidate in candidates:
++        if candidate in all_tool_names:
++            return frozenset({candidate})
++
++    raise ValueError(f"Unknown MCP tool selector: {selector!r}")
++
++
++def expand_selectors(selectors: list[str], all_tool_names: frozenset[str]) -> frozenset[str]:
++    """Expand a list of selectors to full tool names. Raises ``ValueError`` on any unknown."""
++    result: set[str] = set()
++    for sel in selectors:
++        result.update(_expand_one_selector(sel, all_tool_names))
++    return frozenset(result)
++
++
++def resolve_active_tools(
++    all_tool_names: frozenset[str],
++    profile: str = "full",
++    tools: Optional[list[str]] = None,
++    include: Optional[list[str]] = None,
++    exclude: Optional[list[str]] = None,
++) -> frozenset[str]:
++    """Resolve the active tool set from profile/tools/include/exclude flags.
++
++    Precedence (applied in order):
++    1. ``--profile`` establishes the base set (default: ``full``).
++    2. ``--tools`` *replaces* the profile base set entirely.
++       Cannot be combined with ``--include`` (ambiguous semantics).
++    3. ``--include`` adds selectors to the profile base set.
++    4. ``--exclude`` removes selectors last; it wins over everything else.
++
++    Raises ``ValueError`` on any invalid input (unknown profile, unknown selector,
++    wildcard matching nothing, conflicting flags, empty result).
++    """
++    if profile not in PROFILES:
++        raise ValueError(
++            f"Invalid MCP tool profile: {profile!r}. Known profiles: {sorted(KNOWN_PROFILES)}"
++        )
++
++    if tools is not None and include is not None:
++        raise ValueError(
++            "--tools and --include cannot be combined: "
++            "--tools replaces the profile base set while --include adds to it"
++        )
++
++    if tools is not None:
++        active = expand_selectors(tools, all_tool_names)
++    else:
++        if profile == "full":
++            active: frozenset[str] = frozenset(all_tool_names)
++        else:
++            active = PROFILES[profile]
++            unknown = active - all_tool_names
++            if unknown:
++                raise ValueError(f"Profile {profile!r} references unknown tools: {sorted(unknown)}")
++
++        if include is not None:
++            active = active | expand_selectors(include, all_tool_names)
++
++    if exclude is not None:
++        excluded = expand_selectors(exclude, all_tool_names)
++        active = active - excluded
++
++    if not active:
++        raise ValueError(
++            "Active MCP tool set is empty after applying profile/include/exclude filters"
++        )
++
++    return active
+diff --git a/mempalace_code/watcher.py b/mempalace_code/watcher.py
+index fc890b2..e41ad26 100644
+--- a/mempalace_code/watcher.py
++++ b/mempalace_code/watcher.py
+@@ -20,7 +20,6 @@ from typing import Optional
+ 
+ from .config import MempalaceConfig
+ from .disk_budget import DiskBudgetStatus, check_watch_budget, format_bytes
+-from .storage import optimize_store
+ from .miner import (
+     KNOWN_FILENAMES,
+     READABLE_EXTENSIONS,
+@@ -37,6 +36,7 @@ from .miner import (
+     normalize_include_paths,
+     should_skip_dir,
+ )
++from .storage import optimize_store
+ 
+ _UNSET: object = object()  # sentinel for _ScanRulesSnapshot._bad_mtime
+ 
+diff --git a/tests/test_mcp_server.py b/tests/test_mcp_server.py
+index cc3bbf9..4293576 100644
+--- a/tests/test_mcp_server.py
++++ b/tests/test_mcp_server.py
+@@ -2538,6 +2538,283 @@ print("OK")
+         assert "OK" in result.stdout, f"unexpected output: {result.stdout}"
+ 
+ 
++# ── MCP Tool Profiles — Dispatch Tests (MCP-TOOL-PROFILES) ───────────────────
++
++
++class TestMCPToolProfiles:
++    """JSON-RPC dispatch tests for startup-time tool profile filtering.
++
++    These tests pass active_registry directly to handle_request so they do not
++    depend on the module-level _active_registry set by main().
++    """
++
++    def _build_registry(self, profile=None, tools=None, include=None, exclude=None):
++        from mempalace_code.mcp_server import TOOLS
++        from mempalace_code.mcp_tool_profiles import resolve_active_tools
++
++        all_names = frozenset(TOOLS)
++        active = resolve_active_tools(
++            all_names,
++            profile=profile or "full",
++            tools=tools,
++            include=include,
++            exclude=exclude,
++        )
++        return {k: v for k, v in TOOLS.items() if k in active}
++
++    # AC-1: default (no flags) exposes all 28 tools via handle_request with no registry override.
++    def test_ac1_default_full_toolset(self):
++        from mempalace_code.mcp_server import TOOLS, handle_request
++
++        resp = handle_request({"method": "tools/list", "id": 1, "params": {}})
++        names = {t["name"] for t in resp["result"]["tools"]}
++        assert names == frozenset(TOOLS)
++        # Spot-check tools that must be present per AC-1
++        for name in (
++            "mempalace_delete_wing",
++            "mempalace_mine",
++            "mempalace_extract_reusable",
++            "mempalace_diary_read",
++        ):
++            assert name in names, f"{name} missing from default tools/list"
++
++    # AC-2: --profile=minimal exposes exactly the 4 minimal tools.
++    def test_ac2_minimal_profile_tools_list(self):
++        from mempalace_code.mcp_server import handle_request
++
++        registry = self._build_registry(profile="minimal")
++        resp = handle_request(
++            {"method": "tools/list", "id": 2, "params": {}}, active_registry=registry
++        )
++        names = {t["name"] for t in resp["result"]["tools"]}
++        assert names == frozenset(
++            {
++                "mempalace_status",
++                "mempalace_search",
++                "mempalace_check_duplicate",
++                "mempalace_add_drawer",
++            }
++        )
++
++    # AC-3: --profile=code exposes code tools and omits write/diary tools.
++    def test_ac3_code_profile_includes_code_tools(self):
++        from mempalace_code.mcp_server import handle_request
++
++        registry = self._build_registry(profile="code")
++        resp = handle_request(
++            {"method": "tools/list", "id": 3, "params": {}}, active_registry=registry
++        )
++        names = {t["name"] for t in resp["result"]["tools"]}
++        assert "mempalace_code_search" in names
++        assert "mempalace_file_context" in names
++        assert "mempalace_explain_subsystem" in names
++        assert "mempalace_extract_reusable" in names
++
++    def test_ac3_code_profile_omits_write_and_diary(self):
++        from mempalace_code.mcp_server import handle_request
++
++        registry = self._build_registry(profile="code")
++        resp = handle_request(
++            {"method": "tools/list", "id": 4, "params": {}}, active_registry=registry
++        )
++        names = {t["name"] for t in resp["result"]["tools"]}
++        assert "mempalace_add_drawer" not in names
++        assert "mempalace_diary_write" not in names
++
++    # AC-4: minimal + include=kg_query, exclude=search.
++    def test_ac4_include_exclude_precedence(self):
++        from mempalace_code.mcp_server import handle_request
++
++        registry = self._build_registry(profile="minimal", include=["kg_query"], exclude=["search"])
++        resp = handle_request(
++            {"method": "tools/list", "id": 5, "params": {}}, active_registry=registry
++        )
++        names = {t["name"] for t in resp["result"]["tools"]}
++        assert "mempalace_kg_query" in names
++        assert "mempalace_search" not in names
++
++    # AC-5: --tools=search,add_drawer,diary_* exposes exactly those 4 tools.
++    def test_ac5_tools_with_wildcard(self):
++        from mempalace_code.mcp_server import handle_request
++
++        registry = self._build_registry(tools=["search", "add_drawer", "diary_*"])
++        resp = handle_request(
++            {"method": "tools/list", "id": 6, "params": {}}, active_registry=registry
++        )
++        names = {t["name"] for t in resp["result"]["tools"]}
++        assert names == frozenset(
++            {
++                "mempalace_search",
++                "mempalace_add_drawer",
++                "mempalace_diary_write",
++                "mempalace_diary_read",
++            }
++        )
++
++    # AC-6: calling a hidden tool returns -32601 with the "not enabled by the active MCP profile" message.
++    def test_ac6_hidden_tool_call_returns_profile_error(self):
++        from mempalace_code.mcp_server import handle_request
++
++        registry = self._build_registry(profile="minimal")
++        resp = handle_request(
++            {
++                "method": "tools/call",
++                "id": 7,
++                "params": {"name": "mempalace_delete_wing", "arguments": {"wing": "test"}},
++            },
++            active_registry=registry,
++        )
++        assert resp["error"]["code"] == -32601
++        assert "not enabled by the active MCP profile" in resp["error"]["message"]
++
++    def test_hidden_tool_is_distinct_from_unknown_tool(self):
++        from mempalace_code.mcp_server import handle_request
++
++        # A truly unknown tool still returns -32601 but with different wording
++        registry = self._build_registry(profile="minimal")
++        resp = handle_request(
++            {
++                "method": "tools/call",
++                "id": 8,
++                "params": {"name": "totally_nonexistent_tool", "arguments": {}},
++            },
++            active_registry=registry,
++        )
++        assert resp["error"]["code"] == -32601
++        assert "Unknown tool" in resp["error"]["message"]
++        assert "not enabled" not in resp["error"]["message"]
++
++    # AC-7 (startup validation) — tested via main() with sys.exit.
++    def test_ac7_invalid_profile_exits_before_loop(self):
++        import subprocess
++        import sys
++
++        script = """
++import sys
++import tempfile, os
++_tmp = tempfile.mkdtemp()
++os.environ["HOME"] = _tmp
++os.environ["USERPROFILE"] = _tmp
++
++from mempalace_code.mcp_server import main
++try:
++    main(["--profile", "not_a_real_profile"])
++except SystemExit as e:
++    print("EXIT:" + str(e.code))
++"""
++        result = subprocess.run(
++            [sys.executable, "-c", script],
++            capture_output=True,
++            text=True,
++            timeout=60,
++        )
++        assert "EXIT:1" in result.stdout, f"Expected SystemExit(1), got: {result.stdout!r}"
++        assert "Invalid MCP tool profile" in result.stderr, f"stderr: {result.stderr!r}"
++
++    def test_ac7_unknown_tool_selector_exits(self):
++        import subprocess
++        import sys
++
++        script = """
++import sys, tempfile, os
++_tmp = tempfile.mkdtemp()
++os.environ["HOME"] = _tmp
++os.environ["USERPROFILE"] = _tmp
++
++from mempalace_code.mcp_server import main
++try:
++    main(["--tools", "definitely_not_a_tool"])
++except SystemExit as e:
++    print("EXIT:" + str(e.code))
++"""
++        result = subprocess.run(
++            [sys.executable, "-c", script],
++            capture_output=True,
++            text=True,
++            timeout=60,
++        )
++        assert "EXIT:1" in result.stdout
++        assert "Unknown MCP tool selector" in result.stderr
++
++    def test_ac7_tools_and_include_conflict_exits(self):
++        import subprocess
++        import sys
++
++        script = """
++import sys, tempfile, os
++_tmp = tempfile.mkdtemp()
++os.environ["HOME"] = _tmp
++os.environ["USERPROFILE"] = _tmp
++
++from mempalace_code.mcp_server import main
++try:
++    main(["--tools", "search", "--include", "kg_query"])
++except SystemExit as e:
++    print("EXIT:" + str(e.code))
++"""
++        result = subprocess.run(
++            [sys.executable, "-c", script],
++            capture_output=True,
++            text=True,
++            timeout=60,
++        )
++        assert "EXIT:1" in result.stdout
++        assert "cannot be combined" in result.stderr
++
++    # AC-1b (lazy startup): profile-filtered startup must not import miner/torch.
++    def test_ac1b_minimal_profile_lazy_startup(self):
++        import subprocess
++        import sys
++
++        script = """
++import sys
++
++class _Blocker:
++    _BLOCKED = frozenset({"torch", "sentence_transformers", "mempalace_code.miner"})
++    def find_spec(self, name, path=None, target=None):
++        if name in self._BLOCKED:
++            raise ImportError("Blocked by test: " + name)
++        return None
++
++sys.meta_path.insert(0, _Blocker())
++
++import tempfile, os
++_tmp = tempfile.mkdtemp()
++os.environ["HOME"] = _tmp
++os.environ["USERPROFILE"] = _tmp
++
++from mempalace_code.mcp_server import handle_request, TOOLS
++from mempalace_code.mcp_tool_profiles import resolve_active_tools
++
++all_names = frozenset(TOOLS)
++active = resolve_active_tools(all_names, profile="minimal")
++registry = {k: v for k, v in TOOLS.items() if k in active}
++
++resp1 = handle_request({"method": "initialize", "id": 1, "params": {}})
++assert resp1["result"]["serverInfo"]["name"] == "mempalace-code", resp1
++
++resp2 = handle_request({"method": "tools/list", "id": 2, "params": {}}, active_registry=registry)
++names = {t["name"] for t in resp2["result"]["tools"]}
++assert "mempalace_status" in names
++assert "mempalace_mine" not in names  # excluded by minimal profile
++
++for mod in ("torch", "sentence_transformers", "mempalace_code.miner"):
++    assert mod not in sys.modules, mod + " was imported during minimal-profile init/tools-list"
++
++print("OK")
++"""
++        result = subprocess.run(
++            [sys.executable, "-c", script],
++            capture_output=True,
++            text=True,
++            timeout=60,
++        )
++        assert result.returncode == 0, (
++            f"subprocess failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
++        )
++        assert "OK" in result.stdout
++
++
+ class TestLuaMCPSchema:
+     """AC-8: MCP tools/list exposes lua in language description and local_function in symbol_type."""
+ 
+diff --git a/tests/test_mcp_tool_profiles.py b/tests/test_mcp_tool_profiles.py
+new file mode 100644
+index 0000000..04ebfc6
+--- /dev/null
++++ b/tests/test_mcp_tool_profiles.py
+@@ -0,0 +1,345 @@
++"""
++test_mcp_tool_profiles.py — Tests for mcp_tool_profiles profile definitions and
++selector resolution.
++
++Covers:
++  - Profile contents match the design spec.
++  - Selector expansion: full names, short names, wildcards.
++  - Precedence: --tools replaces, --include adds, --exclude wins last.
++  - Conflict: --tools + --include together are invalid.
++  - Invalid inputs: unknown profile, unknown selector, empty-match wildcard, zero active.
++  - AC-8 consistency: docs/LLM_USAGE_RULES.md profile blocks reference only enabled tools.
++"""
++
++import re
++from pathlib import Path
++
++import pytest
++
++from mempalace_code.mcp_server import TOOLS
++from mempalace_code.mcp_tool_profiles import (
++    KNOWN_PROFILES,
++    PROFILES,
++    expand_selectors,
++    resolve_active_tools,
++)
++
++_ALL = frozenset(TOOLS)
++
++# ── Profile Contents ──────────────────────────────────────────────────────────
++
++
++class TestProfileContents:
++    def test_known_profiles_set(self):
++        assert {"minimal", "kg", "code", "notes", "full"} == KNOWN_PROFILES
++
++    def test_minimal_exact(self):
++        assert PROFILES["minimal"] == frozenset(
++            {
++                "mempalace_status",
++                "mempalace_search",
++                "mempalace_check_duplicate",
++                "mempalace_add_drawer",
++            }
++        )
++
++    def test_kg_is_superset_of_minimal(self):
++        assert PROFILES["minimal"] < PROFILES["kg"]
++
++    def test_kg_adds_four_kg_tools(self):
++        extra = PROFILES["kg"] - PROFILES["minimal"]
++        assert extra == frozenset(
++            {
++                "mempalace_kg_query",
++                "mempalace_kg_add",
++                "mempalace_kg_invalidate",
++                "mempalace_kg_timeline",
++            }
++        )
++
++    def test_code_contains_required_tools(self):
++        code = PROFILES["code"]
++        assert "mempalace_code_search" in code
++        assert "mempalace_file_context" in code
++        assert "mempalace_explain_subsystem" in code
++        assert "mempalace_extract_reusable" in code
++        assert "mempalace_status" in code
++        assert "mempalace_mine" in code
++
++    def test_code_excludes_write_and_diary(self):
++        code = PROFILES["code"]
++        assert "mempalace_add_drawer" not in code
++        assert "mempalace_diary_write" not in code
++
++    def test_notes_contains_required_tools(self):
++        notes = PROFILES["notes"]
++        assert "mempalace_diary_write" in notes
++        assert "mempalace_diary_read" in notes
++        assert "mempalace_add_drawer" in notes
++        assert "mempalace_traverse" in notes
++        assert "mempalace_find_tunnels" in notes
++
++    def test_full_profile_sentinel_is_empty_frozenset(self):
++        # "full" is a sentinel; resolve_active_tools expands it to all_tool_names.
++        assert PROFILES["full"] == frozenset()
++
++    def test_all_profile_tools_are_valid_tool_names(self):
++        for name, tool_set in PROFILES.items():
++            if name == "full":
++                continue
++            unknown = tool_set - _ALL
++            assert not unknown, f"Profile {name!r} references unknown tools: {unknown}"
++
++
++# ── Selector Expansion ────────────────────────────────────────────────────────
++
++
++class TestSelectorExpansion:
++    def test_full_name_exact(self):
++        result = expand_selectors(["mempalace_search"], _ALL)
++        assert result == frozenset({"mempalace_search"})
++
++    def test_short_name(self):
++        result = expand_selectors(["search"], _ALL)
++        assert result == frozenset({"mempalace_search"})
++
++    def test_short_name_status(self):
++        result = expand_selectors(["status"], _ALL)
++        assert result == frozenset({"mempalace_status"})
++
++    def test_wildcard_short_diary(self):
++        result = expand_selectors(["diary_*"], _ALL)
++        assert result == frozenset({"mempalace_diary_write", "mempalace_diary_read"})
++
++    def test_wildcard_full_prefix_diary(self):
++        result = expand_selectors(["mempalace_diary_*"], _ALL)
++        assert result == frozenset({"mempalace_diary_write", "mempalace_diary_read"})
++
++    def test_wildcard_kg(self):
++        result = expand_selectors(["kg_*"], _ALL)
++        expected = {n for n in _ALL if n.startswith("mempalace_kg_")}
++        assert result == frozenset(expected)
++
++    def test_multiple_selectors(self):
++        result = expand_selectors(["search", "add_drawer"], _ALL)
++        assert result == frozenset({"mempalace_search", "mempalace_add_drawer"})
++
++    def test_unknown_exact_selector_raises(self):
++        with pytest.raises(ValueError, match="Unknown MCP tool selector"):
++            expand_selectors(["nonexistent_tool"], _ALL)
++
++    def test_unknown_wildcard_raises(self):
++        with pytest.raises(ValueError, match="wildcard matches no known tools"):
++            expand_selectors(["zzz_*"], _ALL)
++
++
++# ── resolve_active_tools — Default (Full) ────────────────────────────────────
++
++
++class TestResolveFullDefault:
++    def test_default_profile_returns_all_tools(self):
++        result = resolve_active_tools(_ALL)
++        assert result == _ALL
++
++    def test_explicit_full_returns_all_tools(self):
++        result = resolve_active_tools(_ALL, profile="full")
++        assert result == _ALL
++
++
++# ── resolve_active_tools — Named Profile ─────────────────────────────────────
++
++
++class TestResolveNamedProfile:
++    def test_minimal_profile(self):
++        result = resolve_active_tools(_ALL, profile="minimal")
++        assert result == PROFILES["minimal"]
++
++    def test_kg_profile(self):
++        result = resolve_active_tools(_ALL, profile="kg")
++        assert result == PROFILES["kg"]
++
++    def test_code_profile(self):
++        result = resolve_active_tools(_ALL, profile="code")
++        assert result == PROFILES["code"]
++
++    def test_notes_profile(self):
++        result = resolve_active_tools(_ALL, profile="notes")
++        assert result == PROFILES["notes"]
++
++
++# ── resolve_active_tools — --tools Replacement ───────────────────────────────
++
++
++class TestToolsReplacement:
++    def test_tools_replaces_profile_base(self):
++        result = resolve_active_tools(_ALL, profile="minimal", tools=["search", "add_drawer"])
++        assert result == frozenset({"mempalace_search", "mempalace_add_drawer"})
++
++    def test_tools_with_wildcard(self):
++        result = resolve_active_tools(_ALL, tools=["search", "add_drawer", "diary_*"])
++        assert "mempalace_search" in result
++        assert "mempalace_add_drawer" in result
++        assert "mempalace_diary_write" in result
++        assert "mempalace_diary_read" in result
++        # Nothing extra beyond what was selected
++        assert len(result) == 4
++
++    def test_tools_exact_names(self):
++        result = resolve_active_tools(
++            _ALL,
++            tools=[
++                "mempalace_search",
++                "mempalace_add_drawer",
++                "mempalace_diary_write",
++                "mempalace_diary_read",
++            ],
++        )
++        assert result == frozenset(
++            {
++                "mempalace_search",
++                "mempalace_add_drawer",
++                "mempalace_diary_write",
++                "mempalace_diary_read",
++            }
++        )
++
++
++# ── resolve_active_tools — --include ─────────────────────────────────────────
++
++
++class TestInclude:
++    def test_include_adds_to_profile(self):
++        result = resolve_active_tools(_ALL, profile="minimal", include=["kg_query"])
++        assert "mempalace_kg_query" in result
++        # Base minimal tools still present
++        assert PROFILES["minimal"] <= result
++
++    def test_include_wildcard(self):
++        result = resolve_active_tools(_ALL, profile="minimal", include=["kg_*"])
++        kg_tools = {n for n in _ALL if n.startswith("mempalace_kg_")}
++        assert kg_tools <= result
++
++
++# ── resolve_active_tools — --exclude ─────────────────────────────────────────
++
++
++class TestExclude:
++    def test_exclude_removes_from_profile(self):
++        result = resolve_active_tools(_ALL, profile="minimal", exclude=["search"])
++        assert "mempalace_search" not in result
++        # Other minimal tools still present
++        assert "mempalace_status" in result
++        assert "mempalace_add_drawer" in result
++
++    def test_exclude_wins_over_include(self):
++        result = resolve_active_tools(
++            _ALL, profile="minimal", include=["kg_query"], exclude=["search"]
++        )
++        assert "mempalace_search" not in result
++        assert "mempalace_kg_query" in result
++
++    def test_exclude_full_profile(self):
++        keep = {"mempalace_status", "mempalace_search"}
++        exclude_names = [n for n in _ALL if n not in keep]
++        result = resolve_active_tools(_ALL, profile="full", exclude=exclude_names)
++        assert result == frozenset(keep)
++
++
++# ── AC-4: minimal + include + exclude precedence ──────────────────────────────
++
++
++class TestAC4Precedence:
++    def test_minimal_include_kg_query_exclude_search(self):
++        result = resolve_active_tools(
++            _ALL, profile="minimal", include=["kg_query"], exclude=["search"]
++        )
++        assert "mempalace_kg_query" in result
++        assert "mempalace_search" not in result
++
++
++# ── Invalid Inputs ────────────────────────────────────────────────────────────
++
++
++class TestInvalidInputs:
++    def test_unknown_profile_raises(self):
++        with pytest.raises(ValueError, match="Invalid MCP tool profile"):
++            resolve_active_tools(_ALL, profile="bogus")
++
++    def test_unknown_tool_selector_raises(self):
++        with pytest.raises(ValueError, match="Unknown MCP tool selector"):
++            resolve_active_tools(_ALL, tools=["nonexistent_tool_xyz"])
++
++    def test_wildcard_matching_nothing_raises(self):
++        with pytest.raises(ValueError, match="wildcard matches no known tools"):
++            resolve_active_tools(_ALL, include=["zzz_*"])
++
++    def test_zero_active_tools_raises(self):
++        # Exclude everything from minimal
++        minimal_short = [n.removeprefix("mempalace_") for n in PROFILES["minimal"]]
++        with pytest.raises(ValueError, match="empty"):
++            resolve_active_tools(_ALL, profile="minimal", exclude=minimal_short)
++
++    def test_tools_and_include_conflict_raises(self):
++        with pytest.raises(ValueError, match="cannot be combined"):
++            resolve_active_tools(_ALL, tools=["search"], include=["kg_query"])
++
++    def test_exclude_unknown_selector_raises(self):
++        with pytest.raises(ValueError, match="Unknown MCP tool selector"):
++            resolve_active_tools(_ALL, exclude=["not_a_real_tool"])
++
++
++# ── AC-8: LLM_USAGE_RULES.md consistency ─────────────────────────────────────
++
++
++class TestUsageRulesConsistency:
++    """Each profile-matched block in docs/LLM_USAGE_RULES.md must reference
++    only tools that are enabled by that profile.
++
++    Marker format:
++      <!-- mcp-profile:<name> start -->
++      ...
++      <!-- mcp-profile:<name> end -->
++    """
++
++    @pytest.fixture(scope="class")
++    def rules_path(self):
++        repo_root = Path(__file__).parent.parent
++        p = repo_root / "docs" / "LLM_USAGE_RULES.md"
++        assert p.exists(), f"LLM_USAGE_RULES.md not found at {p}"
++        return p
++
++    def _extract_blocks(self, text: str) -> dict[str, str]:
++        """Return {profile_name: block_content} for each marked block."""
++        pattern = re.compile(
++            r"<!--\s*mcp-profile:(\w+)\s+start\s*-->(.*?)<!--\s*mcp-profile:\1\s+end\s*-->",
++            re.DOTALL,
++        )
++        return {m.group(1): m.group(2) for m in pattern.finditer(text)}
++
++    def _tools_mentioned(self, block: str) -> set[str]:
++        return set(re.findall(r"mempalace_\w+", block))
++
++    def test_profile_blocks_exist_for_known_profiles(self, rules_path):
++        text = rules_path.read_text()
++        blocks = self._extract_blocks(text)
++        # At least one profile block must be present.
++        assert blocks, (
++            "No <!-- mcp-profile:<name> start/end --> markers found in LLM_USAGE_RULES.md"
++        )
++
++    def test_each_block_references_only_enabled_tools(self, rules_path):
++        text = rules_path.read_text()
++        blocks = self._extract_blocks(text)
++        all_names = frozenset(TOOLS)
++
++        for profile_name, content in blocks.items():
++            assert profile_name in KNOWN_PROFILES, (
++                f"Unknown profile {profile_name!r} in LLM_USAGE_RULES.md marker"
++            )
++            active = resolve_active_tools(all_names, profile=profile_name)
++            mentioned = self._tools_mentioned(content)
++            hidden = mentioned - active
++            assert not hidden, (
++                f"Profile {profile_name!r} block in LLM_USAGE_RULES.md references "
++                f"tools not enabled by that profile: {sorted(hidden)}"
++            )
