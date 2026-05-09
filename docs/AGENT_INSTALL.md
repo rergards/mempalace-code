@@ -197,7 +197,28 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 
 ---
 
-### Q5 — Project or corpus to mine
+### Q5 — MCP tool profile
+
+**ASK HUMAN:** "Which tool profile should the mempalace-code MCP server use? Reply with one of:
+- `full` — all 28 tools (default; no surface reduction)
+- `minimal` — 4 tools: search + store only
+- `kg` — 8 tools: minimal + temporal knowledge graph
+- `code` — 10 tools: code archaeology (no drawer-write/diary)
+- `notes` — 12 tools: knowledge management + diary (no code-search)
+
+If unsure, reply `full` to start with everything and narrow later."
+
+**Parse response:**
+- `full` → Set `MCP_PROFILE=full`.
+- `minimal` → Set `MCP_PROFILE=minimal`.
+- `kg` → Set `MCP_PROFILE=kg`.
+- `code` → Set `MCP_PROFILE=code`.
+- `notes` → Set `MCP_PROFILE=notes`.
+- Anything else → Repeat once; default to `full`.
+
+---
+
+### Q6 — Project or corpus to mine
 
 **ASK HUMAN:** "Should I index something into the palace now? Reply `project:/abs/path` for code/docs, `convos:/abs/path` for conversation/log exports, a bare absolute path for code/docs, or `skip` to do it later. For large monorepos, a high-ROI docs/spec subdirectory is valid for the first trial."
 
@@ -486,19 +507,19 @@ claude mcp list 2>/dev/null | grep -i mempalace-code
 
 Preferred (CLI):
 ```bash
-claude mcp add --scope user mempalace-code -- "$MPALACE_PYTHON" -m mempalace_code.mcp_server
+claude mcp add --scope user mempalace-code -- "$MPALACE_PYTHON" -m mempalace_code.mcp_server --profile=$MCP_PROFILE
 ```
 
 Exit code 0 = success. This writes to `~/.mcp.json` under the `mcpServers` key.
 
-**Fail (CLI not available) →** Manual fallback — edit `~/.mcp.json` (create if absent):
+**Fail (CLI not available) →** Manual fallback — edit `~/.mcp.json` (create if absent), substituting `<MCP_PROFILE>` with the value from Q5:
 ```json
 {
   "mcpServers": {
     "mempalace-code": {
       "type": "stdio",
       "command": "<MPALACE_PYTHON>",
-      "args": ["-m", "mempalace_code.mcp_server"]
+      "args": ["-m", "mempalace_code.mcp_server", "--profile=<MCP_PROFILE>"]
     }
   }
 }
@@ -509,16 +530,16 @@ If `~/.mcp.json` already exists with other entries, merge only the `"mempalace-c
 
 Preferred (CLI):
 ```bash
-claude mcp add --scope project mempalace-code -- "$MPALACE_PYTHON" -m mempalace_code.mcp_server
+claude mcp add --scope project mempalace-code -- "$MPALACE_PYTHON" -m mempalace_code.mcp_server --profile=$MCP_PROFILE
 ```
 
-**Fail (CLI not available) →** Manual fallback — create or update `.mcp.json` in the current working directory:
+**Fail (CLI not available) →** Manual fallback — create or update `.mcp.json` in the current working directory, substituting `<MCP_PROFILE>` with the value from Q5:
 ```json
 {
   "mcpServers": {
     "mempalace-code": {
       "command": "<MPALACE_PYTHON>",
-      "args": ["-m", "mempalace_code.mcp_server"]
+      "args": ["-m", "mempalace_code.mcp_server", "--profile=<MCP_PROFILE>"]
     }
   }
 }
@@ -549,7 +570,7 @@ codex mcp --help 2>/dev/null && echo "has_mcp" || echo "no_mcp"
 
 If `has_mcp`:
 ```bash
-codex mcp add mempalace-code -- "$MPALACE_PYTHON" -m mempalace_code.mcp_server
+codex mcp add mempalace-code -- "$MPALACE_PYTHON" -m mempalace_code.mcp_server --profile=$MCP_PROFILE
 ```
 
 Exit code 0 = success. Set `CODEX_WIRED=true`.
@@ -560,12 +581,12 @@ If `no_mcp` or CLI add fails → Fall through to manual TOML edit below.
 
 #### Manual TOML fallback (any Codex install)
 
-Edit `~/.codex/config.toml`. Resolve `MPALACE_PYTHON` first (see Step 5 preamble), then append:
+Edit `~/.codex/config.toml`. Resolve `MPALACE_PYTHON` first (see Step 5 preamble), then append, substituting `<MCP_PROFILE>` with the value from Q5:
 
 ```toml
 [mcp_servers.mempalace-code]
 command = "<MPALACE_PYTHON>"
-args = ["-m", "mempalace_code.mcp_server"]
+args = ["-m", "mempalace_code.mcp_server", "--profile=<MCP_PROFILE>"]
 ```
 
 If `~/.codex/config.toml` does not exist, create the directory first:

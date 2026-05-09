@@ -44,7 +44,7 @@ codex mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=mi
 | `full` _(default)_ | 28 | Full capability |
 | `minimal` | 4 | Search + store only |
 | `kg` | 8 | Minimal + temporal KG |
-| `code` | 10 | Code archaeology; no write/diary |
+| `code` | 10 | Code archaeology; no drawer-write/diary (`mine` included) |
 | `notes` | 12 | Knowledge mgmt + diary; no code-search |
 
 ## Available Tools

@@ -223,8 +223,9 @@ Active tools: `mempalace_status`, `mempalace_code_search`, `mempalace_file_conte
 | Classify deps as core/platform/glue | `mempalace_extract_reusable` |
 | Re-mine a project directory | `mempalace_mine` |
 
-The `code` profile omits drawer-write and diary tools. Use it when
-the agent's role is read-only code archaeology and architecture review.
+The `code` profile omits drawer-write (`add_drawer`, `delete_drawer`, `delete_wing`) and diary
+tools but retains `mempalace_mine` for on-demand index refresh. Use it for code archaeology
+and architecture review.
 <!-- mcp-profile:code end -->
 
 <!-- mcp-profile:notes start -->

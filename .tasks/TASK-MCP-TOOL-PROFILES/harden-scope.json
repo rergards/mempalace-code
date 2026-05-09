@@ -1,0 +1,12 @@
+{
+  "phase": "harden",
+  "files": [
+    "README.md",
+    "docs/AGENT_INSTALL.md",
+    "docs/LLM_USAGE_RULES.md",
+    "docs/audits/MCP-TOOL-PROFILES-round-1.md",
+    "examples/mcp_setup.md"
+  ],
+  "before_sha": "7030265",
+  "timestamp": "2026-05-09T00:30:51Z"
+}

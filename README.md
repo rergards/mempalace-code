@@ -367,7 +367,7 @@ claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=f
 | `full` _(default)_ | all 28 | Full capability; no surface reduction |
 | `minimal` | 4 | Search + store only |
 | `kg` | 8 | Minimal + temporal knowledge graph |
-| `code` | 10 | Code archaeology; no write/diary tools |
+| `code` | 10 | Code archaeology; no drawer-write/diary tools (`mine` included) |
 | `notes` | 12 | Knowledge management + diary; no code-search |
 
 Selector rules for `--tools`, `--include`, `--exclude`:
