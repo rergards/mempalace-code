@@ -237,31 +237,6 @@ items:
         touch a smaller file set.
       - Ruff and targeted miner tests pass.
     size: L
-  - key: MCP-SERVER-MODULE-SPLIT
-    summary: Split mcp_server.py by tool family
-    type: task
-    status: open
-    priority: medium
-    section_id: mcp_developer_tools
-    labels: [mcp, refactor, tools, review]
-    description: |-
-      ## Problem
-      `mcp_server.py` is a large mixed module containing tool schemas, dispatch, drawer
-      tools, KG tools, graph tools, diary tools, and status/protocol text. This makes
-      issue #6 tool profiles and future MCP changes harder to review safely.
-
-      ## Scope
-      - Split tool definitions and handlers by feature family.
-      - Keep one stable registry/dispatch layer that can support MCP-TOOL-PROFILES.
-      - Preserve existing tool names, schemas, and responses unless a change is explicitly
-        tested and documented.
-
-      ## Acceptance Criteria
-      - `tools/list` output is unchanged before any profile filtering is enabled.
-      - Existing MCP tests pass after the split.
-      - New module boundaries make profile filtering and usage-rule generation easier to
-        implement without editing one monolith.
-    size: L
   - key: CLI-COMMAND-MODULES
     summary: Split cli.py into command modules
     type: task
