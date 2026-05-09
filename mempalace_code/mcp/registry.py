@@ -1,8 +1,6 @@
 """
 mempalace_code.mcp.registry — Authoritative ordered TOOLS registry.
 
-Assembles tool specs from family modules in the exact insertion order
-required by AC-1 (mempalace_status through mempalace_diary_read).
 Validates duplicate names at import time.
 """
 

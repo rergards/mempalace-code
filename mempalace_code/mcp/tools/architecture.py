@@ -51,6 +51,20 @@ PLATFORM_KG_PREDICATES = frozenset(
 # (Interface, implements, ABC/ABCMeta/Protocol) triple.
 _PY_ABC_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 
+# Maps (direction, predicate) → canonical category name used in find_references and explain_subsystem.
+_CATEGORY_MAP: dict = {
+    ("incoming", "implements"): "implementors",
+    ("incoming", "inherits"): "subclasses",
+    ("incoming", "extends"): "sub_interfaces",
+    ("outgoing", "implements"): "implements",
+    ("outgoing", "inherits"): "inherits",
+    ("outgoing", "extends"): "extends",
+    ("incoming", "depends_on"): "depended_by",
+    ("incoming", "references_project"): "referenced_by",
+    ("outgoing", "depends_on"): "depends_on",
+    ("outgoing", "references_project"): "references_project",
+}
+
 
 def tool_find_implementations(interface: str) -> dict:
     """Find all types that implement a given interface in the KG."""
@@ -99,24 +113,10 @@ def tool_find_references(type_name: str) -> dict:
     facts = runtime._get_kg().query_entity(type_name, direction="both")
     current_facts = [f for f in facts if f["current"]]
 
-    # Map (direction, predicate) → canonical category name
-    category_map = {
-        ("incoming", "implements"): "implementors",
-        ("incoming", "inherits"): "subclasses",
-        ("incoming", "extends"): "sub_interfaces",
-        ("outgoing", "implements"): "implements",
-        ("outgoing", "inherits"): "inherits",
-        ("outgoing", "extends"): "extends",
-        ("incoming", "depends_on"): "depended_by",
-        ("incoming", "references_project"): "referenced_by",
-        ("outgoing", "depends_on"): "depends_on",
-        ("outgoing", "references_project"): "references_project",
-    }
-
     categories: dict = {}
     for fact in current_facts:
         key = (fact["direction"], fact["predicate"])
-        cat = category_map.get(key)
+        cat = _CATEGORY_MAP.get(key)
         if cat is None:
             continue
         entry_type = fact["subject"] if fact["direction"] == "incoming" else fact["object"]
@@ -213,20 +213,6 @@ def tool_explain_subsystem(
     # Extract unique symbol names for KG expansion
     symbols = {ep["symbol_name"] for ep in entry_points}
 
-    # (direction, predicate) → canonical category — same map as tool_find_references
-    category_map = {
-        ("incoming", "implements"): "implementors",
-        ("incoming", "inherits"): "subclasses",
-        ("incoming", "extends"): "sub_interfaces",
-        ("outgoing", "implements"): "implements",
-        ("outgoing", "inherits"): "inherits",
-        ("outgoing", "extends"): "extends",
-        ("incoming", "depends_on"): "depended_by",
-        ("incoming", "references_project"): "referenced_by",
-        ("outgoing", "depends_on"): "depends_on",
-        ("outgoing", "references_project"): "references_project",
-    }
-
     symbol_graph: dict = {}
     for symbol in symbols:
         facts = runtime._get_kg().query_entity(symbol, direction="both")
@@ -234,7 +220,7 @@ def tool_explain_subsystem(
         categories: dict = {}
         for fact in current_facts:
             key = (fact["direction"], fact["predicate"])
-            cat = category_map.get(key)
+            cat = _CATEGORY_MAP.get(key)
             if cat is None:
                 continue
             entry_type = fact["subject"] if fact["direction"] == "incoming" else fact["object"]

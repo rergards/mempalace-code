@@ -8,7 +8,7 @@ Public entrypoint shim. Implementation lives under mempalace_code/mcp/.
 """
 
 # Re-export stable surface — keep all public names that external code imports.
-from .mcp.dispatch import _NOISE_KEYS, _active_registry, handle_request, main  # noqa: F401
+from .mcp.dispatch import handle_request, main  # noqa: F401
 from .mcp.protocol_text import AAAK_SPEC, PALACE_PROTOCOL  # noqa: F401
 from .mcp.registry import TOOLS  # noqa: F401
 from .mcp.runtime import (  # noqa: F401
@@ -17,11 +17,8 @@ from .mcp.runtime import (  # noqa: F401
     _degraded_response,
     _get_kg,
     _get_store,
-    _kg,
     _mine_quiet,
     _no_palace,
-    _store,
-    _store_read_only,
     logger,
 )
 

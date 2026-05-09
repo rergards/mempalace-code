@@ -2473,12 +2473,10 @@ print("OK")
             json.dump({"palace_path": str(missing)}, f)
         cfg = MempalaceConfig(config_dir=cfg_dir)
 
-        from mempalace_code import mcp_server
+        from mempalace_code.mcp import runtime
 
-        monkeypatch.setattr(mcp_server, "_config", cfg)
-        monkeypatch.setattr(mcp_server, "_kg", kg)
-        monkeypatch.setattr(mcp_server, "_store", None)
-        monkeypatch.setattr(mcp_server, "_store_read_only", False)
+        monkeypatch.setattr(runtime, "_config", cfg)
+        monkeypatch.setattr(runtime, "_store", None)
 
         from mempalace_code.mcp_server import tool_status
 

@@ -85,7 +85,6 @@ def tool_delete_wing(wing: str):
 
 def tool_mine(directory: str, wing: str = None, full: bool = False):
     """Trigger re-mining of a project directory from the MCP server."""
-    # Validate directory exists and is a directory
     try:
         dir_path = Path(directory).expanduser().resolve()
     except Exception as e:
