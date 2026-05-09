@@ -672,3 +672,8 @@ items:
       resolution: '2026-05-09: completed in pipeline run'
       archived_date: "2026-05-09"
       done_summary: completed in pipeline run
+    - key: MCP-TOOL-PROFILES
+      summary: Add MCP tool profiles and include/exclude subsetting
+      resolution: '2026-05-09: completed in pipeline run'
+      archived_date: "2026-05-09"
+      done_summary: completed in pipeline run
