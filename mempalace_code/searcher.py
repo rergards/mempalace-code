@@ -20,7 +20,13 @@ class SearchError(Exception):
     """Raised when search cannot proceed (e.g. no palace found)."""
 
 
-def search(query: str, palace_path: str, wing: str = None, room: str = None, n_results: int = 5):
+def search(
+    query: str,
+    palace_path: str,
+    wing: str | None = None,
+    room: str | None = None,
+    n_results: int = 5,
+):
     """
     Search the palace. Returns verbatim drawer content.
     Optionally filter by wing (project) or room (aspect).
@@ -94,7 +100,11 @@ def search(query: str, palace_path: str, wing: str = None, room: str = None, n_r
 
 
 def search_memories(
-    query: str, palace_path: str, wing: str = None, room: str = None, n_results: int = 5
+    query: str,
+    palace_path: str,
+    wing: str | None = None,
+    room: str | None = None,
+    n_results: int = 5,
 ) -> dict:
     """
     Programmatic search — returns a dict instead of printing.
@@ -216,13 +226,13 @@ VALID_SYMBOL_TYPES = {
 def code_search(
     palace_path: str,
     query: str,
-    language: str = None,
-    symbol_name: str = None,
-    symbol_type: str = None,
-    file_glob: str = None,
-    wing: str = None,
+    language: str | None = None,
+    symbol_name: str | None = None,
+    symbol_type: str | None = None,
+    file_glob: str | None = None,
+    wing: str | None = None,
     n_results: int = 10,
-    rerank: str = None,
+    rerank: str | None = None,
 ) -> dict:
     """
     Code-optimized semantic search. Returns symbol name, type, language, and

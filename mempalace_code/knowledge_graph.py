@@ -46,7 +46,7 @@ DEFAULT_KG_PATH = os.path.expanduser("~/.mempalace/knowledge_graph.sqlite3")
 
 
 class KnowledgeGraph:
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or DEFAULT_KG_PATH
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -95,7 +95,7 @@ class KnowledgeGraph:
 
     # ── Write operations ──────────────────────────────────────────────────
 
-    def add_entity(self, name: str, entity_type: str = "unknown", properties: dict = None):
+    def add_entity(self, name: str, entity_type: str = "unknown", properties: dict | None = None):
         """Add or update an entity node."""
         eid = self._entity_id(name)
         props = json.dumps(properties or {})
@@ -113,11 +113,11 @@ class KnowledgeGraph:
         subject: str,
         predicate: str,
         obj: str,
-        valid_from: str = None,
-        valid_to: str = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
         confidence: float = 1.0,
-        source_closet: str = None,
-        source_file: str = None,
+        source_closet: str | None = None,
+        source_file: str | None = None,
     ):
         """
         Add a relationship triple: subject → predicate → object.
@@ -167,7 +167,9 @@ class KnowledgeGraph:
         conn.close()
         return triple_id
 
-    def invalidate_by_source_file(self, source_file: str, ended: str = None, predicates=None):
+    def invalidate_by_source_file(
+        self, source_file: str, ended: str | None = None, predicates=None
+    ):
         """Set valid_to on all active triples (valid_to IS NULL) whose source_file matches.
 
         When *predicates* is a non-empty list/tuple of predicate strings, only triples
@@ -196,7 +198,7 @@ class KnowledgeGraph:
         conn.commit()
         conn.close()
 
-    def invalidate_by_predicates(self, predicates: list, ended: str = None) -> None:
+    def invalidate_by_predicates(self, predicates: list, ended: str | None = None) -> None:
         """Expire all active triples (valid_to IS NULL) whose predicate is in *predicates*.
 
         Used by the architecture extraction pass to globally reset arch facts (is_pattern,
@@ -221,8 +223,8 @@ class KnowledgeGraph:
         self,
         predicates: list,
         project_root: str,
-        sentinels: list = None,
-        ended: str = None,
+        sentinels: list | None = None,
+        ended: str | None = None,
     ) -> None:
         """Expire active arch triples scoped to one project root, preserving other wings.
 
@@ -275,7 +277,7 @@ class KnowledgeGraph:
         self,
         legacy_sentinel: str,
         wing_name: str,
-        ended: str = None,
+        ended: str | None = None,
     ) -> None:
         """Expire pre-WING-SCOPE namespace→project rows for a single wing.
 
@@ -302,7 +304,7 @@ class KnowledgeGraph:
         conn.commit()
         conn.close()
 
-    def invalidate(self, subject: str, predicate: str, obj: str, ended: str = None):
+    def invalidate(self, subject: str, predicate: str, obj: str, ended: str | None = None):
         """Mark a relationship as no longer valid (set valid_to date)."""
         sub_id = self._entity_id(subject)
         obj_id = self._entity_id(obj)
@@ -319,7 +321,7 @@ class KnowledgeGraph:
 
     # ── Query operations ──────────────────────────────────────────────────
 
-    def query_entity(self, name: str, as_of: str = None, direction: str = "outgoing"):
+    def query_entity(self, name: str, as_of: str | None = None, direction: str = "outgoing"):
         """
         Get all relationships for an entity.
 
@@ -376,7 +378,7 @@ class KnowledgeGraph:
         conn.close()
         return results
 
-    def query_relationship(self, predicate: str, as_of: str = None):
+    def query_relationship(self, predicate: str, as_of: str | None = None):
         """Get all triples with a given relationship type."""
         pred = predicate.lower().replace(" ", "_")
         conn = self._conn()
@@ -407,7 +409,7 @@ class KnowledgeGraph:
         conn.close()
         return results
 
-    def timeline(self, entity_name: str = None):
+    def timeline(self, entity_name: str | None = None):
         """Get all facts in chronological order, optionally filtered by entity."""
         conn = self._conn()
         if entity_name:

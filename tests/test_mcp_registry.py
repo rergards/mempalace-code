@@ -193,7 +193,7 @@ class TestDispatchBehavior:
             },
             active_registry=minimal_registry,
         )
-
+        assert resp is not None
         assert resp["error"]["code"] == -32601
         assert "not enabled" in resp["error"]["message"]
         assert "active MCP profile" in resp["error"]["message"]
@@ -213,7 +213,7 @@ class TestDispatchBehavior:
             },
             active_registry=minimal_registry,
         )
-
+        assert resp is not None
         assert resp["error"]["code"] == -32601
         assert "Unknown tool" in resp["error"]["message"]
 
@@ -228,6 +228,6 @@ class TestDispatchBehavior:
                 "params": {"name": "mempalace_status", "arguments": ["not", "a", "dict"]},
             }
         )
-
+        assert resp is not None
         assert resp["error"]["code"] == -32602
         assert "arguments must be an object" in resp["error"]["message"]

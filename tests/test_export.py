@@ -404,7 +404,7 @@ class TestExportStreamsLargePalace:
         # Skip real embeddings — AC: "No model loading required". The store still
         # loads the embedder once via open_store() to read ndims(), but we bypass
         # the per-document embed cost during the 5k-drawer seed.
-        ndims = store._embedder.ndims()  # type: ignore[attr-defined]
+        ndims = store._embedder.ndims()  # type: ignore[attr-defined]  # reason: test probes LanceStore._embedder internal; ndims() exists on the concrete embedder at runtime
         monkeypatch.setattr(store, "_embed", lambda texts: [[0.0] * ndims for _ in texts])
 
         n = 5000

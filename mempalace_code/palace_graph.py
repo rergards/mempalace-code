@@ -16,9 +16,17 @@ No external graph DB needed — built from ChromaDB metadata.
 """
 
 from collections import Counter, defaultdict
+from typing import TypedDict
 
 from .config import MempalaceConfig
 from .storage import open_store
+
+
+class _RoomData(TypedDict):
+    wings: set
+    halls: set
+    count: int
+    dates: set
 
 
 def _get_store(config=None):
@@ -43,7 +51,9 @@ def build_graph(col=None, config=None):
         return {}, []
 
     total = col.count()
-    room_data = defaultdict(lambda: {"wings": set(), "halls": set(), "count": 0, "dates": set()})
+    room_data: defaultdict[str, _RoomData] = defaultdict(
+        lambda: _RoomData(wings=set(), halls=set(), count=0, dates=set())
+    )
 
     offset = 0
     while offset < total:
@@ -159,7 +169,7 @@ def traverse(start_room: str, col=None, config=None, max_hops: int = 2):
     return results[:50]  # cap results
 
 
-def find_tunnels(wing_a: str = None, wing_b: str = None, col=None, config=None):
+def find_tunnels(wing_a: str | None = None, wing_b: str | None = None, col=None, config=None):
     """
     Find rooms that connect two wings (or all tunnel rooms if no wings specified).
     These are the "hallways" — same named idea appearing in multiple domains.

@@ -419,17 +419,17 @@ def test_diary_write_read_continuity(tmp_path, monkeypatch):
     assert len(entries) == 5
 
     # All 5 topics must be present
-    returned_topics = [e["topic"] for e in entries]
+    returned_topics = [e["topic"] for e in entries]  # type: ignore[reportArgumentType]  # reason: result dict contains nested dict[str, Any]; string key access is correct
     for topic in topics:
         assert topic in returned_topics, f"Topic {topic!r} missing from diary_read"
 
     # Reverse-chronological: newest (retro, written last) must be entries[0]
-    assert entries[0]["topic"] == "retro", (
-        f"Expected newest entry 'retro' first, got {entries[0]['topic']!r}"
+    assert entries[0]["topic"] == "retro", (  # type: ignore[reportArgumentType]  # reason: result dict contains nested dict[str, Any]; string key access is correct
+        f"Expected newest entry 'retro' first, got {entries[0]['topic']!r}"  # type: ignore[reportArgumentType]  # reason: result dict contains nested dict[str, Any]; string key access is correct
     )
     # Oldest (arch, written first) must be entries[-1]
-    assert entries[-1]["topic"] == "arch", (
-        f"Expected oldest entry 'arch' last, got {entries[-1]['topic']!r}"
+    assert entries[-1]["topic"] == "arch", (  # type: ignore[reportArgumentType]  # reason: result dict contains nested dict[str, Any]; string key access is correct
+        f"Expected oldest entry 'arch' last, got {entries[-1]['topic']!r}"  # type: ignore[reportArgumentType]  # reason: result dict contains nested dict[str, Any]; string key access is correct
     )
 
 

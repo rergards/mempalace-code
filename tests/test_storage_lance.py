@@ -135,7 +135,7 @@ class TestGetFilters:
             def search(self):
                 raise AssertionError("ids=[] must not query the table")
 
-        store._table = FailingTable()
+        store._table = FailingTable()  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
         result = store.get(ids=[])
         assert result == {"ids": [], "documents": [], "metadatas": []}
 

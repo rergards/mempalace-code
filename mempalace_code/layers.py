@@ -41,7 +41,7 @@ class Layer0:
         Project: A journaling app that helps people process emotions.
     """
 
-    def __init__(self, identity_path: str = None):
+    def __init__(self, identity_path: str | None = None):
         if identity_path is None:
             identity_path = os.path.expanduser("~/.mempalace/identity.txt")
         self.path = identity_path
@@ -81,7 +81,7 @@ class Layer1:
     MAX_DRAWERS = 15  # at most 15 moments in wake-up
     MAX_CHARS = 3200  # hard cap on total L1 text (~800 tokens)
 
-    def __init__(self, palace_path: str = None, wing: str = None):
+    def __init__(self, palace_path: str | None = None, wing: str | None = None):
         cfg = MempalaceConfig()
         self.palace_path = palace_path or cfg.palace_path
         self.wing = wing
@@ -187,11 +187,13 @@ class Layer2:
     Queries ChromaDB with a wing/room filter.
     """
 
-    def __init__(self, palace_path: str = None):
+    def __init__(self, palace_path: str | None = None):
         cfg = MempalaceConfig()
         self.palace_path = palace_path or cfg.palace_path
 
-    def retrieve(self, wing: str = None, room: str = None, n_results: int = 10) -> str:
+    def retrieve(
+        self, wing: str | None = None, room: str | None = None, n_results: int = 10
+    ) -> str:
         """Retrieve drawers filtered by wing and/or room."""
         try:
             store = open_store(self.palace_path, create=False)
@@ -251,11 +253,13 @@ class Layer3:
     Reuses searcher.py logic against mempalace_drawers.
     """
 
-    def __init__(self, palace_path: str = None):
+    def __init__(self, palace_path: str | None = None):
         cfg = MempalaceConfig()
         self.palace_path = palace_path or cfg.palace_path
 
-    def search(self, query: str, wing: str = None, room: str = None, n_results: int = 5) -> str:
+    def search(
+        self, query: str, wing: str | None = None, room: str | None = None, n_results: int = 5
+    ) -> str:
         """Semantic search, returns compact result text."""
         try:
             store = open_store(self.palace_path, create=False)
@@ -310,7 +314,7 @@ class Layer3:
         return "\n".join(lines)
 
     def search_raw(
-        self, query: str, wing: str = None, room: str = None, n_results: int = 5
+        self, query: str, wing: str | None = None, room: str | None = None, n_results: int = 5
     ) -> list:
         """Return raw dicts instead of formatted text."""
         try:
@@ -374,7 +378,7 @@ class MemoryStack:
         print(stack.search("pricing change"))  # L3 deep search
     """
 
-    def __init__(self, palace_path: str = None, identity_path: str = None):
+    def __init__(self, palace_path: str | None = None, identity_path: str | None = None):
         cfg = MempalaceConfig()
         self.palace_path = palace_path or cfg.palace_path
         self.identity_path = identity_path or os.path.expanduser("~/.mempalace/identity.txt")
@@ -384,7 +388,7 @@ class MemoryStack:
         self.l2 = Layer2(self.palace_path)
         self.l3 = Layer3(self.palace_path)
 
-    def wake_up(self, wing: str = None) -> str:
+    def wake_up(self, wing: str | None = None) -> str:
         """
         Generate wake-up text: L0 (identity) + L1 (essential story).
         Typically ~600-900 tokens. Inject into system prompt or first message.
@@ -405,11 +409,13 @@ class MemoryStack:
 
         return "\n".join(parts)
 
-    def recall(self, wing: str = None, room: str = None, n_results: int = 10) -> str:
+    def recall(self, wing: str | None = None, room: str | None = None, n_results: int = 10) -> str:
         """On-demand L2 retrieval filtered by wing/room."""
         return self.l2.retrieve(wing=wing, room=room, n_results=n_results)
 
-    def search(self, query: str, wing: str = None, room: str = None, n_results: int = 5) -> str:
+    def search(
+        self, query: str, wing: str | None = None, room: str | None = None, n_results: int = 5
+    ) -> str:
         """Deep L3 semantic search."""
         return self.l3.search(query, wing=wing, room=room, n_results=n_results)
 

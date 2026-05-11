@@ -74,8 +74,7 @@ jobs:
             pyproject.toml
             uv.lock
       - run: pip install -e ".[dev,chroma,spellcheck,treesitter]"
-      - name: Pyright baseline
-        continue-on-error: true
+      - name: Pyright typecheck
         run: python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
 
   model-tests:

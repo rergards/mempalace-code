@@ -52,7 +52,7 @@ def _make_store_with_ef(tmp_path):
     from mempalace_code._chroma_store import ChromaStore
 
     store = ChromaStore(palace_path=str(tmp_path))
-    store._col._embedding_function = _DeterministicEF()
+    store._col._embedding_function = _DeterministicEF()  # type: ignore[reportAttributeAccessIssue,reportOptionalMemberAccess]  # reason: test overrides private ChromaDB embedding function for unit isolation
     return store
 
 

@@ -113,20 +113,20 @@ def migrate_chroma_to_lance(
                 f"Migration aborted. {running_total} drawers written so far."
             ) from e
 
-        batch_ids = batch.get("ids", [])
-        batch_docs = batch.get("documents", [])
-        batch_metas = batch.get("metadatas", [])
+        batch_ids = batch.get("ids") or []
+        batch_docs = batch.get("documents") or []
+        batch_metas = batch.get("metadatas") or []
 
         if not batch_ids:
             break
 
         # Accumulate per-wing counts from source metadata (free — we already read them).
         for meta in batch_metas:
-            wing = (meta.get("wing", "") if meta else "") or ""
+            wing = str((meta.get("wing") or "") if meta else "")
             src_wing_counts[wing] = src_wing_counts.get(wing, 0) + 1
 
         try:
-            dst_store.add(ids=batch_ids, documents=batch_docs, metadatas=batch_metas)
+            dst_store.add(ids=batch_ids, documents=batch_docs, metadatas=batch_metas)  # type: ignore[reportArgumentType]  # reason: Chroma GetResult metadatas type is structurally Dict[str,scalar] which DrawerStore.add() accepts; deprecated migration path
         except Exception as e:
             raise RuntimeError(
                 f"Error writing batch at offset {offset}: {e}. "

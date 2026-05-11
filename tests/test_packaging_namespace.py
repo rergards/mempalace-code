@@ -28,4 +28,4 @@ def test_source_compat_mempalace_mcp_server_shim():
 
     assert legacy_mcp.handle_request is handle_request
     response = legacy_mcp.handle_request({"method": "initialize", "id": 1, "params": {}})
-    assert response["result"]["serverInfo"]["name"] == "mempalace-code"
+    assert response["result"]["serverInfo"]["name"] == "mempalace-code"  # type: ignore[reportOptionalSubscript]  # reason: handle_request always returns a dict for valid requests; None only for notifications

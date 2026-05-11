@@ -185,7 +185,7 @@ class GitignoreMatcher:
 
         return cls(dir_path, rules)
 
-    def matches(self, path: Path, is_dir: bool = None):
+    def matches(self, path: Path, is_dir: bool | None = None):
         try:
             relative = path.relative_to(self.base_dir).as_posix().strip("/")
         except ValueError:
@@ -286,7 +286,7 @@ def should_skip_dir(dirname: str) -> bool:
     return dirname in SKIP_DIRS or dirname.endswith(".egg-info")
 
 
-def normalize_include_paths(include_ignored: list) -> set:
+def normalize_include_paths(include_ignored: list | None) -> set:
     """Normalize comma-parsed include paths into project-relative POSIX strings."""
     normalized = set()
     for raw_path in include_ignored or []:
@@ -532,7 +532,7 @@ def detect_room(
             scores[room["name"]] += count
 
     if scores:
-        best = max(scores, key=scores.get)
+        best = max(scores, key=lambda k: scores[k])
         if scores[best] > 0:
             return best
 
@@ -1686,7 +1686,7 @@ def _chunk_k8s_manifest(content: str, source_file: str) -> list:
     ]
 
 
-def chunk_file(content: str, ext: str, source_file: str, language: str = None) -> list:
+def chunk_file(content: str, ext: str, source_file: str, language: str | None = None) -> list:
     """Dispatcher — route to the right chunking strategy based on language."""
     # .csproj/.fsproj/.vbproj: verbatim project-XML chunker (ext-based, before language lookup
     # so the generic XML fallback is preserved for all other XML files as per design notes).
@@ -2692,7 +2692,7 @@ def process_file(
 def scan_project(
     project_dir: str,
     respect_gitignore: bool = True,
-    include_ignored: list = None,
+    include_ignored: list | None = None,
     scan_rules: Optional[ScanFilterRules] = None,
 ) -> list:
     """Return list of all readable file paths."""
@@ -3428,12 +3428,12 @@ def parse_xaml_file(filepath: Path) -> list:
 def mine(
     project_dir: str,
     palace_path: str,
-    wing_override: str = None,
+    wing_override: str | None = None,
     agent: str = "mempalace",
     limit: int = 0,
     dry_run: bool = False,
     respect_gitignore: bool = True,
-    include_ignored: list = None,
+    include_ignored: list | None = None,
     incremental: bool = True,
     kg=None,
     skip_optimize: bool = False,
@@ -3556,6 +3556,7 @@ def mine(
                 room_counts[room] += 1
                 continue
 
+            assert collection is not None
             # Print scanning progress every 100 files so large repos aren't silent
             if i % 100 == 0 or i == 1:
                 print(
@@ -3622,6 +3623,7 @@ def mine(
                 flush_batch()
 
         if not dry_run:
+            assert collection is not None
             if batch_buffer:
                 flush_batch()
 
@@ -3940,7 +3942,7 @@ def _build_csproj_room_map(project_path: Path) -> "dict[Path, str]":
 # =============================================================================
 
 
-def _fmt_bytes(n: int) -> str:
+def _fmt_bytes(n: int | float) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024:
             return f"{n:.1f} {unit}"

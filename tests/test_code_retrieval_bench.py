@@ -4,6 +4,8 @@ from pathlib import Path
 
 _BENCH_FILE = Path(__file__).resolve().parent.parent / "benchmarks" / "code_retrieval_bench.py"
 _spec = importlib.util.spec_from_file_location("code_retrieval_bench", _BENCH_FILE)
+assert _spec is not None
+assert _spec.loader is not None
 bench = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bench)
 

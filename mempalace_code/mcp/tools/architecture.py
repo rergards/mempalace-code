@@ -129,7 +129,7 @@ def tool_find_references(type_name: str) -> dict:
     }
 
 
-def tool_show_project_graph(solution: str = None) -> dict:
+def tool_show_project_graph(solution: str | None = None) -> dict:
     """Show project-level dependency graph from the KG, optionally filtered by solution."""
     PROJECT_PREDICATES = [
         "depends_on",
@@ -179,8 +179,8 @@ def tool_show_type_dependencies(type_name: str, max_depth: int = 3) -> dict:
 
 def tool_explain_subsystem(
     query: str,
-    wing: str = None,
-    language: str = None,
+    wing: str | None = None,
+    language: str | None = None,
     n_results: int = 5,
 ) -> dict:
     """Explain how a subsystem works by combining semantic search with KG expansion."""

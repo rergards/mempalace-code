@@ -9,7 +9,7 @@ files:
   - path: mempalace_code/
     change: "Fix Pyright diagnostics in the configured source package with local narrowing, protocols, TypedDicts, optional annotations, and narrow dynamic-boundary casts where behavior is unchanged."
   - path: tests/
-    change: "Fix Pyright diagnostics in the configured tests and add focused suppression-policy coverage so unreasoned type suppressions are rejected."
+    change: "Fix Pyright diagnostics in the configured tests and add focused suppression-policy coverage so unreasoned type suppressions are rejected. Concretely add `tests/test_type_suppressions.py` (scanner over `mempalace_code/` and `tests/` for any line containing `type: ignore` or `pyright: ignore`) and a negative fixture at `tests/fixtures/unreasoned_suppression.py` that the scanner is asserted to reject. Accepted suppression form is `# (type|pyright): ignore[<code>]  # reason: <text>` matching the regex `r\"#\\s*(?:type|pyright):\\s*ignore\\[[^\\]\\s]+\\]\\s*#\\s*reason:\\s*\\S\"`; bare `# type: ignore` without a `[code]` and without a `# reason:` justification is rejected. The fixture lives under `tests/fixtures/` and is excluded from the scanner's enforced set (it is asserted-rejected by the test itself)."
   - path: pyproject.toml
     change: "Keep Pyright configuration aligned with the gating command; do not hide configured source/test diagnostics with broad excludes or disabled reportMissingImports."
   - path: .github/workflows/ci.yml
@@ -115,14 +115,22 @@ task_contract:
       command: |-
         python - <<'PY'
         from pathlib import Path
+        import yaml
 
-        text = Path(".github/workflows/ci.yml").read_text()
-        typecheck = text.split("  typecheck:", 1)[1].split("\n  model-tests:", 1)[0]
-        assert "continue-on-error" not in typecheck
-        assert "python -m pyright --pythonpath" in typecheck
-        assert "import sys; print(sys.executable)" in typecheck
+        data = yaml.safe_load(Path(".github/workflows/ci.yml").read_text())
+        job = data["jobs"]["typecheck"]
+        steps = job["steps"]
+        assert all("continue-on-error" not in step for step in steps), (
+            "typecheck job must not carry continue-on-error on any step"
+        )
+        pyright_steps = [
+            step for step in steps
+            if "python -m pyright --pythonpath" in step.get("run", "")
+            and "import sys; print(sys.executable)" in step.get("run", "")
+        ]
+        assert pyright_steps, "typecheck job must run the resolved-interpreter Pyright command"
         PY
-      proves: "The CI typecheck job uses the resolved-interpreter Pyright command as a normal failing step."
+      proves: "The CI typecheck job uses the resolved-interpreter Pyright command as a normal failing step (structural YAML parse, robust to job reordering)."
       acceptance_ids: [AC-2]
     - id: VER-3
       command: "python -m pytest tests/test_type_suppressions.py -q"
@@ -144,6 +152,21 @@ task_contract:
         assert "non-gating" not in guide
         PY
       proves: "The configured analysis boundary and developer guidance remain aligned with the clean gate."
+      acceptance_ids: [AC-4]
+    - id: VER-5
+      command: |-
+        python - <<'PY'
+        from pathlib import Path
+
+        audit = Path("docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md")
+        assert audit.exists(), "classification audit must be written"
+        text = audit.read_text()
+        assert text.strip(), "classification audit must not be empty"
+        # Required sections so the audit cannot be a one-line placeholder.
+        for marker in ("Starting baseline", "Fix families", "Final baseline", "Remaining suppressions"):
+            assert marker in text, f"audit missing required section: {marker}"
+        PY
+      proves: "The Pyright classification audit deliverable is present and structured (starting baseline, fix families, final baseline, remaining suppressions) so the type-cleanup trail is durable."
       acceptance_ids: [AC-4]
   regression_plan:
     applies: true
@@ -169,6 +192,47 @@ task_contract:
         command: "ruff check mempalace_code/ tests/ && ruff format --check mempalace_code/ tests/"
         proves: "Typing edits preserve the repo's lint and formatting rules without unrelated style churn."
         acceptance_ids: [AC-1]
+      - id: REG-6
+        command: |-
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          data = yaml.safe_load(Path(".github/workflows/ci.yml").read_text())
+          job = data["jobs"]["typecheck"]
+          steps = job["steps"]
+          assert all("continue-on-error" not in step for step in steps)
+          assert any(
+              "python -m pyright --pythonpath" in step.get("run", "")
+              and "import sys; print(sys.executable)" in step.get("run", "")
+              for step in steps
+          )
+          PY
+        proves: "The CI typecheck job stays gated on Pyright with the resolved-interpreter command on subsequent edits (mirrors VER-2 as a regression guard on AC-2)."
+        acceptance_ids: [AC-2]
+      - id: REG-7
+        command: "python -m pytest tests/test_type_suppressions.py -q"
+        proves: "The suppression-policy scanner continues to accept justified `# (type|pyright): ignore[<code>]  # reason: ...` suppressions and to reject the unreasoned-fixture negative case on future edits."
+        acceptance_ids: [AC-3]
+      - id: REG-8
+        command: |-
+          python - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          pyright = pyproject["tool"]["pyright"]
+          assert pyright["include"] == ["mempalace_code", "tests"]
+          assert pyright.get("reportMissingImports") is True
+          assert "exclude" not in pyright or not set(pyright["exclude"]) & {"mempalace_code", "tests"}
+          guide = Path("CLAUDE.md").read_text()
+          assert "python -m pyright --pythonpath" in guide
+          assert "non-gating" not in guide
+          audit = Path("docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md")
+          assert audit.exists() and audit.read_text().strip()
+          PY
+        proves: "Pyright config, developer guidance, and audit trail stay aligned with the clean gate on subsequent edits (mirrors VER-4/VER-5 as a regression guard on AC-4)."
+        acceptance_ids: [AC-4]
 ---
 
 ## Design Notes
@@ -179,8 +243,13 @@ task_contract:
   - Dynamic dependency surfaces: LanceDB, PyArrow, tree-sitter, watchfiles, sentence-transformers, and optional Chroma should be isolated with protocols, local helpers, or narrowly scoped casts.
   - Test-only probes: prefer typed fixtures, `Protocol`/`TypedDict` test doubles, or reasoned one-line casts over broad ignores.
   - Import resolution: keep CI installing `.[dev,chroma,spellcheck,treesitter]`; do not silence missing imports in config.
-- Do not commit a raw 300-line Pyright dump. The audit should be grouped by module and fix family, with final count and suppression inventory.
-- Suppression format should be mechanically checkable. Prefer `# type: ignore[code]  # reason: ...` or `# pyright: ignore[code]  # reason: ...` for remaining unavoidable dynamic-boundary suppressions.
+- Do not commit a raw 300-line Pyright dump. The audit `docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md` must contain the four section headings `Starting baseline`, `Fix families`, `Final baseline`, and `Remaining suppressions` (asserted by VER-5/REG-8), grouped by module and fix family, with final count and suppression inventory.
+- Suppression format is mechanically checkable. The accepted single line form is:
+  - `# type: ignore[<rule>]  # reason: <text>` or
+  - `# pyright: ignore[<rule>]  # reason: <text>`
+  - Required regex (case-sensitive): `r"#\s*(?:type|pyright):\s*ignore\[[^\]\s]+\]\s*#\s*reason:\s*\S"`.
+  - Rejected: bare `# type: ignore` or `# pyright: ignore` without `[<rule>]`; any suppression without `# reason:` followed by non-whitespace; rule lists with whitespace inside the brackets.
+- The suppression-policy test `tests/test_type_suppressions.py` walks `mempalace_code/` and `tests/` (excluding the `tests/fixtures/` directory), asserts every `type: ignore` / `pyright: ignore` line matches the accepted regex, and additionally loads `tests/fixtures/unreasoned_suppression.py` to assert the scanner rejects that file.
 - Remove `.github/workflows/ci.yml` `continue-on-error` only after the full local Pyright command exits 0.
 - `CLAUDE.md` currently says the type check is a "baseline currently non-gating in CI"; update that wording after the gate is real.
 - Avoid treating `ruff` or pytest success as the core deliverable. They are regression guards around the behavior-preserving type cleanup; the deliverable is the clean Pyright gate.

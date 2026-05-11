@@ -17,6 +17,7 @@ Usage:
 
 import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -341,7 +342,7 @@ class EntityRegistry:
 
     # ── Seed from onboarding ─────────────────────────────────────────────────
 
-    def seed(self, mode: str, people: list, projects: list, aliases: dict = None):
+    def seed(self, mode: str, people: list, projects: list, aliases: dict | None = None):
         """
         Seed the registry from onboarding data.
 

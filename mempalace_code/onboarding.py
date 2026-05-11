@@ -268,7 +268,7 @@ def _warn_ambiguous(people: list) -> list:
 
 
 def _generate_aaak_bootstrap(
-    people: list, projects: list, wings: list, mode: str, config_dir: Path = None
+    people: list, projects: list, wings: list, mode: str, config_dir: Path | None = None
 ):
     """
     Generate AAAK entity registry + critical facts bootstrap from onboarding data.
@@ -368,7 +368,7 @@ def _generate_aaak_bootstrap(
 
 def run_onboarding(
     directory: str = ".",
-    config_dir: Path = None,
+    config_dir: Path | None = None,
     auto_detect: bool = True,
 ) -> EntityRegistry:
     """
@@ -462,9 +462,9 @@ def run_onboarding(
 def quick_setup(
     mode: str,
     people: list,
-    projects: list = None,
-    aliases: dict = None,
-    config_dir: Path = None,
+    projects: list | None = None,
+    aliases: dict | None = None,
+    config_dir: Path | None = None,
 ) -> EntityRegistry:
     """
     Programmatic setup without interactive prompts.

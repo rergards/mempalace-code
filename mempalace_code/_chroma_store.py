@@ -48,12 +48,18 @@ class ChromaStore(DrawerStore):
         return self._col.count()
 
     def add(self, ids, documents, metadatas):
-        self._col.add(ids=ids, documents=documents, metadatas=metadatas)
+        if self._col is None:
+            raise RuntimeError("ChromaDB collection not initialized")
+        self._col.add(ids=ids, documents=documents, metadatas=metadatas)  # type: ignore[reportArgumentType]  # reason: chromadb stubs use OneOrMany[Metadata]; List[Dict[str,Any]] is runtime-compatible
 
     def upsert(self, ids, documents, metadatas):
-        self._col.upsert(ids=ids, documents=documents, metadatas=metadatas)
+        if self._col is None:
+            raise RuntimeError("ChromaDB collection not initialized")
+        self._col.upsert(ids=ids, documents=documents, metadatas=metadatas)  # type: ignore[reportArgumentType]  # reason: chromadb stubs use OneOrMany[Metadata]; List[Dict[str,Any]] is runtime-compatible
 
     def get(self, ids=None, where=None, include=None, limit=10000, offset=0):
+        if self._col is None:
+            raise RuntimeError("ChromaDB collection not initialized")
         kwargs: Dict[str, Any] = {}
         if ids is not None:
             kwargs["ids"] = ids
@@ -67,6 +73,8 @@ class ChromaStore(DrawerStore):
         return self._col.get(**kwargs)
 
     def query(self, query_texts, n_results=5, where=None, include=None):
+        if self._col is None:
+            raise RuntimeError("ChromaDB collection not initialized")
         kwargs: Dict[str, Any] = {
             "query_texts": query_texts,
             "n_results": n_results,
@@ -78,6 +86,8 @@ class ChromaStore(DrawerStore):
         return self._col.query(**kwargs)
 
     def delete(self, ids):
+        if self._col is None:
+            raise RuntimeError("ChromaDB collection not initialized")
         self._col.delete(ids=ids)
 
     def delete_wing(self, wing: str) -> int:
@@ -99,10 +109,10 @@ class ChromaStore(DrawerStore):
         # so MCP status/taxonomy calls fall back to iterating metadata rows.
         results = self.get(include=["metadatas"], limit=total)
         counts: Dict[str, int] = {}
-        for metadata in results.get("metadatas", []):
+        for metadata in results.get("metadatas") or []:
             if not metadata or column not in metadata:
                 continue
-            value = metadata[column]
+            value = str(metadata[column])
             counts[value] = counts.get(value, 0) + 1
         return counts
 
@@ -115,11 +125,11 @@ class ChromaStore(DrawerStore):
         # so MCP status/taxonomy calls fall back to iterating metadata rows.
         results = self.get(include=["metadatas"], limit=total)
         counts: Dict[str, Dict[str, int]] = {}
-        for metadata in results.get("metadatas", []):
+        for metadata in results.get("metadatas") or []:
             if not metadata or col_a not in metadata or col_b not in metadata:
                 continue
-            value_a = metadata[col_a]
-            value_b = metadata[col_b]
+            value_a = str(metadata[col_a])
+            value_b = str(metadata[col_b])
             nested = counts.setdefault(value_a, {})
             nested[value_b] = nested.get(value_b, 0) + 1
         return counts

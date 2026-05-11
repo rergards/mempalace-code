@@ -19,4 +19,4 @@ def test_package_version_matches_pyproject():
 
 def test_mcp_initialize_reports_package_version():
     response = handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
-    assert response["result"]["serverInfo"]["version"] == _expected_version()
+    assert response["result"]["serverInfo"]["version"] == _expected_version()  # type: ignore[reportOptionalSubscript]  # reason: handle_request always returns a dict for valid requests; None only for notifications

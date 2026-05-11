@@ -707,7 +707,7 @@ class TestManagedRetention:
         ]
         with patch("mempalace_code.backup.datetime", fake_datetime):
             for _ in range(3):
-                ok = store.safe_optimize(palace_path, backup_first=True)
+                ok = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore.safe_optimize; confirmed by fixture setup
                 assert ok
 
         backups_dir = os.path.join(tmp_dir, "backups")
@@ -744,7 +744,7 @@ class TestManagedRetention:
         ]
         with patch("mempalace_code.backup.datetime", fake_datetime):
             for _ in range(3):
-                ok = store.safe_optimize(palace_path, backup_first=True)
+                ok = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore.safe_optimize; confirmed by fixture setup
                 assert ok
 
         backups_dir = os.path.join(tmp_dir, "backups")

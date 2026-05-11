@@ -1274,7 +1274,7 @@ def test_ac6_get_batch_size_fallback_when_torch_unavailable():
     miner_mod._batch_size = None
     # Make torch appear unimportable inside _detect_batch_size
     original_torch = sys.modules.get("torch")
-    sys.modules["torch"] = None  # type: ignore[assignment]  # signals ImportError on import
+    sys.modules["torch"] = None  # type: ignore[assignment]  # reason: signals ImportError on import for torch-missing fallback path
     try:
         result = get_batch_size()
         assert result == 128, f"Expected fallback 128 when torch unavailable, got {result}"

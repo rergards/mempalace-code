@@ -84,7 +84,7 @@ def export_drawers(
             # Post-filter by `since` on filed_at (string ISO date comparison)
             if since and row.get("filed_at", "") < since:
                 continue
-            record = {"type": "drawer"}
+            record: Dict[str, Any] = {"type": "drawer"}
             record["id"] = row.get("id", "")
             record["text"] = row.get("text", "")
             # Embed vector or null

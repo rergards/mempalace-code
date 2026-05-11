@@ -603,7 +603,7 @@ class TestSchemaMigration:
         store = open_store(palace_path, create=False)
 
         # Verify columns were added
-        schema_names = set(store._table.schema.names)
+        schema_names = set(store._table.schema.names)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore._table internal state for white-box verification
         assert "source_hash" in schema_names
         assert "extractor_version" in schema_names
         assert "chunker_strategy" in schema_names
@@ -675,7 +675,7 @@ class TestSchemaMigration:
     def test_new_palace_has_provenance_columns(self, palace_path):
         """AC-8: A freshly created palace includes all three provenance columns."""
         store = open_store(palace_path, create=True)
-        schema_names = set(store._table.schema.names)
+        schema_names = set(store._table.schema.names)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore._table internal state for white-box verification
         assert "source_hash" in schema_names
         assert "extractor_version" in schema_names
         assert "chunker_strategy" in schema_names
@@ -735,14 +735,14 @@ class TestSchemaMigration:
         store = open_store(palace_path, create=False)
 
         target_names = set(_target_drawer_schema(384).names)
-        schema_names = set(store._table.schema.names)
+        schema_names = set(store._table.schema.names)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore._table internal state for white-box verification
         assert target_names <= schema_names
 
     def test_new_palace_has_all_target_columns(self, palace_path):
         """AC-4: A freshly created palace includes all columns from _target_drawer_schema."""
         store = open_store(palace_path, create=True)
         target_names = set(_target_drawer_schema(384).names)
-        schema_names = set(store._table.schema.names)
+        schema_names = set(store._table.schema.names)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore._table internal state for white-box verification
         assert target_names <= schema_names
 
     def test_migration_logs_added_columns(self, palace_path, caplog):
@@ -1092,7 +1092,7 @@ class TestSafeOptimize:
         )
         pre_count = store.count()
 
-        result = store.safe_optimize(palace_path, backup_first=False)
+        result = store.safe_optimize(palace_path, backup_first=False)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is True
         assert store.count() == pre_count
@@ -1110,7 +1110,7 @@ class TestSafeOptimize:
             metadatas=[{"wing": "w", "room": "r"}],
         )
 
-        result = store.safe_optimize(palace_path, backup_first=True)
+        result = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is True
         backup_dir = os.path.join(tmp_dir, "backups")
@@ -1130,8 +1130,8 @@ class TestSafeOptimize:
         with patch(
             "mempalace_code.backup.create_backup", side_effect=OSError("disk full")
         ) as mock_backup:
-            with patch.object(store._table, "optimize") as mock_optimize:
-                result = store.safe_optimize(palace_path, backup_first=True)
+            with patch.object(store._table, "optimize") as mock_optimize:  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore._table internal state for white-box verification
+                result = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is False
         mock_backup.assert_called_once()
@@ -1154,7 +1154,7 @@ class TestSafeOptimize:
         ]
 
         with patch("mempalace_code.backup.datetime", fake_datetime):
-            results = [store.safe_optimize(palace_path, backup_first=True) for _ in range(3)]
+            results = [store.safe_optimize(palace_path, backup_first=True) for _ in range(3)]  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert results == [True, True, True]
         archives = self._pre_optimize_archives(tmp_dir)
@@ -1177,8 +1177,8 @@ class TestSafeOptimize:
         ]
 
         with patch("mempalace_code.backup.datetime", fake_datetime):
-            first = store.safe_optimize(palace_path, backup_first=True)
-            second = store.safe_optimize(palace_path, backup_first=True)
+            first = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
+            second = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert (first, second) == (True, True)
         archives = self._pre_optimize_archives(tmp_dir)
@@ -1207,7 +1207,7 @@ class TestSafeOptimize:
         fake_datetime.now.return_value = datetime(2026, 1, 1, 12, 2, 0)
 
         with patch("mempalace_code.backup.datetime", fake_datetime):
-            result = store.safe_optimize(palace_path, backup_first=True)
+            result = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is True
         assert sorted(os.listdir(backup_dir)) == [
@@ -1239,7 +1239,7 @@ class TestSafeOptimize:
         with patch("mempalace_code.backup.datetime", fake_datetime):
             with patch("mempalace_code.backup.os.unlink", side_effect=OSError("permission denied")):
                 with caplog.at_level(logging.WARNING, logger="mempalace"):
-                    result = store.safe_optimize(palace_path, backup_first=True)
+                    result = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is True
         warning_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
@@ -1256,7 +1256,7 @@ class TestSafeOptimize:
 
         with patch("mempalace_code.backup.create_backup", side_effect=OSError("no space")):
             with caplog.at_level(logging.ERROR, logger="mempalace"):
-                store.safe_optimize(palace_path, backup_first=True)
+                store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         error_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
         assert any("backup" in m.lower() for m in error_msgs), f"No error logged: {error_msgs}"
@@ -1272,7 +1272,7 @@ class TestSafeOptimize:
             metadatas=[{"wing": "w", "room": "r"}],
         )
 
-        result = store.safe_optimize(palace_path + "/", backup_first=True)
+        result = store.safe_optimize(palace_path + "/", backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is True
         backup_dir = os.path.join(tmp_dir, "backups")
@@ -1288,8 +1288,8 @@ class TestSafeOptimize:
             metadatas=[{"wing": "w", "room": "r"}],
         )
 
-        with patch.object(store._table, "optimize", side_effect=RuntimeError("disk full")):
-            result = store.safe_optimize(palace_path, backup_first=False)
+        with patch.object(store._table, "optimize", side_effect=RuntimeError("disk full")):  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore._table internal state for white-box verification
+            result = store.safe_optimize(palace_path, backup_first=False)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is False
 
@@ -1326,7 +1326,7 @@ class TestOptimizeStoreAdapter:
         )
 
         with patch("mempalace_code.backup.create_backup", side_effect=OSError("no space")):
-            with patch.object(store._table, "optimize") as mock_optimize:
+            with patch.object(store._table, "optimize") as mock_optimize:  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore._table internal state for white-box verification
                 result = optimize_store(store, palace_path, backup_first=True)
 
         assert isinstance(result, OptimizeResult)
@@ -1611,7 +1611,7 @@ class TestLanceHealth:
             ],
         )
 
-        versions_before = store._table.list_versions()
+        versions_before = store._table.list_versions()  # type: ignore[reportOptionalMemberAccess]  # reason: test fixture ensures _table is initialized before checking list_versions
         if len(versions_before) < 2:
             pytest.skip("LanceDB did not create multiple versions — cannot test rollback")
 
@@ -1632,7 +1632,7 @@ class TestLanceHealth:
         assert result["dry_run"] is True
         assert result["recovered"] is False
         # Current version must be unchanged
-        versions_after = corrupt_store._table.list_versions()
+        versions_after = corrupt_store._table.list_versions()  # type: ignore[reportOptionalMemberAccess]  # reason: test fixture ensures _table is initialized before checking list_versions
         current_version_after = versions_after[-1]["version"]
         assert current_version_after == current_version_before, (
             f"dry_run=True must not mutate the table: version changed "
@@ -1662,7 +1662,7 @@ class TestLanceHealth:
             ],
         )
         files_after_phase1 = _find_data_files(palace_path)
-        _ = store._table.list_versions()  # snapshot for timing reference (unused)
+        _ = store._table.list_versions()  # type: ignore[reportOptionalMemberAccess]  # reason: test fixture ensures _table is initialized before checking list_versions  # snapshot for timing reference (unused)
 
         # Phase 2: add more data
         store.add(
@@ -1677,7 +1677,7 @@ class TestLanceHealth:
             ],
         )
 
-        if len(store._table.list_versions()) < 2:
+        if len(store._table.list_versions()) < 2:  # type: ignore[reportOptionalMemberAccess]  # reason: test fixture ensures _table is initialized before checking list_versions
             pytest.skip("LanceDB did not create multiple versions")
 
         # Corrupt a phase-2 fragment
@@ -1800,7 +1800,7 @@ class TestStorageStats:
             documents=["storage stats test content"],
             metadatas=[{"wing": "w", "room": "r"}],
         )
-        s = store.storage_stats()
+        s = store.storage_stats()  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.storage_stats; method exists on concrete type
         for key in (
             "version_count",
             "logical_bytes",
@@ -1823,13 +1823,13 @@ class TestStorageStats:
             documents=["version one drawer content"],
             metadatas=[{"wing": "w", "room": "r"}],
         )
-        v1 = store.storage_stats()["version_count"]
+        v1 = store.storage_stats()["version_count"]  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.storage_stats; method exists on concrete type
         store.add(
             ids=["v2"],
             documents=["version two drawer content"],
             metadatas=[{"wing": "w", "room": "r"}],
         )
-        v2 = store.storage_stats()["version_count"]
+        v2 = store.storage_stats()["version_count"]  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.storage_stats; method exists on concrete type
         assert v2 > v1
 
     def test_on_disk_bytes_positive_after_add(self, palace_path):
@@ -1840,7 +1840,7 @@ class TestStorageStats:
             documents=["on disk bytes test content here"],
             metadatas=[{"wing": "w", "room": "r"}],
         )
-        assert store.storage_stats()["on_disk_bytes"] > 0
+        assert store.storage_stats()["on_disk_bytes"] > 0  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.storage_stats; method exists on concrete type
 
     def test_none_table_returns_zeros(self):
         """storage_stats() on a store with _table=None returns all zeros."""
@@ -1867,7 +1867,7 @@ class TestStorageStats:
             ],
         )
         store = LanceStore.__new__(LanceStore)
-        store._table = table
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
         store._table_dir = "/nonexistent/path"
         s = store.storage_stats()
         assert s["logical_bytes"] == 12345
@@ -1883,7 +1883,7 @@ class TestStorageStats:
             documents=["health check storage section test content"],
             metadatas=[{"wing": "w", "room": "r"}],
         )
-        report = store.health_check()
+        report = store.health_check()  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.health_check; method exists on concrete type
         assert "storage" in report
         s = report["storage"]
         for key in (
@@ -1914,10 +1914,10 @@ class TestCleanupStaleFragments:
             ],
         )
         store = LanceStore.__new__(LanceStore)
-        store._table = table
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
         store._table_dir = "/nonexistent/path"
 
-        store.cleanup_stale_fragments(older_than_days=7, unsafe_now=False)
+        store.cleanup_stale_fragments(older_than_days=7, unsafe_now=False)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
 
         assert len(table.optimize_calls) == 1
         call = table.optimize_calls[0]
@@ -1942,10 +1942,10 @@ class TestCleanupStaleFragments:
             ],
         )
         store = LanceStore.__new__(LanceStore)
-        store._table = table
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
         store._table_dir = "/nonexistent/path"
 
-        store.cleanup_stale_fragments(unsafe_now=True)
+        store.cleanup_stale_fragments(unsafe_now=True)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
 
         assert len(table.optimize_calls) == 1
         call = table.optimize_calls[0]
@@ -1968,13 +1968,13 @@ class TestCleanupStaleFragments:
             ],
         )
         store = LanceStore.__new__(LanceStore)
-        store._table = table
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
         store._table_dir = "/nonexistent/path"
 
-        result = store.cleanup_stale_fragments(unsafe_now=True)
+        result = store.cleanup_stale_fragments(unsafe_now=True)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
         assert result["delete_unverified"] is True
 
-        result2 = store.cleanup_stale_fragments(unsafe_now=False)
+        result2 = store.cleanup_stale_fragments(unsafe_now=False)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
         assert result2["delete_unverified"] is False
 
     def test_lance_module_not_found_raises_dependency_error(self):
@@ -1989,11 +1989,11 @@ class TestCleanupStaleFragments:
         table.optimize = _raise
 
         store = LanceStore.__new__(LanceStore)
-        store._table = table
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
         store._table_dir = "/nonexistent/path"
 
         with pytest.raises(LanceStoreDependencyError) as exc_info:
-            store.cleanup_stale_fragments()
+            store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
 
         msg = str(exc_info.value)
         assert "upgrade" in msg.lower() or "install" in msg.lower()
@@ -2010,11 +2010,11 @@ class TestCleanupStaleFragments:
         table.optimize = _raise
 
         store = LanceStore.__new__(LanceStore)
-        store._table = table
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
         store._table_dir = "/nonexistent/path"
 
         with pytest.raises(LanceStoreDependencyError):
-            store.cleanup_stale_fragments()
+            store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
 
     def test_none_table_returns_ok_false(self):
         """cleanup_stale_fragments() on None table returns ok=False without raising."""
@@ -2036,10 +2036,10 @@ class TestCleanupStaleFragments:
         table.optimize = _raise
 
         store = LanceStore.__new__(LanceStore)
-        store._table = table
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
         store._table_dir = "/nonexistent/path"
 
-        result = store.cleanup_stale_fragments()
+        result = store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
         assert result["ok"] is False
         assert "disk full" in result.get("error", "")
 
@@ -2054,7 +2054,7 @@ class TestCleanupStaleFragments:
             )
         rows_before = store.count()
 
-        result = store.cleanup_stale_fragments(older_than_days=0, unsafe_now=True)
+        result = store.cleanup_stale_fragments(older_than_days=0, unsafe_now=True)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
 
         assert result["ok"] is True
         assert result["rows_before"] == rows_before

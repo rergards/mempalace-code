@@ -10,7 +10,7 @@ from .search import tool_check_duplicate
 
 
 def tool_add_drawer(
-    wing: str, room: str, content: str, source_file: str = None, added_by: str = "mcp"
+    wing: str, room: str, content: str, source_file: str | None = None, added_by: str = "mcp"
 ):
     """File verbatim content into a wing/room. Checks for duplicates first."""
     col = runtime._get_store(create=True)
@@ -83,7 +83,7 @@ def tool_delete_wing(wing: str):
         return {"success": False, "error": str(e)}
 
 
-def tool_mine(directory: str, wing: str = None, full: bool = False):
+def tool_mine(directory: str, wing: str | None = None, full: bool = False):
     """Trigger re-mining of a project directory from the MCP server."""
     try:
         dir_path = Path(directory).expanduser().resolve()

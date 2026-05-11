@@ -50,7 +50,7 @@ ruff check mempalace_code/ tests/
 # Format check
 ruff format --check mempalace_code/ tests/
 
-# Type check (baseline currently non-gating in CI)
+# Type check (gating in CI — must exit 0)
 python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
 
 # Auto-fix lint

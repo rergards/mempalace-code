@@ -205,7 +205,7 @@ def detect_convo_room(content: str) -> str:
         if score > 0:
             scores[room] = score
     if scores:
-        return max(scores, key=scores.get)
+        return max(scores, key=lambda k: scores[k])
     return "general"
 
 
@@ -256,7 +256,7 @@ def scan_convos(convo_dir: str) -> list:
 def mine_convos(
     convo_dir: str,
     palace_path: str,
-    wing: str = None,
+    wing: str | None = None,
     agent: str = "mempalace",
     limit: int = 0,
     dry_run: bool = False,

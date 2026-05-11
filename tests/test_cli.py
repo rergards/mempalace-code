@@ -1171,7 +1171,7 @@ def _make_uninit_project(parent: Path, name: str) -> Path:
 
 
 class TestMineAllCommand:
-    def _run_mine_all(self, palace: str, parent_dir: str, extra_args: list = None):
+    def _run_mine_all(self, palace: str, parent_dir: str, extra_args: list | None = None):
         argv = ["mempalace", "--palace", palace, "mine-all", parent_dir]
         if extra_args:
             argv.extend(extra_args)

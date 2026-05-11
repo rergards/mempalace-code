@@ -676,7 +676,7 @@ def cmd_health(args):
         sys.exit(1)
 
 
-def _fmt_bytes(n: int) -> str:
+def _fmt_bytes(n: int | float) -> str:
     """Human-readable byte count."""
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024:

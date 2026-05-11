@@ -7,6 +7,8 @@ import pytest
 
 _BENCH_FILE = Path(__file__).resolve().parent.parent / "benchmarks" / "dotnet_bench.py"
 _spec = importlib.util.spec_from_file_location("dotnet_bench", _BENCH_FILE)
+assert _spec is not None
+assert _spec.loader is not None
 bench = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bench)
 

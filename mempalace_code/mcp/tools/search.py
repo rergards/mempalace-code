@@ -4,7 +4,7 @@ from ...language_catalog import code_search_language_description
 from .. import runtime
 
 
-def tool_search(query: str, limit: int = 5, wing: str = None, room: str = None):
+def tool_search(query: str, limit: int = 5, wing: str | None = None, room: str | None = None):
     from ...searcher import search_memories
 
     return search_memories(
@@ -18,13 +18,13 @@ def tool_search(query: str, limit: int = 5, wing: str = None, room: str = None):
 
 def tool_code_search(
     query: str,
-    language: str = None,
-    symbol_name: str = None,
-    symbol_type: str = None,
-    file_glob: str = None,
-    wing: str = None,
+    language: str | None = None,
+    symbol_name: str | None = None,
+    symbol_type: str | None = None,
+    file_glob: str | None = None,
+    wing: str | None = None,
     n_results: int = 10,
-    rerank: str = None,
+    rerank: str | None = None,
 ):
     from ...searcher import code_search
 
@@ -76,7 +76,7 @@ def tool_check_duplicate(content: str, threshold: float = 0.9):
         return {"error": str(e)}
 
 
-def tool_file_context(source_file: str, wing: str = None):
+def tool_file_context(source_file: str, wing: str | None = None):
     """Return all indexed chunks for a source file, ordered by chunk_index."""
     if not source_file:
         return {

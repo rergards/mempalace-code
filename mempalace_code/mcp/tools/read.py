@@ -46,7 +46,7 @@ def tool_list_wings():
     return {"wings": wings}
 
 
-def tool_list_rooms(wing: str = None):
+def tool_list_rooms(wing: str | None = None):
     col = runtime._get_store()
     if not col:
         return runtime._no_palace()

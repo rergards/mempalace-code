@@ -204,10 +204,10 @@ def _is_relevant_change(
 def watch_and_mine(
     project_dir: str,
     palace_path: str,
-    wing_override: str = None,
+    wing_override: str | None = None,
     agent: str = "mempalace",
     respect_gitignore: bool = True,
-    include_ignored: list = None,
+    include_ignored: list | None = None,
     kg=None,
 ) -> None:
     """Watch *project_dir* for file changes and re-mine incrementally.

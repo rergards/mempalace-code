@@ -39,6 +39,7 @@ class TestHandleRequest:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "initialize", "id": 1, "params": {}})
+        assert resp is not None
         assert resp["result"]["serverInfo"]["name"] == "mempalace-code"
         assert resp["id"] == 1
 
@@ -52,6 +53,7 @@ class TestHandleRequest:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 2, "params": {}})
+        assert resp is not None
         tools = resp["result"]["tools"]
         names = {t["name"] for t in tools}
         assert "mempalace_status" in names
@@ -70,12 +72,14 @@ class TestHandleRequest:
                 "params": {"name": "nonexistent_tool", "arguments": {}},
             }
         )
+        assert resp is not None
         assert resp["error"]["code"] == -32601
 
     def test_unknown_method(self):
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "unknown/method", "id": 4, "params": {}})
+        assert resp is not None
         assert resp["error"]["code"] == -32601
 
     def test_tools_call_dispatches(self, monkeypatch, config, palace_path, seeded_kg):
@@ -92,6 +96,7 @@ class TestHandleRequest:
                 "params": {"name": "mempalace_status", "arguments": {}},
             }
         )
+        assert resp is not None
         assert "result" in resp
         content = json.loads(resp["result"]["content"][0]["text"])
         assert "total_drawers" in content
@@ -109,6 +114,7 @@ class TestHandleRequest:
                 "params": {"name": "mempalace_status", "arguments": None},
             }
         )
+        assert resp is not None
         assert "result" in resp, f"expected result, got: {resp}"
         content = json.loads(resp["result"]["content"][0]["text"])
         assert "total_drawers" in content
@@ -126,6 +132,7 @@ class TestHandleRequest:
                 "params": {"name": "mempalace_status"},
             }
         )
+        assert resp is not None
         assert "result" in resp, f"expected result, got: {resp}"
         content = json.loads(resp["result"]["content"][0]["text"])
         assert "total_drawers" in content
@@ -146,6 +153,7 @@ class TestHandleRequest:
                 },
             }
         )
+        assert resp is not None
         assert "result" in resp, f"expected result, got: {resp}"
         content = json.loads(resp["result"]["content"][0]["text"])
         assert "total_drawers" in content
@@ -170,6 +178,7 @@ class TestHandleRequest:
             }
         )
         # Should return a result (not an Internal tool error) because query was preserved
+        assert resp is not None
         assert "result" in resp, f"expected result, got: {resp}"
 
     # AC-3: unknown notifications/* method returns None (fire-and-forget)
@@ -184,6 +193,7 @@ class TestHandleRequest:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "unknown/method", "id": 14, "params": {}})
+        assert resp is not None
         assert resp["error"]["code"] == -32601
 
     # AC-5: unknown tool + null arguments returns Unknown tool error, does not raise
@@ -197,6 +207,7 @@ class TestHandleRequest:
                 "params": {"name": "nonexistent_tool", "arguments": None},
             }
         )
+        assert resp is not None
         assert "error" in resp
         assert resp["error"]["code"] == -32601
         assert "Unknown tool" in resp["error"]["message"]
@@ -212,6 +223,7 @@ class TestHandleRequest:
                 "params": {"name": "mempalace_status", "arguments": ["not", "a", "dict"]},
             }
         )
+        assert resp is not None
         assert "error" in resp
         assert resp["error"]["code"] == -32602
 
@@ -220,6 +232,7 @@ class TestHandleRequest:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/call", "id": 17, "params": None})
+        assert resp is not None
         assert "error" in resp
         assert resp["error"]["code"] == -32601
 
@@ -251,8 +264,8 @@ class TestReadTools:
         from mempalace_code.mcp_server import tool_list_wings
 
         result = tool_list_wings()
-        assert result["wings"]["project"] == 3
-        assert result["wings"]["notes"] == 1
+        assert result["wings"]["project"] == 3  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+        assert result["wings"]["notes"] == 1  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
     def test_list_rooms_all(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
@@ -276,9 +289,9 @@ class TestReadTools:
         from mempalace_code.mcp_server import tool_get_taxonomy
 
         result = tool_get_taxonomy()
-        assert result["taxonomy"]["project"]["backend"] == 2
-        assert result["taxonomy"]["project"]["frontend"] == 1
-        assert result["taxonomy"]["notes"]["planning"] == 1
+        assert result["taxonomy"]["project"]["backend"] == 2  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+        assert result["taxonomy"]["project"]["frontend"] == 1  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+        assert result["taxonomy"]["notes"]["planning"] == 1  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
     def test_no_palace_returns_error(self, monkeypatch, config, kg):
         config._file_config["palace_path"] = "/nonexistent/path"
@@ -464,6 +477,7 @@ class TestWriteTools:
         assert result["success"] is True
         # Verify through the MCP server's store (same connection path)
         store = _get_store()
+        assert store is not None
         assert store.count() == 3
 
     def test_delete_drawer_not_found(self, monkeypatch, config, palace_path, seeded_collection, kg):
@@ -482,6 +496,7 @@ class TestWriteTools:
         assert result["wing"] == "project"
         assert result["deleted_count"] == 3
         store = _get_store()
+        assert store is not None
         assert store.count() == 1
 
     def test_delete_wing_not_found(self, monkeypatch, config, palace_path, seeded_collection, kg):
@@ -616,8 +631,8 @@ class TestDiaryTools:
 
         r = tool_diary_read(agent_name="TestAgent")
         assert r["total"] == 1
-        assert r["entries"][0]["topic"] == "architecture"
-        assert "authentication" in r["entries"][0]["content"]
+        assert r["entries"][0]["topic"] == "architecture"  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+        assert "authentication" in r["entries"][0]["content"]  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
     def test_diary_read_empty(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
@@ -864,6 +879,7 @@ class TestCodeSearchTool:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        assert resp is not None
         tools = {t["name"]: t for t in resp["result"]["tools"]}
         assert "mempalace_code_search" in tools
 
@@ -898,6 +914,7 @@ class TestCodeSearchTool:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 100, "params": {}})
+        assert resp is not None
         tools = {t["name"]: t for t in resp["result"]["tools"]}
         lang_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["language"][
             "description"
@@ -911,6 +928,7 @@ class TestCodeSearchTool:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 102, "params": {}})
+        assert resp is not None
         tools = {t["name"]: t for t in resp["result"]["tools"]}
         lang_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["language"][
             "description"
@@ -929,6 +947,7 @@ class TestCodeSearchTool:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 101, "params": {}})
+        assert resp is not None
         tools = {t["name"]: t for t in resp["result"]["tools"]}
         sym_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["symbol_type"][
             "description"
@@ -962,10 +981,10 @@ class TestAggregationRegression:
         from mempalace_code.mcp_server import tool_list_wings
 
         result = tool_list_wings()
-        assert set(result["wings"].keys()) == {"alpha", "beta", "gamma"}
-        assert result["wings"]["alpha"] == 4
-        assert result["wings"]["beta"] == 4
-        assert result["wings"]["gamma"] == 4
+        assert set(result["wings"].keys()) == {"alpha", "beta", "gamma"}  # type: ignore[reportAttributeAccessIssue]  # reason: MCP tool handlers return dict[str, Any]; .keys() is valid
+        assert result["wings"]["alpha"] == 4  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+        assert result["wings"]["beta"] == 4  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+        assert result["wings"]["gamma"] == 4  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
     def test_list_rooms_filtered(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
@@ -983,7 +1002,7 @@ class TestAggregationRegression:
         from mempalace_code.mcp_server import tool_list_rooms
 
         result = tool_list_rooms(wing="wing1")
-        assert set(result["rooms"].keys()) == {"roomA", "roomB"}
+        assert set(result["rooms"].keys()) == {"roomA", "roomB"}  # type: ignore[reportAttributeAccessIssue]  # reason: MCP tool handlers return dict[str, Any]; .keys() is valid
         assert "roomC" not in result["rooms"]
 
     def test_status_counts_match_total(self, monkeypatch, config, palace_path, kg):
@@ -993,7 +1012,7 @@ class TestAggregationRegression:
         from mempalace_code.mcp_server import tool_status
 
         result = tool_status()
-        assert result["total_drawers"] == sum(result["wings"].values())
+        assert result["total_drawers"] == sum(result["wings"].values())  # type: ignore[reportAttributeAccessIssue]  # reason: MCP tool handlers return dict[str, Any]; .values() is valid
 
     def test_taxonomy_complete(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
@@ -1003,10 +1022,10 @@ class TestAggregationRegression:
 
         result = tool_get_taxonomy()
         tax = result["taxonomy"]
-        assert set(tax.keys()) == {"alpha", "beta", "gamma"}
+        assert set(tax.keys()) == {"alpha", "beta", "gamma"}  # type: ignore[reportAttributeAccessIssue]  # reason: MCP tool handlers return dict[str, Any]; .keys() is valid
         for wing in ("alpha", "beta", "gamma"):
-            assert tax[wing]["frontend"] == 2
-            assert tax[wing]["backend"] == 2
+            assert tax[wing]["frontend"] == 2  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+            assert tax[wing]["backend"] == 2  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
     def test_code_search_devops_languages_in_hint(
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
@@ -1112,7 +1131,7 @@ class TestDegradedPalace:
 
         assert "error" in result, f"Expected 'error' key in result, got: {result}"
         assert "hint" in result, f"Expected 'hint' key in result, got: {result}"
-        assert result.get("total_drawers", 0) > 0, (
+        assert result.get("total_drawers", 0) > 0, (  # type: ignore[reportOperatorIssue]  # reason: MCP tool handlers return dict[str, Any]; total_drawers is int at runtime
             "total_drawers should still be populated from count()"
         )
         # Silent empty wings/rooms must not appear without explanation
@@ -1381,6 +1400,7 @@ class TestArchTools:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        assert resp is not None
         tool_names = {t["name"] for t in resp["result"]["tools"]}
         assert "mempalace_find_implementations" in tool_names
         assert "mempalace_find_references" in tool_names
@@ -1515,6 +1535,7 @@ class TestExplainSubsystem:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        assert resp is not None
         tool_map = {t["name"]: t for t in resp["result"]["tools"]}
         assert "mempalace_explain_subsystem" in tool_map
         t = tool_map["mempalace_explain_subsystem"]
@@ -1830,6 +1851,7 @@ class TestExtractReusable:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        assert resp is not None
         tool_map = {t["name"]: t for t in resp["result"]["tools"]}
         assert "mempalace_extract_reusable" in tool_map
         t = tool_map["mempalace_extract_reusable"]
@@ -1981,7 +2003,7 @@ class TestFileContextTool:
             "line_range",
         ):
             assert field in chunk, f"Missing field: {field}"
-        assert chunk["line_range"] is None
+        assert chunk["line_range"] is None  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
     def test_missing_file_returns_empty(self, monkeypatch, config, palace_path, collection, kg):
         """AC-2: source_file not in palace → {total: 0, chunks: []} with no error key."""
@@ -2022,7 +2044,7 @@ class TestFileContextTool:
 
         assert result["total"] == 3
         assert result["wing"] == "wing_a"
-        assert all(c["wing"] == "wing_a" for c in result["chunks"])
+        assert all(c["wing"] == "wing_a" for c in result["chunks"])  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
     def test_chunks_sorted_by_chunk_index(self, monkeypatch, config, palace_path, collection, kg):
         """AC-4: chunks inserted in reverse order → response sorted ascending by chunk_index.
@@ -2036,13 +2058,13 @@ class TestFileContextTool:
 
         result = tool_file_context(source_file="mempalace/miner.py")
 
-        indices = [c["chunk_index"] for c in result["chunks"]]
+        indices = [c["chunk_index"] for c in result["chunks"]]  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
         assert indices == sorted(indices), f"chunks not sorted: {indices}"
         assert indices == [0, 1, 2]
         # Verify content is aligned with index (not just indices sorted in isolation)
-        assert result["chunks"][0]["symbol_name"] == "first_function"
-        assert result["chunks"][1]["symbol_name"] == "second_function"
-        assert result["chunks"][2]["symbol_name"] == "third_function"
+        assert result["chunks"][0]["symbol_name"] == "first_function"  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+        assert result["chunks"][1]["symbol_name"] == "second_function"  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+        assert result["chunks"][2]["symbol_name"] == "third_function"  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
     def test_no_palace_returns_error(self, monkeypatch, kg):
         """AC-5: no palace (_get_store returns None) → standard error dict with 'error' and 'hint'."""
@@ -2065,6 +2087,7 @@ class TestFileContextTool:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        assert resp is not None
         tools = {t["name"]: t for t in resp["result"]["tools"]}
 
         assert "mempalace_file_context" in tools
@@ -2102,7 +2125,7 @@ class TestFileContextTool:
 
         assert "error" not in result
         assert result["total"] == 1
-        assert result["chunks"][0]["symbol_name"] == "tricky"
+        assert result["chunks"][0]["symbol_name"] == "tricky"  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
     def test_empty_source_file_returns_error(
         self, monkeypatch, config, palace_path, collection, kg
@@ -2154,6 +2177,7 @@ class TestFileContextTool:
             }
         )
 
+        assert resp is not None
         assert resp["id"] == 10
         assert "error" not in resp
         data = json.loads(resp["result"]["content"][0]["text"])
@@ -2303,6 +2327,7 @@ class TestToolMine:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 99, "params": {}})
+        assert resp is not None
         tools = {t["name"]: t for t in resp["result"]["tools"]}
 
         assert "mempalace_mine" in tools
@@ -2330,6 +2355,7 @@ class TestToolMine:
             }
         )
 
+        assert resp is not None
         assert resp["id"] == 42
         assert "error" not in resp, f"Unexpected error: {resp.get('error')}"
         data = json.loads(resp["result"]["content"][0]["text"])
@@ -2565,6 +2591,7 @@ class TestMCPToolProfiles:
         from mempalace_code.mcp_server import TOOLS, handle_request
 
         resp = handle_request({"method": "tools/list", "id": 1, "params": {}})
+        assert resp is not None
         names = {t["name"] for t in resp["result"]["tools"]}
         assert names == frozenset(TOOLS)
 
@@ -2576,6 +2603,7 @@ class TestMCPToolProfiles:
         resp = handle_request(
             {"method": "tools/list", "id": 2, "params": {}}, active_registry=registry
         )
+        assert resp is not None
         names = {t["name"] for t in resp["result"]["tools"]}
         assert names == frozenset(
             {
@@ -2594,6 +2622,7 @@ class TestMCPToolProfiles:
         resp = handle_request(
             {"method": "tools/list", "id": 3, "params": {}}, active_registry=registry
         )
+        assert resp is not None
         names = {t["name"] for t in resp["result"]["tools"]}
         assert "mempalace_code_search" in names
         assert "mempalace_file_context" in names
@@ -2607,6 +2636,7 @@ class TestMCPToolProfiles:
         resp = handle_request(
             {"method": "tools/list", "id": 4, "params": {}}, active_registry=registry
         )
+        assert resp is not None
         names = {t["name"] for t in resp["result"]["tools"]}
         assert "mempalace_add_drawer" not in names
         assert "mempalace_diary_write" not in names
@@ -2619,6 +2649,7 @@ class TestMCPToolProfiles:
         resp = handle_request(
             {"method": "tools/list", "id": 5, "params": {}}, active_registry=registry
         )
+        assert resp is not None
         names = {t["name"] for t in resp["result"]["tools"]}
         assert "mempalace_kg_query" in names
         assert "mempalace_search" not in names
@@ -2631,6 +2662,7 @@ class TestMCPToolProfiles:
         resp = handle_request(
             {"method": "tools/list", "id": 6, "params": {}}, active_registry=registry
         )
+        assert resp is not None
         names = {t["name"] for t in resp["result"]["tools"]}
         assert names == frozenset(
             {
@@ -2654,6 +2686,7 @@ class TestMCPToolProfiles:
             },
             active_registry=registry,
         )
+        assert resp is not None
         assert resp["error"]["code"] == -32601
         assert "not enabled by the active MCP profile" in resp["error"]["message"]
 
@@ -2669,6 +2702,7 @@ class TestMCPToolProfiles:
             },
             active_registry=registry,
         )
+        assert resp is not None
         assert resp["error"]["code"] == -32601
         assert "Unknown tool" in resp["error"]["message"]
         assert "not enabled" not in resp["error"]["message"]
@@ -2812,6 +2846,7 @@ class TestLuaMCPSchema:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 200, "params": {}})
+        assert resp is not None
         tools = {t["name"]: t for t in resp["result"]["tools"]}
         lang_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["language"][
             "description"
@@ -2823,6 +2858,7 @@ class TestLuaMCPSchema:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 201, "params": {}})
+        assert resp is not None
         tools = {t["name"]: t for t in resp["result"]["tools"]}
         sym_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["symbol_type"][
             "description"
@@ -2837,6 +2873,7 @@ class TestLuaMCPSchema:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 202, "params": {}})
+        assert resp is not None
         tools = {t["name"]: t for t in resp["result"]["tools"]}
         lang_desc = tools["mempalace_code_search"]["inputSchema"]["properties"]["language"][
             "description"

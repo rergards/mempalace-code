@@ -13,7 +13,7 @@ def tool_traverse_graph(start_room: str, max_hops: int = 2):
     return traverse(start_room, col=col, max_hops=max_hops)
 
 
-def tool_find_tunnels(wing_a: str = None, wing_b: str = None):
+def tool_find_tunnels(wing_a: str | None = None, wing_b: str | None = None):
     """Find rooms that bridge two wings — the hallways connecting domains."""
     from ...palace_graph import find_tunnels
 

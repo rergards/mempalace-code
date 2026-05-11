@@ -3,14 +3,18 @@
 from .. import runtime
 
 
-def tool_kg_query(entity: str, as_of: str = None, direction: str = "both"):
+def tool_kg_query(entity: str, as_of: str | None = None, direction: str = "both"):
     """Query the knowledge graph for an entity's relationships."""
     results = runtime._get_kg().query_entity(entity, as_of=as_of, direction=direction)
     return {"entity": entity, "as_of": as_of, "facts": results, "count": len(results)}
 
 
 def tool_kg_add(
-    subject: str, predicate: str, object: str, valid_from: str = None, source_closet: str = None
+    subject: str,
+    predicate: str,
+    object: str,
+    valid_from: str | None = None,
+    source_closet: str | None = None,
 ):
     """Add a relationship to the knowledge graph."""
     triple_id = runtime._get_kg().add_triple(
@@ -19,7 +23,7 @@ def tool_kg_add(
     return {"success": True, "triple_id": triple_id, "fact": f"{subject} → {predicate} → {object}"}
 
 
-def tool_kg_invalidate(subject: str, predicate: str, object: str, ended: str = None):
+def tool_kg_invalidate(subject: str, predicate: str, object: str, ended: str | None = None):
     """Mark a fact as no longer true (set end date)."""
     runtime._get_kg().invalidate(subject, predicate, object, ended=ended)
     return {
@@ -29,7 +33,7 @@ def tool_kg_invalidate(subject: str, predicate: str, object: str, ended: str = N
     }
 
 
-def tool_kg_timeline(entity: str = None):
+def tool_kg_timeline(entity: str | None = None):
     """Get chronological timeline of facts, optionally for one entity."""
     results = runtime._get_kg().timeline(entity)
     return {"entity": entity or "all", "timeline": results, "count": len(results)}
