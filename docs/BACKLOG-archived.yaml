@@ -682,3 +682,8 @@ items:
       resolution: '2026-05-09: completed in pipeline run'
       archived_date: "2026-05-09"
       done_summary: completed in pipeline run
+    - key: QUAL-PYRIGHT-ZERO
+      summary: Make Pyright a clean gating check
+      resolution: '2026-05-11: completed in pipeline run'
+      archived_date: "2026-05-11"
+      done_summary: completed in pipeline run

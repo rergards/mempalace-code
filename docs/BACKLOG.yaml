@@ -153,37 +153,6 @@ items:
     links:
       - type: is-blocked-by
         key: CLARIFY-MINE-ANSIBLE
-  - key: QUAL-PYRIGHT-ZERO
-    summary: Make Pyright a clean gating check
-    type: task
-    status: open
-    priority: high
-    section_id: quality
-    labels: [quality, typing, pyright, ci, review]
-    description: |-
-      ## Problem
-      The repo had a `[tool.pyright]` config before Pyright was installed or run by CI.
-      Pyright is now installed as a dev dependency and visible in CI as a non-gating
-      baseline, but the baseline is still expected to fail until the existing type
-      diagnostics are fixed. First local baseline with the resolved interpreter path:
-      301 errors across 74 analyzed files.
-
-      ## Scope
-      - Run `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"`
-        from the project dev environment and classify the current diagnostics by
-        module and fix family.
-      - Fix or deliberately suppress only diagnostics with a clear local justification.
-      - Remove the GitHub Actions `continue-on-error` guard once the baseline is clean.
-      - Keep the Pyright config, docs, local commands, and CI invocation aligned.
-
-      ## Acceptance Criteria
-      - `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"`
-        exits 0 locally.
-      - CI fails on Pyright diagnostics instead of treating them as advisory.
-      - Every remaining suppression has a nearby reason and a follow-up only if the
-        underlying issue is intentionally out of scope.
-      - The review finding that Pyright was configured but unused is no longer true.
-    size: M
   - key: QUAL-OPTIONAL-ANNOTATIONS
     summary: Normalize optional annotations for Pyright
     type: task
