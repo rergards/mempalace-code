@@ -201,6 +201,10 @@ task_contract:
         command: "python -m pytest tests/test_miner.py::TestDetectRoomCsprojMap::test_no_csproj_map_unchanged tests/test_watcher.py::TestWatchAndMine::test_watch_passes_respect_gitignore_and_include_ignored tests/test_cli.py::TestMineAllCommand::test_mine_all_basic -q"
         proves: "Mining, watcher, and CLI omitted-optional behavior did not regress."
         acceptance_ids: [AC-4]
+      - id: REG-5
+        command: "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\""
+        proves: "No new non-optional default-None annotations were reintroduced; Pyright diagnostics from the touched declarations remain resolved."
+        acceptance_ids: [AC-5]
 ---
 
 ## Design Notes
