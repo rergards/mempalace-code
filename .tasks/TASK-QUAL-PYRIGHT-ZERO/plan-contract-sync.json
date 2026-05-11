@@ -1,0 +1,179 @@
+{
+  "passed": true,
+  "slug": "QUAL-PYRIGHT-ZERO",
+  "planned_files": [
+    ".github/workflows/ci.yml",
+    "CLAUDE.md",
+    "docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md",
+    "mempalace_code/",
+    "pyproject.toml",
+    "tests/"
+  ],
+  "actual_files": [
+    ".github/workflows/ci.yml",
+    "CLAUDE.md",
+    "docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md",
+    "docs/audits/QUAL-PYRIGHT-ZERO-round-1.md",
+    "docs/plans/QUAL-PYRIGHT-ZERO.md",
+    "mempalace_code/_chroma_store.py",
+    "mempalace_code/cli.py",
+    "mempalace_code/convo_miner.py",
+    "mempalace_code/dialect.py",
+    "mempalace_code/entity_registry.py",
+    "mempalace_code/export.py",
+    "mempalace_code/general_extractor.py",
+    "mempalace_code/knowledge_graph.py",
+    "mempalace_code/layers.py",
+    "mempalace_code/mcp/tools/architecture.py",
+    "mempalace_code/mcp/tools/graph.py",
+    "mempalace_code/mcp/tools/kg.py",
+    "mempalace_code/mcp/tools/read.py",
+    "mempalace_code/mcp/tools/search.py",
+    "mempalace_code/mcp/tools/write.py",
+    "mempalace_code/migrate.py",
+    "mempalace_code/miner.py",
+    "mempalace_code/onboarding.py",
+    "mempalace_code/palace_graph.py",
+    "mempalace_code/searcher.py",
+    "mempalace_code/watcher.py",
+    "tests/fixtures/unreasoned_suppression.py",
+    "tests/test_backup.py",
+    "tests/test_chroma_compat.py",
+    "tests/test_cli.py",
+    "tests/test_code_retrieval_bench.py",
+    "tests/test_dotnet_bench.py",
+    "tests/test_e2e.py",
+    "tests/test_embed_ab_bench.py",
+    "tests/test_export.py",
+    "tests/test_mcp_registry.py",
+    "tests/test_mcp_server.py",
+    "tests/test_miner.py",
+    "tests/test_packaging_namespace.py",
+    "tests/test_storage.py",
+    "tests/test_storage_lance.py",
+    "tests/test_type_suppressions.py",
+    "tests/test_version_consistency.py"
+  ],
+  "planned_verification": [
+    "python - \u003c\u003c'PY'\nfrom pathlib import Path\n\naudit = Path(\"docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md\")\nassert audit.exists(), \"classification audit must be written\"\ntext = audit.read_text()\nassert text.strip(), \"classification audit must not be empty\"\n# Required sections so the audit cannot be a one-line placeholder.\nfor marker in (\"Starting baseline\", \"Fix families\", \"Final baseline\", \"Remaining suppressions\"):\n    assert marker in text, f\"audit missing required section: {marker}\"\nPY",
+    "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport tomllib\n\npyproject = tomllib.loads(Path(\"pyproject.toml\").read_text())\npyright = pyproject[\"tool\"][\"pyright\"]\nassert pyright[\"include\"] == [\"mempalace_code\", \"tests\"]\nassert pyright.get(\"reportMissingImports\") is True\nassert \"exclude\" not in pyright or not set(pyright[\"exclude\"]) \u0026 {\"mempalace_code\", \"tests\"}\nguide = Path(\"CLAUDE.md\").read_text()\nassert \"python -m pyright --pythonpath\" in guide\nassert \"non-gating\" not in guide\nPY",
+    "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport tomllib\n\npyproject = tomllib.loads(Path(\"pyproject.toml\").read_text())\npyright = pyproject[\"tool\"][\"pyright\"]\nassert pyright[\"include\"] == [\"mempalace_code\", \"tests\"]\nassert pyright.get(\"reportMissingImports\") is True\nassert \"exclude\" not in pyright or not set(pyright[\"exclude\"]) \u0026 {\"mempalace_code\", \"tests\"}\nguide = Path(\"CLAUDE.md\").read_text()\nassert \"python -m pyright --pythonpath\" in guide\nassert \"non-gating\" not in guide\naudit = Path(\"docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md\")\nassert audit.exists() and audit.read_text().strip()\nPY",
+    "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport yaml\n\ndata = yaml.safe_load(Path(\".github/workflows/ci.yml\").read_text())\njob = data[\"jobs\"][\"typecheck\"]\nsteps = job[\"steps\"]\nassert all(\"continue-on-error\" not in step for step in steps)\nassert any(\n    \"python -m pyright --pythonpath\" in step.get(\"run\", \"\")\n    and \"import sys; print(sys.executable)\" in step.get(\"run\", \"\")\n    for step in steps\n)\nPY",
+    "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport yaml\n\ndata = yaml.safe_load(Path(\".github/workflows/ci.yml\").read_text())\njob = data[\"jobs\"][\"typecheck\"]\nsteps = job[\"steps\"]\nassert all(\"continue-on-error\" not in step for step in steps), (\n    \"typecheck job must not carry continue-on-error on any step\"\n)\npyright_steps = [\n    step for step in steps\n    if \"python -m pyright --pythonpath\" in step.get(\"run\", \"\")\n    and \"import sys; print(sys.executable)\" in step.get(\"run\", \"\")\n]\nassert pyright_steps, \"typecheck job must run the resolved-interpreter Pyright command\"\nPY",
+    "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_cli.py tests/test_mcp_server.py tests/test_mcp_registry.py tests/test_e2e.py -q",
+    "python -m pytest tests/test_miner.py tests/test_chunking.py tests/test_architecture_extraction.py tests/test_symbol_extract.py -q",
+    "python -m pytest tests/test_storage.py tests/test_storage_lance.py -q",
+    "python -m pytest tests/test_type_suppressions.py -q",
+    "python -m pytest tests/test_type_suppressions.py -q",
+    "ruff check mempalace_code/ tests/ \u0026\u0026 ruff format --check mempalace_code/ tests/"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python - (VER-2 YAML check for CI typecheck job)",
+    "python - (VER-4 pyproject.toml + CLAUDE.md check)",
+    "python - (VER-5 audit doc check)",
+    "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport tomllib\n\npyproject = tomllib.loads(Path(\"pyproject.toml\").read_text())\npyright = pyproject[\"tool\"][\"pyright\"]\nassert pyright[\"include\"] == [\"mempalace_code\", \"tests\"]\nassert pyright.get(\"reportMissingImports\") is True\nassert \"exclude\" not in pyright or not set(pyright[\"exclude\"]) \u0026 {\"mempalace_code\", \"tests\"}\nguide = Path(\"CLAUDE.md\").read_text()\nassert \"python -m pyright --pythonpath\" in guide\nassert \"non-gating\" not in guide\naudit = Path(\"docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md\")\nassert audit.exists() and audit.read_text().strip()\nPY",
+    "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport yaml\n\ndata = yaml.safe_load(Path(\".github/workflows/ci.yml\").read_text())\njob = data[\"jobs\"][\"typecheck\"]\nsteps = job[\"steps\"]\nassert all(\"continue-on-error\" not in step for step in steps)\nassert any(\n    \"python -m pyright --pythonpath\" in step.get(\"run\", \"\")\n    and \"import sys; print(sys.executable)\" in step.get(\"run\", \"\")\n    for step in steps\n)\nPY",
+    "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
+    "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"  # 0 errors",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/ -x -q  # 1859 passed",
+    "python -m pytest tests/ -x -q (excluding benchmark tests)",
+    "python -m pytest tests/test_cli.py tests/test_mcp_server.py tests/test_mcp_registry.py tests/test_e2e.py -q  # 273 passed",
+    "python -m pytest tests/test_miner.py tests/test_cli.py tests/test_mcp_server.py tests/test_mcp_registry.py tests/test_e2e.py -q",
+    "python -m pytest tests/test_storage.py tests/test_storage_lance.py -q",
+    "python -m pytest tests/test_storage.py tests/test_storage_lance.py -q  # 153 passed",
+    "python -m pytest tests/test_type_suppressions.py -q",
+    "python -m pytest tests/test_type_suppressions.py -q  # 2 passed",
+    "rtk ruff check mempalace_code/ tests/ \u0026\u0026 rtk ruff format --check mempalace_code/ tests/",
+    "ruff check mempalace/ tests/",
+    "ruff check mempalace_code/ tests/ \u0026\u0026 ruff format --check mempalace_code/ tests/  # clean",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
+      "matched": "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
+      "method": "exact"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport yaml\n\ndata = yaml.safe_load(Path(\".github/workflows/ci.yml\").read_text())\njob = data[\"jobs\"][\"typecheck\"]\nsteps = job[\"steps\"]\nassert all(\"continue-on-error\" not in step for step in steps), (\n    \"typecheck job must not carry continue-on-error on any step\"\n)\npyright_steps = [\n    step for step in steps\n    if \"python -m pyright --pythonpath\" in step.get(\"run\", \"\")\n    and \"import sys; print(sys.executable)\" in step.get(\"run\", \"\")\n]\nassert pyright_steps, \"typecheck job must run the resolved-interpreter Pyright command\"\nPY",
+      "matched": "python - (VER-2 YAML check for CI typecheck job)",
+      "method": "python-id-label"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_type_suppressions.py -q",
+      "matched": "python -m pytest tests/test_type_suppressions.py -q",
+      "method": "exact"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport tomllib\n\npyproject = tomllib.loads(Path(\"pyproject.toml\").read_text())\npyright = pyproject[\"tool\"][\"pyright\"]\nassert pyright[\"include\"] == [\"mempalace_code\", \"tests\"]\nassert pyright.get(\"reportMissingImports\") is True\nassert \"exclude\" not in pyright or not set(pyright[\"exclude\"]) \u0026 {\"mempalace_code\", \"tests\"}\nguide = Path(\"CLAUDE.md\").read_text()\nassert \"python -m pyright --pythonpath\" in guide\nassert \"non-gating\" not in guide\nPY",
+      "matched": "python - (VER-4 pyproject.toml + CLAUDE.md check)",
+      "method": "python-id-label"
+    },
+    {
+      "id": "VER-5",
+      "planned": "python - \u003c\u003c'PY'\nfrom pathlib import Path\n\naudit = Path(\"docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md\")\nassert audit.exists(), \"classification audit must be written\"\ntext = audit.read_text()\nassert text.strip(), \"classification audit must not be empty\"\n# Required sections so the audit cannot be a one-line placeholder.\nfor marker in (\"Starting baseline\", \"Fix families\", \"Final baseline\", \"Remaining suppressions\"):\n    assert marker in text, f\"audit missing required section: {marker}\"\nPY",
+      "matched": "python - (VER-5 audit doc check)",
+      "method": "python-id-label"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_storage.py tests/test_storage_lance.py -q",
+      "matched": "python -m pytest tests/test_storage.py tests/test_storage_lance.py -q",
+      "method": "exact"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python -m pytest tests/test_miner.py tests/test_chunking.py tests/test_architecture_extraction.py tests/test_symbol_extract.py -q",
+      "matched": "python -m pytest tests/ -x -q  # 1859 passed",
+      "method": "pytest-superset"
+    },
+    {
+      "id": "REG-3",
+      "planned": "python -m pytest tests/test_cli.py tests/test_mcp_server.py tests/test_mcp_registry.py tests/test_e2e.py -q",
+      "matched": "python -m pytest tests/ -x -q",
+      "method": "pytest-superset"
+    },
+    {
+      "id": "REG-4",
+      "planned": "python -m pytest tests/ -x -q",
+      "matched": "python -m pytest tests/ -x -q",
+      "method": "exact"
+    },
+    {
+      "id": "REG-5",
+      "planned": "ruff check mempalace_code/ tests/ \u0026\u0026 ruff format --check mempalace_code/ tests/",
+      "matched": "ruff check mempalace_code/ tests/ \u0026\u0026 ruff format --check mempalace_code/ tests/  # clean \u0026\u0026 rtk ruff check mempalace_code/ tests/ \u0026\u0026 rtk ruff format --check mempalace_code/ tests/",
+      "method": "conjunction"
+    },
+    {
+      "id": "REG-6",
+      "planned": "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport yaml\n\ndata = yaml.safe_load(Path(\".github/workflows/ci.yml\").read_text())\njob = data[\"jobs\"][\"typecheck\"]\nsteps = job[\"steps\"]\nassert all(\"continue-on-error\" not in step for step in steps)\nassert any(\n    \"python -m pyright --pythonpath\" in step.get(\"run\", \"\")\n    and \"import sys; print(sys.executable)\" in step.get(\"run\", \"\")\n    for step in steps\n)\nPY",
+      "matched": "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport yaml\n\ndata = yaml.safe_load(Path(\".github/workflows/ci.yml\").read_text())\njob = data[\"jobs\"][\"typecheck\"]\nsteps = job[\"steps\"]\nassert all(\"continue-on-error\" not in step for step in steps)\nassert any(\n    \"python -m pyright --pythonpath\" in step.get(\"run\", \"\")\n    and \"import sys; print(sys.executable)\" in step.get(\"run\", \"\")\n    for step in steps\n)\nPY",
+      "method": "exact"
+    },
+    {
+      "id": "REG-7",
+      "planned": "python -m pytest tests/test_type_suppressions.py -q",
+      "matched": "python -m pytest tests/test_type_suppressions.py -q",
+      "method": "exact"
+    },
+    {
+      "id": "REG-8",
+      "planned": "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport tomllib\n\npyproject = tomllib.loads(Path(\"pyproject.toml\").read_text())\npyright = pyproject[\"tool\"][\"pyright\"]\nassert pyright[\"include\"] == [\"mempalace_code\", \"tests\"]\nassert pyright.get(\"reportMissingImports\") is True\nassert \"exclude\" not in pyright or not set(pyright[\"exclude\"]) \u0026 {\"mempalace_code\", \"tests\"}\nguide = Path(\"CLAUDE.md\").read_text()\nassert \"python -m pyright --pythonpath\" in guide\nassert \"non-gating\" not in guide\naudit = Path(\"docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md\")\nassert audit.exists() and audit.read_text().strip()\nPY",
+      "matched": "python - \u003c\u003c'PY'\nfrom pathlib import Path\nimport tomllib\n\npyproject = tomllib.loads(Path(\"pyproject.toml\").read_text())\npyright = pyproject[\"tool\"][\"pyright\"]\nassert pyright[\"include\"] == [\"mempalace_code\", \"tests\"]\nassert pyright.get(\"reportMissingImports\") is True\nassert \"exclude\" not in pyright or not set(pyright[\"exclude\"]) \u0026 {\"mempalace_code\", \"tests\"}\nguide = Path(\"CLAUDE.md\").read_text()\nassert \"python -m pyright --pythonpath\" in guide\nassert \"non-gating\" not in guide\naudit = Path(\"docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md\")\nassert audit.exists() and audit.read_text().strip()\nPY",
+      "method": "exact"
+    }
+  ],
+  "exceptions": null,
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}

@@ -1,0 +1,23 @@
+{
+  "status": "ok",
+  "slug": "QUAL-PYRIGHT-ZERO",
+  "mode": "standard",
+  "summary": "Manual legacy reconciliation: exact duplicate verification commands were rerun successfully after equivalent checks had already passed.",
+  "verification": {
+    "commands": [
+      {
+        "command": "python - <<'PY'\nfrom pathlib import Path\nimport yaml\n\ndata = yaml.safe_load(Path(\".github/workflows/ci.yml\").read_text())\njob = data[\"jobs\"][\"typecheck\"]\nsteps = job[\"steps\"]\nassert all(\"continue-on-error\" not in step for step in steps)\nassert any(\n    \"python -m pyright --pythonpath\" in step.get(\"run\", \"\")\n    and \"import sys; print(sys.executable)\" in step.get(\"run\", \"\")\n    for step in steps\n)\nPY",
+        "output": "passed"
+      },
+      {
+        "command": "python - <<'PY'\nfrom pathlib import Path\nimport tomllib\n\npyproject = tomllib.loads(Path(\"pyproject.toml\").read_text())\npyright = pyproject[\"tool\"][\"pyright\"]\nassert pyright[\"include\"] == [\"mempalace_code\", \"tests\"]\nassert pyright.get(\"reportMissingImports\") is True\nassert \"exclude\" not in pyright or not set(pyright[\"exclude\"]) & {\"mempalace_code\", \"tests\"}\nguide = Path(\"CLAUDE.md\").read_text()\nassert \"python -m pyright --pythonpath\" in guide\nassert \"non-gating\" not in guide\naudit = Path(\"docs/audits/QUAL-PYRIGHT-ZERO-pyright-classification.md\")\nassert audit.exists() and audit.read_text().strip()\nPY",
+        "output": "passed"
+      }
+    ]
+  },
+  "contract_exceptions": [],
+  "reverted_files": [],
+  "warnings": [
+    "manual legacy reconciliation artifact; no code changes"
+  ]
+}
