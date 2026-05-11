@@ -153,32 +153,6 @@ items:
     links:
       - type: is-blocked-by
         key: CLARIFY-MINE-ANSIBLE
-  - key: QUAL-OPTIONAL-ANNOTATIONS
-    summary: Normalize optional annotations for Pyright
-    type: task
-    status: open
-    priority: high
-    section_id: quality
-    labels: [quality, typing, pyright, annotations, review]
-    description: |-
-      ## Problem
-      Review found many signatures and attributes annotated as non-optional while
-      defaulting to `None`, for example `str = None`. Pyright treats these as real type
-      errors and they also hide the actual null-handling contract from readers.
-
-      ## Scope
-      - Replace non-optional annotations with `T | None` or `Optional[T]` where `None`
-        is a valid input or state.
-      - Prefer `T | None` for touched Python 3.11+ code.
-      - Preserve public behavior and CLI/API compatibility.
-      - Avoid widening types just to silence Pyright when a guard or invariant is the
-        correct fix.
-
-      ## Acceptance Criteria
-      - Pyright no longer reports default-`None` annotation errors.
-      - Tests still cover affected call paths.
-      - Ruff check and format pass on touched files.
-    size: M
   - key: REFAC-MINER-MODULES
     summary: Split miner.py into focused modules
     type: task
