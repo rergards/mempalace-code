@@ -411,3 +411,29 @@ def test_explicit_nonzero_retain_count_overrides_implicit_pre_optimize_bound(mon
     assert cfg._backup_retain_count_explicit is True
     assert cfg.retain_count_for_kind("pre_optimize") == 3
     assert cfg.retain_count_for_kind("manual") == 3
+
+
+def test_empty_env_retain_count_is_not_explicit(monkeypatch):
+    """An empty MEMPALACE_BACKUP_RETAIN_COUNT env var is treated as not set.
+
+    A blank shell export (export MEMPALACE_BACKUP_RETAIN_COUNT=) must not
+    suppress the implicit pre_optimize bound or silently become keep-all.
+    """
+    from mempalace_code.config import DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
+
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "")
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+
+    assert cfg._backup_retain_count_explicit is False
+    assert cfg.retain_count_for_kind("pre_optimize") == DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
+
+
+def test_invalid_env_retain_count_is_not_explicit(monkeypatch):
+    """A non-numeric MEMPALACE_BACKUP_RETAIN_COUNT env var is treated as not set."""
+    from mempalace_code.config import DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
+
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "notanumber")
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+
+    assert cfg._backup_retain_count_explicit is False
+    assert cfg.retain_count_for_kind("pre_optimize") == DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT

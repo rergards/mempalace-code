@@ -196,11 +196,19 @@ class MempalaceConfig:
 
     @property
     def _backup_retain_count_explicit(self) -> bool:
-        """True when backup_retain_count was set via env var or config file (even if value is 0)."""
-        return (
-            os.environ.get("MEMPALACE_BACKUP_RETAIN_COUNT") is not None
-            or "backup_retain_count" in self._file_config
-        )
+        """True when backup_retain_count was set via env var or config file (even if value is 0).
+
+        An empty or unparseable env value is treated as not set so that typos and
+        blank shell exports do not silently suppress the implicit pre_optimize bound.
+        """
+        env_val = os.environ.get("MEMPALACE_BACKUP_RETAIN_COUNT")
+        if env_val is not None:
+            try:
+                int(env_val)
+                return True
+            except (TypeError, ValueError):
+                return False
+        return "backup_retain_count" in self._file_config
 
     def retain_count_for_kind(self, kind: str) -> int:
         """Return the applicable retain count for the given backup kind.
