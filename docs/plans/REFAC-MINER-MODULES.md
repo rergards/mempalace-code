@@ -4,6 +4,8 @@ goal: "Split miner.py into focused mining modules while preserving existing impo
 risk: high
 risk_note: "Large behavior-preserving refactor across a 3995-line module with CLI, watcher, convo, KG, and test import seams"
 files:
+  - path: docs/refactoring/REFAC-MINER-MODULES/progress.md
+    change: "Track the miner split execution checkpoints as a refactoring artifact for this large module move"
   - path: mempalace_code/miner.py
     change: "Reduce to the public compatibility surface that re-exports legacy miner symbols and delegates implementation to mempalace_code.mining modules"
   - path: mempalace_code/mining/__init__.py
