@@ -140,3 +140,25 @@ def test_helm_in_catalog():
     assert extension_map.get(".yaml") == "yaml"
     assert extension_map.get(".yml") == "yaml"
     assert extension_map.get(".tpl") == "gotemplate"
+
+
+def test_ansible_in_catalog():
+    """ansible is a synthetic detected/searchable language; extension and filename maps are unchanged (VER-8)."""
+    extension_map = catalog.extension_language_map()
+    filename_map = catalog.filename_language_map()
+
+    # ansible is detectable and searchable
+    assert "ansible" in catalog.detected_languages()
+    assert "ansible" in catalog.searchable_languages()
+
+    # ansible is NOT in the extension map (it's content/path-context detected, not extension-based)
+    assert "ansible" not in extension_map.values()
+
+    # Extension boundaries remain unchanged (INV-1)
+    assert extension_map.get(".yaml") == "yaml"
+    assert extension_map.get(".yml") == "yaml"
+    assert extension_map.get(".ini") == "ini"
+    assert extension_map.get(".tpl") == "gotemplate"
+
+    # Filename map remains unchanged (no Ansible-specific filename entries)
+    assert "ansible" not in filename_map.values()

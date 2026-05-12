@@ -4,6 +4,8 @@ import pytest
 
 from mempalace_code.miner import (
     SWIFT_BOUNDARY,
+    _extract_ansible_play_symbol,
+    _extract_ansible_task_symbol,
     _extract_helm_chart_symbol,
     _extract_helm_template_symbol,
     chunk_code,
@@ -2217,3 +2219,105 @@ def test_extract_helm_template_no_kind_returns_empty():
     )
     # kind: line is missing → ("", "")
     assert _extract_helm_template_symbol(content) == ("", "")
+
+
+# =============================================================================
+# ANSIBLE symbol extraction
+# =============================================================================
+
+
+def test_extract_ansible_play_symbol():
+    """_extract_ansible_play_symbol extracts play name and hosts from a play chunk."""
+    content = """\
+- name: Deploy web application
+  hosts: webservers
+  tasks:
+    - name: Install nginx
+      apt:
+        name: nginx
+"""
+    name, sym_type = _extract_ansible_play_symbol(content)
+    assert sym_type == "ansible_play"
+    assert "Deploy web application" in name
+    assert "webservers" in name
+
+
+def test_extract_ansible_play_symbol_name_only():
+    """_extract_ansible_play_symbol falls back to name only when hosts is absent."""
+    content = "- name: Common setup\n  tasks:\n    - name: Update apt\n      apt:\n        update_cache: yes\n"
+    name, sym_type = _extract_ansible_play_symbol(content)
+    assert sym_type == "ansible_play"
+    assert name == "Common setup"
+
+
+def test_extract_ansible_play_symbol_hosts_only():
+    """_extract_ansible_play_symbol returns hosts when name is absent."""
+    content = "- hosts: webservers\n  tasks:\n    - name: ping\n      ping:\n"
+    name, sym_type = _extract_ansible_play_symbol(content)
+    assert sym_type == "ansible_play"
+    assert "webservers" in name
+
+
+def test_extract_ansible_task_symbol():
+    """_extract_ansible_task_symbol extracts task name and module name."""
+    content = """\
+- name: Install nginx
+  apt:
+    name: nginx
+    state: present
+"""
+    name, sym_type = _extract_ansible_task_symbol(content)
+    assert sym_type == "ansible_task"
+    assert "Install nginx" in name
+    assert "[apt]" in name
+
+
+def test_extract_ansible_task_symbol_template_module():
+    """_extract_ansible_task_symbol extracts the template module name."""
+    content = """\
+- name: Configure application
+  template:
+    src: config.j2
+    dest: /etc/app/config.conf
+"""
+    name, sym_type = _extract_ansible_task_symbol(content)
+    assert sym_type == "ansible_task"
+    assert "Configure application" in name
+    assert "[template]" in name
+
+
+def test_extract_ansible_task_symbol_jinja_in_value():
+    """_extract_ansible_task_symbol extracts name/module even with Jinja in values."""
+    content = """\
+- name: Install {{ pkg_name }}
+  apt:
+    name: "{{ pkg_name }}"
+    state: present
+"""
+    name, sym_type = _extract_ansible_task_symbol(content)
+    assert sym_type == "ansible_task"
+    assert "[apt]" in name
+
+
+def test_extract_ansible_inventory_symbol():
+    """extract_symbol on an inventory chunk returns ('', 'ansible_inventory')."""
+    content = "[webservers]\nweb1.example.com\nweb2.example.com\n\n[dbservers]\ndb1.example.com\n"
+    name, sym_type = extract_symbol(content, "ansible")
+    assert sym_type == "ansible_inventory"
+    assert name == ""
+
+
+def test_extract_ansible_play_via_extract_symbol():
+    """extract_symbol(content, 'ansible') correctly routes play chunks."""
+    content = "- name: Deploy app\n  hosts: prod\n  tasks:\n    - name: ping\n      ping:\n"
+    name, sym_type = extract_symbol(content, "ansible")
+    assert sym_type == "ansible_play"
+    assert "Deploy app" in name
+
+
+def test_extract_ansible_task_via_extract_symbol():
+    """extract_symbol(content, 'ansible') correctly routes task chunks."""
+    content = "- name: Install curl\n  apt:\n    name: curl\n    state: present\n"
+    name, sym_type = extract_symbol(content, "ansible")
+    assert sym_type == "ansible_task"
+    assert "Install curl" in name

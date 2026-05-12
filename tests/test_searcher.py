@@ -1110,3 +1110,84 @@ class TestHelmLanguageSupport:
             assert sym in result["valid_symbol_types"], (
                 f"Symbol type {sym!r} missing from valid_symbol_types hint"
             )
+
+
+class TestAnsibleLanguageSupport:
+    """AC-6: ansible language and Ansible-specific symbol filters pass code_search validation."""
+
+    @pytest.fixture
+    def ansible_palace_path(self, tmp_path):
+        palace_dir = str(tmp_path / "palace")
+        store = open_store(palace_dir, create=True)
+        store.add(
+            ids=["ansible_play_deploy"],
+            documents=[
+                "- name: Deploy web application\n  hosts: webservers\n  tasks:\n    - name: Install nginx\n      apt:\n        name: nginx\n        state: present\n"
+            ],
+            metadatas=[
+                {
+                    "wing": "infra",
+                    "room": "general",
+                    "source_file": "site.yml",
+                    "language": "ansible",
+                    "symbol_name": "Deploy web application hosts=webservers",
+                    "symbol_type": "ansible_play",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                }
+            ],
+        )
+        return palace_dir
+
+    def test_code_search_ansible_language(self, ansible_palace_path):
+        """code_search(language='ansible') does not return an 'unsupported language' error."""
+        result = code_search(ansible_palace_path, "nginx deployment", language="ansible")
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        assert "results" in result
+        assert len(result["results"]) > 0
+
+    def test_code_search_ansible_play_symbol_type(self, ansible_palace_path):
+        """code_search(symbol_type='ansible_play') does not return 'invalid symbol_type' error."""
+        result = code_search(ansible_palace_path, "deploy", symbol_type="ansible_play")
+        assert "error" not in result, f"Unexpected error: {result.get('error')}"
+        assert "results" in result
+
+    def test_code_search_ansible_task_symbol_type(self, ansible_palace_path):
+        """code_search(symbol_type='ansible_task') does not return 'invalid symbol_type' error."""
+        result = code_search(ansible_palace_path, "nginx", symbol_type="ansible_task")
+        assert "invalid symbol_type" not in result.get("error", "").lower(), (
+            f"symbol_type 'ansible_task' should be valid, got: {result.get('error')}"
+        )
+
+    def test_code_search_ansible_handler_symbol_type(self, ansible_palace_path):
+        """code_search(symbol_type='ansible_handler') passes validation."""
+        result = code_search(ansible_palace_path, "restart", symbol_type="ansible_handler")
+        assert "invalid symbol_type" not in result.get("error", "").lower()
+
+    def test_code_search_ansible_vars_symbol_type(self, ansible_palace_path):
+        """code_search(symbol_type='ansible_vars') passes validation."""
+        result = code_search(ansible_palace_path, "vars", symbol_type="ansible_vars")
+        assert "invalid symbol_type" not in result.get("error", "").lower()
+
+    def test_code_search_ansible_inventory_symbol_type(self, ansible_palace_path):
+        """code_search(symbol_type='ansible_inventory') passes validation."""
+        result = code_search(ansible_palace_path, "inventory", symbol_type="ansible_inventory")
+        assert "invalid symbol_type" not in result.get("error", "").lower()
+
+    def test_ansible_in_supported_languages_hint(self, ansible_palace_path):
+        """'ansible' appears in the supported_languages hint on an invalid language query."""
+        result = code_search(ansible_palace_path, "something", language="notareallangnnn")
+        assert "supported_languages" in result
+        assert "ansible" in result["supported_languages"], (
+            "'ansible' missing from supported_languages hint"
+        )
+
+    def test_ansible_symbol_types_in_valid_hint(self, ansible_palace_path):
+        """Ansible symbol types appear in valid_symbol_types hint on an invalid type query."""
+        result = code_search(ansible_palace_path, "something", symbol_type="notarealtype")
+        assert "valid_symbol_types" in result
+        for sym in ("ansible_play", "ansible_task", "ansible_handler", "ansible_vars", "ansible_inventory"):
+            assert sym in result["valid_symbol_types"], (
+                f"Symbol type {sym!r} missing from valid_symbol_types hint"
+            )

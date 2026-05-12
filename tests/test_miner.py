@@ -11,6 +11,9 @@ import yaml
 from mempalace_code.miner import (
     ScanFilterRules,
     _build_csproj_room_map,
+    _chunk_ansible_inventory,
+    _chunk_ansible_playbook,
+    _chunk_ansible_role_tasks,
     _chunk_helm_chart,
     _chunk_helm_template,
     _chunk_helm_values,
@@ -4242,3 +4245,341 @@ def test_mine_lua_roundtrip():
         assert ("module", "M") in sym_pairs, f"Expected (module, M) in {sym_pairs}"
     finally:
         shutil.rmtree(tmpdir)
+
+
+# =============================================================================
+# Ansible support (AC-1, AC-2, AC-3, AC-5)
+# =============================================================================
+
+_ANSIBLE_PLAYBOOK = """\
+---
+- name: Deploy web application
+  hosts: webservers
+  vars_files:
+    - common_vars.yml
+  roles:
+    - web
+  tasks:
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+    - name: Start nginx service
+      service:
+        name: nginx
+        state: started
+"""
+
+_ANSIBLE_ROLE_TASKS = """\
+---
+- name: Install nginx
+  apt:
+    name: nginx
+    state: present
+
+- name: Configure nginx
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+  notify: Restart nginx
+"""
+
+_ANSIBLE_ROLE_HANDLERS = """\
+---
+- name: Restart nginx
+  service:
+    name: nginx
+    state: restarted
+  listen: restart web services
+
+- name: Reload nginx configuration
+  service:
+    name: nginx
+    state: reloaded
+  listen: reload web services
+"""
+
+_ANSIBLE_ROLE_VARS = """\
+nginx_port: 80
+nginx_user: www-data
+nginx_worker_processes: auto
+nginx_config_dir: /etc/nginx
+nginx_pid_file: /var/run/nginx.pid
+nginx_log_dir: /var/log/nginx
+"""
+
+_ANSIBLE_INVENTORY_INI = """\
+[webservers]
+web1.example.com ansible_user=ubuntu
+web2.example.com ansible_user=ubuntu
+
+[dbservers]
+db1.example.com
+"""
+
+_ANSIBLE_INVENTORY_YML = """\
+all:
+  hosts:
+    web1.example.com:
+      ansible_user: ubuntu
+  children:
+    webservers:
+      hosts:
+        web1.example.com:
+"""
+
+_ANSIBLE_TASKS_WITH_JINJA = """\
+---
+- name: Configure {{ app_name }}
+  template:
+    src: config.j2
+    dest: "{{ config_path }}/config.conf"
+  notify: Restart {{ app_name }}
+
+- name: Install {{ pkg_name }}
+  apt:
+    name: "{{ pkg_name }}"
+    state: "{{ pkg_state | default('present') }}"
+  when: ansible_os_family == 'Debian'
+"""
+
+
+def test_mine_ansible_playbook_roundtrip():
+    """AC-1: mine() on a playbook produces language='ansible' drawers with play name, hosts, tasks, roles."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        playbook_file = project_root / "site.yml"
+        write_file(playbook_file, _ANSIBLE_PLAYBOOK)
+        _make_palace_config(project_root)
+
+        palace_path = str(project_root / "palace")
+        mine(str(project_root), palace_path)
+
+        store = open_store(palace_path, create=False)
+        result = store.get(
+            where={"source_file": str(playbook_file)},
+            include=["documents", "metadatas"],
+            limit=20,
+        )
+        metas = result["metadatas"]
+        docs = result["documents"]
+        assert len(metas) >= 1, "Expected at least one drawer for the Ansible playbook"
+
+        # All drawers must be language='ansible'
+        assert all(m["language"] == "ansible" for m in metas), (
+            f"Expected all language='ansible', got {[m['language'] for m in metas]}"
+        )
+        # At least one drawer must have symbol_type='ansible_play'
+        assert any(m.get("symbol_type") == "ansible_play" for m in metas), (
+            f"Expected ansible_play symbol_type, got {[m.get('symbol_type') for m in metas]}"
+        )
+        # Play name should be in symbol metadata
+        sym_names = [m.get("symbol_name", "") for m in metas]
+        assert any("Deploy web application" in n for n in sym_names), (
+            f"Expected play name in symbol_names, got {sym_names}"
+        )
+        # Verbatim content must include task names, role names, vars_files paths
+        all_content = "\n".join(docs)
+        assert "nginx" in all_content, "Expected task content in stored drawers"
+        assert "webservers" in all_content, "Expected hosts in stored drawers"
+        assert "web" in all_content, "Expected role name in stored drawers"
+        assert "common_vars.yml" in all_content, "Expected vars_files path in stored drawers"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_mine_ansible_role_roundtrip():
+    """AC-2: mine() on a role directory produces ansible drawers with task, handler, and vars symbols."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        role_root = project_root / "roles" / "web"
+        write_file(role_root / "tasks" / "main.yml", _ANSIBLE_ROLE_TASKS)
+        write_file(role_root / "handlers" / "main.yml", _ANSIBLE_ROLE_HANDLERS)
+        write_file(role_root / "vars" / "main.yml", _ANSIBLE_ROLE_VARS)
+        _make_palace_config(project_root)
+
+        palace_path = str(project_root / "palace")
+        mine(str(project_root), palace_path)
+
+        store = open_store(palace_path, create=False)
+
+        # tasks/main.yml must produce ansible_task drawers
+        tasks_file = str(role_root / "tasks" / "main.yml")
+        result = store.get(
+            where={"source_file": tasks_file},
+            include=["documents", "metadatas"],
+            limit=20,
+        )
+        task_metas = result["metadatas"]
+        assert len(task_metas) >= 1, "Expected at least one drawer for role tasks"
+        assert all(m["language"] == "ansible" for m in task_metas), (
+            f"Expected language='ansible' for tasks, got {[m['language'] for m in task_metas]}"
+        )
+        assert any(m.get("symbol_type") == "ansible_task" for m in task_metas), (
+            f"Expected ansible_task symbol_type, got {[m.get('symbol_type') for m in task_metas]}"
+        )
+
+        # handlers/main.yml must produce ansible_handler drawers
+        handlers_file = str(role_root / "handlers" / "main.yml")
+        result = store.get(
+            where={"source_file": handlers_file},
+            include=["documents", "metadatas"],
+            limit=20,
+        )
+        handler_metas = result["metadatas"]
+        assert len(handler_metas) >= 1, "Expected at least one drawer for role handlers"
+        assert all(m["language"] == "ansible" for m in handler_metas)
+        assert any(m.get("symbol_type") == "ansible_handler" for m in handler_metas), (
+            f"Expected ansible_handler symbol_type, got {[m.get('symbol_type') for m in handler_metas]}"
+        )
+
+        # vars/main.yml must produce an ansible_vars drawer
+        vars_file = str(role_root / "vars" / "main.yml")
+        result = store.get(
+            where={"source_file": vars_file},
+            include=["documents", "metadatas"],
+            limit=20,
+        )
+        vars_metas = result["metadatas"]
+        assert len(vars_metas) >= 1, "Expected at least one drawer for role vars"
+        assert all(m["language"] == "ansible" for m in vars_metas)
+        assert any(m.get("symbol_type") == "ansible_vars" for m in vars_metas), (
+            f"Expected ansible_vars symbol_type, got {[m.get('symbol_type') for m in vars_metas]}"
+        )
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_chunk_ansible_tolerates_jinja_delimiters():
+    """AC-3: Ansible chunker handles {{ }} and {% %} Jinja delimiters without dropping the file."""
+    source_file = "roles/app/tasks/deploy.yml"
+    chunks = _chunk_ansible_role_tasks(_ANSIBLE_TASKS_WITH_JINJA, source_file, "app", "tasks")
+
+    # File must produce at least one chunk (not silently dropped)
+    assert len(chunks) >= 1, "Jinja-containing file must produce at least one chunk"
+    # All chunks must be ansible_task
+    assert all(c.get("symbol_type") == "ansible_task" for c in chunks), (
+        f"Expected ansible_task symbol_type, got {[c.get('symbol_type') for c in chunks]}"
+    )
+    # Original Jinja delimiters must be preserved verbatim
+    all_content = "\n".join(c["content"] for c in chunks)
+    assert "{{" in all_content, "Expected verbatim Jinja {{ }} delimiters in stored content"
+    assert "}}" in all_content, "Expected verbatim Jinja }} delimiters in stored content"
+    # Module metadata must still be extractable (template, apt)
+    sym_names = [c.get("symbol_name", "") for c in chunks]
+    assert any("[template]" in n or "[apt]" in n for n in sym_names), (
+        f"Expected module name in symbol_name, got {sym_names}"
+    )
+
+
+def test_mine_ansible_inventory_detects_file_only():
+    """AC-5: inventory.ini and inventory.yml are indexed as ansible_inventory without host/group symbols."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        ini_file = project_root / "inventory.ini"
+        yml_file = project_root / "inventory.yml"
+        write_file(ini_file, _ANSIBLE_INVENTORY_INI)
+        write_file(yml_file, _ANSIBLE_INVENTORY_YML)
+        _make_palace_config(project_root)
+
+        palace_path = str(project_root / "palace")
+        mine(str(project_root), palace_path)
+
+        store = open_store(palace_path, create=False)
+
+        # inventory.ini checks
+        result = store.get(
+            where={"source_file": str(ini_file)},
+            include=["documents", "metadatas"],
+            limit=10,
+        )
+        ini_metas = result["metadatas"]
+        assert len(ini_metas) >= 1, "inventory.ini must produce at least one drawer"
+        assert all(m["language"] == "ansible" for m in ini_metas)
+        assert all(m.get("symbol_type") == "ansible_inventory" for m in ini_metas), (
+            f"Expected ansible_inventory, got {[m.get('symbol_type') for m in ini_metas]}"
+        )
+        # Must NOT emit host/group symbols
+        assert all(m.get("symbol_name", "") == "" for m in ini_metas), (
+            f"Expected empty symbol_name for inventory, got {[m.get('symbol_name') for m in ini_metas]}"
+        )
+
+        # inventory.yml checks
+        result = store.get(
+            where={"source_file": str(yml_file)},
+            include=["documents", "metadatas"],
+            limit=10,
+        )
+        yml_metas = result["metadatas"]
+        assert len(yml_metas) >= 1, "inventory.yml must produce at least one drawer"
+        assert all(m["language"] == "ansible" for m in yml_metas)
+        assert all(m.get("symbol_type") == "ansible_inventory" for m in yml_metas)
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+# =============================================================================
+# Ansible unit chunking tests (no mine() roundtrip needed)
+# =============================================================================
+
+
+def test_chunk_ansible_playbook_emits_play_per_chunk():
+    """_chunk_ansible_playbook splits a multi-play playbook into per-play chunks."""
+    two_play = """\
+---
+- name: Play One
+  hosts: web
+  tasks:
+    - name: Task A
+      debug:
+        msg: hello
+
+- name: Play Two
+  hosts: db
+  tasks:
+    - name: Task B
+      debug:
+        msg: world
+"""
+    chunks = _chunk_ansible_playbook(two_play, "playbook.yml")
+    assert len(chunks) >= 1, "Expected at least one chunk from a multi-play playbook"
+    # chunk_index must be sequential starting at 0
+    indices = [c["chunk_index"] for c in chunks]
+    assert indices == list(range(len(chunks))), f"Expected sequential chunk_index, got {indices}"
+    # Each chunk must have ansible_play symbol_type
+    assert all(c.get("symbol_type") == "ansible_play" for c in chunks)
+
+
+def test_chunk_ansible_inventory_emits_single_chunk():
+    """_chunk_ansible_inventory produces exactly one file-level chunk with no symbol_name."""
+    content = "[webservers]\nweb1\nweb2\n\n[dbservers]\ndb1\n"
+    chunks = _chunk_ansible_inventory(content, "inventory.ini")
+    assert len(chunks) == 1
+    assert chunks[0]["symbol_type"] == "ansible_inventory"
+    assert chunks[0]["symbol_name"] == ""
+    assert chunks[0]["chunk_index"] == 0
+    assert "[webservers]" in chunks[0]["content"]
+
+
+def test_chunk_ansible_role_tasks_extracts_task_names():
+    """_chunk_ansible_role_tasks extracts task names and module from task items."""
+    content = """\
+---
+- name: Install package
+  apt:
+    name: curl
+    state: present
+
+- name: Start service
+  service:
+    name: curl
+    state: started
+"""
+    chunks = _chunk_ansible_role_tasks(content, "roles/myrole/tasks/main.yml", "myrole", "tasks")
+    assert len(chunks) >= 1
+    assert all(c["symbol_type"] == "ansible_task" for c in chunks)
+    sym_names = [c["symbol_name"] for c in chunks]
+    assert any("Install package" in n for n in sym_names), f"Expected task name in {sym_names}"

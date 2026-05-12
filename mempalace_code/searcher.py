@@ -223,6 +223,13 @@ VALID_SYMBOL_TYPES = {
     # Helm-specific
     "helm_chart",
     "helm_values",
+    # Ansible-specific
+    "ansible_play",
+    "ansible_task",
+    "ansible_handler",
+    "ansible_role",
+    "ansible_vars",
+    "ansible_inventory",
 }
 
 

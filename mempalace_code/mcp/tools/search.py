@@ -169,7 +169,9 @@ TOOL_SPECS = {
                         "mixin, extension_type, constructor, "
                         "local_function, "
                         "deployment, service, configmap, secret, ingress, customresourcedefinition, "
-                        "helm_chart, helm_values)"
+                        "helm_chart, helm_values, "
+                        "ansible_play, ansible_task, ansible_handler, ansible_role, "
+                        "ansible_vars, ansible_inventory)"
                     ),
                 },
                 "file_glob": {

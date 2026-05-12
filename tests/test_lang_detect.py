@@ -331,3 +331,184 @@ def test_non_chart_kubernetes_yaml_still_detects_kubernetes():
         assert detect_language(deploy_file, _K8S_DEPLOYMENT) == "kubernetes"
     finally:
         shutil.rmtree(tmpdir)
+
+
+# =============================================================================
+# Ansible — detection (AC-4 guards + positive cases)
+# =============================================================================
+
+_ANSIBLE_PLAYBOOK_CONTENT = """\
+---
+- name: Deploy web application
+  hosts: webservers
+  vars_files:
+    - common_vars.yml
+  roles:
+    - web
+  tasks:
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+"""
+
+_ANSIBLE_ROLE_TASKS_CONTENT = """\
+---
+- name: Install dependencies
+  apt:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - nginx
+    - curl
+"""
+
+_ANSIBLE_INVENTORY_INI = """\
+[webservers]
+web1.example.com
+web2.example.com
+
+[dbservers]
+db1.example.com
+"""
+
+_ANSIBLE_INVENTORY_YML = """\
+all:
+  hosts:
+    web1.example.com:
+    web2.example.com:
+  children:
+    webservers:
+      hosts:
+        web1.example.com:
+"""
+
+
+def test_ansible_playbook_yaml_detects_ansible():
+    """A .yml file with Ansible playbook structure (list + hosts:) detects as 'ansible'."""
+    filepath = Path("site.yml")
+    assert detect_language(filepath, _ANSIBLE_PLAYBOOK_CONTENT) == "ansible"
+
+
+def test_ansible_playbook_yaml_ext_also_detects():
+    """A .yaml file with Ansible playbook structure detects as 'ansible'."""
+    filepath = Path("site.yaml")
+    assert detect_language(filepath, _ANSIBLE_PLAYBOOK_CONTENT) == "ansible"
+
+
+def test_ansible_role_tasks_file_detects_ansible():
+    """A YAML file under roles/<name>/tasks/ detects as 'ansible' from path context."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        tasks_file = Path(tmpdir) / "roles" / "web" / "tasks" / "main.yml"
+        tasks_file.parent.mkdir(parents=True)
+        tasks_file.write_text(_ANSIBLE_ROLE_TASKS_CONTENT, encoding="utf-8")
+        assert detect_language(tasks_file, _ANSIBLE_ROLE_TASKS_CONTENT) == "ansible"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_ansible_role_handlers_file_detects_ansible():
+    """A YAML file under roles/<name>/handlers/ detects as 'ansible' from path context."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        handlers_file = Path(tmpdir) / "roles" / "web" / "handlers" / "main.yml"
+        handlers_file.parent.mkdir(parents=True)
+        handlers_file.write_text(
+            "---\n- name: Restart nginx\n  service:\n    name: nginx\n    state: restarted\n",
+            encoding="utf-8",
+        )
+        assert detect_language(handlers_file) == "ansible"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_ansible_role_vars_file_detects_ansible():
+    """A YAML file under roles/<name>/vars/ detects as 'ansible' from path context."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        vars_file = Path(tmpdir) / "roles" / "web" / "vars" / "main.yml"
+        vars_file.parent.mkdir(parents=True)
+        vars_file.write_text("nginx_port: 80\nnginx_user: www-data\n", encoding="utf-8")
+        assert detect_language(vars_file) == "ansible"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_ansible_role_defaults_file_detects_ansible():
+    """A YAML file under roles/<name>/defaults/ detects as 'ansible' from path context."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        defaults_file = Path(tmpdir) / "roles" / "web" / "defaults" / "main.yml"
+        defaults_file.parent.mkdir(parents=True)
+        defaults_file.write_text("nginx_port: 80\n", encoding="utf-8")
+        assert detect_language(defaults_file) == "ansible"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_ansible_inventory_ini_detects_ansible():
+    """inventory.ini detects as 'ansible' via conservative inventory filename match."""
+    filepath = Path("inventory.ini")
+    assert detect_language(filepath, _ANSIBLE_INVENTORY_INI) == "ansible"
+
+
+def test_ansible_inventory_yml_detects_ansible():
+    """inventory.yml detects as 'ansible' via conservative inventory filename match."""
+    filepath = Path("inventory.yml")
+    assert detect_language(filepath, _ANSIBLE_INVENTORY_YML) == "ansible"
+
+
+def test_ansible_inventory_yaml_detects_ansible():
+    """inventory.yaml detects as 'ansible' via conservative inventory filename match."""
+    filepath = Path("inventory.yaml")
+    assert detect_language(filepath, _ANSIBLE_INVENTORY_YML) == "ansible"
+
+
+def test_plain_yaml_without_ansible_stays_yaml():
+    """A .yaml file with a mapping at the top level (no list, no hosts:) stays 'yaml' (AC-4 guard)."""
+    filepath = Path("config.yaml")
+    content = "name: my-app\nreplicaCount: 1\nimage:\n  repository: nginx\n  tag: latest\n"
+    assert detect_language(filepath, content) == "yaml"
+
+
+def test_yaml_list_without_hosts_stays_yaml():
+    """A YAML list without hosts: key does NOT detect as ansible (RISK-1 guard)."""
+    filepath = Path("items.yaml")
+    content = "- name: item1\n  value: a\n- name: item2\n  value: b\n"
+    assert detect_language(filepath, content) == "yaml"
+
+
+def test_non_ansible_kubernetes_yaml_still_detects_kubernetes():
+    """A Kubernetes manifest does not misdetect as ansible (AC-4 guard, no hosts: in play sense)."""
+    filepath = Path("deploy.yaml")
+    assert detect_language(filepath, _K8S_DEPLOYMENT) == "kubernetes"
+
+
+def test_helm_chart_detection_still_precedes_ansible():
+    """Helm chart-context files detect as 'helm' even when content has playbook-like structure (AC-4 guard)."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        chart_root = Path(tmpdir)
+        (chart_root / "Chart.yaml").write_text(
+            "apiVersion: v2\nname: my-chart\nversion: 0.1.0\n", encoding="utf-8"
+        )
+        # values.yaml next to Chart.yaml → helm, not ansible
+        values_file = chart_root / "values.yaml"
+        values_file.write_text(_ANSIBLE_PLAYBOOK_CONTENT, encoding="utf-8")
+        assert detect_language(values_file, _ANSIBLE_PLAYBOOK_CONTENT) == "helm"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_non_inventory_ini_stays_ini():
+    """A .ini file NOT named inventory.* stays 'ini' (no over-detection)."""
+    filepath = Path("settings.ini")
+    assert detect_language(filepath, "[section]\nkey=value\n") == "ini"
+
+
+def test_non_inventory_yaml_with_host_key_stays_yaml():
+    """A .yaml file with a 'hosts:' key but no top-level list structure stays 'yaml'."""
+    filepath = Path("config.yaml")
+    content = "hosts:\n  - web1\n  - web2\n"
+    assert detect_language(filepath, content) == "yaml"

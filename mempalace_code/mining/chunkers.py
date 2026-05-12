@@ -7,7 +7,14 @@ import yaml
 
 from ..language_catalog import extension_language_map
 from ..treesitter import get_parser
-from .symbols import _extract_helm_chart_symbol, _extract_helm_template_symbol, _extract_k8s_symbol
+from .symbols import (
+    _extract_ansible_handler_symbol,
+    _extract_ansible_play_symbol,
+    _extract_ansible_task_symbol,
+    _extract_helm_chart_symbol,
+    _extract_helm_template_symbol,
+    _extract_k8s_symbol,
+)
 
 EXTENSION_LANG_MAP = extension_language_map()
 
@@ -511,6 +518,124 @@ def _chunk_helm(content: str, source_file: str) -> list:
     return _chunk_helm_template(content, source_file)
 
 
+# =============================================================================
+# ANSIBLE CHUNKING
+# =============================================================================
+
+# Mirrors the detection regex in languages.py (no circular import — redefined here)
+_ANSIBLE_ROLE_CHUNKER_PATH_RE = re.compile(
+    r"(?:^|[/\\])roles[/\\]([^/\\]+)[/\\](tasks|handlers|vars|defaults)[/\\]"
+)
+_ANSIBLE_INVENTORY_FNAME_RE = re.compile(r"^inventory\.(ini|ya?ml)$")
+
+def _split_ansible_list_items(content: str) -> list[str]:
+    """Split a YAML list document into top-level list item strings (- at column 0).
+
+    Skips document markers (--- and ...). Handles Jinja delimiters safely since
+    it operates on raw text without PyYAML parsing.
+    """
+    lines = content.splitlines(keepends=True)
+    items: list[list[str]] = []
+    current: list[str] = []
+
+    for line in lines:
+        stripped = line.rstrip("\n\r")
+        if stripped.strip() in ("---", "..."):
+            continue
+        if stripped.startswith("- ") or stripped == "-":
+            if current:
+                items.append(current)
+            current = [line]
+        else:
+            current.append(line)
+
+    if current:
+        items.append(current)
+
+    return ["".join(item).strip() for item in items if "".join(item).strip()]
+
+
+def _chunk_ansible_playbook(content: str, source_file: str) -> list:
+    """Chunk an Ansible playbook: one chunk per top-level play, preserving verbatim text."""
+    play_texts = _split_ansible_list_items(content)
+
+    if not play_texts:
+        stripped = content.strip()
+        if stripped:
+            sym_name, sym_type = _extract_ansible_play_symbol(stripped)
+            return [{"content": stripped, "chunk_index": 0, "symbol_name": sym_name, "symbol_type": sym_type}]
+        return []
+
+    return [
+        {
+            "content": play_text,
+            "chunk_index": i,
+            "symbol_name": sym_name,
+            "symbol_type": sym_type,
+        }
+        for i, play_text in enumerate(play_texts)
+        if play_text
+        for sym_name, sym_type in [_extract_ansible_play_symbol(play_text)]
+    ]
+
+
+def _chunk_ansible_role_tasks(content: str, source_file: str, role_name: str, role_dir: str) -> list:
+    """Chunk a role tasks or handlers file: one chunk per list item, preserving verbatim text."""
+    task_texts = _split_ansible_list_items(content)
+
+    if not task_texts:
+        stripped = content.strip()
+        if stripped:
+            sym_type = "ansible_handler" if role_dir == "handlers" else "ansible_task"
+            return [{"content": stripped, "chunk_index": 0, "symbol_name": role_name, "symbol_type": sym_type}]
+        return []
+
+    chunks = []
+    for i, task_text in enumerate(task_texts):
+        if not task_text:
+            continue
+        if role_dir == "handlers":
+            sym_name, sym_type = _extract_ansible_handler_symbol(task_text)
+        else:
+            sym_name, sym_type = _extract_ansible_task_symbol(task_text)
+        if not sym_name:
+            sym_name = role_name
+        chunks.append({"content": task_text, "chunk_index": i, "symbol_name": sym_name, "symbol_type": sym_type})
+    return chunks
+
+
+def _chunk_ansible_role_vars(content: str, source_file: str, role_name: str) -> list:
+    """Chunk a role vars or defaults file as a single unit tagged ansible_vars."""
+    stripped = content.strip()
+    if not stripped:
+        return []
+    return [{"content": stripped, "chunk_index": 0, "symbol_name": role_name, "symbol_type": "ansible_vars"}]
+
+
+def _chunk_ansible_inventory(content: str, source_file: str) -> list:
+    """Chunk an Ansible inventory file as a single file-level chunk (no host/group parsing)."""
+    stripped = content.strip()
+    if not stripped:
+        return []
+    return [{"content": stripped, "chunk_index": 0, "symbol_name": "", "symbol_type": "ansible_inventory"}]
+
+
+def _chunk_ansible(content: str, source_file: str) -> list:
+    """Route an Ansible file to the appropriate sub-chunker based on path and filename."""
+    m = _ANSIBLE_ROLE_CHUNKER_PATH_RE.search(str(source_file))
+    if m:
+        role_name = m.group(1)
+        role_dir = m.group(2)
+        if role_dir in ("vars", "defaults"):
+            return _chunk_ansible_role_vars(content, source_file, role_name)
+        return _chunk_ansible_role_tasks(content, source_file, role_name, role_dir)
+
+    if _ANSIBLE_INVENTORY_FNAME_RE.match(Path(source_file).name):
+        return _chunk_ansible_inventory(content, source_file)
+
+    return _chunk_ansible_playbook(content, source_file)
+
+
 def chunk_file(content: str, ext: str, source_file: str, language: str | None = None) -> list:
     """Dispatcher — route to the right chunking strategy based on language."""
     # .csproj/.fsproj/.vbproj: verbatim project-XML chunker (ext-based, before language lookup
@@ -549,6 +674,8 @@ def chunk_file(content: str, ext: str, source_file: str, language: str | None = 
         return _chunk_k8s_manifest(content, source_file)
     elif language == "helm":
         return _chunk_helm(content, source_file)
+    elif language == "ansible":
+        return _chunk_ansible(content, source_file)
     else:
         return chunk_adaptive_lines(content, source_file)
 

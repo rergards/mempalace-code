@@ -655,6 +655,126 @@ _LUA_EXTRACT = [
     (re.compile(r"^(?:local\s+)?([A-Z]\w*)\s*=\s*\{\}", re.MULTILINE), "module"),
 ]
 
+# Ansible: task keys that are NOT the module name
+_ANSIBLE_NON_MODULE_KEYS = frozenset(
+    {
+        "name",
+        "register",
+        "when",
+        "loop",
+        "with_items",
+        "with_list",
+        "with_dict",
+        "with_fileglob",
+        "notify",
+        "tags",
+        "become",
+        "become_user",
+        "become_method",
+        "vars",
+        "block",
+        "rescue",
+        "always",
+        "ignore_errors",
+        "failed_when",
+        "changed_when",
+        "no_log",
+        "delegate_to",
+        "run_once",
+        "until",
+        "retries",
+        "delay",
+        "listen",
+        "any_errors_fatal",
+        "environment",
+        "check_mode",
+        "diff",
+        "module_defaults",
+    }
+)
+
+# Regex for extracting name/hosts from Ansible YAML text (tolerates Jinja delimiters in values)
+_ANSIBLE_NAME_RE = re.compile(r"^\s*-?\s*name\s*:\s*(.+)", re.MULTILINE)
+_ANSIBLE_HOSTS_RE = re.compile(r"^\s*(?:-\s+)?hosts\s*:\s*(.+)", re.MULTILINE)
+# Module key: indented 2 spaces from list item, word chars followed by colon
+_ANSIBLE_MODULE_KEY_RE = re.compile(r"^  (\w+)\s*:", re.MULTILINE)
+
+
+def _extract_ansible_task_module(content: str) -> str:
+    """Scan task text for the module key (first non-meta key at 2-space indent)."""
+    for m in _ANSIBLE_MODULE_KEY_RE.finditer(content):
+        key = m.group(1)
+        if key not in _ANSIBLE_NON_MODULE_KEYS:
+            return key
+    return ""
+
+
+def _extract_ansible_play_symbol(content: str) -> tuple:
+    """Extract (symbol_name, symbol_type) from an Ansible play chunk."""
+    name = ""
+    name_m = _ANSIBLE_NAME_RE.search(content)
+    if name_m:
+        name = name_m.group(1).strip().strip("'\"")
+    hosts = ""
+    hosts_m = _ANSIBLE_HOSTS_RE.search(content)
+    if hosts_m:
+        hosts = hosts_m.group(1).strip().strip("'\"")
+    if name and hosts:
+        return (f"{name} hosts={hosts}", "ansible_play")
+    if name:
+        return (name, "ansible_play")
+    if hosts:
+        return (f"hosts={hosts}", "ansible_play")
+    return ("", "ansible_play")
+
+
+def _extract_ansible_task_symbol(content: str) -> tuple:
+    """Extract (symbol_name, symbol_type) from an Ansible task chunk."""
+    name = ""
+    name_m = _ANSIBLE_NAME_RE.search(content)
+    if name_m:
+        name = name_m.group(1).strip().strip("'\"")
+    module = _extract_ansible_task_module(content)
+    if name and module:
+        return (f"{name} [{module}]", "ansible_task")
+    if name:
+        return (name, "ansible_task")
+    if module:
+        return (module, "ansible_task")
+    return ("", "ansible_task")
+
+
+def _extract_ansible_handler_symbol(content: str) -> tuple:
+    """Extract (symbol_name, symbol_type) from an Ansible handler chunk."""
+    name = ""
+    name_m = _ANSIBLE_NAME_RE.search(content)
+    if name_m:
+        name = name_m.group(1).strip().strip("'\"")
+    module = _extract_ansible_task_module(content)
+    if name and module:
+        return (f"{name} [{module}]", "ansible_handler")
+    if name:
+        return (name, "ansible_handler")
+    return ("", "ansible_handler")
+
+
+def _extract_ansible_symbol(content: str) -> tuple:
+    """Extract Ansible symbol from chunk content, inferring the type from content structure."""
+    # INI inventory: section headers like [webservers] at column 0
+    if re.search(r"^\[", content, re.MULTILINE):
+        return ("", "ansible_inventory")
+    # Inventory: no semantic symbol
+    if not content.strip().startswith("- "):
+        # Mapping-style: could be vars/inventory
+        if re.search(r"^\s*(all|ungrouped)\s*:", content, re.MULTILINE):
+            return ("", "ansible_inventory")
+        return ("", "ansible_vars")
+    # List-style: play (has hosts:) or task
+    if _ANSIBLE_HOSTS_RE.search(content):
+        return _extract_ansible_play_symbol(content)
+    return _extract_ansible_task_symbol(content)
+
+
 _RB_EXTRACT = [
     (re.compile(r"^\s*module\s+([A-Z]\w*(?:::[A-Z]\w*)*)", re.MULTILINE), "module"),
     # class follows module so nested scopes still surface the outer namespace first.
@@ -758,6 +878,9 @@ def extract_symbol(content: str, language: str) -> tuple:
     """
     if language == "kubernetes":
         return _extract_k8s_symbol(content)
+
+    if language == "ansible":
+        return _extract_ansible_symbol(content)
 
     patterns = _LANG_EXTRACT_MAP.get(language)
     if patterns is None:
