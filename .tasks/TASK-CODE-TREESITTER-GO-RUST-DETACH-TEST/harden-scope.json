@@ -1,0 +1,8 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/CODE-TREESITTER-GO-RUST-DETACH-TEST-round-1.md"
+  ],
+  "before_sha": "e5fcdb1",
+  "timestamp": "2026-05-12T20:39:04Z"
+}
