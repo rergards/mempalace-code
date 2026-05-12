@@ -54,6 +54,7 @@ from .cli_commands.ingest import (
 from .cli_commands.maintenance import cmd_cleanup, cmd_health, cmd_migrate_storage, cmd_repair
 from .cli_commands.model import cmd_fetch_model, fetch_model
 from .cli_commands.query import cmd_compress, cmd_search, cmd_wakeup
+from .cli_commands.version_check import cmd_version_check
 from .cli_commands.watch import cmd_watch
 
 # Re-export for backward compatibility (tests and downstream direct imports).
@@ -558,6 +559,29 @@ def main():
         help="Override the wing for all imported drawers",
     )
 
+    # version-check
+    p_vc = sub.add_parser(
+        "version-check",
+        help="Manage opt-in periodic new-version checks (contacts PyPI for package metadata only)",
+    )
+    vc_group = p_vc.add_mutually_exclusive_group()
+    vc_group.add_argument(
+        "--enable",
+        action="store_true",
+        help="Enable periodic version checks",
+    )
+    vc_group.add_argument(
+        "--disable",
+        action="store_true",
+        help="Disable periodic version checks (suppress future prompts)",
+    )
+    vc_group.add_argument(
+        "--check-now",
+        dest="check_now",
+        action="store_true",
+        help="Check for a newer version right now (contacts PyPI; ignores interval)",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -597,8 +621,37 @@ def main():
         "restore": cmd_restore,
         "export": cmd_export,
         "import": cmd_import,
+        "version-check": cmd_version_check,
     }
+
+    # --- opt-in version-check hook ---
+    # version-check command handles itself; all others may get a first-run prompt.
+    if args.command != "version-check":
+        from .version import __version__ as _current_version
+        from .version_check import (
+            load_state,
+            resolve_config,
+            run_automatic_check,
+            run_first_run_prompt,
+            should_prompt_first_run,
+        )
+
+        _vc_config = resolve_config()
+        _vc_state = load_state()
+
+        if should_prompt_first_run(args.command, _vc_config):
+            run_first_run_prompt(_vc_state)
+            _vc_config = resolve_config()
+
     dispatch[args.command](args)
+
+    # Automatic check runs after the command succeeds; skipped on SystemExit.
+    if args.command != "version-check" and _vc_config.enabled:  # type: ignore[possibly-undefined]
+        run_automatic_check(  # type: ignore[possibly-undefined]
+            _current_version,  # type: ignore[possibly-undefined]
+            _vc_config,
+            _vc_state,  # type: ignore[possibly-undefined]
+        )
 
 
 if __name__ == "__main__":

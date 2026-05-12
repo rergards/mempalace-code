@@ -1802,3 +1802,125 @@ class TestMigrateStorageCommand:
         assert exc.value.code == 1
         captured = capsys.readouterr()
         assert "Error: boom" in captured.err
+
+
+class TestVersionCheckCLIHook:
+    """Integration tests: version-check hook preserves existing command stdout."""
+
+    def _run(self, argv):
+        with patch.object(sys, "argv", argv):
+            main()
+
+    def test_health_json_stdout_unchanged_with_no_opt_in(self, tmp_path, capsys, monkeypatch):
+        """health --json stdout must be byte-for-byte valid JSON after the automatic hook is wired.
+
+        When version checks are disabled (no opt-in), the hook must not add anything to stdout.
+        """
+        monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["hook_json_1"],
+            documents=["version check hook json test drawer content"],
+            metadatas=[{"wing": "test", "room": "general"}],
+        )
+
+        self._run(["mempalace", "--palace", palace, "health", "--json"])
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["ok"] is True
+        assert data["total_rows"] == 1
+
+    def test_health_json_stdout_unchanged_with_opt_in(self, tmp_path, capsys, monkeypatch):
+        """health --json stdout must remain machine-parseable JSON even when opted-in.
+
+        The automatic check runs after dispatch; any hint must go only to stderr.
+        """
+        monkeypatch.setenv("HOME", str(tmp_path))
+        # Opt in via env var so the check runs after the command
+        monkeypatch.setenv("MEMPALACE_VERSION_CHECK", "1")
+        monkeypatch.setenv("MEMPALACE_VERSION_CHECK_INTERVAL_HOURS", "1")
+
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["hook_opted_1"],
+            documents=["version check hook opted-in json test drawer"],
+            metadatas=[{"wing": "test", "room": "general"}],
+        )
+
+        with patch(
+            "mempalace_code.version_check.fetch_latest_version",
+            return_value="99.0.0",
+        ):
+            self._run(["mempalace", "--palace", palace, "health", "--json"])
+
+        captured = capsys.readouterr()
+        # stdout must still be valid JSON — the update hint must not appear there
+        data = json.loads(captured.out)
+        assert data["ok"] is True
+        # update hint should be on stderr
+        assert "99.0.0" in captured.err
+
+    def test_version_check_subcommand_status(self, tmp_path, capsys, monkeypatch):
+        """version-check --status prints effective state without contacting PyPI."""
+        monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        self._run(["mempalace", "version-check"])
+
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert "version" in combined.lower()
+
+    def test_version_check_enable_then_disable(self, tmp_path, capsys, monkeypatch):
+        """version-check --enable and --disable write state without modifying config.json."""
+        monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        self._run(["mempalace", "version-check", "--enable"])
+        out_enable = capsys.readouterr().out
+        assert "enabled" in out_enable.lower()
+
+        self._run(["mempalace", "version-check", "--disable"])
+        out_disable = capsys.readouterr().out
+        assert "disabled" in out_disable.lower()
+
+        config_json = tmp_path / ".mempalace" / "config.json"
+        if config_json.exists():
+            import json as _json
+
+            cfg = _json.loads(config_json.read_text())
+            assert "version_check_enabled" not in cfg, (
+                "config.json must not be written by --enable/--disable"
+            )
+
+    def test_no_prompt_on_non_tty_in_cli(self, tmp_path, capsys, monkeypatch):
+        """Non-TTY CLI invocations must not call run_first_run_prompt.
+
+        The hook calls should_prompt_first_run which returns False on non-TTY,
+        so run_first_run_prompt must never be called.
+        """
+        monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace = str(tmp_path / "palace")
+        # Create a minimal palace so 'status' succeeds
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["nc_1"],
+            documents=["no prompt test"],
+            metadatas=[{"wing": "t", "room": "general"}],
+        )
+
+        prompt_called = []
+        with patch(
+            "mempalace_code.version_check.run_first_run_prompt",
+            side_effect=lambda *a, **kw: prompt_called.append(True),
+        ):
+            # should_prompt_first_run returns False in non-TTY so prompt fn never fires
+            self._run(["mempalace", "--palace", palace, "status"])
+
+        assert prompt_called == [], "run_first_run_prompt must not be called in non-TTY"

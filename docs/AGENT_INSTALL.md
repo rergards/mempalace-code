@@ -832,6 +832,24 @@ A successful install produces:
 | `claude mcp list \| grep mempalace-code` | Shows entry (if Claude Code target) |
 | `~/.codex/config.toml` contains `mcp_servers.mempalace-code` | Present (if Codex target) |
 
+### Version Check (opt-in)
+
+The installer does **not** enable periodic version checks. Users may opt in interactively
+(the CLI will prompt once on the first interactive command) or explicitly:
+
+```bash
+mempalace-code version-check --enable   # opt in
+mempalace-code version-check --disable  # opt out (suppress future prompts)
+mempalace-code version-check            # show current status (local-only)
+mempalace-code version-check --check-now  # fetch from PyPI right now
+```
+
+For automated installs, CI pipelines, and non-interactive agents:
+- The first-run prompt is suppressed automatically when stdin/stdout/stderr are not TTYs.
+- To permanently disable prompts and checks: `mempalace-code version-check --disable` or set
+  `MEMPALACE_VERSION_CHECK=0` in the environment.
+- No version-check network call is ever made unless the user has opted in or passed `--check-now`.
+
 ---
 
 ## Reference

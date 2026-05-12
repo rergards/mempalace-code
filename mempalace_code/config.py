@@ -26,6 +26,10 @@ DEFAULT_BACKUP_WARN_SIZE_BYTES = (
 DEFAULT_SPELLCHECK_ENABLED = None  # None lets each ingest mode choose its own default
 DEFAULT_ENTITY_DETECTION = False
 
+# Version-check defaults
+DEFAULT_VERSION_CHECK_ENABLED = None  # None = no choice (will prompt or stay disabled)
+DEFAULT_VERSION_CHECK_INTERVAL_HOURS = 168  # 1 week
+
 # Disk-budget safety defaults
 DEFAULT_DISK_MIN_FREE_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
 
@@ -347,6 +351,45 @@ class MempalaceConfig:
         if "backup_min_free_bytes" in self._file_config:
             return self._parse_bytes_config(self._file_config["backup_min_free_bytes"])
         return self.disk_min_free_bytes
+
+    @property
+    def version_check_enabled(self):
+        """Tri-state version-check setting: True, False, or None (no explicit choice).
+
+        Priority: MEMPALACE_VERSION_CHECK env > version_check_enabled file key > None.
+        Invalid values fail closed (None) rather than raising.
+        """
+        env_val = os.environ.get("MEMPALACE_VERSION_CHECK")
+        if env_val is not None:
+            parsed = _parse_optional_bool(env_val)
+            return parsed  # None means invalid env val → treat as not set at config level
+        if "version_check_enabled" in self._file_config:
+            parsed = _parse_optional_bool(self._file_config["version_check_enabled"])
+            if parsed is not None:
+                return parsed
+        return DEFAULT_VERSION_CHECK_ENABLED
+
+    @property
+    def version_check_interval_hours(self) -> int:
+        """Version-check interval in hours.
+
+        Priority: MEMPALACE_VERSION_CHECK_INTERVAL_HOURS env > version_check_interval_hours
+        file key > DEFAULT_VERSION_CHECK_INTERVAL_HOURS (168).
+        Invalid values fall back to default.
+        """
+        env_val = os.environ.get("MEMPALACE_VERSION_CHECK_INTERVAL_HOURS")
+        if env_val is not None:
+            try:
+                return max(1, int(env_val))
+            except (ValueError, TypeError):
+                return DEFAULT_VERSION_CHECK_INTERVAL_HOURS
+        raw = self._file_config.get("version_check_interval_hours")
+        if raw is not None:
+            try:
+                return max(1, int(raw))
+            except (ValueError, TypeError):
+                return DEFAULT_VERSION_CHECK_INTERVAL_HOURS
+        return DEFAULT_VERSION_CHECK_INTERVAL_HOURS
 
     @property
     def scan_skip_dirs(self) -> list:

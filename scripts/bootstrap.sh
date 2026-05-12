@@ -135,3 +135,6 @@ info "Done. mempalace-code $VERSION is ready."
 info "Venv:   $VENV"
 info "Binary: $BIN_LINK"
 info "Next:   mempalace-code init <project-dir> && mempalace-code mine <project-dir>"
+# Note: periodic new-version checks are opt-in and not enabled by this script.
+# Run 'mempalace-code version-check --enable' to opt in, or
+# 'mempalace-code version-check --disable' to permanently skip future prompts.

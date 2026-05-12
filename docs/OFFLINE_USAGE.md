@@ -132,5 +132,31 @@ mempalace-code fetch-model --model all-mpnet-base-v2
 
 ---
 
+---
+
+## 5. Version Checks and Offline Guarantees
+
+All mempalace-code commands — `init`, `mine`, `mine-all`, `search`, `status`, `health`,
+`repair`, `backup`, `watch`, and all MCP tools — run completely offline after the
+one-time model download. None of them contact PyPI or any external service.
+
+The **only** optional network activity is the version check:
+
+- **Default (no opt-in):** no network calls, ever.
+- **Opted-in automatic checks:** contact `https://pypi.org/pypi/mempalace-code/json` for
+  package metadata at most once per interval (default 168 h). Only the `info.version` field
+  is read. No telemetry, no user IDs, no installed-package inventory.
+- **`--check-now`:** single metadata fetch, result printed to stdout.
+
+To guarantee offline operation in automation or airgapped environments:
+
+```bash
+export MEMPALACE_VERSION_CHECK=0
+```
+
+This env var overrides any saved preference and prevents all version-check network calls.
+
+---
+
 See also: [`docs/UPSTREAM_HARDENING.md`](UPSTREAM_HARDENING.md) for the embedding model
 upgrade policy and benchmark requirements.

@@ -691,6 +691,44 @@ Use `--dry-run` first to see how many rows would be lost.
 
 ---
 
+### Version Check (opt-in)
+
+mempalace-code can notify you when a newer release is available on PyPI. This feature
+is **strictly opt-in** — no network calls are made by default.
+
+```bash
+# Check your current status (local-only, no network)
+mempalace-code version-check
+
+# Opt in to periodic checks (contacts PyPI for package metadata only)
+mempalace-code version-check --enable
+
+# Opt out (suppresses future first-run prompts)
+mempalace-code version-check --disable
+
+# Check right now regardless of the interval setting
+mempalace-code version-check --check-now
+```
+
+**How it works:**
+
+- On the first interactive command after a fresh install, the CLI prompts once: *"Enable periodic new-version checks?"* — answering `n` records the opt-out permanently. Non-interactive (piped, CI, non-TTY) invocations **never prompt**.
+- When opted in, a background check runs at most once per interval (default: 168 hours / 1 week). Any update hint appears on **stderr only** — stdout remains machine-parseable.
+- Explicit `--check-now` ignores the interval, contacts PyPI, and prints current/latest/error to stdout.
+- Only `https://pypi.org/pypi/mempalace-code/json` is contacted. No telemetry, no user IDs, no installed-package inventory.
+
+**Environment overrides:**
+
+| Variable | Effect |
+|---|---|
+| `MEMPALACE_VERSION_CHECK=1` | Force-enable (overrides config and state) |
+| `MEMPALACE_VERSION_CHECK=0` | Force-disable (overrides config and state) |
+| `MEMPALACE_VERSION_CHECK_INTERVAL_HOURS=N` | Override interval (default: 168) |
+
+Setting `MEMPALACE_VERSION_CHECK=0` in a CI pipeline guarantees no network calls regardless of any saved preference.
+
+---
+
 ## This Fork vs Upstream
 
 This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla-jovovich/mempalace). We inherited the good parts — the palace metaphor, the MCP integration, the LongMemEval harness — and rebuilt what was broken. Every claim here is backed by code, tests, and documented benchmarks.
