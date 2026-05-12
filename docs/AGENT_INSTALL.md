@@ -29,11 +29,12 @@ feature checklist, not an install step.
 | Safety/ops | Local embeddings, no API key, backup/restore/export/import, health/repair/cleanup, scan excludes, disk-budget guards |
 
 Language support summary:
+- `code_search(language=...)` accepts 45 searchable labels from the shared miner catalog.
 - Tree-sitter AST when `[treesitter]` is installed: Python, TypeScript, JavaScript, TSX, JSX, Go, Rust.
-- Regex structural: Java, Kotlin, C#, F#, VB.NET, XAML, Swift, PHP, Scala, Dart, Lua, Terraform/HCL.
-- YAML-aware: Kubernetes manifests.
+- Regex structural: Java, Kotlin, C#, F#, VB.NET, XAML, Swift, PHP, Scala, Dart, Lua, Ruby, Terraform/HCL.
+- YAML-aware/static: Kubernetes manifests, Helm charts/templates, Ansible playbooks/roles/inventory.
 - Prose/metadata: Markdown and plain text keep heading paths and section flags.
-- Adaptive/searchable: C/C++, Ruby, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, config.
+- Adaptive/searchable: C/C++, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, config.
 - Extensions outside the miner catalog are skipped by normal scans unless an exact file path is force-included.
 
 Evaluation output contract:

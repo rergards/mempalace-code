@@ -5,15 +5,7 @@ Current command/package names: the CLI is `mempalace-code`, the import package i
 Older historical entries may mention legacy `mempalace` names that were valid
 when those changes landed.
 
-## 2026-05-12 · CLI-OPT-IN-VERSION-CHECK
-
-Add strictly opt-in PyPI new-version checks: `mempalace-code version-check --enable/--disable/--status/--check-now`, with TTY prompt on first interactive run, interval throttling, stderr-only automatic hints, and zero network calls by default.
-
-## 2026-05-09 · MCP-TOOL-PROFILES
-
-Add static MCP tool profiles (`full`, `search`, `write`, `graph`, `kg`, `diary`, `code`) and `--tools`/`--exclude-tools` CLI flags for per-client tool subsetting at server startup.
-
-## v1.9.0 — 2026-05-07
+## v1.9.0 — 2026-05-12
 
 ### Added
 
@@ -21,14 +13,45 @@ Add static MCP tool profiles (`full`, `search`, `write`, `graph`, `kg`, `diary`,
   chunking for `function`, `local function`, `M.method`, and `Class:method`
   declarations, module-table detection, Lua symbol metadata, and
   `code_search(language="lua")` filtering.
+- First-pass static Ruby symbol extraction for classes, modules, methods,
+  singleton methods, `attr*` declarations, and constants. Rails DSL and
+  metaprogramming are intentionally not interpreted.
+- First-class Helm indexing for raw charts: `Chart.yaml`, `values*.yaml`, and
+  `templates/` YAML/Go-template files are mined as `language="helm"` with chart,
+  values, and rendered-object-kind metadata where statically visible. Templates
+  are not rendered.
+- First-class Ansible indexing for playbooks, role tasks/handlers/defaults/vars,
+  and static inventory files as `language="ansible"` with play, task, handler,
+  vars, role, and inventory symbol metadata. Jinja expressions and inventory
+  semantics are not evaluated.
+- Strictly opt-in PyPI new-version checks:
+  `mempalace-code version-check --enable/--disable/--status/--check-now`, with
+  TTY prompt on first interactive run, interval throttling, stderr-only automatic
+  hints, and zero network calls by default.
+- Static MCP tool profiles (`full`, `minimal`, `kg`, `code`, `notes`) plus
+  `--tools`, `--include`, and `--exclude` startup flags for per-client tool
+  subsetting.
 - Pyright is now part of the dev dependency set and has a non-gating CI baseline
   job while the existing diagnostics are worked down.
 
 ### Changed
 
 - `mempalace_code_search` language and symbol-type hints now include `lua` and
-  `local_function`.
-- The collected test suite is now 1789 tests.
+  `local_function`, plus the Ruby, Helm, and Ansible labels/symbol types.
+- `mempalace_code_search` now accepts 45 searchable language labels generated
+  from the shared miner catalog.
+- `cli.py` and `miner.py` were split into focused command/mining modules while
+  preserving their public compatibility facades.
+- `palace_graph` now uses typed graph payload sets internally.
+- Pre-optimize backups are bounded by default to the newest 5 managed archives
+  unless `backup_retain_count` is explicitly set; manual and scheduled backups
+  remain keep-all by default.
+- The collected test suite is now 2025 tests.
+
+### Fixed
+
+- Added Go and Rust tree-sitter regression tests proving blank-line-detached
+  comments/attributes are not absorbed into the following declaration chunk.
 
 ## v1.8.1 — 2026-05-03
 

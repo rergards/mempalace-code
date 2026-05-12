@@ -29,7 +29,7 @@ No cloud service, no API keys, no subscription. After the one-time embedding mod
 <tr>
 <td align="center"><strong>595x Token Savings</strong><br><sub>measured peak · median 80x<br><a href="docs/BENCH_TOKEN_DELTA.md">scales with project size</a></sub></td>
 <td align="center"><strong>Cross-Project Tunnels</strong><br><sub>Search <code>auth</code> in one project<br>find it everywhere</sub></td>
-<td align="center"><strong>1789 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>offline after model setup</sub></td>
+<td align="center"><strong>2025 Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>offline after model setup</sub></td>
 </tr>
 </table>
 
@@ -135,7 +135,7 @@ You write code. You make decisions. You debug things. Between sessions, all that
 mempalace-code **indexes it once** into a local vector store, then your AI finds it in milliseconds — using [595x fewer tokens](docs/BENCH_TOKEN_DELTA.md) than grep + read at measured peak (median 80x on a 19k-chunk project, and it keeps scaling). Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
 
 **What gets indexed or stored:**
-- Code files — structural chunks for Python, TypeScript/JS/TSX/JSX, Go, Rust, Java, Kotlin, C#, F#, VB.NET, XAML, Swift, PHP, Scala, Dart, Terraform/HCL, Markdown, and Kubernetes manifests; adaptive chunks for C/C++, Ruby, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, and config files
+- Code files — structural chunks for Python, TypeScript/JS/TSX/JSX, Go, Rust, Java, Kotlin, C#, F#, VB.NET, XAML, Swift, PHP, Scala, Dart, Lua, Ruby, Terraform/HCL, Markdown, Kubernetes manifests, Helm charts/templates, and Ansible playbooks/roles/inventory; adaptive chunks for C/C++, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, and config files
 - .NET solutions — `.sln`/`.csproj` project graphs, cross-project symbol relationships, interface implementations
 - Architecture facts — pattern, layer, namespace, and project membership facts for .NET and Python projects
 - Conversation/log exports — Claude Code JSONL, OpenAI Codex CLI JSONL, Gemini CLI JSONL, Claude.ai JSON, ChatGPT `conversations.json`, Slack JSON, plain text transcripts
@@ -154,7 +154,7 @@ not become source-code drawers unless explicitly force-included.
 
 ### Language-Aware Code Mining
 
-`mempalace-code mine` walks your source tree and chooses the best chunker for each file type: AST boundaries where optional tree-sitter grammars are available, regex structural boundaries for supported languages, YAML-aware Kubernetes resource splits, Markdown/prose sections, or adaptive line-count chunks for formats without reliable declarations. Leading comments and docstrings stay attached to declarations where structural chunking is active; Markdown drawers keep heading path, section type, and Mermaid/code/table flags in search metadata.
+`mempalace-code mine` walks your source tree and chooses the best chunker for each file type: AST boundaries where optional tree-sitter grammars are available, regex structural boundaries for supported languages, YAML-aware Kubernetes/Helm/Ansible resource splits, Markdown/prose sections, or adaptive line-count chunks for formats without reliable declarations. The shared catalog currently exposes **45 searchable language labels** to `code_search(language=...)`. Leading comments and docstrings stay attached to declarations where structural chunking is active; Markdown drawers keep heading path, section type, and Mermaid/code/table flags in search metadata.
 
 | Language | Strategy | AST Support |
 |----------|----------|:-----------:|
@@ -173,10 +173,13 @@ not become source-code drawers unless explicitly force-included.
 | XAML | Controls, resources, code-behind linking | Regex |
 | Terraform / HCL | Terraform/HCL top-level blocks (`resource`, `module`, `variable`, `moved`, `import`, `check`, etc.) | Regex |
 | Kubernetes manifests | Deployments, Services, ConfigMaps, Secrets, Ingresses, CRDs (indexed by kind/name) | YAML-aware |
+| Helm charts | `Chart.yaml`, `values*.yaml`, raw templates with kind/name metadata; no template rendering | YAML/Go-template aware |
+| Ansible | Playbooks, role tasks/handlers/defaults/vars, inventories; no Jinja evaluation or inventory semantics | YAML/Jinja tolerant |
 | Markdown / plain text | Heading sections (`#`-`######`), heading paths, section metadata, paragraphs | — |
 | Lua | Functions, local functions, methods (dot/colon), module/table declarations | Regex |
 | C / C++ | Indexed and searchable with best-effort symbol metadata; chunked adaptively today | — |
-| Ruby / shell / SQL | Indexed and searchable; chunked adaptively today | — |
+| Ruby | Static classes, modules, methods, singleton methods, attrs, and constants; Rails DSL/metaprogramming not interpreted | Regex |
+| shell / SQL | Indexed and searchable; chunked adaptively today | — |
 | HTML / CSS / CSV | Indexed and searchable; chunked adaptively today | — |
 | YAML / JSON / TOML | Adaptive line-count; Kubernetes YAML auto-detected separately | — |
 | Dockerfile / Make / templates / config | Dockerfile, Containerfile, Makefile, GNUmakefile, Vagrantfile, Go templates, Jinja2, `.conf`, `.cfg`, `.ini` | — |
@@ -738,11 +741,11 @@ This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla
 | ChromaDB — [silently deletes data on version bump](https://github.com/milla-jovovich/mempalace/issues/469) | LanceDB — crash-safe Arrow storage, no version-cliff |
 | "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace-code init` downloads model explicitly; offline after model setup |
 | "100% R@5" — [unverifiable](https://github.com/milla-jovovich/mempalace/issues/27) | Number removed. Methodology caveats documented |
-| ~30% test coverage | 1789 tests, every feature acceptance-gated |
+| ~30% test coverage | 2025 tests, every feature acceptance-gated |
 | No backup, no recovery | `backup` / `restore` / `export` / `import` |
 | No incremental mining | Content-hash incremental: only changed files re-chunked |
 | No code-search | `code_search` — filter by language, symbol, glob |
-| Line-count chunking | Language-aware mining: tree-sitter AST for supported grammars, regex structural chunking, YAML-aware Kubernetes splits, prose sections, and adaptive chunks for configs/data |
+| Line-count chunking | Language-aware mining: tree-sitter AST for supported grammars, regex structural chunking, YAML-aware Kubernetes/Helm/Ansible splits, prose sections, and adaptive chunks for configs/data |
 
 Full audit: [`docs/UPSTREAM_HARDENING.md`](docs/UPSTREAM_HARDENING.md).
 
@@ -881,7 +884,7 @@ mempalace/
 ├── benchmarks/             ← reproducible benchmark runners
 ├── hooks/                  ← Claude Code auto-save hooks (legacy, optional)
 ├── examples/               ← usage examples
-└── tests/                  ← 1789 tests
+└── tests/                  ← 2025 tests
 ```
 
 </details>

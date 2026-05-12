@@ -19,7 +19,7 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 | Dimension | Graphify | mempalace-code |
 |-----------|----------|-----------|
 | Core data structure | NetworkX MultiDiGraph | LanceDB columnar vector store + SQLite KG |
-| Code understanding | tree-sitter AST, 20 languages | language-aware mining: optional tree-sitter chunks for Python/JS/TS/TSX/JSX/Go/Rust, regex structural chunks for supported languages, YAML-aware Kubernetes, adaptive config/prose chunks |
+| Code understanding | tree-sitter AST, 20 languages | language-aware mining: optional tree-sitter chunks for Python/JS/TS/TSX/JSX/Go/Rust, regex/static structural chunks, YAML-aware Kubernetes/Helm/Ansible, adaptive config/prose chunks; 45 searchable language labels |
 | Semantic layer | Claude subagent extracts concepts into graph nodes | `all-MiniLM-L6-v2` embeddings (384d, local) |
 | Graph clustering | **Leiden community detection** (produces "god nodes" + clusters) | no clustering; architecture extraction emits pattern/layer/namespace/project KG facts for .NET and Python |
 | Search primitive | graph traversal, BFS with hop limits | cosine distance over vectors, filtered by wing/room |
@@ -89,7 +89,7 @@ mempalace-code has no visualization layer. Vector spaces do not visualize well; 
 
 Graphify uses tree-sitter for parsing, covering 20 languages precisely. Function calls, imports, class references, and type usages are captured at AST fidelity.
 
-mempalace-code uses tree-sitter for chunk boundaries when optional grammars are installed for Python, TypeScript/JavaScript/TSX/JSX, Go, and Rust. It also uses regex structural chunking for Java, Kotlin, .NET languages, XAML, Swift, PHP, Scala, Dart, and Terraform/HCL, YAML-aware splitting for Kubernetes manifests, and adaptive chunking for configs/data/prose. That is still not a call graph: it cannot track `foo()` → function definition of `foo` across files. Symbol metadata is per-chunk only, not cross-referenced.
+mempalace-code uses tree-sitter for chunk boundaries when optional grammars are installed for Python, TypeScript/JavaScript/TSX/JSX, Go, and Rust. It also uses regex structural chunking for Java, Kotlin, .NET languages, XAML, Swift, PHP, Scala, Dart, Lua, Ruby, and Terraform/HCL, YAML-aware/static splitting for Kubernetes manifests, Helm charts/templates, and Ansible playbooks/roles/inventory, and adaptive chunking for configs/data/prose. That is still not a call graph: it cannot track `foo()` → function definition of `foo` across files. Symbol metadata is per-chunk only, not cross-referenced.
 
 **Consequence**: for "find all call sites of this function" graphify is the right tool. mempalace-code will not answer that precisely.
 
@@ -194,7 +194,7 @@ Note: the always-on PreToolUse hook is intentionally absent from this list. See 
 - crash-safe LanceDB (survives `Ctrl+C`)
 
 **Do not claim**:
-- full AST/code-graph precision — mempalace uses AST chunk boundaries for a subset, regex structural chunks for many languages, and adaptive chunks for configs/data, but does not build call graphs
+- full AST/code-graph precision — mempalace uses AST chunk boundaries for a subset, regex/static structural chunks for many languages and infrastructure files, and adaptive chunks for configs/data, but does not build call graphs
 - multimodal ingest — mempalace is text-only
 - visualization — mempalace has none
 - community detection — different problem, different algorithm, not mempalace's game
