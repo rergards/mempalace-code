@@ -19,7 +19,7 @@ files:
   - path: mempalace_code/cli_commands/query.py
     change: "Move search, wake-up, and compress handlers."
   - path: mempalace_code/cli_commands/maintenance.py
-    change: "Move health, cleanup, repair, and shared maintenance output handling."
+    change: "Move health, cleanup, repair, migrate-storage, and shared maintenance output handling while keeping migrate's lazy `from .migrate import` seam."
   - path: mempalace_code/cli_commands/watch.py
     change: "Move watch, watch schedule, and watch status handlers while keeping lazy watcher imports."
   - path: mempalace_code/cli_commands/backup_restore.py
@@ -57,6 +57,9 @@ acceptance:
   - id: AC-6
     when: "`python -m pytest tests/test_cli.py::TestDiaryWrite::test_diary_write_success tests/test_cli.py::TestDiaryWrite::test_diary_bare_subcommand tests/test_cli.py::TestHealthCommand::test_health_command_json_output tests/test_cli.py::TestCleanupCommand::test_cleanup_dependency_error_exits_cleanly -q` is run"
     then: "diary, health, and cleanup handlers keep their success output, missing-subcommand exit code, JSON output, and clean dependency-error path after moving modules."
+  - id: AC-7
+    when: "`python -m pytest tests/test_cli.py::TestMigrateStorageCommand::test_migrate_storage_cli_happy_path tests/test_cli.py::TestMigrateStorageCommand::test_migrate_storage_cli_verify_fail tests/test_cli.py::TestMigrateStorageCommand::test_migrate_storage_cli_runtime_error_exits_1 -q` is run"
+    then: "migrate-storage still dispatches to the moved handler, calls mempalace_code.migrate.migrate_chroma_to_lance with the same kwargs, and exits 1 on VerificationError or RuntimeError with the same stderr prefixes."
 out_of_scope:
   - "Changing command names, flags, help text semantics, console-script targets, or exit codes."
   - "Changing storage, mining, backup, watcher, search, KG, export/import, or model-download behavior."
@@ -79,15 +82,15 @@ task_contract:
     - id: REQ-2
       statement: "Command handlers must move out of cli.py into focused modules without changing observable command behavior."
       source: "backlog scope"
-      acceptance_ids: [AC-2, AC-3, AC-4, AC-5, AC-6]
+      acceptance_ids: [AC-2, AC-3, AC-4, AC-5, AC-6, AC-7]
     - id: REQ-3
       statement: "Parser dispatch must keep existing command names, nested command defaults, and boundary error handling."
       source: "backlog public command stability"
-      acceptance_ids: [AC-3, AC-4, AC-5, AC-6]
+      acceptance_ids: [AC-3, AC-4, AC-5, AC-6, AC-7]
     - id: REQ-4
       statement: "Tests must align monkeypatch/import seams with the new command-module owners without reducing behavior coverage."
       source: "backlog test alignment scope"
-      acceptance_ids: [AC-2, AC-3, AC-4, AC-5, AC-6]
+      acceptance_ids: [AC-2, AC-3, AC-4, AC-5, AC-6, AC-7]
   surfaces:
     - name: "Argparse entry point"
       kind: cli
@@ -96,7 +99,7 @@ task_contract:
     - name: "Command handler modules"
       kind: internal
       paths: ["mempalace_code/cli_commands/__init__.py", "mempalace_code/cli_commands/common.py", "mempalace_code/cli_commands/alias.py", "mempalace_code/cli_commands/model.py", "mempalace_code/cli_commands/ingest.py", "mempalace_code/cli_commands/query.py", "mempalace_code/cli_commands/maintenance.py", "mempalace_code/cli_commands/watch.py", "mempalace_code/cli_commands/backup_restore.py", "mempalace_code/cli_commands/diary.py", "mempalace_code/cli_commands/export_import.py"]
-      expected_behavior: "Focused modules own command logic while preserving lazy imports and existing stdout/stderr/sys.exit behavior."
+      expected_behavior: "Focused modules own command logic (including migrate-storage under maintenance.py) while preserving lazy imports and existing stdout/stderr/sys.exit behavior."
     - name: "Alias and packaging compatibility"
       kind: cli
       paths: ["mempalace_code/cli.py", "mempalace_code/cli_commands/alias.py", "tests/test_packaging_namespace.py"]
@@ -162,6 +165,10 @@ task_contract:
       command: "python -m pytest tests/test_cli.py::TestDiaryWrite::test_diary_write_success tests/test_cli.py::TestDiaryWrite::test_diary_bare_subcommand tests/test_cli.py::TestHealthCommand::test_health_command_json_output tests/test_cli.py::TestCleanupCommand::test_cleanup_dependency_error_exits_cleanly -q"
       proves: "Diary, health, and cleanup success/failure outputs remain stable."
       acceptance_ids: [AC-6]
+    - id: VER-7
+      command: "python -m pytest tests/test_cli.py::TestMigrateStorageCommand -q"
+      proves: "migrate-storage dispatch wiring, kwarg passthrough, and VerificationError/RuntimeError exit paths survive the handler move into maintenance.py."
+      acceptance_ids: [AC-7]
   regression_plan:
     applies: true
     no_behavior_change_exception: ""
@@ -169,7 +176,7 @@ task_contract:
       - id: REG-1
         command: "python -m pytest tests/test_cli_command_modules.py tests/test_cli.py tests/test_backup_cli.py tests/test_watcher.py::TestCliWatchDispatch tests/test_watcher.py::TestWatchFlagValidation tests/test_packaging_namespace.py -q"
         proves: "Focused CLI, alias, backup, watcher, and packaging regressions remain green after the split."
-        acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6]
+        acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7]
       - id: REG-2
         command: "python -m pytest tests/test_e2e.py::test_mine_search_export_nuke_import tests/test_export.py -q"
         proves: "High-level mine/search and export/import flows still work through the public CLI-facing modules."
@@ -177,7 +184,7 @@ task_contract:
       - id: REG-3
         command: "ruff check mempalace_code/ tests/ && ruff format --check mempalace_code/ tests/"
         proves: "Moved modules and updated imports satisfy project lint and formatting gates."
-        acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6]
+        acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7]
 ---
 
 ## Design Notes
@@ -190,7 +197,7 @@ task_contract:
   - `model.py`: `fetch_model`, `cmd_fetch_model`.
   - `ingest.py`: `cmd_init`, `cmd_onboarding`, `cmd_mine`, `_resolve_spellcheck`, `cmd_mine_all`, `cmd_split`, `cmd_status`.
   - `query.py`: `cmd_search`, `cmd_wakeup`, `cmd_compress`.
-  - `maintenance.py`: `cmd_health`, `cmd_cleanup`, `cmd_repair`.
+  - `maintenance.py`: `cmd_health`, `cmd_cleanup`, `cmd_repair`, `cmd_migrate_storage`. Keep the handler-local `from .migrate import VerificationError, migrate_chroma_to_lance` lazy import in place after the move so importing `mempalace_code.cli_commands.maintenance` does not pull in the migrator at CLI load time, and so existing `patch("mempalace_code.migrate.migrate_chroma_to_lance", ...)` test seams in `tests/test_cli.py::TestMigrateStorageCommand` continue to intercept the call.
   - `watch.py`: `cmd_watch`, `cmd_watch_schedule`, `cmd_watch_status`.
   - `backup_restore.py`: `cmd_backup_create`, `cmd_backup_list`, `cmd_backup_schedule`, `cmd_backup`, `cmd_restore`.
   - `diary.py`: `cmd_diary_write`, `cmd_diary`.
