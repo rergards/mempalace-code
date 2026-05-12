@@ -26,13 +26,11 @@ items:
       archived_date: "2026-04-16"
     - key: STORAGE-AUTO-BACKUP-SCHEDULE-INSTALL
       summary: User must manually install the emitted launchd plist (macOS) or cron entry (Linux) produced by `mempalace backup schedule --freq daily`; the subcommand only prints the snippet and does not write system files.
-      resolution: |-
-        2026-04-16: User must manually install the emitted launchd plist (macOS) or cron entry (Linux) produced by `mempalace backup schedule --freq daily`; the subcommand only prints the snippet and does not write system files.
+      resolution: '2026-04-16: User must manually install the emitted launchd plist (macOS) or cron entry (Linux) produced by `mempalace backup schedule --freq daily`; the subcommand only prints the snippet and does not write system files.'
       archived_date: "2026-04-16"
     - key: FUT-WATCH-MODE
       summary: DUPLICATE - see MINE-WATCH
-      resolution: |-
-        2026-04-17: DUPLICATE - see MINE-WATCH
+      resolution: '2026-04-17: DUPLICATE - see MINE-WATCH'
       archived_date: "2026-04-17"
     - key: STORE-WHERE-ARROW-IN
       summary: $in operator silently ignored in _where_to_arrow_mask — iter_all() returns wrong rows for $in filters
@@ -104,8 +102,7 @@ items:
       archived_date: "2026-04-17"
     - key: MINE-XAML
       summary: Add XAML and WPF code-behind linking support
-      resolution: |-
-        2026-04-17: Added .xaml language detection, x:Class symbol extraction (view/view_name), and parse_xaml_file() emitting KG triples for code-behind, DataContext ViewModel, x:Name controls, StaticResource/DynamicResource references, and Command bindings. Renamed _DOTNET_CONFIG_EXTENSIONS to _KG_EXTRACT_EXTENSIONS (includes .xaml). Tests: test_kg_extract.py (renamed from test_dotnet_config.py) + XAML roundtrip in test_miner.py. All tests and lint pass. Hardening round-1: fixed missing uses_command dedup test; backlogged plain Name= attribute support (MINE-XAML-NAME-ATTR); dismissed regex-matches-in-comments as accepted limitation of hybrid approach.
+      resolution: '2026-04-17: Added .xaml language detection, x:Class symbol extraction (view/view_name), and parse_xaml_file() emitting KG triples for code-behind, DataContext ViewModel, x:Name controls, StaticResource/DynamicResource references, and Command bindings. Renamed _DOTNET_CONFIG_EXTENSIONS to _KG_EXTRACT_EXTENSIONS (includes .xaml). Tests: test_kg_extract.py (renamed from test_dotnet_config.py) + XAML roundtrip in test_miner.py. All tests and lint pass. Hardening round-1: fixed missing uses_command dedup test; backlogged plain Name= attribute support (MINE-XAML-NAME-ATTR); dismissed regex-matches-in-comments as accepted limitation of hybrid approach.'
       archived_date: "2026-04-17"
       done_date: "2026-04-17"
       done_summary: 'Added .xaml language detection, x:Class symbol extraction (view/view_name), and parse_xaml_file() emitting KG triples for code-behind, DataContext ViewModel, x:Name controls, StaticResource/DynamicResource references, and Command bindings. Renamed _DOTNET_CONFIG_EXTENSIONS to _KG_EXTRACT_EXTENSIONS (includes .xaml). Tests: test_kg_extract.py (renamed from test_dotnet_config.py) + XAML roundtrip in test_miner.py. All tests and lint pass. Hardening round-1: fixed missing uses_command dedup test; backlogged plain Name= attribute support (MINE-XAML-NAME-ATTR); dismissed regex-matches-in-comments as accepted limitation of hybrid approach.'
@@ -119,8 +116,7 @@ items:
       archived_date: "2026-04-17"
     - key: MCP-ARCH-TOOLS
       summary: Add architecture-oriented MCP tools for .NET repos
-      resolution: |-
-        2026-04-18: Added 4 MCP tools (find_implementations, find_references, show_project_graph, show_type_dependencies) as thin KG query compositions. Added type_dependency_chain() to KnowledgeGraph with cycle detection. Expanded SUPPORTED_LANGUAGES and VALID_SYMBOL_TYPES for .NET. 18 new tests, all AC-1 through AC-13 satisfied. Hardening round-1: 2 fixed, 1 backlogged (ARCH-REF-COVERAGE), 2 dismissed.
+      resolution: '2026-04-18: Added 4 MCP tools (find_implementations, find_references, show_project_graph, show_type_dependencies) as thin KG query compositions. Added type_dependency_chain() to KnowledgeGraph with cycle detection. Expanded SUPPORTED_LANGUAGES and VALID_SYMBOL_TYPES for .NET. 18 new tests, all AC-1 through AC-13 satisfied. Hardening round-1: 2 fixed, 1 backlogged (ARCH-REF-COVERAGE), 2 dismissed.'
       archived_date: "2026-04-18"
       done_date: "2026-04-17"
       done_summary: 'Added 4 MCP tools (find_implementations, find_references, show_project_graph, show_type_dependencies) as thin KG query compositions. Added type_dependency_chain() to KnowledgeGraph with cycle detection. Expanded SUPPORTED_LANGUAGES and VALID_SYMBOL_TYPES for .NET. 18 new tests, all AC-1 through AC-13 satisfied. Hardening round-1: 2 fixed, 1 backlogged (ARCH-REF-COVERAGE), 2 dismissed.'
@@ -179,8 +175,7 @@ items:
       archived_date: "2026-04-19"
     - key: MCP-FILE-CONTEXT
       summary: 'MCP tool: mempalace_file_context — get all chunks for a file'
-      resolution: |-
-        2026-04-20: Added tool_file_context handler + mempalace_file_context TOOLS entry in mcp_server.py; 6 tests covering all 6 ACs
+      resolution: '2026-04-20: Added tool_file_context handler + mempalace_file_context TOOLS entry in mcp_server.py; 6 tests covering all 6 ACs'
       archived_date: "2026-04-20"
       done_date: "2026-04-20"
       done_summary: Added tool_file_context handler + mempalace_file_context TOOLS entry in mcp_server.py; 6 tests covering all 6 ACs
@@ -247,8 +242,7 @@ items:
       archived_date: "2026-04-24"
     - key: MINE-K8S-LARGE-DOC
       summary: 'K8s large-doc symbol propagation: sub-chunks past first lose kind/name metadata'
-      resolution: |-
-        2026-04-25: K8s large-doc symbol propagation: sub-chunks past first lose kind/name metadata
+      resolution: '2026-04-25: K8s large-doc symbol propagation: sub-chunks past first lose kind/name metadata'
       archived_date: "2026-04-25"
     - key: STORAGE-BACKUP-RETENTION
       summary: 'Backup retention policy: auto-prune pre_optimize_*.tar.gz archives so they don''t accumulate indefinitely'
@@ -507,293 +501,235 @@ items:
       done_summary: completed in pipeline run
     - key: FORK-CLAUDE-MD
       summary: Create CLAUDE.md for mempalace project
-      resolution: |-
-        2026-04-08: Create CLAUDE.md for mempalace project
+      resolution: '2026-04-08: Create CLAUDE.md for mempalace project'
       archived_date: "2026-04-08"
     - key: FORK-AUTOPILOT
       summary: Create autopilot.toml for mempalace
-      resolution: |-
-        2026-04-08: Create autopilot.toml for mempalace
+      resolution: '2026-04-08: Create autopilot.toml for mempalace'
       archived_date: "2026-04-08"
     - key: FORK-CI-LANCEDB
       summary: Update CI to install LanceDB instead of ChromaDB
-      resolution: |-
-        2026-04-08: Update CI to install LanceDB instead of ChromaDB
+      resolution: '2026-04-08: Update CI to install LanceDB instead of ChromaDB'
       archived_date: "2026-04-08"
     - key: FORK-PYPROJECT
       summary: Clean up pyproject.toml — remove dialog-first defaults
-      resolution: |-
-        2026-04-08: Clean up pyproject.toml — remove dialog-first defaults
+      resolution: '2026-04-08: Clean up pyproject.toml — remove dialog-first defaults'
       archived_date: "2026-04-08"
     - key: CODE-SMART-CHUNK
       summary: Port smart-mine.py language-aware chunking into miner.py
-      resolution: |-
-        2026-04-08: Port smart-mine.py language-aware chunking into miner.py
+      resolution: '2026-04-08: Port smart-mine.py language-aware chunking into miner.py'
       archived_date: "2026-04-08"
     - key: FORK-README
       summary: Rewrite README for coding-first positioning
-      resolution: |-
-        2026-04-09: Rewrite README for coding-first positioning
+      resolution: '2026-04-09: Rewrite README for coding-first positioning'
       archived_date: "2026-04-09"
     - key: CODE-LANG-DETECT
       summary: Language detection for file-type-specific chunking strategies
-      resolution: |-
-        2026-04-09: Language detection for file-type-specific chunking strategies
+      resolution: '2026-04-09: Language detection for file-type-specific chunking strategies'
       archived_date: "2026-04-09"
     - key: CODE-SYMBOL-META
       summary: Extract and store code symbol metadata per chunk
-      resolution: |-
-        2026-04-09: Extract and store code symbol metadata per chunk
+      resolution: '2026-04-09: Extract and store code symbol metadata per chunk'
       archived_date: "2026-04-09"
     - key: MINE-BATCH-EMBED
       summary: Batch embedding and bulk LanceDB inserts during mining
-      resolution: |-
-        2026-04-10: Batch embedding and bulk LanceDB inserts during mining
+      resolution: '2026-04-10: Batch embedding and bulk LanceDB inserts during mining'
       archived_date: "2026-04-10"
     - key: STORE-DELETE-WING
       summary: 'CLI + MCP: delete all drawers in a wing (bulk nuke for re-mining)'
-      resolution: |-
-        2026-04-10: CLI + MCP: delete all drawers in a wing (bulk nuke for re-mining)
+      resolution: '2026-04-10: CLI + MCP: delete all drawers in a wing (bulk nuke for re-mining)'
       archived_date: "2026-04-10"
     - key: BENCH-EMBED-AB
       summary: 'Run A/B benchmark: all-MiniLM-L6-v2 vs mpnet vs nomic on code + text retrieval'
-      resolution: |-
-        2026-04-10: Run A/B benchmark: all-MiniLM-L6-v2 vs mpnet vs nomic on code + text retrieval
+      resolution: '2026-04-10: Run A/B benchmark: all-MiniLM-L6-v2 vs mpnet vs nomic on code + text retrieval'
       archived_date: "2026-04-10"
     - key: CLI-DIARY-WRITE
       summary: Add 'mempalace diary write' CLI subcommand for clean diary entry creation
-      resolution: |-
-        2026-04-10: Add 'mempalace diary write' CLI subcommand for clean diary entry creation
+      resolution: '2026-04-10: Add ''mempalace diary write'' CLI subcommand for clean diary entry creation'
       archived_date: "2026-04-10"
     - key: STORE-STATUS-LIMIT
       summary: Status and list tools truncate at 10,000 drawers — hides wings in large palaces
-      resolution: |-
-        2026-04-10: Status and list tools truncate at 10,000 drawers — hides wings in large palaces
+      resolution: '2026-04-10: Status and list tools truncate at 10,000 drawers — hides wings in large palaces'
       archived_date: "2026-04-10"
     - key: FUT-EMBEDDING-CHOICE
       summary: Configurable embedding model with A/B benchmark harness
-      resolution: |-
-        2026-04-10: Configurable embedding model with A/B benchmark harness
+      resolution: '2026-04-10: Configurable embedding model with A/B benchmark harness'
       archived_date: "2026-04-10"
     - key: MINE-LANCE-COMPACT
       summary: Full LanceDB mining performance tuning pass
-      resolution: |-
-        2026-04-10: Full LanceDB mining performance tuning pass
+      resolution: '2026-04-10: Full LanceDB mining performance tuning pass'
       archived_date: "2026-04-10"
     - key: STORE-MIGRATION-CLI
       summary: 'CLI command: mempalace migrate-storage (ChromaDB → LanceDB)'
-      resolution: |-
-        2026-04-11: CLI command: mempalace migrate-storage (ChromaDB → LanceDB)
+      resolution: '2026-04-11: CLI command: mempalace migrate-storage (ChromaDB → LanceDB)'
       archived_date: "2026-04-11"
     - key: MCP-PRUNE-AAAK
       summary: Remove AAAK auto-teach from MCP server system prompt
-      resolution: |-
-        2026-04-11: Remove AAAK auto-teach from MCP server system prompt
+      resolution: '2026-04-11: Remove AAAK auto-teach from MCP server system prompt'
       archived_date: "2026-04-11"
     - key: BENCH-EMBED-AB-OUT-MKDIR
       summary: embed_ab_bench.py --out flag should auto-create parent directories
-      resolution: |-
-        2026-04-11: embed_ab_bench.py --out flag should auto-create parent directories
+      resolution: '2026-04-11: embed_ab_bench.py --out flag should auto-create parent directories'
       archived_date: "2026-04-11"
     - key: CODE-INCREMENTAL
       summary: Incremental re-mining — only changed files
-      resolution: |-
-        2026-04-11: Incremental re-mining — only changed files
+      resolution: '2026-04-11: Incremental re-mining — only changed files'
       archived_date: "2026-04-11"
     - key: MCP-CODE-SEARCH
       summary: 'MCP tool: mempalace_code_search — search by symbol/language/file'
-      resolution: |-
-        2026-04-11: MCP tool: mempalace_code_search — search by symbol/language/file
+      resolution: '2026-04-11: MCP tool: mempalace_code_search — search by symbol/language/file'
       archived_date: "2026-04-11"
     - key: STORE-SCHEMA-MIGRATE-RELOAD
       summary: 'LanceDB schema migration: reload table handle after add_columns + cover ALL missing columns (fix migrate-openclaw schema mismatch bug)'
-      resolution: |-
-        2026-04-12: LanceDB schema migration: reload table handle after add_columns + cover ALL missing columns (fix migrate-openclaw schema mismatch bug)
+      resolution: '2026-04-12: LanceDB schema migration: reload table handle after add_columns + cover ALL missing columns (fix migrate-openclaw schema mismatch bug)'
       archived_date: "2026-04-12"
     - key: FORK-MODEL-OFFLINE-HANDOFF
       summary: mempalace fetch-model subcommand + honest 'offline after setup' README claim — unblocks Draft A tagline
-      resolution: |-
-        2026-04-12: mempalace fetch-model subcommand + honest 'offline after setup' README claim — unblocks Draft A tagline
+      resolution: '2026-04-12: mempalace fetch-model subcommand + honest ''offline after setup'' README claim — unblocks Draft A tagline'
       archived_date: "2026-04-12"
     - key: CORE-EXPORT-IMPORT
       summary: mempalace export/import JSONL CLI — backup manual drawers + KG before nuke-and-re-seed workflows
-      resolution: |-
-        2026-04-12: mempalace export/import JSONL CLI — backup manual drawers + KG before nuke-and-re-seed workflows
+      resolution: '2026-04-12: mempalace export/import JSONL CLI — backup manual drawers + KG before nuke-and-re-seed workflows'
       archived_date: "2026-04-12"
     - key: STORE-META-KEYS-DEDUP
       summary: Extract _META_KEYS module constant to eliminate meta_keys duplication in get() and query()
-      resolution: |-
-        2026-04-12: Extract _META_KEYS module constant to eliminate meta_keys duplication in get() and query()
+      resolution: '2026-04-12: Extract _META_KEYS module constant to eliminate meta_keys duplication in get() and query()'
       archived_date: "2026-04-12"
     - key: STORE-SCHEMA-MIGRATION-FULL-ROUNDTRIP-TEST
       summary: 'Add test: all optional metadata fields roundtrip correctly after schema migration'
-      resolution: |-
-        2026-04-12: Add test: all optional metadata fields roundtrip correctly after schema migration
+      resolution: '2026-04-12: Add test: all optional metadata fields roundtrip correctly after schema migration'
       archived_date: "2026-04-12"
     - key: QUAL-STORAGE-TESTS
       summary: Storage backend unit tests — LanceStore edge cases
-      resolution: |-
-        2026-04-12: Storage backend unit tests — LanceStore edge cases
+      resolution: '2026-04-12: Storage backend unit tests — LanceStore edge cases'
       archived_date: "2026-04-12"
     - key: STORE-MIGRATION-NULL-SAFE-DEFAULTS
       summary: add_columns SQL defaults produce NULLs instead of empty strings — use COALESCE or CAST to force non-null
-      resolution: |-
-        2026-04-12: add_columns SQL defaults produce NULLs instead of empty strings — use COALESCE or CAST to force non-null
+      resolution: '2026-04-12: add_columns SQL defaults produce NULLs instead of empty strings — use COALESCE or CAST to force non-null'
       archived_date: "2026-04-12"
     - key: MINE-BATCH-EMBED-DEDUP-UPSERT
       summary: Switch add_drawers_batch to upsert so re-mining is genuinely idempotent for LanceDB
-      resolution: |-
-        2026-04-12: Switch add_drawers_batch to upsert so re-mining is genuinely idempotent for LanceDB
+      resolution: '2026-04-12: Switch add_drawers_batch to upsert so re-mining is genuinely idempotent for LanceDB'
       archived_date: "2026-04-12"
     - key: CODE-SYMBOL-META-SEARCH-SURFACE
       summary: Surface symbol_name and symbol_type in mempalace_search results
-      resolution: |-
-        2026-04-12: Surface symbol_name and symbol_type in mempalace_search results
+      resolution: '2026-04-12: Surface symbol_name and symbol_type in mempalace_search results'
       archived_date: "2026-04-12"
     - key: FORK-README-NEGATE-STALE-CLAIMS
       summary: Remove 100% Haiku rerank row, footnote 96.6% row, rewrite AAAK as lossy, add UPSTREAM_HARDENING pointer
-      resolution: |-
-        2026-04-12: Remove 100% Haiku rerank row, footnote 96.6% row, rewrite AAAK as lossy, add UPSTREAM_HARDENING pointer
+      resolution: '2026-04-12: Remove 100% Haiku rerank row, footnote 96.6% row, rewrite AAAK as lossy, add UPSTREAM_HARDENING pointer'
       archived_date: "2026-04-12"
     - key: FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT
       summary: Add Methodology Caveats section to BENCHMARKS.md covering corpus-cap, assistant-turn indexing, AAAK regression
-      resolution: |-
-        2026-04-12: Add Methodology Caveats section to BENCHMARKS.md covering corpus-cap, assistant-turn indexing, AAAK regression
+      resolution: '2026-04-12: Add Methodology Caveats section to BENCHMARKS.md covering corpus-cap, assistant-turn indexing, AAAK regression'
       archived_date: "2026-04-12"
     - key: DOCS-AGENT-INSTALL-MANUAL
       summary: Write docs/AGENT_INSTALL.md as a decision-tree runbook for coding agents installing mempalace (Claude Code + Codex MCP wiring)
-      resolution: |-
-        2026-04-12: Write docs/AGENT_INSTALL.md as a decision-tree runbook for coding agents installing mempalace (Claude Code + Codex MCP wiring)
+      resolution: '2026-04-12: Write docs/AGENT_INSTALL.md as a decision-tree runbook for coding agents installing mempalace (Claude Code + Codex MCP wiring)'
       archived_date: "2026-04-12"
     - key: HARDEN-WHERE-SQL-IN
       summary: Add $in operator support to _where_to_sql for filter parity with ChromaDB
-      resolution: |-
-        2026-04-12: Add $in operator support to _where_to_sql for filter parity with ChromaDB
+      resolution: '2026-04-12: Add $in operator support to _where_to_sql for filter parity with ChromaDB'
       archived_date: "2026-04-12"
     - key: FORK-DOCS-CLEANUP
       summary: Update CONTRIBUTING.md and adjacent docs to replace stale upstream references
-      resolution: |-
-        2026-04-12: Update CONTRIBUTING.md and adjacent docs to replace stale upstream references
+      resolution: '2026-04-12: Update CONTRIBUTING.md and adjacent docs to replace stale upstream references'
       archived_date: "2026-04-12"
     - key: FORK-README-COMPARISON-TABLE-FOOTNOTE
       summary: Add footnote marker to 96.6% in Fork vs Upstream comparison table
-      resolution: |-
-        2026-04-12: Add footnote marker to 96.6% in Fork vs Upstream comparison table
+      resolution: '2026-04-12: Add footnote marker to 96.6% in Fork vs Upstream comparison table'
       archived_date: "2026-04-12"
     - key: DOCS-EXAMPLE-CLONE-URL
       summary: Fix stale clone URL in examples/gemini_cli_setup.md
-      resolution: |-
-        2026-04-12: Fix stale clone URL in examples/gemini_cli_setup.md
+      resolution: '2026-04-12: Fix stale clone URL in examples/gemini_cli_setup.md'
       archived_date: "2026-04-12"
     - key: AUTOPILOT-PORTABLE-PYTEST
       summary: Make autopilot.toml pytest verify command portable across machines
-      resolution: |-
-        2026-04-12: Make autopilot.toml pytest verify command portable across machines
+      resolution: '2026-04-12: Make autopilot.toml pytest verify command portable across machines'
       archived_date: "2026-04-12"
     - key: AUTOPILOT-QUICK-MODE
       summary: Add quick mode (lint-only) verify steps to autopilot.toml
-      resolution: |-
-        2026-04-12: Add quick mode (lint-only) verify steps to autopilot.toml
+      resolution: '2026-04-12: Add quick mode (lint-only) verify steps to autopilot.toml'
       archived_date: "2026-04-12"
     - key: QUAL-E2E-USER-SCENARIOS
       summary: End-to-end user scenario tests covering 9 real-world workflows
-      resolution: |-
-        2026-04-12: End-to-end user scenario tests covering 9 real-world workflows
+      resolution: '2026-04-12: End-to-end user scenario tests covering 9 real-world workflows'
       archived_date: "2026-04-12"
     - key: CODE-GITIGNORE
       summary: Full .gitignore support in miner (already done, verify)
-      resolution: |-
-        2026-04-14: Full .gitignore support in miner (already done, verify)
+      resolution: '2026-04-14: Full .gitignore support in miner (already done, verify)'
       archived_date: "2026-04-14"
     - key: CODE-TREESITTER
       summary: Tree-sitter integration for precise AST-aware chunking
-      resolution: |-
-        2026-04-14: Tree-sitter integration for precise AST-aware chunking
+      resolution: '2026-04-14: Tree-sitter integration for precise AST-aware chunking'
       archived_date: "2026-04-14"
     - key: REL-SMOKE-TEST
       summary: Pre-release smoke test on clean machines and canonical repos
-      resolution: |-
-        2026-04-14: Pre-release smoke test on clean machines and canonical repos
+      resolution: '2026-04-14: Pre-release smoke test on clean machines and canonical repos'
       archived_date: "2026-04-14"
     - key: LAUNCH-BENCH-TOKEN-DELTA
       summary: 'Publish token-delta benchmark: mempalace_search vs raw grep+read, 15-20 questions, median + P95 ratios'
-      resolution: |-
-        2026-04-14: Publish token-delta benchmark: mempalace_search vs raw grep+read, 15-20 questions, median + P95 ratios
+      resolution: '2026-04-14: Publish token-delta benchmark: mempalace_search vs raw grep+read, 15-20 questions, median + P95 ratios'
       archived_date: "2026-04-14"
     - key: CODE-TREESITTER-INFRA
       summary: 'Tree-sitter infra: py-tree-sitter dep, grammar download/cache, parser init, regex fallback'
-      resolution: |-
-        2026-04-14: Tree-sitter infra: py-tree-sitter dep, grammar download/cache, parser init, regex fallback
+      resolution: '2026-04-14: Tree-sitter infra: py-tree-sitter dep, grammar download/cache, parser init, regex fallback'
       archived_date: "2026-04-14"
     - key: CODE-TREESITTER-PYTHON
       summary: 'Tree-sitter Python chunking: AST-aware function/class/method boundaries'
-      resolution: |-
-        2026-04-14: Tree-sitter Python chunking: AST-aware function/class/method boundaries
+      resolution: '2026-04-14: Tree-sitter Python chunking: AST-aware function/class/method boundaries'
       archived_date: "2026-04-14"
     - key: CODE-TREESITTER-TS
       summary: 'Tree-sitter TypeScript/JS/TSX chunking: AST-aware boundaries'
-      resolution: |-
-        2026-04-14: Tree-sitter TypeScript/JS/TSX chunking: AST-aware boundaries
+      resolution: '2026-04-14: Tree-sitter TypeScript/JS/TSX chunking: AST-aware boundaries'
       archived_date: "2026-04-14"
     - key: CODE-TREESITTER-EXPAND
       summary: Tree-sitter Go + Rust grammar support
-      resolution: |-
-        2026-04-14: Tree-sitter Go + Rust grammar support
+      resolution: '2026-04-14: Tree-sitter Go + Rust grammar support'
       archived_date: "2026-04-14"
     - key: LANG-DETECT-NODEJS-SHEBANG
       summary: Detect nodejs interpreter in shebang patterns
-      resolution: |-
-        2026-04-14: Detect nodejs interpreter in shebang patterns
+      resolution: '2026-04-14: Detect nodejs interpreter in shebang patterns'
       archived_date: "2026-04-14"
     - key: LANG-DETECT-GO-VAR-BODY
       summary: Go var inside function bodies creates spurious chunk boundaries
-      resolution: |-
-        2026-04-14: Go var inside function bodies creates spurious chunk boundaries
+      resolution: '2026-04-14: Go var inside function bodies creates spurious chunk boundaries'
       archived_date: "2026-04-14"
     - key: CODE-SMART-CHUNK-VAR-BOUNDARY
       summary: Add non-exported var to TS_BOUNDARY in chunk_code()
-      resolution: |-
-        2026-04-14: Add non-exported var to TS_BOUNDARY in chunk_code()
+      resolution: '2026-04-14: Add non-exported var to TS_BOUNDARY in chunk_code()'
       archived_date: "2026-04-14"
     - key: MINE-EAGER-EMBED-INIT
       summary: Force eager embedding model init during 'Loading embedding model...' phase
-      resolution: |-
-        2026-04-14: Force eager embedding model init during 'Loading embedding model...' phase
+      resolution: '2026-04-14: Force eager embedding model init during ''Loading embedding model...'' phase'
       archived_date: "2026-04-14"
     - key: CODE-SYMBOL-META-GO-TYPES
       summary: Extract Go type alias and custom scalar type symbols
-      resolution: |-
-        2026-04-14: Extract Go type alias and custom scalar type symbols
+      resolution: '2026-04-14: Extract Go type alias and custom scalar type symbols'
       archived_date: "2026-04-14"
     - key: STORE-BACKUP-RESTORE
       summary: Palace backup and restore commands
-      resolution: |-
-        2026-04-14: Palace backup and restore commands
+      resolution: '2026-04-14: Palace backup and restore commands'
       archived_date: "2026-04-14"
     - key: CODE-SEARCH-LANG-CONFIG
       summary: Allow filtering by config-file languages in code_search (yaml, json, toml)
-      resolution: |-
-        2026-04-14: Allow filtering by config-file languages in code_search (yaml, json, toml)
+      resolution: '2026-04-14: Allow filtering by config-file languages in code_search (yaml, json, toml)'
       archived_date: "2026-04-14"
     - key: CODE-SEARCH-LANG-CPP
       summary: Add C/C++ to miner EXTENSION_LANG_MAP so code_search language="cpp" returns results
-      resolution: |-
-        2026-04-14: Add C/C++ to miner EXTENSION_LANG_MAP so code_search language="cpp" returns results
+      resolution: '2026-04-14: Add C/C++ to miner EXTENSION_LANG_MAP so code_search language="cpp" returns results'
       archived_date: "2026-04-14"
     - key: STORE-WHERE-ARROW-OPS
       summary: _where_to_arrow_mask silently ignores operator dicts — iter_all() returns wrong rows
-      resolution: |-
-        2026-04-14: _where_to_arrow_mask silently ignores operator dicts — iter_all() returns wrong rows
+      resolution: '2026-04-14: _where_to_arrow_mask silently ignores operator dicts — iter_all() returns wrong rows'
       archived_date: "2026-04-14"
     - key: STORE-REMOVE-CHROMA-DEFAULT
       summary: Remove ChromaDB from default install path
-      resolution: |-
-        2026-04-14: Remove ChromaDB from default install path
+      resolution: '2026-04-14: Remove ChromaDB from default install path'
       archived_date: "2026-04-14"
     - key: STORE-CHROMA-DELETE-WING-LIMIT
       summary: Fix ChromaStore.delete_wing to use self.get() so the limit wrapper applies
-      resolution: |-
-        2026-04-14: Fix ChromaStore.delete_wing to use self.get() so the limit wrapper applies
+      resolution: '2026-04-14: Fix ChromaStore.delete_wing to use self.get() so the limit wrapper applies'
       archived_date: "2026-04-14"
     - key: STORE-LANCE-PYRIGHT-NARROWING
       summary: Make LanceStore optional handles Pyright-clean
@@ -824,4 +760,9 @@ items:
       summary: Normalize optional annotations for Pyright
       resolution: '2026-05-11: completed in pipeline run'
       archived_date: "2026-05-11"
+      done_summary: completed in pipeline run
+    - key: STORE-WATCHER-BACKUP-BOUNDED-DEFAULTS
+      summary: Bound watcher pre-optimize backups by default
+      resolution: '2026-05-12: completed in pipeline run'
+      archived_date: "2026-05-12"
       done_summary: completed in pipeline run

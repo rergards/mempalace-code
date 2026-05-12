@@ -43,38 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: STORE-WATCHER-BACKUP-BOUNDED-DEFAULTS
-    summary: Bound watcher pre-optimize backups by default
-    type: task
-    status: open
-    priority: high
-    size: M
-    section_id: storage_reliability
-    labels: [storage, backup, watcher, defaults, disk]
-    description: |-
-      ## Problem
-
-      A long-running `mempalace watch` daemon can create unbounded
-      `pre_optimize_*.tar.gz` archives because auto-backup-before-optimize is enabled
-      while the default `backup_retain_count` is `0` (keep all). On active developer
-      machines this can fill the local data volume even though the live LanceDB palace is
-      small and healthy.
-
-      ## Scope
-
-      - Make watcher/install/onboarding defaults bounded for managed pre-optimize backups.
-      - Ensure default disk floors leave enough room for a temporary backup before prune.
-      - Keep explicit `--out` backups and manual user archives unaffected.
-      - Update docs and tests so users can see the safe default and opt out deliberately.
-
-      ## Acceptance Criteria
-
-      - New watcher installs or first-run config do not keep unlimited pre-optimize backups.
-      - Existing config semantics remain compatible: explicit `backup_retain_count: 0`
-        still means keep all.
-      - Backup creation refuses to proceed when the projected free-space floor would be
-        crossed before retention can prune old archives.
-      - Tests cover watcher/backup config defaults, retention, and disk-budget behavior.
   - key: CODE-TREESITTER-GO-RUST-DETACH-TEST
     summary: Add negative tests for detached-comment gap detection in Go and Rust AST chunkers
     type: task
