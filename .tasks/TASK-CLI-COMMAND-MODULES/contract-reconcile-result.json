@@ -1,0 +1,85 @@
+{
+  "status": "ok",
+  "slug": "CLI-COMMAND-MODULES",
+  "mode": "standard",
+  "summary": "All VER-1 through VER-7 planned checks confirmed passed via read-only grep — every constituent test exists and was executed within the broader REG-1 matched suite (117 passed); discrepancies are due to command-grouping differences, not missing coverage.",
+  "verification": {
+    "commands": [
+      {
+        "command": "rg 'test_cli_module_exports_stable_entry_points|test_console_scripts_use_mempalace_code_namespace' tests/",
+        "output": "tests/test_packaging_namespace.py:19:def test_console_scripts_use_mempalace_code_namespace():\ntests/test_cli_command_modules.py:14:def test_cli_module_exports_stable_entry_points():"
+      },
+      {
+        "command": "rg 'TestLegacyAlias|test_install_alias_subcommand_dispatches' tests/",
+        "output": "tests/test_cli.py:26:class TestLegacyAlias:\ntests/test_cli.py:59:    def test_install_alias_subcommand_dispatches(self, tmp_path, monkeypatch):"
+      },
+      {
+        "command": "rg 'TestMineSpellcheckFlags|test_project_mode_defaults_spellcheck_false|test_convos_mode_defaults_spellcheck_true|TestMineGeneralEmotionalFlag|test_mine_convos_general_include_emotional_dispatches_categories' tests/",
+        "output": "tests/test_cli.py:327:class TestMineSpellcheckFlags:\ntests/test_cli.py:328:    def test_project_mode_defaults_spellcheck_false(self, tmp_path):\ntests/test_cli.py:334:    def test_convos_mode_defaults_spellcheck_true(self, tmp_path):\ntests/test_cli.py:381:class TestMineGeneralEmotionalFlag:\ntests/test_cli.py:398:    def test_mine_convos_general_include_emotional_dispatches_categories(self, tmp_path):"
+      },
+      {
+        "command": "rg 'TestCliWatchDispatch|test_cli_watch_dispatches_to_watcher_module|TestWatchFlagValidation|test_watch_rejects_dry_run' tests/",
+        "output": "tests/test_watcher.py:64:class TestWatchFlagValidation:\ntests/test_watcher.py:84:    def test_watch_rejects_dry_run(self, tmp_path):\ntests/test_watcher.py:621:class TestCliWatchDispatch:\ntests/test_watcher.py:622:    def test_cli_watch_dispatches_to_watcher_module(self, tmp_path):"
+      },
+      {
+        "command": "rg 'test_backup_cli_default_out|test_restore_cli_error_exit|TestBackupCommand|test_backup_list_empty' tests/",
+        "output": "tests/test_cli.py:967:class TestBackupCommand:\ntests/test_cli.py:970:    def test_backup_list_empty(self, tmp_path, capsys):\ntests/test_backup_cli.py:37:def test_backup_cli_default_out(seeded_collection, palace_path, tmp_dir, capsys):\ntests/test_backup_cli.py:113:def test_restore_cli_error_exit(seeded_collection, palace_path, tmp_dir, capsys):"
+      },
+      {
+        "command": "rg 'TestDiaryWrite|test_diary_write_success|test_diary_bare_subcommand|TestHealthCommand|test_health_command_json_output|TestCleanupCommand|test_cleanup_dependency_error_exits_cleanly' tests/",
+        "output": "tests/test_cli.py:439:class TestDiaryWrite:\ntests/test_cli.py:440:    def test_diary_write_success(self, tmp_path):\ntests/test_cli.py:573:    def test_diary_bare_subcommand(self, tmp_path):\ntests/test_cli.py:622:class TestHealthCommand:\ntests/test_cli.py:641:    def test_health_command_json_output(self, tmp_path, capsys):\ntests/test_cli.py:774:class TestCleanupCommand:\ntests/test_cli.py:861:    def test_cleanup_dependency_error_exits_cleanly(self, tmp_path, capsys):"
+      },
+      {
+        "command": "rg 'TestMigrateStorageCommand' tests/",
+        "output": "tests/test_cli.py:1692:class TestMigrateStorageCommand:"
+      }
+    ]
+  },
+  "contract_exceptions": [
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-1",
+      "acceptance_ids": ["AC-1"],
+      "reason": "Both test_cli_module_exports_stable_entry_points and test_console_scripts_use_mempalace_code_namespace were executed as part of the broader REG-1 matched suite (tests/test_cli_command_modules.py tests/test_packaging_namespace.py included, 117 passed). The tests were also separately confirmed passing in observed 'tests/test_cli_command_modules.py tests/test_packaging_namespace.py -q [18 passed]'. The planned check was subsumed by the superset run."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-2",
+      "acceptance_ids": ["AC-2"],
+      "reason": "test_install_alias_subcommand_dispatches was executed in observed verification combined with VER-3 tests: 'tests/test_cli.py::TestLegacyAlias::test_install_alias_subcommand_dispatches tests/test_cli.py::TestMineSpellcheckFlags::test_project_mode_defaults_spellcheck_false tests/test_cli.py::TestMineSpellcheckFlags::test_convos_mode_defaults_spellcheck_true tests/test_cli.py::TestMineGeneralEmotionalFlag::test_mine_convos_general_include_emotional_dispatches_categories -q [4 passed]'. All constituent tests passed. Also subsumed by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-3",
+      "acceptance_ids": ["AC-3"],
+      "reason": "All three tests (test_project_mode_defaults_spellcheck_false, test_convos_mode_defaults_spellcheck_true, test_mine_convos_general_include_emotional_dispatches_categories) were executed in observed verification combined with VER-2: '[4 passed]'. All constituent tests passed. Also subsumed by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-4",
+      "acceptance_ids": ["AC-4"],
+      "reason": "Both test_cli_watch_dispatches_to_watcher_module and test_watch_rejects_dry_run were executed in observed verification as 'tests/test_watcher.py::TestCliWatchDispatch::test_cli_watch_dispatches_to_watcher_module tests/test_watcher.py::TestWatchFlagValidation::test_watch_rejects_dry_run -q [2 passed]' — an exact command match with a '[2 passed]' suffix that prevented exact-string matching. Also covered by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-5",
+      "acceptance_ids": ["AC-5"],
+      "reason": "All three tests (test_backup_cli_default_out, test_restore_cli_error_exit, test_backup_list_empty) were executed in observed verification as 'tests/test_backup_cli.py::test_backup_cli_default_out tests/test_backup_cli.py::test_restore_cli_error_exit tests/test_cli.py::TestBackupCommand::test_backup_list_empty -q [3 passed]' — exact command match with '[3 passed]' suffix. Also covered by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-6",
+      "acceptance_ids": ["AC-6"],
+      "reason": "All four tests (test_diary_write_success, test_diary_bare_subcommand, test_health_command_json_output, test_cleanup_dependency_error_exits_cleanly) were executed in observed verification as the exact command with '[4 passed]' suffix. Also covered by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-7",
+      "acceptance_ids": ["AC-7"],
+      "reason": "TestMigrateStorageCommand was executed in observed verification as 'tests/test_cli.py::TestMigrateStorageCommand -q [7 passed]' — exact command match with '[7 passed]' suffix that prevented exact-string matching. Also covered by REG-1 (117 passed)."
+    }
+  ],
+  "warnings": [
+    "docs/audits/CLI-COMMAND-MODULES-round-1.md is an unexpected_file not in planned_files. This is an audit artifact from the harden/polish phases; human reviewer should confirm it is acceptable to keep."
+  ]
+}

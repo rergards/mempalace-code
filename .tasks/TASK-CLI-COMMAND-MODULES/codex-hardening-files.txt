@@ -1,0 +1,13 @@
+mempalace_code/cli.py
+mempalace_code/cli_commands/__init__.py
+mempalace_code/cli_commands/alias.py
+mempalace_code/cli_commands/backup_restore.py
+mempalace_code/cli_commands/common.py
+mempalace_code/cli_commands/diary.py
+mempalace_code/cli_commands/export_import.py
+mempalace_code/cli_commands/ingest.py
+mempalace_code/cli_commands/maintenance.py
+mempalace_code/cli_commands/model.py
+mempalace_code/cli_commands/query.py
+mempalace_code/cli_commands/watch.py
+tests/test_cli_command_modules.py

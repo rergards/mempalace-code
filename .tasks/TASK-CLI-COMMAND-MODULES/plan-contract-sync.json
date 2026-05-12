@@ -1,0 +1,158 @@
+{
+  "passed": true,
+  "slug": "CLI-COMMAND-MODULES",
+  "planned_files": [
+    "mempalace_code/cli.py",
+    "mempalace_code/cli_commands/__init__.py",
+    "mempalace_code/cli_commands/alias.py",
+    "mempalace_code/cli_commands/backup_restore.py",
+    "mempalace_code/cli_commands/common.py",
+    "mempalace_code/cli_commands/diary.py",
+    "mempalace_code/cli_commands/export_import.py",
+    "mempalace_code/cli_commands/ingest.py",
+    "mempalace_code/cli_commands/maintenance.py",
+    "mempalace_code/cli_commands/model.py",
+    "mempalace_code/cli_commands/query.py",
+    "mempalace_code/cli_commands/watch.py",
+    "tests/test_backup_cli.py",
+    "tests/test_cli.py",
+    "tests/test_cli_command_modules.py",
+    "tests/test_packaging_namespace.py",
+    "tests/test_watcher.py"
+  ],
+  "actual_files": [
+    "docs/audits/CLI-COMMAND-MODULES-polish-1.md",
+    "docs/audits/CLI-COMMAND-MODULES-round-1.md",
+    "mempalace_code/cli.py",
+    "mempalace_code/cli_commands/__init__.py",
+    "mempalace_code/cli_commands/alias.py",
+    "mempalace_code/cli_commands/backup_restore.py",
+    "mempalace_code/cli_commands/common.py",
+    "mempalace_code/cli_commands/diary.py",
+    "mempalace_code/cli_commands/export_import.py",
+    "mempalace_code/cli_commands/ingest.py",
+    "mempalace_code/cli_commands/maintenance.py",
+    "mempalace_code/cli_commands/model.py",
+    "mempalace_code/cli_commands/query.py",
+    "mempalace_code/cli_commands/watch.py",
+    "tests/test_cli_command_modules.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_backup_cli.py::test_backup_cli_default_out tests/test_backup_cli.py::test_restore_cli_error_exit tests/test_cli.py::TestBackupCommand::test_backup_list_empty -q",
+    "python -m pytest tests/test_cli.py::TestDiaryWrite::test_diary_write_success tests/test_cli.py::TestDiaryWrite::test_diary_bare_subcommand tests/test_cli.py::TestHealthCommand::test_health_command_json_output tests/test_cli.py::TestCleanupCommand::test_cleanup_dependency_error_exits_cleanly -q",
+    "python -m pytest tests/test_cli.py::TestLegacyAlias::test_install_alias_subcommand_dispatches -q",
+    "python -m pytest tests/test_cli.py::TestMigrateStorageCommand -q",
+    "python -m pytest tests/test_cli.py::TestMineSpellcheckFlags::test_project_mode_defaults_spellcheck_false tests/test_cli.py::TestMineSpellcheckFlags::test_convos_mode_defaults_spellcheck_true tests/test_cli.py::TestMineGeneralEmotionalFlag::test_mine_convos_general_include_emotional_dispatches_categories -q",
+    "python -m pytest tests/test_cli_command_modules.py tests/test_cli.py tests/test_backup_cli.py tests/test_watcher.py::TestCliWatchDispatch tests/test_watcher.py::TestWatchFlagValidation tests/test_packaging_namespace.py -q",
+    "python -m pytest tests/test_cli_command_modules.py::test_cli_module_exports_stable_entry_points tests/test_packaging_namespace.py::test_console_scripts_use_mempalace_code_namespace -q",
+    "python -m pytest tests/test_e2e.py::test_mine_search_export_nuke_import tests/test_export.py -q",
+    "python -m pytest tests/test_watcher.py::TestCliWatchDispatch::test_cli_watch_dispatches_to_watcher_module tests/test_watcher.py::TestWatchFlagValidation::test_watch_rejects_dry_run -q",
+    "ruff check mempalace_code/ tests/ \u0026\u0026 ruff format --check mempalace_code/ tests/"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_backup_cli.py::test_backup_cli_default_out tests/test_backup_cli.py::test_restore_cli_error_exit tests/test_cli.py::TestBackupCommand::test_backup_list_empty -q  [3 passed]",
+    "python -m pytest tests/test_cli.py::TestDiaryWrite::test_diary_write_success tests/test_cli.py::TestDiaryWrite::test_diary_bare_subcommand tests/test_cli.py::TestHealthCommand::test_health_command_json_output tests/test_cli.py::TestCleanupCommand::test_cleanup_dependency_error_exits_cleanly -q  [4 passed]",
+    "python -m pytest tests/test_cli.py::TestLegacyAlias::test_install_alias_subcommand_dispatches tests/test_cli.py::TestMineSpellcheckFlags::test_project_mode_defaults_spellcheck_false tests/test_cli.py::TestMineSpellcheckFlags::test_convos_mode_defaults_spellcheck_true tests/test_cli.py::TestMineGeneralEmotionalFlag::test_mine_convos_general_include_emotional_dispatches_categories -q  [4 passed]",
+    "python -m pytest tests/test_cli.py::TestMigrateStorageCommand -q  [7 passed]",
+    "python -m pytest tests/test_cli_command_modules.py tests/test_cli.py tests/test_backup_cli.py tests/test_watcher.py::TestCliWatchDispatch tests/test_watcher.py::TestWatchFlagValidation tests/test_packaging_namespace.py -q",
+    "python -m pytest tests/test_cli_command_modules.py tests/test_cli.py tests/test_backup_cli.py tests/test_watcher.py::TestCliWatchDispatch tests/test_watcher.py::TestWatchFlagValidation tests/test_packaging_namespace.py -q  [117 passed — REG-1]",
+    "python -m pytest tests/test_cli_command_modules.py tests/test_packaging_namespace.py -q  [18 passed]",
+    "python -m pytest tests/test_e2e.py::test_mine_search_export_nuke_import tests/test_export.py -q",
+    "python -m pytest tests/test_e2e.py::test_mine_search_export_nuke_import tests/test_export.py -q  [14 passed — REG-2]",
+    "python -m pytest tests/test_watcher.py::TestCliWatchDispatch::test_cli_watch_dispatches_to_watcher_module tests/test_watcher.py::TestWatchFlagValidation::test_watch_rejects_dry_run -q  [2 passed]",
+    "rg 'TestCliWatchDispatch|test_cli_watch_dispatches_to_watcher_module|TestWatchFlagValidation|test_watch_rejects_dry_run' tests/",
+    "rg 'TestDiaryWrite|test_diary_write_success|test_diary_bare_subcommand|TestHealthCommand|test_health_command_json_output|TestCleanupCommand|test_cleanup_dependency_error_exits_cleanly' tests/",
+    "rg 'TestLegacyAlias|test_install_alias_subcommand_dispatches' tests/",
+    "rg 'TestMigrateStorageCommand' tests/",
+    "rg 'TestMineSpellcheckFlags|test_project_mode_defaults_spellcheck_false|test_convos_mode_defaults_spellcheck_true|TestMineGeneralEmotionalFlag|test_mine_convos_general_include_emotional_dispatches_categories' tests/",
+    "rg 'test_backup_cli_default_out|test_restore_cli_error_exit|TestBackupCommand|test_backup_list_empty' tests/",
+    "rg 'test_cli_module_exports_stable_entry_points|test_console_scripts_use_mempalace_code_namespace' tests/",
+    "ruff check mempalace/ tests/",
+    "ruff check mempalace_code/ tests/ \u0026\u0026 ruff format --check mempalace_code/ tests/",
+    "ruff check mempalace_code/ tests/ \u0026\u0026 ruff format --check mempalace_code/ tests/  [clean — REG-3]",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_cli_command_modules.py tests/test_cli.py tests/test_backup_cli.py tests/test_watcher.py::TestCliWatchDispatch tests/test_watcher.py::TestWatchFlagValidation tests/test_packaging_namespace.py -q",
+      "matched": "python -m pytest tests/test_cli_command_modules.py tests/test_cli.py tests/test_backup_cli.py tests/test_watcher.py::TestCliWatchDispatch tests/test_watcher.py::TestWatchFlagValidation tests/test_packaging_namespace.py -q",
+      "method": "exact"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python -m pytest tests/test_e2e.py::test_mine_search_export_nuke_import tests/test_export.py -q",
+      "matched": "python -m pytest tests/test_e2e.py::test_mine_search_export_nuke_import tests/test_export.py -q",
+      "method": "exact"
+    },
+    {
+      "id": "REG-3",
+      "planned": "ruff check mempalace_code/ tests/ \u0026\u0026 ruff format --check mempalace_code/ tests/",
+      "matched": "ruff check mempalace_code/ tests/ \u0026\u0026 ruff format --check mempalace_code/ tests/",
+      "method": "exact"
+    }
+  ],
+  "exceptions": [
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-1",
+      "acceptance_ids": [
+        "AC-1"
+      ],
+      "reason": "Both test_cli_module_exports_stable_entry_points and test_console_scripts_use_mempalace_code_namespace were executed as part of the broader REG-1 matched suite (tests/test_cli_command_modules.py tests/test_packaging_namespace.py included, 117 passed). The tests were also separately confirmed passing in observed 'tests/test_cli_command_modules.py tests/test_packaging_namespace.py -q [18 passed]'. The planned check was subsumed by the superset run."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-2",
+      "acceptance_ids": [
+        "AC-2"
+      ],
+      "reason": "test_install_alias_subcommand_dispatches was executed in observed verification combined with VER-3 tests: 'tests/test_cli.py::TestLegacyAlias::test_install_alias_subcommand_dispatches tests/test_cli.py::TestMineSpellcheckFlags::test_project_mode_defaults_spellcheck_false tests/test_cli.py::TestMineSpellcheckFlags::test_convos_mode_defaults_spellcheck_true tests/test_cli.py::TestMineGeneralEmotionalFlag::test_mine_convos_general_include_emotional_dispatches_categories -q [4 passed]'. All constituent tests passed. Also subsumed by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-3",
+      "acceptance_ids": [
+        "AC-3"
+      ],
+      "reason": "All three tests (test_project_mode_defaults_spellcheck_false, test_convos_mode_defaults_spellcheck_true, test_mine_convos_general_include_emotional_dispatches_categories) were executed in observed verification combined with VER-2: '[4 passed]'. All constituent tests passed. Also subsumed by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-4",
+      "acceptance_ids": [
+        "AC-4"
+      ],
+      "reason": "Both test_cli_watch_dispatches_to_watcher_module and test_watch_rejects_dry_run were executed in observed verification as 'tests/test_watcher.py::TestCliWatchDispatch::test_cli_watch_dispatches_to_watcher_module tests/test_watcher.py::TestWatchFlagValidation::test_watch_rejects_dry_run -q [2 passed]' — an exact command match with a '[2 passed]' suffix that prevented exact-string matching. Also covered by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-5",
+      "acceptance_ids": [
+        "AC-5"
+      ],
+      "reason": "All three tests (test_backup_cli_default_out, test_restore_cli_error_exit, test_backup_list_empty) were executed in observed verification as 'tests/test_backup_cli.py::test_backup_cli_default_out tests/test_backup_cli.py::test_restore_cli_error_exit tests/test_cli.py::TestBackupCommand::test_backup_list_empty -q [3 passed]' — exact command match with '[3 passed]' suffix. Also covered by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-6",
+      "acceptance_ids": [
+        "AC-6"
+      ],
+      "reason": "All four tests (test_diary_write_success, test_diary_bare_subcommand, test_health_command_json_output, test_cleanup_dependency_error_exits_cleanly) were executed in observed verification as the exact command with '[4 passed]' suffix. Also covered by REG-1 (117 passed)."
+    },
+    {
+      "type": "skipped_planned_verification",
+      "id": "VER-7",
+      "acceptance_ids": [
+        "AC-7"
+      ],
+      "reason": "TestMigrateStorageCommand was executed in observed verification as 'tests/test_cli.py::TestMigrateStorageCommand -q [7 passed]' — exact command match with '[7 passed]' suffix that prevented exact-string matching. Also covered by REG-1 (117 passed)."
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}
