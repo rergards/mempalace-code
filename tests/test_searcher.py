@@ -1187,7 +1187,13 @@ class TestAnsibleLanguageSupport:
         """Ansible symbol types appear in valid_symbol_types hint on an invalid type query."""
         result = code_search(ansible_palace_path, "something", symbol_type="notarealtype")
         assert "valid_symbol_types" in result
-        for sym in ("ansible_play", "ansible_task", "ansible_handler", "ansible_vars", "ansible_inventory"):
+        for sym in (
+            "ansible_play",
+            "ansible_task",
+            "ansible_handler",
+            "ansible_vars",
+            "ansible_inventory",
+        ):
             assert sym in result["valid_symbol_types"], (
                 f"Symbol type {sym!r} missing from valid_symbol_types hint"
             )
