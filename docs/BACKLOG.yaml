@@ -79,27 +79,3 @@ items:
       4. Both tests would FAIL if the b'\n\n' gap check were removed from the respective chunker
       5. ruff clean
       Identified in CODE-TREESITTER-EXPAND harden round-1 (F-2).
-  - key: MINE-ANSIBLE
-    summary: Add Ansible support to code miner
-    type: feature
-    status: open
-    priority: medium
-    section_id: coding_first
-    labels: [feat, miner, infra]
-    description: |-
-      ## Problem
-      Ansible playbooks/roles parsed as generic YAML.
-
-      ## Scope
-      Clarified first-pass scope: static YAML structure indexing for playbooks and roles without executing or resolving Ansible/Jinja semantics.
-
-      - Detect playbooks and role directory structure
-      - Extract: play names/hosts, task and handler names/modules, role names, vars file paths
-      - Handle: Jinja2 delimiters as tolerated raw text so templated YAML remains indexable
-      - Out of scope: inventory parsing beyond file detection, variable resolution, Jinja evaluation, collection/plugin semantics
-
-      ## Acceptance Criteria
-      - [ ] Playbooks indexed by play name, hosts, tasks
-      - [ ] Roles indexed by role name and structure
-      - [ ] Tests for: playbook, role, inventory file
-    size: S
