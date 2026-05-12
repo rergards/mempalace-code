@@ -3640,6 +3640,31 @@ def test_chunk_helm_chart_produces_helm_chart_symbol():
     assert chunks[0]["chunk_index"] == 0
 
 
+def test_chunk_helm_values_small_sections_fallback_to_full_file():
+    """_chunk_helm_values returns a full-file chunk when every section is below MIN_CHUNK.
+
+    A real-world values.yaml with flat scalar keys (replicaCount, namespace, …) would
+    produce zero per-section chunks because each section is <100 chars. The file must
+    still be indexed as a single chunk rather than silently dropped.
+    """
+    small_values = (
+        "# Helm chart values for the production deployment environment\n"
+        "replicaCount: 3\n"
+        "nameOverride: \"\"\n"
+        "fullnameOverride: \"\"\n"
+        "namespace: production\n"
+        "serviceAccount: default\n"
+        "podAnnotations: {}\n"
+        "podSecurityContext: {}\n"
+    )
+    assert len(small_values.strip()) >= 100, "fixture must be >= MIN_CHUNK to exercise the fallback"
+    chunks = _chunk_helm_values(small_values, "values.yaml")
+    assert len(chunks) == 1, f"Expected 1 fallback chunk, got {len(chunks)}"
+    assert chunks[0]["symbol_type"] == "helm_values"
+    assert chunks[0]["symbol_name"] == ""
+    assert chunks[0]["chunk_index"] == 0
+
+
 # =============================================================================
 # Scala language — mine() roundtrip + .sc script roundtrip
 # =============================================================================

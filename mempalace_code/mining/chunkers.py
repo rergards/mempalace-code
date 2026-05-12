@@ -457,6 +457,14 @@ def _chunk_helm_values(content: str, source_file: str) -> list:
             chunk["symbol_type"] = "helm_values"
         all_chunks.extend(sub_chunks)
 
+    if not all_chunks:
+        # All sections were below MIN_CHUNK (e.g. flat scalar-only values files).
+        # Fall back to a single full-file chunk so the file is not silently skipped.
+        stripped = content.strip()
+        if len(stripped) >= MIN_CHUNK:
+            return [{"content": stripped, "chunk_index": 0, "symbol_type": "helm_values", "symbol_name": ""}]
+        return []
+
     return [
         {
             "content": c["content"],
