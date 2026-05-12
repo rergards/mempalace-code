@@ -79,30 +79,6 @@ items:
       4. Both tests would FAIL if the b'\n\n' gap check were removed from the respective chunker
       5. ruff clean
       Identified in CODE-TREESITTER-EXPAND harden round-1 (F-2).
-  - key: MINE-HELM
-    summary: Add Helm chart support to code miner
-    type: feature
-    status: open
-    priority: medium
-    section_id: coding_first
-    labels: [feat, miner, infra]
-    description: |-
-      ## Problem
-      Helm charts parsed as generic YAML without understanding template structure.
-
-      ## Scope
-      Clarified first-pass scope: raw Helm chart indexing without rendering templates or evaluating Go template expressions.
-
-      - Detect Chart.yaml, values.yaml, templates/
-      - Extract: chart metadata, top-level values paths, template resource kind/name when visible in raw YAML
-      - Handle: Go template delimiters as tolerated raw text so templated manifests do not fall back to useless generic chunks
-      - Out of scope: helm template rendering, values substitution, schema validation
-
-      ## Acceptance Criteria
-      - [ ] Helm charts indexed with chart name, version, dependencies
-      - [ ] Template resources extracted on a best-effort basis despite {{ }} syntax
-      - [ ] Tests for: Chart.yaml, values.yaml, templated Deployment
-    size: S
   - key: MINE-ANSIBLE
     summary: Add Ansible support to code miner
     type: feature

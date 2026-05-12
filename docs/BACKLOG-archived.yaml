@@ -811,3 +811,8 @@ items:
       resolution: '2026-05-12: completed in pipeline run'
       archived_date: "2026-05-12"
       done_summary: completed in pipeline run
+    - key: MINE-HELM
+      summary: Add Helm chart support to code miner
+      resolution: '2026-05-12: completed in pipeline run'
+      archived_date: "2026-05-12"
+      done_summary: completed in pipeline run
