@@ -177,19 +177,19 @@ task_contract:
       mitigation: "Keep parser helpers pure and AC-7 verifies malformed XML, C# invalidation, and Python KG emission."
   verification:
     - id: VER-1
-      command: "python -m pytest tests/test_miner_modules.py::test_miner_compatibility_exports_existing_import_surface -q"
+      command: "python -m pytest tests/test_miner_modules.py -q"
       proves: "miner.py remains a compatibility import surface for existing consumers"
       acceptance_ids: [AC-1]
     - id: VER-2
-      command: "python -m pytest tests/test_miner.py::test_mine_end_to_end_language_metadata tests/test_miner.py::test_process_file_python_symbol_roundtrip -q"
+      command: "python -m pytest tests/test_miner.py::test_mine_end_to_end_language_metadata tests/test_miner.py::test_process_file_python_symbol_roundtrip tests/test_miner.py::test_scan_project_does_not_reinclude_file_from_ignored_directory tests/test_miner.py::test_scan_project_can_include_exact_file_without_known_extension -q"
       proves: "project mining still writes language and symbol metadata for Python drawers"
       acceptance_ids: [AC-2]
     - id: VER-3
-      command: "python -m pytest tests/test_miner.py::test_scan_project_does_not_reinclude_file_from_ignored_directory tests/test_miner.py::test_scan_project_can_include_exact_file_without_known_extension tests/test_watcher.py::TestIsRelevantChange::test_app_scan_excludes_match_scan_project -q"
+      command: "python -m pytest tests/test_watcher.py::TestIsRelevantChange::test_app_scan_excludes_match_scan_project tests/test_lang_detect.py::test_k8s_yaml_content_returns_kubernetes tests/test_lang_detect.py::test_k8s_detection_requires_both_fields tests/test_language_catalog.py::test_catalog_preserves_current_detection_labels -q"
       proves: "scanner and watcher filtering preserve ignore/include/app-exclude behavior"
       acceptance_ids: [AC-3]
     - id: VER-4
-      command: "python -m pytest tests/test_lang_detect.py::test_k8s_yaml_content_returns_kubernetes tests/test_lang_detect.py::test_k8s_detection_requires_both_fields tests/test_language_catalog.py::test_catalog_preserves_current_detection_labels -q"
+      command: "python -m pytest tests/test_watcher.py::TestIsRelevantChange::test_app_scan_excludes_match_scan_project tests/test_lang_detect.py::test_k8s_yaml_content_returns_kubernetes tests/test_lang_detect.py::test_k8s_detection_requires_both_fields tests/test_language_catalog.py::test_catalog_preserves_current_detection_labels -q"
       proves: "language detection and miner-visible catalog constants are unchanged"
       acceptance_ids: [AC-4]
     - id: VER-5
