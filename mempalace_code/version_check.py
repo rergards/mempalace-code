@@ -263,7 +263,7 @@ def run_automatic_check(
 
     Hints to stderr only; never raises; rate-limits errors so failures don't retry every command.
     """
-    _fetch = fetch_fn if fetch_fn is not None else (lambda: fetch_latest_version())
+    _fetch = fetch_fn if fetch_fn is not None else fetch_latest_version
     _stderr = (
         stderr_fn if stderr_fn is not None else (lambda s: print(s, file=sys.stderr, flush=True))
     )
@@ -298,7 +298,7 @@ def run_check_now(
     stdout_fn: Optional[Callable[[str], None]] = None,
 ) -> None:
     """Run an explicit version check, printing results or network errors to stdout."""
-    _fetch = fetch_fn if fetch_fn is not None else (lambda: fetch_latest_version())
+    _fetch = fetch_fn if fetch_fn is not None else fetch_latest_version
     _stdout = stdout_fn if stdout_fn is not None else (lambda s: print(s, flush=True))
 
     _stdout(f"  Current version:  {current_version}")

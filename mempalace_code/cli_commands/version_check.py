@@ -55,7 +55,7 @@ def cmd_version_check(args):
     if getattr(args, "check_now", False):
         run_check_now(
             current_version=__version__,
-            fetch_fn=lambda: fetch_latest_version(),
+            fetch_fn=fetch_latest_version,
         )
         return
 
