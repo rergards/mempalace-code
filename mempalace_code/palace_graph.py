@@ -42,8 +42,8 @@ def build_graph(col=None, config=None):
     Build the palace graph from drawer metadata.
 
     Returns:
-        nodes: dict of {room: {wings: set, halls: set, count: int}}
-        edges: list of {room, wing_a, wing_b, hall} — one per tunnel crossing
+        nodes: dict of {room: {wings: list[str], halls: list[str], count: int, dates: list[str]}}
+        edges: list of {room, wing_a, wing_b, hall, count} — one per tunnel crossing
     """
     if col is None:
         col = _get_store(config)

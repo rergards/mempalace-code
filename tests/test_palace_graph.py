@@ -137,7 +137,7 @@ class TestBuildGraphOutputShape:
         assert edges == []
 
     def test_dates_limited_to_five_most_recent(self):
-        """dates field keeps only the last 5 sorted date strings."""
+        """dates field keeps only the 5 most recent sorted date strings, not just any 5."""
         metadatas = [
             {"wing": "w", "room": "room1", "hall": "", "date": f"2026-0{i}-01"} for i in range(1, 8)
         ]
@@ -145,7 +145,13 @@ class TestBuildGraphOutputShape:
 
         nodes, _ = build_graph(col=store)
 
-        assert len(nodes["room1"]["dates"]) == 5
+        assert nodes["room1"]["dates"] == [
+            "2026-03-01",
+            "2026-04-01",
+            "2026-05-01",
+            "2026-06-01",
+            "2026-07-01",
+        ]
 
 
 class TestTraverseOutputShape:
@@ -196,6 +202,17 @@ class TestTraverseOutputShape:
 
         assert isinstance(result, dict)
         assert "error" in result
+
+    def test_traverse_respects_max_hops(self):
+        """Rooms reachable only beyond max_hops are excluded from results."""
+        result = traverse("backend", col=self._make_store(), max_hops=1)
+
+        assert isinstance(result, list)
+        rooms = {r["room"] for r in result}
+        # architecture is hop 1 (shares alpha with backend) — included
+        assert "architecture" in rooms
+        # frontend is hop 2 (shares beta with architecture) — excluded at max_hops=1
+        assert "frontend" not in rooms
 
 
 class TestFindTunnelsOutputShape:

@@ -1,0 +1,10 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/GRAPH-TYPED-PAYLOADS-round-1.md",
+    "mempalace_code/palace_graph.py",
+    "tests/test_palace_graph.py"
+  ],
+  "before_sha": "3dc1886",
+  "timestamp": "2026-05-12T16:09:38Z"
+}
