@@ -771,3 +771,8 @@ items:
       resolution: '2026-05-12: completed in pipeline run'
       archived_date: "2026-05-12"
       done_summary: completed in pipeline run
+    - key: REFAC-MINER-MODULES
+      summary: Split miner.py into focused modules
+      resolution: '2026-05-12: completed in pipeline run'
+      archived_date: "2026-05-12"
+      done_summary: completed in pipeline run

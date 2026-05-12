@@ -153,33 +153,6 @@ items:
     links:
       - type: is-blocked-by
         key: CLARIFY-MINE-ANSIBLE
-  - key: REFAC-MINER-MODULES
-    summary: Split miner.py into focused modules
-    type: task
-    status: open
-    priority: medium
-    section_id: cleanup
-    labels: [refactor, miner, maintainability, review]
-    description: |-
-      ## Problem
-      `mempalace_code/miner.py` has grown into a multi-thousand-line module mixing
-      scan policy, language detection, regex chunkers, AST chunkers, KG extraction, and
-      orchestration. The size now makes review, Pyright cleanup, and language additions
-      more expensive than necessary.
-
-      ## Scope
-      - Split scanner/project-walk logic, language catalog, chunkers, symbol extraction,
-        KG extraction, and mining orchestration into focused modules.
-      - Preserve public imports or provide compatibility shims for existing callers.
-      - Move tests gradually so behavior coverage stays intact throughout the split.
-
-      ## Acceptance Criteria
-      - Existing CLI, MCP, and test imports keep working.
-      - Language detection and chunking tests pass without broad rewrites.
-      - The split lowers module ownership boundaries enough that future language work can
-        touch a smaller file set.
-      - Ruff and targeted miner tests pass.
-    size: L
   - key: CLI-COMMAND-MODULES
     summary: Split cli.py into command modules
     type: task
