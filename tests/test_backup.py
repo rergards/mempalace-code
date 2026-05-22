@@ -850,9 +850,13 @@ class TestManagedRetention:
 
         backups_dir = os.path.join(tmp_dir, "backups")
         remaining = [
-            f for f in os.listdir(backups_dir) if f.startswith("scheduled_") and f.endswith(".tar.gz")
+            f
+            for f in os.listdir(backups_dir)
+            if f.startswith("scheduled_") and f.endswith(".tar.gz")
         ]
-        assert len(remaining) == 14, f"expected 14 archives after default prune, got {len(remaining)}"
+        assert len(remaining) == 14, (
+            f"expected 14 archives after default prune, got {len(remaining)}"
+        )
 
     def test_default_scheduled_retain_0_keeps_all(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
@@ -874,9 +878,13 @@ class TestManagedRetention:
 
         backups_dir = os.path.join(tmp_dir, "backups")
         remaining = [
-            f for f in os.listdir(backups_dir) if f.startswith("scheduled_") and f.endswith(".tar.gz")
+            f
+            for f in os.listdir(backups_dir)
+            if f.startswith("scheduled_") and f.endswith(".tar.gz")
         ]
-        assert len(remaining) == 15, f"expected all 15 kept with retain_count=0, got {len(remaining)}"
+        assert len(remaining) == 15, (
+            f"expected all 15 kept with retain_count=0, got {len(remaining)}"
+        )
 
     def test_explicit_scheduled_retain_3_keeps_three(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
@@ -898,7 +906,9 @@ class TestManagedRetention:
 
         backups_dir = os.path.join(tmp_dir, "backups")
         remaining = [
-            f for f in os.listdir(backups_dir) if f.startswith("scheduled_") and f.endswith(".tar.gz")
+            f
+            for f in os.listdir(backups_dir)
+            if f.startswith("scheduled_") and f.endswith(".tar.gz")
         ]
         assert len(remaining) == 3, f"expected 3 archives with retain_count=3, got {len(remaining)}"
 
@@ -917,7 +927,9 @@ class TestManagedRetention:
             create_backup(palace_path, out_path=path, kind="scheduled", kg_path=kg_path)
 
         remaining = [f for f in os.listdir(backups_dir) if f.startswith("scheduled_explicit_")]
-        assert len(remaining) == 16, "explicit-path archives must not be pruned by managed retention"
+        assert len(remaining) == 16, (
+            "explicit-path archives must not be pruned by managed retention"
+        )
 
 
 # ── TestDiskPreflight ───────────────────────────────────────────────────────────
@@ -1047,7 +1059,9 @@ class TestDiskPreflight:
 
         # Still exactly 16 — no new archive written, no existing archive pruned
         remaining = [f for f in os.listdir(backups_dir) if f.startswith("scheduled_")]
-        assert len(remaining) == 16, f"expected 16 archives unchanged after budget refusal, got {len(remaining)}"
+        assert len(remaining) == 16, (
+            f"expected 16 archives unchanged after budget refusal, got {len(remaining)}"
+        )
 
 
 # ── TestListBackupsAnnotations ──────────────────────────────────────────────────
@@ -1185,9 +1199,13 @@ class TestListBackupsAnnotations:
         pre_optimize = [e for e in result if e["kind"] == "pre_optimize"]
         manual = [e for e in result if e["kind"] == "manual"]
 
-        assert all(not e["stale"] for e in scheduled), "scheduled under implicit 14 must not be stale"
+        assert all(not e["stale"] for e in scheduled), (
+            "scheduled under implicit 14 must not be stale"
+        )
         stale_pre_opt = [e for e in pre_optimize if e["stale"]]
-        assert len(stale_pre_opt) == 1, f"only the oldest pre_optimize should be stale; got {stale_pre_opt}"
+        assert len(stale_pre_opt) == 1, (
+            f"only the oldest pre_optimize should be stale; got {stale_pre_opt}"
+        )
         assert all(not e["stale"] for e in manual), "manual archives must not be stale by default"
 
 

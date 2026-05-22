@@ -445,7 +445,10 @@ def test_invalid_env_retain_count_is_not_explicit(monkeypatch):
 
 def test_default_kind_retention_counts(monkeypatch):
     """AC-1: Fresh config resolves scheduled to 14, pre_optimize to 5, manual to 0."""
-    from mempalace_code.config import DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT, DEFAULT_SCHEDULED_RETAIN_COUNT
+    from mempalace_code.config import (
+        DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT,
+        DEFAULT_SCHEDULED_RETAIN_COUNT,
+    )
 
     monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
     cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
