@@ -440,8 +440,6 @@ def test_invalid_env_retain_count_is_not_explicit(monkeypatch):
 
 def test_negative_file_config_retain_count_is_not_explicit(monkeypatch):
     """A negative backup_retain_count in file config must not suppress implicit per-kind defaults."""
-    import json
-
     from mempalace_code.config import (
         DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT,
         DEFAULT_SCHEDULED_RETAIN_COUNT,
