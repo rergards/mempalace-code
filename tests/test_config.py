@@ -438,6 +438,26 @@ def test_invalid_env_retain_count_is_not_explicit(monkeypatch):
     assert cfg.retain_count_for_kind("pre_optimize") == DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
 
 
+def test_negative_file_config_retain_count_is_not_explicit(monkeypatch):
+    """A negative backup_retain_count in file config must not suppress implicit per-kind defaults."""
+    import json
+
+    from mempalace_code.config import (
+        DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT,
+        DEFAULT_SCHEDULED_RETAIN_COUNT,
+    )
+
+    monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
+    cfg_dir = tempfile.mkdtemp()
+    with open(os.path.join(cfg_dir, "config.json"), "w") as f:
+        json.dump({"backup_retain_count": -5}, f)
+    cfg = MempalaceConfig(config_dir=cfg_dir)
+
+    assert cfg._backup_retain_count_explicit is False
+    assert cfg.retain_count_for_kind("scheduled") == DEFAULT_SCHEDULED_RETAIN_COUNT
+    assert cfg.retain_count_for_kind("pre_optimize") == DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
+
+
 # =============================================================================
 # Scheduled retention defaults tests (AC-1, AC-2, AC-3)
 # =============================================================================
