@@ -4736,12 +4736,15 @@ def test_line_range_metadata_repeated_chunk_text():
                 assert le > 0, f"Partial range: line_start={ls}, line_end={le}"
                 assert ls <= le, f"Inverted range: line_start={ls} > line_end={le}"
 
-        # Multiple chunks must have non-overlapping or sequentially advancing start lines
+        # Multiple chunks must all have positive ranges (cursor match must work for repeated text)
         with_ranges = [(m["line_start"], m["line_end"]) for m in metas if m["line_start"] > 0]
+        assert len(with_ranges) == len(metas), (
+            f"All chunks must have positive line ranges; got {with_ranges} out of {len(metas)}"
+        )
         with_ranges.sort()
         for i in range(1, len(with_ranges)):
             prev_start, _ = with_ranges[i - 1]
             cur_start, _ = with_ranges[i]
-            assert cur_start >= prev_start, f"Out-of-order ranges: {with_ranges}"
+            assert cur_start > prev_start, f"Chunks must have distinct start lines: {with_ranges}"
     finally:
         shutil.rmtree(tmpdir)

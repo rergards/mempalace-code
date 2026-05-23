@@ -225,3 +225,31 @@ class TestReadSlice:
         result = read_slice(sliceable_store, "/src/sliceable.py", 1, 10)
         line_nos = [e["line"] for e in result["lines"]]
         assert len(line_nos) == len(set(line_nos))
+
+    def test_wing_filter_restricts_to_matching_wing(self, palace_path):
+        """read_slice: wing filter returns not_found when no chunk in that wing (AC-3)."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["wf_chunk0"],
+            documents=["def foo(): return True"],
+            metadatas=[
+                {
+                    "wing": "proj_a",
+                    "room": "backend",
+                    "source_file": "/src/foo.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 1,
+                }
+            ],
+        )
+        # Correct wing finds the chunk
+        result_ok = read_slice(store, "/src/foo.py", 1, 1, wing="proj_a")
+        assert "error" not in result_ok
+        assert result_ok["lines"][0]["text"] == "def foo(): return True"
+
+        # Wrong wing returns not_found (chunk exists but not in proj_b)
+        result_miss = read_slice(store, "/src/foo.py", 1, 1, wing="proj_b")
+        assert result_miss["error"] == "not_found"

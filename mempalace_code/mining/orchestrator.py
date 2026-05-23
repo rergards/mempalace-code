@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+import re
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -113,6 +114,23 @@ def add_drawer(
 # =============================================================================
 
 
+def _find_chunk_in_content(content: str, chunk_text: str, cursor: int) -> tuple[int, int]:
+    """Find chunk_text in content starting at cursor, matching newlines flexibly.
+
+    The chunker may join blocks with \\n\\n while the source uses a single \\n.
+    Splits chunk_text on runs of newlines and joins the escaped parts with \\n+
+    so the regex matches both single and double newlines between lines.
+
+    Returns (start, end) positions in content, or (-1, -1) when not found.
+    """
+    parts = re.split(r"\n+", chunk_text)
+    pattern = r"\n+".join(re.escape(p) for p in parts)
+    m = re.search(pattern, content[cursor:])
+    if m:
+        return cursor + m.start(), cursor + m.end()
+    return -1, -1
+
+
 def _collect_specs_for_file(
     filepath: Path,
     project_path: Path,
@@ -175,11 +193,11 @@ def _collect_specs_for_file(
         markdown_metadata = chunk.get("markdown_metadata", {})
 
         chunk_text = chunk["content"]
-        pos = content.find(chunk_text, _cursor)
-        if pos != -1:
-            line_start = content.count("\n", 0, pos) + 1 + _line_offset
-            line_end = content.count("\n", 0, pos + len(chunk_text)) + 1 + _line_offset
-            _cursor = pos + len(chunk_text)
+        pos_start, pos_end = _find_chunk_in_content(content, chunk_text, _cursor)
+        if pos_start != -1:
+            line_start = content.count("\n", 0, pos_start) + 1 + _line_offset
+            line_end = content.count("\n", 0, pos_end) + 1 + _line_offset
+            _cursor = pos_end
         else:
             line_start = 0
             line_end = 0
