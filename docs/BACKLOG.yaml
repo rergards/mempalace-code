@@ -42,4 +42,126 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: UPSTREAM-KG-TEMPORAL-VALIDATION
+    summary: Validate KG temporal parameters and persist full time windows
+    type: task
+    status: open
+    priority: high
+    size: S
+    section_id: mcp_developer_tools
+    labels: [upstream, parent, kg, data-integrity]
+    description: |
+      ## Scope
+
+      Adapt the useful part of upstream v3.3.5 KG hardening for this fork: validate temporal KG inputs, reject inverted validity windows, and make the MCP KG tools preserve the full time window instead of only `valid_from`.
+
+      Current fork check:
+      - `mempalace_code/knowledge_graph.py` accepts arbitrary temporal strings and compares them lexicographically.
+      - `mempalace_code/mcp/tools/kg.py` exposes only `valid_from` on `mempalace_kg_add`; `valid_to` and `source_file` are not forwarded.
+
+      Upstream evidence: MemPalace v3.3.5 fixes around #1214, #1167, #1314, and #1417.
+
+      ## Acceptance criteria
+
+      - KG Python API and MCP paths validate `as_of`, `valid_from`, `valid_to`, and `ended` consistently.
+      - `valid_to < valid_from` is rejected before a row is written.
+      - `mempalace_kg_add` can store `valid_to`, `source_closet`, and `source_file`.
+      - Tests cover valid dates, valid UTC datetimes, rejected natural-language dates, rejected inverted windows, and unchanged query/timeline behavior for valid rows.
+
+  - key: UPSTREAM-ENTITY-REGISTRY-ATOMIC-SAVE
+    summary: Make entity registry writes crash-safe
+    type: task
+    status: open
+    priority: high
+    size: XS
+    section_id: storage_reliability
+    labels: [upstream, parent, reliability]
+    description: |
+      ## Scope
+
+      Adapt upstream v3.3.5 entity-registry durability hardening: replace direct `Path.write_text()` saves with same-directory temp write, flush/fsync, restrictive permissions where supported, and atomic `os.replace()`.
+
+      Current fork check: `mempalace_code/entity_registry.py::EntityRegistry.save()` writes JSON directly and `load()` silently falls back to an empty registry on JSON decode errors.
+
+      Upstream evidence: MemPalace v3.3.5 #1215.
+
+      ## Acceptance criteria
+
+      - A simulated crash or write failure before rename leaves the previous registry intact.
+      - Successful saves remain valid JSON and preserve existing load behavior.
+      - File permissions are restrictive on platforms where chmod is meaningful.
+
+  - key: UPSTREAM-ROOM-MATCH-BOUNDED
+    summary: Bound room-name matching to avoid substring misroutes
+    type: task
+    status: open
+    priority: medium
+    size: S
+    section_id: coding_first
+    labels: [upstream, parent, mining]
+    description: |
+      ## Scope
+
+      Adapt upstream v3.3.5 room-routing fix for this fork's `detect_room()` logic. Replace unbounded substring matching with exact or separator-bounded token matching for path parts, filenames, room names, and room keywords.
+
+      Current fork check: `mempalace_code/mining/projects.py::detect_room()` still uses `part == c or c in part or part in c`, so a token like `views` can match a room like `interviews`.
+
+      Upstream evidence: MemPalace v3.3.5 #1004.
+
+      ## Acceptance criteria
+
+      - `views/...` does not route to an `interviews` room.
+      - Separator variants still match intentionally, e.g. `billing-page`, `billing_page`, and `billing.page` can route to the same room when configured.
+      - Filename matching receives the same bounded-token treatment.
+      - Existing room keyword scoring remains the fallback after path and filename checks.
+
+  - key: UPSTREAM-WINDOWS-UTF8-STDIO
+    summary: Normalize Windows CLI and MCP stdio to UTF-8
+    type: task
+    status: open
+    priority: medium
+    size: S
+    section_id: quality
+    labels: [upstream, parent, windows, i18n]
+    description: |
+      ## Scope
+
+      Adapt upstream v3.3.5 Windows stdio hardening so CLI and MCP entry points do not crash or mojibake on Cyrillic, CJK, or other non-ASCII drawer text when stdout/stderr use a legacy Windows code page.
+
+      Current fork check: no `_stdio` helper or entrypoint-level stream reconfiguration exists under `mempalace_code`; current tests only cover non-ASCII data paths indirectly.
+
+      Upstream evidence: MemPalace v3.3.5 #1282, #1060, and #1293.
+
+      ## Acceptance criteria
+
+      - CLI and MCP entry points reconfigure Windows stdin/stdout/stderr to UTF-8 with explicit error policies.
+      - Non-Windows platforms are unchanged.
+      - Unit tests monkeypatch platform and fake streams to verify behavior without requiring a Windows runner.
+      - A non-ASCII search or MCP response cannot fail solely because the console encoding is legacy.
+
+  - key: UPSTREAM-SEARCH-READ-SLICES
+    summary: Add line-range metadata and a surgical read path for search hits
+    type: task
+    status: open
+    priority: medium
+    size: M
+    section_id: mcp_developer_tools
+    labels: [upstream, parent, search, cli]
+    description: |
+      ## Scope
+
+      Evaluate and adapt the upstream develop work around date+line pointers and the open `mempalace read` PR into this fork's LanceDB-backed search model. The fork already has `mempalace_file_context`, but it returns `line_range: None`, so agents still need a broad file-context read after a precise search hit.
+
+      Current fork check:
+      - `mempalace_code/searcher.py` and `mempalace_code/mcp/tools/search.py` expose `line_range` placeholders.
+      - No `mempalace-code read` command exists.
+
+      Upstream evidence: upstream PR #1584 (`feat(closets): Tier 6a - date+line locators`) and PR #1588 (`feat(cli): add mempalace read`).
+
+      ## Acceptance criteria
+
+      - Mined code and markdown chunks store stable line-range metadata when source text is available.
+      - Search, code search, and file-context responses return real line ranges instead of `None`.
+      - Add either a CLI `mempalace-code read` command or an MCP read-by-pointer tool that returns only the requested slice.
+      - Tests cover single-match, multi-match, missing-source, and stale-pointer behavior.
