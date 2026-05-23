@@ -1278,6 +1278,7 @@ class TestLineRange:
 
     def test_code_search_tolerates_none_document_and_metadata(self, monkeypatch):
         """line_range: code_search handles None document and metadata without crashing (AC-6)."""
+
         class NullStore:
             def query(self, **_kwargs):
                 return {
@@ -1285,6 +1286,7 @@ class TestLineRange:
                     "metadatas": [[None]],
                     "distances": [[0.1]],
                 }
+
         monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: NullStore())
         result = code_search("/fake/palace", "test query")
         assert "results" in result

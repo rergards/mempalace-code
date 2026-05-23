@@ -4679,7 +4679,9 @@ def test_line_range_metadata_single_chunk():
         write_file(src_file, "\n".join(lines) + "\n")
 
         with open(project_root / "mempalace.yaml", "w") as f:
-            yaml.dump({"wing": "test_project", "rooms": [{"name": "general", "description": ""}]}, f)
+            yaml.dump(
+                {"wing": "test_project", "rooms": [{"name": "general", "description": ""}]}, f
+            )
 
         mine(str(project_root), str(palace_path))
 
@@ -4690,7 +4692,9 @@ def test_line_range_metadata_single_chunk():
         )
         assert result["ids"], "Expected at least one mined chunk for the source file"
         for meta in result["metadatas"]:
-            assert meta["line_start"] > 0, f"line_start should be positive, got {meta['line_start']}"
+            assert meta["line_start"] > 0, (
+                f"line_start should be positive, got {meta['line_start']}"
+            )
             assert meta["line_end"] > 0, f"line_end should be positive, got {meta['line_end']}"
             assert meta["line_start"] <= meta["line_end"]
     finally:
@@ -4710,7 +4714,9 @@ def test_line_range_metadata_repeated_chunk_text():
         write_file(src_file, block + "\n" + block + "\n")
 
         with open(project_root / "mempalace.yaml", "w") as f:
-            yaml.dump({"wing": "test_project", "rooms": [{"name": "general", "description": ""}]}, f)
+            yaml.dump(
+                {"wing": "test_project", "rooms": [{"name": "general", "description": ""}]}, f
+            )
 
         mine(str(project_root), str(palace_path))
 
@@ -4726,7 +4732,8 @@ def test_line_range_metadata_repeated_chunk_text():
         for meta in metas:
             ls, le = meta["line_start"], meta["line_end"]
             if ls > 0 or le > 0:
-                assert ls > 0 and le > 0, f"Partial range: line_start={ls}, line_end={le}"
+                assert ls > 0, f"Partial range: line_start={ls}, line_end={le}"
+                assert le > 0, f"Partial range: line_start={ls}, line_end={le}"
                 assert ls <= le, f"Inverted range: line_start={ls} > line_end={le}"
 
         # Multiple chunks must have non-overlapping or sequentially advancing start lines

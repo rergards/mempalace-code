@@ -3036,9 +3036,7 @@ class TestFileContextLineRange:
         result = tool_file_context("/project/src/legacy.py")
         assert result["chunks"][0]["line_range"] is None
 
-    def test_file_context_chunks_ordered_by_chunk_index(
-        self, monkeypatch, config, palace_path, kg
-    ):
+    def test_file_context_chunks_ordered_by_chunk_index(self, monkeypatch, config, palace_path, kg):
         """file_context_line_range: chunks are sorted by chunk_index regardless of storage order."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         self._seed_with_line_ranges(palace_path)

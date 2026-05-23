@@ -1942,7 +1942,9 @@ class TestReadCommand:
         store = open_store(palace_path, create=True)
         store.add(
             ids=["rc_chunk0"],
-            documents=["def authenticate(user): validate credentials\ndef authorize(user): check role"],
+            documents=[
+                "def authenticate(user): validate credentials\ndef authorize(user): check role"
+            ],
             metadatas=[
                 {
                     "wing": "proj",
@@ -1964,10 +1966,21 @@ class TestReadCommand:
         palace_path = str(tmp_path / "palace")
         self._seed_readable(palace_path)
 
-        with patch.object(sys, "argv", [
-            "mempalace-code", "--palace", palace_path,
-            "read", "/project/src/auth.py", "--start", "1", "--end", "2"
-        ]):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "read",
+                "/project/src/auth.py",
+                "--start",
+                "1",
+                "--end",
+                "2",
+            ],
+        ):
             main()
 
         out = capsys.readouterr().out
@@ -1980,10 +1993,21 @@ class TestReadCommand:
         palace_path = str(tmp_path / "palace")
         open_store(palace_path, create=True)  # empty palace
 
-        with patch.object(sys, "argv", [
-            "mempalace-code", "--palace", palace_path,
-            "read", "/nonexistent/file.py", "--start", "1", "--end", "5"
-        ]):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "read",
+                "/nonexistent/file.py",
+                "--start",
+                "1",
+                "--end",
+                "5",
+            ],
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code != 0
@@ -1994,10 +2018,21 @@ class TestReadCommand:
         palace_path = str(tmp_path / "palace")
         self._seed_readable(palace_path)
 
-        with patch.object(sys, "argv", [
-            "mempalace-code", "--palace", palace_path,
-            "read", "/project/src/auth.py", "--start", "999", "--end", "1000"
-        ]):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "read",
+                "/project/src/auth.py",
+                "--start",
+                "999",
+                "--end",
+                "1000",
+            ],
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code != 0
@@ -2008,10 +2043,21 @@ class TestReadCommand:
         palace_path = str(tmp_path / "palace")
         self._seed_readable(palace_path)
 
-        with patch.object(sys, "argv", [
-            "mempalace-code", "--palace", palace_path,
-            "read", "/project/src/auth.py", "--start", "10", "--end", "5"
-        ]):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "read",
+                "/project/src/auth.py",
+                "--start",
+                "10",
+                "--end",
+                "5",
+            ],
+        ):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code != 0
