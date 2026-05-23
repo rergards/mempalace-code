@@ -43,31 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: UPSTREAM-KG-TEMPORAL-VALIDATION
-    summary: Validate KG temporal parameters and persist full time windows
-    type: task
-    status: open
-    priority: high
-    size: S
-    section_id: mcp_developer_tools
-    labels: [upstream, parent, kg, data-integrity]
-    description: |
-      ## Scope
-
-      Adapt the useful part of upstream v3.3.5 KG hardening for this fork: validate temporal KG inputs, reject inverted validity windows, and make the MCP KG tools preserve the full time window instead of only `valid_from`.
-
-      Current fork check:
-      - `mempalace_code/knowledge_graph.py` accepts arbitrary temporal strings and compares them lexicographically.
-      - `mempalace_code/mcp/tools/kg.py` exposes only `valid_from` on `mempalace_kg_add`; `valid_to` and `source_file` are not forwarded.
-
-      Upstream evidence: MemPalace v3.3.5 fixes around #1214, #1167, #1314, and #1417.
-
-      ## Acceptance criteria
-
-      - KG Python API and MCP paths validate `as_of`, `valid_from`, `valid_to`, and `ended` consistently.
-      - `valid_to < valid_from` is rejected before a row is written.
-      - `mempalace_kg_add` can store `valid_to`, `source_closet`, and `source_file`.
-      - Tests cover valid dates, valid UTC datetimes, rejected natural-language dates, rejected inverted windows, and unchanged query/timeline behavior for valid rows.
   - key: UPSTREAM-WINDOWS-UTF8-STDIO
     summary: Normalize Windows CLI and MCP stdio to UTF-8
     type: task

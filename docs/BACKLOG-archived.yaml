@@ -846,3 +846,8 @@ items:
       resolution: '2026-05-23: completed in pipeline run'
       archived_date: "2026-05-23"
       done_summary: completed in pipeline run
+    - key: UPSTREAM-KG-TEMPORAL-VALIDATION
+      summary: Validate KG temporal parameters and persist full time windows
+      resolution: '2026-05-23: completed in pipeline run'
+      archived_date: "2026-05-23"
+      done_summary: completed in pipeline run
