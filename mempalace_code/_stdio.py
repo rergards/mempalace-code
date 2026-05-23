@@ -39,7 +39,7 @@ def configure_windows_stdio(
             ("stderr", _stderr, "utf-8", "replace"),
         ):
             try:
-                stream.reconfigure(encoding=encoding, errors=errors)  # type: ignore[union-attr]
+                stream.reconfigure(encoding=encoding, errors=errors)  # type: ignore[union-attr]  # reason: stream is sys.stdin/stdout/stderr or an injected TextIOWrapper; reconfigure() is available on all real text streams
             except Exception:
                 failures.append(name)
 
