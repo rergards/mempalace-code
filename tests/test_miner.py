@@ -3084,6 +3084,84 @@ class TestDetectRoomCsprojMap:
         assert result == "backend"
 
 
+class TestDetectRoomBoundedMatching:
+    """Regression tests for separator-bounded room routing (AC-1..AC-4)."""
+
+    def _rooms(self):
+        return [
+            {"name": "frontend", "description": "Frontend code", "keywords": ["views", "ui"]},
+            {"name": "research", "description": "Research notes", "keywords": ["interviews"]},
+            {"name": "general", "description": "General", "keywords": []},
+        ]
+
+    def test_path_part_exact_keyword_routes_to_frontend(self, tmp_path):
+        """AC-1: exact folder keyword 'views' routes to frontend."""
+        f = tmp_path / "views" / "list.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("x = 1")
+        result = detect_room(f, "x = 1", self._rooms(), tmp_path)
+        assert result == "frontend"
+
+    def test_separator_bounded_path_and_filename_matches_route_to_frontend(self, tmp_path):
+        """AC-2: separator-bounded path parts and filenames route by room name/keyword."""
+        # user-views path part: tokens ["user", "views"] contains keyword ["views"]
+        f1 = tmp_path / "user-views" / "detail.py"
+        f1.parent.mkdir(parents=True)
+        f1.write_text("x = 1")
+        assert detect_room(f1, "x = 1", self._rooms(), tmp_path) == "frontend"
+
+        # frontend-panel.py filename: tokens ["frontend", "panel"] contains room name ["frontend"]
+        f2 = tmp_path / "util" / "frontend-panel.py"
+        f2.parent.mkdir(parents=True)
+        f2.write_text("x = 1")
+        assert detect_room(f2, "x = 1", self._rooms(), tmp_path) == "frontend"
+
+    def test_interviews_does_not_route_to_frontend_views_keyword(self, tmp_path):
+        """AC-3: 'interviews' path part does not match frontend keyword 'views' as substring."""
+        f = tmp_path / "interviews" / "notes.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("x = 1")
+        result = detect_room(f, "x = 1", self._rooms(), tmp_path)
+        assert result == "research"
+        assert result != "frontend"
+
+    def test_content_keyword_scoring_uses_bounded_tokens(self, tmp_path):
+        """AC-4: content with 'customer interviews' scores research via bounded token matching,
+        not frontend via the raw substring 'views' inside 'interviews'."""
+        f = tmp_path / "notes" / "summary.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("x = 1")
+        content = "customer interviews customer interviews customer interviews"
+        result = detect_room(f, content, self._rooms(), tmp_path)
+        assert result == "research"
+        assert result != "frontend"
+
+    def test_exact_room_name_in_path_routes_correctly(self, tmp_path):
+        """Exact room name as a path folder routes to that room."""
+        f = tmp_path / "frontend" / "app.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("x = 1")
+        result = detect_room(f, "x = 1", self._rooms(), tmp_path)
+        assert result == "frontend"
+
+    def test_no_match_falls_back_to_general(self, tmp_path):
+        """Files with no bounded match fall back to general (INV-3)."""
+        f = tmp_path / "misc" / "helper.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("x = 1")
+        result = detect_room(f, "x = 1", self._rooms(), tmp_path)
+        assert result == "general"
+
+    def test_interviews_filename_routes_to_research_not_frontend(self, tmp_path):
+        """Filename 'interviews.py' matches research keyword, not frontend 'views' substring."""
+        f = tmp_path / "data" / "interviews.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("x = 1")
+        result = detect_room(f, "x = 1", self._rooms(), tmp_path)
+        assert result == "research"
+        assert result != "frontend"
+
+
 class TestMineWithDotnetStructure:
     def _make_dotnet_repo(self, project_root: Path, sln_name: str = "MySolution"):
         """Create a minimal .NET repo structure for testing."""

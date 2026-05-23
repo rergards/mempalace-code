@@ -52,6 +52,44 @@ def load_config(project_dir: str) -> dict:
         return yaml.safe_load(f)
 
 
+def _tokenize(text: str) -> list[str]:
+    """Split text into lowercase alphanumeric tokens at separator boundaries."""
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _token_seq_in(needle: list[str], haystack: list[str]) -> bool:
+    """Return True if needle appears as a contiguous subsequence in haystack."""
+    n, h = len(needle), len(haystack)
+    if n == 0 or n > h:
+        return False
+    for i in range(h - n + 1):
+        if haystack[i : i + n] == needle:
+            return True
+    return False
+
+
+def _tokens_match(a_tokens: list[str], b_tokens: list[str]) -> bool:
+    """Return True if either token sequence appears contiguously inside the other."""
+    if not a_tokens or not b_tokens:
+        return False
+    return _token_seq_in(a_tokens, b_tokens) or _token_seq_in(b_tokens, a_tokens)
+
+
+def _count_keyword_occurrences(text_tokens: list[str], kw_tokens: list[str]) -> int:
+    """Count non-overlapping occurrences of kw_tokens as a contiguous sequence in text_tokens."""
+    if not kw_tokens or not text_tokens:
+        return 0
+    n, h = len(kw_tokens), len(text_tokens)
+    count, i = 0, 0
+    while i <= h - n:
+        if text_tokens[i : i + n] == kw_tokens:
+            count += 1
+            i += n
+        else:
+            i += 1
+    return count
+
+
 def detect_room(
     filepath: Path,
     content: str,
@@ -63,9 +101,9 @@ def detect_room(
     Route a file to the right room.
     Priority:
     0. .csproj-derived map lookup (when dotnet_structure is enabled)
-    1. Folder path matches a room name
-    2. Filename matches a room name or keyword
-    3. Content keyword scoring
+    1. Folder path matches a room name or keyword (separator-bounded tokens)
+    2. Filename matches a room name or keyword (separator-bounded tokens)
+    3. Content keyword scoring (bounded token occurrences)
     4. Fallback: "general"
     """
     # Priority 0: .csproj-derived room map
@@ -85,23 +123,27 @@ def detect_room(
     # Priority 1: folder path matches room name or keywords
     path_parts = relative.replace("\\", "/").split("/")
     for part in path_parts[:-1]:  # skip filename itself
+        part_tokens = _tokenize(part)
         for room in rooms:
-            candidates = [room["name"].lower()] + [k.lower() for k in room.get("keywords", [])]
-            if any(part == c or c in part or part in c for c in candidates):
+            candidates = [room["name"]] + room.get("keywords", [])
+            if any(_tokens_match(part_tokens, _tokenize(c)) for c in candidates if c):
                 return room["name"]
 
-    # Priority 2: filename matches room name
+    # Priority 2: filename matches room name or keyword
+    filename_tokens = _tokenize(filename)
     for room in rooms:
-        if room["name"].lower() in filename or filename in room["name"].lower():
+        candidates = [room["name"]] + room.get("keywords", [])
+        if any(_tokens_match(filename_tokens, _tokenize(c)) for c in candidates if c):
             return room["name"]
 
     # Priority 3: keyword scoring from room keywords + name
     scores = defaultdict(int)
+    content_tokens = _tokenize(content_lower)
     for room in rooms:
         keywords = room.get("keywords", []) + [room["name"]]
         for kw in keywords:
-            count = content_lower.count(kw.lower())
-            scores[room["name"]] += count
+            kw_tokens = _tokenize(kw)
+            scores[room["name"]] += _count_keyword_occurrences(content_tokens, kw_tokens)
 
     if scores:
         best = max(scores, key=lambda k: scores[k])
