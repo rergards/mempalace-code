@@ -1,0 +1,77 @@
+{
+  "passed": true,
+  "slug": "UPSTREAM-WINDOWS-UTF8-STDIO",
+  "planned_files": [
+    "mempalace_code/_stdio.py",
+    "mempalace_code/cli.py",
+    "mempalace_code/mcp/dispatch.py",
+    "tests/test_stdio.py"
+  ],
+  "actual_files": [
+    ".tasks/TASK-UPSTREAM-WINDOWS-UTF8-STDIO/polish-scope.json",
+    "docs/audits/UPSTREAM-WINDOWS-UTF8-STDIO-polish-1.md",
+    "docs/audits/UPSTREAM-WINDOWS-UTF8-STDIO-round-1.md",
+    "mempalace_code/_stdio.py",
+    "mempalace_code/cli.py",
+    "mempalace_code/mcp/dispatch.py",
+    "tests/test_stdio.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_cli_command_modules.py tests/test_mcp_registry.py -q",
+    "python -m pytest tests/test_stdio.py -q",
+    "python -m pytest tests/test_stdio.py tests/test_cli_command_modules.py tests/test_mcp_registry.py -q"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "grep \"audits\" /Users/rerg/.local/state/autopilot/autopilot-2636f30f/worktrees/UPSTREAM-WINDOWS-UTF8-STDIO/fb4882d0-e2ba-4092-b108-f5e8babb7f66/attempt-1/.gitignore",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_stdio.py -v",
+    "python -m pytest tests/test_stdio.py tests/test_cli_command_modules.py tests/test_mcp_registry.py -q",
+    "rtk ruff check mempalace_code/_stdio.py mempalace_code/cli.py mempalace_code/mcp/dispatch.py tests/test_stdio.py",
+    "ruff check mempalace/ tests/",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_stdio.py -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_stdio.py -v",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_cli_command_modules.py tests/test_mcp_registry.py -q",
+      "matched": "implement-result.json#verification_evidence[1] command=python -m pytest tests/test_cli_command_modules.py tests/test_mcp_registry.py -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_stdio.py tests/test_cli_command_modules.py tests/test_mcp_registry.py -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_stdio.py tests/test_cli_command_modules.py tests/test_mcp_registry.py -q",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/UPSTREAM-WINDOWS-UTF8-STDIO-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening round audit report",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4"
+      ],
+      "check_ids": [
+        "REG-1"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/UPSTREAM-WINDOWS-UTF8-STDIO- prefix"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}

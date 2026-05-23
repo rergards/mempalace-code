@@ -1,0 +1,11 @@
+{
+  "phase": "implement",
+  "files": [
+    "mempalace_code/_stdio.py",
+    "mempalace_code/cli.py",
+    "mempalace_code/mcp/dispatch.py",
+    "tests/test_stdio.py"
+  ],
+  "before_sha": "2dd18db",
+  "timestamp": "2026-05-23T13:52:55Z"
+}
