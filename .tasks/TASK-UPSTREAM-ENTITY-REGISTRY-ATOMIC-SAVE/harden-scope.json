@@ -1,0 +1,8 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/UPSTREAM-ENTITY-REGISTRY-ATOMIC-SAVE-round-1.md"
+  ],
+  "before_sha": "b019d7f",
+  "timestamp": "2026-05-23T09:43:19Z"
+}
