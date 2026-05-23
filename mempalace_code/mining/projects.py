@@ -62,10 +62,7 @@ def _token_seq_in(needle: list[str], haystack: list[str]) -> bool:
     n, h = len(needle), len(haystack)
     if n == 0 or n > h:
         return False
-    for i in range(h - n + 1):
-        if haystack[i : i + n] == needle:
-            return True
-    return False
+    return any(haystack[i : i + n] == needle for i in range(h - n + 1))
 
 
 def _tokens_match(a_tokens: list[str], b_tokens: list[str]) -> bool:
