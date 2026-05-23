@@ -1,0 +1,9 @@
+{
+  "phase": "polish",
+  "files": [
+    "docs/audits/UPSTREAM-WINDOWS-UTF8-STDIO-polish-1.md",
+    "tests/test_stdio.py"
+  ],
+  "before_sha": "f1c5fa0",
+  "timestamp": "2026-05-23T14:04:45Z"
+}

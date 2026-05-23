@@ -168,7 +168,6 @@ def test_mcp_non_ascii_preserved_in_json_rpc(monkeypatch):
 
     assert cyrillic in tool_value, f"Cyrillic text must be preserved, got: {tool_value!r}"
     assert cjk in tool_value, f"CJK text must be preserved, got: {tool_value!r}"
-    assert "\\" not in repr(cyrillic), "sanity: Cyrillic chars should not be escape-only"
 
 
 def test_mcp_stdout_write_uses_ensure_ascii_false():
