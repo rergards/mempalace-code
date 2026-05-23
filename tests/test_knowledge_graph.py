@@ -229,3 +229,51 @@ class TestTemporalValidation:
         results = kg.query_entity("Alice", as_of="2026-05-11", direction="outgoing")
         conf = [r for r in results if r["object"] == "Conference"]
         assert len(conf) == 0
+
+    def test_date_only_valid_to_inclusive_for_same_day_datetime_as_of(self, kg):
+        # A date-only valid_to must remain inclusive for any datetime as_of within
+        # the same calendar day (end-of-day semantics).
+        kg.add_triple(
+            "Alice",
+            "attended",
+            "Workshop",
+            valid_from="2026-05-10",
+            valid_to="2026-05-10",
+        )
+
+        # Visible at midnight UTC
+        r = kg.query_entity("Alice", as_of="2026-05-10T00:00:00Z", direction="outgoing")
+        assert any(x["object"] == "Workshop" for x in r)
+
+        # Visible mid-day
+        r = kg.query_entity("Alice", as_of="2026-05-10T12:00:00Z", direction="outgoing")
+        assert any(x["object"] == "Workshop" for x in r)
+
+        # Visible at 23:59:59Z
+        r = kg.query_entity("Alice", as_of="2026-05-10T23:59:59Z", direction="outgoing")
+        assert any(x["object"] == "Workshop" for x in r)
+
+        # Not visible at midnight of the next day
+        r = kg.query_entity("Alice", as_of="2026-05-11T00:00:00Z", direction="outgoing")
+        assert not any(x["object"] == "Workshop" for x in r)
+
+    def test_bulk_invalidation_helpers_reject_invalid_ended(self, kg):
+        kg.add_triple("Alice", "works_at", "Corp", valid_from="2026-01-01", source_file="a.py")
+        kg.add_triple("Bob", "knows", "Carol", valid_from="2026-01-01")
+        before = kg.stats()["triples"]
+
+        with pytest.raises(ValueError, match="Invalid temporal"):
+            kg.invalidate_by_source_file("a.py", ended="last month")
+        assert kg.stats()["triples"] == before
+
+        with pytest.raises(ValueError, match="Invalid temporal"):
+            kg.invalidate_by_predicates(["works_at"], ended="yesterday")
+        assert kg.stats()["triples"] == before
+
+        with pytest.raises(ValueError, match="Invalid temporal"):
+            kg.invalidate_arch_by_project_root(["works_at"], project_root="/tmp", ended="next week")
+        assert kg.stats()["triples"] == before
+
+        with pytest.raises(ValueError, match="Invalid temporal"):
+            kg.invalidate_legacy_arch_ns_project_for_wing("__arch__", "mywing", ended="2 days ago")
+        assert kg.stats()["triples"] == before

@@ -40,7 +40,7 @@ import json
 import os
 import re
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 # ── Temporal validation helpers ───────────────────────────────────────────
@@ -80,7 +80,21 @@ def _as_comparable(t: date | datetime | None) -> datetime | None:
         return None
     if isinstance(t, datetime):
         return t
-    return datetime(t.year, t.month, t.day, tzinfo=timezone.utc)
+    return datetime(t.year, t.month, t.day, tzinfo=UTC)
+
+
+def _as_comparable_vt(t: date | datetime | None) -> datetime | None:
+    """Like _as_comparable but date-only values map to 23:59:59 UTC (end-of-day).
+
+    Used for valid_to comparisons so that a date-only upper bound remains
+    inclusive for any datetime as_of within the same calendar day, e.g.
+    valid_to="2026-05-10" is still visible at as_of="2026-05-10T12:00:00Z".
+    """
+    if t is None:
+        return None
+    if isinstance(t, datetime):
+        return t
+    return datetime(t.year, t.month, t.day, 23, 59, 59, tzinfo=UTC)
 
 
 def _validate_window(vf: date | datetime | None, vt: date | datetime | None) -> None:
@@ -89,12 +103,15 @@ def _validate_window(vf: date | datetime | None, vt: date | datetime | None) -> 
         return
     cmp_vf = _as_comparable(vf)
     cmp_vt = _as_comparable(vt)
-    assert cmp_vf is not None and cmp_vt is not None
+    assert cmp_vf is not None
+    assert cmp_vt is not None
     if cmp_vt < cmp_vf:
         raise ValueError("Inverted validity window: valid_to precedes valid_from")
 
 
-def _in_window(valid_from_str: str | None, valid_to_str: str | None, as_of: date | datetime) -> bool:
+def _in_window(
+    valid_from_str: str | None, valid_to_str: str | None, as_of: date | datetime
+) -> bool:
     """Return True if as_of falls within [valid_from, valid_to] (inclusive).
 
     NULL bounds are treated as unbounded. Invalid stored temporal strings are
@@ -113,13 +130,14 @@ def _in_window(valid_from_str: str | None, valid_to_str: str | None, as_of: date
 
     if valid_to_str is not None:
         try:
-            vt = _as_comparable(_parse_temporal(valid_to_str))
+            vt = _as_comparable_vt(_parse_temporal(valid_to_str))
         except ValueError:
             vt = None
         if vt is not None and cmp > vt:
             return False
 
     return True
+
 
 DEFAULT_KG_PATH = os.path.expanduser("~/.mempalace/knowledge_graph.sqlite3")
 
@@ -263,6 +281,7 @@ class KnowledgeGraph:
         expiring type-dependency facts (implements, inherits, depends_on, etc.).
         """
         ended = ended or date.today().isoformat()
+        _parse_temporal(ended)  # raises ValueError for invalid temporal strings
         conn = self._conn()
         if predicates:
             placeholders = ",".join("?" * len(predicates))
@@ -290,6 +309,7 @@ class KnowledgeGraph:
         if not predicates:
             return
         ended = ended or date.today().isoformat()
+        _parse_temporal(ended)  # raises ValueError for invalid temporal strings
         conn = self._conn()
         placeholders = ",".join("?" * len(predicates))
         conn.execute(
@@ -328,6 +348,7 @@ class KnowledgeGraph:
         if not predicates:
             return
         ended = ended or date.today().isoformat()
+        _parse_temporal(ended)  # raises ValueError for invalid temporal strings
         resolved = str(Path(project_root).resolve())
         # Escape SQL LIKE wildcards in the resolved root so that '_' and '%' in
         # project paths match literally rather than as wildcards. Escape the
@@ -375,6 +396,7 @@ class KnowledgeGraph:
         release, all legacy sentinel rows have been retired.
         """
         ended = ended or date.today().isoformat()
+        _parse_temporal(ended)  # raises ValueError for invalid temporal strings
         obj_id = self._entity_id(wing_name)
         conn = self._conn()
         conn.execute(
