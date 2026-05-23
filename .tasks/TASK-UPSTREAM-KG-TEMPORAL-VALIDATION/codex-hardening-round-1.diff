@@ -1,0 +1,451 @@
+diff --git a/mempalace_code/knowledge_graph.py b/mempalace_code/knowledge_graph.py
+index 61750f4..dbe2f06 100644
+--- a/mempalace_code/knowledge_graph.py
++++ b/mempalace_code/knowledge_graph.py
+@@ -38,10 +38,89 @@ Usage:
+ import hashlib
+ import json
+ import os
++import re
+ import sqlite3
+-from datetime import date, datetime
++from datetime import date, datetime, timezone
+ from pathlib import Path
+ 
++# ── Temporal validation helpers ───────────────────────────────────────────
++
++_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
++_DATETIME_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|\+00:00)$")
++
++
++def _parse_temporal(value: str | None) -> date | datetime | None:
++    """Parse a temporal string to a date or datetime, or return None for blank.
++
++    Accepts: None/empty, YYYY-MM-DD, or explicit UTC ISO datetime (Z or +00:00).
++    Raises ValueError for any other format (natural language, naive datetime, etc.).
++    """
++    if not value:
++        return None
++    if _DATE_RE.match(value):
++        try:
++            return date.fromisoformat(value)
++        except ValueError as exc:
++            raise ValueError(f"Invalid temporal value {value!r}: {exc}") from exc
++    if _DATETIME_UTC_RE.match(value):
++        normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
++        try:
++            return datetime.fromisoformat(normalized)
++        except ValueError as exc:
++            raise ValueError(f"Invalid temporal value {value!r}: {exc}") from exc
++    raise ValueError(
++        f"Invalid temporal value {value!r}: expected YYYY-MM-DD or UTC ISO datetime"
++        " (e.g. 2026-01-01T12:00:00Z)"
++    )
++
++
++def _as_comparable(t: date | datetime | None) -> datetime | None:
++    """Normalize a date or datetime to a UTC-aware datetime for comparison."""
++    if t is None:
++        return None
++    if isinstance(t, datetime):
++        return t
++    return datetime(t.year, t.month, t.day, tzinfo=timezone.utc)
++
++
++def _validate_window(vf: date | datetime | None, vt: date | datetime | None) -> None:
++    """Raise ValueError if valid_to precedes valid_from (equal is allowed)."""
++    if vf is None or vt is None:
++        return
++    cmp_vf = _as_comparable(vf)
++    cmp_vt = _as_comparable(vt)
++    assert cmp_vf is not None and cmp_vt is not None
++    if cmp_vt < cmp_vf:
++        raise ValueError("Inverted validity window: valid_to precedes valid_from")
++
++
++def _in_window(valid_from_str: str | None, valid_to_str: str | None, as_of: date | datetime) -> bool:
++    """Return True if as_of falls within [valid_from, valid_to] (inclusive).
++
++    NULL bounds are treated as unbounded. Invalid stored temporal strings are
++    treated as unbounded (backward-compatible with pre-validation data).
++    """
++    cmp = _as_comparable(as_of)
++    assert cmp is not None
++
++    if valid_from_str is not None:
++        try:
++            vf = _as_comparable(_parse_temporal(valid_from_str))
++        except ValueError:
++            vf = None
++        if vf is not None and cmp < vf:
++            return False
++
++    if valid_to_str is not None:
++        try:
++            vt = _as_comparable(_parse_temporal(valid_to_str))
++        except ValueError:
++            vt = None
++        if vt is not None and cmp > vt:
++            return False
++
++    return True
++
+ DEFAULT_KG_PATH = os.path.expanduser("~/.mempalace/knowledge_graph.sqlite3")
+ 
+ 
+@@ -125,8 +204,10 @@ class KnowledgeGraph:
+         Examples:
+             add_triple("Max", "child_of", "Alice", valid_from="2015-04-01")
+             add_triple("Max", "does", "swimming", valid_from="2025-01-01")
+-            add_triple("Alice", "worried_about", "Max injury", valid_from="2026-01", valid_to="2026-02")
++            add_triple("Alice", "attended", "Conference", valid_from="2026-05-10", valid_to="2026-05-10")
+         """
++        _validate_window(_parse_temporal(valid_from), _parse_temporal(valid_to))
++
+         sub_id = self._entity_id(subject)
+         obj_id = self._entity_id(obj)
+         pred = predicate.lower().replace(" ", "_")
+@@ -309,12 +390,34 @@ class KnowledgeGraph:
+         sub_id = self._entity_id(subject)
+         obj_id = self._entity_id(obj)
+         pred = predicate.lower().replace(" ", "_")
+-        ended = ended or date.today().isoformat()
++        ended_str = ended or date.today().isoformat()
++
++        ended_parsed = _parse_temporal(ended_str)  # raises ValueError if invalid
++        cmp_ended = _as_comparable(ended_parsed)
+ 
+         conn = self._conn()
++
++        # Validate ended against each active row's valid_from before mutating
++        active = conn.execute(
++            "SELECT valid_from FROM triples WHERE subject=? AND predicate=? AND object=? AND valid_to IS NULL",
++            (sub_id, pred, obj_id),
++        ).fetchall()
++        for (vf_str,) in active:
++            if vf_str is not None:
++                try:
++                    cmp_vf = _as_comparable(_parse_temporal(vf_str))
++                except ValueError:
++                    continue  # skip rows with legacy invalid temporal strings
++                if cmp_vf is not None and cmp_ended is not None and cmp_ended < cmp_vf:
++                    conn.close()
++                    raise ValueError(
++                        f"Inverted invalidation: ended ({ended_str!r}) precedes"
++                        f" active valid_from ({vf_str!r})"
++                    )
++
+         conn.execute(
+             "UPDATE triples SET valid_to=? WHERE subject=? AND predicate=? AND object=? AND valid_to IS NULL",
+-            (ended, sub_id, pred, obj_id),
++            (ended_str, sub_id, pred, obj_id),
+         )
+         conn.commit()
+         conn.close()
+@@ -326,20 +429,21 @@ class KnowledgeGraph:
+         Get all relationships for an entity.
+ 
+         direction: "outgoing" (entity → ?), "incoming" (? → entity), "both"
+-        as_of: date string — only return facts valid at that time
++        as_of: ISO date or UTC datetime — only return facts valid at that time
+         """
+         eid = self._entity_id(name)
++        as_of_parsed = _parse_temporal(as_of)  # raises ValueError for invalid inputs
+         conn = self._conn()
+ 
+         results = []
+ 
+         if direction in ("outgoing", "both"):
+-            query = "SELECT t.*, e.name as obj_name FROM triples t JOIN entities e ON t.object = e.id WHERE t.subject = ?"
+-            params = [eid]
+-            if as_of:
+-                query += " AND (t.valid_from IS NULL OR t.valid_from <= ?) AND (t.valid_to IS NULL OR t.valid_to >= ?)"
+-                params.extend([as_of, as_of])
+-            for row in conn.execute(query, params).fetchall():
++            for row in conn.execute(
++                "SELECT t.*, e.name as obj_name FROM triples t JOIN entities e ON t.object = e.id WHERE t.subject = ?",
++                (eid,),
++            ).fetchall():
++                if as_of_parsed is not None and not _in_window(row[4], row[5], as_of_parsed):
++                    continue
+                 results.append(
+                     {
+                         "direction": "outgoing",
+@@ -355,12 +459,12 @@ class KnowledgeGraph:
+                 )
+ 
+         if direction in ("incoming", "both"):
+-            query = "SELECT t.*, e.name as sub_name FROM triples t JOIN entities e ON t.subject = e.id WHERE t.object = ?"
+-            params = [eid]
+-            if as_of:
+-                query += " AND (t.valid_from IS NULL OR t.valid_from <= ?) AND (t.valid_to IS NULL OR t.valid_to >= ?)"
+-                params.extend([as_of, as_of])
+-            for row in conn.execute(query, params).fetchall():
++            for row in conn.execute(
++                "SELECT t.*, e.name as sub_name FROM triples t JOIN entities e ON t.subject = e.id WHERE t.object = ?",
++                (eid,),
++            ).fetchall():
++                if as_of_parsed is not None and not _in_window(row[4], row[5], as_of_parsed):
++                    continue
+                 results.append(
+                     {
+                         "direction": "incoming",
+@@ -381,21 +485,22 @@ class KnowledgeGraph:
+     def query_relationship(self, predicate: str, as_of: str | None = None):
+         """Get all triples with a given relationship type."""
+         pred = predicate.lower().replace(" ", "_")
++        as_of_parsed = _parse_temporal(as_of)  # raises ValueError for invalid inputs
+         conn = self._conn()
+-        query = """
++
++        results = []
++        for row in conn.execute(
++            """
+             SELECT t.*, s.name as sub_name, o.name as obj_name
+             FROM triples t
+             JOIN entities s ON t.subject = s.id
+             JOIN entities o ON t.object = o.id
+             WHERE t.predicate = ?
+-        """
+-        params = [pred]
+-        if as_of:
+-            query += " AND (t.valid_from IS NULL OR t.valid_from <= ?) AND (t.valid_to IS NULL OR t.valid_to >= ?)"
+-            params.extend([as_of, as_of])
+-
+-        results = []
+-        for row in conn.execute(query, params).fetchall():
++            """,
++            (pred,),
++        ).fetchall():
++            if as_of_parsed is not None and not _in_window(row[4], row[5], as_of_parsed):
++                continue
+             results.append(
+                 {
+                     "subject": row[10],
+diff --git a/mempalace_code/mcp/tools/kg.py b/mempalace_code/mcp/tools/kg.py
+index 91dec08..4c13e96 100644
+--- a/mempalace_code/mcp/tools/kg.py
++++ b/mempalace_code/mcp/tools/kg.py
+@@ -14,11 +14,19 @@ def tool_kg_add(
+     predicate: str,
+     object: str,
+     valid_from: str | None = None,
++    valid_to: str | None = None,
+     source_closet: str | None = None,
++    source_file: str | None = None,
+ ):
+     """Add a relationship to the knowledge graph."""
+     triple_id = runtime._get_kg().add_triple(
+-        subject, predicate, object, valid_from=valid_from, source_closet=source_closet
++        subject,
++        predicate,
++        object,
++        valid_from=valid_from,
++        valid_to=valid_to,
++        source_closet=source_closet,
++        source_file=source_file,
+     )
+     return {"success": True, "triple_id": triple_id, "fact": f"{subject} → {predicate} → {object}"}
+ 
+@@ -80,12 +88,20 @@ TOOL_SPECS = {
+                 "object": {"type": "string", "description": "The entity being connected to"},
+                 "valid_from": {
+                     "type": "string",
+-                    "description": "When this became true (YYYY-MM-DD, optional)",
++                    "description": "When this became true (YYYY-MM-DD or UTC datetime, optional)",
++                },
++                "valid_to": {
++                    "type": "string",
++                    "description": "When this stopped being true (YYYY-MM-DD or UTC datetime, optional)",
+                 },
+                 "source_closet": {
+                     "type": "string",
+                     "description": "Closet ID where this fact appears (optional)",
+                 },
++                "source_file": {
++                    "type": "string",
++                    "description": "Source file path where this fact was extracted (optional)",
++                },
+             },
+             "required": ["subject", "predicate", "object"],
+         },
+diff --git a/tests/test_knowledge_graph.py b/tests/test_knowledge_graph.py
+index d7d9838..1463a68 100644
+--- a/tests/test_knowledge_graph.py
++++ b/tests/test_knowledge_graph.py
+@@ -2,9 +2,13 @@
+ test_knowledge_graph.py — Tests for the temporal knowledge graph.
+ 
+ Covers: entity CRUD, triple CRUD, temporal queries, invalidation,
+-timeline, stats, and edge cases (duplicate triples, ID collisions).
++timeline, stats, edge cases (duplicate triples, ID collisions), and
++temporal validation (ISO date/datetime acceptance, natural-language
++rejection, inverted-window rejection, inclusive boundaries).
+ """
+ 
++import pytest
++
+ 
+ class TestEntityOperations:
+     def test_add_entity(self, kg):
+@@ -137,3 +141,91 @@ class TestStats:
+         assert stats["triples"] == 5
+         assert stats["current_facts"] == 4  # 1 expired (Acme Corp)
+         assert stats["expired_facts"] == 1
++
++
++class TestTemporalValidation:
++    def test_add_triple_accepts_iso_dates_and_utc_datetimes(self, kg):
++        # Plain ISO date
++        tid = kg.add_triple("Alice", "knows", "Bob", valid_from="2026-01-01")
++        assert tid.startswith("t_")
++
++        # UTC datetime with Z suffix
++        tid2 = kg.add_triple("Carol", "works_at", "Corp", valid_from="2026-01-01T09:00:00Z")
++        assert tid2.startswith("t_")
++
++        # UTC datetime with +00:00 suffix
++        tid3 = kg.add_triple("Dave", "uses", "Python", valid_from="2026-03-15T14:30:00+00:00")
++        assert tid3.startswith("t_")
++
++        # Query with ISO date as_of — date-based fact is visible
++        results = kg.query_entity("Alice", as_of="2026-01-15")
++        assert any(r["predicate"] == "knows" for r in results)
++
++        # Query with UTC datetime as_of — datetime-based fact is visible
++        results = kg.query_entity("Carol", as_of="2026-01-01T12:00:00Z")
++        assert any(r["predicate"] == "works_at" for r in results)
++
++    def test_add_triple_rejects_natural_language_temporal_inputs_before_write(self, kg):
++        before = kg.stats()["triples"]
++
++        with pytest.raises(ValueError, match="Invalid temporal"):
++            kg.add_triple("Alice", "knows", "Bob", valid_from="next Monday")
++
++        with pytest.raises(ValueError, match="Invalid temporal"):
++            kg.add_triple("Alice", "knows", "Carol", valid_from="yesterday")
++
++        with pytest.raises(ValueError, match="Invalid temporal"):
++            kg.add_triple("Alice", "knows", "Dave", valid_to="in 3 weeks")
++
++        # as_of validation on query
++        with pytest.raises(ValueError, match="Invalid temporal"):
++            kg.query_entity("Alice", as_of="last week")
++
++        # Triple count unchanged — no partial writes
++        assert kg.stats()["triples"] == before
++
++    def test_inverted_windows_are_rejected_before_mutation(self, kg):
++        # Add a valid triple to test invalidate against
++        kg.add_triple("Alice", "works_at", "Corp", valid_from="2026-01-01")
++        before = kg.stats()["triples"]
++
++        # Inverted valid_from/valid_to on add_triple
++        with pytest.raises(ValueError, match="Inverted validity window"):
++            kg.add_triple("Bob", "knows", "Carol", valid_from="2026-06-01", valid_to="2026-01-01")
++        assert kg.stats()["triples"] == before
++
++        # Inverted ended on invalidate (ended precedes valid_from)
++        with pytest.raises(ValueError, match="Inverted invalidation"):
++            kg.invalidate("Alice", "works_at", "Corp", ended="2025-06-01")
++
++        # Original triple remains unmodified
++        results = kg.query_entity("Alice", direction="outgoing")
++        corp_facts = [r for r in results if r["object"] == "Corp"]
++        assert len(corp_facts) == 1
++        assert corp_facts[0]["valid_to"] is None
++
++    def test_equal_window_endpoints_remain_valid_and_inclusive(self, kg):
++        # valid_from == valid_to is a single-point window — must be stored
++        tid = kg.add_triple(
++            "Alice",
++            "attended",
++            "Conference",
++            valid_from="2026-05-10",
++            valid_to="2026-05-10",
++        )
++        assert tid.startswith("t_")
++
++        # Visible exactly on the boundary date
++        results = kg.query_entity("Alice", as_of="2026-05-10", direction="outgoing")
++        conf = [r for r in results if r["object"] == "Conference"]
++        assert len(conf) == 1
++
++        # Not visible the day before
++        results = kg.query_entity("Alice", as_of="2026-05-09", direction="outgoing")
++        conf = [r for r in results if r["object"] == "Conference"]
++        assert len(conf) == 0
++
++        # Not visible the day after
++        results = kg.query_entity("Alice", as_of="2026-05-11", direction="outgoing")
++        conf = [r for r in results if r["object"] == "Conference"]
++        assert len(conf) == 0
+diff --git a/tests/test_mcp_server.py b/tests/test_mcp_server.py
+index 775e6c8..908d446 100644
+--- a/tests/test_mcp_server.py
++++ b/tests/test_mcp_server.py
+@@ -611,6 +611,64 @@ class TestKGTools:
+         subjects = {r["subject"] for r in data_result["facts"]}
+         assert "UserRepository" in subjects
+ 
++    def test_kg_add_stores_full_window_and_source_metadata(
++        self, monkeypatch, config, palace_path, kg
++    ):
++        _patch_mcp_server(monkeypatch, config, palace_path, kg)
++        from mempalace_code.mcp_server import tool_kg_add
++
++        result = tool_kg_add(
++            subject="Alice",
++            predicate="works_at",
++            object="Corp",
++            valid_from="2026-01-01",
++            valid_to="2027-12-31",
++            source_closet="drawer_abc",
++            source_file="notes.md",
++        )
++        assert result["success"] is True
++
++        # Inspect stored metadata via iter_all_triples
++        all_rows = [r for batch in kg.iter_all_triples() for r in batch]
++        corp_row = next(r for r in all_rows if r["predicate"] == "works_at")
++        assert corp_row["valid_from"] == "2026-01-01"
++        assert corp_row["valid_to"] == "2027-12-31"
++        assert corp_row["source_closet"] == "drawer_abc"
++        assert corp_row["source_file"] == "notes.md"
++
++    def test_kg_tools_reject_invalid_temporal_arguments_before_write(
++        self, monkeypatch, config, palace_path, kg
++    ):
++        _patch_mcp_server(monkeypatch, config, palace_path, kg)
++        from mempalace_code.mcp_server import tool_kg_add, tool_kg_invalidate, tool_kg_query
++
++        before = kg.stats()["triples"]
++
++        # Invalid valid_from on add
++        with pytest.raises(ValueError, match="Invalid temporal"):
++            tool_kg_add(subject="A", predicate="b", object="C", valid_from="next year")
++
++        # Inverted window on add
++        with pytest.raises(ValueError, match="Inverted validity window"):
++            tool_kg_add(
++                subject="A",
++                predicate="b",
++                object="C",
++                valid_from="2026-06-01",
++                valid_to="2026-01-01",
++            )
++
++        assert kg.stats()["triples"] == before
++
++        # Invalid as_of on query
++        with pytest.raises(ValueError, match="Invalid temporal"):
++            tool_kg_query(entity="Alice", as_of="two weeks ago")
++
++        # Invalid ended on invalidate
++        kg.add_triple("X", "knows", "Y", valid_from="2026-01-01")
++        with pytest.raises(ValueError, match="Invalid temporal"):
++            tool_kg_invalidate(subject="X", predicate="knows", object="Y", ended="last month")
++
+ 
+ # ── Diary Tools ─────────────────────────────────────────────────────────
+ 

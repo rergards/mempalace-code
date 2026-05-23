@@ -1,0 +1,143 @@
+{
+  "passed": true,
+  "slug": "UPSTREAM-KG-TEMPORAL-VALIDATION",
+  "planned_files": [
+    "mempalace_code/knowledge_graph.py",
+    "mempalace_code/mcp/tools/kg.py",
+    "tests/test_knowledge_graph.py",
+    "tests/test_mcp_server.py"
+  ],
+  "actual_files": [
+    "docs/audits/UPSTREAM-KG-TEMPORAL-VALIDATION-polish-1.md",
+    "docs/audits/UPSTREAM-KG-TEMPORAL-VALIDATION-round-1.md",
+    "mempalace_code/knowledge_graph.py",
+    "mempalace_code/mcp/tools/kg.py",
+    "tests/test_knowledge_graph.py",
+    "tests/test_mcp_server.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_export.py::TestExportWithKG -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation tests/test_knowledge_graph.py::TestQueries tests/test_knowledge_graph.py::TestInvalidation tests/test_knowledge_graph.py::TestTimeline -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_add_triple_accepts_iso_dates_and_utc_datetimes -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_add_triple_rejects_natural_language_temporal_inputs_before_write -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_equal_window_endpoints_remain_valid_and_inclusive -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_inverted_windows_are_rejected_before_mutation -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools tests/test_mcp_registry.py -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_add_stores_full_window_and_source_metadata -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write -q"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "grep -n \"assert\" mempalace_code/knowledge_graph.py",
+    "python -m pytest tests/ -q",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_export.py::TestExportWithKG -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation tests/test_knowledge_graph.py::TestQueries tests/test_knowledge_graph.py::TestInvalidation tests/test_knowledge_graph.py::TestTimeline -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation tests/test_knowledge_graph.py::TestQueries tests/test_knowledge_graph.py::TestInvalidation tests/test_knowledge_graph.py::TestTimeline tests/test_mcp_server.py::TestKGTools tests/test_mcp_registry.py tests/test_export.py::TestExportWithKG -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation tests/test_mcp_server.py::TestKGTools::test_kg_add_stores_full_window_and_source_metadata tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_add_triple_accepts_iso_dates_and_utc_datetimes -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_add_triple_rejects_natural_language_temporal_inputs_before_write -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_equal_window_endpoints_remain_valid_and_inclusive -q",
+    "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_inverted_windows_are_rejected_before_mutation -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools tests/test_mcp_registry.py -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_add_stores_full_window_and_source_metadata -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write -q",
+    "ruff check mempalace/ tests/",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_add_triple_accepts_iso_dates_and_utc_datetimes -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_add_triple_accepts_iso_dates_and_utc_datetimes -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_add_triple_rejects_natural_language_temporal_inputs_before_write -q",
+      "matched": "implement-result.json#verification_evidence[1] command=python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_add_triple_rejects_natural_language_temporal_inputs_before_write -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_inverted_windows_are_rejected_before_mutation -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_inverted_windows_are_rejected_before_mutation -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_equal_window_endpoints_remain_valid_and_inclusive -q",
+      "matched": "implement-result.json#verification_evidence[3] command=python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation::test_equal_window_endpoints_remain_valid_and_inclusive -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-5",
+      "planned": "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_add_stores_full_window_and_source_metadata -q",
+      "matched": "implement-result.json#verification_evidence[4] command=python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_add_stores_full_window_and_source_metadata -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-6",
+      "planned": "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write -q",
+      "matched": "implement-result.json#verification_evidence[5] command=python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation tests/test_knowledge_graph.py::TestQueries tests/test_knowledge_graph.py::TestInvalidation tests/test_knowledge_graph.py::TestTimeline -q",
+      "matched": "implement-result.json#verification_evidence[6] command=python -m pytest tests/test_knowledge_graph.py::TestTemporalValidation tests/test_knowledge_graph.py::TestQueries tests/test_knowledge_graph.py::TestInvalidation tests/test_knowledge_graph.py::TestTimeline -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python -m pytest tests/test_mcp_server.py::TestKGTools tests/test_mcp_registry.py -q",
+      "matched": "implement-result.json#verification_evidence[7] command=python -m pytest tests/test_mcp_server.py::TestKGTools tests/test_mcp_registry.py -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "python -m pytest tests/test_export.py::TestExportWithKG -q",
+      "matched": "implement-result.json#verification_evidence[8] command=python -m pytest tests/test_export.py::TestExportWithKG -q",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/UPSTREAM-KG-TEMPORAL-VALIDATION-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening audit report for this task round",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6"
+      ],
+      "check_ids": [
+        "VER-1",
+        "VER-2",
+        "VER-3",
+        "VER-4",
+        "VER-5",
+        "VER-6"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/UPSTREAM-KG-TEMPORAL-VALIDATION- prefix"
+    }
+  ],
+  "blocked_scope_expansions": [
+    {
+      "path": "docs/audits/UPSTREAM-KG-TEMPORAL-VALIDATION-polish-1.md",
+      "phase": "polish",
+      "category": "audit_only",
+      "reason": "Polish audit document for this task",
+      "block_reason": "no acceptance_id or check_id links to a known plan contract ID"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}

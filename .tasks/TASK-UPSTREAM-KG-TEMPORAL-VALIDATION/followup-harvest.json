@@ -1,0 +1,17 @@
+{
+  "slug": "UPSTREAM-KG-TEMPORAL-VALIDATION",
+  "added": [],
+  "warnings": [],
+  "sources": [
+    "../../../../changelog-result.json",
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../polish-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/UPSTREAM-KG-TEMPORAL-VALIDATION-polish-1.md",
+    "docs/audits/UPSTREAM-KG-TEMPORAL-VALIDATION-round-1.md"
+  ]
+}
