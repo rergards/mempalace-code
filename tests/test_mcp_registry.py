@@ -2,7 +2,7 @@
 test_mcp_registry.py — Registry integrity tests for the MCP module split.
 
 Covers:
-  - Exact 28-tool order (AC-1): mempalace_status through mempalace_diary_read.
+  - Exact 29-tool order (AC-1): mempalace_status through mempalace_diary_read.
   - Family disjointness: no tool name appears in more than one family spec.
   - Duplicate-name rejection: _build_tools raises on duplicate.
   - Schema shape: each entry has description, input_schema, handler.
@@ -43,6 +43,7 @@ _EXPECTED_ORDER = [
     "mempalace_code_search",
     "mempalace_file_context",
     "mempalace_check_duplicate",
+    "mempalace_read",
     # write family
     "mempalace_add_drawer",
     "mempalace_delete_drawer",
@@ -55,10 +56,10 @@ _EXPECTED_ORDER = [
 
 
 class TestRegistryOrder:
-    def test_tool_count_is_28(self):
+    def test_tool_count_is_29(self):
         from mempalace_code.mcp.registry import TOOLS
 
-        assert len(TOOLS) == 28, f"Expected 28 tools, got {len(TOOLS)}: {list(TOOLS)}"
+        assert len(TOOLS) == 29, f"Expected 29 tools, got {len(TOOLS)}: {list(TOOLS)}"
 
     def test_exact_insertion_order(self):
         from mempalace_code.mcp.registry import TOOLS
@@ -159,7 +160,7 @@ class TestCompatibilityReExports:
         from mempalace_code.mcp_server import TOOLS
 
         assert isinstance(TOOLS, dict)
-        assert len(TOOLS) == 28
+        assert len(TOOLS) == 29
 
     def test_mcp_package_exports_stable_surface(self):
         from mempalace_code.mcp import TOOLS, handle_request, main

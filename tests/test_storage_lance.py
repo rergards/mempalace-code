@@ -1012,3 +1012,99 @@ class TestReadOnlyStore:
 
         taxonomy = store_ro.count_by_pair("wing", "room")
         assert taxonomy == {"legacy_wing": {"legacy_room": 1}}
+
+
+# ─── TestLineRangeSchema ──────────────────────────────────────────────────────
+
+
+class TestLineRangeSchema:
+    """line_range_schema: line_start/line_end metadata roundtrip and legacy defaults."""
+
+    def test_line_range_metadata_roundtrip(self, tmp_path):
+        """line_range_schema: stored line_start/line_end values survive a get() roundtrip."""
+        store = open_store(str(tmp_path), create=True)
+        store.add(
+            ids=["lr1"],
+            documents=["def authenticate(): return current_user"],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "line_start": 10,
+                    "line_end": 15,
+                }
+            ],
+        )
+        result = store.get(ids=["lr1"], include=["metadatas"])
+        m = result["metadatas"][0]
+        assert m["line_start"] == 10
+        assert m["line_end"] == 15
+
+    def test_line_range_defaults_to_zero_when_absent(self, tmp_path):
+        """line_range_schema: row without line_start/line_end defaults to 0 (legacy-safe)."""
+        store = open_store(str(tmp_path), create=True)
+        store.add(
+            ids=["lr2"],
+            documents=["some legacy drawer content"],
+            metadatas=[{"wing": "proj", "room": "general"}],
+        )
+        result = store.get(ids=["lr2"], include=["metadatas"])
+        m = result["metadatas"][0]
+        assert m["line_start"] == 0
+        assert m["line_end"] == 0
+
+    def test_meta_defaults_includes_line_range_fields(self):
+        """line_range_schema: _meta_defaults() fills line_start/line_end as 0 when omitted."""
+        result = LanceStore._meta_defaults({"wing": "w", "room": "r"})
+        assert "line_start" in result
+        assert "line_end" in result
+        assert result["line_start"] == 0
+        assert result["line_end"] == 0
+
+    def test_line_range_schema_migration(self, tmp_path):
+        """line_range_schema: opening a pre-migration palace adds line_start/line_end columns."""
+        import lancedb
+        import pyarrow as pa
+
+        # Create a table without line_start/line_end (simulates pre-migration palace)
+        db = lancedb.connect(str(tmp_path / "lance"))
+        old_schema = pa.schema(
+            [
+                pa.field("id", pa.string()),
+                pa.field("text", pa.string()),
+                pa.field("vector", pa.list_(pa.float32(), 384)),
+                pa.field("wing", pa.string()),
+                pa.field("room", pa.string()),
+                pa.field("source_file", pa.string()),
+                pa.field("chunk_index", pa.int32()),
+                pa.field("added_by", pa.string()),
+                pa.field("filed_at", pa.string()),
+            ]
+        )
+        tbl = db.create_table("mempalace_drawers", schema=old_schema)
+        tbl.add(
+            [
+                {
+                    "id": "legacy_row",
+                    "text": "legacy content without line metadata",
+                    "vector": [0.0] * 384,
+                    "wing": "old_wing",
+                    "room": "old_room",
+                    "source_file": "/old/file.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2025-01-01T00:00:00",
+                }
+            ]
+        )
+
+        # Opening with create=True triggers schema migration
+        store = open_store(str(tmp_path), create=True)
+        assert store.count() == 1
+
+        # Legacy row should have line_start=0, line_end=0 (migration default)
+        result = store.get(ids=["legacy_row"], include=["metadatas"])
+        m = result["metadatas"][0]
+        assert m["line_start"] == 0
+        assert m["line_end"] == 0

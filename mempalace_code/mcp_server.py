@@ -55,6 +55,7 @@ from .mcp.tools.search import (  # noqa: F401
     tool_check_duplicate,
     tool_code_search,
     tool_file_context,
+    tool_read,
     tool_search,
 )
 from .mcp.tools.write import (  # noqa: F401

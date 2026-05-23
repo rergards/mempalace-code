@@ -145,17 +145,25 @@ def _collect_specs_for_file(
         return []
 
     try:
-        content = filepath.read_text(encoding="utf-8", errors="replace")
+        raw_content = filepath.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
 
-    content = content.strip()
+    content = raw_content.strip()
     if len(content) < MIN_CHUNK:
         return []
+
+    # Compute the line offset caused by stripping leading whitespace/newlines.
+    # Lines stripped from the start shift all chunk line numbers forward.
+    leading = raw_content[: len(raw_content) - len(raw_content.lstrip())]
+    _line_offset = leading.count("\n")
 
     language = detect_language(filepath, content)
     room = detect_room(filepath, content, rooms, project_path, csproj_room_map=csproj_room_map)
     chunks = chunk_file(content, filepath.suffix.lower(), source_file, language=language)
+
+    # Cursor-based exact-match: advance cursor so repeated chunk text maps to distinct positions.
+    _cursor = 0
 
     specs = []
     for chunk in chunks:
@@ -165,10 +173,21 @@ def _collect_specs_for_file(
             symbol_name, symbol_type = extract_symbol(chunk["content"], language)
         drawer_id = f"drawer_{wing}_{room}_{hashlib.md5((source_file + str(chunk['chunk_index'])).encode(), usedforsecurity=False).hexdigest()[:16]}"
         markdown_metadata = chunk.get("markdown_metadata", {})
+
+        chunk_text = chunk["content"]
+        pos = content.find(chunk_text, _cursor)
+        if pos != -1:
+            line_start = content.count("\n", 0, pos) + 1 + _line_offset
+            line_end = content.count("\n", 0, pos + len(chunk_text)) + 1 + _line_offset
+            _cursor = pos + len(chunk_text)
+        else:
+            line_start = 0
+            line_end = 0
+
         specs.append(
             {
                 "id": drawer_id,
-                "content": chunk["content"],
+                "content": chunk_text,
                 "metadata": {
                     "wing": wing,
                     "room": room,
@@ -183,6 +202,8 @@ def _collect_specs_for_file(
                     "source_hash": source_hash,
                     "extractor_version": __version__,
                     "chunker_strategy": chunk.get("chunker_strategy", "regex_structural_v1"),
+                    "line_start": line_start,
+                    "line_end": line_end,
                 },
             }
         )

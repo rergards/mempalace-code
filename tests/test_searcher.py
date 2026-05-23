@@ -1197,3 +1197,96 @@ class TestAnsibleLanguageSupport:
             assert sym in result["valid_symbol_types"], (
                 f"Symbol type {sym!r} missing from valid_symbol_types hint"
             )
+
+
+# ─── Line range tests ─────────────────────────────────────────────────────────
+
+
+class TestLineRange:
+    """line_range: search_memories and code_search expose real line_range for new rows."""
+
+    @pytest.fixture
+    def line_range_collection(self, palace_path):
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["lr_func", "lr_legacy"],
+            documents=[
+                "def authenticate(user): validate credentials and return session",
+                "class LegacyHandler: old code without line metadata",
+            ],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "language": "python",
+                    "symbol_name": "authenticate",
+                    "symbol_type": "function",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 10,
+                    "line_end": 15,
+                },
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/legacy.py",
+                    "language": "python",
+                    "symbol_name": "LegacyHandler",
+                    "symbol_type": "class",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-02T00:00:00",
+                    # line_start/line_end intentionally absent (legacy row)
+                },
+            ],
+        )
+        return store
+
+    def test_code_search_line_range_populated_for_new_row(self, palace_path, line_range_collection):
+        """line_range: code_search returns {start, end} when line_start/line_end are positive."""
+        result = code_search(palace_path, "authenticate credentials")
+        assert "results" in result
+        auth_hits = [r for r in result["results"] if r["source_file"] == "/project/src/auth.py"]
+        assert auth_hits, "Expected a hit for auth.py"
+        hit = auth_hits[0]
+        assert hit["line_range"] is not None, "Expected non-null line_range for new row"
+        assert hit["line_range"]["start"] == 10
+        assert hit["line_range"]["end"] == 15
+
+    def test_code_search_line_range_null_for_legacy_row(self, palace_path, line_range_collection):
+        """line_range: code_search returns None for rows without line metadata (AC-6)."""
+        result = code_search(palace_path, "legacy handler old code")
+        legacy_hits = [r for r in result["results"] if r["source_file"] == "/project/src/legacy.py"]
+        assert legacy_hits, "Expected a hit for legacy.py"
+        assert legacy_hits[0]["line_range"] is None, "Legacy row must have null line_range"
+
+    def test_search_memories_line_range_populated(self, palace_path, line_range_collection):
+        """line_range: search_memories returns {start, end} for rows with line metadata."""
+        result = search_memories("authenticate credentials", palace_path)
+        auth_hits = [r for r in result["results"] if r["source_file"] == "/project/src/auth.py"]
+        assert auth_hits
+        assert auth_hits[0]["line_range"] == {"start": 10, "end": 15}
+
+    def test_search_memories_line_range_null_legacy(self, palace_path, line_range_collection):
+        """line_range: search_memories returns None for legacy rows (AC-6)."""
+        result = search_memories("legacy handler", palace_path)
+        legacy_hits = [r for r in result["results"] if r["source_file"] == "/project/src/legacy.py"]
+        assert legacy_hits
+        assert legacy_hits[0]["line_range"] is None
+
+    def test_code_search_tolerates_none_document_and_metadata(self, monkeypatch):
+        """line_range: code_search handles None document and metadata without crashing (AC-6)."""
+        class NullStore:
+            def query(self, **_kwargs):
+                return {
+                    "documents": [[None]],
+                    "metadatas": [[None]],
+                    "distances": [[0.1]],
+                }
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: NullStore())
+        result = code_search("/fake/palace", "test query")
+        assert "results" in result
+        assert result["results"][0]["line_range"] is None
+        assert result["results"][0]["source_file"] == ""

@@ -149,6 +149,8 @@ def search_memories(
     for doc, meta, dist in zip(docs, metas, dists):
         meta = meta or {}
         doc = doc or ""
+        ls = int(meta.get("line_start", 0) or 0)
+        le = int(meta.get("line_end", 0) or 0)
         hits.append(
             {
                 "text": doc,
@@ -165,6 +167,7 @@ def search_memories(
                 "contains_mermaid": bool(meta.get("contains_mermaid", 0)),
                 "contains_code": bool(meta.get("contains_code", 0)),
                 "contains_table": bool(meta.get("contains_table", 0)),
+                "line_range": {"start": ls, "end": le} if ls > 0 and le > 0 else None,
                 "similarity": round(1 - dist, 3),
             }
         )
@@ -337,6 +340,8 @@ def code_search(
         doc = doc or ""
         sym_name = meta.get("symbol_name", "") or ""
         src_file = meta.get("source_file", "") or ""
+        ls = int(meta.get("line_start", 0) or 0)
+        le = int(meta.get("line_end", 0) or 0)
         raw_hits.append(
             {
                 "text": doc,
@@ -346,7 +351,7 @@ def code_search(
                 "symbol_name": sym_name,
                 "symbol_type": meta.get("symbol_type", "") or "",
                 "language": meta.get("language", "") or "",
-                "line_range": None,
+                "line_range": {"start": ls, "end": le} if ls > 0 and le > 0 else None,
                 "similarity": round(1 - dist, 3),
             }
         )

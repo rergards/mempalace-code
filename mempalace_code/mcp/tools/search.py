@@ -108,6 +108,8 @@ def tool_file_context(source_file: str, wing: str | None = None):
 
     chunks = []
     for doc, meta in zip(results["documents"], results["metadatas"]):
+        ls = int(meta.get("line_start", 0) or 0)
+        le = int(meta.get("line_end", 0) or 0)
         chunks.append(
             {
                 "chunk_index": meta.get("chunk_index", 0),
@@ -117,13 +119,35 @@ def tool_file_context(source_file: str, wing: str | None = None):
                 "wing": meta.get("wing", ""),
                 "room": meta.get("room", ""),
                 "language": meta.get("language", ""),
-                "line_range": None,
+                "line_range": {"start": ls, "end": le} if ls > 0 and le > 0 else None,
             }
         )
 
     chunks.sort(key=lambda x: x["chunk_index"])
 
     return {"source_file": source_file, "wing": wing, "total": len(chunks), "chunks": chunks}
+
+
+def tool_read(
+    source_file: str,
+    start_line: int,
+    end_line: int,
+    wing: str | None = None,
+):
+    """Surgical read: return only the stored lines in [start_line, end_line] for source_file."""
+    if not source_file:
+        return {
+            "error": "invalid_range",
+            "detail": "source_file must be a non-empty path",
+        }
+
+    col = runtime._get_store()
+    if not col:
+        return runtime._no_palace()
+
+    from ...reader import read_slice
+
+    return read_slice(col, source_file, start_line, end_line, wing=wing)
 
 
 TOOL_SPECS = {
@@ -230,5 +254,39 @@ TOOL_SPECS = {
             "required": ["content"],
         },
         "handler": tool_check_duplicate,
+    },
+    "mempalace_read": {
+        "description": (
+            "Surgical read: return only the stored source lines in the given range for a file. "
+            "Use after a code_search or file_context hit to read exactly the lines you need "
+            "without loading the whole file. "
+            "Returns {source_file, start, end, lines} on success; "
+            "{error: not_found} when the file has no indexed chunks; "
+            "{error: stale_pointer} when no stored chunk overlaps the requested range; "
+            "{error: invalid_range} for bad line numbers."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_file": {
+                    "type": "string",
+                    "description": "Exact source file path as stored in the palace (from a search hit's source_file field)",
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "First line to include (1-indexed, inclusive)",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "Last line to include (1-indexed, inclusive)",
+                },
+                "wing": {
+                    "type": "string",
+                    "description": "Filter to a specific wing (optional)",
+                },
+            },
+            "required": ["source_file", "start_line", "end_line"],
+        },
+        "handler": tool_read,
     },
 }

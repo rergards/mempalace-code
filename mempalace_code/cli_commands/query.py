@@ -1,4 +1,4 @@
-"""Query command handlers: search, wake-up, compress."""
+"""Query command handlers: search, wake-up, compress, read."""
 
 import os
 import sys
@@ -152,3 +152,39 @@ def cmd_compress(args):
     print(f"  Total: {orig_tokens:,}t -> {comp_tokens:,}t ({ratio:.1f}x compression)")
     if args.dry_run:
         print("  (dry run -- nothing stored)")
+
+
+def cmd_read(args):
+    """Print stored source lines for a file and line range."""
+    from ..config import MempalaceConfig
+    from ..reader import read_slice
+    from ..storage import open_store
+
+    palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+
+    try:
+        store = open_store(palace_path, create=False)
+    except Exception:
+        print(f"\n  No palace found at {palace_path}")
+        print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")
+        sys.exit(1)
+
+    result = read_slice(store, args.source_file, args.start, args.end, wing=getattr(args, "wing", None))
+
+    error = result.get("error")
+    if error == "not_found":
+        print(f"\n  Not found: no palace chunks for '{args.source_file}'")
+        sys.exit(1)
+    if error == "stale_pointer":
+        print(f"\n  Stale pointer: {result.get('detail', '')}")
+        print(f"  source_file: {args.source_file}")
+        sys.exit(1)
+    if error == "invalid_range":
+        print(f"\n  Invalid range: {result.get('detail', '')}")
+        sys.exit(1)
+    if error:
+        print(f"\n  Error: {error}")
+        sys.exit(1)
+
+    for entry in result.get("lines", []):
+        print(f"{entry['line']:6}: {entry['text']}")

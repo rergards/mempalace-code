@@ -53,7 +53,7 @@ from .cli_commands.ingest import (
 )
 from .cli_commands.maintenance import cmd_cleanup, cmd_health, cmd_migrate_storage, cmd_repair
 from .cli_commands.model import cmd_fetch_model, fetch_model
-from .cli_commands.query import cmd_compress, cmd_search, cmd_wakeup
+from .cli_commands.query import cmd_compress, cmd_read, cmd_search, cmd_wakeup
 from .cli_commands.version_check import cmd_version_check
 from .cli_commands.watch import cmd_watch
 
@@ -232,6 +232,16 @@ def main():
     p_search.add_argument("--wing", default=None, help="Limit to one project")
     p_search.add_argument("--room", default=None, help="Limit to one room")
     p_search.add_argument("--results", type=int, default=5, help="Number of results")
+
+    # read
+    p_read = sub.add_parser(
+        "read",
+        help="Print stored source lines for a file and line range (requires freshly mined chunks with line metadata)",
+    )
+    p_read.add_argument("source_file", help="Exact source file path as stored in the palace")
+    p_read.add_argument("--start", type=int, required=True, help="First line to include (1-indexed)")
+    p_read.add_argument("--end", type=int, required=True, help="Last line to include (1-indexed)")
+    p_read.add_argument("--wing", default=None, help="Filter to a specific wing (optional)")
 
     # compress
     p_compress = sub.add_parser(
@@ -616,6 +626,7 @@ def main():
         "watch": cmd_watch,
         "split": cmd_split,
         "search": cmd_search,
+        "read": cmd_read,
         "compress": cmd_compress,
         "wake-up": cmd_wakeup,
         "migrate-storage": cmd_migrate_storage,

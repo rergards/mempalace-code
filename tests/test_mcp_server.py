@@ -2941,3 +2941,225 @@ class TestLuaMCPSchema:
         ]
         assert parsed.count("lua") == 1, f"'lua' should appear exactly once, got: {parsed}"
         assert "lua" in list(sorted_searchable_languages())
+
+
+# ── File context line ranges and MCP surgical read ───────────────────────────
+
+
+class TestFileContextLineRange:
+    """file_context_line_range: file_context returns non-null line_range for newly mined chunks."""
+
+    def _seed_with_line_ranges(self, palace_path, wing=None):
+        from mempalace_code.storage import open_store
+
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["fc_chunk0", "fc_chunk1"],
+            documents=[
+                "def authenticate(user): validate credentials",
+                "def authorize(user, role): check permissions",
+            ],
+            metadatas=[
+                {
+                    "wing": wing or "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 5,
+                },
+                {
+                    "wing": wing or "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "chunk_index": 1,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 6,
+                    "line_end": 10,
+                },
+            ],
+        )
+        return store
+
+    def test_happy_path_returns_all_chunks_with_fields(self, monkeypatch, config, palace_path, kg):
+        """file_context_line_range: all chunks have chunk_index, content, symbol_name, line_range fields."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._seed_with_line_ranges(palace_path)
+        from mempalace_code.mcp_server import tool_file_context
+
+        result = tool_file_context("/project/src/auth.py")
+        assert result["total"] == 2
+        for chunk in result["chunks"]:
+            assert "chunk_index" in chunk
+            assert "content" in chunk
+            assert "line_range" in chunk
+
+    def test_file_context_line_range_non_null_for_new_chunks(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """file_context_line_range: chunks with positive line_start/line_end report non-null line_range."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._seed_with_line_ranges(palace_path)
+        from mempalace_code.mcp_server import tool_file_context
+
+        result = tool_file_context("/project/src/auth.py")
+        chunk0 = next(c for c in result["chunks"] if c["chunk_index"] == 0)
+        chunk1 = next(c for c in result["chunks"] if c["chunk_index"] == 1)
+        assert chunk0["line_range"] == {"start": 1, "end": 5}
+        assert chunk1["line_range"] == {"start": 6, "end": 10}
+
+    def test_file_context_line_range_null_for_legacy_chunks(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """file_context_line_range: chunks without line metadata report null line_range (AC-6)."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["legacy_chunk"],
+            documents=["class LegacyClass: old code"],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/legacy.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                }
+            ],
+        )
+        from mempalace_code.mcp_server import tool_file_context
+
+        result = tool_file_context("/project/src/legacy.py")
+        assert result["chunks"][0]["line_range"] is None
+
+    def test_file_context_chunks_ordered_by_chunk_index(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """file_context_line_range: chunks are sorted by chunk_index regardless of storage order."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._seed_with_line_ranges(palace_path)
+        from mempalace_code.mcp_server import tool_file_context
+
+        result = tool_file_context("/project/src/auth.py")
+        indices = [c["chunk_index"] for c in result["chunks"]]
+        assert indices == sorted(indices)
+
+    def test_code_search_basic(self, monkeypatch, config, palace_path, kg):
+        """Regression REG-2: existing MCP code_search still returns results with line_range field."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._seed_with_line_ranges(palace_path)
+        from mempalace_code.mcp_server import tool_code_search
+
+        result = tool_code_search("authenticate credentials")
+        assert "results" in result
+        assert len(result["results"]) > 0
+        hit = result["results"][0]
+        assert "line_range" in hit
+
+
+class TestMCPReadSlice:
+    """read_slice: MCP mempalace_read returns surgical slices for palace chunks."""
+
+    def _seed_sliceable(self, palace_path):
+        from mempalace_code.storage import open_store
+
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["rs_chunk0", "rs_chunk1"],
+            documents=[
+                "line A\nline B\nline C\nline D\nline E",
+                "line F\nline G\nline H\nline I\nline J",
+            ],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/sliceable.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 5,
+                },
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/sliceable.py",
+                    "chunk_index": 1,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 6,
+                    "line_end": 10,
+                },
+            ],
+        )
+
+    def test_read_slice_single_chunk(self, monkeypatch, config, palace_path, kg):
+        """read_slice: returns only requested lines from a single overlapping chunk."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._seed_sliceable(palace_path)
+        from mempalace_code.mcp_server import tool_read
+
+        result = tool_read("/project/src/sliceable.py", start_line=2, end_line=4)
+        assert "error" not in result, f"Unexpected error: {result}"
+        assert result["start"] == 2
+        assert result["end"] == 4
+        line_nos = [entry["line"] for entry in result["lines"]]
+        assert line_nos == [2, 3, 4]
+        assert result["lines"][0]["text"] == "line B"
+        assert result["lines"][1]["text"] == "line C"
+        assert result["lines"][2]["text"] == "line D"
+
+    def test_read_slice_spanning_two_chunks(self, monkeypatch, config, palace_path, kg):
+        """read_slice: returns lines from two chunks when range spans the boundary (AC-3)."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._seed_sliceable(palace_path)
+        from mempalace_code.mcp_server import tool_read
+
+        result = tool_read("/project/src/sliceable.py", start_line=4, end_line=7)
+        assert "error" not in result
+        line_nos = [entry["line"] for entry in result["lines"]]
+        assert 4 in line_nos
+        assert 5 in line_nos
+        assert 6 in line_nos
+        assert 7 in line_nos
+        assert line_nos == sorted(line_nos), "Lines must be in order"
+
+    def test_read_slice_not_found(self, monkeypatch, config, palace_path, kg):
+        """read_slice: returns not_found when source_file has no palace chunks (AC-4)."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _ensure_store(palace_path)
+        from mempalace_code.mcp_server import tool_read
+
+        result = tool_read("/nonexistent/source.py", start_line=1, end_line=5)
+        assert result["error"] == "not_found"
+
+    def test_read_slice_stale_pointer(self, monkeypatch, config, palace_path, kg):
+        """read_slice: returns stale_pointer when range does not overlap any stored chunk (AC-5)."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._seed_sliceable(palace_path)
+        from mempalace_code.mcp_server import tool_read
+
+        result = tool_read("/project/src/sliceable.py", start_line=100, end_line=200)
+        assert result["error"] == "stale_pointer"
+
+    def test_read_slice_invalid_range(self, monkeypatch, config, palace_path, kg):
+        """read_slice: returns invalid_range when start > end (AC-5)."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _ensure_store(palace_path)
+        from mempalace_code.mcp_server import tool_read
+
+        result = tool_read("/project/src/sliceable.py", start_line=10, end_line=5)
+        assert result["error"] == "invalid_range"
+
+    def test_read_tool_registered_in_tools_list(self):
+        """read_slice: mempalace_read appears in the MCP tools/list response."""
+        from mempalace_code.mcp_server import handle_request
+
+        resp = handle_request({"method": "tools/list", "id": 300, "params": {}})
+        names = {t["name"] for t in resp["result"]["tools"]}
+        assert "mempalace_read" in names

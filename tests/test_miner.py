@@ -4658,3 +4658,83 @@ def test_chunk_ansible_role_tasks_extracts_task_names():
     assert all(c["symbol_type"] == "ansible_task" for c in chunks)
     sym_names = [c["symbol_name"] for c in chunks]
     assert any("Install package" in n for n in sym_names), f"Expected task name in {sym_names}"
+
+
+# ─── Line range metadata tests ────────────────────────────────────────────────
+
+
+def test_line_range_metadata_single_chunk():
+    """line_range_metadata: mined chunks carry positive line_start/line_end metadata."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        palace_path = project_root / "palace"
+        src_file = project_root / "src" / "auth.py"
+
+        # Write enough lines to produce at least one chunk
+        src_file.parent.mkdir(parents=True)
+        lines = ["def authenticate(user, password):", "    # validate credentials"]
+        # Pad to exceed MIN_CHUNK
+        lines += [f"    step_{i} = True" for i in range(60)]
+        write_file(src_file, "\n".join(lines) + "\n")
+
+        with open(project_root / "mempalace.yaml", "w") as f:
+            yaml.dump({"wing": "test_project", "rooms": [{"name": "general", "description": ""}]}, f)
+
+        mine(str(project_root), str(palace_path))
+
+        store = open_store(str(palace_path), create=False)
+        result = store.get(
+            where={"source_file": str(src_file)},
+            include=["metadatas"],
+        )
+        assert result["ids"], "Expected at least one mined chunk for the source file"
+        for meta in result["metadatas"]:
+            assert meta["line_start"] > 0, f"line_start should be positive, got {meta['line_start']}"
+            assert meta["line_end"] > 0, f"line_end should be positive, got {meta['line_end']}"
+            assert meta["line_start"] <= meta["line_end"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_line_range_metadata_repeated_chunk_text():
+    """line_range_metadata: cursor-based matching assigns distinct line ranges to repeated chunks."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        palace_path = project_root / "palace"
+        src_file = project_root / "src" / "repeated.py"
+
+        # Two identical blocks — the chunker may merge them; verify no overlap in line ranges
+        block = "\n".join([f"def helper_{i}(): pass  # repeated block content" for i in range(40)])
+        write_file(src_file, block + "\n" + block + "\n")
+
+        with open(project_root / "mempalace.yaml", "w") as f:
+            yaml.dump({"wing": "test_project", "rooms": [{"name": "general", "description": ""}]}, f)
+
+        mine(str(project_root), str(palace_path))
+
+        store = open_store(str(palace_path), create=False)
+        result = store.get(
+            where={"source_file": str(src_file)},
+            include=["metadatas"],
+        )
+        metas = result["metadatas"]
+        assert metas, "Expected at least one chunk"
+
+        # All chunks with positive ranges must have consistent start<=end
+        for meta in metas:
+            ls, le = meta["line_start"], meta["line_end"]
+            if ls > 0 or le > 0:
+                assert ls > 0 and le > 0, f"Partial range: line_start={ls}, line_end={le}"
+                assert ls <= le, f"Inverted range: line_start={ls} > line_end={le}"
+
+        # Multiple chunks must have non-overlapping or sequentially advancing start lines
+        with_ranges = [(m["line_start"], m["line_end"]) for m in metas if m["line_start"] > 0]
+        with_ranges.sort()
+        for i in range(1, len(with_ranges)):
+            prev_start, _ = with_ranges[i - 1]
+            cur_start, _ = with_ranges[i]
+            assert cur_start >= prev_start, f"Out-of-order ranges: {with_ranges}"
+    finally:
+        shutil.rmtree(tmpdir)

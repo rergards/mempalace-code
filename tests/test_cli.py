@@ -1930,3 +1930,88 @@ class TestVersionCheckCLIHook:
             self._run(["mempalace", "--palace", palace, "status"])
 
         assert prompt_called == [], "run_first_run_prompt must not be called in non-TTY"
+
+
+# ─── CLI read command tests ───────────────────────────────────────────────────
+
+
+class TestReadCommand:
+    """read_command: mempalace-code read prints numbered lines on success and exits non-zero on failure."""
+
+    def _seed_readable(self, palace_path):
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["rc_chunk0"],
+            documents=["def authenticate(user): validate credentials\ndef authorize(user): check role"],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 2,
+                }
+            ],
+        )
+        return palace_path
+
+    def test_read_command_success(self, tmp_path, capsys, monkeypatch):
+        """read_command: success path prints numbered source lines (AC-3)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed_readable(palace_path)
+
+        with patch.object(sys, "argv", [
+            "mempalace-code", "--palace", palace_path,
+            "read", "/project/src/auth.py", "--start", "1", "--end", "2"
+        ]):
+            main()
+
+        out = capsys.readouterr().out
+        assert "1:" in out or "     1:" in out
+        assert "authenticate" in out
+
+    def test_read_command_not_found_exits_nonzero(self, tmp_path, capsys, monkeypatch):
+        """read_command: exits non-zero when source_file has no palace chunks (AC-4)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        open_store(palace_path, create=True)  # empty palace
+
+        with patch.object(sys, "argv", [
+            "mempalace-code", "--palace", palace_path,
+            "read", "/nonexistent/file.py", "--start", "1", "--end", "5"
+        ]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code != 0
+
+    def test_read_command_stale_pointer_exits_nonzero(self, tmp_path, capsys, monkeypatch):
+        """read_command: exits non-zero when range overlaps no stored chunk (AC-5)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed_readable(palace_path)
+
+        with patch.object(sys, "argv", [
+            "mempalace-code", "--palace", palace_path,
+            "read", "/project/src/auth.py", "--start", "999", "--end", "1000"
+        ]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code != 0
+
+    def test_read_command_invalid_range_exits_nonzero(self, tmp_path, capsys, monkeypatch):
+        """read_command: exits non-zero when start > end (AC-5)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed_readable(palace_path)
+
+        with patch.object(sys, "argv", [
+            "mempalace-code", "--palace", palace_path,
+            "read", "/project/src/auth.py", "--start", "10", "--end", "5"
+        ]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code != 0
