@@ -1,0 +1,8 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/UPSTREAM-ROOM-MATCH-BOUNDED-round-1.md"
+  ],
+  "before_sha": "39d8305",
+  "timestamp": "2026-05-23T09:25:54Z"
+}
