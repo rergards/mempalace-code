@@ -1,6 +1,7 @@
 """mining.orchestrator — Core mine() loop, batch helpers, storage ops, status."""
 
 import hashlib
+import json
 import os
 import re
 import time
@@ -46,6 +47,44 @@ def _bulk_existing_file_hashes(collection, wing: str) -> dict:
     """
     result = collection.get_source_file_hashes(wing)
     return result if result is not None else {}
+
+
+def _tiny_hashes_path(palace_path: str) -> Path:
+    """Return the path to the tiny-hashes sidecar.
+
+    Stored under palace/.mempalace/ so the scanner skips it when the palace
+    directory lives inside the project being mined (.mempalace is in SKIP_DIRS).
+    """
+    return Path(palace_path) / ".mempalace" / "tiny_hashes.json"
+
+
+def _load_tiny_hashes(palace_path: str, wing: str) -> dict:
+    """Return {source_file: source_hash} for files that produced no chunks on the last mine.
+
+    Tiny files have no drawer rows, so their hashes are stored in a sidecar JSON
+    file rather than in the palace. Returns an empty dict when the sidecar is absent
+    or unreadable.
+    """
+    p = _tiny_hashes_path(palace_path)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text())
+        return data.get(wing, {})
+    except Exception:
+        return {}
+
+
+def _save_tiny_hashes(palace_path: str, wing: str, hashes: dict) -> None:
+    """Persist {source_file: source_hash} for zero-chunk files to the sidecar JSON."""
+    p = _tiny_hashes_path(palace_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data = json.loads(p.read_text()) if p.exists() else {}
+    except Exception:
+        data = {}
+    data[wing] = hashes
+    p.write_text(json.dumps(data))
 
 
 # =============================================================================
@@ -367,9 +406,14 @@ def mine(
         collection.warmup()
         print("  Model ready.\n", flush=True)
         existing_hashes = _bulk_existing_file_hashes(collection, wing)
+        # Tiny files produce no drawers so their hashes live in a sidecar. Load it
+        # for incremental runs; start fresh for full rebuilds so the sidecar is
+        # rebuilt from scratch.
+        tiny_hashes: dict = _load_tiny_hashes(palace_path, wing) if incremental else {}
     else:
         collection = None
         existing_hashes = {}
+        tiny_hashes = {}
 
     total_drawers = 0
     files_skipped = 0
@@ -431,8 +475,15 @@ def mine(
             if incremental:
                 stored_hash = existing_hashes.get(source_file, "")
                 if stored_hash == current_hash and stored_hash != "":
-                    # File unchanged — skip
+                    # File unchanged (has drawers) — skip
                     files_skipped += 1
+                    continue
+                # Check the tiny-file sidecar before paying for a full chunk pass.
+                tiny_stored_hash = tiny_hashes.get(source_file, "")
+                if tiny_stored_hash == current_hash and tiny_stored_hash != "":
+                    # File unchanged and produced no chunks last run — skip re-processing.
+                    # Report as files_tiny so it remains distinct from drawer-backed skips.
+                    files_tiny += 1
                     continue
                 # Hash mismatch or new file — delete old drawers then re-mine
                 if source_file in existing_hashes:
@@ -472,9 +523,14 @@ def mine(
                     kg.add_triple(subj, pred, obj, source_file=source_file)
 
             if not specs:
+                # Record the hash so future incremental runs can skip this file.
+                if not dry_run:
+                    tiny_hashes[source_file] = current_hash
                 files_tiny += 1
                 continue
 
+            # File produced chunks — remove any stale tiny-hash entry.
+            tiny_hashes.pop(source_file, None)
             room = specs[0]["metadata"]["room"]
             room_counts[room] += 1
             print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{len(specs)}")
@@ -496,6 +552,9 @@ def mine(
                     collection.delete_by_source_file(stale_path, wing)
                     if kg is not None and Path(stale_path).suffix.lower() in _KG_EXTRACT_EXTENSIONS:
                         kg.invalidate_by_source_file(stale_path)
+                # Also expire tiny-hash entries for files no longer on disk.
+                for stale_tiny in set(tiny_hashes.keys()) - walked_paths:
+                    del tiny_hashes[stale_tiny]
 
             # Architecture extraction pass: derive pattern/layer/namespace/project
             # KG facts from the full walked file set.  Runs after the stale sweep so
@@ -572,6 +631,9 @@ def mine(
         print(f"    {room:20} {count} files")
     print('\n  Next: mempalace-code search "what you\'re looking for"')
     print(f"{'=' * 55}\n")
+
+    if not dry_run:
+        _save_tiny_hashes(palace_path, wing, tiny_hashes)
 
     return {
         "files_processed": len(files) - files_skipped - files_tiny,
