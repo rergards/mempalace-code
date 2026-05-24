@@ -4985,6 +4985,8 @@ def test_mine_tiny_files_no_change_incremental_skip():
 
         # Palace must remain empty — no tiny file should produce a drawer on re-mine.
         store = open_store(palace_path, create=False)
-        assert store.count() == 0, "Palace must remain empty after incremental re-mine of tiny-only project"
+        assert store.count() == 0, (
+            "Palace must remain empty after incremental re-mine of tiny-only project"
+        )
     finally:
         shutil.rmtree(tmpdir)

@@ -3590,9 +3590,7 @@ class TestDeleteAfterReadOfflineNoEmbedder:
 
             shutil.rmtree(fresh_home, ignore_errors=True)
 
-    def test_delete_after_read_offline_no_embedder_not_found(
-        self, palace_path, seeded_collection
-    ):
+    def test_delete_after_read_offline_no_embedder_not_found(self, palace_path, seeded_collection):
         """Missing drawer/wing deletes return structured errors, not 'No palace found'."""
         import sys
         import tempfile
