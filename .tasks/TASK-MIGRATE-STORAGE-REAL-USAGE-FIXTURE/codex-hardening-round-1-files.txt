@@ -1,0 +1,3 @@
+docs/BACKUP_RESTORE.md
+scripts/migrate_storage_smoke.py
+tests/test_migrate_storage_smoke.py

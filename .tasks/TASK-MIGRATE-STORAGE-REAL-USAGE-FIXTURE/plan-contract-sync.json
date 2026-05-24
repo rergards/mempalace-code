@@ -1,0 +1,137 @@
+{
+  "passed": true,
+  "slug": "MIGRATE-STORAGE-REAL-USAGE-FIXTURE",
+  "planned_files": [
+    "docs/BACKUP_RESTORE.md",
+    "scripts/migrate_storage_smoke.py",
+    "tests/test_migrate_storage_smoke.py"
+  ],
+  "actual_files": [
+    "docs/BACKUP_RESTORE.md",
+    "docs/audits/MIGRATE-STORAGE-REAL-USAGE-FIXTURE-polish-1.md",
+    "docs/audits/MIGRATE-STORAGE-REAL-USAGE-FIXTURE-round-1.md",
+    "docs/plans/MIGRATE-STORAGE-REAL-USAGE-FIXTURE.md",
+    "scripts/migrate_storage_smoke.py",
+    "tests/test_migrate_storage_smoke.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_cli.py::TestMigrateStorageCommand -q",
+    "python -m pytest tests/test_migrate.py -q",
+    "python -m pytest tests/test_migrate_storage_smoke.py::test_missing_chroma_reports_chroma_extra -q",
+    "python scripts/migrate_storage_smoke.py --exercise-dst-guard",
+    "python scripts/migrate_storage_smoke.py --rows 1",
+    "python scripts/migrate_storage_smoke.py --rows 3",
+    "rg --fixed-strings --quiet 'migrate-storage smoke' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet '[chroma]' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'scripts/migrate_storage_smoke.py' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'source=' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'search' docs/BACKUP_RESTORE.md",
+    "rg --fixed-strings --quiet 'migrate-storage smoke' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet '[chroma]' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'scripts/migrate_storage_smoke.py' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'source=' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'search' docs/BACKUP_RESTORE.md",
+    "ruff check scripts/migrate_storage_smoke.py tests/test_migrate_storage_smoke.py"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_cli.py::TestMigrateStorageCommand -q",
+    "python -m pytest tests/test_migrate.py -q",
+    "python -m pytest tests/test_migrate_storage_smoke.py -q",
+    "python -m pytest tests/test_migrate_storage_smoke.py -v",
+    "python -m pytest tests/test_migrate_storage_smoke.py::test_missing_chroma_reports_chroma_extra -q",
+    "python scripts/migrate_storage_smoke.py --exercise-dst-guard",
+    "python scripts/migrate_storage_smoke.py --rows 1",
+    "python scripts/migrate_storage_smoke.py --rows 3",
+    "rg --fixed-strings --quiet 'migrate-storage smoke' docs/BACKUP_RESTORE.md \u0026\u0026 ...",
+    "ruff check mempalace/ tests/",
+    "ruff check scripts/migrate_storage_smoke.py tests/test_migrate_storage_smoke.py",
+    "ruff format --check mempalace/ tests/",
+    "ruff format --check scripts/migrate_storage_smoke.py tests/test_migrate_storage_smoke.py",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python scripts/migrate_storage_smoke.py --rows 3",
+      "matched": "implement-result.json#verification_evidence[0] command=python scripts/migrate_storage_smoke.py --rows 3",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python scripts/migrate_storage_smoke.py --exercise-dst-guard",
+      "matched": "implement-result.json#verification_evidence[1] command=python scripts/migrate_storage_smoke.py --exercise-dst-guard",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python scripts/migrate_storage_smoke.py --rows 1",
+      "matched": "implement-result.json#verification_evidence[2] command=python scripts/migrate_storage_smoke.py --rows 1",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_migrate_storage_smoke.py::test_missing_chroma_reports_chroma_extra -q",
+      "matched": "implement-result.json#verification_evidence[3] command=python -m pytest tests/test_migrate_storage_smoke.py::test_missing_chroma_reports_chroma_extra -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-5",
+      "planned": "rg --fixed-strings --quiet 'migrate-storage smoke' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet '[chroma]' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'scripts/migrate_storage_smoke.py' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'source=' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'search' docs/BACKUP_RESTORE.md",
+      "matched": "implement-result.json#verification_evidence[4] command=rg --fixed-strings --quiet 'migrate-storage smoke' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet '[chroma]' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'scripts/migrate_storage_smoke.py' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'source=' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'search' docs/BACKUP_RESTORE.md",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_migrate.py -q",
+      "matched": "implement-result.json#verification_evidence[5] command=python -m pytest tests/test_migrate.py -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python -m pytest tests/test_cli.py::TestMigrateStorageCommand -q",
+      "matched": "implement-result.json#verification_evidence[6] command=python -m pytest tests/test_cli.py::TestMigrateStorageCommand -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "ruff check scripts/migrate_storage_smoke.py tests/test_migrate_storage_smoke.py",
+      "matched": "implement-result.json#verification_evidence[7] command=ruff check scripts/migrate_storage_smoke.py tests/test_migrate_storage_smoke.py",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-4",
+      "planned": "rg --fixed-strings --quiet 'migrate-storage smoke' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet '[chroma]' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'scripts/migrate_storage_smoke.py' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'source=' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'search' docs/BACKUP_RESTORE.md",
+      "matched": "implement-result.json#verification_evidence[8] command=rg --fixed-strings --quiet 'migrate-storage smoke' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet '[chroma]' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'scripts/migrate_storage_smoke.py' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'source=' docs/BACKUP_RESTORE.md \u0026\u0026 rg --fixed-strings --quiet 'search' docs/BACKUP_RESTORE.md",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/MIGRATE-STORAGE-REAL-USAGE-FIXTURE-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening round audit report required by harden phase instructions",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5"
+      ],
+      "check_ids": [
+        "REG-1",
+        "REG-2",
+        "REG-3",
+        "REG-4"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/MIGRATE-STORAGE-REAL-USAGE-FIXTURE- prefix"
+    }
+  ],
+  "blocked_scope_expansions": [
+    {
+      "path": "docs/audits/MIGRATE-STORAGE-REAL-USAGE-FIXTURE-polish-1.md",
+      "phase": "polish",
+      "category": "audit_only",
+      "reason": "Polish phase audit report for MIGRATE-STORAGE-REAL-USAGE-FIXTURE",
+      "block_reason": "no acceptance_id or check_id links to a known plan contract ID"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}

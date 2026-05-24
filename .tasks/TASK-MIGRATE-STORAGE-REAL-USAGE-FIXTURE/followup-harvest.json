@@ -1,0 +1,16 @@
+{
+  "slug": "MIGRATE-STORAGE-REAL-USAGE-FIXTURE",
+  "added": [],
+  "warnings": [],
+  "sources": [
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../polish-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/MIGRATE-STORAGE-REAL-USAGE-FIXTURE-polish-1.md",
+    "docs/audits/MIGRATE-STORAGE-REAL-USAGE-FIXTURE-round-1.md"
+  ]
+}
