@@ -868,9 +868,7 @@ class TestNoneMetadataRobustness:
         assert "Source: /private/var/tmp/project/auth.py" in captured.out, (
             f"Expected full stored path in Source: line, got:\n{captured.out}"
         )
-        assert "Source: auth.py" not in captured.out, (
-            "Source: line must not trim to basename only"
-        )
+        assert "Source: auth.py" not in captured.out, "Source: line must not trim to basename only"
 
 
 class TestCodeSearchHybridRerank:

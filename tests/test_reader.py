@@ -417,7 +417,9 @@ class TestSourceFileResolution:
         # No drawer content must be included in the error payload
         assert "lines" not in result
 
-    def test_source_file_resolution_missing_returns_not_found(self, palace_path, multi_source_store):
+    def test_source_file_resolution_missing_returns_not_found(
+        self, palace_path, multi_source_store
+    ):
         """Unknown source returns not_found without broadening to file_context (AC-6)."""
         result = read_slice(multi_source_store, "missing.py", 1, 1, wing="proj")
         assert result["error"] == "not_found"
@@ -425,9 +427,7 @@ class TestSourceFileResolution:
 
     def test_source_file_resolution_macos_var_alias(self, palace_path, macos_store):
         """'/var/...' spelling resolves to the stored '/private/var/...' canonical path (AC-5)."""
-        result = read_slice(
-            macos_store, "/var/folders/tmp/project/auth.py", 1, 1, wing="proj"
-        )
+        result = read_slice(macos_store, "/var/folders/tmp/project/auth.py", 1, 1, wing="proj")
         assert "error" not in result
         assert result["source_file"] == "/private/var/folders/tmp/project/auth.py"
         assert result["lines"][0]["text"] == "def authenticate(): pass"

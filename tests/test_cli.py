@@ -2142,9 +2142,7 @@ class TestReadCommandSourcePathDiscovery:
         out = capsys.readouterr().out
         assert "login" in out
 
-    def test_read_command_source_path_discovery_unique_suffix(
-        self, tmp_path, capsys, monkeypatch
-    ):
+    def test_read_command_source_path_discovery_unique_suffix(self, tmp_path, capsys, monkeypatch):
         """read_command: unique project-relative suffix resolves and prints lines (AC-3)."""
         monkeypatch.setenv("HOME", str(tmp_path))
         palace_path = str(tmp_path / "palace")
