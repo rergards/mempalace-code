@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-24 · MINE-TINY-FILES-ZERO-DRAWERS
+
+Tiny non-empty source files that produce no chunks are now reported as a distinct tiny-file outcome instead of inflating the `Files skipped (already filed)` count.
+
 ## 2026-05-24 · CLI-READ-SOURCE-PATH-DISCOVERY
 
 `search` now prints the full stored source path so it can be copied directly into `read`; `read` now resolves unique basename and path-suffix matches within the wing instead of requiring the exact stored path.
