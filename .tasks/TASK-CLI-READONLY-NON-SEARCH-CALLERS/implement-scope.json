@@ -1,0 +1,17 @@
+{
+  "phase": "implement",
+  "files": [
+    "mempalace_code/backup.py",
+    "mempalace_code/cli_commands/export_import.py",
+    "mempalace_code/cli_commands/maintenance.py",
+    "mempalace_code/cli_commands/query.py",
+    "mempalace_code/mcp/tools/write.py",
+    "tests/test_backup.py",
+    "tests/test_cli.py",
+    "tests/test_cli_command_modules.py",
+    "tests/test_export.py",
+    "tests/test_mcp_server.py"
+  ],
+  "before_sha": "e288a4f",
+  "timestamp": "2026-05-24T11:48:47Z"
+}
