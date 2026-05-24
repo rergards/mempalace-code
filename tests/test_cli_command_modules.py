@@ -5,10 +5,52 @@ Verifies:
   - mempalace_code.cli still exports the stable public symbols
   - Each command module can be imported without eagerly loading heavy runtime deps
   - Each expected command name maps to a callable handler in the owning module
+  - python -m mempalace_code.cli does not emit the runpy RuntimeWarning (AC-1, AC-2)
 """
 
+import subprocess
 import sys
 import types
+
+
+_RUNPY_WARNING = "RuntimeWarning: 'mempalace_code.cli' found in sys.modules"
+
+
+def test_no_runpy_warning_on_help():
+    """AC-1: python -m mempalace_code.cli --help prints help and emits no runpy RuntimeWarning."""
+    result = subprocess.run(
+        [sys.executable, "-W", "error", "-m", "mempalace_code.cli", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"--help should exit 0; stderr={result.stderr!r}"
+    assert _RUNPY_WARNING not in result.stderr, (
+        f"runpy RuntimeWarning must be absent; stderr={result.stderr!r}"
+    )
+    assert "usage:" in result.stdout, "help output must contain 'usage:'"
+
+
+def test_no_runpy_warning_on_unknown_command():
+    """AC-2: python -m mempalace_code.cli <unknown> reports arg error only, no runpy warning."""
+    result = subprocess.run(
+        [sys.executable, "-W", "error", "-m", "mempalace_code.cli", "does-not-exist"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0, "unknown command should exit non-zero"
+    assert _RUNPY_WARNING not in result.stderr, (
+        f"runpy RuntimeWarning must be absent; stderr={result.stderr!r}"
+    )
+    assert "invalid choice" in result.stderr or "error:" in result.stderr, (
+        f"stderr must describe the invalid command; stderr={result.stderr!r}"
+    )
+
+
+def test_package_main_is_callable():
+    """AC-3: import mempalace_code; mempalace_code.main must be callable for console-script compat."""
+    import mempalace_code
+
+    assert callable(mempalace_code.main), "mempalace_code.main must be callable"
 
 
 def test_cli_module_exports_stable_entry_points():
