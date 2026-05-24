@@ -861,3 +861,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=97fd5c8, 27 files changed, 1709 insertions(+), 11 deletions(-))'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=97fd5c8, 27 files changed, 1709 insertions(+), 11 deletions(-))
+    - key: CLI-EXPORT-STDOUT-CLEAN
+      summary: Keep export --out - stdout as clean JSONL
+      resolution: '2026-05-24: completed in pipeline run (commit=c96b34ad)'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=c96b34ad)

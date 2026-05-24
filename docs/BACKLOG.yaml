@@ -69,7 +69,6 @@ items:
       - Dry-run compress exits 0 and prints per-drawer compression output.
       - Live compress exits 0 and stores compressed drawers.
       - The command handles current `Dialect.compression_stats` keys without traceback.
-
   - key: CLI-READ-SOURCE-PATH-DISCOVERY
     summary: "Make CLI search/read source paths usable together"
     type: bug
@@ -96,34 +95,6 @@ items:
       - CLI search exposes the exact stored `source_file` needed by CLI read, or offers a machine-readable mode that does.
       - CLI read accepts a unique basename/project-relative path within a wing, or emits candidates when the input is ambiguous.
       - macOS `/var/...` and `/private/var/...` equivalents are normalized or clearly handled.
-
-  - key: CLI-EXPORT-STDOUT-CLEAN
-    summary: "Keep export --out - stdout as clean JSONL"
-    type: bug
-    priority: high
-    status: open
-    size: S
-    section_id: storage_reliability
-    labels: [cli, export, import, real-usage]
-    description: |
-      ## Symptom
-      `mempalace-code export --out -` advertises stdout export, but progress/summary text is printed to stdout before/after JSONL.
-
-      ## Steps to reproduce
-      Run `mempalace-code --palace <temp-palace> export --out - --only-manual` and inspect the first stdout line.
-
-      ## Expected vs actual
-      Expected: stdout contains only JSONL records so it can be piped directly to `import -`.
-      Actual: the first stdout line was a human progress line: `Exporting from: ...`.
-
-      ## Root cause hypothesis
-      The export CLI prints human progress to stdout unconditionally instead of routing it to stderr when `--out -` is used.
-
-      ## Acceptance criteria
-      - When `--out -` is used, stdout contains only JSONL records.
-      - Human progress and summary messages go to stderr for stdout export.
-      - `mempalace-code export --out - ... | mempalace-code import - --dry-run` works with no filtering.
-
   - key: MCP-KG-SOURCE-FILE-PROVENANCE
     summary: "Expose KG source_file provenance in query outputs"
     type: feature
@@ -153,7 +124,6 @@ items:
       - `mempalace_code/knowledge_graph.py`
       - `mempalace_code/mcp/tools/kg.py`
       - Architecture/KG MCP tool tests as needed.
-
   - key: CLI-STATUS-READONLY-NO-EMBEDDER
     summary: "Make read-only status avoid embedding model startup"
     type: bug
@@ -180,7 +150,6 @@ items:
       - `status` opens LanceDB read-only and does not initialize the embedder.
       - No HF/model-loading output appears for status.
       - Other read-only non-search CLI commands are audited for the same behavior.
-
   - key: MIGRATE-STORAGE-REAL-USAGE-FIXTURE
     summary: "Add a disposable real migrate-storage smoke fixture"
     type: task
