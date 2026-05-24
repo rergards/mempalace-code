@@ -81,6 +81,8 @@ def tool_find_implementations(interface: str) -> dict:
                 entry = {"type": t}
                 if f.get("source_closet"):
                     entry["source_closet"] = f["source_closet"]
+                if f.get("source_file"):
+                    entry["source_file"] = f["source_file"]
                 implementations.append(entry)
 
     # Python ABC heuristic: if the interface itself has an outgoing implements-to-ABC/Protocol
@@ -99,6 +101,8 @@ def tool_find_implementations(interface: str) -> dict:
                     entry = {"type": t}
                     if f.get("source_closet"):
                         entry["source_closet"] = f["source_closet"]
+                    if f.get("source_file"):
+                        entry["source_file"] = f["source_file"]
                     implementations.append(entry)
 
     return {
@@ -120,7 +124,10 @@ def tool_find_references(type_name: str) -> dict:
         if cat is None:
             continue
         entry_type = fact["subject"] if fact["direction"] == "incoming" else fact["object"]
-        categories.setdefault(cat, []).append({"type": entry_type})
+        entry: dict = {"type": entry_type}
+        if fact.get("source_file"):
+            entry["source_file"] = fact["source_file"]
+        categories.setdefault(cat, []).append(entry)
 
     return {
         "type": type_name,

@@ -670,6 +670,70 @@ class TestKGTools:
         with pytest.raises(ValueError, match="Invalid temporal"):
             tool_kg_invalidate(subject="X", predicate="knows", object="Y", ended="last month")
 
+    def test_kg_query_returns_source_file_provenance(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """AC-1: kg_query exposes source_file on sourced facts and preserves source_closet."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_kg_add, tool_kg_query
+
+        tool_kg_add(
+            subject="AuthService",
+            predicate="implements",
+            object="IAuthService",
+            source_closet="closet_42",
+            source_file="src/auth.py",
+        )
+
+        result = tool_kg_query(entity="IAuthService", direction="incoming")
+        assert result["count"] == 1
+        fact = result["facts"][0]
+        assert fact["subject"] == "AuthService"
+        assert fact["source_file"] == "src/auth.py"
+        assert fact["source_closet"] == "closet_42"
+
+    def test_kg_timeline_returns_source_file_provenance(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """AC-2: kg_timeline exposes source_file on timeline rows without altering temporal fields."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_kg_add, tool_kg_timeline
+
+        tool_kg_add(
+            subject="AuthService",
+            predicate="implements",
+            object="IAuthService",
+            valid_from="2026-01-01",
+            source_file="src/auth.py",
+        )
+
+        result = tool_kg_timeline(entity="AuthService")
+        assert result["count"] == 1
+        row = result["timeline"][0]
+        assert row["subject"] == "AuthService"
+        assert row["predicate"] == "implements"
+        assert row["object"] == "IAuthService"
+        assert row["valid_from"] == "2026-01-01"
+        assert row["source_file"] == "src/auth.py"
+        assert row["current"] is True
+
+    def test_kg_query_and_timeline_keep_legacy_unsourced_rows(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """AC-5: triples stored without source_file are still returned with source_file=None."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_kg_add, tool_kg_query, tool_kg_timeline
+
+        tool_kg_add(subject="Legacy", predicate="uses", object="OldLib")
+
+        query_result = tool_kg_query(entity="Legacy", direction="outgoing")
+        assert query_result["count"] == 1
+        assert query_result["facts"][0]["source_file"] is None
+
+        timeline_result = tool_kg_timeline(entity="Legacy")
+        assert timeline_result["count"] == 1
+        assert timeline_result["timeline"][0]["source_file"] is None
+
 
 # ── Diary Tools ─────────────────────────────────────────────────────────
 
@@ -1453,6 +1517,50 @@ class TestArchTools:
         ancestor_types = {a["type"] for a in result["ancestors"]}
         assert "BaseService" in ancestor_types
         assert "GrandBase" not in ancestor_types
+
+    def test_arch_relationship_outputs_include_source_file_provenance(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """AC-3: project graph and find_references entries retain source_file from KG facts."""
+        kg.add_triple(
+            "AppProject",
+            "depends_on",
+            "SharedLib",
+            source_file="src/app.csproj",
+        )
+        kg.add_triple(
+            "AppProject",
+            "references_project",
+            "CoreLib",
+            source_file="src/app.csproj",
+        )
+        kg.add_triple(
+            "ServiceImpl",
+            "implements",
+            "IService",
+            source_file="src/service.cs",
+        )
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_find_references, tool_show_project_graph
+
+        # project graph: depends_on rows must carry source_file
+        graph_result = tool_show_project_graph()
+        dep_rows = graph_result["graph"].get("depends_on", [])
+        app_dep = next((r for r in dep_rows if r["subject"] == "AppProject"), None)
+        assert app_dep is not None
+        assert app_dep["source_file"] == "src/app.csproj"
+
+        # project graph: references_project rows too
+        ref_rows = graph_result["graph"].get("references_project", [])
+        app_ref = next((r for r in ref_rows if r["subject"] == "AppProject"), None)
+        assert app_ref is not None
+        assert app_ref["source_file"] == "src/app.csproj"
+
+        # find_references: implements entries carry source_file
+        refs_result = tool_find_references(type_name="ServiceImpl")
+        impl_entries = refs_result["references"].get("implements", [])
+        assert len(impl_entries) == 1
+        assert impl_entries[0]["source_file"] == "src/service.cs"
 
     def test_arch_tools_in_tools_list(self):
         """AC-12: All 4 new tools appear in tools/list with name, description, and inputSchema."""

@@ -475,6 +475,7 @@ class KnowledgeGraph:
                         "valid_to": row[5],
                         "confidence": row[6],
                         "source_closet": row[7],
+                        "source_file": row[8],
                         "current": row[5] is None,
                     }
                 )
@@ -496,6 +497,7 @@ class KnowledgeGraph:
                         "valid_to": row[5],
                         "confidence": row[6],
                         "source_closet": row[7],
+                        "source_file": row[8],
                         "current": row[5] is None,
                     }
                 )
@@ -529,6 +531,8 @@ class KnowledgeGraph:
                     "object": row[11],
                     "valid_from": row[4],
                     "valid_to": row[5],
+                    "source_closet": row[7],
+                    "source_file": row[8],
                     "current": row[5] is None,
                 }
             )
@@ -570,6 +574,8 @@ class KnowledgeGraph:
                 "object": r[11],
                 "valid_from": r[4],
                 "valid_to": r[5],
+                "source_closet": r[7],
+                "source_file": r[8],
                 "current": r[5] is None,
             }
             for r in rows
