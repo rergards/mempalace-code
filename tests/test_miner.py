@@ -4871,9 +4871,7 @@ def test_mine_tiny_files_reported_separately_from_skipped():
 
         result = mine(str(project_root), palace_path, incremental=False)
 
-        assert result["files_tiny"] > 0, (
-            f"Tiny files must be counted in files_tiny, got {result}"
-        )
+        assert result["files_tiny"] > 0, f"Tiny files must be counted in files_tiny, got {result}"
         assert result["files_skipped"] == 0, (
             f"files_skipped must be 0 for a full mine with no prior state, got {result}"
         )
@@ -4882,7 +4880,7 @@ def test_mine_tiny_files_reported_separately_from_skipped():
         )
         # Palace must be empty — tiny files must not appear as drawers
         store = open_store(palace_path, create=False)
-        assert store.count() == 0, f"Palace should be empty after mining only tiny files"
+        assert store.count() == 0, "Palace should be empty after mining only tiny files"
     finally:
         shutil.rmtree(tmpdir)
 
@@ -4907,12 +4905,8 @@ def test_mine_tiny_files_incremental_separation():
 
         # Second mine (incremental): normal file unchanged → files_skipped; tiny still → files_tiny
         r2 = mine(str(project_root), palace_path, incremental=True)
-        assert r2["files_skipped"] >= 1, (
-            f"Unchanged normal file must be in files_skipped, got {r2}"
-        )
-        assert r2["files_tiny"] == 3, (
-            f"Tiny files must still be in files_tiny on re-mine, got {r2}"
-        )
+        assert r2["files_skipped"] >= 1, f"Unchanged normal file must be in files_skipped, got {r2}"
+        assert r2["files_tiny"] == 3, f"Tiny files must still be in files_tiny on re-mine, got {r2}"
         # Tiny files must NOT inflate files_skipped
         assert r2["files_skipped"] < r2["files_skipped"] + r2["files_tiny"], (
             "files_skipped must be strictly less than total non-processed files"
