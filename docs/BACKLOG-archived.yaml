@@ -876,3 +876,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=3c86c5f, 16 files changed, 1026 insertions(+), 4 deletions(-))'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=3c86c5f, 16 files changed, 1026 insertions(+), 4 deletions(-))
+    - key: CLI-READONLY-NON-SEARCH-CALLERS
+      summary: Audit remaining read-only non-search CLI callers for embedder startup
+      resolution: '2026-05-24: completed in pipeline run (commit=6d5fdb8, 20 files changed, 837 insertions(+), 18 deletions(-), retried 1/1 after timeout [stall budget])'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=6d5fdb8, 20 files changed, 837 insertions(+), 18 deletions(-), retried 1/1 after timeout [stall budget])
