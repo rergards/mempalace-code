@@ -53,6 +53,30 @@ def test_backup_cli_default_out(seeded_collection, palace_path, tmp_dir, capsys)
     assert "Wings: notes, project" in captured.out
 
 
+def test_backup_parent_out_compat(seeded_collection, palace_path, tmp_dir, capsys):
+    """AC-1: backup --out FILE create (parent-level --out) writes to FILE, not default dir."""
+    explicit = os.path.join(tmp_dir, "compat.tar.gz")
+    _run(["mempalace-code", "--palace", palace_path, "backup", "--out", explicit, "create"])
+
+    captured = capsys.readouterr()
+    assert os.path.isfile(explicit), f"Archive not created at {explicit}"
+    archive_path = _archive_line(captured.out)
+    assert os.path.abspath(archive_path) == os.path.abspath(explicit)
+    assert "Backed up 4 drawers from 2 wing(s)." in captured.out
+
+
+def test_backup_parent_out_missing_dir(seeded_collection, palace_path, tmp_dir, capsys):
+    """AC-4: backup --out FILE create succeeds even when FILE's parent directory does not exist."""
+    nested = os.path.join(tmp_dir, "new_subdir", "archive.tar.gz")
+    assert not os.path.exists(os.path.dirname(nested))
+    _run(["mempalace-code", "--palace", palace_path, "backup", "--out", nested, "create"])
+
+    captured = capsys.readouterr()
+    assert os.path.isfile(nested), f"Archive not created at {nested}"
+    archive_path = _archive_line(captured.out)
+    assert os.path.abspath(archive_path) == os.path.abspath(nested)
+
+
 def test_backup_cli_explicit_out(seeded_collection, palace_path, tmp_dir, capsys):
     """AC-2: backup create --out <path> creates archive at the explicit path and prints it."""
     explicit = os.path.join(tmp_dir, "explicit.tar.gz")

@@ -471,7 +471,7 @@ def main():
     )
     p_backup_create.add_argument(
         "--out",
-        default=None,
+        default=argparse.SUPPRESS,
         metavar="FILE",
         help="Output .tar.gz path (default: <palace_parent>/backups/<kind_prefix><ts>.tar.gz)",
     )
