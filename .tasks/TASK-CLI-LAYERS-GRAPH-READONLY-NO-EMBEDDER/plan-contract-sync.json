@@ -1,0 +1,107 @@
+{
+  "passed": true,
+  "slug": "CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER",
+  "planned_files": [
+    "mempalace_code/layers.py",
+    "mempalace_code/palace_graph.py",
+    "tests/test_layers.py",
+    "tests/test_mcp_server.py",
+    "tests/test_palace_graph.py"
+  ],
+  "actual_files": [
+    "docs/audits/CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER-polish-1.md",
+    "docs/audits/CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER-round-1.md",
+    "mempalace_code/layers.py",
+    "mempalace_code/palace_graph.py",
+    "tests/test_layers.py",
+    "tests/test_mcp_server.py",
+    "tests/test_palace_graph.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_e2e.py -k 'layers_wake_up_recall_search_e2e or palace_graph_tunnels_e2e' -q",
+    "python -m pytest tests/test_layers.py -k 'wake_up_recall_no_embedder or layer_status_no_embedder or wakeup_cli_smoke_no_model_output' -q",
+    "python -m pytest tests/test_layers.py tests/test_palace_graph.py -k 'missing_palace_no_embedder or empty_palace_no_embedder' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'graph_tools_no_embedder' -q",
+    "python -m pytest tests/test_palace_graph.py -k 'read_only_no_embedder' -q",
+    "python -m pytest tests/test_palace_graph.py -q",
+    "ruff check mempalace_code/layers.py mempalace_code/palace_graph.py tests/test_layers.py tests/test_palace_graph.py tests/test_mcp_server.py"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "grep -n 'def _patch_mcp_server' tests/test_mcp_server.py",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_e2e.py -k 'layers_wake_up_recall_search_e2e or palace_graph_tunnels_e2e' -q",
+    "python -m pytest tests/test_layers.py -k 'wake_up_recall_no_embedder or layer_status_no_embedder or wakeup_cli_smoke_no_model_output' -q",
+    "python -m pytest tests/test_layers.py tests/test_palace_graph.py -k 'missing_palace_no_embedder or empty_palace_no_embedder' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'graph_tools_no_embedder' -q",
+    "python -m pytest tests/test_palace_graph.py -k 'read_only_no_embedder' -q",
+    "python -m pytest tests/test_palace_graph.py -q",
+    "ruff check mempalace/ tests/",
+    "ruff check mempalace_code/layers.py mempalace_code/palace_graph.py tests/test_layers.py tests/test_palace_graph.py tests/test_mcp_server.py",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_layers.py -k 'wake_up_recall_no_embedder or layer_status_no_embedder or wakeup_cli_smoke_no_model_output' -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_layers.py -k 'wake_up_recall_no_embedder or layer_status_no_embedder or wakeup_cli_smoke_no_model_output' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_palace_graph.py -k 'read_only_no_embedder' -q",
+      "matched": "implement-result.json#verification_evidence[1] command=python -m pytest tests/test_palace_graph.py -k 'read_only_no_embedder' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_mcp_server.py -k 'graph_tools_no_embedder' -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_mcp_server.py -k 'graph_tools_no_embedder' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_layers.py tests/test_palace_graph.py -k 'missing_palace_no_embedder or empty_palace_no_embedder' -q",
+      "matched": "implement-result.json#verification_evidence[3] command=python -m pytest tests/test_layers.py tests/test_palace_graph.py -k 'missing_palace_no_embedder or empty_palace_no_embedder' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_palace_graph.py -q",
+      "matched": "implement-result.json#verification_evidence[4] command=python -m pytest tests/test_palace_graph.py -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python -m pytest tests/test_e2e.py -k 'layers_wake_up_recall_search_e2e or palace_graph_tunnels_e2e' -q",
+      "matched": "implement-result.json#verification_evidence[5] command=python -m pytest tests/test_e2e.py -k 'layers_wake_up_recall_search_e2e or palace_graph_tunnels_e2e' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "ruff check mempalace_code/layers.py mempalace_code/palace_graph.py tests/test_layers.py tests/test_palace_graph.py tests/test_mcp_server.py",
+      "matched": "implement-result.json#verification_evidence[6] command=ruff check mempalace_code/layers.py mempalace_code/palace_graph.py tests/test_layers.py tests/test_palace_graph.py tests/test_mcp_server.py",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER-polish-1.md",
+      "phase": "polish",
+      "category": "audit_only",
+      "reason": "Polish audit document required by polish phase contract",
+      "check_ids": [
+        "VER-1",
+        "VER-2",
+        "VER-3",
+        "VER-4"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER- prefix"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}

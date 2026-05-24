@@ -1,0 +1,16 @@
+{
+  "slug": "CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER",
+  "added": [],
+  "warnings": [],
+  "sources": [
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../polish-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER-polish-1.md",
+    "docs/audits/CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER-round-1.md"
+  ]
+}
