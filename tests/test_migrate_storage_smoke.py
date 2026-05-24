@@ -34,7 +34,7 @@ def test_missing_chroma_reports_chroma_extra(monkeypatch, capsys):
     The exit must happen before any fixture data is created or the CLI is invoked
     (AC-4: missing-Chroma path).
     """
-    monkeypatch.setitem(sys.modules, "chromadb", None)  # simulate missing extra
+    monkeypatch.setitem(sys.modules, "chromadb", None)
 
     with pytest.raises(SystemExit) as exc_info:
         _smoke_mod._check_chroma()
@@ -217,7 +217,6 @@ def test_main_removes_temp_dir_on_exit(tmp_path, monkeypatch):
 
     monkeypatch.setattr("tempfile.TemporaryDirectory", _FakeTmpDir)
 
-    # Gate check passes — chromadb present or mocked
     monkeypatch.setattr(_smoke_mod, "_check_chroma", lambda: None)
     # smoke function itself is no-op
     monkeypatch.setattr(_smoke_mod, "smoke_happy_path", lambda *_: None)
@@ -225,7 +224,6 @@ def test_main_removes_temp_dir_on_exit(tmp_path, monkeypatch):
 
     _smoke_mod.main()
 
-    # All created temp dirs should have been removed
     import os
 
     for d in created_dirs:

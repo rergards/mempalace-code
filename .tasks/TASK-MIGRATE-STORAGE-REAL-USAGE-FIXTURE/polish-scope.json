@@ -1,0 +1,9 @@
+{
+  "phase": "polish",
+  "files": [
+    "docs/audits/MIGRATE-STORAGE-REAL-USAGE-FIXTURE-polish-1.md",
+    "tests/test_migrate_storage_smoke.py"
+  ],
+  "before_sha": "3d6b0b1",
+  "timestamp": "2026-05-24T15:15:29Z"
+}
