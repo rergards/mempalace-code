@@ -2365,7 +2365,7 @@ class TestCompressLiveRemainsWritable:
             main()  # must not raise
 
         store2 = open_store(palace, create=False)
-        assert store2.count() >= count_before
+        assert store2.count() == count_before
 
         captured = capsys.readouterr()
         assert "Stored" in captured.out or "compressed" in captured.out.lower()

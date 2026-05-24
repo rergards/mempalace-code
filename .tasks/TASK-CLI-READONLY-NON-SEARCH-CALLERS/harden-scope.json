@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/CLI-READONLY-NON-SEARCH-CALLERS-round-1.md",
+    "tests/test_cli.py"
+  ],
+  "before_sha": "74652b6",
+  "timestamp": "2026-05-24T12:00:12Z"
+}
