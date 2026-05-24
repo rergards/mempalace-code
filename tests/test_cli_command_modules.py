@@ -233,7 +233,9 @@ def test_readonly_non_search_inventory():
 
     query_src = (base / "cli_commands" / "query.py").read_text()
     assert "read_only=True" in query_src, "cmd_read must use read_only=True"
-    assert "read_only=args.dry_run" in query_src, "cmd_compress dry-run must use read_only=args.dry_run"
+    assert "read_only=args.dry_run" in query_src, (
+        "cmd_compress dry-run must use read_only=args.dry_run"
+    )
 
     export_src = (base / "cli_commands" / "export_import.py").read_text()
     assert "read_only=True" in export_src, "cmd_export must use read_only=True"

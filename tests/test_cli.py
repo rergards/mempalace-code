@@ -2221,20 +2221,36 @@ class TestReadOnlyNonSearchNoEmbedder:
         store.add(
             ids=["rd_no_emb_chunk0"],
             documents=["def authenticate(user): validate credentials and authorize access"],
-            metadatas=[{
-                "wing": "proj", "room": "backend",
-                "source_file": "/project/auth.py",
-                "chunk_index": 0, "added_by": "miner",
-                "filed_at": "2026-01-01T00:00:00",
-                "line_start": 1, "line_end": 2,
-            }],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 2,
+                }
+            ],
         )
         monkeypatch.setattr(LanceStore, "_get_embedder", self._embedder_raises)
 
-        with patch.object(sys, "argv", [
-            "mempalace", "--palace", palace, "read",
-            "/project/auth.py", "--start", "1", "--end", "2",
-        ]):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace",
+                "--palace",
+                palace,
+                "read",
+                "/project/auth.py",
+                "--start",
+                "1",
+                "--end",
+                "2",
+            ],
+        ):
             main()
 
         captured = capsys.readouterr()
@@ -2264,24 +2280,42 @@ class TestReadOnlyNonSearchNoEmbedder:
         self._seed(palace)
         monkeypatch.setattr(LanceStore, "_get_embedder", self._embedder_raises)
 
-        with patch.object(sys, "argv", [
-            "mempalace", "--palace", palace, "repair", "--rollback", "--dry-run",
-        ]):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace",
+                "--palace",
+                palace,
+                "repair",
+                "--rollback",
+                "--dry-run",
+            ],
+        ):
             main()  # must not raise
 
         captured = capsys.readouterr()
         assert captured.out.strip() != ""  # some version/candidate output expected
 
-    def test_read_missing_palace_no_create_readonly_non_search_no_embedder(
-        self, tmp_path, capsys
-    ):
+    def test_read_missing_palace_no_create_readonly_non_search_no_embedder(self, tmp_path, capsys):
         """AC-2: read on a missing palace does not create the palace directory."""
         palace = str(tmp_path / "nonexistent_palace")
 
-        with patch.object(sys, "argv", [
-            "mempalace", "--palace", palace, "read",
-            "/some/file.py", "--start", "1", "--end", "5",
-        ]):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace",
+                "--palace",
+                palace,
+                "read",
+                "/some/file.py",
+                "--start",
+                "1",
+                "--end",
+                "5",
+            ],
+        ):
             with pytest.raises(SystemExit) as exc:
                 main()
         assert exc.value.code != 0
@@ -2293,9 +2327,17 @@ class TestReadOnlyNonSearchNoEmbedder:
         """AC-2: compress --dry-run on a missing palace does not create the palace directory."""
         palace = str(tmp_path / "nonexistent_palace")
 
-        with patch.object(sys, "argv", [
-            "mempalace", "--palace", palace, "compress", "--dry-run",
-        ]):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace",
+                "--palace",
+                palace,
+                "compress",
+                "--dry-run",
+            ],
+        ):
             main()  # exits cleanly with "No drawers found." message
 
         captured = capsys.readouterr()

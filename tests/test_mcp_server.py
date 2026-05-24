@@ -3304,9 +3304,7 @@ class TestMCPReadOnlyNonSearchNoEmbedder:
         assert result["total"] >= 1
         assert result["chunks"]
 
-    def test_read_readonly_non_search_no_embedder(
-        self, monkeypatch, config, palace_path, kg
-    ):
+    def test_read_readonly_non_search_no_embedder(self, monkeypatch, config, palace_path, kg):
         """tool_read returns sliced lines without touching the embedder."""
         store = open_store(palace_path, create=True)
         store.add(
@@ -3335,9 +3333,7 @@ class TestMCPReadOnlyNonSearchNoEmbedder:
         assert "lines" in result
         assert len(result["lines"]) >= 1
 
-    def test_diary_read_readonly_non_search_no_embedder(
-        self, monkeypatch, config, palace_path, kg
-    ):
+    def test_diary_read_readonly_non_search_no_embedder(self, monkeypatch, config, palace_path, kg):
         """tool_diary_read returns entries without touching the embedder."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
