@@ -886,3 +886,8 @@ items:
       resolution: '2026-05-24: Fixed by CLI-READONLY-NON-SEARCH-CALLERS; manually verified dry-run and live compress on temp Lance palace exit 0 with current Dialect stats keys.'
       archived_date: "2026-05-24"
       done_summary: Fixed by CLI-READONLY-NON-SEARCH-CALLERS; manually verified dry-run and live compress on temp Lance palace exit 0 with current Dialect stats keys.
+    - key: CLI-BACKUP-PARENT-OUT-IGNORED
+      summary: Honor documented backup --out FILE create compatibility form
+      resolution: '2026-05-24: completed in pipeline run (commit=90eb321, 11 files changed, 179 insertions(+), 2 deletions(-))'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=90eb321, 11 files changed, 179 insertions(+), 2 deletions(-))
