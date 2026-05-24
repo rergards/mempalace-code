@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "slug": "CLI-BACKUP-PARENT-OUT-IGNORED",
+  "reason": "no_contract",
+  "planned_files": null,
+  "actual_files": null,
+  "planned_verification": null,
+  "observed_verification": null,
+  "exceptions": null,
+  "discrepancies": null,
+  "summary": "plan has no task_contract block; gate is a no-op"
+}
