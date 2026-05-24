@@ -35,3 +35,4 @@ out_of_scope:
 - Keep the fix minimal: preserve `mempalace_code:main` for the console script, but avoid importing the full CLI module during package import.
 - Use a subprocess-based regression test so the warning is exercised through the same `python -m` path that produced it in release smoke.
 - The regression should check stderr directly; a pure import test is not sufficient because the bug only appears under module execution.
+- Keep the package `__init__` import surface lazy enough that `python -m mempalace_code.cli` can execute without `mempalace_code` preloading the module object.
