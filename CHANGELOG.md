@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-24 · CLI-EXPORT-STDOUT-CLEAN
+
+`export --out -` now routes all progress and summary text to stderr, keeping stdout as pure JSONL so the output can be piped directly to `import -`.
+
 ## 2026-05-23 · UPSTREAM-KG-TEMPORAL-VALIDATION
 
 Validate KG temporal inputs (reject inverted validity windows, enforce ISO-8601 dates) and expose `valid_to` and `source_file` on `mempalace_kg_add`.
