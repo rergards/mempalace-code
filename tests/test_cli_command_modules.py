@@ -12,7 +12,6 @@ import subprocess
 import sys
 import types
 
-
 _RUNPY_WARNING = "RuntimeWarning: 'mempalace_code.cli' found in sys.modules"
 
 
