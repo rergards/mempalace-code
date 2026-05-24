@@ -140,3 +140,19 @@ items:
       - Provide a tiny legacy Chroma fixture or documented fixture-generation command gated by the `[chroma]` extra.
       - Document the manual end-to-end migrate-storage smoke command for release checks.
       - The smoke verifies source count, destination count, and searchable migrated drawers.
+  - key: CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER
+    summary: "Make wake-up/layers and graph read-only callers avoid embedder startup"
+    type: bug
+    status: open
+    priority: medium
+    size: S
+    section_id: storage_reliability
+    description: "## Symptom\n\nThe status command now opens LanceDB read-only, but hardening found related read-only paths in layers.py / palace_graph.py that may still open the store through default writable paths and initialize the embedder.\n\n## Steps to reproduce\n\nRun real CLI read-only flows such as wake-up/layers and graph-style MCP tools against an existing LanceDB palace while capturing stdout/stderr for HF/model-loading output.\n\n## Expected vs actual\n\nExpected: read-only inventory/context graph flows do not initialize the embedding model.\nActual: not fully verified/fixed by CLI-STATUS-READONLY-NO-EMBEDDER; hardening flagged layers.py and palace_graph.py callers as remaining risk.\n\n## Root cause hypothesis\n\nSome read-only callers still use open_store(..., create=False) without read_only=True, which initializes LanceStore write schema/embedder setup.\n\n## Acceptance criteria\n\n- Wake-up/layers read-only paths avoid embedder startup when reading an existing palace.\n- Palace graph read-only paths avoid embedder startup when reading an existing palace.\n- Real CLI/MCP smoke captures no HF/model-loading output for the covered paths."
+  - key: CLI-READONLY-NON-SEARCH-CALLERS
+    summary: "Audit remaining read-only non-search CLI callers for embedder startup"
+    type: task
+    status: open
+    priority: medium
+    size: S
+    section_id: storage_reliability
+    description: "## Scope\n\nAudit read-only non-search CLI/MCP paths after CLI-STATUS-READONLY-NO-EMBEDDER to ensure they do not open LanceDB in a way that initializes the embedding model unnecessarily.\n\n## Acceptance criteria\n\n- Inventory the read-only non-search command/tool paths that open the store.\n- Convert safe read-only paths to read_only=True.\n- Add focused coverage or a real-usage smoke note for commands that should remain writable or search/embedding-dependent.\n- Confirm no duplicate with CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER; narrow or close one if they overlap during implementation."
