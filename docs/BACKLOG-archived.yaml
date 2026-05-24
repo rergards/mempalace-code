@@ -901,3 +901,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=ac799d3, 12 files changed, 245 insertions(+), 4 deletions(-))'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=ac799d3, 12 files changed, 245 insertions(+), 4 deletions(-))
+    - key: MINE-TINY-FILES-SKIP-ON-REHASH
+      summary: Skip re-processing tiny files on incremental mine when content is unchanged
+      resolution: '2026-05-24: completed in pipeline run (commit=cf32569)'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=cf32569)
