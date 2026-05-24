@@ -353,6 +353,87 @@ Or set them independently to give the watcher a tighter budget:
 
 ---
 
+## Migrate-Storage Release Smoke
+
+Use this disposable smoke to verify the `migrate-storage` CLI end-to-end before a
+release. It generates a tiny legacy Chroma source palace, runs the real
+`migrate-storage` CLI in a subprocess, verifies source and destination counts, and
+confirms a unique marker is searchable in the migrated Lance palace. All artifacts
+live in a temporary directory and are removed on exit — no repository files are
+written.
+
+### Prerequisites
+
+1. Install the `[chroma]` extra:
+
+   ```bash
+   pip install 'mempalace-code[chroma]'
+   ```
+
+2. If the release host is offline, pre-fetch the embedding model before running
+   the smoke (the `migrate-storage` CLI re-embeds source rows into LanceDB):
+
+   ```bash
+   mempalace-code fetch-model
+   ```
+
+### Running the migrate-storage smoke
+
+**Happy-path (3 rows):**
+
+```bash
+python scripts/migrate_storage_smoke.py --rows 3
+```
+
+Expected output markers:
+
+```
+[smoke] counts: source=3 destination=3
+[smoke] search: marker found in migrated palace
+[smoke] PASS: source=3 destination=3 search=ok
+[smoke] temporary artifacts removed
+```
+
+**Boundary fixture (1 row):**
+
+```bash
+python scripts/migrate_storage_smoke.py --rows 1
+```
+
+Expected: `source=1 destination=1 search=ok`.
+
+**Non-empty destination guard:**
+
+```bash
+python scripts/migrate_storage_smoke.py --exercise-dst-guard
+```
+
+Expected output markers:
+
+```
+[smoke] guard-ok: dst count unchanged at 1
+[smoke] PASS: destination guard verified
+[smoke] temporary artifacts removed
+```
+
+### What the smoke verifies
+
+| Check | Evidence in output |
+|-------|--------------------|
+| Source count matches seed | `source=N` in the `PASS` line |
+| Destination count matches | `destination=N` in the `PASS` line |
+| Migrated content is searchable | `search=ok` in the `PASS` line |
+| Guard refuses non-empty dst without `--force` | `guard-ok` + `PASS` lines |
+
+### Cleanup boundary
+
+The smoke creates a `TemporaryDirectory` prefixed `mempalace_smoke_migrate_` under
+the system temp path (e.g. `/tmp`). It is removed automatically on exit — including
+failed runs — because Python's `TemporaryDirectory` context manager handles cleanup
+regardless of exceptions. No files are written inside the repository.
+
+---
+
 ## Related
 
 - Upstream data loss context: issue #469 in the original ChromaDB-based fork

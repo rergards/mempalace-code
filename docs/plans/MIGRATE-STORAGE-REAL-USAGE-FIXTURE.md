@@ -136,6 +136,10 @@ task_contract:
         command: "ruff check scripts/migrate_storage_smoke.py tests/test_migrate_storage_smoke.py"
         proves: "the new smoke runner and focused tests remain lint-clean"
         acceptance_ids: [AC-1, AC-2, AC-3, AC-4]
+      - id: REG-4
+        command: "rg --fixed-strings --quiet 'migrate-storage smoke' docs/BACKUP_RESTORE.md && rg --fixed-strings --quiet '[chroma]' docs/BACKUP_RESTORE.md && rg --fixed-strings --quiet 'scripts/migrate_storage_smoke.py' docs/BACKUP_RESTORE.md && rg --fixed-strings --quiet 'source=' docs/BACKUP_RESTORE.md && rg --fixed-strings --quiet 'search' docs/BACKUP_RESTORE.md"
+        proves: "release-check docs continue to expose the smoke command, [chroma] gate, and expected source/destination/search evidence; a future doc edit that drops any of these markers is caught"
+        acceptance_ids: [AC-5]
 ---
 
 ## Design Notes
