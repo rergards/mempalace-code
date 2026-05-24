@@ -916,3 +916,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=4e3ec6b, 18 files changed, 733 insertions(+), 1 deletion(-))'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=4e3ec6b, 18 files changed, 733 insertions(+), 1 deletion(-))
+    - key: MIGRATE-STORAGE-REAL-USAGE-FIXTURE
+      summary: Add a disposable real migrate-storage smoke fixture
+      resolution: '2026-05-24: completed in pipeline run (commit=be4d110, 17 files changed, 1636 insertions(+))'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=be4d110, 17 files changed, 1636 insertions(+))

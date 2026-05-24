@@ -42,20 +42,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: MIGRATE-STORAGE-REAL-USAGE-FIXTURE
-    summary: "Add a disposable real migrate-storage smoke fixture"
-    type: task
-    priority: low
-    status: open
-    size: S
-    section_id: quality
-    labels: [migration, smoke-test, release]
-    description: |
-      ## Scope
-      The 2026-05-24 release sweep could only exercise the real `migrate-storage` optional/error path locally. There is no small packaged/disposable Chroma source palace or runbook for end-to-end manual migration verification.
-
-      ## Acceptance criteria
-      - Provide a tiny legacy Chroma fixture or documented fixture-generation command gated by the `[chroma]` extra.
-      - Document the manual end-to-end migrate-storage smoke command for release checks.
-      - The smoke verifies source count, destination count, and searchable migrated drawers.
+items: []
