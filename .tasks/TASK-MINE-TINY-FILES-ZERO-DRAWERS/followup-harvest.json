@@ -1,0 +1,24 @@
+{
+  "slug": "MINE-TINY-FILES-ZERO-DRAWERS",
+  "added": [],
+  "warnings": [
+    {
+      "reason": "validation_failed",
+      "key": "MINE-TINY-FILES-SKIP-ON-REHASH",
+      "summary": "Skip redundant delete+rechunk for tiny files on incremental mine when content is unchanged",
+      "source_artifact": "../../../../harden-result.json",
+      "source_task": "MINE-TINY-FILES-ZERO-DRAWERS",
+      "detail": "section \"CODING-FIRST — Smart Code Mining\" not found; valid sections: cleanup, coding_first, future, immediate, mcp_developer_tools, pre_release, quality, storage_reliability (run 'backlog sections' to list)"
+    }
+  ],
+  "sources": [
+    "../../../../changelog-result.json",
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/MINE-TINY-FILES-ZERO-DRAWERS-round-1.md"
+  ]
+}
