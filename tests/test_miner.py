@@ -1234,7 +1234,12 @@ def test_status_no_embedder(capsys, monkeypatch):
         assert "test_wing" in captured.out
         assert "Storage:" in captured.out
         assert "Versions:" in captured.out
-        for marker in ("Loading embedding model", "Loading weights", "huggingface", "sentence-transformers"):
+        for marker in (
+            "Loading embedding model",
+            "Loading weights",
+            "huggingface",
+            "sentence-transformers",
+        ):
             assert marker not in out, f"Model-loading marker {marker!r} leaked:\n{out}"
     finally:
         shutil.rmtree(tmpdir)
@@ -1280,7 +1285,12 @@ def test_status_empty_palace_no_embedder(capsys, monkeypatch):
         out = captured.out + captured.err
 
         assert "0 drawers" in captured.out, f"Expected '0 drawers' in output:\n{captured.out}"
-        for marker in ("Loading embedding model", "Loading weights", "huggingface", "sentence-transformers"):
+        for marker in (
+            "Loading embedding model",
+            "Loading weights",
+            "huggingface",
+            "sentence-transformers",
+        ):
             assert marker not in out, f"Model-loading marker {marker!r} leaked:\n{out}"
     finally:
         shutil.rmtree(tmpdir)
