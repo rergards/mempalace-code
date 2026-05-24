@@ -1,0 +1,104 @@
+{
+  "passed": true,
+  "slug": "MCP-KG-SOURCE-FILE-PROVENANCE",
+  "planned_files": [
+    "mempalace_code/knowledge_graph.py",
+    "mempalace_code/mcp/tools/architecture.py",
+    "mempalace_code/mcp/tools/kg.py",
+    "tests/test_mcp_server.py"
+  ],
+  "actual_files": [
+    "docs/audits/MCP-KG-SOURCE-FILE-PROVENANCE-round-1.md",
+    "mempalace_code/knowledge_graph.py",
+    "mempalace_code/mcp/tools/architecture.py",
+    "tests/test_mcp_server.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_mcp_server.py::TestArchTools::test_arch_relationship_outputs_include_source_file_provenance -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools tests/test_mcp_server.py::TestArchTools -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_query_and_timeline_keep_legacy_unsourced_rows -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_query_returns_source_file_provenance -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_timeline_returns_source_file_provenance -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write -q"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python -m pyright mempalace_code/knowledge_graph.py mempalace_code/mcp/tools/architecture.py",
+    "python -m pytest tests/ -q",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools tests/test_mcp_server.py::TestArchTools -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_query_returns_source_file_provenance tests/test_mcp_server.py::TestKGTools::test_kg_timeline_returns_source_file_provenance tests/test_mcp_server.py::TestArchTools::test_arch_relationship_outputs_include_source_file_provenance tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write tests/test_mcp_server.py::TestKGTools::test_kg_query_and_timeline_keep_legacy_unsourced_rows -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_query_returns_source_file_provenance tests/test_mcp_server.py::TestKGTools::test_kg_timeline_returns_source_file_provenance tests/test_mcp_server.py::TestKGTools::test_kg_query_and_timeline_keep_legacy_unsourced_rows tests/test_mcp_server.py::TestArchTools::test_arch_relationship_outputs_include_source_file_provenance -q",
+    "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write -q",
+    "rtk ruff check mempalace_code/knowledge_graph.py mempalace_code/mcp/tools/architecture.py tests/test_mcp_server.py",
+    "ruff check mempalace/ tests/",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_query_returns_source_file_provenance -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_query_returns_source_file_provenance -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_timeline_returns_source_file_provenance -q",
+      "matched": "implement-result.json#verification_evidence[1] command=python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_timeline_returns_source_file_provenance -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_mcp_server.py::TestArchTools::test_arch_relationship_outputs_include_source_file_provenance -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_mcp_server.py::TestArchTools::test_arch_relationship_outputs_include_source_file_provenance -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write -q",
+      "matched": "implement-result.json#verification_evidence[3] command=python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_tools_reject_invalid_temporal_arguments_before_write -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-5",
+      "planned": "python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_query_and_timeline_keep_legacy_unsourced_rows -q",
+      "matched": "implement-result.json#verification_evidence[4] command=python -m pytest tests/test_mcp_server.py::TestKGTools::test_kg_query_and_timeline_keep_legacy_unsourced_rows -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_mcp_server.py::TestKGTools tests/test_mcp_server.py::TestArchTools -q",
+      "matched": "implement-result.json#verification_evidence[5] command=python -m pytest tests/test_mcp_server.py::TestKGTools tests/test_mcp_server.py::TestArchTools -q",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/MCP-KG-SOURCE-FILE-PROVENANCE-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening audit report for round 1 of this task.",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5"
+      ],
+      "check_ids": [
+        "VER-1",
+        "VER-2",
+        "VER-3",
+        "VER-4",
+        "VER-5",
+        "REG-1"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/MCP-KG-SOURCE-FILE-PROVENANCE- prefix"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}
