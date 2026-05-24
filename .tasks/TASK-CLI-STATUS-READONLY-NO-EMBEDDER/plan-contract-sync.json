@@ -1,0 +1,99 @@
+{
+  "passed": true,
+  "slug": "CLI-STATUS-READONLY-NO-EMBEDDER",
+  "planned_files": [
+    "mempalace_code/mining/orchestrator.py",
+    "tests/test_miner.py"
+  ],
+  "actual_files": [
+    "docs/audits/CLI-STATUS-READONLY-NO-EMBEDDER-round-1.md",
+    "mempalace_code/mining/orchestrator.py",
+    "tests/test_miner.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_miner.py -k 'status and empty_palace' -q",
+    "python -m pytest tests/test_miner.py -k 'status and missing_palace' -q",
+    "python -m pytest tests/test_miner.py -k 'status and no_embedder' -q",
+    "python -m pytest tests/test_miner.py -k 'status_' -q",
+    "rg -n \"open_store\\([^\\n]*create=False\" mempalace_code/cli_commands mempalace_code/mining/orchestrator.py mempalace_code/backup.py",
+    "ruff check mempalace_code/mining/orchestrator.py tests/test_miner.py"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "grep -n \"def health_check\" /Users/rerg/.local/state/autopilot/autopilot-2636f30f/worktrees/CLI-STATUS-READONLY-NO-EMBEDDER/0a0972db-2923-4890-9c28-1d31af34d5d5/attempt-1/mempalace_code/storage.py",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_miner.py -k 'status and empty_palace' -q",
+    "python -m pytest tests/test_miner.py -k 'status and missing_palace' -q",
+    "python -m pytest tests/test_miner.py -k 'status and no_embedder' -q",
+    "python -m pytest tests/test_miner.py -k 'status_' -q",
+    "python -m pytest tests/test_miner.py -q",
+    "rg -n \"open_store\\([^)]*create=False\" mempalace_code/",
+    "ruff check mempalace/ tests/",
+    "ruff check mempalace_code/mining/orchestrator.py tests/test_miner.py",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_miner.py -k 'status and no_embedder' -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_miner.py -k 'status and no_embedder' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_miner.py -k 'status and missing_palace' -q",
+      "matched": "implement-result.json#verification_evidence[1] command=python -m pytest tests/test_miner.py -k 'status and missing_palace' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_miner.py -k 'status and empty_palace' -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_miner.py -k 'status and empty_palace' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "rg -n \"open_store\\([^\\n]*create=False\" mempalace_code/cli_commands mempalace_code/mining/orchestrator.py mempalace_code/backup.py",
+      "matched": "implement-result.json#verification_evidence[3] command=rg -n \"open_store\\([^)]*create=False\" mempalace_code/cli_commands mempalace_code/mining/orchestrator.py mempalace_code/backup.py",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_miner.py -k 'status_' -q",
+      "matched": "implement-result.json#verification_evidence[4] command=python -m pytest tests/test_miner.py -k 'status_' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "ruff check mempalace_code/mining/orchestrator.py tests/test_miner.py",
+      "matched": "implement-result.json#verification_evidence[5] command=ruff check mempalace_code/mining/orchestrator.py tests/test_miner.py",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/CLI-STATUS-READONLY-NO-EMBEDDER-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening round audit report required by harden phase protocol",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4"
+      ],
+      "check_ids": [
+        "VER-1",
+        "VER-2",
+        "VER-3",
+        "VER-4"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/CLI-STATUS-READONLY-NO-EMBEDDER- prefix"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}

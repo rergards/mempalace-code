@@ -1,0 +1,33 @@
+{
+  "slug": "CLI-STATUS-READONLY-NO-EMBEDDER",
+  "added": [],
+  "warnings": [
+    {
+      "reason": "validation_failed",
+      "key": "CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER",
+      "summary": "Make layers.py and palace_graph.py read-only store opens avoid embedding model startup",
+      "source_artifact": "../../../../harden-result.json",
+      "source_task": "CLI-STATUS-READONLY-NO-EMBEDDER",
+      "detail": "section \"STORAGE \u0026 RELIABILITY\" not found; valid sections: cleanup, coding_first, future, immediate, mcp_developer_tools, pre_release, quality, storage_reliability (run 'backlog sections' to list)"
+    },
+    {
+      "reason": "validation_failed",
+      "key": "CLI-READONLY-NON-SEARCH-CALLERS",
+      "summary": "Extend read_only=True to backup, export, and health-check open_store callers to eliminate embedder startup",
+      "source_artifact": "../../../../implement-result.json",
+      "source_task": "CLI-STATUS-READONLY-NO-EMBEDDER",
+      "detail": "section \"STORAGE \u0026 RELIABILITY\" not found; valid sections: cleanup, coding_first, future, immediate, mcp_developer_tools, pre_release, quality, storage_reliability (run 'backlog sections' to list)"
+    }
+  ],
+  "sources": [
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../polish-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    ".tasks/TASK-CLI-STATUS-READONLY-NO-EMBEDDER/findings.jsonl",
+    "docs/audits/CLI-STATUS-READONLY-NO-EMBEDDER-round-1.md"
+  ]
+}
