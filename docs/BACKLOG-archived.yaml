@@ -881,3 +881,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=6d5fdb8, 20 files changed, 837 insertions(+), 18 deletions(-), retried 1/1 after timeout [stall budget])'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=6d5fdb8, 20 files changed, 837 insertions(+), 18 deletions(-), retried 1/1 after timeout [stall budget])
+    - key: CLI-COMPRESS-STATS-KEYERROR
+      summary: Fix real CLI compress crash on current Dialect stats
+      resolution: '2026-05-24: Fixed by CLI-READONLY-NON-SEARCH-CALLERS; manually verified dry-run and live compress on temp Lance palace exit 0 with current Dialect stats keys.'
+      archived_date: "2026-05-24"
+      done_summary: Fixed by CLI-READONLY-NON-SEARCH-CALLERS; manually verified dry-run and live compress on temp Lance palace exit 0 with current Dialect stats keys.

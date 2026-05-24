@@ -43,32 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: CLI-COMPRESS-STATS-KEYERROR
-    summary: "Fix real CLI compress crash on current Dialect stats"
-    type: bug
-    priority: high
-    status: open
-    size: S
-    section_id: quality
-    labels: [cli, compress, real-usage]
-    description: |
-      ## Symptom
-      `mempalace-code compress --wing <wing> --dry-run` and live compress crash after finding drawers.
-
-      ## Steps to reproduce
-      Mine a small project, then run `mempalace-code --palace <temp-palace> compress --wing manual_wing --dry-run`.
-
-      ## Expected vs actual
-      Expected: dry-run prints per-drawer compression output and exits 0; live mode stores compressed drawers and exits 0.
-      Actual: both modes exit 1 with `KeyError: 'compressed_chars'` in `cmd_compress`.
-
-      ## Root cause hypothesis
-      `cmd_compress` expects old `Dialect.compression_stats` keys (`compressed_chars`) that no longer match the current stats dict.
-
-      ## Acceptance criteria
-      - Dry-run compress exits 0 and prints per-drawer compression output.
-      - Live compress exits 0 and stores compressed drawers.
-      - The command handles current `Dialect.compression_stats` keys without traceback.
   - key: CLI-READ-SOURCE-PATH-DISCOVERY
     summary: "Make CLI search/read source paths usable together"
     type: bug
@@ -140,3 +114,56 @@ items:
       - Provide a tiny legacy Chroma fixture or documented fixture-generation command gated by the `[chroma]` extra.
       - Document the manual end-to-end migrate-storage smoke command for release checks.
       - The smoke verifies source count, destination count, and searchable migrated drawers.
+  - key: MCP-DELETE-NO-EMBEDDER-AFTER-READ
+    summary: "Make MCP delete tools avoid embedder startup after read-only cache"
+    type: bug
+    status: open
+    priority: high
+    size: S
+    section_id: mcp_developer_tools
+    labels: [mcp, delete, read-only, real-usage]
+    description: |
+      ## Symptom
+      After an MCP read tool opens the cached store read-only, `mempalace_delete_drawer` upgrades to a write-capable handle. Real stdio testing showed it initializes the sentence-transformers embedder, emits HF/model noise, and fails as `No palace found` in an offline fresh HOME even though deleting an existing drawer should not require embeddings.
+
+      ## Steps to reproduce
+      Seed a Lance palace, start `python -m mempalace_code.mcp_server --tools status,delete_drawer` with `MEMPALACE_PALACE_PATH=<palace>`, fresh `HOME`, `HF_HUB_OFFLINE=1`, and `TRANSFORMERS_OFFLINE=1`; call `mempalace_status`, then `mempalace_delete_drawer` for an existing id.
+
+      ## Expected vs actual
+      Expected: delete succeeds without model startup and without HF/sentence-transformers output.
+      Actual: delete returns `No palace found` offline; with normal HOME it succeeds but emits HF/sentence-transformers model-loading noise.
+
+      ## Root cause hypothesis
+      `runtime._get_store(create=True)` reopens `LanceStore` in write mode, and the write-mode open path eagerly initializes the embedder for schema setup even when the operation only needs metadata/delete access.
+
+      ## Acceptance criteria
+      - `mempalace_delete_drawer` after `mempalace_status` deletes an existing drawer in an offline fresh HOME.
+      - `mempalace_delete_wing` has the same behavior for an existing wing.
+      - Delete paths do not emit HF/sentence-transformers model-loading output.
+      - Write operations that actually add/upsert documents still initialize embeddings as needed.
+  - key: CLI-BACKUP-PARENT-OUT-IGNORED
+    summary: "Honor documented backup --out FILE create compatibility form"
+    type: bug
+    status: open
+    priority: medium
+    size: S
+    section_id: storage_reliability
+    labels: [cli, backup, real-usage]
+    description: |
+      ## Symptom
+      `mempalace-code backup --out FILE create` is documented in the parser comment as a backward-compatible form, but real CLI testing wrote to the default backups directory instead of FILE. The subcommand form `mempalace-code backup create --out FILE` does work.
+
+      ## Steps to reproduce
+      Run `mempalace-code --palace <temp-palace> backup --out /tmp/expected.tar.gz create` on a small Lance palace.
+
+      ## Expected vs actual
+      Expected: the archive is written to `/tmp/expected.tar.gz`, or the old form is rejected/removed from help and comments.
+      Actual: command exits 0 but writes `<palace-parent>/backups/mempalace_backup_<ts>.tar.gz`; `/tmp/expected.tar.gz` is not created.
+
+      ## Root cause hypothesis
+      Both the parent `backup` parser and `backup create` subparser define `--out` with the same destination, and the subparser default overwrites the parent value with `None`.
+
+      ## Acceptance criteria
+      - `backup --out FILE create` writes FILE, or the form is intentionally removed/rejected with clear help.
+      - `backup create --out FILE` continues to work.
+      - Add a CLI regression test for both accepted forms or for the explicit rejection.
