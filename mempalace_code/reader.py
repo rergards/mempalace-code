@@ -181,10 +181,10 @@ def read_slice(store, source_file: str, start: Any, end: Any, wing: str | None =
             limit=10000,
         )
     except Exception as exc:
-        return {"error": "not_found", "source_file": source_file, "detail": str(exc)}
+        return {"error": "not_found", "source_file": canonical, "detail": str(exc)}
 
     if not results.get("ids"):
-        return {"error": "not_found", "source_file": source_file}
+        return {"error": "not_found", "source_file": canonical}
 
     overlapping: list[tuple[int, int, str]] = []
     for doc, meta in zip(results["documents"], results["metadatas"]):

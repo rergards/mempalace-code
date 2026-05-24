@@ -2140,7 +2140,7 @@ class TestReadCommandSourcePathDiscovery:
             main()
 
         out = capsys.readouterr().out
-        assert "login" in out
+        assert "     1: def login(): pass" in out
 
     def test_read_command_source_path_discovery_unique_suffix(self, tmp_path, capsys, monkeypatch):
         """read_command: unique project-relative suffix resolves and prints lines (AC-3)."""
@@ -2168,7 +2168,8 @@ class TestReadCommandSourcePathDiscovery:
             main()
 
         out = capsys.readouterr().out
-        assert "authenticate" in out
+        assert "     1: def authenticate(user): validate" in out
+        assert "     2: def authorize(user): check role" in out
 
     def test_read_command_source_path_discovery_ambiguous_exits_nonzero(
         self, tmp_path, capsys, monkeypatch

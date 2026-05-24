@@ -1,0 +1,11 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/CLI-READ-SOURCE-PATH-DISCOVERY-round-1.md",
+    "mempalace_code/cli_commands/query.py",
+    "mempalace_code/reader.py",
+    "tests/test_cli.py"
+  ],
+  "before_sha": "32ace33",
+  "timestamp": "2026-05-24T12:46:02Z"
+}
