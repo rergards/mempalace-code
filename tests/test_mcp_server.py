@@ -3161,3 +3161,101 @@ class TestMCPReadSlice:
         resp = handle_request({"method": "tools/list", "id": 300, "params": {}})
         names = {t["name"] for t in resp["result"]["tools"]}
         assert "mempalace_read" in names
+
+
+# ── Graph Tools No-Embedder ─────────────────────────────────────────────────
+
+
+def _guard_embedder_mcp(monkeypatch) -> None:
+    """Patch LanceStore._get_embedder to raise — proves MCP graph tools avoid embedder startup."""
+    from mempalace_code.storage import LanceStore
+
+    def _raise(_self):  # noqa: N805
+        raise RuntimeError("embedder must not be called during read-only graph tool operation")
+
+    monkeypatch.setattr(LanceStore, "_get_embedder", _raise)
+
+
+def _seed_graph_collection(palace_path: str) -> None:
+    """Seed a palace with graph-friendly metadata for MCP graph tool tests."""
+    store = open_store(palace_path, create=True)
+    store.add(
+        ids=["mcp_g_alpha_arch_001", "mcp_g_beta_arch_002", "mcp_g_alpha_backend_003"],
+        documents=[
+            "Architecture overview for the alpha project.",
+            "Architecture notes shared with beta project.",
+            "Backend implementation details for alpha.",
+        ],
+        metadatas=[
+            {"wing": "alpha", "room": "architecture", "hall": "design", "date": "2026-01-01",
+             "chunk_index": 0, "added_by": "miner", "filed_at": "2026-01-01T00:00:00"},
+            {"wing": "beta", "room": "architecture", "hall": "design", "date": "2026-01-02",
+             "chunk_index": 0, "added_by": "miner", "filed_at": "2026-01-02T00:00:00"},
+            {"wing": "alpha", "room": "backend", "hall": "", "date": "",
+             "chunk_index": 0, "added_by": "miner", "filed_at": "2026-01-03T00:00:00"},
+        ],
+    )
+
+
+class TestGraphToolsNoEmbedder:
+    """VER-3/AC-2: MCP graph tool calls use runtime read-only store without embedder startup."""
+
+    def test_graph_stats_graph_tools_no_embedder(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """graph_stats MCP tool returns expected keys without embedder startup."""
+        _seed_graph_collection(palace_path)
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _guard_embedder_mcp(monkeypatch)
+        from mempalace_code.mcp_server import tool_graph_stats
+
+        result = tool_graph_stats()
+
+        assert "total_rooms" in result
+        assert "tunnel_rooms" in result
+        assert "total_edges" in result
+        assert result["total_rooms"] == 2
+        assert result["tunnel_rooms"] == 1
+
+    def test_find_tunnels_graph_tools_no_embedder(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """find_tunnels MCP tool returns tunnel list without embedder startup."""
+        _seed_graph_collection(palace_path)
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _guard_embedder_mcp(monkeypatch)
+        from mempalace_code.mcp_server import tool_find_tunnels
+
+        result = tool_find_tunnels()
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0]["room"] == "architecture"
+
+    def test_traverse_graph_tools_no_embedder(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """traverse MCP tool walks the graph without embedder startup."""
+        _seed_graph_collection(palace_path)
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _guard_embedder_mcp(monkeypatch)
+        from mempalace_code.mcp_server import tool_traverse_graph
+
+        result = tool_traverse_graph(start_room="architecture")
+
+        assert isinstance(result, list)
+        rooms = {r["room"] for r in result}
+        assert "architecture" in rooms
+
+    def test_graph_stats_no_palace_graph_tools_no_embedder(
+        self, monkeypatch, config, kg
+    ):
+        """graph_stats MCP tool returns no-palace error when palace is missing."""
+        config._file_config["palace_path"] = "/nonexistent/path"
+        _patch_mcp_server(monkeypatch, config, "/nonexistent/path", kg)
+        _guard_embedder_mcp(monkeypatch)
+        from mempalace_code.mcp_server import tool_graph_stats
+
+        result = tool_graph_stats()
+
+        assert "error" in result

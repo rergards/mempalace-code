@@ -32,7 +32,7 @@ class _RoomData(TypedDict):
 def _get_store(config=None):
     config = config or MempalaceConfig()
     try:
-        return open_store(config.palace_path, create=False)
+        return open_store(config.palace_path, create=False, read_only=True)
     except Exception:
         return None
 

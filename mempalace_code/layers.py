@@ -89,7 +89,7 @@ class Layer1:
     def generate(self) -> str:
         """Pull top drawers from the palace and format as compact L1 text."""
         try:
-            store = open_store(self.palace_path, create=False)
+            store = open_store(self.palace_path, create=False, read_only=True)
             col = store
         except Exception:
             return "## L1 — No palace found. Run: mempalace-code mine <dir>"
@@ -196,7 +196,7 @@ class Layer2:
     ) -> str:
         """Retrieve drawers filtered by wing and/or room."""
         try:
-            store = open_store(self.palace_path, create=False)
+            store = open_store(self.palace_path, create=False, read_only=True)
             col = store
         except Exception:
             return "No palace found."
@@ -441,7 +441,7 @@ class MemoryStack:
 
         # Count drawers
         try:
-            store = open_store(self.palace_path, create=False)
+            store = open_store(self.palace_path, create=False, read_only=True)
             col = store
             count = col.count()
             result["total_drawers"] = count

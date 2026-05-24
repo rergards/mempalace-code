@@ -2,7 +2,10 @@
 Regression tests for palace_graph typed payload shapes.
 """
 
+import os
+
 from mempalace_code.palace_graph import build_graph, find_tunnels, graph_stats, traverse
+from mempalace_code.storage import LanceStore, open_store
 
 
 class _FakeGraphStore:
@@ -323,3 +326,167 @@ class TestGraphStatsOutputShape:
         assert result["total_edges"] == 0
         assert result["rooms_per_wing"] == {}
         assert result["top_tunnels"] == []
+
+
+# ---------------------------------------------------------------------------
+# VER-2 / AC-2: direct graph helpers open real LanceDB palace read-only
+# ---------------------------------------------------------------------------
+
+
+class _TestConfig:
+    """Minimal config shim for _get_store tests — only palace_path is needed."""
+
+    def __init__(self, palace_path: str):
+        self.palace_path = palace_path
+
+
+def _guard_embedder(monkeypatch) -> None:
+    """Patch LanceStore._get_embedder to raise — proves no embedder is initialized."""
+
+    def _raise(_self):  # noqa: N805
+        raise RuntimeError("embedder must not be called during read-only graph operation")
+
+    monkeypatch.setattr(LanceStore, "_get_embedder", _raise)
+
+
+def _seed_graph_palace(palace_path: str) -> None:
+    """Seed a palace with graph-friendly metadata: one tunnel room (alpha+beta), one single-wing."""
+    store = open_store(palace_path, create=True)
+    store.add(
+        ids=["g_alpha_arch_001", "g_beta_arch_002", "g_alpha_backend_003"],
+        documents=[
+            "Architecture overview for alpha project.",
+            "Architecture notes for beta project.",
+            "Backend implementation details.",
+        ],
+        metadatas=[
+            {"wing": "alpha", "room": "architecture", "hall": "design", "date": "2026-01-01",
+             "chunk_index": 0, "added_by": "miner", "filed_at": "2026-01-01T00:00:00"},
+            {"wing": "beta", "room": "architecture", "hall": "design", "date": "2026-01-02",
+             "chunk_index": 0, "added_by": "miner", "filed_at": "2026-01-02T00:00:00"},
+            {"wing": "alpha", "room": "backend", "hall": "", "date": "",
+             "chunk_index": 0, "added_by": "miner", "filed_at": "2026-01-03T00:00:00"},
+        ],
+    )
+
+
+class TestGraphReadOnlyNoEmbedder:
+    """VER-2/AC-2: direct graph helpers (_get_store path) read real LanceDB without embedder."""
+
+    def test_build_graph_read_only_no_embedder(self, monkeypatch, palace_path):
+        """build_graph via _get_store reads a populated palace without embedder startup."""
+        _seed_graph_palace(palace_path)
+        _guard_embedder(monkeypatch)
+
+        nodes, edges = build_graph(config=_TestConfig(palace_path))
+
+        assert "architecture" in nodes
+        assert set(nodes["architecture"]["wings"]) == {"alpha", "beta"}
+        assert nodes["architecture"]["count"] == 2
+        assert len(edges) == 1
+
+    def test_graph_stats_read_only_no_embedder(self, monkeypatch, palace_path):
+        """graph_stats via _get_store returns expected counts without embedder startup."""
+        _seed_graph_palace(palace_path)
+        _guard_embedder(monkeypatch)
+
+        result = graph_stats(config=_TestConfig(palace_path))
+
+        assert result["total_rooms"] == 2
+        assert result["tunnel_rooms"] == 1
+        assert result["rooms_per_wing"]["alpha"] == 2
+        assert result["rooms_per_wing"]["beta"] == 1
+
+    def test_find_tunnels_read_only_no_embedder(self, monkeypatch, palace_path):
+        """find_tunnels via _get_store returns the tunnel room without embedder startup."""
+        _seed_graph_palace(palace_path)
+        _guard_embedder(monkeypatch)
+
+        result = find_tunnels(config=_TestConfig(palace_path))
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0]["room"] == "architecture"
+        assert set(result[0]["wings"]) == {"alpha", "beta"}
+
+    def test_traverse_read_only_no_embedder(self, monkeypatch, palace_path):
+        """traverse via _get_store walks the graph without embedder startup."""
+        _seed_graph_palace(palace_path)
+        _guard_embedder(monkeypatch)
+
+        result = traverse("architecture", config=_TestConfig(palace_path))
+
+        assert isinstance(result, list)
+        rooms = {r["room"] for r in result}
+        assert "architecture" in rooms
+
+
+# ---------------------------------------------------------------------------
+# VER-4 / AC-3: missing palace — empty graph, no directory created
+# ---------------------------------------------------------------------------
+
+
+class TestGraphMissingPalaceNoEmbedder:
+    """VER-4/AC-3: graph helpers on a missing palace return empty results, no dir created."""
+
+    def test_build_graph_missing_palace_no_embedder(self, monkeypatch, tmp_dir):
+        """build_graph on a missing palace returns empty graph without creating directories."""
+        missing = os.path.join(tmp_dir, "does_not_exist")
+        _guard_embedder(monkeypatch)
+
+        nodes, edges = build_graph(config=_TestConfig(missing))
+
+        assert nodes == {}
+        assert edges == []
+        assert not os.path.exists(missing)
+
+    def test_graph_stats_missing_palace_no_embedder(self, monkeypatch, tmp_dir):
+        """graph_stats on a missing palace returns all-zero counts, no dir created."""
+        missing = os.path.join(tmp_dir, "does_not_exist")
+        _guard_embedder(monkeypatch)
+
+        result = graph_stats(config=_TestConfig(missing))
+
+        assert result["total_rooms"] == 0
+        assert result["tunnel_rooms"] == 0
+        assert not os.path.exists(missing)
+
+    def test_find_tunnels_missing_palace_no_embedder(self, monkeypatch, tmp_dir):
+        """find_tunnels on a missing palace returns empty list, no dir created."""
+        missing = os.path.join(tmp_dir, "does_not_exist")
+        _guard_embedder(monkeypatch)
+
+        result = find_tunnels(config=_TestConfig(missing))
+
+        assert result == []
+        assert not os.path.exists(missing)
+
+
+# ---------------------------------------------------------------------------
+# VER-4 / AC-4: empty (initialized) palace — empty graph, no embedder
+# ---------------------------------------------------------------------------
+
+
+class TestGraphEmptyPalaceNoEmbedder:
+    """VER-4/AC-4: graph helpers on an initialized empty palace return empty results."""
+
+    def test_build_graph_empty_palace_no_embedder(self, monkeypatch, palace_path):
+        """build_graph on an empty palace returns empty nodes/edges without embedder startup."""
+        open_store(palace_path, create=True)  # initialize empty LanceDB table
+        _guard_embedder(monkeypatch)
+
+        nodes, edges = build_graph(config=_TestConfig(palace_path))
+
+        assert nodes == {}
+        assert edges == []
+
+    def test_graph_stats_empty_palace_no_embedder(self, monkeypatch, palace_path):
+        """graph_stats on an empty palace returns all-zero counts without embedder startup."""
+        open_store(palace_path, create=True)
+        _guard_embedder(monkeypatch)
+
+        result = graph_stats(config=_TestConfig(palace_path))
+
+        assert result["total_rooms"] == 0
+        assert result["tunnel_rooms"] == 0
+        assert result["total_edges"] == 0
