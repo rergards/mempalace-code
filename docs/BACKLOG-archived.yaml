@@ -911,3 +911,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=cb6af7e, 14 files changed, 770 insertions(+), 22 deletions(-))'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=cb6af7e, 14 files changed, 770 insertions(+), 22 deletions(-))
+    - key: MCP-KG-SOURCE-FILE-PROVENANCE
+      summary: Expose KG source_file provenance in query outputs
+      resolution: '2026-05-24: completed in pipeline run (commit=4e3ec6b, 18 files changed, 733 insertions(+), 1 deletion(-))'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=4e3ec6b, 18 files changed, 733 insertions(+), 1 deletion(-))

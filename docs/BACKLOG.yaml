@@ -43,35 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: MCP-KG-SOURCE-FILE-PROVENANCE
-    summary: "Expose KG source_file provenance in query outputs"
-    type: feature
-    priority: medium
-    status: open
-    size: S
-    section_id: mcp_developer_tools
-    labels: [mcp, kg, provenance, real-usage]
-    description: |
-      ## Problem
-      KG provenance is write-only in the current MCP surface: callers can pass `source_file`, but cannot see it in normal KG query results.
-
-      ## Scope
-      `mempalace_kg_add` accepts `source_file`, but `mempalace_kg_query` and timeline-style outputs omit it, so users cannot trace KG facts back to the file that produced them.
-
-      Real MCP evidence from 2026-05-24: added `AuthService implements IAuthService` with `source_file='src/auth.py'`; subsequent `mempalace_kg_query` facts included `source_closet` but not `source_file`.
-
-      ## Non-goals
-      Do not change KG storage format beyond exposing already stored provenance fields.
-
-      ## Acceptance criteria
-      - `mempalace_kg_query` includes `source_file` when present.
-      - `mempalace_kg_timeline` and relationship/project graph outputs include provenance where they expose fact rows.
-      - Existing rows without `source_file` remain backward-compatible.
-
-      ## Files to touch
-      - `mempalace_code/knowledge_graph.py`
-      - `mempalace_code/mcp/tools/kg.py`
-      - Architecture/KG MCP tool tests as needed.
   - key: MIGRATE-STORAGE-REAL-USAGE-FIXTURE
     summary: "Add a disposable real migrate-storage smoke fixture"
     type: task
