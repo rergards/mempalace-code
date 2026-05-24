@@ -1,0 +1,15 @@
+{
+  "slug": "MCP-DELETE-NO-EMBEDDER-AFTER-READ",
+  "added": [],
+  "warnings": [],
+  "sources": [
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../polish-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/MCP-DELETE-NO-EMBEDDER-AFTER-READ-round-1.md"
+  ]
+}

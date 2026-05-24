@@ -1,0 +1,115 @@
+{
+  "passed": true,
+  "slug": "MCP-DELETE-NO-EMBEDDER-AFTER-READ",
+  "planned_files": [
+    "mempalace_code/storage.py",
+    "tests/test_mcp_server.py",
+    "tests/test_storage.py"
+  ],
+  "actual_files": [
+    "docs/audits/MCP-DELETE-NO-EMBEDDER-AFTER-READ-round-1.md",
+    "mempalace_code/storage.py",
+    "tests/test_mcp_server.py",
+    "tests/test_storage.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and delete_drawer' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and delete_wing' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and not_found' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_upgrade or delete_after_read_offline_no_embedder' -q",
+    "python -m pytest tests/test_storage.py -k 'delete_wing or write_open_no_embedder_delete or existing_table_add_upsert_still_embed' -q",
+    "python -m pytest tests/test_storage.py -k 'existing_table_add_upsert_still_embed' -q",
+    "python -m pytest tests/test_storage.py -k 'write_open_no_embedder_delete' -q",
+    "ruff check mempalace_code/storage.py tests/test_mcp_server.py tests/test_storage.py"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and delete_drawer' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and delete_wing' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and not_found' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_upgrade or delete_after_read_offline_no_embedder' -q",
+    "python -m pytest tests/test_storage.py -k 'delete_wing or write_open_no_embedder_delete or existing_table_add_upsert_still_embed' -q",
+    "python -m pytest tests/test_storage.py -k 'existing_table_add_upsert_still_embed' -q",
+    "python -m pytest tests/test_storage.py -k 'write_open_no_embedder_delete' -q",
+    "ruff check mempalace/ tests/",
+    "ruff check mempalace_code/storage.py tests/test_mcp_server.py tests/test_storage.py",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and delete_drawer' -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and delete_drawer' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and delete_wing' -q",
+      "matched": "implement-result.json#verification_evidence[1] command=python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and delete_wing' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and not_found' -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_mcp_server.py -k 'delete_after_read_offline_no_embedder and not_found' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_storage.py -k 'write_open_no_embedder_delete' -q",
+      "matched": "implement-result.json#verification_evidence[3] command=python -m pytest tests/test_storage.py -k 'write_open_no_embedder_delete' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-5",
+      "planned": "python -m pytest tests/test_storage.py -k 'existing_table_add_upsert_still_embed' -q",
+      "matched": "implement-result.json#verification_evidence[4] command=python -m pytest tests/test_storage.py -k 'existing_table_add_upsert_still_embed' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_mcp_server.py -k 'delete_after_read_upgrade or delete_after_read_offline_no_embedder' -q",
+      "matched": "implement-result.json#verification_evidence[5] command=python -m pytest tests/test_mcp_server.py -k 'delete_after_read_upgrade or delete_after_read_offline_no_embedder' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python -m pytest tests/test_storage.py -k 'delete_wing or write_open_no_embedder_delete or existing_table_add_upsert_still_embed' -q",
+      "matched": "implement-result.json#verification_evidence[6] command=python -m pytest tests/test_storage.py -k 'delete_wing or write_open_no_embedder_delete or existing_table_add_upsert_still_embed' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "ruff check mempalace_code/storage.py tests/test_mcp_server.py tests/test_storage.py",
+      "matched": "implement-result.json#verification_evidence[7] command=ruff check mempalace_code/storage.py tests/test_mcp_server.py tests/test_storage.py",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/MCP-DELETE-NO-EMBEDDER-AFTER-READ-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening audit report for this task",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5"
+      ],
+      "check_ids": [
+        "REG-1",
+        "REG-2",
+        "REG-3"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/MCP-DELETE-NO-EMBEDDER-AFTER-READ- prefix"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}
