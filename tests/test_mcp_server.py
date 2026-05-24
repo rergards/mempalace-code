@@ -670,9 +670,7 @@ class TestKGTools:
         with pytest.raises(ValueError, match="Invalid temporal"):
             tool_kg_invalidate(subject="X", predicate="knows", object="Y", ended="last month")
 
-    def test_kg_query_returns_source_file_provenance(
-        self, monkeypatch, config, palace_path, kg
-    ):
+    def test_kg_query_returns_source_file_provenance(self, monkeypatch, config, palace_path, kg):
         """AC-1: kg_query exposes source_file on sourced facts and preserves source_closet."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace_code.mcp_server import tool_kg_add, tool_kg_query
@@ -692,9 +690,7 @@ class TestKGTools:
         assert fact["source_file"] == "src/auth.py"
         assert fact["source_closet"] == "closet_42"
 
-    def test_kg_timeline_returns_source_file_provenance(
-        self, monkeypatch, config, palace_path, kg
-    ):
+    def test_kg_timeline_returns_source_file_provenance(self, monkeypatch, config, palace_path, kg):
         """AC-2: kg_timeline exposes source_file on timeline rows without altering temporal fields."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace_code.mcp_server import tool_kg_add, tool_kg_timeline
