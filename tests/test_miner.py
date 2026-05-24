@@ -4912,3 +4912,79 @@ def test_mine_tiny_files_incremental_separation():
         )
     finally:
         shutil.rmtree(tmpdir)
+
+
+def test_mine_tiny_files_changed_tiny_reprocessed():
+    """AC-2: a changed tiny file is reprocessed; unchanged tiny files still report as files_tiny."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        palace_path = str(project_root / "palace")
+        _make_tiny_project(project_root)
+
+        r1 = mine(str(project_root), palace_path, incremental=False)
+        assert r1["files_tiny"] == 3
+
+        # Modify one tiny file (content changes, still below MIN_CHUNK)
+        write_file(project_root / "src" / "auth.py", "def login():\n    pass\n# modified\n")
+
+        r2 = mine(str(project_root), palace_path, incremental=True)
+        # Changed tiny file is reprocessed and still tiny — all 3 must be in files_tiny
+        assert r2["files_tiny"] == 3, (
+            f"All tiny files must be files_tiny (changed one re-inspected, still tiny): {r2}"
+        )
+        assert r2["files_skipped"] == 0, f"No drawer-backed files to skip: {r2}"
+        assert r2["drawers_filed"] == 0, f"Changed tiny file still produces no drawers: {r2}"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_mine_tiny_files_tiny_grows_to_normal():
+    """AC-2 edge: a tiny file that grows to non-tiny is correctly indexed on incremental re-mine."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        palace_path = str(project_root / "palace")
+        _make_tiny_project(project_root)
+
+        r1 = mine(str(project_root), palace_path, incremental=False)
+        assert r1["files_tiny"] == 3
+        assert r1["drawers_filed"] == 0
+
+        # Grow one tiny file to above MIN_CHUNK so it produces drawers
+        write_file(project_root / "src" / "auth.py", MULTI_FUNC_PY)
+
+        r2 = mine(str(project_root), palace_path, incremental=True)
+        # Grown file now produces drawers; remaining 2 still tiny
+        assert r2["files_tiny"] == 2, f"Remaining 2 tiny files must be files_tiny: {r2}"
+        assert r2["drawers_filed"] >= 1, f"Grown file must produce at least one drawer: {r2}"
+        assert r2["files_skipped"] == 0, f"No unchanged drawer-backed files to skip: {r2}"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_mine_tiny_files_no_change_incremental_skip():
+    """AC-1: incremental re-mine of an unchanged tiny-only project skips all tiny files."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        palace_path = str(project_root / "palace")
+        _make_tiny_project(project_root)
+
+        r1 = mine(str(project_root), palace_path, incremental=False)
+        assert r1["files_tiny"] == 3
+        assert r1["drawers_filed"] == 0
+
+        # Incremental re-mine with no file changes — sidecar should provide the skip.
+        r2 = mine(str(project_root), palace_path, incremental=True)
+        assert r2["files_tiny"] == 3, (
+            f"Unchanged tiny files must report as files_tiny on incremental re-mine: {r2}"
+        )
+        assert r2["files_skipped"] == 0, f"Tiny files must not inflate files_skipped: {r2}"
+        assert r2["drawers_filed"] == 0, f"No drawers should be filed: {r2}"
+
+        # Palace must remain empty — no tiny file should produce a drawer on re-mine.
+        store = open_store(palace_path, create=False)
+        assert store.count() == 0, "Palace must remain empty after incremental re-mine of tiny-only project"
+    finally:
+        shutil.rmtree(tmpdir)
