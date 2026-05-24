@@ -120,12 +120,6 @@ def _resolve_source_file(store: Any, source_file: str, wing: str | None) -> str 
     alias_matches = aliases & candidates
     if len(alias_matches) == 1:
         return next(iter(alias_matches))
-    if len(alias_matches) > 1:
-        return {
-            "error": "ambiguous_source",
-            "source_file": source_file,
-            "candidates": sorted(alias_matches),
-        }
 
     # 3. Unique path-component suffix match
     suffix_matches = {c for c in candidates if _ends_with_components(c, source_file)}
