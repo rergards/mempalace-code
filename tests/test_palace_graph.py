@@ -392,7 +392,7 @@ def _seed_graph_palace(palace_path: str) -> None:
 
 
 class TestGraphReadOnlyNoEmbedder:
-    """VER-2/AC-2: direct graph helpers (_get_store path) read real LanceDB without embedder."""
+    """direct graph helpers (_get_store path) read real LanceDB without embedder."""
 
     def test_build_graph_read_only_no_embedder(self, monkeypatch, palace_path):
         """build_graph via _get_store reads a populated palace without embedder startup."""
@@ -448,7 +448,7 @@ class TestGraphReadOnlyNoEmbedder:
 
 
 class TestGraphMissingPalaceNoEmbedder:
-    """VER-4/AC-3: graph helpers on a missing palace return empty results, no dir created."""
+    """graph helpers on a missing palace return empty results, no dir created."""
 
     def test_build_graph_missing_palace_no_embedder(self, monkeypatch, tmp_dir):
         """build_graph on a missing palace returns empty graph without creating directories."""
@@ -502,7 +502,7 @@ class TestGraphMissingPalaceNoEmbedder:
 
 
 class TestGraphEmptyPalaceNoEmbedder:
-    """VER-4/AC-4: graph helpers on an initialized empty palace return empty results."""
+    """graph helpers on an initialized empty palace return empty results."""
 
     def test_build_graph_empty_palace_no_embedder(self, monkeypatch, palace_path):
         """build_graph on an empty palace returns empty nodes/edges without embedder startup."""

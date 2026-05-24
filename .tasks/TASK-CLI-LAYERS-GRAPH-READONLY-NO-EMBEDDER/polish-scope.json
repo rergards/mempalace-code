@@ -1,0 +1,11 @@
+{
+  "phase": "polish",
+  "files": [
+    "docs/audits/CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER-polish-1.md",
+    "tests/test_layers.py",
+    "tests/test_mcp_server.py",
+    "tests/test_palace_graph.py"
+  ],
+  "before_sha": "6e594c1",
+  "timestamp": "2026-05-24T11:06:09Z"
+}

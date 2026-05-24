@@ -1,9 +1,4 @@
-"""
-test_layers.py — No-embedder regression tests for Layer1/Layer2/MemoryStack read paths.
-
-Covers VER-1 (wake_up, recall, status, CLI smoke) and VER-4 (missing and empty palace
-boundaries) from the CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER plan.
-"""
+"""Tests for Layer1/Layer2/MemoryStack read paths — no-embedder regression coverage."""
 
 import os
 import subprocess
@@ -85,7 +80,7 @@ def _guard_embedder(monkeypatch) -> None:
 
 
 class TestWakeUpRecallNoEmbedder:
-    """VER-1/AC-1: wake_up and recall work on a populated palace without embedder startup."""
+    """wake_up and recall work on a populated palace without embedder startup."""
 
     def test_wake_up_recall_no_embedder(self, monkeypatch, palace_path):
         """Populated palace wake_up and recall succeed when embedder is guarded to raise."""
@@ -125,7 +120,7 @@ class TestWakeUpRecallNoEmbedder:
 
 
 class TestLayerStatusNoEmbedder:
-    """VER-1/AC-1: MemoryStack.status() returns correct drawer count without embedder startup."""
+    """MemoryStack.status() returns correct drawer count without embedder startup."""
 
     def test_layer_status_no_embedder(self, monkeypatch, palace_path):
         """Status on a populated palace returns correct count without embedder startup."""
@@ -149,7 +144,7 @@ class TestLayerStatusNoEmbedder:
 
 
 class TestWakeupCliSmokeNoModelOutput:
-    """VER-1/AC-1: Real CLI subprocess wake-up emits no model-loading output."""
+    """Real CLI subprocess wake-up emits no model-loading output."""
 
     def test_wakeup_cli_smoke_no_model_output(self, palace_path):
         """CLI wake-up on a seeded palace exits 0 and produces no model-loading markers.
@@ -188,7 +183,7 @@ class TestWakeupCliSmokeNoModelOutput:
 
 
 class TestMissingPalaceNoEmbedder:
-    """VER-4/AC-3: wake-up/recall/status on a missing palace do not create the directory."""
+    """wake-up/recall/status on a missing palace do not create the directory."""
 
     def test_missing_palace_no_embedder_directory_not_created(self, monkeypatch, tmp_dir):
         """read-only wake_up on a missing palace must not create the palace directory."""
@@ -244,7 +239,7 @@ class TestMissingPalaceNoEmbedder:
 
 
 class TestEmptyPalaceNoEmbedder:
-    """VER-4/AC-4: wake-up/recall/status on an initialized empty palace return zero counts."""
+    """wake-up/recall/status on an initialized empty palace return zero counts."""
 
     def test_empty_palace_no_embedder_wakeup(self, monkeypatch, palace_path):
         """Initialized empty palace returns 'no memories' message without embedder startup."""

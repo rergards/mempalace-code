@@ -3219,7 +3219,7 @@ def _seed_graph_collection(palace_path: str) -> None:
 
 
 class TestGraphToolsNoEmbedder:
-    """VER-3/AC-2: MCP graph tool calls use runtime read-only store without embedder startup."""
+    """MCP graph tool calls use runtime read-only store without embedder startup."""
 
     def test_graph_stats_graph_tools_no_embedder(self, monkeypatch, config, palace_path, kg):
         """graph_stats MCP tool returns expected keys without embedder startup."""
