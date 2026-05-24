@@ -896,3 +896,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=e7ffabb, 20 files changed, 1054 insertions(+), 17 deletions(-))'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=e7ffabb, 20 files changed, 1054 insertions(+), 17 deletions(-))
+    - key: MINE-TINY-FILES-ZERO-DRAWERS
+      summary: Handle tiny source files that mine as zero drawers with misleading skipped count
+      resolution: '2026-05-24: completed in pipeline run (commit=ac799d3, 12 files changed, 245 insertions(+), 4 deletions(-))'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=ac799d3, 12 files changed, 245 insertions(+), 4 deletions(-))
