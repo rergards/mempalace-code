@@ -21,8 +21,8 @@ import pytest
 
 _smoke_path = Path(__file__).parent.parent / "scripts" / "migrate_storage_smoke.py"
 _spec = importlib.util.spec_from_file_location("migrate_storage_smoke", _smoke_path)
-_smoke_mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-_spec.loader.exec_module(_smoke_mod)  # type: ignore[union-attr]
+_smoke_mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]  # reason: spec_from_file_location can return None but we assert above
+_spec.loader.exec_module(_smoke_mod)  # type: ignore[union-attr]  # reason: loader is ModuleLoader at runtime but typed as Optional
 
 
 # ── [chroma] gate ─────────────────────────────────────────────────────────────
