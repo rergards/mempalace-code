@@ -42,29 +42,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: UPSTREAM-SEARCH-READ-SLICES
-    summary: Add line-range metadata and a surgical read path for search hits
-    type: task
-    status: open
-    priority: medium
-    size: M
-    section_id: mcp_developer_tools
-    labels: [upstream, parent, search, cli]
-    description: |
-      ## Scope
-
-      Evaluate and adapt the upstream develop work around date+line pointers and the open `mempalace read` PR into this fork's LanceDB-backed search model. The fork already has `mempalace_file_context`, but it returns `line_range: None`, so agents still need a broad file-context read after a precise search hit.
-
-      Current fork check:
-      - `mempalace_code/searcher.py` and `mempalace_code/mcp/tools/search.py` expose `line_range` placeholders.
-      - No `mempalace-code read` command exists.
-
-      Upstream evidence: upstream PR #1584 (`feat(closets): Tier 6a - date+line locators`) and PR #1588 (`feat(cli): add mempalace read`).
-
-      ## Acceptance criteria
-
-      - Mined code and markdown chunks store stable line-range metadata when source text is available.
-      - Search, code search, and file-context responses return real line ranges instead of `None`.
-      - Add either a CLI `mempalace-code read` command or an MCP read-by-pointer tool that returns only the requested slice.
-      - Tests cover single-match, multi-match, missing-source, and stale-pointer behavior.
+items: []

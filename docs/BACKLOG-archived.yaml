@@ -856,3 +856,8 @@ items:
       resolution: '2026-05-23: completed in pipeline run'
       archived_date: "2026-05-23"
       done_summary: completed in pipeline run
+    - key: UPSTREAM-SEARCH-READ-SLICES
+      summary: Add line-range metadata and a surgical read path for search hits
+      resolution: '2026-05-24: completed in pipeline run (commit=97fd5c8, 27 files changed, 1709 insertions(+), 11 deletions(-))'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=97fd5c8, 27 files changed, 1709 insertions(+), 11 deletions(-))
