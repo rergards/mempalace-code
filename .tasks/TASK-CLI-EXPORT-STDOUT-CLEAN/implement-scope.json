@@ -1,0 +1,9 @@
+{
+  "phase": "implement",
+  "files": [
+    "mempalace_code/cli_commands/export_import.py",
+    "tests/test_cli.py"
+  ],
+  "before_sha": "d93c3ee",
+  "timestamp": "2026-05-24T09:50:55Z"
+}

@@ -1,0 +1,15 @@
+{
+  "slug": "CLI-EXPORT-STDOUT-CLEAN",
+  "added": [],
+  "warnings": [],
+  "sources": [
+    "../../../../changelog-result.json",
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/CLI-EXPORT-STDOUT-CLEAN-round-1.md"
+  ]
+}
