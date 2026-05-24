@@ -1202,6 +1202,90 @@ def test_status_shows_storage_metrics(capsys):
         shutil.rmtree(tmpdir)
 
 
+def test_status_no_embedder(capsys, monkeypatch):
+    """AC-1: populated status reads inventory and metrics without initializing the embedder."""
+    from mempalace_code.miner import status
+    from mempalace_code.storage import LanceStore
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        palace_path = os.path.join(tmpdir, "palace")
+        # Create and populate palace BEFORE patching the embedder.
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["d1", "d2"],
+            documents=["drawer one content", "drawer two content"],
+            metadatas=[
+                {"wing": "test_wing", "room": "general"},
+                {"wing": "test_wing", "room": "notes"},
+            ],
+        )
+
+        def _embedder_raises(self):
+            raise RuntimeError("embedder must not be called for read-only status")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_raises)
+
+        status(palace_path)
+        captured = capsys.readouterr()
+        out = captured.out + captured.err
+
+        assert "2 drawers" in captured.out, f"Expected '2 drawers' in output:\n{captured.out}"
+        assert "test_wing" in captured.out
+        assert "Storage:" in captured.out
+        assert "Versions:" in captured.out
+        for marker in ("Loading embedding model", "Loading weights", "huggingface", "sentence-transformers"):
+            assert marker not in out, f"Model-loading marker {marker!r} leaked:\n{out}"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_status_missing_palace_no_embedder(capsys, monkeypatch, tmp_path):
+    """AC-2: missing-palace status reports absence without creating the path or initializing the embedder."""
+    from mempalace_code.miner import status
+    from mempalace_code.storage import LanceStore
+
+    palace_path = str(tmp_path / "nonexistent_palace")
+
+    def _embedder_raises(self):
+        raise RuntimeError("embedder must not be called for missing-palace status")
+
+    monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_raises)
+
+    status(palace_path)
+    captured = capsys.readouterr()
+
+    assert "No palace found" in captured.out, f"Expected 'No palace found':\n{captured.out}"
+    assert not os.path.exists(palace_path), "status must not create the palace directory"
+
+
+def test_status_empty_palace_no_embedder(capsys, monkeypatch):
+    """AC-3: empty initialized LanceDB palace status shows zero-drawer inventory without embedder."""
+    from mempalace_code.miner import status
+    from mempalace_code.storage import LanceStore
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        palace_path = os.path.join(tmpdir, "palace")
+        # Initialize palace with no drawers BEFORE patching the embedder.
+        open_store(palace_path, create=True)
+
+        def _embedder_raises(self):
+            raise RuntimeError("embedder must not be called for empty-palace status")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_raises)
+
+        status(palace_path)
+        captured = capsys.readouterr()
+        out = captured.out + captured.err
+
+        assert "0 drawers" in captured.out, f"Expected '0 drawers' in output:\n{captured.out}"
+        for marker in ("Loading embedding model", "Loading weights", "huggingface", "sentence-transformers"):
+            assert marker not in out, f"Model-loading marker {marker!r} leaked:\n{out}"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 # =============================================================================
 # _detect_batch_size() tests — monkeypatch device/memory detection
 # =============================================================================

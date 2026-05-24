@@ -595,9 +595,15 @@ def status(palace_path: str):
     """Show what's been filed in the palace."""
     from ..storage import LanceStore
 
-    try:
-        store = open_store(palace_path, create=False)
-    except Exception:
+    lance_dir = os.path.join(palace_path, "lance")
+    if not os.path.isdir(lance_dir):
+        print(f"\n  No palace found at {palace_path}")
+        print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")
+        return
+
+    store = open_store(palace_path, create=False, read_only=True)
+
+    if isinstance(store, LanceStore) and store._table is None:
         print(f"\n  No palace found at {palace_path}")
         print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")
         return
