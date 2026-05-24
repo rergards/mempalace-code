@@ -43,32 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: CLI-READ-SOURCE-PATH-DISCOVERY
-    summary: "Make CLI search/read source paths usable together"
-    type: bug
-    priority: high
-    status: open
-    size: M
-    section_id: mcp_developer_tools
-    labels: [cli, read, search, real-usage]
-    description: |
-      ## Symptom
-      CLI `read` requires the exact stored `source_file`, but CLI `search` prints only `Source: auth.py`.
-
-      ## Steps to reproduce
-      Mine a temp project on macOS, run `mempalace-code search "stored credential lookup" --wing manual_wing`, then try `mempalace-code read auth.py --start 1 --end 6 --wing manual_wing`.
-
-      ## Expected vs actual
-      Expected: search output gives a path that can be copied into `read`, or `read` accepts the visible source value when unique.
-      Actual: `read auth.py` returned `not_found`; the apparent `/var/...` absolute path also failed, while MCP `code_search` revealed the stored `/private/var/.../auth.py` path and MCP `read` succeeded.
-
-      ## Root cause hypothesis
-      CLI search shortens `source_file` to basename and CLI read does exact string matching with no basename/project-relative lookup or macOS `/var` path normalization.
-
-      ## Acceptance criteria
-      - CLI search exposes the exact stored `source_file` needed by CLI read, or offers a machine-readable mode that does.
-      - CLI read accepts a unique basename/project-relative path within a wing, or emits candidates when the input is ambiguous.
-      - macOS `/var/...` and `/private/var/...` equivalents are normalized or clearly handled.
   - key: MCP-KG-SOURCE-FILE-PROVENANCE
     summary: "Expose KG source_file provenance in query outputs"
     type: feature
