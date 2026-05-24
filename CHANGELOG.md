@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-24 · CLI-READ-SOURCE-PATH-DISCOVERY
+
+`search` now prints the full stored source path so it can be copied directly into `read`; `read` now resolves unique basename and path-suffix matches within the wing instead of requiring the exact stored path.
+
 ## 2026-05-24 · CLI-BACKUP-PARENT-OUT-IGNORED
 
 `backup --out FILE create` (parent-flag form) now correctly writes the archive to FILE instead of the default backups directory.
