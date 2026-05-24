@@ -373,6 +373,7 @@ def mine(
 
     total_drawers = 0
     files_skipped = 0
+    files_tiny = 0
     room_counts = defaultdict(int)
     batch_buffer: list = []
     batch_num = 0
@@ -471,7 +472,7 @@ def mine(
                     kg.add_triple(subj, pred, obj, source_file=source_file)
 
             if not specs:
-                files_skipped += 1
+                files_tiny += 1
                 continue
 
             room = specs[0]["metadata"]["room"]
@@ -560,8 +561,10 @@ def mine(
 
     print(f"\n{'=' * 55}")
     print("  Done.")
-    print(f"  Files processed: {len(files) - files_skipped}")
+    print(f"  Files processed: {len(files) - files_skipped - files_tiny}")
     print(f"  Files skipped (already filed): {files_skipped}")
+    if files_tiny:
+        print(f"  Files too small to index: {files_tiny}")
     print(f"  Drawers filed: {total_drawers}")
     print(f"  Time: {mins}m {secs}s")
     print("\n  By room:")
@@ -571,8 +574,9 @@ def mine(
     print(f"{'=' * 55}\n")
 
     return {
-        "files_processed": len(files) - files_skipped,
+        "files_processed": len(files) - files_skipped - files_tiny,
         "files_skipped": files_skipped,
+        "files_tiny": files_tiny,
         "drawers_filed": total_drawers,
         "elapsed_secs": elapsed,
     }

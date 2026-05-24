@@ -4842,3 +4842,80 @@ def test_line_range_metadata_repeated_chunk_text():
             assert cur_start > prev_start, f"Chunks must have distinct start lines: {with_ranges}"
     finally:
         shutil.rmtree(tmpdir)
+
+
+# ─── Tiny-file handling tests (MINE-TINY-FILES-ZERO-DRAWERS) ──────────────────
+
+# Three real-world tiny Python files whose stripped content is well below MIN_CHUNK (100 chars).
+_TINY_SRC_AUTH = "def login():\n    pass\n"
+_TINY_WEB_AUTH = "def logout():\n    pass\n"
+_TINY_LOGIN = "x = 1\n"
+
+
+def _make_tiny_project(project_root: Path) -> None:
+    """Write tiny Python fixtures and palace config into project_root."""
+    write_file(project_root / "src" / "auth.py", _TINY_SRC_AUTH)
+    write_file(project_root / "web" / "auth.py", _TINY_WEB_AUTH)
+    write_file(project_root / "src" / "login.py", _TINY_LOGIN)
+    with open(project_root / "mempalace.yaml", "w") as f:
+        yaml.dump({"wing": "test_tiny", "rooms": [{"name": "general", "description": ""}]}, f)
+
+
+def test_mine_tiny_files_reported_separately_from_skipped():
+    """AC-1/AC-2: full mine of tiny-only project reports files_tiny > 0 and files_skipped == 0."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        palace_path = str(project_root / "palace")
+        _make_tiny_project(project_root)
+
+        result = mine(str(project_root), palace_path, incremental=False)
+
+        assert result["files_tiny"] > 0, (
+            f"Tiny files must be counted in files_tiny, got {result}"
+        )
+        assert result["files_skipped"] == 0, (
+            f"files_skipped must be 0 for a full mine with no prior state, got {result}"
+        )
+        assert result["drawers_filed"] == 0, (
+            f"Tiny files produce no drawers, got drawers_filed={result['drawers_filed']}"
+        )
+        # Palace must be empty — tiny files must not appear as drawers
+        store = open_store(palace_path, create=False)
+        assert store.count() == 0, f"Palace should be empty after mining only tiny files"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_mine_tiny_files_incremental_separation():
+    """AC-2: incremental re-mine separates unchanged-file skips from tiny-file outcomes."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        palace_path = str(project_root / "palace")
+
+        # One normal (large enough) file alongside the tiny fixtures
+        normal_file = project_root / "app.py"
+        write_file(normal_file, MULTI_FUNC_PY)
+        _make_tiny_project(project_root)
+
+        # First mine: normal file gets drawers, tiny files get files_tiny
+        r1 = mine(str(project_root), palace_path, incremental=False)
+        assert r1["drawers_filed"] >= 1, "Normal file must produce at least one drawer"
+        assert r1["files_tiny"] == 3, f"Expected 3 tiny files, got {r1}"
+        assert r1["files_skipped"] == 0
+
+        # Second mine (incremental): normal file unchanged → files_skipped; tiny still → files_tiny
+        r2 = mine(str(project_root), palace_path, incremental=True)
+        assert r2["files_skipped"] >= 1, (
+            f"Unchanged normal file must be in files_skipped, got {r2}"
+        )
+        assert r2["files_tiny"] == 3, (
+            f"Tiny files must still be in files_tiny on re-mine, got {r2}"
+        )
+        # Tiny files must NOT inflate files_skipped
+        assert r2["files_skipped"] < r2["files_skipped"] + r2["files_tiny"], (
+            "files_skipped must be strictly less than total non-processed files"
+        )
+    finally:
+        shutil.rmtree(tmpdir)

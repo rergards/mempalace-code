@@ -174,7 +174,7 @@ TOOL_SPECS = {
             "search recently added or modified code without restarting the MCP server. "
             "Uses incremental mining by default (only changed files are re-processed). "
             "The project must have a mempalace.yaml (run: mempalace-code init <dir> first). "
-            "Returns {success, files_processed, files_skipped, drawers_filed, elapsed_secs}."
+            "Returns {success, files_processed, files_skipped, files_tiny, drawers_filed, elapsed_secs}."
         ),
         "input_schema": {
             "type": "object",
