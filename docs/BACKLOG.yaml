@@ -42,4 +42,13 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: CLI-MODULE-RUNPY-WARNING
+    summary: "Remove runpy warning from python -m mempalace_code.cli"
+    type: bug
+    status: open
+    priority: low
+    size: XS
+    section_id: quality
+    labels: [cli, release-smoke, packaging]
+    description: "## Symptom\nReal release-smoke usage on 2026-05-24 showed every `python -m mempalace_code.cli ...` subprocess prints: `<frozen runpy>:130: RuntimeWarning: 'mempalace_code.cli' found in sys.modules after import of package 'mempalace_code', but prior to execution of 'mempalace_code.cli'; this may result in unpredictable behaviour`. The new migrate-storage smoke still passes, but the warning adds noisy and worrying output to release checks.\n\n## Steps to reproduce\nFrom the main checkout, run `python -m mempalace_code.cli --version` or `python scripts/migrate_storage_smoke.py --rows 3`. The warning appears before the expected CLI/smoke output. `mempalace_code/__init__.py` eagerly imports `.cli` to expose `main`, so running the submodule with `-m` sees it already loaded.\n\n## Acceptance criteria\n- `python -m mempalace_code.cli ...` no longer emits the runpy warning.\n- The `mempalace-code` console entry point still works.\n- The migrate-storage smoke output no longer contains the runpy warning.\n- Keep package import compatibility for `from mempalace_code import main` if it is part of the public entry surface."
