@@ -8,7 +8,6 @@ Returns verbatim text — the actual words, never summaries.
 
 import fnmatch
 import logging
-from pathlib import Path
 
 from .language_catalog import searchable_languages
 from .storage import open_store
@@ -82,7 +81,7 @@ def search(
         meta = meta or {}
         doc = doc or ""
         similarity = round(1 - dist, 3)
-        source = Path(meta.get("source_file", "?")).name
+        source = meta.get("source_file") or "?"
         wing_name = meta.get("wing", "?")
         room_name = meta.get("room", "?")
 

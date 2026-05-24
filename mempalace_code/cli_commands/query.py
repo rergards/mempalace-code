@@ -177,10 +177,16 @@ def cmd_read(args):
         sys.exit(1)
     if error == "stale_pointer":
         print(f"\n  Stale pointer: {result.get('detail', '')}")
-        print(f"  source_file: {args.source_file}")
+        print(f"  source_file: {result.get('source_file', args.source_file)}")
         sys.exit(1)
     if error == "invalid_range":
         print(f"\n  Invalid range: {result.get('detail', '')}")
+        sys.exit(1)
+    if error == "ambiguous_source":
+        print(f"\n  Ambiguous source: '{args.source_file}' matches multiple stored paths.")
+        print("  Use the full stored path from one of these candidates:")
+        for candidate in result.get("candidates", []):
+            print(f"    {candidate}")
         sys.exit(1)
     if error:
         print(f"\n  Error: {error}")

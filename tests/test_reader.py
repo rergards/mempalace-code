@@ -12,7 +12,14 @@ Covers:
 
 import pytest
 
-from mempalace_code.reader import _lines_from_chunk, _overlaps, _validate_range, read_slice
+from mempalace_code.reader import (
+    _ends_with_components,
+    _lines_from_chunk,
+    _macos_var_aliases,
+    _overlaps,
+    _validate_range,
+    read_slice,
+)
 from mempalace_code.storage import open_store
 
 # ─── Unit tests for helpers ───────────────────────────────────────────────────
@@ -253,3 +260,248 @@ class TestReadSlice:
         # Wrong wing returns not_found (chunk exists but not in proj_b)
         result_miss = read_slice(store, "/src/foo.py", 1, 1, wing="proj_b")
         assert result_miss["error"] == "not_found"
+
+
+# ─── Unit tests for path resolution helpers ──────────────────────────────────
+
+
+class TestMacosVarAliases:
+    def test_var_path_gets_private_alias(self):
+        aliases = _macos_var_aliases("/var/folders/tmp/auth.py")
+        assert "/var/folders/tmp/auth.py" in aliases
+        assert "/private/var/folders/tmp/auth.py" in aliases
+
+    def test_private_var_path_gets_var_alias(self):
+        aliases = _macos_var_aliases("/private/var/folders/tmp/auth.py")
+        assert "/private/var/folders/tmp/auth.py" in aliases
+        assert "/var/folders/tmp/auth.py" in aliases
+
+    def test_non_var_path_returns_singleton(self):
+        aliases = _macos_var_aliases("/project/src/auth.py")
+        assert aliases == {"/project/src/auth.py"}
+
+    def test_basename_only_returns_singleton(self):
+        aliases = _macos_var_aliases("auth.py")
+        assert aliases == {"auth.py"}
+
+
+class TestEndsWithComponents:
+    def test_basename_matches_last_component(self):
+        assert _ends_with_components("/project/src/auth.py", "auth.py") is True
+
+    def test_suffix_matches_last_two_components(self):
+        assert _ends_with_components("/project/src/auth.py", "src/auth.py") is True
+
+    def test_full_path_match(self):
+        assert _ends_with_components("/project/src/auth.py", "/project/src/auth.py") is True
+
+    def test_substring_basename_does_not_match(self):
+        """'auth.py' must not match 'my_auth.py'."""
+        assert _ends_with_components("/project/src/my_auth.py", "auth.py") is False
+
+    def test_wrong_parent_does_not_match(self):
+        assert _ends_with_components("/project/web/auth.py", "src/auth.py") is False
+
+    def test_query_longer_than_stored_returns_false(self):
+        assert _ends_with_components("auth.py", "src/auth.py") is False
+
+    def test_empty_query_returns_false(self):
+        assert _ends_with_components("/project/src/auth.py", "") is False
+
+
+# ─── Integration tests for source_file_resolution ────────────────────────────
+
+
+@pytest.fixture
+def multi_source_store(palace_path):
+    """Store with three source files sharing a basename to test disambiguation."""
+    store = open_store(palace_path, create=True)
+    store.add(
+        ids=["ms_chunk_src", "ms_chunk_web", "ms_chunk_login"],
+        documents=[
+            "def authenticate(): pass",
+            "class AuthController: pass",
+            "def login(): pass",
+        ],
+        metadatas=[
+            {
+                "wing": "proj",
+                "room": "backend",
+                "source_file": "/project/src/auth.py",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+                "line_start": 1,
+                "line_end": 1,
+            },
+            {
+                "wing": "proj",
+                "room": "backend",
+                "source_file": "/project/web/auth.py",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+                "line_start": 1,
+                "line_end": 1,
+            },
+            {
+                "wing": "proj",
+                "room": "backend",
+                "source_file": "/project/src/login.py",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+                "line_start": 1,
+                "line_end": 1,
+            },
+        ],
+    )
+    return store
+
+
+@pytest.fixture
+def macos_store(palace_path):
+    """Store with a /private/var/... source_file to test macOS alias resolution."""
+    store = open_store(palace_path, create=True)
+    store.add(
+        ids=["macos_chunk"],
+        documents=["def authenticate(): pass"],
+        metadatas=[
+            {
+                "wing": "proj",
+                "room": "backend",
+                "source_file": "/private/var/folders/tmp/project/auth.py",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+                "line_start": 1,
+                "line_end": 1,
+            }
+        ],
+    )
+    return store
+
+
+class TestSourceFileResolution:
+    """read_slice: source_file resolution — exact, suffix, alias, ambiguous, and missing cases."""
+
+    def test_source_file_resolution_exact_match(self, palace_path, multi_source_store):
+        """Exact stored path resolves immediately without suffix matching (AC-2, INV-2)."""
+        result = read_slice(multi_source_store, "/project/src/auth.py", 1, 1, wing="proj")
+        assert "error" not in result
+        assert result["source_file"] == "/project/src/auth.py"
+        assert result["lines"][0]["text"] == "def authenticate(): pass"
+
+    def test_source_file_resolution_unique_basename(self, palace_path, multi_source_store):
+        """Unique basename resolves to the single matching stored path (AC-2)."""
+        result = read_slice(multi_source_store, "login.py", 1, 1, wing="proj")
+        assert "error" not in result
+        assert result["source_file"] == "/project/src/login.py"
+        assert result["lines"][0]["text"] == "def login(): pass"
+
+    def test_source_file_resolution_unique_suffix(self, palace_path, multi_source_store):
+        """Unique project-relative suffix resolves to the single matching stored path (AC-3)."""
+        result = read_slice(multi_source_store, "src/auth.py", 1, 1, wing="proj")
+        assert "error" not in result
+        assert result["source_file"] == "/project/src/auth.py"
+        assert result["lines"][0]["text"] == "def authenticate(): pass"
+
+    def test_source_file_resolution_ambiguous_basename(self, palace_path, multi_source_store):
+        """Ambiguous basename returns ambiguous_source with all candidate paths (AC-4)."""
+        result = read_slice(multi_source_store, "auth.py", 1, 1, wing="proj")
+        assert result["error"] == "ambiguous_source"
+        assert result["source_file"] == "auth.py"
+        candidates = result["candidates"]
+        assert "/project/src/auth.py" in candidates
+        assert "/project/web/auth.py" in candidates
+        # No drawer content must be included in the error payload
+        assert "lines" not in result
+
+    def test_source_file_resolution_missing_returns_not_found(self, palace_path, multi_source_store):
+        """Unknown source returns not_found without broadening to file_context (AC-6)."""
+        result = read_slice(multi_source_store, "missing.py", 1, 1, wing="proj")
+        assert result["error"] == "not_found"
+        assert "lines" not in result
+
+    def test_source_file_resolution_macos_var_alias(self, palace_path, macos_store):
+        """'/var/...' spelling resolves to the stored '/private/var/...' canonical path (AC-5)."""
+        result = read_slice(
+            macos_store, "/var/folders/tmp/project/auth.py", 1, 1, wing="proj"
+        )
+        assert "error" not in result
+        assert result["source_file"] == "/private/var/folders/tmp/project/auth.py"
+        assert result["lines"][0]["text"] == "def authenticate(): pass"
+
+    def test_source_file_resolution_wing_scopes_candidates(self, palace_path):
+        """Wing filter restricts candidate discovery — cross-wing basename is not resolved (INV-3)."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["wsc_proj_a", "wsc_proj_b"],
+            documents=["def alpha(): pass", "def beta(): pass"],
+            metadatas=[
+                {
+                    "wing": "proj_a",
+                    "room": "backend",
+                    "source_file": "/a/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
+                {
+                    "wing": "proj_b",
+                    "room": "backend",
+                    "source_file": "/b/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
+            ],
+        )
+        # With wing=proj_a, 'auth.py' is unique in that wing → resolves
+        result_a = read_slice(store, "auth.py", 1, 1, wing="proj_a")
+        assert "error" not in result_a
+        assert result_a["source_file"] == "/a/auth.py"
+
+        # With wing=proj_b, 'auth.py' is unique in that wing → resolves
+        result_b = read_slice(store, "auth.py", 1, 1, wing="proj_b")
+        assert "error" not in result_b
+        assert result_b["source_file"] == "/b/auth.py"
+
+    def test_source_file_resolution_exact_preferred_over_suffix(self, palace_path):
+        """Exact match wins even when a suffix match also exists (INV-2)."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["ep_exact", "ep_long"],
+            documents=["def exact(): pass", "def other(): pass"],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
+            ],
+        )
+        # Input matches exactly one stored path — exact wins, no ambiguity
+        result = read_slice(store, "auth.py", 1, 1, wing="proj")
+        assert "error" not in result
+        assert result["source_file"] == "auth.py"
+        assert result["lines"][0]["text"] == "def exact(): pass"

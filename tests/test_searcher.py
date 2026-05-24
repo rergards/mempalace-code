@@ -847,6 +847,31 @@ class TestNoneMetadataRobustness:
         assert "Source: ?" in captured.out
         assert "Match:  0.7" in captured.out
 
+    def test_search_cli_full_source_file_path(self, monkeypatch, capsys):
+        """CLI search() prints the full stored source_file path, not just the basename (AC-1)."""
+        store = _FakeNoneMetaStore(
+            documents=["def authenticate(): return current_user"],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/private/var/tmp/project/auth.py",
+                }
+            ],
+            distances=[0.125],
+        )
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: store)
+
+        search("credential lookup", "/fake/palace")
+
+        captured = capsys.readouterr()
+        assert "Source: /private/var/tmp/project/auth.py" in captured.out, (
+            f"Expected full stored path in Source: line, got:\n{captured.out}"
+        )
+        assert "Source: auth.py" not in captured.out, (
+            "Source: line must not trim to basename only"
+        )
+
 
 class TestCodeSearchHybridRerank:
     """AC-5 / AC-6: Hybrid reranking in code_search."""

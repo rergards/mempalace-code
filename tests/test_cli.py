@@ -2063,6 +2063,185 @@ class TestReadCommand:
             assert exc_info.value.code != 0
 
 
+# ─── CLI read command: source path discovery tests ────────────────────────────
+
+
+class TestReadCommandSourcePathDiscovery:
+    """read_command: source_file resolution — basename, suffix, alias, ambiguous, missing."""
+
+    def _seed_multi_source(self, palace_path):
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["spd_src_auth", "spd_web_auth", "spd_login"],
+            documents=[
+                "def authenticate(user): validate\ndef authorize(user): check role",
+                "class AuthController: pass",
+                "def login(): pass",
+            ],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 2,
+                },
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/web/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/login.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
+            ],
+        )
+
+    def test_read_command_source_path_discovery_unique_basename(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """read_command: unique basename resolves and prints lines (AC-2)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed_multi_source(palace_path)
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "read",
+                "login.py",
+                "--start",
+                "1",
+                "--end",
+                "1",
+                "--wing",
+                "proj",
+            ],
+        ):
+            main()
+
+        out = capsys.readouterr().out
+        assert "login" in out
+
+    def test_read_command_source_path_discovery_unique_suffix(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """read_command: unique project-relative suffix resolves and prints lines (AC-3)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed_multi_source(palace_path)
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "read",
+                "src/auth.py",
+                "--start",
+                "1",
+                "--end",
+                "2",
+                "--wing",
+                "proj",
+            ],
+        ):
+            main()
+
+        out = capsys.readouterr().out
+        assert "authenticate" in out
+
+    def test_read_command_source_path_discovery_ambiguous_exits_nonzero(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """read_command: ambiguous basename exits non-zero and lists candidates without drawer content (AC-4)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed_multi_source(palace_path)
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "read",
+                "auth.py",
+                "--start",
+                "1",
+                "--end",
+                "1",
+                "--wing",
+                "proj",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        assert exc_info.value.code != 0
+
+        out = capsys.readouterr().out
+        assert "Ambiguous" in out or "ambiguous" in out
+        assert "/project/src/auth.py" in out
+        assert "/project/web/auth.py" in out
+        # Must not print drawer content on ambiguous read
+        assert "authenticate" not in out
+        assert "AuthController" not in out
+
+    def test_read_command_source_path_discovery_missing_exits_nonzero(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """read_command: unresolvable source exits non-zero without file_context fallback (AC-6)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed_multi_source(palace_path)
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "read",
+                "missing.py",
+                "--start",
+                "1",
+                "--end",
+                "1",
+                "--wing",
+                "proj",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        assert exc_info.value.code != 0
+
+        out = capsys.readouterr().out
+        assert "Not found" in out or "not found" in out
+
+
 # ─── export --out - stdout cleanliness tests ─────────────────────────────────
 
 

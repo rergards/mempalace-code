@@ -238,7 +238,14 @@ def main():
         "read",
         help="Print stored source lines for a file and line range (requires freshly mined chunks with line metadata)",
     )
-    p_read.add_argument("source_file", help="Exact source file path as stored in the palace")
+    p_read.add_argument(
+        "source_file",
+        help=(
+            "Source file to read — the exact stored path from search output, "
+            "or a unique basename/suffix within the wing (e.g. 'auth.py' or 'src/auth.py'). "
+            "macOS /var and /private/var spellings are treated as equivalent."
+        ),
+    )
     p_read.add_argument("--start", type=int, required=True, help="First line to include (1-indexed)")
     p_read.add_argument("--end", type=int, required=True, help="Last line to include (1-indexed)")
     p_read.add_argument("--wing", default=None, help="Filter to a specific wing (optional)")
