@@ -4905,11 +4905,10 @@ def test_mine_tiny_files_incremental_separation():
 
         # Second mine (incremental): normal file unchanged → files_skipped; tiny still → files_tiny
         r2 = mine(str(project_root), palace_path, incremental=True)
-        assert r2["files_skipped"] >= 1, f"Unchanged normal file must be in files_skipped, got {r2}"
         assert r2["files_tiny"] == 3, f"Tiny files must still be in files_tiny on re-mine, got {r2}"
-        # Tiny files must NOT inflate files_skipped
-        assert r2["files_skipped"] < r2["files_skipped"] + r2["files_tiny"], (
-            "files_skipped must be strictly less than total non-processed files"
+        # Tiny files must NOT inflate files_skipped — only the one unchanged normal file should be skipped
+        assert r2["files_skipped"] == 1, (
+            f"Only the unchanged normal file must be in files_skipped, got {r2}"
         )
     finally:
         shutil.rmtree(tmpdir)

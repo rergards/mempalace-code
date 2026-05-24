@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/MINE-TINY-FILES-ZERO-DRAWERS-round-1.md",
+    "tests/test_miner.py"
+  ],
+  "before_sha": "7fe1a95",
+  "timestamp": "2026-05-24T13:08:03Z"
+}
