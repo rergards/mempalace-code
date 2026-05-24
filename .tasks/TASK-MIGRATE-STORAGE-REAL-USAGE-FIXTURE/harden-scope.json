@@ -1,0 +1,10 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/MIGRATE-STORAGE-REAL-USAGE-FIXTURE-round-1.md",
+    "scripts/migrate_storage_smoke.py",
+    "tests/test_migrate_storage_smoke.py"
+  ],
+  "before_sha": "4802c2b",
+  "timestamp": "2026-05-24T15:12:10Z"
+}

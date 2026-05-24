@@ -225,11 +225,17 @@ Examples:
 All artifacts are removed from a temporary directory on exit.
 """,
     )
+    def _positive_int(v: str) -> int:
+        i = int(v)
+        if i < 1:
+            raise argparse.ArgumentTypeError(f"{v!r} is not a positive integer (must be >= 1)")
+        return i
+
     parser.add_argument(
         "--rows",
-        type=int,
+        type=_positive_int,
         default=3,
-        help="Number of rows to seed in the Chroma source palace (default: 3)",
+        help="Number of rows to seed in the Chroma source palace (default: 3, minimum: 1)",
     )
     parser.add_argument(
         "--exercise-dst-guard",

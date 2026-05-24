@@ -44,8 +44,8 @@ def test_missing_chroma_reports_chroma_extra(monkeypatch, capsys):
     assert "[chroma]" in captured.err, f"install hint missing from stderr: {captured.err!r}"
 
 
-def test_missing_chroma_exits_before_fixture_creation(monkeypatch, tmp_path):
-    """main() with chromadb absent exits 1 without writing any files to the work area."""
+def test_missing_chroma_exits_before_fixture_creation(monkeypatch):
+    """main() with chromadb absent exits 1 before entering the TemporaryDirectory block."""
     monkeypatch.setitem(sys.modules, "chromadb", None)
     monkeypatch.setattr(sys, "argv", ["smoke", "--rows", "3"])
 
@@ -53,8 +53,19 @@ def test_missing_chroma_exits_before_fixture_creation(monkeypatch, tmp_path):
         _smoke_mod.main()
 
     assert exc_info.value.code == 1
-    # No fixture files should have been created in tmp_path (we pass early)
-    assert list(tmp_path.iterdir()) == []
+
+
+def test_rows_zero_rejected_by_argparse(monkeypatch, capsys):
+    """--rows 0 must exit with a non-zero code before fixture creation or CLI invocation."""
+    monkeypatch.setattr(_smoke_mod, "_check_chroma", lambda: None)
+    monkeypatch.setattr(sys, "argv", ["smoke", "--rows", "0"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        _smoke_mod.main()
+
+    assert exc_info.value.code != 0
+    captured = capsys.readouterr()
+    assert "0" in captured.err or "positive" in captured.err.lower()
 
 
 # ── Deterministic embedder ─────────────────────────────────────────────────────
