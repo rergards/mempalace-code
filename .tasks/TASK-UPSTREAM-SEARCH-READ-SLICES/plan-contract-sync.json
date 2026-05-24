@@ -1,0 +1,158 @@
+{
+  "passed": true,
+  "slug": "UPSTREAM-SEARCH-READ-SLICES",
+  "planned_files": [
+    "mempalace_code/cli.py",
+    "mempalace_code/cli_commands/query.py",
+    "mempalace_code/mcp/tools/search.py",
+    "mempalace_code/mcp_server.py",
+    "mempalace_code/mining/orchestrator.py",
+    "mempalace_code/reader.py",
+    "mempalace_code/searcher.py",
+    "mempalace_code/storage.py",
+    "tests/test_cli.py",
+    "tests/test_mcp_server.py",
+    "tests/test_miner.py",
+    "tests/test_reader.py",
+    "tests/test_searcher.py",
+    "tests/test_storage_lance.py"
+  ],
+  "actual_files": [
+    "docs/audits/UPSTREAM-SEARCH-READ-SLICES-polish-1.md",
+    "docs/audits/UPSTREAM-SEARCH-READ-SLICES-round-1.md",
+    "mempalace_code/cli.py",
+    "mempalace_code/cli_commands/query.py",
+    "mempalace_code/mcp/tools/search.py",
+    "mempalace_code/mcp_server.py",
+    "mempalace_code/mining/orchestrator.py",
+    "mempalace_code/reader.py",
+    "mempalace_code/searcher.py",
+    "mempalace_code/storage.py",
+    "tests/test_cli.py",
+    "tests/test_mcp_registry.py",
+    "tests/test_mcp_server.py",
+    "tests/test_miner.py",
+    "tests/test_reader.py",
+    "tests/test_searcher.py",
+    "tests/test_storage_lance.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_cli.py -k 'read_command' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'code_search_basic or happy_path_returns_all_chunks_with_fields' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'file_context_line_range or read_slice' -q",
+    "python -m pytest tests/test_miner.py tests/test_storage_lance.py -k 'line_range_metadata or line_range_schema' -q",
+    "python -m pytest tests/test_reader.py -q",
+    "python -m pytest tests/test_searcher.py -k 'code_search_full_source_file_path_unchanged or code_search_tolerates_none_document_and_metadata' -q",
+    "python -m pytest tests/test_searcher.py -k 'line_range' -q",
+    "ruff check mempalace_code/reader.py mempalace_code/searcher.py mempalace_code/mcp/tools/search.py mempalace_code/cli.py mempalace_code/cli_commands/query.py tests/test_reader.py tests/test_searcher.py tests/test_mcp_server.py tests/test_cli.py"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "grep -n 'AC-1\\|AC-4\\|AC-5\\|AC-6' tests/test_mcp_registry.py",
+    "python -m pytest tests/test_cli.py -k 'read_command' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'code_search_basic or happy_path_returns_all_chunks_with_fields' -q",
+    "python -m pytest tests/test_mcp_server.py -k 'file_context_line_range or read_slice' -q",
+    "python -m pytest tests/test_miner.py tests/test_storage_lance.py -k 'line_range_metadata or line_range_schema' -q",
+    "python -m pytest tests/test_reader.py -q",
+    "python -m pytest tests/test_searcher.py -k 'code_search_full_source_file_path_unchanged or code_search_tolerates_none_document_and_metadata' -q",
+    "python -m pytest tests/test_searcher.py -k 'line_range' -q",
+    "ruff check mempalace_code/mining/orchestrator.py mempalace_code/reader.py tests/test_miner.py tests/test_reader.py",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_miner.py tests/test_storage_lance.py -k 'line_range_metadata or line_range_schema' -q",
+      "matched": "harden-result.json#verification_evidence[0] command=python -m pytest tests/test_miner.py tests/test_storage_lance.py -k 'line_range_metadata or line_range_schema' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_searcher.py -k 'line_range' -q",
+      "matched": "harden-result.json#verification_evidence[1] command=python -m pytest tests/test_searcher.py -k 'line_range' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_mcp_server.py -k 'file_context_line_range or read_slice' -q",
+      "matched": "harden-result.json#verification_evidence[2] command=python -m pytest tests/test_mcp_server.py -k 'file_context_line_range or read_slice' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_reader.py -q",
+      "matched": "harden-result.json#verification_evidence[3] command=python -m pytest tests/test_reader.py -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-5",
+      "planned": "python -m pytest tests/test_cli.py -k 'read_command' -q",
+      "matched": "harden-result.json#verification_evidence[4] command=python -m pytest tests/test_cli.py -k 'read_command' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_searcher.py -k 'code_search_full_source_file_path_unchanged or code_search_tolerates_none_document_and_metadata' -q",
+      "matched": "harden-result.json#verification_evidence[5] command=python -m pytest tests/test_searcher.py -k 'code_search_full_source_file_path_unchanged or code_search_tolerates_none_document_and_metadata' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python -m pytest tests/test_mcp_server.py -k 'code_search_basic or happy_path_returns_all_chunks_with_fields' -q",
+      "matched": "harden-result.json#verification_evidence[6] command=python -m pytest tests/test_mcp_server.py -k 'code_search_basic or happy_path_returns_all_chunks_with_fields' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "ruff check mempalace_code/reader.py mempalace_code/searcher.py mempalace_code/mcp/tools/search.py mempalace_code/cli.py mempalace_code/cli_commands/query.py tests/test_reader.py tests/test_searcher.py tests/test_mcp_server.py tests/test_cli.py",
+      "matched": "harden-result.json#verification_evidence[7] command=ruff check mempalace_code/reader.py mempalace_code/searcher.py mempalace_code/mcp/tools/search.py mempalace_code/cli.py mempalace_code/cli_commands/query.py tests/test_reader.py tests/test_searcher.py tests/test_mcp_server.py tests/test_cli.py",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/UPSTREAM-SEARCH-READ-SLICES-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening round audit document",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/UPSTREAM-SEARCH-READ-SLICES- prefix"
+    },
+    {
+      "path": "tests/test_mcp_registry.py",
+      "phase": "harden",
+      "category": "test_only",
+      "reason": "Pure pytest test file under tests/ added during implementation to verify registry tool order (AC-1), hidden-profile dispatch (AC-4), argument validation (AC-5), and unknown-tool error (AC-6). Confirmed in implement-scope.json.",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-4",
+        "AC-5",
+        "AC-6"
+      ],
+      "source": "contract-reconcile-result.json",
+      "validation_basis": "original_phase_ownership",
+      "policy_id": "policy:test_only",
+      "policy_match_detail": "matched tests/ segment"
+    }
+  ],
+  "blocked_scope_expansions": [
+    {
+      "path": "docs/audits/UPSTREAM-SEARCH-READ-SLICES-polish-1.md",
+      "phase": "polish",
+      "category": "audit_only",
+      "reason": "Polish audit document for this task",
+      "block_reason": "no acceptance_id or check_id links to a known plan contract ID"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}

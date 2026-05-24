@@ -1,0 +1,22 @@
+{
+  "phase": "implement",
+  "files": [
+    "mempalace_code/cli.py",
+    "mempalace_code/cli_commands/query.py",
+    "mempalace_code/mcp/tools/search.py",
+    "mempalace_code/mcp_server.py",
+    "mempalace_code/mining/orchestrator.py",
+    "mempalace_code/reader.py",
+    "mempalace_code/searcher.py",
+    "mempalace_code/storage.py",
+    "tests/test_cli.py",
+    "tests/test_mcp_registry.py",
+    "tests/test_mcp_server.py",
+    "tests/test_miner.py",
+    "tests/test_reader.py",
+    "tests/test_searcher.py",
+    "tests/test_storage_lance.py"
+  ],
+  "before_sha": "70e5f9f",
+  "timestamp": "2026-05-23T13:20:04Z"
+}

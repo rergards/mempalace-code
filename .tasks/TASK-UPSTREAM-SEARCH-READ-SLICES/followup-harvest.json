@@ -1,0 +1,12 @@
+{
+  "slug": "UPSTREAM-SEARCH-READ-SLICES",
+  "added": [],
+  "warnings": [],
+  "sources": [
+    ".tasks/TASK-UPSTREAM-SEARCH-READ-SLICES/contract-reconcile-result.json",
+    "../../../../contract-reconcile-result.json",
+    "../../../../polish-result.json",
+    "docs/audits/UPSTREAM-SEARCH-READ-SLICES-polish-1.md",
+    "docs/audits/UPSTREAM-SEARCH-READ-SLICES-round-1.md"
+  ]
+}
