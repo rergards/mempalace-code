@@ -1,0 +1,14 @@
+{
+  "slug": "CLI-MODULE-RUNPY-WARNING",
+  "added": [],
+  "warnings": [],
+  "sources": [
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/CLI-MODULE-RUNPY-WARNING-round-1.md"
+  ]
+}

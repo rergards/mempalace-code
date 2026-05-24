@@ -1,0 +1,2 @@
+mempalace_code/__init__.py
+tests/test_cli_command_modules.py
