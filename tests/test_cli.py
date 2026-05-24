@@ -2061,3 +2061,115 @@ class TestReadCommand:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code != 0
+
+
+# ─── export --out - stdout cleanliness tests ─────────────────────────────────
+
+
+class TestExportStdoutClean:
+    """AC-1..AC-4: export --out - emits only JSONL on stdout; progress goes to stderr."""
+
+    def _seed_manual_drawer(self, palace_path: str):
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["manual_export_1"],
+            documents=["manual drawer for export test content here"],
+            metadatas=[
+                {
+                    "wing": "test",
+                    "room": "general",
+                    "chunker_strategy": "manual_v1",
+                    "added_by": "mcp",
+                    "filed_at": "2026-01-01T00:00:00",
+                }
+            ],
+        )
+
+    def test_export_stdout_contains_only_jsonl(self, tmp_path, capsys):
+        """AC-1: stdout begins with valid JSONL export_header; no human progress lines appear."""
+        palace = str(tmp_path / "palace")
+        self._seed_manual_drawer(palace)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "export", "--out", "-", "--only-manual"],
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        lines = [ln for ln in captured.out.splitlines() if ln.strip()]
+        assert lines, "stdout must not be empty"
+        header = json.loads(lines[0])
+        assert header["type"] == "export_header", (
+            f"first stdout line must be export_header JSONL, got: {lines[0]!r}"
+        )
+        for line in lines:
+            json.loads(line)  # every line must be valid JSON
+
+    def test_export_stdout_progress_on_stderr(self, tmp_path, capsys):
+        """AC-2: progress/summary lines appear on stderr, not stdout, for --out -."""
+        palace = str(tmp_path / "palace")
+        self._seed_manual_drawer(palace)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "export", "--out", "-", "--only-manual"],
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        assert "Exporting from" in captured.err
+        assert "Exported" in captured.err
+        assert "Exporting from" not in captured.out
+        assert "Exported" not in captured.out
+
+    def test_export_stdout_pipe_to_import_dry_run(self, tmp_path, capsys, monkeypatch):
+        """AC-3: stdout from export --out - is valid JSONL that import - --dry-run accepts."""
+        import io
+
+        palace = str(tmp_path / "palace")
+        self._seed_manual_drawer(palace)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "export", "--out", "-", "--only-manual"],
+        ):
+            main()
+
+        export_stdout = capsys.readouterr().out
+        assert export_stdout.strip(), "export must produce non-empty stdout"
+
+        import_palace = str(tmp_path / "import_palace")
+        monkeypatch.setattr(sys, "stdin", io.StringIO(export_stdout))
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", import_palace, "import", "-", "--dry-run"],
+        ):
+            main()  # must not raise; import reads JSONL cleanly
+
+    def test_export_file_writes_valid_jsonl(self, tmp_path, capsys):
+        """AC-4: file-backed export writes valid JSONL; progress is on stderr."""
+        palace = str(tmp_path / "palace")
+        self._seed_manual_drawer(palace)
+        out_file = str(tmp_path / "export.jsonl")
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "export", "--out", out_file, "--only-manual"],
+        ):
+            main()
+
+        content = Path(out_file).read_text(encoding="utf-8")
+        lines = [ln for ln in content.splitlines() if ln.strip()]
+        assert lines, "exported file must not be empty"
+        header = json.loads(lines[0])
+        assert header["type"] == "export_header"
+
+        captured = capsys.readouterr()
+        assert "Exporting from" in captured.err
+        assert "Exported" in captured.err

@@ -1,5 +1,7 @@
 """Export and import command handlers."""
 
+import sys
+
 from ..config import MempalaceConfig
 
 
@@ -12,7 +14,7 @@ def cmd_export(args):
     store = open_store(palace_path, create=False)
     kg = KnowledgeGraph() if args.with_kg else None
 
-    print(f"  Exporting from: {palace_path}")
+    print(f"  Exporting from: {palace_path}", file=sys.stderr)
     summary = write_jsonl(
         path=args.out,
         store=store,
@@ -27,7 +29,8 @@ def cmd_export(args):
         palace_path=palace_path,
     )
     print(
-        f"  Exported {summary['drawer_count']} drawers, {summary['kg_count']} KG triples → {args.out}"
+        f"  Exported {summary['drawer_count']} drawers, {summary['kg_count']} KG triples → {args.out}",
+        file=sys.stderr,
     )
 
 
