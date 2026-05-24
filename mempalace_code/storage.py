@@ -417,14 +417,9 @@ class LanceStore(DrawerStore):
                 logger.debug("Table %r not found (read_only=True): %s", _LANCE_TABLE, e)
                 return None
 
-        # Write path: need embedder for schema dimensions.
-        self._ensure_embedder()
-        dim = self._embedder_handle().ndims()
-        target = _target_drawer_schema(dim)
-
+        # Write path: open existing table first; embedder only needed for new-table creation.
         db = self._require_db()
 
-        # Try to open existing table first
         _existing_table: _LanceTableProtocol | None = None
         try:
             _existing_table = db.open_table(_LANCE_TABLE)
@@ -432,20 +427,29 @@ class LanceStore(DrawerStore):
             logger.debug("Table %r not found, will create: %s", _LANCE_TABLE, e)
 
         if _existing_table is not None:
+            # Migrate metadata columns from _META_FIELD_SPEC without needing embedding
+            # dimensions — the vector column already exists in the on-disk schema.
             existing_names = set(_existing_table.schema.names)
-            missing_fields = [f for f in target if f.name not in existing_names]
-            if missing_fields:
-                cols_to_add = {f.name: _sql_default_for_arrow_type(f.type) for f in missing_fields}
-                logger.info(
-                    "Migrating palace schema: adding columns %s",
-                    sorted(cols_to_add),
-                )
+            missing_meta = [
+                (name, type_tag)
+                for name, type_tag, _ in _META_FIELD_SPEC
+                if name not in existing_names
+            ]
+            if missing_meta:
+                import pyarrow as pa
+
+                _ARROW_TYPES = {"string": pa.string(), "int32": pa.int32(), "float32": pa.float32()}
+                cols_to_add = {
+                    name: _sql_default_for_arrow_type(_ARROW_TYPES[type_tag])
+                    for name, type_tag in missing_meta
+                }
+                logger.info("Migrating palace schema: adding columns %s", sorted(cols_to_add))
                 _existing_table.add_columns(cols_to_add)
-                # Reload the handle so its schema reflects the updated on-disk table
                 _existing_table = db.open_table(_LANCE_TABLE)
                 reloaded_names = set(_existing_table.schema.names)
-                if not set(target.names) <= reloaded_names:
-                    still_missing = set(target.names) - reloaded_names
+                expected_names = {"id", "text", "vector"} | {n for n, _, _ in _META_FIELD_SPEC}
+                if not expected_names <= reloaded_names:
+                    still_missing = expected_names - reloaded_names
                     raise RuntimeError(
                         f"Post-migration assertion failed — still missing columns: {still_missing}"
                     )
@@ -454,6 +458,10 @@ class LanceStore(DrawerStore):
         if not create:
             return None
 
+        # New table: need embedding dimensions for the vector column schema.
+        self._ensure_embedder()
+        dim = self._embedder_handle().ndims()
+        target = _target_drawer_schema(dim)
         return db.create_table(_LANCE_TABLE, schema=target)
 
     def _embed(self, texts: List[str]) -> List[List[float]]:

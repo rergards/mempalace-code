@@ -232,6 +232,84 @@ class TestCountBy:
         assert store.count_by("wing") == {}
         assert store.count_by_pair("wing", "room") == {}
 
+
+# ── Embedder boundary: write-open should not start the embedder ────────────────
+
+
+class TestWriteOpenNoEmbedder:
+    """AC-4/AC-5: existing-table write-capable opens must not initialize the embedder."""
+
+    def test_write_open_no_embedder_delete(self, palace_path, monkeypatch):
+        """get/delete/delete_wing on an existing table work when _get_embedder is blocked."""
+        # Seed a palace in this process (deterministic embedder from conftest autouse).
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["woe_d1", "woe_d2"],
+            documents=["content alpha for delete test", "content beta for wing delete"],
+            metadatas=[
+                {"wing": "woe_wing", "room": "general"},
+                {"wing": "woe_wing", "room": "other"},
+            ],
+        )
+        assert store.count() == 2
+
+        # Block the embedder so any write-open that eagerly initializes it will fail.
+        def _embedder_blocked(self_store):
+            raise RuntimeError("_get_embedder must not be called for metadata/delete ops")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_blocked)
+
+        # Re-open write-capable — must succeed without touching the embedder.
+        store2 = open_store(palace_path, create=True)
+
+        # get() must work.
+        result = store2.get(ids=["woe_d1"])
+        assert result["ids"] == ["woe_d1"]
+
+        # delete() must work.
+        store2.delete(ids=["woe_d1"])
+        assert store2.count() == 1
+
+        # delete_wing() must work.
+        deleted = store2.delete_wing("woe_wing")
+        assert deleted == 1
+        assert store2.count() == 0
+
+    def test_existing_table_add_upsert_still_embed(self, palace_path, monkeypatch):
+        """add/upsert on an existing table still require the embedder."""
+        # Seed a palace first (embedder unblocked during seeding).
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["emb_seed"],
+            documents=["seed content for embedder boundary test"],
+            metadatas=[{"wing": "emb_wing", "room": "general"}],
+        )
+
+        # Block embedder AFTER seeding — write-open succeeds, but add/upsert must fail.
+        def _embedder_blocked(self_store):
+            raise RuntimeError("embedder required for vector writes")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_blocked)
+
+        store2 = open_store(palace_path, create=True)
+        assert store2._embedder is None, "Embedder must not be initialized during write-open"
+
+        # add() must fail because it needs to embed the document.
+        with pytest.raises(RuntimeError, match="embedder required for vector writes"):
+            store2.add(
+                ids=["emb_new"],
+                documents=["new content that requires embedding"],
+                metadatas=[{"wing": "emb_wing", "room": "general"}],
+            )
+
+        # upsert() must also fail for the same reason.
+        with pytest.raises(RuntimeError, match="embedder required for vector writes"):
+            store2.upsert(
+                ids=["emb_seed"],
+                documents=["updated content requiring embedding"],
+                metadatas=[{"wing": "emb_wing", "room": "general"}],
+            )
+
     def test_count_by_uses_scan_projection(self):
         table = _ProjectedTable(
             [

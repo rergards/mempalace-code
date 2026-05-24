@@ -3381,3 +3381,282 @@ class TestDeleteAfterReadUpgrade:
 
         status2 = tool_status()
         assert status2["total_drawers"] == 3
+
+
+# ── Delete-After-Read: offline no-embedder subprocess tests ────────────────────
+
+_MODEL_NOISE_MARKERS = (
+    "huggingface",
+    "sentence-transformers",
+    "Loading embedding model",
+    "Loading weights",
+    "No sentence-transformers model found",
+)
+
+
+def _assert_no_model_noise(stdout: str, stderr: str) -> None:
+    combined = (stdout + stderr).lower()
+    for marker in _MODEL_NOISE_MARKERS:
+        assert marker.lower() not in combined, (
+            f"Model-loading marker {marker!r} found in subprocess output.\n"
+            f"stdout: {stdout!r}\nstderr: {stderr!r}"
+        )
+
+
+def _run_mcp_stdio(
+    requests: list,
+    palace_path: str,
+    sys_executable: str,
+    fresh_home: str,
+    timeout: int = 60,
+):
+    """Spawn the MCP stdio server, send JSON-RPC requests, return (responses, stdout, stderr)."""
+    import os
+    import subprocess
+
+    stdin_data = "\n".join(json.dumps(r) for r in requests) + "\n"
+
+    env = os.environ.copy()
+    env["MEMPALACE_PALACE_PATH"] = palace_path
+    env["HOME"] = fresh_home
+    env["USERPROFILE"] = fresh_home
+    env["HF_HUB_OFFLINE"] = "1"
+    env["TRANSFORMERS_OFFLINE"] = "1"
+    # Remove HF cache env vars so the subprocess has no model cache.
+    env.pop("HF_HOME", None)
+    env.pop("HUGGINGFACE_HUB_CACHE", None)
+    env.pop("TRANSFORMERS_CACHE", None)
+
+    result = subprocess.run(
+        [sys_executable, "-m", "mempalace_code.mcp_server"],
+        input=stdin_data,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+    )
+
+    responses = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line:
+            try:
+                responses.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+
+    return responses, result.stdout, result.stderr
+
+
+class TestDeleteAfterReadOfflineNoEmbedder:
+    """AC-1/AC-2/AC-3: real stdio MCP subprocess proves delete works offline without embedder."""
+
+    def test_delete_after_read_offline_no_embedder_delete_drawer(
+        self, palace_path, seeded_collection
+    ):
+        """status-then-delete_drawer succeeds in an offline fresh-HOME subprocess."""
+        import sys
+        import tempfile
+
+        fresh_home = tempfile.mkdtemp(prefix="mcp_fresh_home_")
+        try:
+            drawer_id = "drawer_proj_backend_aaa"
+            requests = [
+                {"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 2,
+                    "params": {"name": "mempalace_status", "arguments": {}},
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 3,
+                    "params": {
+                        "name": "mempalace_delete_drawer",
+                        "arguments": {"drawer_id": drawer_id},
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 4,
+                    "params": {"name": "mempalace_status", "arguments": {}},
+                },
+            ]
+
+            responses, stdout, stderr = _run_mcp_stdio(
+                requests, palace_path, sys.executable, fresh_home
+            )
+
+            assert len(responses) == 4, (
+                f"Expected 4 responses, got {len(responses)}.\nstdout: {stdout}\nstderr: {stderr}"
+            )
+
+            # Response 0: initialize
+            assert responses[0]["result"]["serverInfo"]["name"] == "mempalace-code"
+
+            # Response 1: status before delete — should have 4 drawers from seeded_collection
+            status_before = json.loads(responses[1]["result"]["content"][0]["text"])
+            assert "error" not in status_before, f"status before delete failed: {status_before}"
+            drawers_before = status_before["total_drawers"]
+            assert drawers_before >= 1
+
+            # Response 2: delete_drawer — must succeed
+            delete_result = json.loads(responses[2]["result"]["content"][0]["text"])
+            assert delete_result.get("success") is True, (
+                f"delete_drawer failed: {delete_result}\nstdout: {stdout}\nstderr: {stderr}"
+            )
+            assert delete_result.get("drawer_id") == drawer_id
+
+            # Response 3: status after delete — must show one fewer drawer
+            status_after = json.loads(responses[3]["result"]["content"][0]["text"])
+            assert "error" not in status_after, f"status after delete failed: {status_after}"
+            assert status_after["total_drawers"] == drawers_before - 1
+
+            _assert_no_model_noise(stdout, stderr)
+        finally:
+            import shutil
+
+            shutil.rmtree(fresh_home, ignore_errors=True)
+
+    def test_delete_after_read_offline_no_embedder_delete_wing(
+        self, palace_path, seeded_collection
+    ):
+        """status-then-delete_wing succeeds in an offline fresh-HOME subprocess."""
+        import sys
+        import tempfile
+
+        fresh_home = tempfile.mkdtemp(prefix="mcp_fresh_home_")
+        try:
+            requests = [
+                {"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 2,
+                    "params": {"name": "mempalace_status", "arguments": {}},
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 3,
+                    "params": {
+                        "name": "mempalace_delete_wing",
+                        "arguments": {"wing": "project"},
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 4,
+                    "params": {"name": "mempalace_status", "arguments": {}},
+                },
+            ]
+
+            responses, stdout, stderr = _run_mcp_stdio(
+                requests, palace_path, sys.executable, fresh_home
+            )
+
+            assert len(responses) == 4, (
+                f"Expected 4 responses, got {len(responses)}.\nstdout: {stdout}\nstderr: {stderr}"
+            )
+
+            # Response 1: status before delete
+            status_before = json.loads(responses[1]["result"]["content"][0]["text"])
+            assert "error" not in status_before, f"status before delete failed: {status_before}"
+            drawers_before = status_before["total_drawers"]
+            assert drawers_before >= 1
+
+            # Response 2: delete_wing — must succeed with expected count
+            delete_result = json.loads(responses[2]["result"]["content"][0]["text"])
+            assert delete_result.get("success") is True, (
+                f"delete_wing failed: {delete_result}\nstdout: {stdout}\nstderr: {stderr}"
+            )
+            assert delete_result.get("wing") == "project"
+            deleted_count = delete_result.get("deleted_count", 0)
+            assert deleted_count >= 1
+
+            # Response 3: status after delete — wing must be gone
+            status_after = json.loads(responses[3]["result"]["content"][0]["text"])
+            assert "error" not in status_after, f"status after delete failed: {status_after}"
+            assert status_after["total_drawers"] == drawers_before - deleted_count
+            assert "project" not in status_after.get("wings", {})
+
+            _assert_no_model_noise(stdout, stderr)
+        finally:
+            import shutil
+
+            shutil.rmtree(fresh_home, ignore_errors=True)
+
+    def test_delete_after_read_offline_no_embedder_not_found(
+        self, palace_path, seeded_collection
+    ):
+        """Missing drawer/wing deletes return structured errors, not 'No palace found'."""
+        import sys
+        import tempfile
+
+        fresh_home = tempfile.mkdtemp(prefix="mcp_fresh_home_")
+        try:
+            requests = [
+                {"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 2,
+                    "params": {"name": "mempalace_status", "arguments": {}},
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 3,
+                    "params": {
+                        "name": "mempalace_delete_drawer",
+                        "arguments": {"drawer_id": "nonexistent_drawer_id_xyz"},
+                    },
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 4,
+                    "params": {
+                        "name": "mempalace_delete_wing",
+                        "arguments": {"wing": "nonexistent_wing_xyz"},
+                    },
+                },
+            ]
+
+            responses, stdout, stderr = _run_mcp_stdio(
+                requests, palace_path, sys.executable, fresh_home
+            )
+
+            assert len(responses) == 4, (
+                f"Expected 4 responses, got {len(responses)}.\nstdout: {stdout}\nstderr: {stderr}"
+            )
+
+            # Response 2: delete missing drawer — must be structured not-found, not "No palace found"
+            delete_drawer_result = json.loads(responses[2]["result"]["content"][0]["text"])
+            assert delete_drawer_result.get("success") is False, (
+                f"Expected success=False for missing drawer: {delete_drawer_result}"
+            )
+            assert "No palace found" not in str(delete_drawer_result), (
+                f"Got 'No palace found' instead of structured not-found: {delete_drawer_result}"
+            )
+            assert "error" in delete_drawer_result
+
+            # Response 3: delete missing wing — must be structured not-found, not "No palace found"
+            delete_wing_result = json.loads(responses[3]["result"]["content"][0]["text"])
+            assert delete_wing_result.get("success") is False, (
+                f"Expected success=False for missing wing: {delete_wing_result}"
+            )
+            assert "No palace found" not in str(delete_wing_result), (
+                f"Got 'No palace found' instead of structured not-found: {delete_wing_result}"
+            )
+            assert "error" in delete_wing_result
+
+            _assert_no_model_noise(stdout, stderr)
+        finally:
+            import shutil
+
+            shutil.rmtree(fresh_home, ignore_errors=True)
