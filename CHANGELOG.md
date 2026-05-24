@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-24 · MCP-KG-SOURCE-FILE-PROVENANCE
+
+`mempalace_kg_query` and `mempalace_kg_timeline` now include `source_file` in results so callers can trace KG facts back to the file that produced them.
+
 ## 2026-05-24 · MINE-TINY-FILES-ZERO-DRAWERS
 
 Tiny non-empty source files that produce no chunks are now reported as a distinct tiny-file outcome instead of inflating the `Files skipped (already filed)` count.
