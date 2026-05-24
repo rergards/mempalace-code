@@ -3187,12 +3187,33 @@ def _seed_graph_collection(palace_path: str) -> None:
             "Backend implementation details for alpha.",
         ],
         metadatas=[
-            {"wing": "alpha", "room": "architecture", "hall": "design", "date": "2026-01-01",
-             "chunk_index": 0, "added_by": "miner", "filed_at": "2026-01-01T00:00:00"},
-            {"wing": "beta", "room": "architecture", "hall": "design", "date": "2026-01-02",
-             "chunk_index": 0, "added_by": "miner", "filed_at": "2026-01-02T00:00:00"},
-            {"wing": "alpha", "room": "backend", "hall": "", "date": "",
-             "chunk_index": 0, "added_by": "miner", "filed_at": "2026-01-03T00:00:00"},
+            {
+                "wing": "alpha",
+                "room": "architecture",
+                "hall": "design",
+                "date": "2026-01-01",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+            },
+            {
+                "wing": "beta",
+                "room": "architecture",
+                "hall": "design",
+                "date": "2026-01-02",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-02T00:00:00",
+            },
+            {
+                "wing": "alpha",
+                "room": "backend",
+                "hall": "",
+                "date": "",
+                "chunk_index": 0,
+                "added_by": "miner",
+                "filed_at": "2026-01-03T00:00:00",
+            },
         ],
     )
 
@@ -3200,9 +3221,7 @@ def _seed_graph_collection(palace_path: str) -> None:
 class TestGraphToolsNoEmbedder:
     """VER-3/AC-2: MCP graph tool calls use runtime read-only store without embedder startup."""
 
-    def test_graph_stats_graph_tools_no_embedder(
-        self, monkeypatch, config, palace_path, kg
-    ):
+    def test_graph_stats_graph_tools_no_embedder(self, monkeypatch, config, palace_path, kg):
         """graph_stats MCP tool returns expected keys without embedder startup."""
         _seed_graph_collection(palace_path)
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
@@ -3217,9 +3236,7 @@ class TestGraphToolsNoEmbedder:
         assert result["total_rooms"] == 2
         assert result["tunnel_rooms"] == 1
 
-    def test_find_tunnels_graph_tools_no_embedder(
-        self, monkeypatch, config, palace_path, kg
-    ):
+    def test_find_tunnels_graph_tools_no_embedder(self, monkeypatch, config, palace_path, kg):
         """find_tunnels MCP tool returns tunnel list without embedder startup."""
         _seed_graph_collection(palace_path)
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
@@ -3232,9 +3249,7 @@ class TestGraphToolsNoEmbedder:
         assert len(result) == 1
         assert result[0]["room"] == "architecture"
 
-    def test_traverse_graph_tools_no_embedder(
-        self, monkeypatch, config, palace_path, kg
-    ):
+    def test_traverse_graph_tools_no_embedder(self, monkeypatch, config, palace_path, kg):
         """traverse MCP tool walks the graph without embedder startup."""
         _seed_graph_collection(palace_path)
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
@@ -3247,9 +3262,7 @@ class TestGraphToolsNoEmbedder:
         rooms = {r["room"] for r in result}
         assert "architecture" in rooms
 
-    def test_graph_stats_no_palace_graph_tools_no_embedder(
-        self, monkeypatch, config, kg
-    ):
+    def test_graph_stats_no_palace_graph_tools_no_embedder(self, monkeypatch, config, kg):
         """graph_stats MCP tool returns no-palace error when palace is missing."""
         config._file_config["palace_path"] = "/nonexistent/path"
         _patch_mcp_server(monkeypatch, config, "/nonexistent/path", kg)
