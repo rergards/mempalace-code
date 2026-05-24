@@ -257,7 +257,7 @@ class TestEmptyPalaceNoEmbedder:
         assert "L1 — No memories yet." in text
 
     def test_empty_palace_no_embedder_recall(self, monkeypatch, palace_path):
-        """Recall on an empty palace returns a string without embedder startup."""
+        """Recall on an empty palace returns a 'No drawers found' message without embedder startup."""
         open_store(palace_path, create=True)
         _guard_embedder(monkeypatch)
 
@@ -266,6 +266,9 @@ class TestEmptyPalaceNoEmbedder:
 
         assert isinstance(text, str)
         assert len(text) > 0
+        assert "No drawers found" in text, (
+            f"Expected 'No drawers found' in recall output for empty palace; got: {text!r}"
+        )
 
     def test_empty_palace_no_embedder_status_zero_drawers(self, monkeypatch, palace_path):
         """status() on an empty palace returns 0 drawers without embedder startup."""

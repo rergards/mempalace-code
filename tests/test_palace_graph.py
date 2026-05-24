@@ -482,6 +482,19 @@ class TestGraphMissingPalaceNoEmbedder:
         assert result == []
         assert not os.path.exists(missing)
 
+    def test_traverse_missing_palace_no_embedder(self, monkeypatch, tmp_dir):
+        """traverse on a missing palace returns an error dict without embedder startup or dir creation."""
+        missing = os.path.join(tmp_dir, "does_not_exist")
+        _guard_embedder(monkeypatch)
+
+        result = traverse("some_room", config=_TestConfig(missing))
+
+        assert isinstance(result, dict), (
+            f"Expected error dict for missing palace traverse; got: {result!r}"
+        )
+        assert "error" in result
+        assert not os.path.exists(missing)
+
 
 # ---------------------------------------------------------------------------
 # VER-4 / AC-4: empty (initialized) palace — empty graph, no embedder
