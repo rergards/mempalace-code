@@ -42,4 +42,158 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: CLI-COMPRESS-STATS-KEYERROR
+    summary: "Fix real CLI compress crash on current Dialect stats"
+    type: bug
+    priority: high
+    status: open
+    size: S
+    section_id: quality
+    labels: [cli, compress, real-usage]
+    description: |
+      ## Symptom
+      `mempalace-code compress --wing <wing> --dry-run` and live compress crash after finding drawers.
+
+      ## Steps to reproduce
+      Mine a small project, then run `mempalace-code --palace <temp-palace> compress --wing manual_wing --dry-run`.
+
+      ## Expected vs actual
+      Expected: dry-run prints per-drawer compression output and exits 0; live mode stores compressed drawers and exits 0.
+      Actual: both modes exit 1 with `KeyError: 'compressed_chars'` in `cmd_compress`.
+
+      ## Root cause hypothesis
+      `cmd_compress` expects old `Dialect.compression_stats` keys (`compressed_chars`) that no longer match the current stats dict.
+
+      ## Acceptance criteria
+      - Dry-run compress exits 0 and prints per-drawer compression output.
+      - Live compress exits 0 and stores compressed drawers.
+      - The command handles current `Dialect.compression_stats` keys without traceback.
+
+  - key: CLI-READ-SOURCE-PATH-DISCOVERY
+    summary: "Make CLI search/read source paths usable together"
+    type: bug
+    priority: high
+    status: open
+    size: M
+    section_id: mcp_developer_tools
+    labels: [cli, read, search, real-usage]
+    description: |
+      ## Symptom
+      CLI `read` requires the exact stored `source_file`, but CLI `search` prints only `Source: auth.py`.
+
+      ## Steps to reproduce
+      Mine a temp project on macOS, run `mempalace-code search "stored credential lookup" --wing manual_wing`, then try `mempalace-code read auth.py --start 1 --end 6 --wing manual_wing`.
+
+      ## Expected vs actual
+      Expected: search output gives a path that can be copied into `read`, or `read` accepts the visible source value when unique.
+      Actual: `read auth.py` returned `not_found`; the apparent `/var/...` absolute path also failed, while MCP `code_search` revealed the stored `/private/var/.../auth.py` path and MCP `read` succeeded.
+
+      ## Root cause hypothesis
+      CLI search shortens `source_file` to basename and CLI read does exact string matching with no basename/project-relative lookup or macOS `/var` path normalization.
+
+      ## Acceptance criteria
+      - CLI search exposes the exact stored `source_file` needed by CLI read, or offers a machine-readable mode that does.
+      - CLI read accepts a unique basename/project-relative path within a wing, or emits candidates when the input is ambiguous.
+      - macOS `/var/...` and `/private/var/...` equivalents are normalized or clearly handled.
+
+  - key: CLI-EXPORT-STDOUT-CLEAN
+    summary: "Keep export --out - stdout as clean JSONL"
+    type: bug
+    priority: high
+    status: open
+    size: S
+    section_id: storage_reliability
+    labels: [cli, export, import, real-usage]
+    description: |
+      ## Symptom
+      `mempalace-code export --out -` advertises stdout export, but progress/summary text is printed to stdout before/after JSONL.
+
+      ## Steps to reproduce
+      Run `mempalace-code --palace <temp-palace> export --out - --only-manual` and inspect the first stdout line.
+
+      ## Expected vs actual
+      Expected: stdout contains only JSONL records so it can be piped directly to `import -`.
+      Actual: the first stdout line was a human progress line: `Exporting from: ...`.
+
+      ## Root cause hypothesis
+      The export CLI prints human progress to stdout unconditionally instead of routing it to stderr when `--out -` is used.
+
+      ## Acceptance criteria
+      - When `--out -` is used, stdout contains only JSONL records.
+      - Human progress and summary messages go to stderr for stdout export.
+      - `mempalace-code export --out - ... | mempalace-code import - --dry-run` works with no filtering.
+
+  - key: MCP-KG-SOURCE-FILE-PROVENANCE
+    summary: "Expose KG source_file provenance in query outputs"
+    type: feature
+    priority: medium
+    status: open
+    size: S
+    section_id: mcp_developer_tools
+    labels: [mcp, kg, provenance, real-usage]
+    description: |
+      ## Problem
+      KG provenance is write-only in the current MCP surface: callers can pass `source_file`, but cannot see it in normal KG query results.
+
+      ## Scope
+      `mempalace_kg_add` accepts `source_file`, but `mempalace_kg_query` and timeline-style outputs omit it, so users cannot trace KG facts back to the file that produced them.
+
+      Real MCP evidence from 2026-05-24: added `AuthService implements IAuthService` with `source_file='src/auth.py'`; subsequent `mempalace_kg_query` facts included `source_closet` but not `source_file`.
+
+      ## Non-goals
+      Do not change KG storage format beyond exposing already stored provenance fields.
+
+      ## Acceptance criteria
+      - `mempalace_kg_query` includes `source_file` when present.
+      - `mempalace_kg_timeline` and relationship/project graph outputs include provenance where they expose fact rows.
+      - Existing rows without `source_file` remain backward-compatible.
+
+      ## Files to touch
+      - `mempalace_code/knowledge_graph.py`
+      - `mempalace_code/mcp/tools/kg.py`
+      - Architecture/KG MCP tool tests as needed.
+
+  - key: CLI-STATUS-READONLY-NO-EMBEDDER
+    summary: "Make read-only status avoid embedding model startup"
+    type: bug
+    priority: medium
+    status: open
+    size: S
+    section_id: storage_reliability
+    labels: [cli, storage, real-usage]
+    description: |
+      ## Symptom
+      `mempalace-code status` is a read-only inventory command but still starts the embedding model and prints HF loading noise.
+
+      ## Steps to reproduce
+      Run `mempalace-code --palace <temp-palace> status` against a mined LanceDB palace.
+
+      ## Expected vs actual
+      Expected: status prints the inventory table without initializing the embedder.
+      Actual: status printed the HF Hub warning and `Loading weights` before the status table.
+
+      ## Root cause hypothesis
+      The status path opens the store with the writable/default open mode instead of read-only mode.
+
+      ## Acceptance criteria
+      - `status` opens LanceDB read-only and does not initialize the embedder.
+      - No HF/model-loading output appears for status.
+      - Other read-only non-search CLI commands are audited for the same behavior.
+
+  - key: MIGRATE-STORAGE-REAL-USAGE-FIXTURE
+    summary: "Add a disposable real migrate-storage smoke fixture"
+    type: task
+    priority: low
+    status: open
+    size: S
+    section_id: quality
+    labels: [migration, smoke-test, release]
+    description: |
+      ## Scope
+      The 2026-05-24 release sweep could only exercise the real `migrate-storage` optional/error path locally. There is no small packaged/disposable Chroma source palace or runbook for end-to-end manual migration verification.
+
+      ## Acceptance criteria
+      - Provide a tiny legacy Chroma fixture or documented fixture-generation command gated by the `[chroma]` extra.
+      - Document the manual end-to-end migrate-storage smoke command for release checks.
+      - The smoke verifies source count, destination count, and searchable migrated drawers.
