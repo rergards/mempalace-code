@@ -1357,3 +1357,29 @@ class TestBoundedPreOptimizeRetention:
 
         after = sorted(os.listdir(backups_dir))
         assert sorted(existing) == after
+
+
+# ── TestCreateBackupReadOnlyNoEmbedder ─────────────────────────────────────────
+
+
+class TestCreateBackupReadOnlyNoEmbedder:
+    """AC-1: create_backup gathers drawer count and wing metadata without initializing the embedder."""
+
+    def test_create_backup_readonly_no_embedder(
+        self, seeded_collection, palace_path, tmp_dir, monkeypatch
+    ):
+        """create_backup opens the store read-only for metadata; no embedder must be started."""
+        from mempalace_code.storage import LanceStore
+
+        def _embedder_raises(self, *args, **kwargs):
+            raise RuntimeError("embedder must not be initialized in create_backup path")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_raises)
+
+        out = os.path.join(tmp_dir, "no_emb_backup.tar.gz")
+        kg_path = os.path.join(tmp_dir, "kg.sqlite3")
+        meta, returned_out = create_backup(palace_path, out_path=out, kg_path=kg_path)
+
+        assert os.path.isfile(returned_out)
+        assert meta["drawer_count"] == 4
+        assert set(meta["wings"]) == {"project", "notes"}

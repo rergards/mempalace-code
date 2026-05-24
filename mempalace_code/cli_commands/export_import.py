@@ -11,7 +11,7 @@ def cmd_export(args):
     from ..storage import open_store
 
     palace_path = args.palace or MempalaceConfig().palace_path
-    store = open_store(palace_path, create=False)
+    store = open_store(palace_path, create=False, read_only=True)
     kg = KnowledgeGraph() if args.with_kg else None
 
     print(f"  Exporting from: {palace_path}", file=sys.stderr)

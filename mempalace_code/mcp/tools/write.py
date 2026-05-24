@@ -53,7 +53,7 @@ def tool_add_drawer(
 
 def tool_delete_drawer(drawer_id: str):
     """Delete a single drawer by ID."""
-    col = runtime._get_store()
+    col = runtime._get_store(create=True)
     if not col:
         return runtime._no_palace()
     existing = col.get(ids=[drawer_id])
@@ -69,7 +69,7 @@ def tool_delete_drawer(drawer_id: str):
 
 def tool_delete_wing(wing: str):
     """Delete all drawers in a wing. Irreversible."""
-    col = runtime._get_store()
+    col = runtime._get_store(create=True)
     if not col:
         return runtime._no_palace()
     existing = col.get(where={"wing": wing}, limit=1)

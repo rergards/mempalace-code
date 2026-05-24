@@ -58,9 +58,9 @@ def cmd_compress(args):
     else:
         dialect = Dialect()
 
-    # Connect to palace
+    # Connect to palace — dry-run only reads rows; live mode upserts compressed drawers.
     try:
-        store = open_store(palace_path, create=False)
+        store = open_store(palace_path, create=False, read_only=args.dry_run)
     except Exception:
         print(f"\n  No palace found at {palace_path}")
         print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")
@@ -112,7 +112,7 @@ def cmd_compress(args):
         stats = dialect.compression_stats(doc, compressed)
 
         total_original += stats["original_chars"]
-        total_compressed += stats["compressed_chars"]
+        total_compressed += stats["summary_chars"]
 
         compressed_entries.append((doc_id, compressed, meta, stats))
 
@@ -122,7 +122,7 @@ def cmd_compress(args):
             source = Path(meta.get("source_file", "?")).name
             print(f"  [{wing_name}/{room_name}] {source}")
             print(
-                f"    {stats['original_tokens']}t -> {stats['compressed_tokens']}t ({stats['ratio']:.1f}x)"
+                f"    {stats['original_tokens_est']}t -> {stats['summary_tokens_est']}t ({stats['size_ratio']:.1f}x)"
             )
             print(f"    {compressed}")
             print()
@@ -133,8 +133,8 @@ def cmd_compress(args):
             # Upsert compressed drawers back into the main store
             for doc_id, compressed, meta, stats in compressed_entries:
                 comp_meta = dict(meta)
-                comp_meta["compression_ratio"] = round(stats["ratio"], 1)
-                comp_meta["original_tokens"] = stats["original_tokens"]
+                comp_meta["compression_ratio"] = round(stats["size_ratio"], 1)
+                comp_meta["original_tokens"] = stats["original_tokens_est"]
                 store.upsert(
                     ids=[doc_id],
                     documents=[compressed],
@@ -163,7 +163,7 @@ def cmd_read(args):
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
 
     try:
-        store = open_store(palace_path, create=False)
+        store = open_store(palace_path, create=False, read_only=True)
     except Exception:
         print(f"\n  No palace found at {palace_path}")
         print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")

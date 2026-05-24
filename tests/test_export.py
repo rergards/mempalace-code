@@ -504,3 +504,59 @@ class TestImportVersionMismatchWarns:
         assert summary["imported_drawers"] == 1
         assert len(summary["warnings"]) == 1
         assert "0.0.1" in summary["warnings"][0]
+
+
+# ── AC-1: Export does not initialize embedder ─────────────────────────────────
+
+
+class TestExportReadOnlyNoEmbedder:
+    """AC-1: export reads stored rows without initializing the embedding model."""
+
+    def _seed(self, palace_path):
+        store = _store(palace_path)
+        _add_manual_drawer(store, content="Export no-embedder test drawer content unique X1.")
+        return store
+
+    def _embedder_raises(self, *args, **kwargs):
+        raise RuntimeError("embedder must not be initialized in this export path")
+
+    def test_export_readonly_no_embedder(self, tmp_path, monkeypatch):
+        """AC-1: write_jsonl reads drawers without initializing the embedder."""
+        from mempalace_code.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        self._seed(palace)
+        export_file = str(tmp_path / "export_no_emb.jsonl")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", self._embedder_raises)
+
+        store = open_store(palace, create=False, read_only=True)
+        summary = write_jsonl(path=export_file, store=store, palace_path=palace)
+
+        assert summary["drawer_count"] == 1
+        records = list(read_jsonl(export_file))
+        drawers = [r for r in records if r["type"] == "drawer"]
+        assert len(drawers) == 1
+        assert drawers[0]["embedding"] is None
+
+    def test_export_with_embeddings_readonly_no_embedder(self, tmp_path, monkeypatch):
+        """AC-1: --with-embeddings reads stored vectors without computing new ones."""
+        from mempalace_code.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        self._seed(palace)
+        export_file = str(tmp_path / "export_vec_no_emb.jsonl")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", self._embedder_raises)
+
+        store = open_store(palace, create=False, read_only=True)
+        summary = write_jsonl(
+            path=export_file, store=store, include_vectors=True, palace_path=palace
+        )
+
+        assert summary["drawer_count"] == 1
+        records = list(read_jsonl(export_file))
+        drawers = [r for r in records if r["type"] == "drawer"]
+        assert len(drawers) == 1
+        # Stored vector must be present (written during seeding, not recomputed here)
+        assert drawers[0]["embedding"] is not None

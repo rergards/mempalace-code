@@ -219,3 +219,27 @@ def test_dispatch_keys_cover_all_expected_commands():
 
     for cmd_name, handler in expected.items():
         assert callable(handler), f"Handler for '{cmd_name}' must be callable"
+
+
+def test_readonly_non_search_inventory():
+    """AC-5: key read-only non-search CLI callers use read_only=True; write/search paths are explicit exceptions."""
+    from pathlib import Path
+
+    base = Path(__file__).parent.parent / "mempalace_code"
+
+    maintenance_src = (base / "cli_commands" / "maintenance.py").read_text()
+    assert "read_only=True" in maintenance_src, "cmd_health must use read_only=True"
+    assert "read_only=dry_run" in maintenance_src, "repair rollback must use read_only=dry_run"
+
+    query_src = (base / "cli_commands" / "query.py").read_text()
+    assert "read_only=True" in query_src, "cmd_read must use read_only=True"
+    assert "read_only=args.dry_run" in query_src, "cmd_compress dry-run must use read_only=args.dry_run"
+
+    export_src = (base / "cli_commands" / "export_import.py").read_text()
+    assert "read_only=True" in export_src, "cmd_export must use read_only=True"
+
+    backup_src = (base / "backup.py").read_text()
+    assert "read_only=True" in backup_src, "create_backup must use read_only=True"
+
+    write_src = (base / "mcp" / "tools" / "write.py").read_text()
+    assert "create=True" in write_src, "MCP delete tools must call _get_store(create=True)"

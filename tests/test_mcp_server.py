@@ -511,14 +511,15 @@ class TestWriteTools:
         self, monkeypatch, config, palace_path, seeded_collection, kg
     ):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
-        from mempalace_code.mcp_server import _get_store, tool_delete_wing
+        from mempalace_code.mcp_server import tool_delete_wing
+        from mempalace_code.storage import LanceStore
 
-        store = _get_store()
-
-        def explode(wing):
+        def explode(self_store, wing):
             raise RuntimeError("simulated storage failure")
 
-        monkeypatch.setattr(store, "delete_wing", explode)
+        # Patch at the class level: tool_delete_wing(create=True) discards a cached
+        # read-only handle and opens a new instance, so instance-level patches miss.
+        monkeypatch.setattr(LanceStore, "delete_wing", explode)
 
         result = tool_delete_wing("project")
         assert result["success"] is False
@@ -3272,3 +3273,115 @@ class TestGraphToolsNoEmbedder:
         result = tool_graph_stats()
 
         assert "error" in result
+
+
+# ── MCP Read-Only Non-Search No-Embedder ───────────────────────────────────────
+
+
+class TestMCPReadOnlyNonSearchNoEmbedder:
+    """AC-4: MCP non-search read tools (file_context, read, diary_read) avoid embedder startup."""
+
+    @staticmethod
+    def _guard(monkeypatch):
+        from mempalace_code.storage import LanceStore
+
+        def _raise(_self, *args, **kwargs):
+            raise RuntimeError("embedder must not be initialized in non-search read path")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _raise)
+
+    def test_file_context_readonly_non_search_no_embedder(
+        self, monkeypatch, config, palace_path, seeded_collection, kg
+    ):
+        """tool_file_context returns chunks without touching the embedder."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._guard(monkeypatch)
+        from mempalace_code.mcp_server import tool_file_context
+
+        result = tool_file_context("auth.py")
+
+        assert "error" not in result
+        assert result["total"] >= 1
+        assert result["chunks"]
+
+    def test_read_readonly_non_search_no_embedder(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """tool_read returns sliced lines without touching the embedder."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["mcp_rd_slice_001"],
+            documents=["line A\nline B\nline C"],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/mcp_rd_auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 3,
+                }
+            ],
+        )
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._guard(monkeypatch)
+        from mempalace_code.mcp_server import tool_read
+
+        result = tool_read("/project/mcp_rd_auth.py", start_line=1, end_line=2)
+
+        assert result.get("error") != "not_found", f"Unexpected not_found: {result}"
+        assert "lines" in result
+        assert len(result["lines"]) >= 1
+
+    def test_diary_read_readonly_non_search_no_embedder(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        """tool_diary_read returns entries without touching the embedder."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _ensure_store(palace_path)
+        from mempalace_code.mcp_server import tool_diary_write
+
+        tool_diary_write("test_no_emb_agent", "No-embedder diary test entry.")
+
+        self._guard(monkeypatch)
+        from mempalace_code.mcp_server import tool_diary_read
+
+        result = tool_diary_read("test_no_emb_agent")
+
+        assert "error" not in result, f"Unexpected error: {result}"
+        assert result.get("entries"), f"Expected entries in result: {result}"
+        assert len(result["entries"]) >= 1
+
+
+# ── Delete-After-Read Upgrade ───────────────────────────────────────────────────
+
+
+class TestDeleteAfterReadUpgrade:
+    """AC-3: delete tools upgrade a cached read-only handle to a write-capable handle."""
+
+    def test_delete_after_read_upgrade(
+        self, monkeypatch, config, palace_path, seeded_collection, kg
+    ):
+        """Calling tool_delete_drawer after tool_status (read-only) must succeed.
+
+        tool_status opens the store read-only; tool_delete_drawer must detect the
+        cached read-only handle, discard it, and open a write-capable handle.
+        """
+        from mempalace_code.mcp import runtime
+
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        monkeypatch.setattr(runtime, "_store_read_only", False)
+
+        from mempalace_code.mcp_server import tool_delete_drawer, tool_status
+
+        status = tool_status()
+        assert status["total_drawers"] == 4
+        assert runtime._store_read_only is True
+
+        result = tool_delete_drawer("drawer_proj_backend_aaa")
+        assert result["success"] is True
+
+        status2 = tool_status()
+        assert status2["total_drawers"] == 3

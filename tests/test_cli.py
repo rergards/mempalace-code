@@ -2178,3 +2178,152 @@ class TestExportStdoutClean:
         captured = capsys.readouterr()
         assert "Exporting from" in captured.err
         assert "Exported" in captured.err
+
+
+# ─── No-embedder regression: read-only non-search CLI paths ──────────────────
+
+
+class TestReadOnlyNonSearchNoEmbedder:
+    """AC-1/AC-2: read-only non-search CLI commands avoid embedder startup."""
+
+    def _seed(self, palace_path):
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["nse_seed_1"],
+            documents=["read only non search test content for no embedder check"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+        return store
+
+    def _embedder_raises(self, *args, **kwargs):
+        raise RuntimeError("embedder must not be initialized in this read-only path")
+
+    def test_health_readonly_non_search_no_embedder(self, tmp_path, monkeypatch, capsys):
+        """AC-1: health does not initialize embedder on a populated palace."""
+        from mempalace_code.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        self._seed(palace)
+        monkeypatch.setattr(LanceStore, "_get_embedder", self._embedder_raises)
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "health"]):
+            main()  # must not raise
+
+        captured = capsys.readouterr()
+        assert "ok" in captured.out.lower()
+
+    def test_read_readonly_non_search_no_embedder(self, tmp_path, monkeypatch, capsys):
+        """AC-1: read does not initialize embedder on a populated palace."""
+        from mempalace_code.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["rd_no_emb_chunk0"],
+            documents=["def authenticate(user): validate credentials and authorize access"],
+            metadatas=[{
+                "wing": "proj", "room": "backend",
+                "source_file": "/project/auth.py",
+                "chunk_index": 0, "added_by": "miner",
+                "filed_at": "2026-01-01T00:00:00",
+                "line_start": 1, "line_end": 2,
+            }],
+        )
+        monkeypatch.setattr(LanceStore, "_get_embedder", self._embedder_raises)
+
+        with patch.object(sys, "argv", [
+            "mempalace", "--palace", palace, "read",
+            "/project/auth.py", "--start", "1", "--end", "2",
+        ]):
+            main()
+
+        captured = capsys.readouterr()
+        assert "authenticate" in captured.out
+
+    def test_compress_dry_run_readonly_non_search_no_embedder(self, tmp_path, monkeypatch, capsys):
+        """AC-1: compress --dry-run does not initialize embedder."""
+        from mempalace_code.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        self._seed(palace)
+        monkeypatch.setattr(LanceStore, "_get_embedder", self._embedder_raises)
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "compress", "--dry-run"]):
+            main()
+
+        captured = capsys.readouterr()
+        assert "dry run" in captured.out.lower() or "nothing stored" in captured.out.lower()
+
+    def test_repair_rollback_dry_run_readonly_non_search_no_embedder(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """AC-1: repair --rollback --dry-run does not initialize embedder."""
+        from mempalace_code.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        self._seed(palace)
+        monkeypatch.setattr(LanceStore, "_get_embedder", self._embedder_raises)
+
+        with patch.object(sys, "argv", [
+            "mempalace", "--palace", palace, "repair", "--rollback", "--dry-run",
+        ]):
+            main()  # must not raise
+
+        captured = capsys.readouterr()
+        assert captured.out.strip() != ""  # some version/candidate output expected
+
+    def test_read_missing_palace_no_create_readonly_non_search_no_embedder(
+        self, tmp_path, capsys
+    ):
+        """AC-2: read on a missing palace does not create the palace directory."""
+        palace = str(tmp_path / "nonexistent_palace")
+
+        with patch.object(sys, "argv", [
+            "mempalace", "--palace", palace, "read",
+            "/some/file.py", "--start", "1", "--end", "5",
+        ]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code != 0
+        assert not os.path.isdir(palace)
+
+    def test_compress_dry_run_missing_palace_no_create_readonly_non_search_no_embedder(
+        self, tmp_path, capsys
+    ):
+        """AC-2: compress --dry-run on a missing palace does not create the palace directory."""
+        palace = str(tmp_path / "nonexistent_palace")
+
+        with patch.object(sys, "argv", [
+            "mempalace", "--palace", palace, "compress", "--dry-run",
+        ]):
+            main()  # exits cleanly with "No drawers found." message
+
+        captured = capsys.readouterr()
+        assert "no drawers" in captured.out.lower() or "no palace" in captured.out.lower()
+        assert not os.path.isdir(palace)
+
+
+class TestCompressLiveRemainsWritable:
+    """AC-3: live compress (without --dry-run) uses a write-capable store handle."""
+
+    def test_compress_live_remains_writable(self, tmp_path, capsys):
+        """AC-3: compress without --dry-run upserts compressed drawers through write handle."""
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["comp_live_1"],
+            documents=[
+                "def authenticate(user): validate user credentials with JWT tokens for access control"
+            ],
+            metadatas=[{"wing": "w", "room": "r", "source_file": "auth.py"}],
+        )
+        count_before = store.count()
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "compress"]):
+            main()  # must not raise
+
+        store2 = open_store(palace, create=False)
+        assert store2.count() >= count_before
+
+        captured = capsys.readouterr()
+        assert "Stored" in captured.out or "compressed" in captured.out.lower()

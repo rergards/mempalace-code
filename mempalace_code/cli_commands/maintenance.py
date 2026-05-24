@@ -20,7 +20,7 @@ def cmd_health(args):
         sys.exit(1)
 
     try:
-        store = open_store(palace_path, create=False)
+        store = open_store(palace_path, create=False, read_only=True)
     except Exception as e:
         print(f"  Cannot open palace at {palace_path}: {e}", file=sys.stderr)
         sys.exit(1)
@@ -150,7 +150,7 @@ def cmd_repair(args):
             print(f"  No palace found at {palace_path}", file=sys.stderr)
             sys.exit(1)
         try:
-            store = open_store(palace_path, create=False)
+            store = open_store(palace_path, create=False, read_only=dry_run)
         except Exception as e:
             print(f"  Cannot open palace at {palace_path}: {e}", file=sys.stderr)
             sys.exit(1)

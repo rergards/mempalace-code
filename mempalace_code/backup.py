@@ -198,7 +198,7 @@ def create_backup(
 
     # Gather metadata — open store read-only; tolerate missing palace.
     try:
-        store = open_store(palace_path, create=False)
+        store = open_store(palace_path, create=False, read_only=True)
         drawer_count = store.count()
         wings = sorted(store.count_by("wing").keys())
     except Exception:
