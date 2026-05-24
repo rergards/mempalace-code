@@ -115,3 +115,29 @@ items:
       - `mempalace_delete_wing` has the same behavior for an existing wing.
       - Delete paths do not emit HF/sentence-transformers model-loading output.
       - Write operations that actually add/upsert documents still initialize embeddings as needed.
+  - key: MINE-TINY-FILES-ZERO-DRAWERS
+    summary: "Handle tiny source files that mine as zero drawers with misleading skipped count"
+    type: bug
+    status: open
+    priority: low
+    size: S
+    section_id: coding_first
+    labels: [mine, chunking, real-usage]
+    description: |
+      ## Symptom
+      A real CLI smoke with three tiny Python files (`src/auth.py`, `web/auth.py`, `src/login.py`) ran `mempalace-code mine --full`, exited 0, and reported `Files skipped (already filed): 3` plus `Drawers filed: 0`; `status` then showed 0 drawers and `search`/`read` had nothing to use. Larger files mine correctly.
+
+      ## Steps to reproduce
+      Create a temp project with very small Python files containing simple functions/classes, run `mempalace-code init <dir> --skip-model-download`, then `mempalace-code --palace <temp-palace> mine <dir> --wing tiny --full`.
+
+      ## Expected vs actual
+      Expected: either small code files produce at least one drawer, or mine reports a clear `no chunks produced`/too-small reason separate from `already filed`.
+      Actual: no drawers are stored and the summary increments the skipped/already-filed counter.
+
+      ## Root cause hypothesis
+      `_collect_specs_for_file` can return no chunks for tiny files; the mine loop treats `not specs` as a generic skip and the final summary labels all skips as already filed.
+
+      ## Acceptance criteria
+      - Tiny but non-empty source files are either filed as small chunks or reported as skipped with an explicit reason.
+      - The `Files skipped (already filed)` summary only counts actual unchanged-file skips.
+      - Add a regression smoke for tiny Python files.
