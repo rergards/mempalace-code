@@ -921,3 +921,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=be4d110, 17 files changed, 1636 insertions(+))'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=be4d110, 17 files changed, 1636 insertions(+))
+    - key: CLI-MODULE-RUNPY-WARNING
+      summary: Remove runpy warning from python -m mempalace_code.cli
+      resolution: '2026-05-24: completed in pipeline run (commit=b4d31bb, 9 files changed, 136 insertions(+), 1 deletion(-))'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=b4d31bb, 9 files changed, 136 insertions(+), 1 deletion(-))
