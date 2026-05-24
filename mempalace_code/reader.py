@@ -50,7 +50,7 @@ def _macos_var_aliases(path_str: str) -> set[str]:
     if path_str.startswith("/var/"):
         aliases.add("/private" + path_str)
     elif path_str.startswith("/private/var/"):
-        aliases.add(path_str[len("/private"):])
+        aliases.add(path_str[len("/private") :])
     return aliases
 
 

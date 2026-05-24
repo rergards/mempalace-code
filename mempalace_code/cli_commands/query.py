@@ -173,7 +173,9 @@ def cmd_read(args):
 
     error = result.get("error")
     if error == "not_found":
-        print(f"\n  Not found: no palace chunks for '{result.get('source_file', args.source_file)}'")
+        print(
+            f"\n  Not found: no palace chunks for '{result.get('source_file', args.source_file)}'"
+        )
         sys.exit(1)
     if error == "stale_pointer":
         print(f"\n  Stale pointer: {result.get('detail', '')}")

@@ -292,6 +292,7 @@ class TestWriteOpenNoEmbedder:
         monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_blocked)
 
         store2 = open_store(palace_path, create=True)
+        assert isinstance(store2, LanceStore)
         assert store2._embedder is None, "Embedder must not be initialized during write-open"
 
         # add() must fail because it needs to embed the document.

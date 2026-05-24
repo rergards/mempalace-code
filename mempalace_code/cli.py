@@ -246,7 +246,9 @@ def main():
             "macOS /var and /private/var spellings are treated as equivalent."
         ),
     )
-    p_read.add_argument("--start", type=int, required=True, help="First line to include (1-indexed)")
+    p_read.add_argument(
+        "--start", type=int, required=True, help="First line to include (1-indexed)"
+    )
     p_read.add_argument("--end", type=int, required=True, help="Last line to include (1-indexed)")
     p_read.add_argument("--wing", default=None, help="Filter to a specific wing (optional)")
 

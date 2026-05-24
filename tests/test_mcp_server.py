@@ -7,6 +7,7 @@ via monkeypatch to avoid touching real data.
 """
 
 import json
+from typing import Any, cast
 
 import pytest
 
@@ -3097,7 +3098,8 @@ class TestFileContextLineRange:
 
         result = tool_file_context("/project/src/auth.py")
         assert result["total"] == 2
-        for chunk in result["chunks"]:
+        chunks = cast("list[dict[str, Any]]", result["chunks"])
+        for chunk in chunks:
             assert "chunk_index" in chunk
             assert "content" in chunk
             assert "line_range" in chunk
@@ -3111,8 +3113,9 @@ class TestFileContextLineRange:
         from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context("/project/src/auth.py")
-        chunk0 = next(c for c in result["chunks"] if c["chunk_index"] == 0)
-        chunk1 = next(c for c in result["chunks"] if c["chunk_index"] == 1)
+        chunks = cast("list[dict[str, Any]]", result["chunks"])
+        chunk0 = next(c for c in chunks if c["chunk_index"] == 0)
+        chunk1 = next(c for c in chunks if c["chunk_index"] == 1)
         assert chunk0["line_range"] == {"start": 1, "end": 5}
         assert chunk1["line_range"] == {"start": 6, "end": 10}
 
@@ -3139,7 +3142,8 @@ class TestFileContextLineRange:
         from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context("/project/src/legacy.py")
-        assert result["chunks"][0]["line_range"] is None
+        chunks = cast("list[dict[str, Any]]", result["chunks"])
+        assert chunks[0]["line_range"] is None
 
     def test_file_context_chunks_ordered_by_chunk_index(self, monkeypatch, config, palace_path, kg):
         """file_context_line_range: chunks are sorted by chunk_index regardless of storage order."""
@@ -3148,7 +3152,8 @@ class TestFileContextLineRange:
         from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context("/project/src/auth.py")
-        indices = [c["chunk_index"] for c in result["chunks"]]
+        chunks = cast("list[dict[str, Any]]", result["chunks"])
+        indices = [c["chunk_index"] for c in chunks]
         assert indices == sorted(indices)
 
     def test_code_search_basic(self, monkeypatch, config, palace_path, kg):
@@ -3211,11 +3216,12 @@ class TestMCPReadSlice:
         assert "error" not in result, f"Unexpected error: {result}"
         assert result["start"] == 2
         assert result["end"] == 4
-        line_nos = [entry["line"] for entry in result["lines"]]
+        lines = cast("list[dict[str, Any]]", result["lines"])
+        line_nos = [entry["line"] for entry in lines]
         assert line_nos == [2, 3, 4]
-        assert result["lines"][0]["text"] == "line B"
-        assert result["lines"][1]["text"] == "line C"
-        assert result["lines"][2]["text"] == "line D"
+        assert lines[0]["text"] == "line B"
+        assert lines[1]["text"] == "line C"
+        assert lines[2]["text"] == "line D"
 
     def test_read_slice_spanning_two_chunks(self, monkeypatch, config, palace_path, kg):
         """read_slice: returns lines from two chunks when range spans the boundary (AC-3)."""
@@ -3225,7 +3231,8 @@ class TestMCPReadSlice:
 
         result = tool_read("/project/src/sliceable.py", start_line=4, end_line=7)
         assert "error" not in result
-        line_nos = [entry["line"] for entry in result["lines"]]
+        lines = cast("list[dict[str, Any]]", result["lines"])
+        line_nos = [entry["line"] for entry in lines]
         assert 4 in line_nos
         assert 5 in line_nos
         assert 6 in line_nos
@@ -3264,7 +3271,10 @@ class TestMCPReadSlice:
         from mempalace_code.mcp_server import handle_request
 
         resp = handle_request({"method": "tools/list", "id": 300, "params": {}})
-        names = {t["name"] for t in resp["result"]["tools"]}
+        assert resp is not None
+        result = cast("dict[str, Any]", resp["result"])
+        tools = cast("list[dict[str, Any]]", result["tools"])
+        names = {t["name"] for t in tools}
         assert "mempalace_read" in names
 
 
@@ -3405,8 +3415,8 @@ class TestMCPReadOnlyNonSearchNoEmbedder:
         result = tool_file_context("auth.py")
 
         assert "error" not in result
-        assert result["total"] >= 1
-        assert result["chunks"]
+        assert cast("int", result["total"]) >= 1
+        assert cast("list[dict[str, Any]]", result["chunks"])
 
     def test_read_readonly_non_search_no_embedder(self, monkeypatch, config, palace_path, kg):
         """tool_read returns sliced lines without touching the embedder."""
@@ -3435,7 +3445,7 @@ class TestMCPReadOnlyNonSearchNoEmbedder:
 
         assert result.get("error") != "not_found", f"Unexpected not_found: {result}"
         assert "lines" in result
-        assert len(result["lines"]) >= 1
+        assert len(cast("list[dict[str, Any]]", result["lines"])) >= 1
 
     def test_diary_read_readonly_non_search_no_embedder(self, monkeypatch, config, palace_path, kg):
         """tool_diary_read returns entries without touching the embedder."""

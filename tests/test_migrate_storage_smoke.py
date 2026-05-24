@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -169,8 +170,9 @@ def test_seed_chroma_source_row_contains_marker(tmp_path):
 
     client = chromadb.PersistentClient(path=src_path)
     col = client.get_collection("mempalace_drawers")
-    result = col.get(include=["documents"])
-    for doc in result["documents"]:
+    result = col.get(include=cast("Any", ["documents"]))
+    documents = cast("list[str]", result["documents"] or [])
+    for doc in documents:
         assert doc.startswith(_smoke_mod.MARKER_PREFIX), (
             f"document does not start with marker: {doc!r}"
         )

@@ -377,6 +377,13 @@ written.
    mempalace-code fetch-model
    ```
 
+   On an already-prefetched host, you can also force offline model resolution and
+   avoid Hugging Face metadata checks during the smoke:
+
+   ```bash
+   HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python scripts/migrate_storage_smoke.py --rows 3
+   ```
+
 ### Running the migrate-storage smoke
 
 **Happy-path (3 rows):**

@@ -1,24 +1,46 @@
 # Changelog
 
-## 2026-05-24 · MCP-KG-SOURCE-FILE-PROVENANCE
+## v1.10.1 — 2026-05-24
 
-`mempalace_kg_query` and `mempalace_kg_timeline` now include `source_file` in results so callers can trace KG facts back to the file that produced them.
+Patch release after the v1.10.0 publish. Focus: real CLI/MCP smoke fixes,
+read-only no-embedder paths, and release-check tooling.
 
-## 2026-05-24 · MINE-TINY-FILES-ZERO-DRAWERS
+### Added
 
-Tiny non-empty source files that produce no chunks are now reported as a distinct tiny-file outcome instead of inflating the `Files skipped (already filed)` count.
+- Disposable `scripts/migrate_storage_smoke.py` release smoke for Chroma -> Lance
+  migration. It generates a tiny legacy Chroma source, runs the real
+  `migrate-storage` CLI, verifies source/destination counts, checks searchable
+  migrated content, and exercises the non-empty destination guard.
+- `mempalace_kg_query`, `mempalace_kg_timeline`, and architecture/KG relationship
+  outputs now expose `source_file` provenance when it is present.
 
-## 2026-05-24 · CLI-READ-SOURCE-PATH-DISCOVERY
+### Fixed
 
-`search` now prints the full stored source path so it can be copied directly into `read`; `read` now resolves unique basename and path-suffix matches within the wing instead of requiring the exact stored path.
+- MCP `delete_drawer` and `delete_wing` now work after read-only MCP calls in a
+  fresh offline home without starting the embedding model or returning a false
+  "No palace found".
+- Read-only CLI/MCP paths (`status`, `health`, `read`, `export`, backup metadata,
+  graph/layer traversal, dry-run maintenance) avoid unnecessary embedder startup.
+- `python -m mempalace_code.cli ...` no longer emits the `runpy` warning caused by
+  eager package-level CLI imports; the `mempalace-code` console entrypoint remains
+  compatible.
+- `export --out -` now routes progress and summary text to stderr, keeping stdout
+  as pure JSONL so it can be piped directly into `import -`.
+- `backup --out FILE create` now writes to the requested archive path instead of
+  falling back to the default backups directory.
+- `search` now prints the full stored source path so it can be copied into `read`.
+  `read` also resolves unique basename and path-suffix matches within a wing.
+- Tiny non-empty source files that produce no chunks are reported separately from
+  already-filed skips, and unchanged tiny files are skipped on later incremental
+  mines via a small per-wing hash sidecar.
 
-## 2026-05-24 · CLI-BACKUP-PARENT-OUT-IGNORED
+### Verified
 
-`backup --out FILE create` (parent-flag form) now correctly writes the archive to FILE instead of the default backups directory.
-
-## 2026-05-24 · CLI-EXPORT-STDOUT-CLEAN
-
-`export --out -` now routes all progress and summary text to stderr, keeping stdout as pure JSONL so the output can be piped directly to `import -`.
+- Real MCP stdio smoke for delete-after-read and KG provenance.
+- Real CLI smoke for export-to-import piping, backup `--out`, source-path read
+  discovery, tiny-file mining, migrate-storage happy path/boundary/guard, and
+  `python -m mempalace_code.cli` warning removal.
+- Full release gate: 2229 tests passed, 4 deselected.
 
 ## 2026-05-23 · UPSTREAM-KG-TEMPORAL-VALIDATION
 
@@ -90,7 +112,7 @@ when those changes landed.
 - Pre-optimize backups are bounded by default to the newest 5 managed archives
   unless `backup_retain_count` is explicitly set; manual and scheduled backups
   remain keep-all by default.
-- The collected test suite is now 2025 tests.
+- The release gate collected 2025 tests.
 
 ### Fixed
 
@@ -132,7 +154,7 @@ when those changes landed.
   project mining by default, unless explicitly force-included.
 - `MEMPALACE_BACKUP_MIN_FREE_BYTES` and `backup_min_free_bytes` remain supported
   as compatibility aliases for the newer `backup_disk_min_free_bytes` floor.
-- The collected test suite is now 1769 tests.
+- The release gate collected 1769 tests.
 
 ### Fixed
 
