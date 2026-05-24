@@ -906,3 +906,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=cf32569)'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=cf32569)
+    - key: MCP-DELETE-NO-EMBEDDER-AFTER-READ
+      summary: Make MCP delete tools avoid embedder startup after read-only cache
+      resolution: '2026-05-24: completed in pipeline run (commit=cb6af7e, 14 files changed, 770 insertions(+), 22 deletions(-))'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=cb6af7e, 14 files changed, 770 insertions(+), 22 deletions(-))
