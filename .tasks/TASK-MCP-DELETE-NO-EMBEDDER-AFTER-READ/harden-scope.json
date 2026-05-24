@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/MCP-DELETE-NO-EMBEDDER-AFTER-READ-round-1.md",
+    "mempalace_code/storage.py"
+  ],
+  "before_sha": "a3499ea",
+  "timestamp": "2026-05-24T14:04:15Z"
+}

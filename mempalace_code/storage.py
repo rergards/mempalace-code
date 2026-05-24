@@ -271,22 +271,36 @@ _META_KEYS: frozenset = frozenset(name for name, _, _ in _META_FIELD_SPEC)
 _META_DEFAULTS: dict = {name: default for name, _, default in _META_FIELD_SPEC}
 
 
-def _target_drawer_schema(dim: int):
-    """Return the canonical PyArrow schema for the drawers table.
+def _meta_arrow_types() -> dict:
+    """Return the PyArrow type map for _META_FIELD_SPEC type tags.
 
-    Single source of truth — used by both the create-table and migrate-existing paths in
-    ``LanceStore._open_or_create()``.  Any new column additions must be made here only.
+    Single source of truth for the string→pa.DataType mapping used wherever
+    _META_FIELD_SPEC type tags are resolved to PyArrow types.  Kept as a
+    function so pyarrow stays a lazy import.
     """
     import pyarrow as pa
 
-    _ARROW_TYPES = {"string": pa.string(), "int32": pa.int32(), "float32": pa.float32()}
+    return {"string": pa.string(), "int32": pa.int32(), "float32": pa.float32()}
+
+
+def _target_drawer_schema(dim: int):
+    """Return the canonical PyArrow schema for a new drawers table.
+
+    Used only by the new-table creation path in ``LanceStore._open_or_create()``.
+    The migration path for existing tables uses ``_META_FIELD_SPEC`` directly so it
+    does not need embedding dimensions.  Any new column additions must be made in
+    ``_META_FIELD_SPEC`` only.
+    """
+    import pyarrow as pa
+
+    arrow_types = _meta_arrow_types()
     fields = [
         pa.field("id", pa.string()),
         pa.field("text", pa.string()),
         pa.field("vector", pa.list_(pa.float32(), dim)),
     ]
     for name, type_tag, _ in _META_FIELD_SPEC:
-        fields.append(pa.field(name, _ARROW_TYPES[type_tag]))
+        fields.append(pa.field(name, arrow_types[type_tag]))
     return pa.schema(fields)
 
 
@@ -436,11 +450,9 @@ class LanceStore(DrawerStore):
                 if name not in existing_names
             ]
             if missing_meta:
-                import pyarrow as pa
-
-                _ARROW_TYPES = {"string": pa.string(), "int32": pa.int32(), "float32": pa.float32()}
+                arrow_types = _meta_arrow_types()
                 cols_to_add = {
-                    name: _sql_default_for_arrow_type(_ARROW_TYPES[type_tag])
+                    name: _sql_default_for_arrow_type(arrow_types[type_tag])
                     for name, type_tag in missing_meta
                 }
                 logger.info("Migrating palace schema: adding columns %s", sorted(cols_to_add))
