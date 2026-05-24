@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/CLI-BACKUP-PARENT-OUT-IGNORED-round-1.md",
+    "tests/test_backup_cli.py"
+  ],
+  "before_sha": "a2f3248",
+  "timestamp": "2026-05-24T12:20:43Z"
+}

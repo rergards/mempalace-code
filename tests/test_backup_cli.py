@@ -35,7 +35,7 @@ def _archive_line(stdout: str) -> str:
 
 
 def test_backup_cli_default_out(seeded_collection, palace_path, tmp_dir, capsys):
-    """AC-1: no-verb backup creates archive under <palace_parent>/backups/ and prints Archive: line."""
+    """AC-3: no-verb backup creates archive under <palace_parent>/backups/ and prints Archive: line."""
     _run(["mempalace-code", "--palace", palace_path, "backup"])
 
     captured = capsys.readouterr()
@@ -75,6 +75,19 @@ def test_backup_parent_out_missing_dir(seeded_collection, palace_path, tmp_dir, 
     assert os.path.isfile(nested), f"Archive not created at {nested}"
     archive_path = _archive_line(captured.out)
     assert os.path.abspath(archive_path) == os.path.abspath(nested)
+
+
+def test_backup_create_default_out(seeded_collection, palace_path, tmp_dir, capsys):
+    """AC-3 (create verb): backup create with no --out writes to default backups dir."""
+    _run(["mempalace-code", "--palace", palace_path, "backup", "create"])
+
+    captured = capsys.readouterr()
+    archive_path = _archive_line(captured.out)
+    assert os.path.isfile(archive_path), f"Archive not found at {archive_path}"
+    backups_dir = os.path.join(tmp_dir, "backups")
+    assert os.path.abspath(archive_path).startswith(os.path.abspath(backups_dir)), (
+        f"Expected archive under {backups_dir}, got {archive_path}"
+    )
 
 
 def test_backup_cli_explicit_out(seeded_collection, palace_path, tmp_dir, capsys):
