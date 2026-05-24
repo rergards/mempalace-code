@@ -1,0 +1,121 @@
+{
+  "passed": true,
+  "slug": "CLI-READ-SOURCE-PATH-DISCOVERY",
+  "planned_files": [
+    "mempalace_code/cli.py",
+    "mempalace_code/cli_commands/query.py",
+    "mempalace_code/reader.py",
+    "mempalace_code/searcher.py",
+    "tests/test_cli.py",
+    "tests/test_reader.py",
+    "tests/test_searcher.py"
+  ],
+  "actual_files": [
+    "docs/audits/CLI-READ-SOURCE-PATH-DISCOVERY-polish-1.md",
+    "docs/audits/CLI-READ-SOURCE-PATH-DISCOVERY-round-1.md",
+    "mempalace_code/cli.py",
+    "mempalace_code/cli_commands/query.py",
+    "mempalace_code/reader.py",
+    "mempalace_code/searcher.py",
+    "tests/test_cli.py",
+    "tests/test_reader.py",
+    "tests/test_searcher.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_cli.py -k 'read_command_source_path_discovery' -q",
+    "python -m pytest tests/test_reader.py -k 'single_chunk_exact_range or stale_pointer_range_outside_chunks or invalid_range_start_greater_than_end or wing_filter_restricts_to_matching_wing' -q",
+    "python -m pytest tests/test_reader.py -k 'source_file_resolution' -q",
+    "python -m pytest tests/test_searcher.py -k 'search_cli_full_source_file_path' -q",
+    "python -m pytest tests/test_searcher.py -k 'search_memories_full_source_file_path or search_cli_tolerates_none_metadata_and_document' -q",
+    "ruff check mempalace_code/searcher.py mempalace_code/reader.py mempalace_code/cli_commands/query.py mempalace_code/cli.py tests/test_searcher.py tests/test_reader.py tests/test_cli.py"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_cli.py -k 'read_command_source_path_discovery' -q",
+    "python -m pytest tests/test_cli.py -q",
+    "python -m pytest tests/test_reader.py -k 'single_chunk_exact_range or stale_pointer_range_outside_chunks or invalid_range_start_greater_than_end or wing_filter_restricts_to_matching_wing' -q",
+    "python -m pytest tests/test_reader.py -k 'source_file_resolution' -q",
+    "python -m pytest tests/test_reader.py -q",
+    "python -m pytest tests/test_searcher.py -k 'search_cli_full_source_file_path' -q",
+    "python -m pytest tests/test_searcher.py -k 'search_memories_full_source_file_path or search_cli_tolerates_none_metadata_and_document' -q",
+    "python -m pytest tests/test_searcher.py -q",
+    "ruff check mempalace/ tests/",
+    "ruff check mempalace_code/searcher.py mempalace_code/reader.py mempalace_code/cli_commands/query.py mempalace_code/cli.py tests/test_searcher.py tests/test_reader.py tests/test_cli.py",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_searcher.py -k 'search_cli_full_source_file_path' -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_searcher.py -k 'search_cli_full_source_file_path' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_reader.py -k 'source_file_resolution' -q",
+      "matched": "implement-result.json#verification_evidence[1] command=python -m pytest tests/test_reader.py -k 'source_file_resolution' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_cli.py -k 'read_command_source_path_discovery' -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_cli.py -k 'read_command_source_path_discovery' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_reader.py -k 'single_chunk_exact_range or stale_pointer_range_outside_chunks or invalid_range_start_greater_than_end or wing_filter_restricts_to_matching_wing' -q",
+      "matched": "implement-result.json#verification_evidence[3] command=python -m pytest tests/test_reader.py -k 'single_chunk_exact_range or stale_pointer_range_outside_chunks or invalid_range_start_greater_than_end or wing_filter_restricts_to_matching_wing' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python -m pytest tests/test_searcher.py -k 'search_memories_full_source_file_path or search_cli_tolerates_none_metadata_and_document' -q",
+      "matched": "implement-result.json#verification_evidence[4] command=python -m pytest tests/test_searcher.py -k 'search_memories_full_source_file_path or search_cli_tolerates_none_metadata_and_document' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "ruff check mempalace_code/searcher.py mempalace_code/reader.py mempalace_code/cli_commands/query.py mempalace_code/cli.py tests/test_searcher.py tests/test_reader.py tests/test_cli.py",
+      "matched": "implement-result.json#verification_evidence[5] command=ruff check mempalace_code/searcher.py mempalace_code/reader.py mempalace_code/cli_commands/query.py mempalace_code/cli.py tests/test_searcher.py tests/test_reader.py tests/test_cli.py",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/CLI-READ-SOURCE-PATH-DISCOVERY-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening round audit document",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6"
+      ],
+      "check_ids": [
+        "VER-1",
+        "VER-2",
+        "VER-3"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/CLI-READ-SOURCE-PATH-DISCOVERY- prefix"
+    }
+  ],
+  "blocked_scope_expansions": [
+    {
+      "path": "docs/audits/CLI-READ-SOURCE-PATH-DISCOVERY-polish-1.md",
+      "phase": "polish",
+      "category": "audit_only",
+      "reason": "Polish phase audit artifact for this task.",
+      "block_reason": "no acceptance_id or check_id links to a known plan contract ID"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}
