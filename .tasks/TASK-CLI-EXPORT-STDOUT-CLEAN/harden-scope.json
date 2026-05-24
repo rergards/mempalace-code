@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/CLI-EXPORT-STDOUT-CLEAN-round-1.md",
+    "tests/test_cli.py"
+  ],
+  "before_sha": "eecf390",
+  "timestamp": "2026-05-24T09:55:25Z"
+}

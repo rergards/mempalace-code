@@ -2151,6 +2151,11 @@ class TestExportStdoutClean:
         ):
             main()  # must not raise; import reads JSONL cleanly
 
+        import_captured = capsys.readouterr()
+        assert "Imported drawers:   1" in import_captured.out, (
+            f"import must report 1 drawer from the export stream; got: {import_captured.out!r}"
+        )
+
     def test_export_file_writes_valid_jsonl(self, tmp_path, capsys):
         """AC-4: file-backed export writes valid JSONL; progress is on stderr."""
         palace = str(tmp_path / "palace")
