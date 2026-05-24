@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-24 · CLI-BACKUP-PARENT-OUT-IGNORED
+
+`backup --out FILE create` (parent-flag form) now correctly writes the archive to FILE instead of the default backups directory.
+
 ## 2026-05-24 · CLI-EXPORT-STDOUT-CLEAN
 
 `export --out -` now routes all progress and summary text to stderr, keeping stdout as pure JSONL so the output can be piped directly to `import -`.
