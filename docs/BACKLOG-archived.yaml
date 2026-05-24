@@ -866,3 +866,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=c96b34ad)'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=c96b34ad)
+    - key: CLI-STATUS-READONLY-NO-EMBEDDER
+      summary: Make read-only status avoid embedding model startup
+      resolution: '2026-05-24: completed in pipeline run (commit=2ec806c, 12 files changed, 425 insertions(+), 3 deletions(-))'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=2ec806c, 12 files changed, 425 insertions(+), 3 deletions(-))
