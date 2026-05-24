@@ -871,3 +871,8 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=2ec806c, 12 files changed, 425 insertions(+), 3 deletions(-))'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=2ec806c, 12 files changed, 425 insertions(+), 3 deletions(-))
+    - key: CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER
+      summary: Make wake-up/layers and graph read-only callers avoid embedder startup
+      resolution: '2026-05-24: completed in pipeline run (commit=3c86c5f, 16 files changed, 1026 insertions(+), 4 deletions(-))'
+      archived_date: "2026-05-24"
+      done_summary: completed in pipeline run (commit=3c86c5f, 16 files changed, 1026 insertions(+), 4 deletions(-))
