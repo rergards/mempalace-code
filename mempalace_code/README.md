@@ -23,7 +23,7 @@ The Python package that powers mempalace-code. All modules, all logic.
 | `knowledge_graph.py` | Temporal entity-relationship graph — SQLite, time-filtered queries, fact invalidation |
 | `palace_graph.py` | Room-based navigation graph — BFS traversal, tunnel detection across wings |
 | `mcp_server.py` | MCP server public entrypoint shim — re-exports `TOOLS`, `handle_request`, `main`, and all `tool_*` handlers; implementation lives under `mcp/` |
-| `mcp/` | MCP implementation package: `runtime.py` (shared state), `registry.py` (28-tool TOOLS dict), `dispatch.py` (handle_request/main), `protocol_text.py` (AAAK/protocol strings), `tools/` (one module per tool family) |
+| `mcp/` | MCP implementation package: `runtime.py` (shared state), `registry.py` (29-tool TOOLS dict), `dispatch.py` (handle_request/main), `protocol_text.py` (AAAK/protocol strings), `tools/` (one module per tool family) |
 | `mcp_tool_profiles.py` | Static MCP tool profiles and selector resolution (`--profile`, `--tools`, `--include`, `--exclude`) |
 | `version_check.py` | Strictly opt-in PyPI version checks, first-run prompt state, throttling, and env/config overrides |
 | `onboarding.py` | Guided first-run setup — asks about people/projects, generates AAAK bootstrap + wing config |
@@ -46,4 +46,4 @@ User → MCP Server → searcher → results
                   → diary    → agent journal
 ```
 
-The palace (LanceDB) stores verbatim drawer content and vector metadata. The knowledge graph (SQLite) stores structured relationships. The MCP server exposes both to any AI tool with 28 tools by default; startup profiles reduce the surface. ChromaDB is a deprecated optional legacy backend only.
+The palace (LanceDB) stores verbatim drawer content and vector metadata. The knowledge graph (SQLite) stores structured relationships. The MCP server exposes both to any AI tool with 29 tools by default; startup profiles reduce the surface. ChromaDB is a deprecated optional legacy backend only.

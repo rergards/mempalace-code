@@ -2750,7 +2750,7 @@ class TestMCPToolProfiles:
         )
         return {k: v for k, v in TOOLS.items() if k in active}
 
-    # AC-1: default (no flags) exposes all 28 tools via handle_request with no registry override.
+    # AC-1: default (no flags) exposes all 29 tools via handle_request with no registry override.
     def test_ac1_default_full_toolset(self):
         from mempalace_code.mcp_server import TOOLS, handle_request
 

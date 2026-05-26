@@ -13,12 +13,14 @@ pip install -e ".[dev]"    # pytest, pyright, ruff, watchfiles
 ## Running Tests
 
 ```bash
-pytest tests/ -v
+python -m pytest tests/ -v
+python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
+ruff check mempalace_code/ tests/ scripts/
+ruff format --check mempalace_code/ tests/ scripts/
 ```
 
-All tests must pass before submitting a PR. Tests should run without API keys or network
-access. `pyright` is installed with the dev extra for advisory type-checking; the current
-zero-error target is tracked in the backlog.
+All tests and checks must pass before submitting a PR. Tests should run without
+API keys or network access unless they are explicitly marked `needs_network`.
 
 ## Running Benchmarks
 

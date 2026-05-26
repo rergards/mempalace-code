@@ -31,7 +31,7 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 | Incremental rebuild | **SHA256 file-level cache** | content-hash incremental mining; only changed files are re-chunked |
 | Privacy on ingest | code stays local; **docs/PDFs/images sent to host LLM API** | no content leaves the host; one-time embedding model download during setup |
 | Embedding dependency | none | 80 MB `all-MiniLM-L6-v2` model downloaded once |
-| MCP surface | `/graphify query`, `/graphify path`, `/graphify explain` | 28 MCP tools (search, traverse, diary, KG, arch-retrieval, stats, …) |
+| MCP surface | `/graphify query`, `/graphify path`, `/graphify explain` | 29 MCP tools (search, traverse, diary, KG, arch-retrieval, stats, …) |
 | Always-on integration | **PreToolUse hook** fires before every Glob/Grep/Bash | none — agent calls tools explicitly |
 | Supported agents | Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Aider, OpenClaw, Factory Droid, Trae | Claude Code, Codex, any MCP client; hooks not shipped |
 | Installation | `pip install graphifyy` + `graphify install --platform <x>` | `uv tool install mempalace-code` + MCP registration as `mempalace-code` |

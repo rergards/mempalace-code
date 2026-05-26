@@ -4,7 +4,7 @@ MCP tool profile definitions and startup-time selector resolution.
 Profiles are static, declarative subsets of the full TOOLS registry.
 They are resolved once at server startup; no runtime tool negotiation.
 
-Design rationale (GitHub issue #6): exposing all 28 tools to every connected
+Design rationale (GitHub issue #6): exposing all 29 tools to every connected
 client adds a persistent prompt/tool-surface cost per session. Static profiles
 let users reduce that surface while preserving stable named-tool trigger patterns
 in their usage rules.

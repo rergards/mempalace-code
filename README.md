@@ -23,7 +23,7 @@ No cloud service, no API keys, no subscription. After the one-time embedding mod
 <table>
 <tr>
 <td align="center"><strong>Language-Aware Mining</strong><br><sub>AST, regex, and adaptive chunking<br>matched to each file type</sub></td>
-<td align="center"><strong>28 MCP Tools</strong><br><sub>Any MCP-capable agent<br>search, store, traverse · static profiles</sub></td>
+<td align="center"><strong>29 MCP Tools</strong><br><sub>Any MCP-capable agent<br>search, store, traverse · static profiles</sub></td>
 <td align="center"><strong>Temporal Knowledge Graph</strong><br><sub>Facts that change over time<br>with validity windows</sub></td>
 </tr>
 <tr>
@@ -75,7 +75,7 @@ codex mcp add mempalace-code -- python -m mempalace_code.mcp_server   # connect 
 mempalace-code watch ~/projects/           # re-mines on every commit, zero noise
 ```
 
-This makes all 28 tools available to your AI. To expose a reduced subset, add a `--profile` flag (e.g. `-- python -m mempalace_code.mcp_server --profile=minimal`). For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` (or equivalent agent-instruction file) — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or let [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7 inject them for you.
+This makes all 29 tools available to your AI. To expose a reduced subset, add a `--profile` flag (e.g. `-- python -m mempalace_code.mcp_server --profile=minimal`). For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` (or equivalent agent-instruction file) — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or let [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7 inject them for you.
 
 </details>
 
@@ -93,7 +93,7 @@ Evaluate mempalace-code for this repo specifically, not generic memory tooling.
 2. Highest-ROI surfaces: rank code, docs/prose, design notes, conversation/log exports, manual decisions, KG facts, architecture relationships.
 3. Stack support: list supported languages/file types actually indexed; name unsupported extensions that are skipped by default. Distinguish tree-sitter AST, regex structural, Markdown/prose, Kubernetes YAML, and adaptive chunking.
 4. Agent workflow fit: which MCP tools should you use proactively (`mempalace_search`, `mempalace_code_search`, `mempalace_file_context`, KG, tunnels, diary, manual drawers)?
-5. Ops fit: recommend global MCP, project-scoped MCP, or no MCP; cover 28-tool prompt surface and profile subsetting options (`--profile`, `--tools`, `--exclude`), `mine` vs `mine-all`, `watch` cadence, backup/repair, and offline/model constraints.
+5. Ops fit: recommend global MCP, project-scoped MCP, or no MCP; cover 29-tool prompt surface and profile subsetting options (`--profile`, `--tools`, `--exclude`), `mine` vs `mine-all`, `watch` cadence, backup/repair, and offline/model constraints.
 6. Decision: install now, try scoped for a week, wait for a named feature, or skip. Give the first 3 commands you would run.
 7. If waiting: ask me whether to draft a GitHub feature request.
 ```
@@ -107,7 +107,7 @@ as a complement, not a replacement. A good trial order is:
 3. **Code mining last** — start with one high-value subproject, then expand if
    agents actually use the results.
 
-Cost caveat: the MCP server defaults to all 28 tools. Use `--profile=minimal` or
+Cost caveat: the MCP server defaults to all 29 tools. Use `--profile=minimal` or
 `--tools=search,add_drawer` at startup to reduce the prompt/tool-surface cost.
 Proactive use also depends on adding the usage-rules block to agent instructions.
 Prefer project-scoped MCP for trials, and keep it only if searches, KG lookups,
@@ -336,7 +336,7 @@ mempalace-code organizes memories into a navigable structure — the same mental
 
 ---
 
-### MCP Server — 28 Tools {#mcp-tool-profiles}
+### MCP Server — 29 Tools {#mcp-tool-profiles}
 
 ```bash
 claude mcp add mempalace-code -- python -m mempalace_code.mcp_server
@@ -346,7 +346,7 @@ The MCP server registration name defaults to `mempalace-code`. The MCP tool
 identifiers remain `mempalace_*` for compatibility with existing agents and
 usage rules.
 
-By default all 28 tools are exposed. Use startup flags to reduce the tool surface
+By default all 29 tools are exposed. Use startup flags to reduce the tool surface
 (GitHub issue #6 — static profiles lower prompt cost while preserving stable
 named-tool trigger patterns in usage rules):
 
@@ -367,7 +367,7 @@ claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=f
 
 | Profile | Tools | Best for |
 |---------|-------|----------|
-| `full` _(default)_ | all 28 | Full capability; no surface reduction |
+| `full` _(default)_ | all 29 | Full capability; no surface reduction |
 | `minimal` | 4 | Search + store only |
 | `kg` | 8 | Minimal + temporal knowledge graph |
 | `code` | 10 | Code archaeology; no drawer-write/diary tools (`mine` included) |
@@ -884,7 +884,7 @@ Code mining is automatic via `mempalace-code watch`. For conversation context (d
 mempalace/
 ├── mempalace_code/
 │   ├── cli.py              ← CLI entry point
-│   ├── mcp_server.py       ← MCP server (28 tools, profiled at startup)
+│   ├── mcp_server.py       ← MCP server (29 tools, profiled at startup)
 │   ├── storage.py          ← LanceDB vector storage
 │   ├── miner.py            ← language-aware code chunking
 │   ├── convo_miner.py      ← conversation ingest

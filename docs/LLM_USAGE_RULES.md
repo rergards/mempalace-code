@@ -161,7 +161,7 @@ Diary ≠ drawer. Diary is for the same agent's next run; drawer is for the team
 
 The MCP server can be started with a named tool profile to reduce prompt/tool-surface cost
 (see [README — MCP tool profiles](../README.md#mcp-tool-profiles) and GitHub issue #6).
-Each profile exposes a subset of the 28 tools. Use only the tools listed in the active profile;
+Each profile exposes a subset of the 29 tools. Use only the tools listed in the active profile;
 all others will return a "not enabled" error if called.
 
 <!-- mcp-profile:minimal start -->
