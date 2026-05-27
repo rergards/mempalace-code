@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- LanceDB optimize and cleanup now re-open the table and verify a fresh handle
+  after maintenance. This catches missing-fragment failures that only appear for
+  the next process instead of trusting a stale in-memory table handle.
+- LanceDB upserts now retry once with a freshly opened table when Lance reports
+  a missing fragment from a stale handle during merge-insert.
+
 ## v1.10.1 — 2026-05-24
 
 Patch release after the v1.10.0 publish. Focus: real CLI/MCP smoke fixes,

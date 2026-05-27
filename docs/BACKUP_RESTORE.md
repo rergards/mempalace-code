@@ -216,7 +216,9 @@ Archives written with explicit `--out` paths are never pruned.
 
 After a successful optimize and readability check, MemPalace also runs
 best-effort verified Lance cleanup so future backups do not keep archiving stale
-table versions. Manual `cleanup` remains the recovery tool for older
+table versions. Optimize and cleanup verification re-opens the Lance table, so
+it checks the same fresh-handle path the next CLI, MCP server, or watcher
+process will use. Manual `cleanup` remains the recovery tool for older
 installations that already accumulated stale versions or for emergency disk
 recovery.
 
@@ -248,11 +250,12 @@ and managed `scheduled` backups keep the newest 14; `manual` backups stay
 unbounded unless you set an explicit retain count.
 
 If LanceDB stale versions/fragments are the problem rather than backup archives,
-run storage cleanup after confirming no writer process is active:
+run storage cleanup only after stopping MemPalace watchers, miners, maintenance
+commands, and MCP servers:
 
 ```bash
 mempalace-code cleanup --older-than-days 7
-mempalace-code cleanup --unsafe-now  # emergency only; no watcher/miner may be running
+mempalace-code cleanup --unsafe-now  # emergency only; no MemPalace process may be running
 ```
 
 ---

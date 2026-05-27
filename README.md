@@ -583,6 +583,8 @@ Or in `~/.mempalace/config.json`: `{"backup_retain_count": 5}`. Retention only a
 After a successful optimize and readability check, MemPalace also runs
 best-effort verified Lance cleanup (`cleanup_stale_fragments` with
 `unsafe_now=false`) so future backups do not keep archiving stale table versions.
+Optimize and cleanup verification re-opens the Lance table, so it checks the
+same fresh-handle path the next CLI, MCP server, or watcher process will use.
 Use the manual `cleanup` command for older installations that already
 accumulated stale versions or for emergency recovery.
 
@@ -681,7 +683,7 @@ exclusion rule.
 mempalace-code health              # probe palace for fragment corruption
 mempalace-code health --json       # machine-readable report
 mempalace-code cleanup --older-than-days 7  # reclaim stale Lance versions
-mempalace-code cleanup --unsafe-now         # emergency cleanup; only with no writers active
+mempalace-code cleanup --unsafe-now         # emergency only; stop MemPalace processes first
 
 mempalace-code repair --dry-run    # show what would be recovered
 mempalace-code repair --rollback   # roll back to last working version
@@ -700,9 +702,9 @@ mempalace-code repair --rollback   # roll back to last working version
 Use `--dry-run` first to see how many rows would be lost.
 
 Normal optimize runs already prune verified stale Lance versions after a
-successful compaction. Manual `cleanup` is still useful after older installs,
-large historical accumulations, or emergency disk recovery when no writer is
-active.
+successful compaction and fresh-handle verification. Manual `cleanup` is still
+useful after older installs, large historical accumulations, or emergency disk
+recovery after stopping watchers, miners, maintenance commands, and MCP servers.
 
 ---
 

@@ -328,6 +328,11 @@ def _sql_default_for_arrow_type(arrow_type) -> str:
     )
 
 
+def _is_missing_fragment_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(s in msg for s in ("no such file", "object not found", "io error", "not found"))
+
+
 class LanceStore(DrawerStore):
     """
     Crash-safe drawer storage using LanceDB.
@@ -409,6 +414,12 @@ class LanceStore(DrawerStore):
         table = self._table
         if table is None:
             raise RuntimeError(message)
+        return table
+
+    def _reopen_table(self) -> _LanceTableProtocol:
+        """Re-open the Lance table and replace the cached handle."""
+        table = self._require_db().open_table(_LANCE_TABLE)
+        self._table = table
         return table
 
     def _embedder_handle(self) -> _EmbedderProtocol:
@@ -535,9 +546,18 @@ class LanceStore(DrawerStore):
             row["vector"] = vec
             rows.append(row)
 
-        table.merge_insert("id").when_matched_update_all().when_not_matched_insert_all().execute(
-            rows
-        )
+        def _execute_merge(target_table: _LanceTableProtocol) -> None:
+            target_table.merge_insert(
+                "id"
+            ).when_matched_update_all().when_not_matched_insert_all().execute(rows)
+
+        try:
+            _execute_merge(table)
+        except Exception as exc:
+            if not _is_missing_fragment_error(exc):
+                raise
+            logger.warning("Lance upsert saw a missing fragment; reopening table and retrying once")
+            _execute_merge(self._reopen_table())
 
     def get(self, ids=None, where=None, include=None, limit=10000, offset=0):
         table = self._table
@@ -881,6 +901,12 @@ class LanceStore(DrawerStore):
             logger.error("optimize() raised an exception: %s", e)
             return False
 
+        try:
+            table = self._reopen_table()
+        except Exception as e:
+            logger.error("Table could not be reopened after optimize: %s", e)
+            return False
+
         # Verify table is still readable
         try:
             table.head(1).to_pydict()
@@ -890,10 +916,19 @@ class LanceStore(DrawerStore):
             try:
                 cleanup_result = self.cleanup_stale_fragments(older_than_days=0, unsafe_now=False)
                 if not cleanup_result.get("ok"):
+                    cleanup_error = str(cleanup_result.get("error") or cleanup_result)
                     logger.warning(
                         "Post-optimize stale-version cleanup did not complete: %s",
-                        cleanup_result.get("error") or cleanup_result,
+                        cleanup_error,
                     )
+                    if cleanup_error.startswith(
+                        (
+                            "Could not reopen table after cleanup",
+                            "Table unreadable after cleanup",
+                            "Column scan failed after cleanup",
+                        )
+                    ):
+                        return False
             except Exception as cleanup_exc:
                 logger.warning("Post-optimize stale-version cleanup skipped: %s", cleanup_exc)
             return True
@@ -1064,10 +1099,23 @@ class LanceStore(DrawerStore):
         except Exception as e:
             return {**_err_base, "ok": False, "error": str(e)}
 
+        verify_table = table
+        db = getattr(self, "_db", None)
+        if db is not None:
+            try:
+                verify_table = db.open_table(_LANCE_TABLE)
+                self._table = verify_table
+            except Exception as e:
+                return {
+                    **_err_base,
+                    "ok": False,
+                    "error": f"Could not reopen table after cleanup: {e}",
+                }
+
         # Post-cleanup verification
         try:
-            rows_after = table.count_rows()
-            table.head(1).to_pydict()
+            rows_after = verify_table.count_rows()
+            verify_table.head(1).to_pydict()
         except Exception as e:
             return {
                 **_err_base,
@@ -1077,7 +1125,7 @@ class LanceStore(DrawerStore):
             }
 
         try:
-            arrow_tbl = self._scan_columns(table, ["wing", "room"])
+            arrow_tbl = self._scan_columns(verify_table, ["wing", "room"])
             arrow_tbl.group_by(["wing", "room"]).aggregate([("room", "count")])
         except Exception as e:
             return {

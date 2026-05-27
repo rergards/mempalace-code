@@ -311,6 +311,23 @@ class TestWriteOpenNoEmbedder:
                 metadatas=[{"wing": "emb_wing", "room": "general"}],
             )
 
+    def test_upsert_missing_fragment_reopens_and_retries_once(self):
+        """A stale Lance handle during upsert is retried once with a fresh table handle."""
+        stale_table = _MergeInsertTable(error=RuntimeError("Not found: data/missing.lance"))
+        fresh_table = _MergeInsertTable()
+        store = LanceStore.__new__(LanceStore)
+        store._read_only = False
+        store._table = stale_table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
+        store._db = _ReopenDB(table=fresh_table)
+        store._embed = lambda docs: [[1.0] for _ in docs]  # type: ignore[method-assign]
+
+        store.upsert(["retry1"], ["retry content"], [{"wing": "w", "room": "r"}])
+
+        assert stale_table.execute_calls == 1
+        assert fresh_table.execute_calls == 1
+        assert fresh_table.rows[0]["id"] == "retry1"
+        assert store._table is fresh_table  # type: ignore[reportAttributeAccessIssue]
+
     def test_count_by_uses_scan_projection(self):
         table = _ProjectedTable(
             [
@@ -1456,6 +1473,19 @@ class TestSafeOptimize:
 
         assert result is False
 
+    def test_reopen_failure_after_optimize_returns_false(self):
+        """safe_optimize must verify a fresh Lance handle after optimize."""
+        table = _OptimizableTable([{"wing": "w", "room": "r"}])
+        store = LanceStore.__new__(LanceStore)
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
+        store._db = _ReopenDB(error=RuntimeError("missing fragment after reopen"))
+
+        result = store.safe_optimize("/fake/palace", backup_first=False)
+
+        assert result is False
+        assert table.optimize_calls
+        assert store._db.open_calls == 1  # type: ignore[reportAttributeAccessIssue]
+
 
 class TestOptimizeStoreAdapter:
     """Adapter tests for optimize_store() — separate from direct safe_optimize() tests."""
@@ -1954,6 +1984,47 @@ class _OptimizableTable(_ProjectedTable):
         return _ProjectedSearch(self)
 
 
+class _ReopenDB:
+    def __init__(self, table=None, error=None):
+        self.table = table
+        self.error = error
+        self.open_calls = 0
+
+    def open_table(self, name):
+        self.open_calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.table
+
+
+class _MergeInsertBuilder:
+    def __init__(self, table):
+        self.table = table
+
+    def when_matched_update_all(self):
+        return self
+
+    def when_not_matched_insert_all(self):
+        return self
+
+    def execute(self, rows):
+        self.table.execute_calls += 1
+        if self.table.error is not None:
+            raise self.table.error
+        self.table.rows.extend(rows)
+
+
+class _MergeInsertTable:
+    def __init__(self, error=None):
+        self.error = error
+        self.execute_calls = 0
+        self.rows = []
+
+    def merge_insert(self, on):
+        self.on = on
+        return _MergeInsertBuilder(self)
+
+
 class TestStorageStats:
     def test_keys_present_and_non_negative(self, palace_path):
         """storage_stats() returns all expected keys with non-negative values."""
@@ -2205,6 +2276,20 @@ class TestCleanupStaleFragments:
         result = store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
         assert result["ok"] is False
         assert "disk full" in result.get("error", "")
+
+    def test_reopen_failure_after_cleanup_returns_ok_false(self):
+        """cleanup_stale_fragments verifies a fresh Lance handle after cleanup."""
+        table = _OptimizableTable([{"wing": "w", "room": "r"}])
+        store = LanceStore.__new__(LanceStore)
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
+        store._table_dir = "/nonexistent/path"
+        store._db = _ReopenDB(error=RuntimeError("missing fragment after cleanup"))
+
+        result = store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]
+
+        assert result["ok"] is False
+        assert "Could not reopen table after cleanup" in result["error"]
+        assert store._db.open_calls == 1  # type: ignore[reportAttributeAccessIssue]
 
     def test_real_store_preserves_rows_and_reduces_versions(self, palace_path):
         """AC-1: cleanup on a real store with stale versions preserves rows; freed_bytes>0 or version_count decreases."""

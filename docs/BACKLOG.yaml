@@ -42,4 +42,52 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK
+    summary: "Make watch initial mine fail closed and recover from Lance missing-fragment write errors"
+    section: storage_reliability
+    status: open
+    priority: P1
+    description: "The remote /srv/dev watcher incident showed merge_insert can fail during watch initial mine with a missing Lance fragment after prior cleanup/restore history. Watch should preserve a pre-run backup, surface a clear degraded state, and either restore automatically or leave an operator-safe recovery command."
+    acceptance:
+      - "Given watch initial mine raises a Lance missing-fragment error, the watcher exits without systemd restart loops mutating the same palace repeatedly."
+      - "The operator gets the backup path and exact restore/repair command in stderr/log output."
+      - "Regression coverage simulates the initial-mine write failure and proves the palace remains recoverable."
+  - key: RESTORE-KG-PATH-SCOPING
+    summary: "Avoid surprising global KG overwrite when restoring to an explicit palace path"
+    section: storage_reliability
+    status: open
+    priority: P2
+    description: "`mempalace-code --palace <custom> restore <archive>` restores Lance data into the custom palace but still writes the KG to the default global knowledge_graph.sqlite3 unless a lower-level kg_path is passed. Make CLI restore scoping explicit and safer."
+    acceptance:
+      - "CLI restore docs and behavior make the KG destination explicit for default and custom palace restores."
+      - "A regression test covers restoring to a custom palace without unintentionally overwriting an unrelated KG."
+  - key: WATCH-INITIALIZED-ROOT-UX
+    summary: "Clarify or support watch on a directory that is itself an initialized project"
+    section: storage_reliability
+    status: open
+    priority: P3
+    description: "Remote ops confirmed `mempalace-code watch /srv` watches initialized child `/srv/dev`, while `watch /srv/dev` finds no child projects. Either support the initialized root directly or emit a clear diagnostic with the correct command."
+    acceptance:
+      - "`mempalace-code watch <initialized-project>` either watches that project or prints an actionable message."
+      - "Tests cover both parent-directory and initialized-root watch inputs."
+  - key: WATCH-STALE-SWEEP-BULK-DELETE
+    summary: "Make watch initial stale-file sweep delete in bulk instead of one Lance version per stale file"
+    section: storage_reliability
+    status: open
+    priority: P1
+    description: "Remote /srv/dev watcher initial mine remained healthy but spent more than 20 minutes in the initial pass while row count slowly decreased and Lance versions climbed into the thousands. The likely hotspot is per-source stale deletion creating one Lance version/deletion file per stale path."
+    acceptance:
+      - "Stale-file sweep batches deletes or uses a single predicate per wing where possible."
+      - "A regression covers many stale source files and asserts version growth is bounded."
+      - "Remote-size initial watch reaches the watch loop in a predictable time budget after the fix."
+  - key: REMOTE-MIRROR-SAFE-GUARDS
+    summary: "Add safeguards and docs for remote mirror jobs that can delete live palace data"
+    section: storage_reliability
+    status: open
+    priority: P2
+    description: "The storage incident exposed a separate operator-risk class: delete-mode host mirroring can remove remote-owned palace data even when backup retention and Lance cleanup are healthy. Add explicit guidance and, where practical, a doctor/preflight warning for mirror jobs that sync whole MemPalace state across active hosts."
+    acceptance:
+      - "Backup/restore or operations docs distinguish managed backups from file mirroring, and warn that active palace/KG data should not be mirrored with delete semantics between independent hosts."
+      - "Recommended rsync examples exclude live palace directories, KG databases, configs, logs, and managed backups unless the operator is intentionally restoring from a known-good source."
+      - "A doctor/preflight path can flag common dangerous patterns such as delete-mode mirroring of a MemPalace state directory without explicit palace/KG excludes."
