@@ -174,8 +174,8 @@ task_contract:
         acceptance_ids: [AC-1, AC-2]
       - id: REG-2
         command: "python -m pytest tests/test_watcher.py::TestWatchAndMine tests/test_watcher.py::TestWatchAll -q"
-        proves: "Existing single-project and multi-project watch event behavior still works."
-        acceptance_ids: [AC-1, AC-6]
+        proves: "Existing single-project and multi-project watch event behavior still works, including the first-run/no-existing-data startup path that must skip the pre_watch backup."
+        acceptance_ids: [AC-1, AC-5, AC-6]
       - id: REG-3
         command: "python -m pytest tests/test_storage.py::TestLanceHealth tests/test_storage.py::TestWriteOpenNoEmbedder::test_upsert_missing_fragment_reopens_and_retries_once -q"
         proves: "Existing Lance health/rollback and merge_insert retry behavior remains available to watcher recovery."
@@ -196,7 +196,7 @@ task_contract:
 - Treat a pre-run backup as required only when `<palace>/lance` exists and contains data. A first-ever watch has nothing to preserve, so it should not be blocked by backup creation.
 - Create the backup with `create_backup(palace_path, kind="pre_watch")`; print the archive path before mining. If backup creation raises, print a clear fail-closed message and exit before `_quiet_mine()` or `watchfiles.watch()` runs.
 - Use the existing storage missing-fragment string family (`no such file`, `object not found`, `io error`, `not found`) to identify Lance fragment failures. Non-matching initial-mine exceptions should still stop startup and report the failure, but should not trigger rollback.
-- On a missing-fragment initial-mine failure, print `DEGRADED`, the failed project/wing when known, the pre-watch archive path, and the recovery attempt. Open the Lance store with `create=False`, call `recover_to_last_working_version(dry_run=False)`, then retry the initial mine exactly once if recovery reports `recovered: true`.
+- On a missing-fragment initial-mine failure, print `DEGRADED`, the failed project/wing when known, the pre-watch archive path, and the recovery attempt. Open the Lance store writable with `open_store(palace_path, create=False, read_only=False)` (mirroring the live path in `maintenance.py:153`, which uses `read_only=dry_run`), call `recover_to_last_working_version(dry_run=False)` — which performs `table.restore()` and reopens the table and therefore requires a non-read-only handle — then retry the initial mine exactly once if recovery reports `recovered: true`.
 - Continue into the watch loop only after the original initial mine succeeds or the single retry after successful rollback succeeds. If rollback has no candidate, rollback raises, or the retry fails, exit before watching.
 - Recovery output should include exact commands using the configured palace path:
   - `mempalace-code --palace <palace> health`
