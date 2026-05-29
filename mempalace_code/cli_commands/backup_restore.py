@@ -132,8 +132,19 @@ def cmd_restore(args):
     from ..backup import restore_backup
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+
+    # Resolve KG destination: explicit --kg-path wins; explicit --palace scopes KG
+    # to <palace>/knowledge_graph.sqlite3; no --palace preserves restore_backup() default.
+    kg_path: str | None
+    if getattr(args, "kg_path", None) is not None:
+        kg_path = os.path.expanduser(args.kg_path)
+    elif args.palace is not None:
+        kg_path = os.path.join(palace_path, "knowledge_graph.sqlite3")
+    else:
+        kg_path = None
+
     try:
-        meta = restore_backup(args.archive, palace_path, force=args.force)
+        meta = restore_backup(args.archive, palace_path, force=args.force, kg_path=kg_path)
     except FileExistsError as exc:
         print(f"  Error: {exc}", file=sys.stderr)
         sys.exit(1)

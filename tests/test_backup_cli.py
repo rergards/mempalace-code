@@ -12,7 +12,9 @@ from unittest.mock import patch
 
 import pytest
 
+from mempalace_code.backup import create_backup
 from mempalace_code.cli import main
+from mempalace_code.knowledge_graph import DEFAULT_KG_PATH, KnowledgeGraph
 from mempalace_code.storage import open_store
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -174,6 +176,133 @@ def test_restore_cli_missing_archive_exits_1(palace_path, tmp_dir, capsys):
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "Error:" in captured.err
+
+
+# ── KG path scoping regression (RESTORE-KG-PATH-SCOPING) ──────────────────────
+
+
+def _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys):
+    """Create a backup archive that includes seeded_kg and return its path."""
+    archive = os.path.join(tmp_dir, "kg_backup.tar.gz")
+    create_backup(palace_path, out_path=archive, kg_path=seeded_kg.db_path)
+    capsys.readouterr()  # discard any output
+    return archive
+
+
+def test_restore_cli_explicit_palace_scopes_kg(
+    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+):
+    """AC-1: explicit --palace restore writes archived KG to <palace>/knowledge_graph.sqlite3 and leaves DEFAULT_KG_PATH untouched."""
+    archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+    restore_target = os.path.join(tmp_dir, "restore_palace_kg_scope")
+    scoped_kg = os.path.join(restore_target, "knowledge_graph.sqlite3")
+
+    # Plant a sentinel at DEFAULT_KG_PATH; it must not be overwritten by --palace restore.
+    sentinel_content = b"AC1_DEFAULT_SENTINEL"
+    os.makedirs(os.path.dirname(os.path.abspath(DEFAULT_KG_PATH)), exist_ok=True)
+    with open(DEFAULT_KG_PATH, "wb") as f:
+        f.write(sentinel_content)
+
+    _run(["mempalace-code", "--palace", restore_target, "restore", archive])
+    capsys.readouterr()
+
+    # KG must be written to the custom palace, not to the global default
+    assert os.path.isfile(scoped_kg), f"Expected KG at {scoped_kg}"
+    with open(DEFAULT_KG_PATH, "rb") as f:
+        assert f.read() == sentinel_content, "DEFAULT_KG_PATH sentinel was overwritten by --palace restore"
+
+    # Verify the restored KG contains the expected data
+    restored_kg = KnowledgeGraph(db_path=scoped_kg)
+    triples = restored_kg.query_entity("Max")
+    subjects_predicates = {(t["subject"], t["predicate"]) for t in triples}
+    assert ("Max", "does") in subjects_predicates
+
+
+def test_restore_cli_refusal_does_not_touch_kg(
+    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+):
+    """AC-2: non-forced restore refusal exits 1 before touching scoped or default KG files."""
+    archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+    restore_target = os.path.join(tmp_dir, "restore_refusal_palace")
+
+    # First restore to populate lance/ so the second attempt is refused
+    _run(["mempalace-code", "--palace", restore_target, "restore", archive])
+    capsys.readouterr()
+
+    # Plant sentinels at both KG locations
+    scoped_kg = os.path.join(restore_target, "knowledge_graph.sqlite3")
+    sentinel_content = b"SENTINEL"
+    with open(scoped_kg, "wb") as f:
+        f.write(sentinel_content)
+
+    default_sentinel = DEFAULT_KG_PATH
+    os.makedirs(os.path.dirname(os.path.abspath(default_sentinel)), exist_ok=True)
+    with open(default_sentinel, "wb") as f:
+        f.write(sentinel_content)
+
+    # Attempt refused restore
+    with pytest.raises(SystemExit) as exc:
+        _run(["mempalace-code", "--palace", restore_target, "restore", archive])
+    assert exc.value.code == 1
+    capsys.readouterr()
+
+    # Neither sentinel should have been modified
+    with open(scoped_kg, "rb") as f:
+        assert f.read() == sentinel_content, "scoped KG sentinel was modified"
+    with open(default_sentinel, "rb") as f:
+        assert f.read() == sentinel_content, "DEFAULT_KG_PATH sentinel was modified"
+
+
+def test_restore_cli_kg_path_overrides_palace_scope(
+    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+):
+    """AC-3: --kg-path wins over palace-scoped default; scoped and global paths are untouched."""
+    archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+    restore_target = os.path.join(tmp_dir, "restore_palace_override")
+    explicit_kg = os.path.join(tmp_dir, "explicit_restore_kg.sqlite3")
+    scoped_kg = os.path.join(restore_target, "knowledge_graph.sqlite3")
+
+    _run(
+        [
+            "mempalace-code",
+            "--palace",
+            restore_target,
+            "restore",
+            archive,
+            "--kg-path",
+            explicit_kg,
+        ]
+    )
+    capsys.readouterr()
+
+    assert os.path.isfile(explicit_kg), f"KG not written to explicit --kg-path {explicit_kg}"
+    assert not os.path.exists(scoped_kg), "KG must not be written to <palace>/knowledge_graph.sqlite3 when --kg-path overrides"
+
+    restored_kg = KnowledgeGraph(db_path=explicit_kg)
+    triples = restored_kg.query_entity("Max")
+    assert len(triples) >= 2, "Expected at least 2 triples for Max in restored KG"
+
+
+def test_restore_cli_default_without_palace_keeps_default_kg(
+    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+):
+    """AC-4: restore without top-level --palace writes KG to DEFAULT_KG_PATH (backward compat)."""
+    archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+
+    # Use a fresh empty dir as the default palace so the restore is not refused.
+    default_restore_target = os.path.join(tmp_dir, "default_palace_ac4")
+
+    with patch("mempalace_code.cli_commands.backup_restore.MempalaceConfig") as mock_cfg:
+        mock_cfg.return_value.palace_path = default_restore_target
+        _run(["mempalace-code", "restore", archive])
+    capsys.readouterr()
+
+    # DEFAULT_KG_PATH is isolated by conftest HOME redirect; the KG must land there.
+    assert os.path.isfile(DEFAULT_KG_PATH), f"KG should be written to DEFAULT_KG_PATH {DEFAULT_KG_PATH}"
+    restored_kg = KnowledgeGraph(db_path=DEFAULT_KG_PATH)
+    triples = restored_kg.query_entity("Max")
+    subjects_predicates = {(t["subject"], t["predicate"]) for t in triples}
+    assert ("Max", "does") in subjects_predicates
 
 
 # ── Disk-budget CLI guard ──────────────────────────────────────────────────────

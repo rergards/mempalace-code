@@ -24,7 +24,7 @@ Commands:
     mempalace-code cleanup [--older-than-days N] [--unsafe-now] [--json]  Reclaim stale Lance versions
     mempalace-code repair [--rollback] [--dry-run]  Repair palace (rollback or full rebuild)
     mempalace-code backup [--out FILE]         Snapshot palace to a .tar.gz archive
-    mempalace-code restore FILE [--force]      Restore palace from a .tar.gz archive
+    mempalace-code restore FILE [--force] [--kg-path PATH]  Restore palace from a .tar.gz archive
     mempalace-code diary write --agent <name> --entry "<text>"  Write a diary entry
 
 Examples:
@@ -530,6 +530,17 @@ def main():
         "--force",
         action="store_true",
         help="Overwrite an existing non-empty palace",
+    )
+    p_restore.add_argument(
+        "--kg-path",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Destination for the restored knowledge-graph SQLite file. "
+            "When --palace is given, defaults to <palace>/knowledge_graph.sqlite3. "
+            "Without --palace, defaults to the global ~/.mempalace/knowledge_graph.sqlite3. "
+            "Use this flag to override either default."
+        ),
     )
 
     # export

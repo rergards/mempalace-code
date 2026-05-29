@@ -157,6 +157,40 @@ mempalace-code restore ~/safe.tar.gz            # restore (prompts before overwr
 mempalace-code restore ~/safe.tar.gz --force    # overwrite without prompt
 ```
 
+### Tarball Restore — KG Destination
+
+When a tarball archive includes `knowledge_graph.sqlite3`, the restore command decides
+where to write it based on your invocation:
+
+| Invocation | KG written to |
+|------------|---------------|
+| `mempalace-code restore FILE` | `~/.mempalace/knowledge_graph.sqlite3` (global default) |
+| `mempalace-code --palace <dir> restore FILE` | `<dir>/knowledge_graph.sqlite3` (palace-scoped) |
+| `mempalace-code --palace <dir> restore FILE --kg-path <path>` | `<path>` (explicit override) |
+| `mempalace-code restore FILE --kg-path <path>` | `<path>` (explicit override) |
+
+**Important:** When you restore to an explicit `--palace <dir>`, the archived KG data
+is written to `<dir>/knowledge_graph.sqlite3` — not to the global default — to avoid
+silently overwriting an unrelated knowledge graph.
+
+Use `--kg-path` to direct the KG to any arbitrary destination, including the global
+default path, a shared location, or a testing path:
+
+```bash
+# Restore Lance data to a custom palace, KG to the custom palace (default scoping)
+mempalace-code --palace ~/my_palace restore ~/backup.tar.gz
+
+# Override the KG destination explicitly
+mempalace-code --palace ~/my_palace restore ~/backup.tar.gz --kg-path ~/shared_kg.sqlite3
+
+# Restore without --palace: KG goes to the global default (backward-compatible)
+mempalace-code restore ~/backup.tar.gz
+```
+
+> **Note:** This tarball restore behavior is separate from JSONL import/export KG
+> handling. The `--skip-kg` and `--with-kg` flags documented in the [Restore
+> Procedure](#restore-procedure) section above apply to JSONL imports only.
+
 ### Scheduled Backups
 
 ```bash
