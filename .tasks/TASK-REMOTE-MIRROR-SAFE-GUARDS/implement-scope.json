@@ -1,0 +1,13 @@
+{
+  "phase": "implement",
+  "files": [
+    "README.md",
+    "docs/BACKUP_RESTORE.md",
+    "mempalace_code/cli.py",
+    "mempalace_code/cli_commands/preflight.py",
+    "mempalace_code/mirror_preflight.py",
+    "tests/test_cli.py"
+  ],
+  "before_sha": "0e50e3a",
+  "timestamp": "2026-05-29T10:19:35Z"
+}

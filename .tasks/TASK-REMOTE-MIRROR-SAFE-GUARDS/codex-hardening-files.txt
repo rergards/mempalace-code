@@ -1,0 +1,6 @@
+README.md
+docs/BACKUP_RESTORE.md
+mempalace_code/cli.py
+mempalace_code/cli_commands/preflight.py
+mempalace_code/mirror_preflight.py
+tests/test_cli.py

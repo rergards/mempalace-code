@@ -1,0 +1,558 @@
+diff --git a/README.md b/README.md
+index 96968e3..6ab26f8 100644
+--- a/README.md
++++ b/README.md
+@@ -632,6 +632,36 @@ Skips compaction entirely. Storage will grow with more fragments but avoids any
+ 
+ Also available: `mempalace-code export --only-manual` for JSONL export of manually-stored drawers.
+ 
++**Remote mirror risk — backups vs file mirroring:**
++
++Managed backups and Lance cleanup protect **local** palace state. They do not protect against
++delete-mode rsync between independent hosts. `rsync --delete` syncing a whole MemPalace state
++directory removes remote-owned drawers, diary entries, and KG triples that were never synced
++back to the source — even when local backups are healthy.
++
++Use these recommended excludes for any delete-mode state-directory mirror:
++
++```bash
++rsync -a --delete \
++  --exclude=palace/ \
++  --exclude=knowledge_graph.sqlite3 \
++  --exclude=config.json \
++  --exclude=backups/ \
++  ~/.mempalace/ user@host:.mempalace/
++```
++
++Run a preflight check before installing a mirror job (the command is never executed):
++
++```bash
++mempalace-code preflight mirror --command \
++  "rsync -a --delete --exclude=palace/ --exclude=knowledge_graph.sqlite3 \
++   --exclude=config.json --exclude=backups/ ~/.mempalace/ user@host:.mempalace/"
++# OK
++```
++
++See [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) for the full mirror-risk guidance and
++the safer export/import alternative for cross-host transfer of non-regenerable content.
++
+ ---
+ 
+ ### Scan Excludes
+diff --git a/docs/BACKUP_RESTORE.md b/docs/BACKUP_RESTORE.md
+index 6016cf0..0abfacc 100644
+--- a/docs/BACKUP_RESTORE.md
++++ b/docs/BACKUP_RESTORE.md
+@@ -516,6 +516,81 @@ regardless of exceptions. No files are written inside the repository.
+ 
+ ---
+ 
++## Remote Mirror Risk
++
++Managed backups and Lance cleanup protect **local** palace state. They do not protect
++against a separate class of operator risk: delete-mode file mirroring between independent
++hosts (`rsync --delete`).
++
++When `rsync --delete` syncs a whole MemPalace state directory from one host to another,
++it removes files on the destination that are absent on the source. If the destination host
++holds **remote-owned** drawers, diary entries, or KG triples that were never synced back
++to the source, those are permanently deleted — even though local backups and Lance cleanup
++are healthy.
++
++### Why managed backups do not protect against this
++
++- Backups archive the **source** palace. A delete-mode mirror of the source removes content
++  from the **destination** that the source never knew about.
++- Backup retention and Lance cleanup run on the source; they have no visibility into remote
++  state or what `rsync --delete` will remove on the destination.
++
++### Safe rsync with recommended excludes
++
++If you must mirror the palace state directory between hosts, exclude the live palace data,
++KG database, config, and managed backups directory so a delete sweep cannot remove
++remote-owned content:
++
++```bash
++rsync -a --delete \
++  --exclude=palace/ \
++  --exclude=knowledge_graph.sqlite3 \
++  --exclude=config.json \
++  --exclude=backups/ \
++  ~/.mempalace/ user@host:.mempalace/
++```
++
++Add `--exclude='*.log'` if you route MemPalace watch logs into the state directory
++(by default, logs go to `/tmp/mempalace-watch.log` and do not need excluding).
++
++### Preflight check before installing a mirror job
++
++Before installing a launchd or cron mirror job, run the preflight command to verify your
++rsync invocation is safe (the command is inspected only — it is never executed):
++
++```bash
++mempalace-code preflight mirror --command \
++  "rsync -a --delete --exclude=palace/ --exclude=knowledge_graph.sqlite3 \
++   --exclude=config.json --exclude=backups/ ~/.mempalace/ user@host:.mempalace/"
++# OK
++
++mempalace-code preflight mirror --command "rsync -a --delete ~/.mempalace/ user@host:.mempalace/"
++# BLOCKED [delete-mode-state-mirror-missing-excludes]
++#   missing exclude: palace
++#   missing exclude: kg
++#   missing exclude: config
++#   missing exclude: backups
++```
++
++Use `--json` for automation scripts that parse the result.
++
++### Recommended alternative: export/import instead of whole-state mirrors
++
++Whole-state mirrors transfer regenerable code-chunked drawers along with the irreplaceable
++manual content. A safer cross-host transfer uses the export/import flow:
++
++```bash
++# On source host: export only manual drawers and KG (non-regenerable content)
++mempalace-code export --only-manual --with-kg --out ~/transfer.jsonl
++
++# Copy the JSONL to the destination host, then import
++mempalace-code import ~/transfer.jsonl
++```
++
++This preserves remote-owned content on both sides and avoids delete-sweep risk entirely.
++
++---
++
+ ## Related
+ 
+ - Upstream data loss context: issue #469 in the original ChromaDB-based fork
+diff --git a/mempalace_code/cli.py b/mempalace_code/cli.py
+index 24acad7..3b29969 100644
+--- a/mempalace_code/cli.py
++++ b/mempalace_code/cli.py
+@@ -55,6 +55,7 @@ from .cli_commands.maintenance import cmd_cleanup, cmd_health, cmd_migrate_stora
+ from .cli_commands.model import cmd_fetch_model, fetch_model
+ from .cli_commands.query import cmd_compress, cmd_read, cmd_search, cmd_wakeup
+ from .cli_commands.version_check import cmd_version_check
++from .cli_commands.preflight import cmd_preflight
+ from .cli_commands.watch import cmd_watch
+ 
+ # Re-export for backward compatibility (tests and downstream direct imports).
+@@ -596,6 +597,31 @@ def main():
+         help="Override the wing for all imported drawers",
+     )
+ 
++    # preflight
++    p_preflight = sub.add_parser("preflight", help="Preflight checks for operator commands")
++    preflight_sub = p_preflight.add_subparsers(dest="preflight_command")
++
++    # preflight mirror
++    p_preflight_mirror = preflight_sub.add_parser(
++        "mirror",
++        help=(
++            "Inspect an rsync command for MemPalace state-directory mirror risks "
++            "without executing it"
++        ),
++    )
++    p_preflight_mirror.add_argument(
++        "--command",
++        required=True,
++        dest="inspect",
++        metavar="CMD",
++        help="rsync command string to inspect (quoted; never executed)",
++    )
++    p_preflight_mirror.add_argument(
++        "--json",
++        action="store_true",
++        help="Emit a JSON object instead of human-readable output",
++    )
++
+     # version-check
+     p_vc = sub.add_parser(
+         "version-check",
+@@ -637,6 +663,13 @@ def main():
+     if args.command == "diary":
+         args._diary_parser = p_diary
+ 
++    if args.command == "preflight" and not args.preflight_command:
++        p_preflight.print_help()
++        sys.exit(2)
++
++    if args.command == "preflight":
++        args._preflight_parser = p_preflight
++
+     if args.command == "mine" and args.include_emotional:
+         if args.mode != "convos" or args.extract != "general":
+             p_mine.error("--include-emotional requires --mode convos --extract general")
+@@ -665,6 +698,7 @@ def main():
+         "export": cmd_export,
+         "import": cmd_import,
+         "version-check": cmd_version_check,
++        "preflight": cmd_preflight,
+     }
+ 
+     # --- opt-in version-check hook ---
+diff --git a/mempalace_code/cli_commands/preflight.py b/mempalace_code/cli_commands/preflight.py
+new file mode 100644
+index 0000000..74ae86e
+--- /dev/null
++++ b/mempalace_code/cli_commands/preflight.py
+@@ -0,0 +1,55 @@
++"""Preflight command handlers: preflight mirror."""
++
++import json
++import sys
++
++
++def cmd_preflight_mirror(args):
++    from ..mirror_preflight import classify_mirror_command
++
++    command = args.inspect
++    use_json = getattr(args, "json", False)
++
++    result = classify_mirror_command(command)
++
++    if result.parse_error:
++        if use_json:
++            print(json.dumps({"ok": False, "parse_error": result.parse_error}))
++        else:
++            print(f"ERROR: {result.parse_error}", file=sys.stderr)
++        sys.exit(2)
++
++    if use_json:
++        print(
++            json.dumps(
++                {
++                    "ok": result.ok,
++                    "dangerous": result.dangerous,
++                    "pattern_id": result.pattern_id,
++                    "missing_excludes": result.missing_excludes,
++                    "warnings": result.warnings,
++                }
++            )
++        )
++    else:
++        if result.ok:
++            print("OK")
++            for w in result.warnings:
++                print(f"  warning: {w}")
++        else:
++            print(f"BLOCKED [{result.pattern_id}]")
++            for family in result.missing_excludes:
++                print(f"  missing exclude: {family}")
++            for w in result.warnings:
++                print(f"  warning: {w}")
++
++    if not result.ok:
++        sys.exit(1)
++
++
++def cmd_preflight(args):
++    if args.preflight_command == "mirror":
++        cmd_preflight_mirror(args)
++    else:
++        args._preflight_parser.print_help()
++        sys.exit(2)
+diff --git a/mempalace_code/mirror_preflight.py b/mempalace_code/mirror_preflight.py
+new file mode 100644
+index 0000000..4acbcd6
+--- /dev/null
++++ b/mempalace_code/mirror_preflight.py
+@@ -0,0 +1,144 @@
++"""
++Pure rsync command inspection for MemPalace mirror safety.
++
++No subprocess is ever created. All analysis is done on the command string only.
++"""
++
++import re
++import shlex
++from dataclasses import dataclass, field
++
++# rsync flags that cause remote deletions of files not in the source
++RSYNC_DELETE_FLAGS: frozenset[str] = frozenset(
++    {
++        "--delete",
++        "--delete-after",
++        "--delete-before",
++        "--delete-delay",
++        "--delete-during",
++        "--delete-excluded",
++        "--delete-missing-args",
++    }
++)
++
++# Matches any path arg that references a MemPalace state directory.
++# Handles ~/.mempalace/, $HOME/.mempalace/, /abs/path/.mempalace/, host:.mempalace/
++# and bare .mempalace/ (relative path from home dir).
++_MEMPALACE_STATE_RE = re.compile(r"(?:[/:]|^)\.mempalace(?:/|$)")
++
++# Required exclude families: a delete-mode state mirror must exclude each of
++# these families to receive an ok=True verdict.
++_FAMILY_MATCHERS: dict[str, re.Pattern[str]] = {
++    "palace": re.compile(r"^palace(?:/|$|\*)"),
++    "kg": re.compile(r"^knowledge_graph\.sqlite3$|^\*\.sqlite3$"),
++    "config": re.compile(r"^config\.json$"),
++    "backups": re.compile(r"^backups(?:/|$|\*)"),
++}
++
++# Advisory families: missing members produce a warning, not a blocked verdict.
++# Logs default to /tmp/mempalace-watch.log (outside the state dir) so they are
++# advisory only; operators who route logs into the state dir should add an exclude.
++_ADVISORY_MATCHERS: dict[str, re.Pattern[str]] = {
++    "logs": re.compile(r"^.*\.log$"),
++}
++
++DANGEROUS_PATTERN_ID = "delete-mode-state-mirror-missing-excludes"
++
++
++@dataclass
++class PreflightResult:
++    ok: bool
++    dangerous: bool = False
++    pattern_id: str = ""
++    missing_excludes: list[str] = field(default_factory=list)
++    warnings: list[str] = field(default_factory=list)
++    parse_error: str = ""
++
++
++def _extract_excludes(tokens: list[str]) -> list[str]:
++    """Return all --exclude values from an rsync token list."""
++    excludes: list[str] = []
++    i = 0
++    while i < len(tokens):
++        tok = tokens[i]
++        if tok.startswith("--exclude="):
++            excludes.append(tok[len("--exclude=") :])
++        elif tok == "--exclude" and i + 1 < len(tokens):
++            i += 1
++            excludes.append(tokens[i])
++        i += 1
++    return excludes
++
++
++def _has_delete_semantics(tokens: list[str]) -> bool:
++    return any(tok in RSYNC_DELETE_FLAGS for tok in tokens)
++
++
++def _targets_state_dir(tokens: list[str]) -> bool:
++    """Return True if any non-flag argument references a MemPalace state directory."""
++    for tok in tokens[1:]:  # skip command name
++        if not tok.startswith("-") and _MEMPALACE_STATE_RE.search(tok):
++            return True
++    return False
++
++
++def _family_covered(pattern: re.Pattern[str], excludes: list[str]) -> bool:
++    return any(pattern.match(e) for e in excludes)
++
++
++def classify_mirror_command(command: str) -> PreflightResult:
++    """
++    Parse and classify an rsync command string without executing it.
++
++    Returns PreflightResult with:
++    - ok=True  when the command is safe or not a MemPalace delete-mode mirror.
++    - ok=False, dangerous=True when it is a MemPalace delete-mode mirror with
++      missing required excludes; missing_excludes lists the absent families.
++    - ok=False, parse_error set when the shell text cannot be tokenized.
++    """
++    try:
++        tokens = shlex.split(command)
++    except ValueError as exc:
++        return PreflightResult(ok=False, parse_error=str(exc))
++
++    if not tokens:
++        return PreflightResult(ok=False, parse_error="empty command")
++
++    # Only inspect rsync commands
++    cmd_basename = tokens[0].split("/")[-1]
++    if cmd_basename != "rsync":
++        return PreflightResult(ok=True)
++
++    # Only flag delete-mode commands targeting the MemPalace state dir
++    if not _has_delete_semantics(tokens):
++        return PreflightResult(ok=True)
++
++    if not _targets_state_dir(tokens):
++        return PreflightResult(ok=True)
++
++    excludes = _extract_excludes(tokens)
++
++    missing = [
++        family
++        for family, pattern in _FAMILY_MATCHERS.items()
++        if not _family_covered(pattern, excludes)
++    ]
++
++    warnings: list[str] = []
++    for family, pattern in _ADVISORY_MATCHERS.items():
++        if not _family_covered(pattern, excludes):
++            warnings.append(
++                f"advisory: no --exclude for '{family}' "
++                f"(add --exclude='*.log' if you route MemPalace logs into the state directory)"
++            )
++
++    if missing:
++        return PreflightResult(
++            ok=False,
++            dangerous=True,
++            pattern_id=DANGEROUS_PATTERN_ID,
++            missing_excludes=missing,
++            warnings=warnings,
++        )
++
++    return PreflightResult(ok=True, warnings=warnings)
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index 029a3c7..8bf0831 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -1148,6 +1148,149 @@ class TestMineCommand:
+         assert mock_mine.call_args.kwargs["incremental"] is True
+ 
+ 
++class TestMirrorPreflightCommand:
++    """Tests for 'mempalace-code preflight mirror --command ...'."""
++
++    # A delete-mode state mirror with all required excludes — must be accepted.
++    SAFE_CMD = (
++        "rsync -a --delete "
++        "--exclude=palace/ "
++        "--exclude=knowledge_graph.sqlite3 "
++        "--exclude=config.json "
++        "--exclude=backups/ "
++        "~/.mempalace/ user@host:.mempalace/"
++    )
++
++    # A bare delete-mode state mirror with no excludes — must be blocked.
++    DANGEROUS_CMD = "rsync -a --delete ~/.mempalace/ user@host:.mempalace/"
++
++    def test_safe_mirror_with_required_excludes_exits_zero(self, capsys):
++        """AC-1: delete-mode state mirror with required excludes is accepted (exit 0)."""
++        with patch.object(
++            sys, "argv", ["mempalace", "preflight", "mirror", "--command", self.SAFE_CMD]
++        ):
++            main()  # must not raise
++        out = capsys.readouterr().out
++        assert "OK" in out
++
++    def test_delete_mode_state_mirror_missing_excludes_exits_nonzero(self, capsys):
++        """AC-2: bare rsync --delete state mirror is blocked; reports all missing families."""
++        with patch.object(
++            sys, "argv", ["mempalace", "preflight", "mirror", "--command", self.DANGEROUS_CMD]
++        ):
++            with pytest.raises(SystemExit) as exc:
++                main()
++        assert exc.value.code != 0
++        out = capsys.readouterr().out
++        assert "palace" in out
++        assert "kg" in out
++        assert "config" in out
++        assert "backups" in out
++
++    def test_non_state_or_no_delete_commands_remain_ok(self, capsys):
++        """AC-3: non-MemPalace delete rsyncs and MemPalace rsyncs without --delete are not flagged."""
++        # Non-MemPalace rsync --delete
++        no_state_cmd = "rsync -a --delete /home/user/docs/ user@host:/backup/docs/"
++        with patch.object(
++            sys, "argv", ["mempalace", "preflight", "mirror", "--command", no_state_cmd]
++        ):
++            main()
++        assert "OK" in capsys.readouterr().out
++
++        # MemPalace rsync without --delete semantics
++        no_delete_cmd = "rsync -a ~/.mempalace/ user@host:.mempalace/"
++        with patch.object(
++            sys, "argv", ["mempalace", "preflight", "mirror", "--command", no_delete_cmd]
++        ):
++            main()
++        assert "OK" in capsys.readouterr().out
++
++    def test_mirror_preflight_json_reports_missing_excludes(self, capsys):
++        """AC-4: --json output is valid JSON with ok=false, pattern_id, and missing families."""
++        with patch.object(
++            sys,
++            "argv",
++            ["mempalace", "preflight", "mirror", "--json", "--command", self.DANGEROUS_CMD],
++        ):
++            with pytest.raises(SystemExit) as exc:
++                main()
++        assert exc.value.code != 0
++        data = json.loads(capsys.readouterr().out)
++        assert data["ok"] is False
++        assert data["pattern_id"] == "delete-mode-state-mirror-missing-excludes"
++        assert "palace" in data["missing_excludes"]
++        assert "kg" in data["missing_excludes"]
++        assert "config" in data["missing_excludes"]
++        assert "backups" in data["missing_excludes"]
++
++    def test_preflight_never_executes_inspected_command(self, capsys):
++        """AC-6 / INV-1: inspecting a dangerous command never spawns a subprocess or shells out."""
++        with (
++            patch("subprocess.run") as mock_run,
++            patch("subprocess.Popen") as mock_popen,
++            patch("os.system") as mock_system,
++            patch("os.popen") as mock_os_popen,
++        ):
++            with patch.object(
++                sys, "argv", ["mempalace", "preflight", "mirror", "--command", self.DANGEROUS_CMD]
++            ):
++                with pytest.raises(SystemExit) as exc:
++                    main()
++
++        assert exc.value.code != 0  # classified as dangerous
++        mock_run.assert_not_called()
++        mock_popen.assert_not_called()
++        mock_system.assert_not_called()
++        mock_os_popen.assert_not_called()
++
++
++class TestMirrorDocs:
++    """Assert that mirror-safety guidance is present in both README.md and docs/BACKUP_RESTORE.md.
++
++    The sentinel phrase 'remote-owned' and a safe rsync --delete example with required excludes
++    (palace, knowledge_graph.sqlite3, config.json, backups) were verified ABSENT on the
++    pre-implementation HEAD, so these tests fail before implementation and pass only once both
++    documents carry the guidance.
++    """
++
++    SENTINEL = "remote-owned"
++    RSYNC_DELETE_EXAMPLE = "--delete"
++    # Concrete exclude patterns that must appear in both docs as part of the new guidance.
++    REQUIRED_EXCLUDE_PATTERNS = ["palace", "knowledge_graph.sqlite3", "config.json", "backups"]
++
++    def _read_doc(self, name: str) -> str:
++        root = Path(__file__).parent.parent
++        return (root / name).read_text(encoding="utf-8")
++
++    def test_readme_has_mirror_safety_guidance(self):
++        """README.md must contain the backup-vs-mirror sentinel and a safe rsync example."""
++        content = self._read_doc("README.md")
++        assert self.SENTINEL in content, (
++            "README.md must contain 'remote-owned' to distinguish managed backups from mirror risk"
++        )
++        assert self.RSYNC_DELETE_EXAMPLE in content, (
++            "README.md must contain an rsync --delete example"
++        )
++        for pattern in self.REQUIRED_EXCLUDE_PATTERNS:
++            assert pattern in content, (
++                f"README.md rsync example must include exclude pattern for '{pattern}'"
++            )
++
++    def test_backup_restore_doc_has_mirror_safety_guidance(self):
++        """docs/BACKUP_RESTORE.md must contain the backup-vs-mirror sentinel and a safe rsync example."""
++        content = self._read_doc("docs/BACKUP_RESTORE.md")
++        assert self.SENTINEL in content, (
++            "docs/BACKUP_RESTORE.md must contain 'remote-owned' to distinguish managed backups from mirror risk"
++        )
++        assert self.RSYNC_DELETE_EXAMPLE in content, (
++            "docs/BACKUP_RESTORE.md must contain an rsync --delete example"
++        )
++        for pattern in self.REQUIRED_EXCLUDE_PATTERNS:
++            assert pattern in content, (
++                f"docs/BACKUP_RESTORE.md rsync example must include exclude pattern for '{pattern}'"
++            )
++
++
+ # =============================================================================
+ # mine-all command tests
+ # =============================================================================

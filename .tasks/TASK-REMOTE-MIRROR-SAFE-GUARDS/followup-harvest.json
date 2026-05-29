@@ -1,0 +1,26 @@
+{
+  "slug": "REMOTE-MIRROR-SAFE-GUARDS",
+  "added": [],
+  "warnings": [
+    {
+      "reason": "validation_failed",
+      "key": "MIRROR-PREFLIGHT-WRAPPER-DETECTION",
+      "summary": "Extend mirror preflight to detect rsync wrapped in sudo, env, or sh -c",
+      "source_artifact": "../../../../harden-result.json",
+      "source_task": "REMOTE-MIRROR-SAFE-GUARDS",
+      "detail": "section \"operator-safety\" not found; valid sections: cleanup, coding_first, future, immediate, mcp_developer_tools, pre_release, quality, storage_reliability (run 'backlog sections' to list)"
+    }
+  ],
+  "sources": [
+    "../../../../changelog-result.json",
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../polish-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/REMOTE-MIRROR-SAFE-GUARDS-polish-1.md",
+    "docs/audits/REMOTE-MIRROR-SAFE-GUARDS-round-1.md"
+  ]
+}
