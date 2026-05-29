@@ -46,13 +46,15 @@ items:
   - key: WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK
     summary: "Make watch initial mine fail closed and recover from Lance missing-fragment write errors"
     section: storage_reliability
-    status: open
+    status: done
     priority: P1
     description: "The remote /srv/dev watcher incident showed merge_insert can fail during watch initial mine with a missing Lance fragment after prior cleanup/restore history. Watch should preserve a pre-run backup, surface a clear degraded state, and either restore automatically or leave an operator-safe recovery command."
     acceptance:
       - "Given watch initial mine raises a Lance missing-fragment error, the watcher exits without systemd restart loops mutating the same palace repeatedly."
       - "The operator gets the backup path and exact restore/repair command in stderr/log output."
       - "Regression coverage simulates the initial-mine write failure and proves the palace remains recoverable."
+    resolution: "2026-05-29: Restored watcher rollback safety and fixed managed backup filename collisions; full test suite passed after manual provider repair."
+    done_summary: "Restored watcher rollback safety and fixed managed backup filename collisions; full test suite passed after manual provider repair."
   - key: RESTORE-KG-PATH-SCOPING
     summary: "Avoid surprising global KG overwrite when restoring to an explicit palace path"
     section: storage_reliability
