@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-29 · RESTORE-KG-PATH-SCOPING
+
+Fix `restore` to scope KG writes to the `--palace` path instead of the global default.
+
 ## Unreleased
 
 ### Fixed
