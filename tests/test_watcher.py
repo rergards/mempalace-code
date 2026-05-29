@@ -1446,8 +1446,8 @@ class TestWatchInitialMineRecovery:
 
         rollback_called = []
         fake_store = MagicMock()
-        fake_store.recover_to_last_working_version.side_effect = (
-            lambda **kw: rollback_called.append(1) or {"recovered": False}
+        fake_store.recover_to_last_working_version.side_effect = lambda **kw: (
+            rollback_called.append(1) or {"recovered": False}
         )
 
         # Simulate a Python FileNotFoundError from the miner reading a source file
