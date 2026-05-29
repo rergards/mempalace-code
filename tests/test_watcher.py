@@ -1505,6 +1505,129 @@ class TestWatchInitialMineRecovery:
 
 
 # ---------------------------------------------------------------------------
+# watch_all() — initialized root support (AC-1 through AC-4)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchAllInitializedRoot:
+    """Tests for watch_all() behavior when the supplied directory is itself a project."""
+
+    def test_initialized_root_is_watched_as_single_project(self, tmp_path):
+        """AC-1: watch_all with an initialized project root mines that root with its wing."""
+        project = tmp_path / "my_project"
+        project.mkdir()
+        (project / "mempalace.yaml").write_text("wing: root_wing\n")
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            return {}
+
+        watch_paths_seen = []
+
+        def fake_watch(*paths, stop_event=None, **kwargs):
+            watch_paths_seen.extend(paths)
+            return iter([])
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=fake_watch),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
+
+        # Initial mine must have run for the root with its configured wing
+        assert len(mine_calls) >= 1
+        assert mine_calls[0]["project_dir"] == str(project)
+        assert mine_calls[0]["wing_override"] == "root_wing"
+        # The root directory must be passed to watchfiles, not a parent
+        assert any(str(project) in p for p in watch_paths_seen)
+
+    def test_uninitialized_project_root_prints_actionable_init_command(self, tmp_path, capsys):
+        """AC-2: project root with project markers but no init file exits 1 with init command."""
+        project = tmp_path / "my_project"
+        project.mkdir()
+        # Has a project marker but no mempalace.yaml
+        (project / ".git").mkdir()
+
+        with pytest.raises(SystemExit) as exc_info:
+            watch_all(str(project), str(tmp_path / "palace"))
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert f"mempalace-code init {project}" in combined
+
+    def test_parent_directory_still_watches_initialized_children(self, tmp_path):
+        """AC-3: plain parent directory still discovers and mines initialized child projects."""
+        parent = tmp_path / "workspace"
+        parent.mkdir()
+        child = parent / "my_project"
+        child.mkdir()
+        (child / "mempalace.yaml").write_text("wing: child_wing\n")
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            return {}
+
+        fake_projects = [{"path": str(child), "initialized": True}]
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", return_value=iter([])),
+            patch("mempalace_code.mining.projects.detect_projects", return_value=fake_projects),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            watch_all(str(parent), str(tmp_path / "palace"), on_commit=False)
+
+        assert len(mine_calls) >= 1
+        assert mine_calls[0]["project_dir"] == str(child)
+        assert mine_calls[0]["wing_override"] == "child_wing"
+
+    def test_initialized_root_takes_precedence_over_child_project_scan(self, tmp_path):
+        """AC-4: when the root is initialized, detect_projects() is not called and children are not mined."""
+        project = tmp_path / "my_project"
+        project.mkdir()
+        (project / "mempalace.yaml").write_text("wing: root_wing\n")
+        # Project-looking child that should NOT be scanned
+        child = project / "sub_project"
+        child.mkdir()
+        (child / "pyproject.toml").write_text("[project]\nname = 'sub'\n")
+
+        mine_calls = []
+        detect_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            return {}
+
+        def fake_detect(parent_dir):
+            detect_calls.append(parent_dir)
+            return []
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", return_value=iter([])),
+            patch("mempalace_code.mining.projects.detect_projects", side_effect=fake_detect),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
+
+        # detect_projects must NOT be called when root is initialized
+        assert len(detect_calls) == 0
+        # All mine calls must be for the root project only
+        assert len(mine_calls) >= 1
+        assert all(c["project_dir"] == str(project) for c in mine_calls)
+        assert all(c["wing_override"] == "root_wing" for c in mine_calls)
+
+
+# ---------------------------------------------------------------------------
 # watch_all startup recovery tests (AC-6)
 # ---------------------------------------------------------------------------
 

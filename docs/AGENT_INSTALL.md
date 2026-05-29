@@ -22,7 +22,7 @@ feature checklist, not an install step.
 | Code/docs mining | `mempalace-code mine <dir>` indexes supported source, docs, prose, config, and data files into LanceDB |
 | Conversation/log ingest | `mempalace-code mine <dir> --mode convos` ingests Claude Code JSONL, Codex CLI JSONL, Gemini CLI JSONL, Claude.ai JSON, ChatGPT JSON, Slack JSON, and plain text transcripts |
 | Multi-project sync | `mempalace-code mine-all <parent>` assigns one wing per initialized project; `--new-only` skips already-known wings |
-| Auto-watch | `mempalace-code watch <parent>` re-mines initialized projects on commit by default; `--on-save` is available but noisier |
+| Auto-watch | `mempalace-code watch <initialized-project>` watches one project directly; `mempalace-code watch <parent>` watches all initialized projects in a parent directory; re-mines on commit by default; `--on-save` is available but noisier |
 | MCP tools | 29 tools (default `full` profile): semantic search, code search, file context/read, manual drawers, KG, architecture retrieval, graph tunnels, diary, re-mine; named profiles (`minimal`, `kg`, `code`, `notes`) reduce the exposed subset at startup |
 | KG / architecture | Temporal facts plus .NET/Python architecture extraction; .NET project/type graph tools require pre-mined symbols |
 | Local-model fallback | `mempalace-code wake-up` emits memory layers for agents without MCP support |

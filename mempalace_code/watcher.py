@@ -573,6 +573,38 @@ def _resolve_git_watch_paths(project_map: dict) -> dict:
     return git_to_project
 
 
+def _classify_watch_root(root: Path) -> str:
+    """Classify *root* to determine how watch_all should use it.
+
+    Returns:
+      'initialized' — root contains a mempalace init marker (mempalace.yaml / mempal.yaml).
+      'project'     — root has project markers but no mempalace init marker.
+      'parent'      — root is a plain directory; scan immediate children instead.
+    """
+    import fnmatch as _fnmatch
+
+    from .mining.projects import INIT_MARKERS, PROJECT_MARKER_GLOBS, PROJECT_MARKERS
+
+    try:
+        contents = set(os.listdir(root))
+    except OSError:
+        return "parent"
+
+    if contents & INIT_MARKERS:
+        return "initialized"
+
+    for marker in PROJECT_MARKERS:
+        if marker in contents:
+            return "project"
+
+    for pattern in PROJECT_MARKER_GLOBS:
+        for item in contents:
+            if _fnmatch.fnmatch(item, pattern):
+                return "project"
+
+    return "parent"
+
+
 def watch_all(
     parent_dir: str,
     palace_path: str,
@@ -580,7 +612,13 @@ def watch_all(
     respect_gitignore: bool = True,
     on_commit: bool = True,
 ) -> None:
-    """Watch all initialized projects under *parent_dir* and re-mine on changes.
+    """Watch initialized projects under *parent_dir* (or *parent_dir* itself) and re-mine on changes.
+
+    When *parent_dir* is itself an initialized project (contains ``mempalace.yaml`` or
+    ``mempal.yaml``), it is watched as a single project.  When it is a plain parent
+    directory, all immediate child directories that are initialized projects are watched.
+    Uninitialized project roots (project markers present but no init file) cause an
+    actionable diagnostic and exit 1.
 
     When *on_commit* is True (default), only watches ``.git/refs/heads/`` for
     each project — triggers re-mine only when a commit, merge, or rebase occurs.
@@ -613,49 +651,69 @@ def watch_all(
         print(f"  Error: directory not found: {parent_path}", file=sys.stderr)
         sys.exit(1)
 
-    projects = detect_projects(str(parent_path))
-    initialized = [p for p in projects if p["initialized"]]
+    root_kind = _classify_watch_root(parent_path)
 
-    if not initialized:
-        print(f"  No initialized projects found in {parent_path}")
-        print("  Run 'mempalace-code init <dir>' on projects first.")
-        sys.exit(1)
-
-    # Build project path -> wing name mapping using config-aware resolver.
-    project_map: dict = {}  # resolved Path -> wing name
-    config_error_count = 0
-    for proj in initialized:
-        proj_path = Path(proj["path"]).resolve()
+    if root_kind == "initialized":
+        # Supplied directory is itself an initialized project — watch it directly.
         try:
-            wing = resolve_wing_for_project(proj["path"])
-            project_map[proj_path] = wing
+            wing = resolve_wing_for_project(str(parent_path))
         except ValueError as exc:
-            print(f"  ERROR  {proj_path.name}: {exc}", file=sys.stderr)
-            config_error_count += 1
-
-    if config_error_count:
+            print(f"  ERROR  {parent_path.name}: {exc}", file=sys.stderr)
+            sys.exit(1)
+        project_map: dict = {parent_path: wing}
+    elif root_kind == "project":
+        # Has project markers but no mempalace init — print actionable diagnostic.
         print(
-            f"  {config_error_count} project(s) had config parse errors — fix them and retry.",
+            f"  Error: {parent_path} is a project directory but has not been initialized.\n"
+            f"  Run:  mempalace-code init {parent_path}",
             file=sys.stderr,
         )
         sys.exit(1)
+    else:
+        # Plain parent directory — scan immediate child projects (existing behavior).
+        projects = detect_projects(str(parent_path))
+        initialized_list = [p for p in projects if p["initialized"]]
 
-    # Guard against duplicate wings — two repos mapped to the same wing would
-    # silently corrupt the palace on every re-mine.
-    wing_to_paths: dict = {}
-    for pp, wing in project_map.items():
-        wing_to_paths.setdefault(wing, []).append(pp)
+        if not initialized_list:
+            print(f"  No initialized projects found in {parent_path}")
+            print("  Run 'mempalace-code init <dir>' on projects first.")
+            sys.exit(1)
 
-    duplicate_wings = {w: paths for w, paths in wing_to_paths.items() if len(paths) > 1}
-    if duplicate_wings:
-        for w, paths in sorted(duplicate_wings.items()):
-            path_list = ", ".join(str(p) for p in paths)
+        # Build project path -> wing name mapping using config-aware resolver.
+        project_map = {}
+        config_error_count = 0
+        for proj in initialized_list:
+            proj_path = Path(proj["path"]).resolve()
+            try:
+                wing = resolve_wing_for_project(proj["path"])
+                project_map[proj_path] = wing
+            except ValueError as exc:
+                print(f"  ERROR  {proj_path.name}: {exc}", file=sys.stderr)
+                config_error_count += 1
+
+        if config_error_count:
             print(
-                f"  ERROR  duplicate wing '{w}': {path_list}\n"
-                f"         Configure a unique 'wing:' in each project's mempalace.yaml.",
+                f"  {config_error_count} project(s) had config parse errors — fix them and retry.",
                 file=sys.stderr,
             )
-        sys.exit(1)
+            sys.exit(1)
+
+        # Guard against duplicate wings — two repos mapped to the same wing would
+        # silently corrupt the palace on every re-mine.
+        wing_to_paths: dict = {}
+        for pp, wing in project_map.items():
+            wing_to_paths.setdefault(wing, []).append(pp)
+
+        duplicate_wings = {w: paths for w, paths in wing_to_paths.items() if len(paths) > 1}
+        if duplicate_wings:
+            for w, paths in sorted(duplicate_wings.items()):
+                path_list = ", ".join(str(p) for p in paths)
+                print(
+                    f"  ERROR  duplicate wing '{w}': {path_list}\n"
+                    f"         Configure a unique 'wing:' in each project's mempalace.yaml.",
+                    file=sys.stderr,
+                )
+            sys.exit(1)
 
     min_free = _load_watch_min_free()
     _last_budget_log_all: list = [None]

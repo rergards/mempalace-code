@@ -256,10 +256,13 @@ uv tool inject mempalace-code watchfiles  # or: pipx inject mempalace-code watch
 ```
 
 ```bash
-mempalace-code watch ~/projects/                      # watch all projects (on commit, default)
+mempalace-code watch ~/projects/my-app                # watch an initialized project (on commit)
+mempalace-code watch ~/projects/                      # watch all initialized projects in a parent directory
 mempalace-code watch ~/projects/ --on-save            # watch all file saves instead (noisier)
 mempalace-code watch ~/projects/ schedule             # print launchd/cron snippet for daemon
 ```
+
+`watch` accepts either an **initialized project directory** (has `mempalace.yaml`) or a **parent directory** containing immediate initialized project subdirectories. Pointing it at a project root that has project files but no `mempalace.yaml` exits with the correct `mempalace-code init <dir>` command.
 
 **Install as persistent daemon (macOS):**
 
@@ -834,8 +837,9 @@ mempalace-code mine <dir> --watch                      # auto-incremental on fil
 mempalace-code mine-all <parent-dir>                   # sync all projects incrementally (one wing per project)
 mempalace-code mine-all <parent-dir> --new-only        # only mine projects not yet in the palace
 
-# Watch (multi-project auto-sync)
-mempalace-code watch <parent-dir>                      # watch all initialized projects
+# Watch (project auto-sync)
+mempalace-code watch <initialized-project>             # watch a single initialized project
+mempalace-code watch <parent-dir>                      # watch all initialized projects in a parent directory
 mempalace-code watch <parent-dir> schedule             # print launchd/cron daemon snippet
 mempalace-code watch <parent-dir> status               # disk-budget + launchd state
 

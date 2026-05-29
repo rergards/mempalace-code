@@ -419,11 +419,14 @@ def main():
     # watch
     p_watch = sub.add_parser(
         "watch",
-        help="Watch all initialized projects for changes and re-mine automatically",
+        help="Watch an initialized project or parent directory for changes and re-mine automatically",
     )
     p_watch.add_argument(
         "dir",
-        help="Parent directory containing project subdirectories",
+        help=(
+            "Initialized project directory (watches that project directly) or "
+            "parent directory containing initialized project subdirectories"
+        ),
     )
     p_watch.add_argument(
         "--no-gitignore",
