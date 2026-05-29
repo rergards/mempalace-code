@@ -1341,7 +1341,9 @@ class TestMirrorPreflightCommand:
             with patch.object(sys, "argv", ["mempalace", "preflight", "mirror", "--command", cmd]):
                 with pytest.raises(SystemExit) as exc:
                     main()
-            assert exc.value.code == 1, f"Expected exit 1 (blocked, not parse error) for {shell} -c wrapper"
+            assert exc.value.code == 1, (
+                f"Expected exit 1 (blocked, not parse error) for {shell} -c wrapper"
+            )
             out = capsys.readouterr().out
             assert "delete-mode-state-mirror" in out, (
                 f"Expected blocking pattern_id in output for {shell} -c wrapper, got: {out!r}"
