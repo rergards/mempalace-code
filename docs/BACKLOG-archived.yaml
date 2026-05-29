@@ -956,3 +956,8 @@ items:
       resolution: '2026-05-29: completed in pipeline run (commit=867ef57, 12 files changed, 732 insertions(+), 9 deletions(-))'
       archived_date: "2026-05-29"
       done_summary: completed in pipeline run (commit=867ef57, 12 files changed, 732 insertions(+), 9 deletions(-))
+    - key: MIRROR-PREFLIGHT-SUDO-COMBINED-OPTS
+      summary: Detect sudo combined-option mirror wrapper forms
+      resolution: '2026-05-29: completed in pipeline run (commit=7588660, 9 files changed, 213 insertions(+), 1 deletion(-))'
+      archived_date: "2026-05-29"
+      done_summary: completed in pipeline run (commit=7588660, 9 files changed, 213 insertions(+), 1 deletion(-))

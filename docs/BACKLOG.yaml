@@ -42,12 +42,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: MIRROR-PREFLIGHT-SUDO-COMBINED-OPTS
-    summary: "Detect sudo combined-option mirror wrapper forms"
-    type: task
-    status: open
-    priority: medium
-    size: S
-    section_id: storage_reliability
-    description: "## Scope\nHarden found one remaining mirror preflight bypass class after wrapper detection landed: sudo command forms that combine sudo options or otherwise hide the rsync argv boundary from the current token normalizer. Extend wrapper parsing narrowly so destructive state-dir mirror commands remain blocked when sudo is used with combined options.\n\n## Acceptance criteria\n- Detect destructive state-dir mirror commands wrapped by sudo with combined or compact options.\n- Preserve accepted behavior for safe sudo-wrapped commands that do not delete state data.\n- Add focused CLI/unit coverage for the bypass shape and for a safe control case.\n\n## Evidence\nAutopilot `MIRROR-PREFLIGHT-WRAPPER-DETECTION` harden phase reported a combined-sudo-option bypass; automatic harvest failed because it used display section title `STORAGE & RELIABILITY` instead of section id `storage_reliability`."
+items: []
