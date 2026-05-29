@@ -946,3 +946,8 @@ items:
       resolution: '2026-05-29: completed in pipeline run (commit=f6f3fa1, 14 files changed, 646 insertions(+), 1 deletion(-))'
       archived_date: "2026-05-29"
       done_summary: completed in pipeline run (commit=f6f3fa1, 14 files changed, 646 insertions(+), 1 deletion(-))
+    - key: REMOTE-MIRROR-SAFE-GUARDS
+      summary: Add safeguards and docs for remote mirror jobs that can delete live palace data
+      resolution: '2026-05-29: completed in pipeline run (commit=e7f524b, 22 files changed, 1654 insertions(+))'
+      archived_date: "2026-05-29"
+      done_summary: completed in pipeline run (commit=e7f524b, 22 files changed, 1654 insertions(+))

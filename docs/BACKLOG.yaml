@@ -42,14 +42,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: REMOTE-MIRROR-SAFE-GUARDS
-    summary: "Add safeguards and docs for remote mirror jobs that can delete live palace data"
-    section: storage_reliability
-    status: open
-    priority: P2
-    description: "The storage incident exposed a separate operator-risk class: delete-mode host mirroring can remove remote-owned palace data even when backup retention and Lance cleanup are healthy. Add explicit guidance and, where practical, a doctor/preflight warning for mirror jobs that sync whole MemPalace state across active hosts."
-    acceptance:
-      - "Backup/restore or operations docs distinguish managed backups from file mirroring, and warn that active palace/KG data should not be mirrored with delete semantics between independent hosts."
-      - "Recommended rsync examples exclude live palace directories, KG databases, configs, logs, and managed backups unless the operator is intentionally restoring from a known-good source."
-      - "A doctor/preflight path can flag common dangerous patterns such as delete-mode mirroring of a MemPalace state directory without explicit palace/KG excludes."
+items: []
