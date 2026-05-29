@@ -209,7 +209,9 @@ def test_restore_cli_explicit_palace_scopes_kg(
     # KG must be written to the custom palace, not to the global default
     assert os.path.isfile(scoped_kg), f"Expected KG at {scoped_kg}"
     with open(DEFAULT_KG_PATH, "rb") as f:
-        assert f.read() == sentinel_content, "DEFAULT_KG_PATH sentinel was overwritten by --palace restore"
+        assert f.read() == sentinel_content, (
+            "DEFAULT_KG_PATH sentinel was overwritten by --palace restore"
+        )
 
     # Verify the restored KG contains the expected data
     restored_kg = KnowledgeGraph(db_path=scoped_kg)
@@ -276,7 +278,9 @@ def test_restore_cli_kg_path_overrides_palace_scope(
     capsys.readouterr()
 
     assert os.path.isfile(explicit_kg), f"KG not written to explicit --kg-path {explicit_kg}"
-    assert not os.path.exists(scoped_kg), "KG must not be written to <palace>/knowledge_graph.sqlite3 when --kg-path overrides"
+    assert not os.path.exists(scoped_kg), (
+        "KG must not be written to <palace>/knowledge_graph.sqlite3 when --kg-path overrides"
+    )
 
     restored_kg = KnowledgeGraph(db_path=explicit_kg)
     triples = restored_kg.query_entity("Max")
@@ -298,7 +302,9 @@ def test_restore_cli_default_without_palace_keeps_default_kg(
     capsys.readouterr()
 
     # DEFAULT_KG_PATH is isolated by conftest HOME redirect; the KG must land there.
-    assert os.path.isfile(DEFAULT_KG_PATH), f"KG should be written to DEFAULT_KG_PATH {DEFAULT_KG_PATH}"
+    assert os.path.isfile(DEFAULT_KG_PATH), (
+        f"KG should be written to DEFAULT_KG_PATH {DEFAULT_KG_PATH}"
+    )
     restored_kg = KnowledgeGraph(db_path=DEFAULT_KG_PATH)
     triples = restored_kg.query_entity("Max")
     subjects_predicates = {(t["subject"], t["predicate"]) for t in triples}
