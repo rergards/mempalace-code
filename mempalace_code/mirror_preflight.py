@@ -152,7 +152,19 @@ def _is_env_assignment(tok: str) -> bool:
 def _skip_wrapper_flags(
     tokens: list[str], i: int, no_arg: frozenset[str], one_arg: frozenset[str]
 ) -> int:
-    """Advance i past known wrapper option flags, stopping at '--' (consumed) or a non-option."""
+    """Advance i past known wrapper option flags, stopping at '--' (consumed) or a non-option.
+
+    In addition to canonical separated forms (-n, --non-interactive, --user=root),
+    handles compact short-option bundles (-nE) and argument-attached forms (-uroot).
+    """
+    # Extract single-char short flag letters for compact-bundle parsing.
+    no_arg_chars: frozenset[str] = frozenset(
+        k[1] for k in no_arg if len(k) == 2 and k[0] == "-" and k[1] != "-"
+    )
+    one_arg_chars: frozenset[str] = frozenset(
+        k[1] for k in one_arg if len(k) == 2 and k[0] == "-" and k[1] != "-"
+    )
+
     while i < len(tokens):
         tok = tokens[i]
         if tok == "--":
@@ -163,6 +175,33 @@ def _skip_wrapper_flags(
             i += 2
         elif tok.startswith("--") and "=" in tok:
             i += 1  # --flag=value form
+        elif tok.startswith("-") and not tok.startswith("--") and len(tok) > 2:
+            # Compact short-option bundle: parse character by character.
+            # Each char must be a recognised no-arg or one-arg flag; an unrecognised
+            # char means the token is not a wrapper option and we stop.
+            chars = tok[1:]
+            j = 0
+            valid = True
+            consumed_next = False
+            while j < len(chars):
+                c = chars[j]
+                if c in no_arg_chars:
+                    j += 1
+                elif c in one_arg_chars:
+                    # Remaining chars after this position are the attached argument
+                    # value.  If this is the last char, the next token is the value.
+                    if j == len(chars) - 1:
+                        consumed_next = True
+                    break
+                else:
+                    valid = False
+                    break
+            if valid:
+                i += 1
+                if consumed_next:
+                    i += 1  # skip the following token (it is the option's argument)
+            else:
+                break
         else:
             break
     return i

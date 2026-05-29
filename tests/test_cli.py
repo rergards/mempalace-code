@@ -1393,6 +1393,49 @@ class TestMirrorPreflightCommand:
             f"Expected parse error message on stderr, got: {captured.err!r}"
         )
 
+    # === sudo combined-option tests (MIRROR-PREFLIGHT-SUDO-COMBINED-OPTS) ===
+
+    def test_sudo_combined_option_delete_mode_state_mirror_missing_excludes_exits_nonzero(
+        self, capsys
+    ):
+        """AC-1: compact sudo options wrapping a destructive state mirror are blocked.
+
+        Covers compact no-arg bundle (-nE), argument-attached one-arg (-uroot),
+        and mixed bundle (-nEuroot) so that token normalization reaches rsync for all forms.
+        """
+        cases = [
+            # compact no-arg bundle
+            "sudo -nE rsync -a --delete ~/.mempalace/ user@host:.mempalace/",
+            # argument-attached one-arg flag
+            "sudo -uroot rsync -a --delete ~/.mempalace/ user@host:.mempalace/",
+            # mixed: no-arg chars then one-arg with attached value
+            "sudo -nEuroot rsync -a --delete ~/.mempalace/ user@host:.mempalace/",
+        ]
+        for cmd in cases:
+            with patch.object(sys, "argv", ["mempalace", "preflight", "mirror", "--command", cmd]):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+            assert exc.value.code != 0, f"Expected nonzero exit for: {cmd!r}"
+            out = capsys.readouterr().out
+            assert "palace" in out, f"Expected 'palace' in output for: {cmd!r}, got: {out!r}"
+            assert "kg" in out, f"Expected 'kg' in output for: {cmd!r}, got: {out!r}"
+            assert "config" in out, f"Expected 'config' in output for: {cmd!r}, got: {out!r}"
+            assert "backups" in out, f"Expected 'backups' in output for: {cmd!r}, got: {out!r}"
+
+    def test_sudo_combined_option_safe_mirror_remains_ok(self, capsys):
+        """AC-2: sudo with compact options wrapping a non-delete state mirror exits 0 and prints OK."""
+        safe_cases = [
+            # compact no-arg bundle, no --delete flag
+            "sudo -nE rsync -a ~/.mempalace/ user@host:.mempalace/",
+            # argument-attached one-arg flag, no --delete flag
+            "sudo -uroot rsync -a ~/.mempalace/ user@host:.mempalace/",
+        ]
+        for cmd in safe_cases:
+            with patch.object(sys, "argv", ["mempalace", "preflight", "mirror", "--command", cmd]):
+                main()
+            out = capsys.readouterr().out
+            assert "OK" in out, f"Expected OK for: {cmd!r}, got: {out!r}"
+
 
 class TestMirrorDocs:
     """Assert that mirror-safety guidance is present in both README.md and docs/BACKUP_RESTORE.md.
