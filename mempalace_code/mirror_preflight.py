@@ -43,6 +43,9 @@ _ADVISORY_MATCHERS: dict[str, re.Pattern[str]] = {
 }
 
 DANGEROUS_PATTERN_ID = "delete-mode-state-mirror-missing-excludes"
+# --delete-excluded is unconditionally dangerous for state-dir mirrors: it removes
+# destination files matched by --exclude, so no exclude list can protect palace data.
+DELETE_EXCLUDED_PATTERN_ID = "delete-excluded-state-mirror"
 
 
 @dataclass
@@ -115,6 +118,19 @@ def classify_mirror_command(command: str) -> PreflightResult:
 
     if not _targets_state_dir(tokens):
         return PreflightResult(ok=True)
+
+    # --delete-excluded removes destination-side files matched by --exclude, so
+    # required excludes cannot protect palace data regardless of coverage.
+    if "--delete-excluded" in tokens:
+        return PreflightResult(
+            ok=False,
+            dangerous=True,
+            pattern_id=DELETE_EXCLUDED_PATTERN_ID,
+            warnings=[
+                "--delete-excluded removes destination-side files matched by --exclude; "
+                "no exclude list can protect palace data — use --delete and exclude all MemPalace families"
+            ],
+        )
 
     excludes = _extract_excludes(tokens)
 

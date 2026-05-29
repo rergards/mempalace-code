@@ -1243,6 +1243,50 @@ class TestMirrorPreflightCommand:
         mock_system.assert_not_called()
         mock_os_popen.assert_not_called()
 
+    def test_delete_excluded_always_blocked_even_with_all_excludes(self, capsys):
+        """F-1 regression: --delete-excluded removes destination-side excluded files, so
+        no exclude list can protect palace data — always blocked for state-dir mirrors."""
+        delete_excluded_full = (
+            "rsync -a --delete-excluded "
+            "--exclude=palace/ "
+            "--exclude=knowledge_graph.sqlite3 "
+            "--exclude=config.json "
+            "--exclude=backups/ "
+            "~/.mempalace/ user@host:.mempalace/"
+        )
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", delete_excluded_full]
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code != 0
+        out = capsys.readouterr().out
+        assert "delete-excluded-state-mirror" in out
+
+    def test_delete_excluded_json_output(self, capsys):
+        """F-1 regression (JSON path): --delete-excluded state mirror emits correct pattern_id."""
+        delete_excluded_cmd = "rsync -a --delete-excluded ~/.mempalace/ user@host:.mempalace/"
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "preflight", "mirror", "--json", "--command", delete_excluded_cmd],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code != 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["ok"] is False
+        assert data["pattern_id"] == "delete-excluded-state-mirror"
+
+    def test_delete_excluded_non_state_dir_remains_ok(self, capsys):
+        """--delete-excluded targeting a non-MemPalace directory must not be flagged."""
+        non_state_cmd = "rsync -a --delete-excluded /home/user/docs/ user@host:/backup/docs/"
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", non_state_cmd]
+        ):
+            main()
+        assert "OK" in capsys.readouterr().out
+
 
 class TestMirrorDocs:
     """Assert that mirror-safety guidance is present in both README.md and docs/BACKUP_RESTORE.md.
