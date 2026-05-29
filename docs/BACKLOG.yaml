@@ -42,12 +42,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: MIRROR-PREFLIGHT-WRAPPER-DETECTION
-    summary: "Detect wrapped destructive mirror commands in preflight mirror"
-    type: task
-    status: open
-    priority: medium
-    size: S
-    section_id: storage_reliability
-    description: "## Scope\n`mempalace-code preflight mirror --command` currently detects direct rsync-style delete mirrors, but hardening found wrapper forms such as `sudo rsync` can bypass command-shape detection. Extend parsing/classification to catch wrapper-prefixed destructive mirror commands without broadening false positives.\n\n## Acceptance criteria\n- Detect wrapper-prefixed destructive mirror commands such as `sudo rsync --delete ...` and equivalent shell-safe argv forms.\n- Keep direct safe commands accepted and direct destructive commands blocked.\n- Add focused CLI/unit coverage for direct and wrapped command forms.\n- Preserve backup-vs-mirror docs from `REMOTE-MIRROR-SAFE-GUARDS`.\n\n## Evidence\nAutopilot `REMOTE-MIRROR-SAFE-GUARDS` harden phase backlogged `MIRROR-PREFLIGHT-WRAPPER-DETECTION`; automatic harvest failed because section `operator-safety` is not valid in this repo."
+items: []

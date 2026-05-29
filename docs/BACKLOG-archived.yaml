@@ -951,3 +951,8 @@ items:
       resolution: '2026-05-29: completed in pipeline run (commit=e7f524b, 22 files changed, 1654 insertions(+))'
       archived_date: "2026-05-29"
       done_summary: completed in pipeline run (commit=e7f524b, 22 files changed, 1654 insertions(+))
+    - key: MIRROR-PREFLIGHT-WRAPPER-DETECTION
+      summary: Detect wrapped destructive mirror commands in preflight mirror
+      resolution: '2026-05-29: completed in pipeline run (commit=867ef57, 12 files changed, 732 insertions(+), 9 deletions(-))'
+      archived_date: "2026-05-29"
+      done_summary: completed in pipeline run (commit=867ef57, 12 files changed, 732 insertions(+), 9 deletions(-))
