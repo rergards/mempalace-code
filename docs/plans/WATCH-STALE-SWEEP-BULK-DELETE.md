@@ -5,11 +5,11 @@ risk: medium
 risk_note: "Touches the incremental stale deletion path and Lance delete predicates; scope is narrow, but source/wing isolation must be preserved for destructive storage operations."
 files:
   - path: mempalace_code/storage.py
-    change: "Add a bulk source-file deletion API with a LanceStore implementation that counts and deletes all requested source_file values for one wing with a single Lance predicate when possible, while keeping empty/no-match inputs as no-op deletes."
+    change: "Add a bulk source-file deletion API (`delete_by_source_files`) with a LanceStore implementation that dedupes the requested source_file values and deletes them in bounded batches — one `source_file IN (...) AND wing = ...` count/delete predicate per batch (default batch size 500, centralized and tunable) — so a stale set of thousands of files collapses to a small constant number of Lance versions instead of one-per-file, while keeping empty/no-match batches as no-op deletes."
   - path: mempalace_code/mining/orchestrator.py
     change: "Replace the initial full incremental stale-path loop's per-file drawer deletion with the new bulk source-file deletion call, preserving the existing stale-sweep guard, KG invalidation, and tiny-hash cleanup."
   - path: tests/test_storage.py
-    change: "Add focused LanceStore bulk-delete tests for multi-source deletion, no-op inputs, quote escaping, and wing scoping."
+    change: "Add focused LanceStore bulk-delete tests for multi-source deletion, no-op inputs, quote escaping, wing scoping, and a large stale set (a few thousand source files) proving the chunked delete returns the exact deleted-row count and produces a bounded number of Lance versions rather than one-per-file."
   - path: tests/test_miner.py
     change: "Add regression coverage proving the incremental stale sweep batches stale drawer deletion while changed-file and full-rebuild deletion paths retain existing behavior."
 acceptance:
@@ -28,9 +28,12 @@ acceptance:
   - id: AC-5
     when: "`python -m pytest tests/test_miner.py::test_incremental_detects_content_change tests/test_miner.py::test_incremental_full_flag_forces_rebuild -q` is run"
     then: "changed source files and explicit full rebuilds still replace existing drawers without relying on the stale-file sweep path"
+  - id: AC-6
+    when: "`python -m pytest tests/test_storage.py::TestDeleteBySourceFiles::test_large_stale_set_deletes_in_bounded_batches -q` is run"
+    then: "deleting a few thousand source files in one wing removes all matching rows, returns the exact deleted-row count, and produces a bounded number of Lance versions (at most ceil(n / batch_size) deletes plus a small constant), not one Lance version per source file"
 out_of_scope:
   - "Changing watch event filtering, debounce timing, startup backup/recovery behavior, or optimize/cleanup scheduling."
-  - "Changing chunking, embeddings, source hashing, source_file metadata shape, or Lance table schema."
+  - "Changing document/content chunking, embeddings, source hashing, source_file metadata shape, or Lance table schema. (The new delete-batch chunking inside the bulk-delete API is in scope and is a separate concept.)"
   - "Bulk invalidating knowledge-graph triples; KG invalidation may remain per stale source because the reported hotspot is Lance drawer deletion versions."
   - "Backlog completion, archive metadata, or any docs/BACKLOG.yaml changes."
 contract_policy:
@@ -58,11 +61,15 @@ task_contract:
       statement: "Changed-file reindexing and explicit full rebuild deletion behavior must remain separate from the stale-file sweep optimization."
       source: "regression acceptance"
       acceptance_ids: [AC-5]
+    - id: REQ-5
+      statement: "At the scale that triggered the incident (thousands of stale files), bulk deletion must produce a small bounded number of Lance versions, not one per stale file; this is enforced by deduping and chunking the stale set into bounded batches inside storage.py."
+      source: "backlog description (Lance versions climbed into the thousands)"
+      acceptance_ids: [AC-6]
   surfaces:
     - name: "Storage source deletion API"
       kind: store
       paths: ["mempalace_code/storage.py"]
-      expected_behavior: "DrawerStore exposes delete_by_source_files(source_files, wing); LanceStore implements it with one count/delete predicate for the requested source set and wing, while empty/no-match inputs do not mutate Lance."
+      expected_behavior: "DrawerStore exposes delete_by_source_files(source_files, wing); LanceStore dedupes the source set and implements it with one count/delete predicate per bounded batch (default 500) so thousands of stale files collapse to a small constant number of Lance versions, while empty/no-match batches do not mutate Lance."
     - name: "Incremental stale sweep"
       kind: internal
       paths: ["mempalace_code/mining/orchestrator.py"]
@@ -70,7 +77,7 @@ task_contract:
     - name: "Storage regression tests"
       kind: store
       paths: ["tests/test_storage.py"]
-      expected_behavior: "Tests prove the Lance bulk-delete predicate removes all requested stale source rows, returns the correct count, skips no-op deletes, escapes quotes, and stays wing-scoped."
+      expected_behavior: "Tests prove the Lance bulk-delete predicate removes all requested stale source rows, returns the correct count, skips no-op deletes, escapes quotes, stays wing-scoped, and at a few-thousand-file stale set produces a bounded number of Lance versions instead of one-per-file."
     - name: "Miner regression tests"
       kind: internal
       paths: ["tests/test_miner.py"]
@@ -99,8 +106,8 @@ task_contract:
       risk: "Optimizing the stale sweep could accidentally change modified-file replacement behavior."
       mitigation: "Limit orchestrator changes to stale_paths after the main scan and keep changed-file/full-rebuild regression tests in the verification path."
     - id: RISK-4
-      risk: "Very large stale sets could produce a long Lance predicate."
-      mitigation: "Keep predicate construction centralized in storage.py so chunking can be added there if Lance rejects a real-world predicate length, without changing miner control flow."
+      risk: "Very large stale sets (the incident scale — thousands of files) could produce a single oversized Lance/DataFusion predicate that is rejected or pathologically slow, leaving the reported scenario unresolved."
+      mitigation: "Dedupe and chunk the stale set into bounded batches (default 500) inside storage.py, issuing one predicate per batch so version count is ceil(n / batch_size) regardless of stale-set size; batch size is centralized and tunable, and AC-6/VER-6 exercise a few-thousand-file set to prove acceptance, correct count, and bounded versions. Miner control flow is unchanged — it still calls delete_by_source_files once."
   verification:
     - id: VER-1
       command: "python -m pytest tests/test_miner.py::test_incremental_stale_sweep_deletes_stale_sources_in_one_bulk_call -q"
@@ -122,6 +129,10 @@ task_contract:
       command: "python -m pytest tests/test_miner.py::test_incremental_detects_content_change tests/test_miner.py::test_incremental_full_flag_forces_rebuild -q"
       proves: "Existing modified-file and explicit full-rebuild deletion behavior remains intact."
       acceptance_ids: [AC-5]
+    - id: VER-6
+      command: "python -m pytest tests/test_storage.py::TestDeleteBySourceFiles::test_large_stale_set_deletes_in_bounded_batches -q"
+      proves: "A few-thousand-file stale set is accepted, deletes all matching rows with the exact count, and produces a bounded number of Lance versions instead of one-per-file."
+      acceptance_ids: [AC-6]
   regression_plan:
     applies: true
     no_behavior_change_exception: ""
@@ -134,13 +145,26 @@ task_contract:
         command: "python -m pytest tests/test_storage.py::TestDeleteBySourceFile -q"
         proves: "The existing single-source deletion API still returns counts, handles quotes, and remains wing-scoped for callers outside the stale sweep."
         acceptance_ids: [AC-2, AC-4]
+      - id: REG-3
+        command: "python -m pytest tests/test_storage.py::TestDeleteBySourceFiles::test_empty_or_nonmatching_source_files_do_not_delete -q"
+        proves: "Empty and no-match bulk-delete inputs return 0 without calling table.delete, so no no-op Lance version is created."
+        acceptance_ids: [AC-3]
+      - id: REG-4
+        command: "python -m pytest tests/test_miner.py::test_incremental_detects_content_change tests/test_miner.py::test_incremental_full_flag_forces_rebuild -q"
+        proves: "Modified-file reindexing and explicit full-rebuild deletion stay separate from the stale-file sweep and continue to replace drawers correctly."
+        acceptance_ids: [AC-5]
+      - id: REG-5
+        command: "python -m pytest tests/test_storage.py::TestDeleteBySourceFiles::test_large_stale_set_deletes_in_bounded_batches -q"
+        proves: "Incident-scale stale sets keep deleting in bounded batches with the correct count and a bounded number of Lance versions."
+        acceptance_ids: [AC-6]
 ---
 
 ## Design Notes
 
 - Keep the current stale-sweep placement: after any pending drawer batch flush and only under `incremental and limit == 0`.
-- Add `delete_by_source_files(source_files, wing)` to the storage abstraction with a generic fallback, then implement the Lance path with deduped source paths and one `source_file IN (...) AND wing = ...` predicate.
-- Count before deleting and skip `table.delete` when the source set is empty or when the count is zero; this avoids creating no-op Lance versions.
+- Add `delete_by_source_files(source_files, wing)` to the storage abstraction with a generic fallback, then implement the Lance path with deduped source paths chunked into bounded batches (default 500, a centralized/tunable constant in `storage.py`), issuing one `source_file IN (...) AND wing = ...` predicate per batch. This makes the Lance version count `ceil(n / batch_size)` rather than one-per-file, which is what actually resolves the reported incident (versions climbing into the thousands), and sidesteps the risk of a single oversized DataFusion predicate being rejected or running pathologically slowly.
+- Count before deleting and skip `table.delete` for any empty batch or a batch whose count is zero; this avoids creating no-op Lance versions.
+- Verification boundary: the large-N storage test (AC-6/VER-6) exercises a few-thousand-file stale set against a real LanceDB table to prove predicate acceptance, exact count, and bounded version growth. This is verified at the storage layer; it is not an end-to-end watcher run against the remote `/srv/dev` corpus that triggered the incident.
 - Do not route modified-file reindexing or `incremental=False` rebuilds through the stale sweep. Those paths delete exactly the source file being reprocessed and should stay easy to reason about.
 - Leave KG stale invalidation as a per-source loop for now. It does not create Lance versions, and widening it would add a second destructive API surface outside the reported hotspot.
 - Remove stale tiny-hash sidecar entries exactly as today; tiny-only stale files are not present in `existing_hashes`, so they should not trigger a Lance delete.
