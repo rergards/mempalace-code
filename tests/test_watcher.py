@@ -1542,8 +1542,9 @@ class TestWatchAllInitializedRoot:
         assert len(mine_calls) >= 1
         assert mine_calls[0]["project_dir"] == str(project)
         assert mine_calls[0]["wing_override"] == "root_wing"
-        # The root directory must be passed to watchfiles, not a parent
-        assert any(str(project) in p for p in watch_paths_seen)
+        # The root directory must be passed to watchfiles, not a parent or child path
+        resolved = str(Path(str(project)).resolve())
+        assert resolved in watch_paths_seen
 
     def test_uninitialized_project_root_prints_actionable_init_command(self, tmp_path, capsys):
         """AC-2: project root with project markers but no init file exits 1 with init command."""

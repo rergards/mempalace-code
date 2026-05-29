@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/WATCH-INITIALIZED-ROOT-UX-round-1.md",
+    "tests/test_watcher.py"
+  ],
+  "before_sha": "559fa71",
+  "timestamp": "2026-05-29T09:15:48Z"
+}
