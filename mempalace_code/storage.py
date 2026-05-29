@@ -717,7 +717,7 @@ class LanceStore(DrawerStore):
 
         for i in range(0, len(paths), BULK_DELETE_BATCH_SIZE):
             batch = paths[i : i + BULK_DELETE_BATCH_SIZE]
-            escaped_items = ", ".join(f"'{p.replace(chr(39), chr(39) * 2)}'" for p in batch)
+            escaped_items = ", ".join("'" + p.replace("'", "''") + "'" for p in batch)
             predicate = f"source_file IN ({escaped_items}) AND wing = '{escaped_wing}'"
             count = table.count_rows(predicate)
             if count == 0:
