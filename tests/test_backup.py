@@ -1483,3 +1483,15 @@ class TestPreWatchBackups:
             if f.startswith("pre_watch_") and f.endswith(".tar.gz")
         ]
         assert len(remaining) == count
+
+    def test_concurrent_pre_watch_backups_produce_distinct_filenames(
+        self, seeded_collection, palace_path, tmp_dir
+    ):
+        """F-2: Two pre_watch backups created in quick succession produce distinct filenames."""
+        kg_path = os.path.join(tmp_dir, "kg.sqlite3")
+        _, path1 = create_backup(palace_path, kind="pre_watch", kg_path=kg_path)
+        _, path2 = create_backup(palace_path, kind="pre_watch", kg_path=kg_path)
+
+        assert path1 != path2, "rapid pre-watch backups must produce unique filenames"
+        assert os.path.isfile(path1), "first archive must still exist (not overwritten)"
+        assert os.path.isfile(path2), "second archive must exist"

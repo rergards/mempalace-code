@@ -1437,6 +1437,73 @@ class TestWatchInitialMineRecovery:
         assert not backup_called, "no pre-watch backup for first-ever palace"
         assert mine_calls, "initial mine should still run"
 
+    def test_non_lance_file_not_found_does_not_trigger_rollback(self, tmp_path, capsys):
+        """F-1: FileNotFoundError from a source file outside palace/lance does not trigger rollback."""
+        palace = tmp_path / "palace"
+        palace.mkdir()
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        rollback_called = []
+        fake_store = MagicMock()
+        fake_store.recover_to_last_working_version.side_effect = (
+            lambda **kw: rollback_called.append(1) or {"recovered": False}
+        )
+
+        # Simulate a Python FileNotFoundError from the miner reading a source file
+        source_exc = FileNotFoundError(2, "No such file or directory", str(project / "src.py"))
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=source_exc),
+            patch("mempalace_code.storage.open_store", return_value=fake_store),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                watch_and_mine(str(project), str(palace))
+
+        assert exc_info.value.code == 1
+        assert not rollback_called, "Lance rollback must NOT fire for source-file FileNotFoundError"
+
+    def test_recovery_commands_quote_paths_with_spaces(self, tmp_path, capsys):
+        """F-3: Palace or archive paths containing spaces are shell-quoted in recovery output."""
+        palace = tmp_path / "my palace"
+        palace.mkdir()
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        backup_archive = str(tmp_path / "my backups" / "pre_watch_20260101_120000.tar.gz")
+
+        def fake_create_backup(palace_path, kind=None, **kwargs):
+            return {}, backup_archive
+
+        fake_store = MagicMock()
+        fake_store.recover_to_last_working_version.return_value = {
+            "recovered": False,
+            "candidate_version": None,
+        }
+
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        with (
+            patch("mempalace_code.watcher.create_backup", side_effect=fake_create_backup),
+            patch(
+                "mempalace_code.watcher.mine",
+                side_effect=Exception("no such file: fragment.lance"),
+            ),
+            patch("mempalace_code.storage.open_store", return_value=fake_store),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            with pytest.raises(SystemExit):
+                watch_and_mine(str(project), str(palace))
+
+        out = capsys.readouterr()
+        all_output = out.out + out.err
+        # Palace path with spaces must be shell-quoted in recovery commands
+        assert shlex.quote(str(palace)) in all_output
+        assert "repair --rollback --dry-run" in all_output
+
 
 # ---------------------------------------------------------------------------
 # watch_all startup recovery tests (AC-6)

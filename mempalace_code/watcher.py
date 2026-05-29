@@ -11,6 +11,7 @@ Install the optional extra before use:
 
 import json
 import os
+import shlex
 import signal
 import sys
 import threading
@@ -458,20 +459,34 @@ def _has_existing_lance_data(palace_path: str) -> bool:
         return False
 
 
-def _is_mine_missing_fragment(exc: Exception) -> bool:
-    """Return True when the exception message matches the Lance missing-fragment string family."""
+def _is_mine_missing_fragment(exc: Exception, palace_path: str) -> bool:
+    """Return True when the exception looks like a Lance missing-fragment error.
+
+    Excludes Python FileNotFoundError raised for paths outside the palace's lance directory —
+    those come from source files the miner tried to read, not from Lance internals.
+    """
     msg = str(exc).lower()
-    return any(s in msg for s in ("no such file", "object not found", "io error", "not found"))
+    if not any(s in msg for s in ("no such file", "object not found", "io error", "not found")):
+        return False
+    # A Python FileNotFoundError whose filename is outside <palace>/lance/ is a
+    # source-file read failure, not a Lance fragment error — don't roll back the palace.
+    if isinstance(exc, FileNotFoundError) and exc.filename:
+        lance_dir = str(Path(palace_path) / "lance")
+        if not str(exc.filename).startswith(lance_dir):
+            return False
+    return True
 
 
 def _print_recovery_commands(palace_path: str, pre_watch_archive: Optional[str]) -> None:
     """Print operator-safe recovery commands for degraded watcher startup."""
+    q_palace = shlex.quote(palace_path)
     print("  To diagnose and recover, run:", flush=True)
-    print(f"    mempalace-code --palace {palace_path} health", flush=True)
-    print(f"    mempalace-code --palace {palace_path} repair --rollback --dry-run", flush=True)
+    print(f"    mempalace-code --palace {q_palace} health", flush=True)
+    print(f"    mempalace-code --palace {q_palace} repair --rollback --dry-run", flush=True)
     if pre_watch_archive:
+        q_archive = shlex.quote(pre_watch_archive)
         print(
-            f"    mempalace-code --palace {palace_path} restore {pre_watch_archive} --force",
+            f"    mempalace-code --palace {q_palace} restore {q_archive} --force",
             flush=True,
         )
     print("  Watcher did not start.", flush=True)
@@ -494,7 +509,7 @@ def _run_initial_mine_with_recovery(
     try:
         return _quiet_mine(**mine_kwargs) or {}
     except Exception as exc:
-        if not _is_mine_missing_fragment(exc):
+        if not _is_mine_missing_fragment(exc, palace_path):
             print(
                 f"  Error{wing_prefix}: initial mine failed: {exc}",
                 file=sys.stderr,

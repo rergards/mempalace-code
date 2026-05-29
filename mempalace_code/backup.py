@@ -92,8 +92,8 @@ def prune_managed_backups(backups_dir: str, kind: str, retain_count: int) -> Lis
             logger.warning("Backup pruning: could not stat %s: %s", fpath, exc)
 
     # Sort newest-first by mtime, then by filename DESC as a stable secondary key.
-    # All managed prefixes embed a sortable YYYYMMDD_HHMMSS timestamp, so DESC filename
-    # also corresponds to "newer first" when mtimes tie (e.g. same-second creation).
+    # All managed prefixes embed a sortable YYYYMMDD_HHMMSS_ffffff timestamp, so DESC filename
+    # also corresponds to "newer first" when mtimes tie (e.g. same-microsecond creation).
     candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
 
     pruned = []
@@ -165,7 +165,7 @@ def create_backup(
     # Determine output path and whether this is a managed-dir backup.
     _managed_dir: Optional[str]
     if out_path is None:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
         os.makedirs(backups_dir, exist_ok=True)
         os.chmod(backups_dir, 0o700)  # F-9: restrict to owner only
