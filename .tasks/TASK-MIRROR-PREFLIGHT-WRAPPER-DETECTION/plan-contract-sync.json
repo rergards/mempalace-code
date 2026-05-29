@@ -1,0 +1,131 @@
+{
+  "passed": true,
+  "slug": "MIRROR-PREFLIGHT-WRAPPER-DETECTION",
+  "planned_files": [
+    "mempalace_code/mirror_preflight.py",
+    "tests/test_cli.py"
+  ],
+  "actual_files": [
+    ".tasks/TASK-MIRROR-PREFLIGHT-WRAPPER-DETECTION/polish-scope.json",
+    "docs/audits/MIRROR-PREFLIGHT-WRAPPER-DETECTION-round-1.md",
+    "mempalace_code/mirror_preflight.py",
+    "tests/test_cli.py"
+  ],
+  "planned_verification": [
+    "python -m pytest tests/test_cli.py::TestHealthCommand tests/test_cli.py::TestBackupCommand -q",
+    "python -m pytest tests/test_cli.py::TestMirrorDocs -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_env_wrapped_delete_excluded_state_mirror_exits_nonzero -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_malformed_wrapper_shell_text_reports_parse_error -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_non_state_or_no_delete_commands_remain_ok tests/test_cli.py::TestMirrorPreflightCommand::test_delete_mode_state_mirror_missing_excludes_exits_nonzero tests/test_cli.py::TestMirrorDocs -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_simple_shell_wrapped_delete_mode_state_mirror_is_classified -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_sudo_wrapped_delete_mode_state_mirror_missing_excludes_exits_nonzero -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_wrapped_non_state_or_no_delete_commands_remain_ok -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_wrapped_safe_mirror_with_required_excludes_exits_zero -q"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_cli.py::TestHealthCommand tests/test_cli.py::TestBackupCommand -q",
+    "python -m pytest tests/test_cli.py::TestMirrorDocs -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand tests/test_cli.py::TestMirrorDocs tests/test_cli.py::TestHealthCommand tests/test_cli.py::TestBackupCommand -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_env_wrapped_delete_excluded_state_mirror_exits_nonzero -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_malformed_wrapper_shell_text_reports_parse_error -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_non_state_or_no_delete_commands_remain_ok tests/test_cli.py::TestMirrorPreflightCommand::test_delete_mode_state_mirror_missing_excludes_exits_nonzero tests/test_cli.py::TestMirrorDocs -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_simple_shell_wrapped_delete_mode_state_mirror_is_classified -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_sudo_wrapped_delete_mode_state_mirror_missing_excludes_exits_nonzero -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_wrapped_non_state_or_no_delete_commands_remain_ok -q",
+    "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_wrapped_safe_mirror_with_required_excludes_exits_zero -q",
+    "ruff check mempalace/ tests/",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_wrapped_safe_mirror_with_required_excludes_exits_zero -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_wrapped_safe_mirror_with_required_excludes_exits_zero -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_sudo_wrapped_delete_mode_state_mirror_missing_excludes_exits_nonzero -q",
+      "matched": "implement-result.json#verification_evidence[1] command=python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_sudo_wrapped_delete_mode_state_mirror_missing_excludes_exits_nonzero -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_env_wrapped_delete_excluded_state_mirror_exits_nonzero -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_env_wrapped_delete_excluded_state_mirror_exits_nonzero -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_simple_shell_wrapped_delete_mode_state_mirror_is_classified -q",
+      "matched": "implement-result.json#verification_evidence[3] command=python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_simple_shell_wrapped_delete_mode_state_mirror_is_classified -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-5",
+      "planned": "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_wrapped_non_state_or_no_delete_commands_remain_ok -q",
+      "matched": "implement-result.json#verification_evidence[4] command=python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_wrapped_non_state_or_no_delete_commands_remain_ok -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-6",
+      "planned": "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_malformed_wrapper_shell_text_reports_parse_error -q",
+      "matched": "implement-result.json#verification_evidence[5] command=python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_malformed_wrapper_shell_text_reports_parse_error -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-7",
+      "planned": "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_non_state_or_no_delete_commands_remain_ok tests/test_cli.py::TestMirrorPreflightCommand::test_delete_mode_state_mirror_missing_excludes_exits_nonzero tests/test_cli.py::TestMirrorDocs -q",
+      "matched": "implement-result.json#verification_evidence[6] command=python -m pytest tests/test_cli.py::TestMirrorPreflightCommand::test_non_state_or_no_delete_commands_remain_ok tests/test_cli.py::TestMirrorPreflightCommand::test_delete_mode_state_mirror_missing_excludes_exits_nonzero tests/test_cli.py::TestMirrorDocs -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_cli.py::TestMirrorPreflightCommand -q",
+      "matched": "implement-result.json#verification_evidence[7] command=python -m pytest tests/test_cli.py::TestMirrorPreflightCommand -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python -m pytest tests/test_cli.py::TestMirrorDocs -q",
+      "matched": "implement-result.json#verification_evidence[8] command=python -m pytest tests/test_cli.py::TestMirrorDocs -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "python -m pytest tests/test_cli.py::TestHealthCommand tests/test_cli.py::TestBackupCommand -q",
+      "matched": "implement-result.json#verification_evidence[9] command=python -m pytest tests/test_cli.py::TestHealthCommand tests/test_cli.py::TestBackupCommand -q",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/MIRROR-PREFLIGHT-WRAPPER-DETECTION-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening round audit report required by harden phase protocol.",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7"
+      ],
+      "check_ids": [
+        "REG-1"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/MIRROR-PREFLIGHT-WRAPPER-DETECTION- prefix"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}
