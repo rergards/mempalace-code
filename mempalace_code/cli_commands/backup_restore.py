@@ -136,7 +136,7 @@ def cmd_restore(args):
     # Resolve KG destination: explicit --kg-path wins; explicit --palace scopes KG
     # to <palace>/knowledge_graph.sqlite3; no --palace preserves restore_backup() default.
     kg_path: str | None
-    if getattr(args, "kg_path", None) is not None:
+    if args.kg_path is not None:
         kg_path = os.path.expanduser(args.kg_path)
     elif args.palace is not None:
         kg_path = os.path.join(palace_path, "knowledge_graph.sqlite3")

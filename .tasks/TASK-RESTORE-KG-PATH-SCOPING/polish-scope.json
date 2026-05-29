@@ -1,0 +1,10 @@
+{
+  "phase": "polish",
+  "files": [
+    "docs/audits/RESTORE-KG-PATH-SCOPING-polish-1.md",
+    "mempalace_code/cli_commands/backup_restore.py",
+    "tests/test_backup_cli.py"
+  ],
+  "before_sha": "55b53cc",
+  "timestamp": "2026-05-29T08:46:43Z"
+}

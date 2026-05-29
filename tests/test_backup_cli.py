@@ -237,9 +237,8 @@ def test_restore_cli_refusal_does_not_touch_kg(
     with open(scoped_kg, "wb") as f:
         f.write(sentinel_content)
 
-    default_sentinel = DEFAULT_KG_PATH
-    os.makedirs(os.path.dirname(os.path.abspath(default_sentinel)), exist_ok=True)
-    with open(default_sentinel, "wb") as f:
+    os.makedirs(os.path.dirname(os.path.abspath(DEFAULT_KG_PATH)), exist_ok=True)
+    with open(DEFAULT_KG_PATH, "wb") as f:
         f.write(sentinel_content)
 
     # Attempt refused restore
@@ -251,7 +250,7 @@ def test_restore_cli_refusal_does_not_touch_kg(
     # Neither sentinel should have been modified
     with open(scoped_kg, "rb") as f:
         assert f.read() == sentinel_content, "scoped KG sentinel was modified"
-    with open(default_sentinel, "rb") as f:
+    with open(DEFAULT_KG_PATH, "rb") as f:
         assert f.read() == sentinel_content, "DEFAULT_KG_PATH sentinel was modified"
 
 
