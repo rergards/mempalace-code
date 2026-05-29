@@ -1500,7 +1500,6 @@ class TestWatchInitialMineRecovery:
 
         out = capsys.readouterr()
         all_output = out.out + out.err
-        # Palace path with spaces must be shell-quoted in recovery commands
         assert shlex.quote(str(palace)) in all_output
         assert "repair --rollback --dry-run" in all_output
 

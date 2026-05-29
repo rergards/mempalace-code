@@ -1,0 +1,9 @@
+{
+  "phase": "polish",
+  "files": [
+    "docs/audits/WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK-polish-1.md",
+    "tests/test_watcher.py"
+  ],
+  "before_sha": "699c49c",
+  "timestamp": "2026-05-29T07:45:30Z"
+}
