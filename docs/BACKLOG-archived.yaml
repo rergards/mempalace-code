@@ -941,3 +941,8 @@ items:
       resolution: '2026-05-29: completed in pipeline run (commit=5fe84f9, 18 files changed, 755 insertions(+), 38 deletions(-))'
       archived_date: "2026-05-29"
       done_summary: completed in pipeline run (commit=5fe84f9, 18 files changed, 755 insertions(+), 38 deletions(-))
+    - key: WATCH-STALE-SWEEP-BULK-DELETE
+      summary: Make watch initial stale-file sweep delete in bulk instead of one Lance version per stale file
+      resolution: '2026-05-29: completed in pipeline run (commit=f6f3fa1, 14 files changed, 646 insertions(+), 1 deletion(-))'
+      archived_date: "2026-05-29"
+      done_summary: completed in pipeline run (commit=f6f3fa1, 14 files changed, 646 insertions(+), 1 deletion(-))

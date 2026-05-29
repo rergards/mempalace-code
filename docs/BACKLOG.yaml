@@ -43,16 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: WATCH-STALE-SWEEP-BULK-DELETE
-    summary: "Make watch initial stale-file sweep delete in bulk instead of one Lance version per stale file"
-    section: storage_reliability
-    status: open
-    priority: P1
-    description: "Remote /srv/dev watcher initial mine remained healthy but spent more than 20 minutes in the initial pass while row count slowly decreased and Lance versions climbed into the thousands. The likely hotspot is per-source stale deletion creating one Lance version/deletion file per stale path."
-    acceptance:
-      - "Stale-file sweep batches deletes or uses a single predicate per wing where possible."
-      - "A regression covers many stale source files and asserts version growth is bounded."
-      - "Remote-size initial watch reaches the watch loop in a predictable time budget after the fix."
   - key: REMOTE-MIRROR-SAFE-GUARDS
     summary: "Add safeguards and docs for remote mirror jobs that can delete live palace data"
     section: storage_reliability
