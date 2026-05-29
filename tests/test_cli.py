@@ -1410,6 +1410,8 @@ class TestMirrorPreflightCommand:
             "sudo -uroot rsync -a --delete ~/.mempalace/ user@host:.mempalace/",
             # mixed: no-arg chars then one-arg with attached value
             "sudo -nEuroot rsync -a --delete ~/.mempalace/ user@host:.mempalace/",
+            # one-arg flag at last bundle position, value as separate next token (consumed_next path)
+            "sudo -nu root rsync -a --delete ~/.mempalace/ user@host:.mempalace/",
         ]
         for cmd in cases:
             with patch.object(sys, "argv", ["mempalace", "preflight", "mirror", "--command", cmd]):
@@ -1429,6 +1431,8 @@ class TestMirrorPreflightCommand:
             "sudo -nE rsync -a ~/.mempalace/ user@host:.mempalace/",
             # argument-attached one-arg flag, no --delete flag
             "sudo -uroot rsync -a ~/.mempalace/ user@host:.mempalace/",
+            # one-arg flag at last bundle position, value as separate next token (consumed_next path)
+            "sudo -nu root rsync -a ~/.mempalace/ user@host:.mempalace/",
         ]
         for cmd in safe_cases:
             with patch.object(sys, "argv", ["mempalace", "preflight", "mirror", "--command", cmd]):

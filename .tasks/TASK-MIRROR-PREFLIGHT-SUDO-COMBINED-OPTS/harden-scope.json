@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/MIRROR-PREFLIGHT-SUDO-COMBINED-OPTS-round-1.md",
+    "tests/test_cli.py"
+  ],
+  "before_sha": "1d953fe",
+  "timestamp": "2026-05-29T11:17:10Z"
+}
