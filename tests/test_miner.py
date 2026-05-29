@@ -1627,9 +1627,7 @@ def test_incremental_stale_sweep_deletes_stale_sources_in_one_bulk_call():
             mine(str(project_root), palace_path)
 
         # Stale sweep must call delete_by_source_files exactly once with both stale paths
-        stale_sweep_calls = [
-            (paths, w) for paths, w in bulk_delete_calls if paths
-        ]
+        stale_sweep_calls = [(paths, w) for paths, w in bulk_delete_calls if paths]
         assert len(stale_sweep_calls) == 1, (
             f"expected one bulk delete call for stale sweep, got {len(stale_sweep_calls)}: {stale_sweep_calls}"
         )

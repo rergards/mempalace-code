@@ -1118,7 +1118,12 @@ class TestDeleteBySourceFiles:
         store = open_store(palace_path, create=True)
         store.add(
             ids=["f1c0", "f1c1", "f2c0", "other"],
-            documents=["file1 chunk0 content", "file1 chunk1 content", "file2 chunk0 content", "other file content"],
+            documents=[
+                "file1 chunk0 content",
+                "file1 chunk1 content",
+                "file2 chunk0 content",
+                "other file content",
+            ],
             metadatas=[
                 {"wing": "w", "room": "r", "source_file": "/src/file1.py"},
                 {"wing": "w", "room": "r", "source_file": "/src/file1.py"},
