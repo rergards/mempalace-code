@@ -1,0 +1,5 @@
+README.md
+docs/AGENT_INSTALL.md
+mempalace_code/cli.py
+mempalace_code/watcher.py
+tests/test_watcher.py
