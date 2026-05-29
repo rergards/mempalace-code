@@ -1543,7 +1543,7 @@ class TestWatchAllInitializedRoot:
         assert mine_calls[0]["project_dir"] == str(project)
         assert mine_calls[0]["wing_override"] == "root_wing"
         # The root directory must be passed to watchfiles, not a parent or child path
-        resolved = str(Path(str(project)).resolve())
+        resolved = str(project.resolve())
         assert resolved in watch_paths_seen
 
     def test_uninitialized_project_root_prints_actionable_init_command(self, tmp_path, capsys):
