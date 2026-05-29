@@ -1,5 +1,3 @@
-"""Preflight command handlers: preflight mirror."""
-
 import json
 import sys
 

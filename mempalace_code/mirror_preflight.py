@@ -59,7 +59,6 @@ class PreflightResult:
 
 
 def _extract_excludes(tokens: list[str]) -> list[str]:
-    """Return all --exclude values from an rsync token list."""
     excludes: list[str] = []
     i = 0
     while i < len(tokens):
@@ -78,7 +77,6 @@ def _has_delete_semantics(tokens: list[str]) -> bool:
 
 
 def _targets_state_dir(tokens: list[str]) -> bool:
-    """Return True if any non-flag argument references a MemPalace state directory."""
     for tok in tokens[1:]:  # skip command name
         if not tok.startswith("-") and _MEMPALACE_STATE_RE.search(tok):
             return True
@@ -107,12 +105,10 @@ def classify_mirror_command(command: str) -> PreflightResult:
     if not tokens:
         return PreflightResult(ok=False, parse_error="empty command")
 
-    # Only inspect rsync commands
     cmd_basename = tokens[0].split("/")[-1]
     if cmd_basename != "rsync":
         return PreflightResult(ok=True)
 
-    # Only flag delete-mode commands targeting the MemPalace state dir
     if not _has_delete_semantics(tokens):
         return PreflightResult(ok=True)
 
