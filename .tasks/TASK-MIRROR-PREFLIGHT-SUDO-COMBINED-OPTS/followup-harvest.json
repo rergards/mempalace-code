@@ -1,0 +1,14 @@
+{
+  "slug": "MIRROR-PREFLIGHT-SUDO-COMBINED-OPTS",
+  "added": [],
+  "warnings": [],
+  "sources": [
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/MIRROR-PREFLIGHT-SUDO-COMBINED-OPTS-round-1.md"
+  ]
+}
