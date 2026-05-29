@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-29 · WATCH-INITIALIZED-ROOT-UX
+
+`watch` now mines and watches an initialized root directory directly, and emits a clear diagnostic when no projects are found.
+
 ## 2026-05-29 · RESTORE-KG-PATH-SCOPING
 
 Fix `restore` to scope KG writes to the `--palace` path instead of the global default.
