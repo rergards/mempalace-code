@@ -1287,6 +1287,103 @@ class TestMirrorPreflightCommand:
             main()
         assert "OK" in capsys.readouterr().out
 
+    # === Wrapper-prefix tests (MIRROR-PREFLIGHT-WRAPPER-DETECTION) ===
+
+    def test_wrapped_safe_mirror_with_required_excludes_exits_zero(self, capsys):
+        """AC-1: wrapper-prefixed rsync --delete state mirror with all required excludes is accepted."""
+        wrapped_safe = (
+            "sudo rsync -a --delete "
+            "--exclude=palace/ "
+            "--exclude=knowledge_graph.sqlite3 "
+            "--exclude=config.json "
+            "--exclude=backups/ "
+            "~/.mempalace/ user@host:.mempalace/"
+        )
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", wrapped_safe]
+        ):
+            main()
+        assert "OK" in capsys.readouterr().out
+
+    def test_sudo_wrapped_delete_mode_state_mirror_missing_excludes_exits_nonzero(self, capsys):
+        """AC-2: sudo rsync --delete state mirror without excludes is blocked; reports all missing families."""
+        sudo_dangerous = "sudo rsync -a --delete ~/.mempalace/ user@host:.mempalace/"
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", sudo_dangerous]
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code != 0
+        out = capsys.readouterr().out
+        assert "palace" in out
+        assert "kg" in out
+        assert "config" in out
+        assert "backups" in out
+
+    def test_env_wrapped_delete_excluded_state_mirror_exits_nonzero(self, capsys):
+        """AC-3: env VAR=value rsync --delete-excluded state mirror is blocked with delete-excluded pattern."""
+        env_dangerous = (
+            "env VAR=value rsync -a --delete-excluded ~/.mempalace/ user@host:.mempalace/"
+        )
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", env_dangerous]
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code != 0
+        out = capsys.readouterr().out
+        assert "delete-excluded-state-mirror" in out
+
+    def test_simple_shell_wrapped_delete_mode_state_mirror_is_classified(self, capsys):
+        """AC-4: sh -c and bash -c wrappers around a destructive rsync are classified by the guard."""
+        for shell in ("sh", "bash"):
+            cmd = f"{shell} -c 'rsync -a --delete ~/.mempalace/ user@host:.mempalace/'"
+            with patch.object(sys, "argv", ["mempalace", "preflight", "mirror", "--command", cmd]):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+            assert exc.value.code != 0, f"Expected nonzero exit for {shell} -c wrapper"
+            capsys.readouterr()  # consume output between iterations
+
+    def test_wrapped_non_state_or_no_delete_commands_remain_ok(self, capsys):
+        """AC-5: wrapper-prefixed commands that lack delete semantics or a state-dir target remain OK.
+
+        Also verifies that non-wrapper commands merely mentioning rsync and wrappers resolving
+        to non-rsync commands are not flagged (no broad-scan false positives per RISK-1).
+        """
+        safe_cases = [
+            # Wrapped rsync: no delete semantics
+            "sudo rsync -a ~/.mempalace/ user@host:.mempalace/",
+            # Wrapped rsync: no state-dir target
+            "sudo rsync -a --delete /home/user/docs/ user@host:/backup/docs/",
+            # env-wrapped rsync: no state-dir target
+            "env RSYNC_RSH=ssh rsync -a --delete /src/ user@host:/dst/",
+            # Wrapper resolving to a non-rsync command — must not be flagged
+            "sudo cp -r ~/.mempalace/ /dst/",
+            # Non-wrapper command that merely mentions rsync in its arguments — must not be flagged
+            "echo rsync --delete ~/.mempalace/",
+        ]
+        for cmd in safe_cases:
+            with patch.object(sys, "argv", ["mempalace", "preflight", "mirror", "--command", cmd]):
+                main()
+            out = capsys.readouterr().out
+            assert "OK" in out, f"Expected OK for: {cmd!r}, got: {out!r}"
+
+    def test_malformed_wrapper_shell_text_reports_parse_error(self, capsys):
+        """AC-6: malformed shell payload inside a supported wrapper exits 2 with a parse error.
+
+        Outer shlex.split succeeds (single-quoted token); inner re-tokenization of the
+        -c payload fails due to an unmatched double-quote in the payload string.
+        """
+        # The Python string contains a single-quoted shell argument whose content
+        # includes a lone double-quote — outer parse ok, inner payload parse fails.
+        malformed = "sh -c 'rsync -a --delete ~/.mempalace/ user@host:.mempalace/ \"'"
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", malformed]
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 2
+
 
 class TestMirrorDocs:
     """Assert that mirror-safety guidance is present in both README.md and docs/BACKUP_RESTORE.md.

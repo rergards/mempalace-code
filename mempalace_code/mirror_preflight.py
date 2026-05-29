@@ -42,6 +42,63 @@ _ADVISORY_MATCHERS: dict[str, re.Pattern[str]] = {
     "logs": re.compile(r"^.*\.log$"),
 }
 
+# Sudo options that take no argument (flags only).
+_SUDO_FLAGS_NO_ARG: frozenset[str] = frozenset(
+    {
+        "-n",
+        "--non-interactive",
+        "-S",
+        "--stdin",
+        "-E",
+        "--preserve-env",
+        "-H",
+        "--set-home",
+        "-P",
+        "--preserve-groups",
+        "-b",
+        "--background",
+        "-k",
+        "--reset-timestamp",
+        "-K",
+        "--remove-timestamp",
+    }
+)
+
+# Sudo options that consume one following token as their argument.
+_SUDO_FLAGS_ONE_ARG: frozenset[str] = frozenset(
+    {
+        "-u",
+        "--user",
+        "-g",
+        "--group",
+        "-p",
+        "--prompt",
+        "-C",
+        "--close-from",
+        "-T",
+        "--command-timeout",
+        "-D",
+        "--chdir",
+        "-R",
+        "--chroot",
+        "-r",
+        "--role",
+        "-t",
+        "--type",
+    }
+)
+
+# env options that take no argument.
+_ENV_FLAGS_NO_ARG: frozenset[str] = frozenset({"-i", "--ignore-environment", "-0", "--null"})
+
+# env options that consume one following token as their argument.
+_ENV_FLAGS_ONE_ARG: frozenset[str] = frozenset(
+    {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
+)
+
+# Shell basenames whose `-c payload` form is supported.
+_SHELL_BASENAMES: frozenset[str] = frozenset({"sh", "bash"})
+
 DANGEROUS_PATTERN_ID = "delete-mode-state-mirror-missing-excludes"
 # --delete-excluded is unconditionally dangerous for state-dir mirrors: it removes
 # destination files matched by --exclude, so no exclude list can protect palace data.
@@ -77,14 +134,96 @@ def _has_delete_semantics(tokens: list[str]) -> bool:
 
 
 def _targets_state_dir(tokens: list[str]) -> bool:
-    for tok in tokens[1:]:  # skip command name
-        if not tok.startswith("-") and _MEMPALACE_STATE_RE.search(tok):
-            return True
-    return False
+    return any(not tok.startswith("-") and _MEMPALACE_STATE_RE.search(tok) for tok in tokens[1:])
 
 
 def _family_covered(pattern: re.Pattern[str], excludes: list[str]) -> bool:
     return any(pattern.match(e) for e in excludes)
+
+
+def _is_env_assignment(tok: str) -> bool:
+    """Return True if tok is a shell-style NAME=value environment variable assignment."""
+    eq = tok.find("=")
+    if eq <= 0:
+        return False
+    return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", tok[:eq]))
+
+
+def _skip_wrapper_flags(
+    tokens: list[str], i: int, no_arg: frozenset[str], one_arg: frozenset[str]
+) -> int:
+    """Advance i past known wrapper option flags, stopping at '--' (consumed) or a non-option."""
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--":
+            return i + 1
+        if tok in no_arg:
+            i += 1
+        elif tok in one_arg:
+            i += 2
+        elif tok.startswith("--") and "=" in tok:
+            i += 1  # --flag=value form
+        else:
+            break
+    return i
+
+
+def _effective_rsync_tokens(tokens: list[str]) -> tuple[list[str], str]:
+    """
+    Resolve a supported wrapper prefix to the effective rsync argv.
+
+    Returns (effective_tokens, error) where error is non-empty only when a
+    supported wrapper's payload fails re-tokenization.  Any first token that is
+    neither rsync nor a supported wrapper is returned unchanged — the caller
+    checks whether the result starts with rsync.
+
+    Supported wrapper forms:
+    - Direct rsync or /path/to/rsync
+    - sudo [options] [--] rsync ...
+    - env [NAME=value ...] [--] rsync ...
+    - sh -c 'rsync ...' / bash -c 'rsync ...'
+    """
+    if not tokens:
+        return tokens, ""
+
+    basename = tokens[0].split("/")[-1]
+
+    if basename == "rsync":
+        return tokens, ""
+
+    if basename == "sudo":
+        idx = _skip_wrapper_flags(tokens, 1, _SUDO_FLAGS_NO_ARG, _SUDO_FLAGS_ONE_ARG)
+        return tokens[idx:], ""
+
+    if basename == "env":
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok == "--":
+                i += 1
+                break
+            if tok in _ENV_FLAGS_NO_ARG:
+                i += 1
+            elif tok in _ENV_FLAGS_ONE_ARG:
+                i += 2
+            elif tok.startswith("--") and "=" in tok:
+                i += 1
+            elif _is_env_assignment(tok):
+                i += 1
+            else:
+                break
+        return tokens[i:], ""
+
+    if basename in _SHELL_BASENAMES:
+        if len(tokens) >= 3 and tokens[1] == "-c":
+            try:
+                inner = shlex.split(tokens[2])
+            except ValueError as exc:
+                return [], str(exc)
+            return inner, ""
+        return tokens, ""
+
+    return tokens, ""
 
 
 def classify_mirror_command(command: str) -> PreflightResult:
@@ -105,19 +244,27 @@ def classify_mirror_command(command: str) -> PreflightResult:
     if not tokens:
         return PreflightResult(ok=False, parse_error="empty command")
 
-    cmd_basename = tokens[0].split("/")[-1]
+    # Normalize supported wrapper prefixes (sudo, env, sh -c, bash -c) to the
+    # effective rsync argv before applying the existing classification logic.
+    effective_tokens, wrap_error = _effective_rsync_tokens(tokens)
+    if wrap_error:
+        return PreflightResult(ok=False, parse_error=wrap_error)
+    if not effective_tokens:
+        return PreflightResult(ok=False, parse_error="empty command after wrapper resolution")
+
+    cmd_basename = effective_tokens[0].split("/")[-1]
     if cmd_basename != "rsync":
         return PreflightResult(ok=True)
 
-    if not _has_delete_semantics(tokens):
+    if not _has_delete_semantics(effective_tokens):
         return PreflightResult(ok=True)
 
-    if not _targets_state_dir(tokens):
+    if not _targets_state_dir(effective_tokens):
         return PreflightResult(ok=True)
 
     # --delete-excluded removes destination-side files matched by --exclude, so
     # required excludes cannot protect palace data regardless of coverage.
-    if "--delete-excluded" in tokens:
+    if "--delete-excluded" in effective_tokens:
         return PreflightResult(
             ok=False,
             dangerous=True,
@@ -128,7 +275,7 @@ def classify_mirror_command(command: str) -> PreflightResult:
             ],
         )
 
-    excludes = _extract_excludes(tokens)
+    excludes = _extract_excludes(effective_tokens)
 
     missing = [
         family
