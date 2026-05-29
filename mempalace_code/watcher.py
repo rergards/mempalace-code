@@ -515,7 +515,7 @@ def _run_initial_mine_with_recovery(
             from .storage import open_store
 
             store = open_store(palace_path, create=False, read_only=False)
-            result = store.recover_to_last_working_version(dry_run=False)  # type: ignore[reportAttributeAccessIssue]
+            result = store.recover_to_last_working_version(dry_run=False)  # type: ignore[reportAttributeAccessIssue]  # reason: open_store returns Store; LanceStore method only reachable here
         except Exception as rec_exc:
             print(f"  Recovery failed: {rec_exc}", file=sys.stderr, flush=True)
             _print_recovery_commands(palace_path, pre_watch_archive)

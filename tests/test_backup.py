@@ -1391,7 +1391,9 @@ class TestCreateBackupReadOnlyNoEmbedder:
 class TestPreWatchBackups:
     """AC-7: pre_watch backup taxonomy and retention behavior."""
 
-    def test_pre_watch_kind_uses_prefix_and_list_kind(self, seeded_collection, palace_path, tmp_dir):
+    def test_pre_watch_kind_uses_prefix_and_list_kind(
+        self, seeded_collection, palace_path, tmp_dir
+    ):
         """AC-7a: pre_watch_ prefix and kind=pre_watch in list_backups output."""
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
         _, archive_path = create_backup(palace_path, kind="pre_watch", kg_path=kg_path)

@@ -319,14 +319,14 @@ class TestWriteOpenNoEmbedder:
         store._read_only = False
         store._table = stale_table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
         store._db = _ReopenDB(table=fresh_table)
-        store._embed = lambda docs: [[1.0] for _ in docs]  # type: ignore[method-assign]
+        store._embed = lambda docs: [[1.0] for _ in docs]  # type: ignore[method-assign]  # reason: fault-injection override of private method for test isolation
 
         store.upsert(["retry1"], ["retry content"], [{"wing": "w", "room": "r"}])
 
         assert stale_table.execute_calls == 1
         assert fresh_table.execute_calls == 1
         assert fresh_table.rows[0]["id"] == "retry1"
-        assert store._table is fresh_table  # type: ignore[reportAttributeAccessIssue]
+        assert store._table is fresh_table  # type: ignore[reportAttributeAccessIssue]  # reason: verifying private attr reassignment after reopen-on-stale-table recovery
 
     def test_count_by_uses_scan_projection(self):
         table = _ProjectedTable(
@@ -1484,7 +1484,7 @@ class TestSafeOptimize:
 
         assert result is False
         assert table.optimize_calls
-        assert store._db.open_calls == 1  # type: ignore[reportAttributeAccessIssue]
+        assert store._db.open_calls == 1  # type: ignore[reportAttributeAccessIssue]  # reason: _db is a _ReopenDB test double; open_calls is a test-only tracking attribute
 
 
 class TestOptimizeStoreAdapter:
@@ -2285,11 +2285,11 @@ class TestCleanupStaleFragments:
         store._table_dir = "/nonexistent/path"
         store._db = _ReopenDB(error=RuntimeError("missing fragment after cleanup"))
 
-        result = store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]
+        result = store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]  # reason: open_store returns Store; cleanup_stale_fragments is LanceStore-only
 
         assert result["ok"] is False
         assert "Could not reopen table after cleanup" in result["error"]
-        assert store._db.open_calls == 1  # type: ignore[reportAttributeAccessIssue]
+        assert store._db.open_calls == 1  # type: ignore[reportAttributeAccessIssue]  # reason: _db is a _ReopenDB test double; open_calls is a test-only tracking attribute
 
     def test_real_store_preserves_rows_and_reduces_versions(self, palace_path):
         """AC-1: cleanup on a real store with stale versions preserves rows; freed_bytes>0 or version_count decreases."""
