@@ -1,0 +1,4 @@
+docs/BACKUP_RESTORE.md
+mempalace_code/cli.py
+mempalace_code/cli_commands/backup_restore.py
+tests/test_backup_cli.py
