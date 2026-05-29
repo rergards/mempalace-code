@@ -1291,8 +1291,8 @@ class TestSafeOptimize:
         assert results == [True, True, True]
         archives = self._pre_optimize_archives(tmp_dir)
         assert archives == [
-            "pre_optimize_20260101_120001.tar.gz",
-            "pre_optimize_20260101_120002.tar.gz",
+            "pre_optimize_20260101_120001_000000.tar.gz",
+            "pre_optimize_20260101_120002_000000.tar.gz",
         ]
 
     def test_default_pre_optimize_retention_prunes_to_bound(
@@ -1328,11 +1328,11 @@ class TestSafeOptimize:
         archives = self._pre_optimize_archives(tmp_dir)
         # Oldest (cycle 0) pruned; newest five remain.
         assert archives == [
-            "pre_optimize_20260101_120101.tar.gz",
-            "pre_optimize_20260101_120102.tar.gz",
-            "pre_optimize_20260101_120103.tar.gz",
-            "pre_optimize_20260101_120104.tar.gz",
-            "pre_optimize_20260101_120105.tar.gz",
+            "pre_optimize_20260101_120101_000000.tar.gz",
+            "pre_optimize_20260101_120102_000000.tar.gz",
+            "pre_optimize_20260101_120103_000000.tar.gz",
+            "pre_optimize_20260101_120104_000000.tar.gz",
+            "pre_optimize_20260101_120105_000000.tar.gz",
         ]
 
     def test_explicit_zero_retention_keeps_all_pre_optimize_archives(
@@ -1393,7 +1393,7 @@ class TestSafeOptimize:
         assert sorted(os.listdir(backup_dir)) == [
             "mempalace_backup_20260101_115900.tar.gz",
             "notes.txt",
-            "pre_optimize_20260101_120200.tar.gz",
+            "pre_optimize_20260101_120200_000000.tar.gz",
             "scheduled_20260101_115900.tar.gz",
         ]
 

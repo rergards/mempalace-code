@@ -1319,7 +1319,7 @@ class TestBoundedPreOptimizeRetention:
 
         # Oldest pre_optimize pruned; newest five kept
         assert len(pre_opt) == 5
-        assert "pre_optimize_20260101_120000.tar.gz" not in pre_opt
+        assert "pre_optimize_20260101_120000_000000.tar.gz" not in pre_opt
         # Sentinels untouched
         assert len(manual) == 1
         assert len(scheduled) == 1
