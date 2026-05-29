@@ -936,3 +936,8 @@ items:
       resolution: '2026-05-29: completed in pipeline run (commit=98a7244, 17 files changed, 634 insertions(+), 2 deletions(-))'
       archived_date: "2026-05-29"
       done_summary: completed in pipeline run (commit=98a7244, 17 files changed, 634 insertions(+), 2 deletions(-))
+    - key: WATCH-INITIALIZED-ROOT-UX
+      summary: Clarify or support watch on a directory that is itself an initialized project
+      resolution: '2026-05-29: completed in pipeline run (commit=5fe84f9, 18 files changed, 755 insertions(+), 38 deletions(-))'
+      archived_date: "2026-05-29"
+      done_summary: completed in pipeline run (commit=5fe84f9, 18 files changed, 755 insertions(+), 38 deletions(-))

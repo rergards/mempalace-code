@@ -43,15 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: WATCH-INITIALIZED-ROOT-UX
-    summary: "Clarify or support watch on a directory that is itself an initialized project"
-    section: storage_reliability
-    status: open
-    priority: P3
-    description: "Remote ops confirmed `mempalace-code watch /srv` watches initialized child `/srv/dev`, while `watch /srv/dev` finds no child projects. Either support the initialized root directly or emit a clear diagnostic with the correct command."
-    acceptance:
-      - "`mempalace-code watch <initialized-project>` either watches that project or prints an actionable message."
-      - "Tests cover both parent-directory and initialized-root watch inputs."
   - key: WATCH-STALE-SWEEP-BULK-DELETE
     summary: "Make watch initial stale-file sweep delete in bulk instead of one Lance version per stale file"
     section: storage_reliability
