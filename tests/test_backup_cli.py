@@ -287,6 +287,35 @@ def test_restore_cli_kg_path_overrides_palace_scope(
     assert len(triples) >= 2, "Expected at least 2 triples for Max in restored KG"
 
 
+def test_restore_cli_kg_path_without_palace(
+    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+):
+    """--kg-path explicit destination is honoured even without top-level --palace."""
+    archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+    default_restore_target = os.path.join(tmp_dir, "kg_path_no_palace")
+    explicit_kg = os.path.join(tmp_dir, "no_palace_explicit_kg.sqlite3")
+
+    # Plant a sentinel at DEFAULT_KG_PATH; --kg-path without --palace must not touch it.
+    os.makedirs(os.path.dirname(os.path.abspath(DEFAULT_KG_PATH)), exist_ok=True)
+    sentinel_content = b"NO_PALACE_KG_PATH_SENTINEL"
+    with open(DEFAULT_KG_PATH, "wb") as f:
+        f.write(sentinel_content)
+
+    with patch("mempalace_code.cli_commands.backup_restore.MempalaceConfig") as mock_cfg:
+        mock_cfg.return_value.palace_path = default_restore_target
+        _run(["mempalace-code", "restore", archive, "--kg-path", explicit_kg])
+    capsys.readouterr()
+
+    assert os.path.isfile(explicit_kg), f"KG must be written to --kg-path {explicit_kg}"
+    with open(DEFAULT_KG_PATH, "rb") as f:
+        assert f.read() == sentinel_content, (
+            "--kg-path without --palace must not touch DEFAULT_KG_PATH"
+        )
+    restored_kg = KnowledgeGraph(db_path=explicit_kg)
+    triples = restored_kg.query_entity("Max")
+    assert len(triples) >= 2, "Expected at least 2 triples for Max in restored KG"
+
+
 def test_restore_cli_default_without_palace_keeps_default_kg(
     seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
 ):

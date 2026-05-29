@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/RESTORE-KG-PATH-SCOPING-round-1.md",
+    "tests/test_backup_cli.py"
+  ],
+  "before_sha": "0ccef25",
+  "timestamp": "2026-05-29T08:44:26Z"
+}
