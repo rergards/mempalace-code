@@ -3,8 +3,9 @@
   "files": [
     ".tasks/TASK-WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK/polish-scope.json",
     "docs/audits/WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK-polish-1.md",
+    "mempalace_code/backup.py",
     "tests/test_watcher.py"
   ],
   "before_sha": "699c49c",
-  "timestamp": "2026-05-29T07:52:46Z"
+  "timestamp": "2026-05-29T08:00:34Z"
 }

@@ -165,7 +165,7 @@ def create_backup(
     # Determine output path and whether this is a managed-dir backup.
     _managed_dir: Optional[str]
     if out_path is None:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
         os.makedirs(backups_dir, exist_ok=True)
         os.chmod(backups_dir, 0o700)  # F-9: restrict to owner only
