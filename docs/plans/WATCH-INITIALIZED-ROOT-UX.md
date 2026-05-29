@@ -165,6 +165,16 @@ task_contract:
         acceptance_ids: [AC-5]
 ---
 
+## Problem & Approach
+
+**Problem.** `mempalace-code watch <dir>` only ever scans `<dir>` for *immediate initialized child projects*. Running `watch /srv` correctly discovers and watches the initialized child `/srv/dev`, but running `watch /srv/dev` — pointing the command at the initialized project directory itself — finds no child projects and reports nothing to watch, with no hint that the directory was already a valid target or how to fix the invocation.
+
+**Approach.** Do both halves of the backlog ask:
+1. **Support the initialized root directly.** Before child scanning, `watch_all` checks whether the supplied directory is itself an initialized project; if so it watches/mines that root as a single project (AC-1), taking precedence over any project-looking children to avoid nested duplicate mining (AC-4).
+2. **Emit a clear, actionable diagnostic otherwise.** When the supplied directory is an *uninitialized* project root, exit non-zero and print the exact `mempalace-code init <root>` command (AC-2); when it is a plain parent with no initialized children, keep the existing parent-directory guidance (RISK-3). Existing parent-directory child discovery (`watch /srv` → `/srv/dev`) is preserved unchanged (AC-3).
+
+The change is scoped to watcher project selection plus user-facing CLI/docs text; `detect_projects()`, mining, storage, and steady-state watch loops are untouched (see invariants and out-of-scope below).
+
 ## Design Notes
 
 - Prefer a watch-specific root detector over changing `detect_projects()`. `detect_projects()` is documented and tested as an immediate-child scanner and is also used by `mine-all`; changing it would widen this task beyond the watcher UX issue.
