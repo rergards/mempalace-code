@@ -1341,8 +1341,11 @@ class TestMirrorPreflightCommand:
             with patch.object(sys, "argv", ["mempalace", "preflight", "mirror", "--command", cmd]):
                 with pytest.raises(SystemExit) as exc:
                     main()
-            assert exc.value.code != 0, f"Expected nonzero exit for {shell} -c wrapper"
-            capsys.readouterr()  # consume output between iterations
+            assert exc.value.code == 1, f"Expected exit 1 (blocked, not parse error) for {shell} -c wrapper"
+            out = capsys.readouterr().out
+            assert "delete-mode-state-mirror" in out, (
+                f"Expected blocking pattern_id in output for {shell} -c wrapper, got: {out!r}"
+            )
 
     def test_wrapped_non_state_or_no_delete_commands_remain_ok(self, capsys):
         """AC-5: wrapper-prefixed commands that lack delete semantics or a state-dir target remain OK.
@@ -1383,6 +1386,10 @@ class TestMirrorPreflightCommand:
             with pytest.raises(SystemExit) as exc:
                 main()
         assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err or "error" in captured.err.lower(), (
+            f"Expected parse error message on stderr, got: {captured.err!r}"
+        )
 
 
 class TestMirrorDocs:
