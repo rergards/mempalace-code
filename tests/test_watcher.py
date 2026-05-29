@@ -28,6 +28,7 @@ from mempalace_code.watcher import (
     _invalidate_gitignore_cache,
     _is_relevant_change,
     render_watch_schedule,
+    watch_all,
     watch_and_mine,
 )
 
@@ -1253,3 +1254,263 @@ class TestWatchStatusCli:
         assert "running" in out
         assert str(palace) in out
         assert "Free:" in out
+
+
+# ---------------------------------------------------------------------------
+# Watcher startup recovery tests (AC-1 – AC-5)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchInitialMineRecovery:
+    """Tests for watcher startup backup and missing-fragment recovery behavior."""
+
+    def test_initial_mine_creates_pre_watch_backup_before_mining(self, tmp_path):
+        """AC-1: pre_watch backup created before initial mine; mine runs after."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        call_order = []
+        backup_archive = str(tmp_path / "pre_watch_20260101_120000.tar.gz")
+
+        def fake_create_backup(palace_path, kind=None, **kwargs):
+            call_order.append("backup")
+            return {}, backup_archive
+
+        def fake_mine(**kwargs):
+            call_order.append("mine")
+            return {}
+
+        with (
+            patch("mempalace_code.watcher.create_backup", side_effect=fake_create_backup),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            watch_and_mine(str(project), str(palace))
+
+        assert "backup" in call_order
+        assert "mine" in call_order
+        assert call_order.index("backup") < call_order.index("mine")
+
+    def test_initial_backup_failure_exits_before_mine(self, tmp_path, capsys):
+        """AC-2: backup failure is fail-closed — mine and watch not called."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        mine_called = []
+        watch_called = []
+
+        with (
+            patch("mempalace_code.watcher.create_backup", side_effect=Exception("disk full")),
+            patch("mempalace_code.watcher.mine", side_effect=lambda **kw: mine_called.append(1)),
+            patch(
+                "watchfiles.watch",
+                side_effect=lambda *a, **kw: watch_called.append(1) or iter([]),
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                watch_and_mine(str(project), str(palace))
+
+        assert exc_info.value.code == 1
+        assert not mine_called, "_quiet_mine must not be called after backup failure"
+        assert not watch_called, "watchfiles.watch must not be called after backup failure"
+        out = capsys.readouterr()
+        assert "Watcher did not start" in (out.out + out.err)
+
+    def test_missing_fragment_initial_mine_rolls_back_and_retries_once(self, tmp_path, capsys):
+        """AC-3: missing-fragment → DEGRADED → rollback → single retry → watch loop entered."""
+        palace = tmp_path / "palace"
+        palace.mkdir(parents=True)
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        mine_call_count = []
+
+        def fake_mine(**kwargs):
+            mine_call_count.append(1)
+            if len(mine_call_count) == 1:
+                raise Exception("no such file or directory: fragment.lance")
+            return {}
+
+        fake_store = MagicMock()
+        fake_store.recover_to_last_working_version.return_value = {
+            "recovered": True,
+            "restored_to": 5,
+            "rows_after": 10,
+        }
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.storage.open_store", return_value=fake_store),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            watch_and_mine(str(project), str(palace))
+
+        assert len(mine_call_count) == 2, "initial mine + one retry"
+        fake_store.recover_to_last_working_version.assert_called_once_with(dry_run=False)
+        out = capsys.readouterr()
+        assert "DEGRADED" in (out.out + out.err)
+
+    def test_missing_fragment_without_candidate_exits_with_recovery_commands(
+        self, tmp_path, capsys
+    ):
+        """AC-4: no rollback candidate → exit before watching, commands include palace/archive."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        backup_archive = str(tmp_path / "backups" / "pre_watch_20260101_120000.tar.gz")
+
+        def fake_create_backup(palace_path, kind=None, **kwargs):
+            return {}, backup_archive
+
+        fake_store = MagicMock()
+        fake_store.recover_to_last_working_version.return_value = {
+            "recovered": False,
+            "candidate_version": None,
+        }
+
+        watch_called = []
+
+        with (
+            patch("mempalace_code.watcher.create_backup", side_effect=fake_create_backup),
+            patch(
+                "mempalace_code.watcher.mine",
+                side_effect=Exception("no such file: fragment.lance"),
+            ),
+            patch("mempalace_code.storage.open_store", return_value=fake_store),
+            patch(
+                "watchfiles.watch",
+                side_effect=lambda *a, **kw: watch_called.append(1) or iter([]),
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                watch_and_mine(str(project), str(palace))
+
+        assert exc_info.value.code == 1
+        assert not watch_called, "watch loop must not be entered"
+
+        out = capsys.readouterr()
+        all_output = out.out + out.err
+        assert str(palace) in all_output
+        assert backup_archive in all_output
+        assert "repair --rollback --dry-run" in all_output
+        assert "restore" in all_output
+
+    def test_first_ever_watch_without_existing_lance_data_skips_pre_watch_backup(self, tmp_path):
+        """AC-5: no existing lance data → no backup required, initial mine runs normally."""
+        # No lance dir at all — first-ever palace
+        palace = tmp_path / "palace"
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        backup_called = []
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(1)
+            return {}
+
+        with (
+            patch(
+                "mempalace_code.watcher.create_backup",
+                side_effect=lambda *a, **kw: backup_called.append(1),
+            ),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            watch_and_mine(str(project), str(palace))
+
+        assert not backup_called, "no pre-watch backup for first-ever palace"
+        assert mine_calls, "initial mine should still run"
+
+
+# ---------------------------------------------------------------------------
+# watch_all startup recovery tests (AC-6)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchAllInitialMineRecovery:
+    """Tests for watch_all startup guard — one pre_watch backup, fail-closed."""
+
+    def test_watch_all_initial_batch_uses_one_pre_watch_backup_and_fails_closed(
+        self, tmp_path, capsys
+    ):
+        """AC-6: one pre_watch archive before batch; fails closed before watch if any mine unrecovered."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        parent = tmp_path / "parent"
+        parent.mkdir()
+        proj_a = parent / "proj_a"
+        proj_b = parent / "proj_b"
+        proj_a.mkdir()
+        proj_b.mkdir()
+
+        backup_call_count = []
+        backup_archive = str(tmp_path / "pre_watch_20260101_120000.tar.gz")
+
+        def fake_create_backup(palace_path, kind=None, **kwargs):
+            backup_call_count.append(1)
+            return {}, backup_archive
+
+        mine_call_count = []
+
+        def fake_mine(**kwargs):
+            mine_call_count.append(kwargs.get("wing_override"))
+            if len(mine_call_count) == 2:
+                raise Exception("no such file: fragment.lance")
+            return {}
+
+        fake_store = MagicMock()
+        fake_store.recover_to_last_working_version.return_value = {
+            "recovered": False,
+            "candidate_version": None,
+        }
+
+        watch_called = []
+
+        fake_projects = [
+            {"path": str(proj_a), "initialized": True},
+            {"path": str(proj_b), "initialized": True},
+        ]
+
+        def fake_resolve_wing(project_dir):
+            return f"wing_{Path(project_dir).name}"
+
+        with (
+            patch("mempalace_code.watcher.create_backup", side_effect=fake_create_backup),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.storage.open_store", return_value=fake_store),
+            patch(
+                "watchfiles.watch",
+                side_effect=lambda *a, **kw: watch_called.append(1) or iter([]),
+            ),
+            patch("mempalace_code.mining.projects.detect_projects", return_value=fake_projects),
+            patch(
+                "mempalace_code.mining.projects.resolve_wing_for_project",
+                side_effect=fake_resolve_wing,
+            ),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                watch_all(str(parent), str(palace), on_commit=False)
+
+        assert exc_info.value.code == 1
+        assert len(backup_call_count) == 1, "exactly one pre_watch backup before initial batch"
+        assert not watch_called, "watch loop must not be entered on unrecovered failure"

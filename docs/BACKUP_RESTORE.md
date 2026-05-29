@@ -174,6 +174,44 @@ Each backup has a kind that controls its filename prefix and per-kind retention:
 | `manual` | `mempalace_backup_` | `backup create` (default) |
 | `scheduled` | `scheduled_` | `backup create --kind scheduled` / cron |
 | `pre_optimize` | `pre_optimize_` | Auto-backup before optimize |
+| `pre_watch` | `pre_watch_` | Auto-backup before watcher initial mine |
+
+### Watch Pre-Run Backups
+
+When an existing palace is detected on watcher startup, `mempalace-code watch` (and
+`mempalace-code mine --watch`) creates a `pre_watch` archive **before** the initial
+incremental mine.  The archive path is printed to stdout:
+
+```
+  Pre-watch backup: /path/to/.mempalace/backups/pre_watch_20260101_120000.tar.gz
+```
+
+If the archive cannot be created (e.g. disk budget too low), the watcher **exits
+immediately** — the initial mine is never run and the palace is not mutated.
+
+### Degraded Startup Recovery
+
+If the initial mine fails with a Lance missing-fragment error (a symptom of prior
+cleanup/restore history leaving stale fragment references), the watcher:
+
+1. Prints `DEGRADED` and the error context.
+2. Attempts an automatic Lance version rollback to the most recent healthy version
+   (`repair --rollback`).
+3. If rollback succeeds, retries the initial mine once.  The watcher enters the
+   normal watch loop only after the retry succeeds.
+4. If rollback finds no healthy candidate, or the retry still fails, the watcher
+   exits **before watching** and prints operator-safe recovery commands:
+
+```
+  To diagnose and recover, run:
+    mempalace-code --palace /path/palace health
+    mempalace-code --palace /path/palace repair --rollback --dry-run
+    mempalace-code --palace /path/palace restore /path/pre_watch_20260101_120000.tar.gz --force
+```
+
+The `restore --force` command falls back to the `pre_watch` tarball when Lance
+version rollback cannot recover.  Manual review is required before running it (the
+restore command overwrites the palace `lance/` directory).
 
 ### Auto-Backup Before Optimize
 

@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from .backup import create_backup
 from .config import MempalaceConfig
 from .disk_budget import DiskBudgetStatus, check_watch_budget, format_bytes
 from .mining.orchestrator import mine
@@ -245,6 +246,23 @@ def watch_and_mine(
 
     print(f"  Watching: {project_path}")
     print(f"  Palace:   {palace_path}")
+
+    # Pre-watch backup: required when existing lance data is present.
+    # Fail closed if backup creation fails so the initial mine cannot corrupt
+    # the palace without a recoverable snapshot in place.
+    pre_watch_archive: Optional[str] = None
+    if _has_existing_lance_data(palace_path):
+        try:
+            _, pre_watch_archive = create_backup(palace_path, kind="pre_watch")
+            print(f"  Pre-watch backup: {pre_watch_archive}", flush=True)
+        except Exception as exc:
+            print(
+                f"  Error: pre-watch backup failed: {exc}\n  Watcher did not start.",
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(1)
+
     print("  Initial mine...", flush=True)
 
     # Initial incremental mine — brings the palace up to date before watching.
@@ -263,7 +281,7 @@ def watch_and_mine(
         return True
 
     if _should_run():
-        stats = _quiet_mine(
+        mine_kwargs = dict(
             project_dir=str(project_path),
             palace_path=palace_path,
             wing_override=wing_override,
@@ -276,6 +294,9 @@ def watch_and_mine(
             kg=kg,
             skip_optimize=True,
         )
+        stats = _run_initial_mine_with_recovery(mine_kwargs, palace_path, None, pre_watch_archive)
+        if stats is None:
+            sys.exit(1)
         filed = stats.get("drawers_filed", 0)
         if filed:
             print(
@@ -426,6 +447,103 @@ def _quiet_mine(**kwargs) -> dict:
         os.close(old_err)
 
 
+def _has_existing_lance_data(palace_path: str) -> bool:
+    """Return True when <palace_path>/lance/ exists and contains at least one entry."""
+    lance_dir = Path(palace_path) / "lance"
+    if not lance_dir.is_dir():
+        return False
+    try:
+        return next(lance_dir.iterdir(), None) is not None
+    except OSError:
+        return False
+
+
+def _is_mine_missing_fragment(exc: Exception) -> bool:
+    """Return True when the exception message matches the Lance missing-fragment string family."""
+    msg = str(exc).lower()
+    return any(s in msg for s in ("no such file", "object not found", "io error", "not found"))
+
+
+def _print_recovery_commands(palace_path: str, pre_watch_archive: Optional[str]) -> None:
+    """Print operator-safe recovery commands for degraded watcher startup."""
+    print("  To diagnose and recover, run:", flush=True)
+    print(f"    mempalace-code --palace {palace_path} health", flush=True)
+    print(f"    mempalace-code --palace {palace_path} repair --rollback --dry-run", flush=True)
+    if pre_watch_archive:
+        print(
+            f"    mempalace-code --palace {palace_path} restore {pre_watch_archive} --force",
+            flush=True,
+        )
+    print("  Watcher did not start.", flush=True)
+
+
+def _run_initial_mine_with_recovery(
+    mine_kwargs: dict,
+    palace_path: str,
+    wing_label: Optional[str],
+    pre_watch_archive: Optional[str],
+) -> Optional[dict]:
+    """Run initial mine; on Lance missing-fragment error attempt rollback and retry once.
+
+    Returns the stats dict on success, or None when the failure is unrecoverable
+    (caller must call sys.exit after printing their own context if needed).
+    Non-missing-fragment exceptions also return None without triggering rollback.
+    """
+    wing_prefix = f" [{wing_label}]" if wing_label else ""
+
+    try:
+        return _quiet_mine(**mine_kwargs) or {}
+    except Exception as exc:
+        if not _is_mine_missing_fragment(exc):
+            print(
+                f"  Error{wing_prefix}: initial mine failed: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return None
+
+        # Missing-fragment error: surface a DEGRADED state and attempt Lance rollback.
+        print(
+            f"  DEGRADED{wing_prefix}: Lance missing-fragment error during initial mine.",
+            flush=True,
+        )
+        if pre_watch_archive:
+            print(f"  Pre-watch backup: {pre_watch_archive}", flush=True)
+        print("  Attempting recovery...", flush=True)
+
+        try:
+            from .storage import open_store
+
+            store = open_store(palace_path, create=False, read_only=False)
+            result = store.recover_to_last_working_version(dry_run=False)  # type: ignore[reportAttributeAccessIssue]
+        except Exception as rec_exc:
+            print(f"  Recovery failed: {rec_exc}", file=sys.stderr, flush=True)
+            _print_recovery_commands(palace_path, pre_watch_archive)
+            return None
+
+        if not result.get("recovered"):
+            print("  Recovery: no prior healthy version found.", flush=True)
+            _print_recovery_commands(palace_path, pre_watch_archive)
+            return None
+
+        print(
+            f"  Recovery: rolled back to version {result.get('restored_to')}, "
+            f"{result.get('rows_after')} row(s). Retrying initial mine...",
+            flush=True,
+        )
+
+        try:
+            return _quiet_mine(**mine_kwargs) or {}
+        except Exception as retry_exc:
+            print(
+                f"  Retry{wing_prefix} failed after rollback: {retry_exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            _print_recovery_commands(palace_path, pre_watch_archive)
+            return None
+
+
 def _resolve_git_watch_paths(project_map: dict) -> dict:
     """Build a mapping from .git/refs/heads/ paths to project paths.
 
@@ -547,6 +665,21 @@ def watch_all(
         print(f"    {pp.name} -> {project_map[pp]}")
     print(f"  Palace: {palace_path}")
 
+    # Pre-watch backup: one archive before the initial multi-project batch.
+    # Fail closed if backup creation fails.
+    pre_watch_archive: Optional[str] = None
+    if _has_existing_lance_data(palace_path):
+        try:
+            _, pre_watch_archive = create_backup(palace_path, kind="pre_watch")
+            print(f"  Pre-watch backup: {pre_watch_archive}", flush=True)
+        except Exception as exc:
+            print(
+                f"  Error: pre-watch backup failed: {exc}\n  Watcher did not start.",
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(1)
+
     # Initial incremental mine for all projects — quiet, with a summary line
     # per project that actually had changes.
     print("  Initial mine...", flush=True)
@@ -554,7 +687,7 @@ def watch_all(
     if _should_run_all():
         for proj_path, wing in project_map.items():
             kg = KnowledgeGraph()
-            stats = _quiet_mine(
+            mine_kwargs = dict(
                 project_dir=str(proj_path),
                 palace_path=palace_path,
                 wing_override=wing,
@@ -566,6 +699,11 @@ def watch_all(
                 kg=kg,
                 skip_optimize=True,
             )
+            stats = _run_initial_mine_with_recovery(
+                mine_kwargs, palace_path, wing, pre_watch_archive
+            )
+            if stats is None:
+                sys.exit(1)
             filed = stats.get("drawers_filed", 0)
             total_init_filed += filed
             if filed:

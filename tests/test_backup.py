@@ -1383,3 +1383,101 @@ class TestCreateBackupReadOnlyNoEmbedder:
         assert os.path.isfile(returned_out)
         assert meta["drawer_count"] == 4
         assert set(meta["wings"]) == {"project", "notes"}
+
+
+# ── TestPreWatchBackups ──────────────────────────────────────────────────────
+
+
+class TestPreWatchBackups:
+    """AC-7: pre_watch backup taxonomy and retention behavior."""
+
+    def test_pre_watch_kind_uses_prefix_and_list_kind(self, seeded_collection, palace_path, tmp_dir):
+        """AC-7a: pre_watch_ prefix and kind=pre_watch in list_backups output."""
+        kg_path = os.path.join(tmp_dir, "kg.sqlite3")
+        _, archive_path = create_backup(palace_path, kind="pre_watch", kg_path=kg_path)
+
+        assert os.path.basename(archive_path).startswith("pre_watch_")
+
+        result = list_backups(palace_path)
+        pre_watch = [e for e in result if "pre_watch" in os.path.basename(e["path"])]
+        assert len(pre_watch) == 1
+        assert pre_watch[0]["kind"] == "pre_watch"
+
+    def test_pre_watch_default_retention_is_bounded(self, palace_path, tmp_dir, monkeypatch):
+        """AC-7b: absent explicit config → DEFAULT_PRE_WATCH_RETAIN_COUNT caps the archive count."""
+        from datetime import datetime as _dt
+        from unittest.mock import MagicMock
+        from unittest.mock import patch as _patch
+
+        from mempalace_code.config import DEFAULT_PRE_WATCH_RETAIN_COUNT
+
+        monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
+
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["d1"],
+            documents=["pre_watch retention test document"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        kg_path = os.path.join(tmp_dir, "kg.sqlite3")
+        n_archives = DEFAULT_PRE_WATCH_RETAIN_COUNT + 1
+
+        fake_datetime = MagicMock()
+        # Two datetime.now() calls per create_backup: filename timestamp + metadata timestamp
+        fake_datetime.now.side_effect = [
+            ts
+            for i in range(n_archives)
+            for ts in [_dt(2026, 1, 1, 12, 0, i), _dt(2026, 1, 1, 12, 0, i)]
+        ]
+
+        with _patch("mempalace_code.backup.datetime", fake_datetime):
+            for _ in range(n_archives):
+                create_backup(palace_path, kind="pre_watch", kg_path=kg_path)
+
+        backups_dir = os.path.join(tmp_dir, "backups")
+        remaining = [
+            f
+            for f in os.listdir(backups_dir)
+            if f.startswith("pre_watch_") and f.endswith(".tar.gz")
+        ]
+        assert len(remaining) == DEFAULT_PRE_WATCH_RETAIN_COUNT
+
+    def test_explicit_zero_retention_keeps_all_pre_watch_archives(
+        self, palace_path, tmp_dir, monkeypatch
+    ):
+        """AC-7c: explicit backup_retain_count=0 disables pruning for pre_watch archives."""
+        from datetime import datetime as _dt
+        from unittest.mock import MagicMock
+        from unittest.mock import patch as _patch
+
+        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "0")
+
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["d1"],
+            documents=["keep-all retention test document"],
+            metadatas=[{"wing": "w", "room": "r"}],
+        )
+
+        kg_path = os.path.join(tmp_dir, "kg.sqlite3")
+        count = 3
+
+        fake_datetime = MagicMock()
+        fake_datetime.now.side_effect = [
+            ts
+            for i in range(count)
+            for ts in [_dt(2026, 1, 1, 12, 0, i), _dt(2026, 1, 1, 12, 0, i)]
+        ]
+
+        with _patch("mempalace_code.backup.datetime", fake_datetime):
+            for _ in range(count):
+                create_backup(palace_path, kind="pre_watch", kg_path=kg_path)
+
+        backups_dir = os.path.join(tmp_dir, "backups")
+        remaining = [
+            f
+            for f in os.listdir(backups_dir)
+            if f.startswith("pre_watch_") and f.endswith(".tar.gz")
+        ]
+        assert len(remaining) == count

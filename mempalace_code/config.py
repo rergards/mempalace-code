@@ -16,6 +16,7 @@ DEFAULT_OPTIMIZE_AFTER_MINE = True  # Set False to disable auto-compaction
 DEFAULT_BACKUP_BEFORE_OPTIMIZE = True  # Auto-backup before risky operations (on by default)
 DEFAULT_BACKUP_RETAIN_COUNT = 0  # 0 keeps all backups per-kind (backwards compatible)
 DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT = 5  # implicit bound for managed pre-optimize archives
+DEFAULT_PRE_WATCH_RETAIN_COUNT = 5  # implicit bound for managed pre-watch archives
 DEFAULT_SCHEDULED_RETAIN_COUNT = 14  # implicit bound for managed scheduled archives
 DEFAULT_BACKUP_SCHEDULE = "off"  # Scheduled backup frequency: off|daily|weekly|hourly
 DEFAULT_BACKUP_MIN_FREE_BYTES = (
@@ -225,8 +226,9 @@ class MempalaceConfig:
         """Return the applicable retain count for the given backup kind.
 
         When ``backup_retain_count`` is absent from both env and config file,
-        ``scheduled`` maps to ``DEFAULT_SCHEDULED_RETAIN_COUNT`` (14) and
-        ``pre_optimize`` maps to ``DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT`` (5).
+        ``scheduled`` maps to ``DEFAULT_SCHEDULED_RETAIN_COUNT`` (14),
+        ``pre_optimize`` maps to ``DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT`` (5), and
+        ``pre_watch`` maps to ``DEFAULT_PRE_WATCH_RETAIN_COUNT`` (5).
         An explicit ``backup_retain_count: 0`` (or ``MEMPALACE_BACKUP_RETAIN_COUNT=0``)
         is honoured as keep-all for every kind.  All other kinds (e.g. ``manual``)
         use ``backup_retain_count`` unchanged (0 by default).
@@ -235,6 +237,8 @@ class MempalaceConfig:
             return self.backup_retain_count
         if kind == "pre_optimize":
             return DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
+        if kind == "pre_watch":
+            return DEFAULT_PRE_WATCH_RETAIN_COUNT
         if kind == "scheduled":
             return DEFAULT_SCHEDULED_RETAIN_COUNT
         return self.backup_retain_count

@@ -31,6 +31,7 @@ _KIND_PREFIXES: Dict[str, str] = {
     "manual": "mempalace_backup_",
     "scheduled": "scheduled_",
     "pre_optimize": "pre_optimize_",
+    "pre_watch": "pre_watch_",
 }
 
 
@@ -129,9 +130,9 @@ def create_backup(
         Path to the knowledge-graph SQLite file.  Defaults to
         ``knowledge_graph.DEFAULT_KG_PATH``.
     kind:
-        Backup kind: ``manual`` (default), ``scheduled``, or ``pre_optimize``.
-        Controls the filename prefix when *out_path* is None and which
-        per-kind archives are pruned by retention.
+        Backup kind: ``manual`` (default), ``scheduled``, ``pre_optimize``, or
+        ``pre_watch``.  Controls the filename prefix when *out_path* is None
+        and which per-kind archives are pruned by retention.
     config:
         Optional :class:`~mempalace_code.config.MempalaceConfig` instance.
         Created internally when not provided.
@@ -459,6 +460,8 @@ def list_backups(
 
 def _classify_backup_kind(filename: str) -> str:
     """Classify a backup archive filename into a kind string."""
+    if filename.startswith("pre_watch_"):
+        return "pre_watch"
     if filename.startswith("pre_optimize_"):
         return "pre_optimize"
     if filename.startswith("scheduled_"):
