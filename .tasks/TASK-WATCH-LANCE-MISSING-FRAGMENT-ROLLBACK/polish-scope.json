@@ -1,9 +1,10 @@
 {
   "phase": "polish",
   "files": [
+    ".tasks/TASK-WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK/polish-scope.json",
     "docs/audits/WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK-polish-1.md",
     "tests/test_watcher.py"
   ],
   "before_sha": "699c49c",
-  "timestamp": "2026-05-29T07:45:30Z"
+  "timestamp": "2026-05-29T07:49:24Z"
 }
