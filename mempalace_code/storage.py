@@ -163,6 +163,18 @@ class DrawerStore(ABC):
         """Delete all drawers for a given source_file within a wing. Returns deleted count."""
         return 0
 
+    def delete_by_source_files(self, source_files, wing: str) -> int:
+        """Bulk-delete all drawers for a collection of source_file values within a wing.
+
+        Fallback: iterates and calls delete_by_source_file() per file.
+        Override in backends that support efficient batch deletion (e.g. LanceDB).
+        Returns the total deleted row count.
+        """
+        total = 0
+        for sf in source_files:
+            total += self.delete_by_source_file(sf, wing)
+        return total
+
     def get_source_file_hashes(self, wing: str) -> dict:
         """Return {source_file: source_hash} for all drawers in wing.
 
@@ -220,6 +232,7 @@ def optimize_store(
 
 _LANCE_TABLE = "mempalace_drawers"
 DEFAULT_EMBED_MODEL = "all-MiniLM-L6-v2"  # same model ChromaDB uses by default
+BULK_DELETE_BATCH_SIZE = 500  # max source_file values per single IN-predicate delete
 
 # Single source of truth for metadata fields.
 # Adding a new metadata column? Append ONE tuple here.
@@ -683,6 +696,36 @@ class LanceStore(DrawerStore):
             return 0
         table.delete(f"source_file = '{escaped_file}' AND wing = '{escaped_wing}'")
         return count
+
+    def delete_by_source_files(self, source_files, wing: str) -> int:
+        """Bulk-delete drawers for a collection of source_file values within a wing.
+
+        Deduplicates the input, then issues at most one count/delete predicate per
+        BULK_DELETE_BATCH_SIZE files. Batches whose count is zero skip table.delete to
+        avoid creating no-op Lance versions. Returns total deleted row count.
+        """
+        table = self._table
+        if table is None:
+            return 0
+
+        paths = list(dict.fromkeys(source_files))  # dedupe, preserve insertion order
+        if not paths:
+            return 0
+
+        escaped_wing = wing.replace("'", "''")
+        total_deleted = 0
+
+        for i in range(0, len(paths), BULK_DELETE_BATCH_SIZE):
+            batch = paths[i : i + BULK_DELETE_BATCH_SIZE]
+            escaped_items = ", ".join(f"'{p.replace(chr(39), chr(39) * 2)}'" for p in batch)
+            predicate = f"source_file IN ({escaped_items}) AND wing = '{escaped_wing}'"
+            count = table.count_rows(predicate)
+            if count == 0:
+                continue
+            table.delete(predicate)
+            total_deleted += count
+
+        return total_deleted
 
     def get_source_file_hashes(self, wing: str) -> dict:
         """Return {source_file: source_hash} for all drawers in wing.

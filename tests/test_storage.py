@@ -1112,6 +1112,130 @@ class TestDeleteBySourceFile:
         assert store.count() == 0
 
 
+class TestDeleteBySourceFiles:
+    def test_deletes_multiple_source_files_with_one_lance_delete(self, palace_path):
+        """AC-2: multiple source files removed by one IN-predicate delete; count matches; non-target rows remain."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["f1c0", "f1c1", "f2c0", "other"],
+            documents=["file1 chunk0 content", "file1 chunk1 content", "file2 chunk0 content", "other file content"],
+            metadatas=[
+                {"wing": "w", "room": "r", "source_file": "/src/file1.py"},
+                {"wing": "w", "room": "r", "source_file": "/src/file1.py"},
+                {"wing": "w", "room": "r", "source_file": "/src/file2.py"},
+                {"wing": "w", "room": "r", "source_file": "/src/other.py"},
+            ],
+        )
+
+        delete_calls = []
+        original_delete = store._table.delete
+
+        def _spy(predicate):
+            delete_calls.append(predicate)
+            return original_delete(predicate)
+
+        store._table.delete = _spy
+
+        deleted = store.delete_by_source_files(["/src/file1.py", "/src/file2.py"], "w")
+
+        assert deleted == 3
+        assert store.count() == 1
+        assert len(delete_calls) == 1, (
+            f"expected 1 delete call for one IN-predicate batch, got {len(delete_calls)}: {delete_calls}"
+        )
+        remaining = store.get(include=["metadatas"])
+        assert remaining["metadatas"][0]["source_file"] == "/src/other.py"
+
+    def test_empty_or_nonmatching_source_files_do_not_delete(self, palace_path):
+        """AC-3: empty input and non-matching files return 0 without calling table.delete."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["keep1"],
+            documents=["content that must not be deleted"],
+            metadatas=[{"wing": "w", "room": "r", "source_file": "/src/keep.py"}],
+        )
+
+        delete_calls = []
+        original_delete = store._table.delete
+
+        def _spy(predicate):
+            delete_calls.append(predicate)
+            return original_delete(predicate)
+
+        store._table.delete = _spy
+
+        deleted_empty = store.delete_by_source_files([], "w")
+        assert deleted_empty == 0
+        assert len(delete_calls) == 0, "empty input must not call table.delete"
+
+        deleted_nomatch = store.delete_by_source_files(["/src/nonexistent.py"], "w")
+        assert deleted_nomatch == 0
+        assert len(delete_calls) == 0, "no-match input must not call table.delete (count is 0)"
+
+        assert store.count() == 1
+
+    def test_bulk_delete_escapes_quotes_and_stays_wing_scoped(self, palace_path):
+        """AC-4: single quotes in source_file and wing are escaped; only target wing rows deleted."""
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["alpha_quoted", "beta_quoted", "alpha_other"],
+            documents=[
+                "file with quotes in alpha wing content",
+                "file with quotes in beta wing content",
+                "other alpha file content",
+            ],
+            metadatas=[
+                {"wing": "alpha", "room": "r", "source_file": "/it's/path.py"},
+                {"wing": "beta", "room": "r", "source_file": "/it's/path.py"},
+                {"wing": "alpha", "room": "r", "source_file": "/other.py"},
+            ],
+        )
+
+        # Delete the quoted path only in alpha; beta row must survive
+        deleted = store.delete_by_source_files(["/it's/path.py"], "alpha")
+        assert deleted == 1
+        assert store.count() == 2
+
+        remaining = store.get(include=["metadatas"])
+        wings = {m["wing"] for m in remaining["metadatas"]}
+        assert "beta" in wings, "beta wing row must not be deleted"
+        assert "alpha" in wings, "other alpha file must not be deleted"
+
+    def test_large_stale_set_deletes_in_bounded_batches(self, palace_path, monkeypatch):
+        """AC-6: a stale set spanning multiple batches removes all rows and produces a bounded Lance version count."""
+        import math
+
+        import mempalace_code.storage as storage_mod
+
+        small_batch = 3
+        monkeypatch.setattr(storage_mod, "BULK_DELETE_BATCH_SIZE", small_batch)
+
+        store = open_store(palace_path, create=True)
+        n_files = 12  # spans ceil(12/3) = 4 batches
+        ids, docs, metas = [], [], []
+        for i in range(n_files):
+            ids.append(f"bulk{i}")
+            docs.append(f"bulk delete file {i} chunk content for test")
+            metas.append({"wing": "bw", "room": "general", "source_file": f"/src/file{i}.py"})
+
+        store.add(ids=ids, documents=docs, metadatas=metas)
+        versions_before = len(store._table.list_versions())
+
+        source_files = [f"/src/file{i}.py" for i in range(n_files)]
+        deleted = store.delete_by_source_files(source_files, "bw")
+
+        assert deleted == n_files
+        assert store.count() == 0
+
+        versions_after = len(store._table.list_versions())
+        max_expected = versions_before + math.ceil(n_files / small_batch)
+        assert versions_after <= max_expected, (
+            f"bounded batches: expected at most {max_expected} versions "
+            f"(before={versions_before} + ceil({n_files}/{small_batch})={math.ceil(n_files / small_batch)}), "
+            f"got {versions_after}"
+        )
+
+
 class TestGetSourceFileHashes:
     def test_empty_table_returns_empty_dict(self, palace_path):
         store = open_store(palace_path, create=True)

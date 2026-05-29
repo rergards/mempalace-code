@@ -548,8 +548,8 @@ def mine(
             # Only safe when the full file set was walked (limit == 0).
             if incremental and limit == 0:
                 stale_paths = set(existing_hashes.keys()) - walked_paths
+                collection.delete_by_source_files(stale_paths, wing)
                 for stale_path in stale_paths:
-                    collection.delete_by_source_file(stale_path, wing)
                     if kg is not None and Path(stale_path).suffix.lower() in _KG_EXTRACT_EXTENSIONS:
                         kg.invalidate_by_source_file(stale_path)
                 # Also expire tiny-hash entries for files no longer on disk.

@@ -1592,6 +1592,64 @@ def test_incremental_detects_deletion():
         shutil.rmtree(tmpdir)
 
 
+def test_incremental_stale_sweep_deletes_stale_sources_in_one_bulk_call():
+    """AC-1: stale-file sweep calls delete_by_source_files once for all stale paths, not once per file."""
+    from unittest.mock import patch
+
+    from mempalace_code.storage import LanceStore
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        stale_file1 = project_root / "stale1.py"
+        stale_file2 = project_root / "stale2.py"
+        keeper_file = project_root / "keeper.py"
+        write_file(stale_file1, MULTI_FUNC_PY)
+        write_file(stale_file2, MULTI_FUNC_PY)
+        write_file(keeper_file, MULTI_FUNC_PY)
+        _make_palace_config(project_root)
+
+        palace_path = str(project_root / "palace")
+        mine(str(project_root), palace_path)
+
+        # Delete the two stale files so the next mine's sweep should remove their drawers
+        stale_file1.unlink()
+        stale_file2.unlink()
+
+        bulk_delete_calls = []
+        original_bulk = LanceStore.delete_by_source_files
+
+        def _spy(self, source_files, wing):
+            bulk_delete_calls.append((set(source_files), wing))
+            return original_bulk(self, source_files, wing)
+
+        with patch.object(LanceStore, "delete_by_source_files", _spy):
+            mine(str(project_root), palace_path)
+
+        # Stale sweep must call delete_by_source_files exactly once with both stale paths
+        stale_sweep_calls = [
+            (paths, w) for paths, w in bulk_delete_calls if paths
+        ]
+        assert len(stale_sweep_calls) == 1, (
+            f"expected one bulk delete call for stale sweep, got {len(stale_sweep_calls)}: {stale_sweep_calls}"
+        )
+        called_paths, called_wing = stale_sweep_calls[0]
+        assert str(stale_file1) in called_paths
+        assert str(stale_file2) in called_paths
+        assert str(keeper_file) not in called_paths
+        assert called_wing == "test_wing"
+
+        # Verify storage: stale drawers gone, keeper drawers remain
+        store = open_store(palace_path, create=False)
+        for sf in (stale_file1, stale_file2):
+            gone = store.get(where={"source_file": str(sf)}, include=["metadatas"], limit=100)
+            assert len(gone["ids"]) == 0, f"stale drawers for {sf} must be deleted"
+        kept = store.get(where={"source_file": str(keeper_file)}, include=["metadatas"], limit=100)
+        assert len(kept["ids"]) > 0, "keeper file drawers must remain"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_incremental_full_flag_forces_rebuild():
     """AC-4: incremental=False re-chunks every file even if content is unchanged."""
     tmpdir = tempfile.mkdtemp()
