@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-05-29 · REMOTE-MIRROR-SAFE-GUARDS
+
+Add `preflight mirror` CLI command and docs warning that delete-mode rsync against palace state can silently remove remote-owned data.
+
 ## 2026-05-29 · WATCH-INITIALIZED-ROOT-UX
 
 `watch` now mines and watches an initialized root directory directly, and emits a clear diagnostic when no projects are found.
