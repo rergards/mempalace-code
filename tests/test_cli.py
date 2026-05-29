@@ -1148,6 +1148,149 @@ class TestMineCommand:
         assert mock_mine.call_args.kwargs["incremental"] is True
 
 
+class TestMirrorPreflightCommand:
+    """Tests for 'mempalace-code preflight mirror --command ...'."""
+
+    # A delete-mode state mirror with all required excludes — must be accepted.
+    SAFE_CMD = (
+        "rsync -a --delete "
+        "--exclude=palace/ "
+        "--exclude=knowledge_graph.sqlite3 "
+        "--exclude=config.json "
+        "--exclude=backups/ "
+        "~/.mempalace/ user@host:.mempalace/"
+    )
+
+    # A bare delete-mode state mirror with no excludes — must be blocked.
+    DANGEROUS_CMD = "rsync -a --delete ~/.mempalace/ user@host:.mempalace/"
+
+    def test_safe_mirror_with_required_excludes_exits_zero(self, capsys):
+        """AC-1: delete-mode state mirror with required excludes is accepted (exit 0)."""
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", self.SAFE_CMD]
+        ):
+            main()  # must not raise
+        out = capsys.readouterr().out
+        assert "OK" in out
+
+    def test_delete_mode_state_mirror_missing_excludes_exits_nonzero(self, capsys):
+        """AC-2: bare rsync --delete state mirror is blocked; reports all missing families."""
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", self.DANGEROUS_CMD]
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code != 0
+        out = capsys.readouterr().out
+        assert "palace" in out
+        assert "kg" in out
+        assert "config" in out
+        assert "backups" in out
+
+    def test_non_state_or_no_delete_commands_remain_ok(self, capsys):
+        """AC-3: non-MemPalace delete rsyncs and MemPalace rsyncs without --delete are not flagged."""
+        # Non-MemPalace rsync --delete
+        no_state_cmd = "rsync -a --delete /home/user/docs/ user@host:/backup/docs/"
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", no_state_cmd]
+        ):
+            main()
+        assert "OK" in capsys.readouterr().out
+
+        # MemPalace rsync without --delete semantics
+        no_delete_cmd = "rsync -a ~/.mempalace/ user@host:.mempalace/"
+        with patch.object(
+            sys, "argv", ["mempalace", "preflight", "mirror", "--command", no_delete_cmd]
+        ):
+            main()
+        assert "OK" in capsys.readouterr().out
+
+    def test_mirror_preflight_json_reports_missing_excludes(self, capsys):
+        """AC-4: --json output is valid JSON with ok=false, pattern_id, and missing families."""
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "preflight", "mirror", "--json", "--command", self.DANGEROUS_CMD],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code != 0
+        data = json.loads(capsys.readouterr().out)
+        assert data["ok"] is False
+        assert data["pattern_id"] == "delete-mode-state-mirror-missing-excludes"
+        assert "palace" in data["missing_excludes"]
+        assert "kg" in data["missing_excludes"]
+        assert "config" in data["missing_excludes"]
+        assert "backups" in data["missing_excludes"]
+
+    def test_preflight_never_executes_inspected_command(self, capsys):
+        """AC-6 / INV-1: inspecting a dangerous command never spawns a subprocess or shells out."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("subprocess.Popen") as mock_popen,
+            patch("os.system") as mock_system,
+            patch("os.popen") as mock_os_popen,
+        ):
+            with patch.object(
+                sys, "argv", ["mempalace", "preflight", "mirror", "--command", self.DANGEROUS_CMD]
+            ):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+
+        assert exc.value.code != 0  # classified as dangerous
+        mock_run.assert_not_called()
+        mock_popen.assert_not_called()
+        mock_system.assert_not_called()
+        mock_os_popen.assert_not_called()
+
+
+class TestMirrorDocs:
+    """Assert that mirror-safety guidance is present in both README.md and docs/BACKUP_RESTORE.md.
+
+    The sentinel phrase 'remote-owned' and a safe rsync --delete example with required excludes
+    (palace, knowledge_graph.sqlite3, config.json, backups) were verified ABSENT on the
+    pre-implementation HEAD, so these tests fail before implementation and pass only once both
+    documents carry the guidance.
+    """
+
+    SENTINEL = "remote-owned"
+    RSYNC_DELETE_EXAMPLE = "--delete"
+    # Concrete exclude patterns that must appear in both docs as part of the new guidance.
+    REQUIRED_EXCLUDE_PATTERNS = ["palace", "knowledge_graph.sqlite3", "config.json", "backups"]
+
+    def _read_doc(self, name: str) -> str:
+        root = Path(__file__).parent.parent
+        return (root / name).read_text(encoding="utf-8")
+
+    def test_readme_has_mirror_safety_guidance(self):
+        """README.md must contain the backup-vs-mirror sentinel and a safe rsync example."""
+        content = self._read_doc("README.md")
+        assert self.SENTINEL in content, (
+            "README.md must contain 'remote-owned' to distinguish managed backups from mirror risk"
+        )
+        assert self.RSYNC_DELETE_EXAMPLE in content, (
+            "README.md must contain an rsync --delete example"
+        )
+        for pattern in self.REQUIRED_EXCLUDE_PATTERNS:
+            assert pattern in content, (
+                f"README.md rsync example must include exclude pattern for '{pattern}'"
+            )
+
+    def test_backup_restore_doc_has_mirror_safety_guidance(self):
+        """docs/BACKUP_RESTORE.md must contain the backup-vs-mirror sentinel and a safe rsync example."""
+        content = self._read_doc("docs/BACKUP_RESTORE.md")
+        assert self.SENTINEL in content, (
+            "docs/BACKUP_RESTORE.md must contain 'remote-owned' to distinguish managed backups from mirror risk"
+        )
+        assert self.RSYNC_DELETE_EXAMPLE in content, (
+            "docs/BACKUP_RESTORE.md must contain an rsync --delete example"
+        )
+        for pattern in self.REQUIRED_EXCLUDE_PATTERNS:
+            assert pattern in content, (
+                f"docs/BACKUP_RESTORE.md rsync example must include exclude pattern for '{pattern}'"
+            )
+
+
 # =============================================================================
 # mine-all command tests
 # =============================================================================

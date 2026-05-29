@@ -55,6 +55,7 @@ from .cli_commands.maintenance import cmd_cleanup, cmd_health, cmd_migrate_stora
 from .cli_commands.model import cmd_fetch_model, fetch_model
 from .cli_commands.query import cmd_compress, cmd_read, cmd_search, cmd_wakeup
 from .cli_commands.version_check import cmd_version_check
+from .cli_commands.preflight import cmd_preflight
 from .cli_commands.watch import cmd_watch
 
 # Re-export for backward compatibility (tests and downstream direct imports).
@@ -596,6 +597,31 @@ def main():
         help="Override the wing for all imported drawers",
     )
 
+    # preflight
+    p_preflight = sub.add_parser("preflight", help="Preflight checks for operator commands")
+    preflight_sub = p_preflight.add_subparsers(dest="preflight_command")
+
+    # preflight mirror
+    p_preflight_mirror = preflight_sub.add_parser(
+        "mirror",
+        help=(
+            "Inspect an rsync command for MemPalace state-directory mirror risks "
+            "without executing it"
+        ),
+    )
+    p_preflight_mirror.add_argument(
+        "--command",
+        required=True,
+        dest="inspect",
+        metavar="CMD",
+        help="rsync command string to inspect (quoted; never executed)",
+    )
+    p_preflight_mirror.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a JSON object instead of human-readable output",
+    )
+
     # version-check
     p_vc = sub.add_parser(
         "version-check",
@@ -637,6 +663,13 @@ def main():
     if args.command == "diary":
         args._diary_parser = p_diary
 
+    if args.command == "preflight" and not args.preflight_command:
+        p_preflight.print_help()
+        sys.exit(2)
+
+    if args.command == "preflight":
+        args._preflight_parser = p_preflight
+
     if args.command == "mine" and args.include_emotional:
         if args.mode != "convos" or args.extract != "general":
             p_mine.error("--include-emotional requires --mode convos --extract general")
@@ -665,6 +698,7 @@ def main():
         "export": cmd_export,
         "import": cmd_import,
         "version-check": cmd_version_check,
+        "preflight": cmd_preflight,
     }
 
     # --- opt-in version-check hook ---

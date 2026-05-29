@@ -516,6 +516,81 @@ regardless of exceptions. No files are written inside the repository.
 
 ---
 
+## Remote Mirror Risk
+
+Managed backups and Lance cleanup protect **local** palace state. They do not protect
+against a separate class of operator risk: delete-mode file mirroring between independent
+hosts (`rsync --delete`).
+
+When `rsync --delete` syncs a whole MemPalace state directory from one host to another,
+it removes files on the destination that are absent on the source. If the destination host
+holds **remote-owned** drawers, diary entries, or KG triples that were never synced back
+to the source, those are permanently deleted — even though local backups and Lance cleanup
+are healthy.
+
+### Why managed backups do not protect against this
+
+- Backups archive the **source** palace. A delete-mode mirror of the source removes content
+  from the **destination** that the source never knew about.
+- Backup retention and Lance cleanup run on the source; they have no visibility into remote
+  state or what `rsync --delete` will remove on the destination.
+
+### Safe rsync with recommended excludes
+
+If you must mirror the palace state directory between hosts, exclude the live palace data,
+KG database, config, and managed backups directory so a delete sweep cannot remove
+remote-owned content:
+
+```bash
+rsync -a --delete \
+  --exclude=palace/ \
+  --exclude=knowledge_graph.sqlite3 \
+  --exclude=config.json \
+  --exclude=backups/ \
+  ~/.mempalace/ user@host:.mempalace/
+```
+
+Add `--exclude='*.log'` if you route MemPalace watch logs into the state directory
+(by default, logs go to `/tmp/mempalace-watch.log` and do not need excluding).
+
+### Preflight check before installing a mirror job
+
+Before installing a launchd or cron mirror job, run the preflight command to verify your
+rsync invocation is safe (the command is inspected only — it is never executed):
+
+```bash
+mempalace-code preflight mirror --command \
+  "rsync -a --delete --exclude=palace/ --exclude=knowledge_graph.sqlite3 \
+   --exclude=config.json --exclude=backups/ ~/.mempalace/ user@host:.mempalace/"
+# OK
+
+mempalace-code preflight mirror --command "rsync -a --delete ~/.mempalace/ user@host:.mempalace/"
+# BLOCKED [delete-mode-state-mirror-missing-excludes]
+#   missing exclude: palace
+#   missing exclude: kg
+#   missing exclude: config
+#   missing exclude: backups
+```
+
+Use `--json` for automation scripts that parse the result.
+
+### Recommended alternative: export/import instead of whole-state mirrors
+
+Whole-state mirrors transfer regenerable code-chunked drawers along with the irreplaceable
+manual content. A safer cross-host transfer uses the export/import flow:
+
+```bash
+# On source host: export only manual drawers and KG (non-regenerable content)
+mempalace-code export --only-manual --with-kg --out ~/transfer.jsonl
+
+# Copy the JSONL to the destination host, then import
+mempalace-code import ~/transfer.jsonl
+```
+
+This preserves remote-owned content on both sides and avoids delete-sweep risk entirely.
+
+---
+
 ## Related
 
 - Upstream data loss context: issue #469 in the original ChromaDB-based fork

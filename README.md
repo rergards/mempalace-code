@@ -632,6 +632,36 @@ Skips compaction entirely. Storage will grow with more fragments but avoids any 
 
 Also available: `mempalace-code export --only-manual` for JSONL export of manually-stored drawers.
 
+**Remote mirror risk — backups vs file mirroring:**
+
+Managed backups and Lance cleanup protect **local** palace state. They do not protect against
+delete-mode rsync between independent hosts. `rsync --delete` syncing a whole MemPalace state
+directory removes remote-owned drawers, diary entries, and KG triples that were never synced
+back to the source — even when local backups are healthy.
+
+Use these recommended excludes for any delete-mode state-directory mirror:
+
+```bash
+rsync -a --delete \
+  --exclude=palace/ \
+  --exclude=knowledge_graph.sqlite3 \
+  --exclude=config.json \
+  --exclude=backups/ \
+  ~/.mempalace/ user@host:.mempalace/
+```
+
+Run a preflight check before installing a mirror job (the command is never executed):
+
+```bash
+mempalace-code preflight mirror --command \
+  "rsync -a --delete --exclude=palace/ --exclude=knowledge_graph.sqlite3 \
+   --exclude=config.json --exclude=backups/ ~/.mempalace/ user@host:.mempalace/"
+# OK
+```
+
+See [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md) for the full mirror-risk guidance and
+the safer export/import alternative for cross-host transfer of non-regenerable content.
+
 ---
 
 ### Scan Excludes
