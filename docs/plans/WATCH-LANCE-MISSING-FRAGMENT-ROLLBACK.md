@@ -16,8 +16,6 @@ files:
     change: "Cover pre_watch archive prefix/list kind and default/explicit retention boundaries."
   - path: docs/BACKUP_RESTORE.md
     change: "Document automatic watch pre-run backups, their retention class, and the operator recovery commands printed on degraded startup."
-  - path: CHANGELOG.md
-    change: "Add an Unreleased fixed entry for watcher pre-run backup and Lance missing-fragment startup recovery."
 acceptance:
   - id: AC-1
     when: "`python -m pytest tests/test_watcher.py::TestWatchInitialMineRecovery::test_initial_mine_creates_pre_watch_backup_before_mining -q` is run"
@@ -41,8 +39,8 @@ acceptance:
     when: "`python -m pytest tests/test_backup.py::TestPreWatchBackups::test_pre_watch_kind_uses_prefix_and_list_kind tests/test_backup.py::TestPreWatchBackups::test_pre_watch_default_retention_is_bounded tests/test_backup.py::TestPreWatchBackups::test_explicit_zero_retention_keeps_all_pre_watch_archives -q` is run"
     then: "pre_watch archives use the pre_watch_ prefix, backup list reports kind=pre_watch, the absent-config default keeps only the bounded newest set, and explicit backup_retain_count=0 keeps all"
   - id: AC-8
-    when: "`rg 'pre_watch|watch pre-run|repair --rollback --dry-run|restore .*--force' docs/BACKUP_RESTORE.md CHANGELOG.md` is run"
-    then: "operator-facing docs and changelog mention watch pre-run backups and the recovery commands for degraded watcher startup"
+    when: "`rg 'pre_watch|watch pre-run|repair --rollback --dry-run|restore .*--force' docs/BACKUP_RESTORE.md` is run"
+    then: "operator-facing docs mention watch pre-run backups and the recovery commands for degraded watcher startup"
 out_of_scope:
   - "Changing LanceDB storage schema, embedder behavior, or merge_insert retry semantics outside watcher startup recovery."
   - "Automatically restoring from tar backups without operator confirmation; automatic recovery is limited to Lance version rollback."
@@ -100,8 +98,8 @@ task_contract:
       expected_behavior: "Backup tests prove the pre_watch prefix/listing and retention boundaries."
     - name: "Operator guidance"
       kind: cli
-      paths: ["docs/BACKUP_RESTORE.md", "CHANGELOG.md"]
-      expected_behavior: "Docs and changelog describe automatic watch pre-run backups and degraded-startup recovery commands."
+      paths: ["docs/BACKUP_RESTORE.md"]
+      expected_behavior: "Docs describe automatic watch pre-run backups and degraded-startup recovery commands."
   invariants:
     - id: INV-1
       statement: "Successful steady-state watch re-mine batches keep the existing filtering, debounce, disk-budget, skip_optimize, and optimize-on-filed behavior."
@@ -161,8 +159,8 @@ task_contract:
       proves: "pre_watch backup taxonomy and retention behavior are correct."
       acceptance_ids: [AC-7]
     - id: VER-8
-      command: "rg 'pre_watch|watch pre-run|repair --rollback --dry-run|restore .*--force' docs/BACKUP_RESTORE.md CHANGELOG.md"
-      proves: "Docs and changelog expose the automatic backup and recovery-command behavior."
+      command: "rg 'pre_watch|watch pre-run|repair --rollback --dry-run|restore .*--force' docs/BACKUP_RESTORE.md"
+      proves: "Docs expose the automatic backup and recovery-command behavior."
       acceptance_ids: [AC-8]
   regression_plan:
     applies: true
@@ -185,7 +183,7 @@ task_contract:
         proves: "Adding pre_watch does not regress scheduled/pre_optimize/manual retention and list behavior."
         acceptance_ids: [AC-7]
       - id: REG-5
-        command: "rg 'pre_watch|watch pre-run|repair --rollback --dry-run|restore .*--force' docs/BACKUP_RESTORE.md CHANGELOG.md"
+        command: "rg 'pre_watch|watch pre-run|repair --rollback --dry-run|restore .*--force' docs/BACKUP_RESTORE.md"
         proves: "Operator documentation for degraded startup recovery remains present."
         acceptance_ids: [AC-8]
 ---
