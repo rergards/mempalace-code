@@ -926,3 +926,13 @@ items:
       resolution: '2026-05-24: completed in pipeline run (commit=b4d31bb, 9 files changed, 136 insertions(+), 1 deletion(-))'
       archived_date: "2026-05-24"
       done_summary: completed in pipeline run (commit=b4d31bb, 9 files changed, 136 insertions(+), 1 deletion(-))
+    - key: WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK
+      summary: Make watch initial mine fail closed and recover from Lance missing-fragment write errors
+      resolution: '2026-05-29: Restored watcher rollback safety and fixed managed backup filename collisions; full test suite passed after manual provider repair.'
+      archived_date: "2026-05-29"
+      done_summary: Restored watcher rollback safety and fixed managed backup filename collisions; full test suite passed after manual provider repair.
+    - key: RESTORE-KG-PATH-SCOPING
+      summary: Avoid surprising global KG overwrite when restoring to an explicit palace path
+      resolution: '2026-05-29: completed in pipeline run (commit=98a7244, 17 files changed, 634 insertions(+), 2 deletions(-))'
+      archived_date: "2026-05-29"
+      done_summary: completed in pipeline run (commit=98a7244, 17 files changed, 634 insertions(+), 2 deletions(-))

@@ -43,27 +43,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK
-    summary: "Make watch initial mine fail closed and recover from Lance missing-fragment write errors"
-    section: storage_reliability
-    status: done
-    priority: P1
-    description: "The remote /srv/dev watcher incident showed merge_insert can fail during watch initial mine with a missing Lance fragment after prior cleanup/restore history. Watch should preserve a pre-run backup, surface a clear degraded state, and either restore automatically or leave an operator-safe recovery command."
-    acceptance:
-      - "Given watch initial mine raises a Lance missing-fragment error, the watcher exits without systemd restart loops mutating the same palace repeatedly."
-      - "The operator gets the backup path and exact restore/repair command in stderr/log output."
-      - "Regression coverage simulates the initial-mine write failure and proves the palace remains recoverable."
-    resolution: "2026-05-29: Restored watcher rollback safety and fixed managed backup filename collisions; full test suite passed after manual provider repair."
-    done_summary: "Restored watcher rollback safety and fixed managed backup filename collisions; full test suite passed after manual provider repair."
-  - key: RESTORE-KG-PATH-SCOPING
-    summary: "Avoid surprising global KG overwrite when restoring to an explicit palace path"
-    section: storage_reliability
-    status: open
-    priority: P2
-    description: "`mempalace-code --palace <custom> restore <archive>` restores Lance data into the custom palace but still writes the KG to the default global knowledge_graph.sqlite3 unless a lower-level kg_path is passed. Make CLI restore scoping explicit and safer."
-    acceptance:
-      - "CLI restore docs and behavior make the KG destination explicit for default and custom palace restores."
-      - "A regression test covers restoring to a custom palace without unintentionally overwriting an unrelated KG."
   - key: WATCH-INITIALIZED-ROOT-UX
     summary: "Clarify or support watch on a directory that is itself an initialized project"
     section: storage_reliability
