@@ -12,6 +12,8 @@ import subprocess
 import sys
 import types
 
+import pytest
+
 _RUNPY_WARNING = "RuntimeWarning: 'mempalace_code.cli' found in sys.modules"
 
 
@@ -207,6 +209,87 @@ def test_fetch_model_is_same_object_as_in_model_module():
     from mempalace_code.cli_commands import model
 
     assert cli.fetch_model is model.fetch_model
+
+
+def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False):
+    class FakeSentenceTransformer:
+        def __init__(self, model_name, **kwargs):
+            calls.append((model_name, kwargs))
+            if fail_local and kwargs.get("local_files_only"):
+                raise RuntimeError("local model unavailable")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
+    )
+
+
+def test_fetch_model_uses_cached_model_without_download(tmp_path, monkeypatch, capsys):
+    """Cached fetch-model must not perform an online-capable load."""
+    from mempalace_code.cli_commands import model
+    from mempalace_code.storage import DEFAULT_EMBED_MODEL
+
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    cache_dir = model._model_cache_dir(DEFAULT_EMBED_MODEL)
+    assert cache_dir is not None
+    (cache_dir / "refs").mkdir(parents=True)
+    (cache_dir / "snapshots" / "snapshot").mkdir(parents=True)
+
+    calls = []
+    _install_fake_fetch_model(monkeypatch, calls)
+
+    model.fetch_model(DEFAULT_EMBED_MODEL)
+
+    assert calls == [(DEFAULT_EMBED_MODEL, {"local_files_only": True})]
+    output = capsys.readouterr().out
+    assert "already available locally" in output
+    assert "Downloading model" not in output
+
+
+def test_fetch_model_downloads_after_local_cache_miss(monkeypatch, capsys):
+    """Uncached fetch-model probes local files first, then performs one online load."""
+    from mempalace_code.cli_commands import model
+    from mempalace_code.storage import DEFAULT_EMBED_MODEL
+
+    calls = []
+    _install_fake_fetch_model(monkeypatch, calls, fail_local=True)
+
+    model.fetch_model(DEFAULT_EMBED_MODEL)
+
+    assert calls == [
+        (DEFAULT_EMBED_MODEL, {"local_files_only": True}),
+        (DEFAULT_EMBED_MODEL, {"local_files_only": False}),
+    ]
+    assert "Downloading model" in capsys.readouterr().out
+
+
+def test_fetch_model_force_skips_local_probe(monkeypatch):
+    """--force must re-download instead of accepting a local cached load."""
+    from mempalace_code.cli_commands import model
+    from mempalace_code.storage import DEFAULT_EMBED_MODEL
+
+    calls = []
+    _install_fake_fetch_model(monkeypatch, calls)
+
+    model.fetch_model(DEFAULT_EMBED_MODEL, force=True)
+
+    assert calls == [(DEFAULT_EMBED_MODEL, {"local_files_only": False})]
+
+
+def test_fetch_model_existing_local_path_does_not_retry_online(tmp_path, monkeypatch):
+    """An existing filesystem model path must not be interpreted as a remote repo fallback."""
+    from mempalace_code.cli_commands import model
+
+    model_path = tmp_path / "local-model"
+    model_path.mkdir()
+    calls = []
+    _install_fake_fetch_model(monkeypatch, calls, fail_local=True)
+
+    with pytest.raises(RuntimeError, match="local model unavailable"):
+        model.fetch_model(str(model_path))
+
+    assert calls == [(str(model_path), {"local_files_only": True})]
 
 
 def test_main_alias_is_same_object_as_in_alias_module():

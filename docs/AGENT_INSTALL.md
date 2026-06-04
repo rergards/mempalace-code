@@ -177,7 +177,7 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 
 ### Q3 — Model download consent
 
-**ASK HUMAN:** "mempalace-code uses a local embedding model (~80 MB) downloaded once from HuggingFace. This requires internet access during setup; after that everything runs offline. Reply `yes` to download now, `no` to skip (you can run `mempalace-code fetch-model` later), or `offline` if this machine has no internet access."
+**ASK HUMAN:** "mempalace-code uses a local embedding model (~80 MB) cached once from HuggingFace. This requires internet access only if the model is not already cached; after that everything runs offline. Reply `yes` to cache/verify now, `no` to skip (you can run `mempalace-code fetch-model` later), or `offline` if this machine has no internet access."
 
 **Parse response:**
 - `yes` → Set `DOWNLOAD_MODEL=yes`.
@@ -427,7 +427,7 @@ Do not add the flag just because a directory is a source repo; code symbols are 
 
 ---
 
-### Step 4c: Download embedding model
+### Step 4c: Cache or verify embedding model
 
 **Condition:** `DOWNLOAD_MODEL=yes`
 
@@ -436,11 +436,11 @@ Run:
 mempalace-code fetch-model
 ```
 
-`fetch-model` is idempotent — if the model is already cached it loads instantly from disk (no network call). Expected output ends with `Done — embedding model is ready for offline use.`
+`fetch-model` is idempotent — if the model is already cached it verifies local-only model resolution from disk (no network call). Expected output ends with `Done — embedding model is ready for offline use.`
 
 Exit code 0 = success. Set `MODEL_READY=true`. Continue to Step 4d.
 
-**Fail →** Retry once. If still failing, **ASK HUMAN:** "Model download failed (network error or HuggingFace unavailable). The palace will work without the model, but search quality will degrade until it is available. Reply `retry` to try again, or `continue` to proceed without the model (run `mempalace-code fetch-model` later)."
+**Fail →** Retry once. If still failing, **ASK HUMAN:** "Model cache/verify failed (missing cache, network error, or HuggingFace unavailable). The palace will work without the model, but search quality will degrade until it is available. Reply `retry` to try again, or `continue` to proceed without the model (run `mempalace-code fetch-model` later)."
 
 **Condition:** `DOWNLOAD_MODEL=no` → Set `MODEL_READY=false`. Note to human: run `mempalace-code fetch-model` before first search.
 

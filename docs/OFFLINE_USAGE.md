@@ -17,7 +17,7 @@ and copy it over.
 On a machine with internet access:
 
 ```bash
-# Download the model to the default cache location
+# Download or verify the model in the default cache location
 mempalace-code fetch-model
 
 # The model lives at:
@@ -76,7 +76,7 @@ If you want to use a different embedding model (see `docs/UPSTREAM_HARDENING.md`
 the model upgrade policy):
 
 ```bash
-# 1. Download on a connected machine:
+# 1. Download or verify on a connected machine:
 mempalace-code fetch-model --model all-mpnet-base-v2
 
 # 2. Pass the model name when opening the store (Python API):
@@ -99,16 +99,16 @@ mempalace-code fetch-model [--model MODEL] [--force]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--model MODEL` | `all-MiniLM-L6-v2` | HuggingFace model name to download |
-| `--force` | off | Delete existing cached model and re-download |
+| `--model MODEL` | `all-MiniLM-L6-v2` | HuggingFace model name or local model path |
+| `--force` | off | Delete the existing Hub cache entry and re-download |
 
 **Exit codes:**
-- `0` — model downloaded and cached successfully
-- `1` — download failed (network error, disk full, etc.)
+- `0` — model is available locally or was downloaded and cached successfully
+- `1` — local verification or download failed (missing cache, network error, disk full, etc.)
 
 **Cache location:**
 
-The model is stored in the HuggingFace Hub cache:
+Remote HuggingFace models are stored in the HuggingFace Hub cache:
 
 ```
 $HF_HOME/hub/models--sentence-transformers--<model-name>/
@@ -120,17 +120,20 @@ environment variable.
 **Examples:**
 
 ```bash
-# Download the default model
+# Verify or download the default model
 mempalace-code fetch-model
 
 # Force re-download (e.g. after corruption)
 mempalace-code fetch-model --force
 
-# Download a non-default model
+# Verify or download a non-default model
 mempalace-code fetch-model --model all-mpnet-base-v2
 ```
 
----
+`fetch-model` always tries local-only model resolution first. If the model is
+already cached, it does not make an online-capable HuggingFace Hub lookup and
+prints `Model '<name>' is already available locally.`. Use `--force` only when
+you intentionally want a fresh download.
 
 ---
 
@@ -138,7 +141,9 @@ mempalace-code fetch-model --model all-mpnet-base-v2
 
 All mempalace-code commands — `init`, `mine`, `mine-all`, `search`, `status`, `health`,
 `repair`, `backup`, `watch`, and all MCP tools — run completely offline after the
-one-time model download. None of them contact PyPI or any external service.
+one-time model download. Search/mining model startup first uses local-only
+resolution, so a populated cache does not require HuggingFace metadata checks.
+None of these commands contact PyPI or any external service.
 
 The **only** optional network activity is the version check:
 

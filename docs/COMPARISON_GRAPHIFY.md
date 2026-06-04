@@ -1,8 +1,8 @@
 # mempalace-code vs Graphify — Honest Comparison
 
-**Date**: 2026-04-10
+**Date**: 2026-06-04
 **Graphify version surveyed**: v4 / 0.3.28 (21.7k stars, `safishamsi/graphify`)
-**mempalace-code version surveyed**: v1.10.1 release state
+**mempalace-code version surveyed**: v1.10.2 release state
 
 This document is written for prospective users trying to decide which project fits their needs. It is deliberately honest about where each wins. There is no single "better" tool — the two projects solve adjacent problems using orthogonal techniques and their strengths do not overlap much.
 
@@ -29,8 +29,8 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 | Multimodal | **PDFs, images, videos, YouTube links** (via host LLM API) | text only |
 | Visualization | **interactive HTML graph** (pyvis) | none |
 | Incremental rebuild | **SHA256 file-level cache** | content-hash incremental mining; only changed files are re-chunked |
-| Privacy on ingest | code stays local; **docs/PDFs/images sent to host LLM API** | no content leaves the host; one-time embedding model download during setup |
-| Embedding dependency | none | 80 MB `all-MiniLM-L6-v2` model downloaded once |
+| Privacy on ingest | code stays local; **docs/PDFs/images sent to host LLM API** | no content leaves the host; one-time embedding model download during setup, then local-only model resolution |
+| Embedding dependency | none | 80 MB `all-MiniLM-L6-v2` model cached once |
 | MCP surface | `/graphify query`, `/graphify path`, `/graphify explain` | 29 MCP tools (search, traverse, diary, KG, arch-retrieval, stats, …) |
 | Always-on integration | **PreToolUse hook** fires before every Glob/Grep/Bash | none — agent calls tools explicitly |
 | Supported agents | Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Aider, OpenClaw, Factory Droid, Trae | Claude Code, Codex, any MCP client; hooks not shipped |
@@ -43,7 +43,7 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 
 Graphify's docs-and-multimodal layer sends PDFs, images, and video frames to the **host LLM API** (Claude, GPT, Gemini) during extraction to produce concept nodes. Code stays local, but the non-code layer does not.
 
-mempalace-code has no content-ingest API dependency. The embedding model is downloaded once during setup (`init` or `fetch-model`); after that, the model runs locally, the chunker is pure Python, and the KG is SQLite. There is no network path from mine → store → query.
+mempalace-code has no content-ingest API dependency. The embedding model is downloaded once during setup (`init` or `fetch-model`); after that, model startup tries local-only resolution first, the chunker is pure Python, and the KG is SQLite. There is no network path from mine → store → query when the model cache is populated.
 
 **Who this matters for**: consultants, regulated industries, researchers under NDA, anyone running on an air-gapped machine.
 

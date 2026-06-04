@@ -63,7 +63,7 @@ Then ask your AI to read [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) — it
 <summary>Or do it manually</summary>
 
 ```bash
-mempalace-code init ~/projects/myapp       # detect rooms, download embedding model (~80 MB)
+mempalace-code init ~/projects/myapp       # detect rooms, cache embedding model (~80 MB)
 mempalace-code init ~/projects/myapp --detect-entities  # optional people/project detection for notes/convos
 mempalace-code mine ~/projects/myapp       # index your codebase
 claude mcp add mempalace-code -- python -m mempalace_code.mcp_server  # connect Claude Code
@@ -786,7 +786,7 @@ This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla
 | Upstream | This fork |
 |---|---|
 | ChromaDB — [silently deletes data on version bump](https://github.com/milla-jovovich/mempalace/issues/469) | LanceDB — crash-safe Arrow storage, no version-cliff |
-| "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace-code init` downloads model explicitly; offline after model setup |
+| "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace-code init` downloads the model explicitly once; cached mining/search use local-only model resolution first |
 | "100% R@5" — [unverifiable](https://github.com/milla-jovovich/mempalace/issues/27) | Number removed. Methodology caveats documented |
 | ~30% test coverage | 2200+ tests, every feature acceptance-gated |
 | No backup, no recovery | `backup` / `restore` / `export` / `import` |
@@ -846,7 +846,7 @@ pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[dev]"         # pytest + ruff + pyright
 ```
 
-**Requirements:** Python 3.11+. ~80 MB embedding model downloaded once during `mempalace-code init`.
+**Requirements:** Python 3.11+. ~80 MB embedding model cached once during `mempalace-code init` or `mempalace-code fetch-model`; repeated cached runs resolve the model locally.
 
 </details>
 
@@ -895,7 +895,7 @@ mempalace-code wake-up --wing myapp                    # project-scoped
 mempalace-code status                                  # palace overview
 
 # Model
-mempalace-code fetch-model                             # pre-download for offline use
+mempalace-code fetch-model                             # cache or verify model for offline use
 ```
 
 </details>
@@ -953,7 +953,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.10.1-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.10.2-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

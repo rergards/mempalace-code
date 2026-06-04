@@ -234,6 +234,69 @@ _LANCE_TABLE = "mempalace_drawers"
 DEFAULT_EMBED_MODEL = "all-MiniLM-L6-v2"  # same model ChromaDB uses by default
 BULK_DELETE_BATCH_SIZE = 500  # max source_file values per single IN-predicate delete
 
+
+def _env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_existing_model_path(model_name: str) -> bool:
+    try:
+        return Path(model_name).expanduser().exists()
+    except OSError:
+        return False
+
+
+class _SentenceTransformerEmbedder:
+    """MemPalace-controlled sentence-transformers wrapper.
+
+    LanceDB's registry wrapper does not expose local_files_only and loads the
+    model lazily, so a cached search can still make HuggingFace metadata calls.
+    This wrapper keeps the same model/device/normalization defaults while trying
+    local resolution before any network-capable load.
+    """
+
+    def __init__(self, model_name: str):
+        self._model_name = model_name
+        self._model = self._load_model()
+        self._ndims: int | None = None
+
+    def _load_model(self):
+        from sentence_transformers import SentenceTransformer
+
+        explicit_offline = _env_truthy("HF_HUB_OFFLINE") or _env_truthy("TRANSFORMERS_OFFLINE")
+        is_local_path = _is_existing_model_path(self._model_name)
+        kwargs = {"device": "cpu", "trust_remote_code": True}
+
+        try:
+            return SentenceTransformer(
+                self._model_name,
+                local_files_only=True,
+                **kwargs,
+            )
+        except Exception:
+            if explicit_offline or is_local_path:
+                raise
+            logger.debug(
+                "Embedding model %r was not available locally; retrying online",
+                self._model_name,
+            )
+
+        return SentenceTransformer(self._model_name, **kwargs)
+
+    def ndims(self) -> int:
+        if self._ndims is None:
+            self._ndims = len(self.compute_source_embeddings(["foo"])[0])
+        return self._ndims
+
+    def compute_source_embeddings(self, texts: list[str]) -> list[list[float]]:
+        vectors = self._model.encode(
+            list(texts),
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+        )
+        return vectors.tolist()
+
+
 # Single source of truth for metadata fields.
 # Adding a new metadata column? Append ONE tuple here.
 # Format: (field_name, arrow_type_tag, default_value)
@@ -381,9 +444,7 @@ class LanceStore(DrawerStore):
 
     def _get_embedder(self):
         """Load the sentence-transformers embedding model."""
-        from lancedb.embeddings import get_registry
-
-        return get_registry().get("sentence-transformers").create(name=self._model_name)
+        return _SentenceTransformerEmbedder(self._model_name)
 
     def _ensure_embedder(self) -> None:
         """Initialize the embedding model on first use.

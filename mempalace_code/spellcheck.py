@@ -21,6 +21,7 @@ Usage:
 """
 
 import re
+from importlib import import_module
 from pathlib import Path
 from typing import Optional
 
@@ -37,7 +38,7 @@ def _get_speller():
     global _speller, _autocorrect_available
     if _autocorrect_available is None:
         try:
-            from autocorrect import Speller
+            Speller = import_module("autocorrect").Speller
 
             _speller = Speller(lang="en")
             _autocorrect_available = True

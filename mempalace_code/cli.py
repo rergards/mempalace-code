@@ -53,9 +53,9 @@ from .cli_commands.ingest import (
 )
 from .cli_commands.maintenance import cmd_cleanup, cmd_health, cmd_migrate_storage, cmd_repair
 from .cli_commands.model import cmd_fetch_model, fetch_model
+from .cli_commands.preflight import cmd_preflight
 from .cli_commands.query import cmd_compress, cmd_read, cmd_search, cmd_wakeup
 from .cli_commands.version_check import cmd_version_check
-from .cli_commands.preflight import cmd_preflight
 from .cli_commands.watch import cmd_watch
 
 # Re-export for backward compatibility (tests and downstream direct imports).
@@ -107,7 +107,7 @@ def main():
         "--skip-model-download",
         action="store_true",
         dest="skip_model_download",
-        help="Skip automatic embedding model download (run 'fetch-model' later)",
+        help="Skip automatic embedding model cache/verify step (run 'fetch-model' later)",
     )
 
     # onboarding
@@ -405,7 +405,7 @@ def main():
     )
 
     # fetch-model
-    p_fetch = sub.add_parser("fetch-model", help="Download the embedding model (~80 MB)")
+    p_fetch = sub.add_parser("fetch-model", help="Cache or verify the embedding model (~80 MB)")
     p_fetch.add_argument(
         "--model",
         default=None,

@@ -25,7 +25,7 @@ This fork (`rergards/mempalace-code`) is a code-first rewrite that inherited the
 | "100% with Haiku rerank" unverifiable | #27 item 5 | **Resolved in README** — the 100% number is not a release headline; the historical benchmark file warns not to quote it without caveats | None |
 | "Closets as compressed summaries" nomenclature mismatch | #27 item 6 | **Already negated** — closets are referenced in the ASCII diagram only, not claimed as a feature | None |
 | Hall types not enforced at retrieval time | #27 item 7 | **Already negated** — fork describes halls as metadata connections, makes no enforcement claim | None |
-| "Local, no network after install" is false (ChromaDB ONNX model downloads from AWS S3 on first use) | #524 `@gaby` | **Resolved in fork docs and CLI** — `mempalace-code init` and `mempalace-code fetch-model` make the one-time `all-MiniLM-L6-v2` download explicit; release docs state that indexing/search are offline after model setup | None |
+| "Local, no network after install" is false (ChromaDB ONNX model downloads from AWS S3 on first use) | #524 `@gaby` | **Resolved in fork docs and CLI** — `mempalace-code init` and `mempalace-code fetch-model` make the one-time `all-MiniLM-L6-v2` download explicit; cached indexing/search use local-only model resolution first | None |
 | LongMemEval benchmark game: `n_results=min(n_results, len(corpus))` degenerates R@k into ranking over a fully-retrieved set when corpus ≤ 50 | #524 `@jtatum` | **Inherited** — `benchmarks/longmemeval_bench.py:225,303,456,606,689` use the same pattern | **FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT** |
 | LongMemEval benchmark drops assistant turns at line 189-190 | #242 `@bobmatnyc` | **Partially addressed** — fork's `longmemeval_bench.py` has a `Full-turn mode` (line 641) that indexes user+assistant turns; needs audit to confirm upstream bias is fully removed | Fold into `FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT` |
 | v3.0.0 → v3.1.0 silently tightens ChromaDB version and deletes users' palace data (no migration path) | #469 | **Already negated by architecture** — LanceDB is now the default backend with crash-safe columnar Arrow storage. ChromaDB is opt-in `.[chroma]` extra, marked deprecated. Upgrade path for existing LanceDB palaces is tracked by `STORE-MIGRATION-CLI` already in pre_release | Document the chroma-extra caveat in FORK-DOCS-CLEANUP |
@@ -46,10 +46,10 @@ No action required. These are listed here for auditability so a future contribut
 
 **Problem**: An older README said "No internet after install. Everything local." This was false. On first mine or first search, `sentence-transformers` downloads `all-MiniLM-L6-v2` (80 MB) from HuggingFace Hub. This is the same class of overclaim gaby caught upstream in #524.
 
-**Fix**: `mempalace-code fetch-model [--model MODEL_NAME]` explicitly downloads the embedding model during setup, and `mempalace-code init` calls it unless `--skip-model-download` is passed. Current docs say: after a one-time model download during setup, indexing and search run locally without API calls.
+**Fix**: `mempalace-code fetch-model [--model MODEL_NAME]` explicitly downloads or verifies the embedding model during setup, and `mempalace-code init` calls it unless `--skip-model-download` is passed. Current docs say: after a one-time model download during setup, indexing and search run locally without API calls. Cached model startup now tries `local_files_only=True` before any network-capable load, so a populated cache does not require HuggingFace metadata checks.
 
 **Acceptance**:
-- `mempalace-code fetch-model` downloads the configured embedding model into the sentence-transformers cache and verifies it can be loaded with `HF_HUB_OFFLINE=1` set
+- `mempalace-code fetch-model` downloads the configured embedding model into the sentence-transformers cache, verifies it with local-only resolution on later runs, and works with `HF_HUB_OFFLINE=1` set
 - `mempalace-code init <dir>` calls `fetch-model` automatically unless `--skip-model-download` is passed
 - README explains the one-time download plainly
 - `docs/OFFLINE_USAGE.md` explains how to run on an airgapped machine (pre-seed `~/.cache/huggingface/hub/`)

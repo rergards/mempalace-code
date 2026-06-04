@@ -1,26 +1,47 @@
 # Changelog
 
-## 2026-05-29 · REMOTE-MIRROR-SAFE-GUARDS
-
-Add `preflight mirror` CLI command and docs warning that delete-mode rsync against palace state can silently remove remote-owned data.
-
-## 2026-05-29 · WATCH-INITIALIZED-ROOT-UX
-
-`watch` now mines and watches an initialized root directory directly, and emits a clear diagnostic when no projects are found.
-
-## 2026-05-29 · RESTORE-KG-PATH-SCOPING
-
-Fix `restore` to scope KG writes to the `--palace` path instead of the global default.
-
 ## Unreleased
+
+No changes yet.
+
+## v1.10.2 — 2026-06-04
+
+Patch release for the local-first embedding path.
 
 ### Fixed
 
+- `restore` now scopes KG writes to the `--palace` path instead of the global
+  default.
+- `watch` now mines and watches an initialized root directory directly, and
+  emits a clear diagnostic when no projects are found.
+- Cached `search`, `mine`, and MCP search paths now load the sentence-transformers
+  model with local-only resolution first, avoiding Hugging Face metadata requests
+  after the setup download has already populated the cache.
+- Re-running `mempalace-code fetch-model` on an already cached model now verifies
+  the local cache instead of performing an online-capable Hub lookup.
+- Suppressed third-party Hugging Face token warnings and weight-loading progress
+  during cached model resolution; MemPalace keeps only its own concise status
+  output.
 - LanceDB optimize and cleanup now re-open the table and verify a fresh handle
   after maintenance. This catches missing-fragment failures that only appear for
   the next process instead of trusting a stale in-memory table handle.
 - LanceDB upserts now retry once with a freshly opened table when Lance reports
   a missing fragment from a stale handle during merge-insert.
+
+### Added
+
+- `preflight mirror` CLI command and docs warning that delete-mode rsync against
+  palace state can silently remove remote-owned data.
+- Regression tests for cached local model resolution, explicit offline mode,
+  local filesystem model paths, idempotent `fetch-model`, and forced re-download.
+- Backlog item `STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD` for a future
+  socket-blocked subprocess guard covering CLI stdout/stderr and network calls.
+
+### Verified
+
+- Real CLI smokes for cached `fetch-model`, normal search, explicit-offline
+  search, and palace health.
+- Focused storage and CLI command suites plus the network-marked offline gate.
 
 ## v1.10.1 — 2026-05-24
 

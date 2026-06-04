@@ -4,6 +4,8 @@ test_storage.py — Tests for DrawerStore aggregation and delete_wing.
 
 import logging
 import os
+import sys
+import types
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -13,9 +15,11 @@ from mempalace_code.storage import (
     _META_DEFAULTS,
     _META_FIELD_SPEC,
     _META_KEYS,
+    DEFAULT_EMBED_MODEL,
     DrawerStore,
     LanceStore,
     OptimizeResult,
+    _SentenceTransformerEmbedder,
     _sql_default_for_arrow_type,
     _target_drawer_schema,
     open_store,
@@ -236,6 +240,94 @@ class TestCountBy:
 # ── Embedder boundary: write-open should not start the embedder ────────────────
 
 
+class _FakeEncodedVectors:
+    def __init__(self, count):
+        self._count = count
+
+    def tolist(self):
+        return [[1.0] + [0.0] * 383 for _ in range(self._count)]
+
+
+def _install_fake_sentence_transformer(monkeypatch, calls, *, fail_local=False):
+    class FakeSentenceTransformer:
+        def __init__(self, model_name, **kwargs):
+            calls.append((model_name, kwargs))
+            if fail_local and kwargs.get("local_files_only"):
+                raise RuntimeError("cached model incomplete")
+
+        def encode(self, texts, **kwargs):
+            return _FakeEncodedVectors(len(texts))
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        types.SimpleNamespace(SentenceTransformer=FakeSentenceTransformer),
+    )
+
+
+class TestSentenceTransformerEmbedderResolution:
+    def test_model_loads_with_local_files_only_first(self, monkeypatch):
+        calls = []
+        _install_fake_sentence_transformer(monkeypatch, calls)
+
+        embedder = _SentenceTransformerEmbedder(DEFAULT_EMBED_MODEL)
+
+        assert calls == [
+            (
+                DEFAULT_EMBED_MODEL,
+                {"local_files_only": True, "device": "cpu", "trust_remote_code": True},
+            )
+        ]
+        assert embedder.ndims() == 384
+
+    def test_uncached_model_retries_online_when_local_load_fails(self, monkeypatch):
+        monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+        monkeypatch.delenv("TRANSFORMERS_OFFLINE", raising=False)
+        calls = []
+        _install_fake_sentence_transformer(monkeypatch, calls, fail_local=True)
+
+        _SentenceTransformerEmbedder(DEFAULT_EMBED_MODEL)
+
+        assert calls == [
+            (
+                DEFAULT_EMBED_MODEL,
+                {"local_files_only": True, "device": "cpu", "trust_remote_code": True},
+            ),
+            (DEFAULT_EMBED_MODEL, {"device": "cpu", "trust_remote_code": True}),
+        ]
+
+    def test_explicit_offline_does_not_retry_online(self, monkeypatch):
+        monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+        calls = []
+        _install_fake_sentence_transformer(monkeypatch, calls, fail_local=True)
+
+        with pytest.raises(RuntimeError, match="cached model incomplete"):
+            _SentenceTransformerEmbedder(DEFAULT_EMBED_MODEL)
+
+        assert calls == [
+            (
+                DEFAULT_EMBED_MODEL,
+                {"local_files_only": True, "device": "cpu", "trust_remote_code": True},
+            )
+        ]
+
+    def test_existing_local_model_path_does_not_retry_online(self, tmp_path, monkeypatch):
+        model_path = tmp_path / "local-model"
+        model_path.mkdir()
+        calls = []
+        _install_fake_sentence_transformer(monkeypatch, calls, fail_local=True)
+
+        with pytest.raises(RuntimeError, match="cached model incomplete"):
+            _SentenceTransformerEmbedder(str(model_path))
+
+        assert calls == [
+            (
+                str(model_path),
+                {"local_files_only": True, "device": "cpu", "trust_remote_code": True},
+            )
+        ]
+
+
 class TestWriteOpenNoEmbedder:
     """AC-4/AC-5: existing-table write-capable opens must not initialize the embedder."""
 
@@ -318,7 +410,7 @@ class TestWriteOpenNoEmbedder:
         store = LanceStore.__new__(LanceStore)
         store._read_only = False
         store._table = stale_table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
-        store._db = _ReopenDB(table=fresh_table)
+        store._db = _ReopenDB(table=fresh_table)  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake only needs open_table for this path
         store._embed = lambda docs: [[1.0] for _ in docs]  # type: ignore[method-assign]  # reason: fault-injection override of private method for test isolation
 
         store.upsert(["retry1"], ["retry content"], [{"wing": "w", "room": "r"}])
@@ -366,6 +458,7 @@ class TestGetSourceFiles:
 
     def test_returns_files_for_wing(self, palace_path):
         store = open_store(palace_path, create=True)
+        assert isinstance(store, LanceStore)
         store.add(
             ids=["f1", "f2", "f3"],
             documents=["content for alpha", "content for alpha 2", "content for beta"],
@@ -1116,6 +1209,7 @@ class TestDeleteBySourceFiles:
     def test_deletes_multiple_source_files_with_one_lance_delete(self, palace_path):
         """AC-2: multiple source files removed by one IN-predicate delete; count matches; non-target rows remain."""
         store = open_store(palace_path, create=True)
+        assert isinstance(store, LanceStore)
         store.add(
             ids=["f1c0", "f1c1", "f2c0", "other"],
             documents=[
@@ -1133,13 +1227,15 @@ class TestDeleteBySourceFiles:
         )
 
         delete_calls = []
-        original_delete = store._table.delete
+        table = store._table
+        assert table is not None
+        original_delete = table.delete
 
-        def _spy(predicate):
-            delete_calls.append(predicate)
-            return original_delete(predicate)
+        def _spy(condition: str):
+            delete_calls.append(condition)
+            return original_delete(condition)
 
-        store._table.delete = _spy
+        table.delete = _spy  # type: ignore[method-assign]  # reason: spy on Lance table delete for batch-count assertion
 
         deleted = store.delete_by_source_files(["/src/file1.py", "/src/file2.py"], "w")
 
@@ -1154,6 +1250,7 @@ class TestDeleteBySourceFiles:
     def test_empty_or_nonmatching_source_files_do_not_delete(self, palace_path):
         """AC-3: empty input and non-matching files return 0 without calling table.delete."""
         store = open_store(palace_path, create=True)
+        assert isinstance(store, LanceStore)
         store.add(
             ids=["keep1"],
             documents=["content that must not be deleted"],
@@ -1161,13 +1258,15 @@ class TestDeleteBySourceFiles:
         )
 
         delete_calls = []
-        original_delete = store._table.delete
+        table = store._table
+        assert table is not None
+        original_delete = table.delete
 
-        def _spy(predicate):
-            delete_calls.append(predicate)
-            return original_delete(predicate)
+        def _spy(condition: str):
+            delete_calls.append(condition)
+            return original_delete(condition)
 
-        store._table.delete = _spy
+        table.delete = _spy  # type: ignore[method-assign]  # reason: spy on Lance table delete for no-delete assertion
 
         deleted_empty = store.delete_by_source_files([], "w")
         assert deleted_empty == 0
@@ -1216,6 +1315,7 @@ class TestDeleteBySourceFiles:
         monkeypatch.setattr(storage_mod, "BULK_DELETE_BATCH_SIZE", small_batch)
 
         store = open_store(palace_path, create=True)
+        assert isinstance(store, LanceStore)
         n_files = 12  # spans ceil(12/3) = 4 batches
         ids, docs, metas = [], [], []
         for i in range(n_files):
@@ -1224,7 +1324,9 @@ class TestDeleteBySourceFiles:
             metas.append({"wing": "bw", "room": "general", "source_file": f"/src/file{i}.py"})
 
         store.add(ids=ids, documents=docs, metadatas=metas)
-        versions_before = len(store._table.list_versions())
+        table = store._table
+        assert table is not None
+        versions_before = len(table.list_versions())
 
         source_files = [f"/src/file{i}.py" for i in range(n_files)]
         deleted = store.delete_by_source_files(source_files, "bw")
@@ -1232,7 +1334,7 @@ class TestDeleteBySourceFiles:
         assert deleted == n_files
         assert store.count() == 0
 
-        versions_after = len(store._table.list_versions())
+        versions_after = len(table.list_versions())
         max_expected = versions_before + math.ceil(n_files / small_batch)
         assert versions_after <= max_expected, (
             f"bounded batches: expected at most {max_expected} versions "
@@ -1607,7 +1709,7 @@ class TestSafeOptimize:
         table = _OptimizableTable([{"wing": "w", "room": "r"}])
         store = LanceStore.__new__(LanceStore)
         store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
-        store._db = _ReopenDB(error=RuntimeError("missing fragment after reopen"))
+        store._db = _ReopenDB(error=RuntimeError("missing fragment after reopen"))  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake only needs open_table for this path
 
         result = store.safe_optimize("/fake/palace", backup_first=False)
 
@@ -2412,7 +2514,7 @@ class TestCleanupStaleFragments:
         store = LanceStore.__new__(LanceStore)
         store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
         store._table_dir = "/nonexistent/path"
-        store._db = _ReopenDB(error=RuntimeError("missing fragment after cleanup"))
+        store._db = _ReopenDB(error=RuntimeError("missing fragment after cleanup"))  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake only needs open_table for this path
 
         result = store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]  # reason: open_store returns Store; cleanup_stale_fragments is LanceStore-only
 

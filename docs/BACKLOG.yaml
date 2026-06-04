@@ -42,4 +42,14 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD
+    section: quality
+    status: open
+    priority: P2
+    summary: Add subprocess-level guard that cached model search/fetch never emits HuggingFace token warnings or performs network metadata calls after setup.
+    acceptance:
+      - Run a real CLI subprocess with a preseeded HuggingFace cache and network/socket access blocked or mocked.
+      - Assert `mempalace-code search` exits successfully without `HF_TOKEN`, `unauthenticated`, `huggingface.co`, or retry noise on stdout/stderr.
+      - Assert repeated `mempalace-code fetch-model` on a cached model uses local-only resolution and does not perform Hub metadata requests.
+      - Keep the existing network-marked download tests separate from this no-network regression guard.

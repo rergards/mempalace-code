@@ -53,13 +53,13 @@ def cmd_init(args):
         from ..storage import DEFAULT_EMBED_MODEL
         from .model import fetch_model
 
-        print("\n  Downloading embedding model (~80 MB)…")
+        print("\n  Caching/verifying embedding model (~80 MB)…")
         try:
             fetch_model(DEFAULT_EMBED_MODEL)
         except Exception as exc:
-            print(f"  Warning: model download failed: {exc}", file=sys.stderr)
+            print(f"  Warning: model cache/verify failed: {exc}", file=sys.stderr)
             print(
-                "  Run 'mempalace-code fetch-model' manually when network is available.",
+                "  Run 'mempalace-code fetch-model' manually when the model is available.",
                 file=sys.stderr,
             )
 
