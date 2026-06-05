@@ -20,8 +20,8 @@ Structure:
   "phase": "triage",
   "started_at": "2026-04-17T14:30:00Z",
   "modified_files": [
-    "mempalace/miner.py",
-    "mempalace/lang_detect.py",
+    "mempalace_code/miner.py",
+    "mempalace_code/lang_detect.py",
     "docs/BACKLOG.yaml"
   ],
   "decisions": [
@@ -30,7 +30,7 @@ Structure:
     "F3: benchmark dataset — backlog only (score 1/3)"
   ],
   "pending_actions": [
-    "write round report to docs/audits/",
+    "write local-only round report to docs/audits/",
     "update BACKLOG.yaml",
     "commit via commit-checkpoint"
   ]

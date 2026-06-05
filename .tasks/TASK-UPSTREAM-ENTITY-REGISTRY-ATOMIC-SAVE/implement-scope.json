@@ -1,9 +1,0 @@
-{
-  "phase": "implement",
-  "files": [
-    "mempalace_code/entity_registry.py",
-    "tests/test_entity_registry.py"
-  ],
-  "before_sha": "6b843b4",
-  "timestamp": "2026-05-23T09:37:45Z"
-}

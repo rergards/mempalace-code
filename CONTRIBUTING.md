@@ -65,7 +65,7 @@ assets/             ← logo + brand
 - **Naming**: `snake_case` for functions/variables, `PascalCase` for classes
 - **Docstrings**: on all modules and public functions
 - **Type hints**: where they improve readability
-- **Dependencies**: minimize. Core: `lancedb>=0.17` + `sentence-transformers`. ChromaDB is a legacy optional extra (`.[chroma]`). Don't add new deps without discussion.
+- **Dependencies**: minimize. Core: `lancedb>=0.20` + `sentence-transformers`. ChromaDB is a deprecated legacy optional extra (`.[chroma]`) and is capped below 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line. Before raising dependency bounds or refreshing `uv.lock`, check current and target versions against OSV or an equivalent advisory source, audit a fresh resolved environment, and run clean resolver tests matching CI. Don't add new deps without discussion.
 
 ## Good First Issues
 

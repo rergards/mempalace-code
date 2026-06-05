@@ -1,2 +1,0 @@
-mempalace_code/mining/symbols.py
-tests/test_symbol_extract.py

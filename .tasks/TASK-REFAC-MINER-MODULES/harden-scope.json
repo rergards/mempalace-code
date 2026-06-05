@@ -1,9 +1,0 @@
-{
-  "phase": "harden",
-  "files": [
-    "docs/audits/REFAC-MINER-MODULES-round-1.md",
-    "tests/test_miner_modules.py"
-  ],
-  "before_sha": "22ff152",
-  "timestamp": "2026-05-11T19:11:33Z"
-}

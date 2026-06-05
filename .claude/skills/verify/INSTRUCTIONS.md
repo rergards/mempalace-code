@@ -30,10 +30,10 @@ fi
 
 Classify the combined file list into these categories (a change can trigger multiple):
 
-- **core**: `mempalace/*.py` (storage, miner, searcher, mcp_server, etc.)
+- **core**: `mempalace_code/**/*.py`, `mempalace/*.py` (storage, miner, searcher, mcp_server, compatibility shims)
 - **tests**: `tests/*.py`
 - **docs**: `docs/*.md`, `README.md`, `CLAUDE.md`
-- **config**: `pyproject.toml`, `setup.py`, `.claude/`
+- **config**: `pyproject.toml`, `uv.lock`, `setup.py`, `.claude/`, `.github/workflows/`
 
 If no changes detected (clean tree, no baseline delta), run all checks — this is a health check invocation.
 
@@ -45,9 +45,10 @@ Run in parallel:
 
 | Check | Command | Timeout |
 |-------|---------|---------|
-| Lint | `ruff check mempalace/ tests/` | 30s |
-| Format | `ruff format --check mempalace/ tests/` | 30s |
-| Tests | `python -m pytest tests/ -x -q` | 120s |
+| Lint | `ruff check mempalace_code/ tests/ scripts/` | 30s |
+| Format | `ruff format --check mempalace_code/ tests/ scripts/` | 30s |
+| Tests | `python -m pytest tests/ -x -q -m "not needs_network"` | 120s |
+| Typecheck | `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"` | 120s |
 
 ### If storage changed — add these
 
@@ -66,6 +67,25 @@ python -m pytest tests/test_miner.py tests/test_lang_detect.py -v
 ```bash
 python -m pytest tests/test_mcp_server.py -v
 ```
+
+### If dependencies changed — add these
+
+First check current and target versions against OSV or an equivalent advisory
+source. Do not accept a target version in an affected advisory range.
+
+Then audit a fresh resolver environment, not only the existing `.venv`:
+
+```bash
+python -m pip install pip-audit
+pip-audit
+python3.13 -m venv /tmp/mempalace-ci-venv
+/tmp/mempalace-ci-venv/bin/python -m pip install -e ".[dev,treesitter]"
+/tmp/mempalace-ci-venv/bin/python -m pytest tests/ -v -m "not needs_network"
+```
+
+If an optional extra changed, create a separate fresh environment for that
+extra and run its focused compatibility tests. For ChromaDB, do not install or
+raise into affected 1.x versions while GHSA-f4j7-r4q5-qw2c applies.
 
 ## Step 3: Report Results
 
@@ -103,8 +123,8 @@ If a check fails, suggest the fix:
 
 | Error Pattern | Likely Fix |
 |---------------|-----------|
-| Ruff lint errors | `ruff check --fix mempalace/ tests/` |
-| Ruff format errors | `ruff format mempalace/ tests/` |
+| Ruff lint errors | `ruff check --fix mempalace_code/ tests/ scripts/` |
+| Ruff format errors | `ruff format mempalace_code/ tests/ scripts/` |
 | Import errors | Check venv: `pip install -e ".[dev]"` |
 | Test failures | Read the error, fix the code |
 | Missing fixture | Check conftest.py |

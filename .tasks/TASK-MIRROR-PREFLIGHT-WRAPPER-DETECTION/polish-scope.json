@@ -1,9 +1,0 @@
-{
-  "phase": "polish",
-  "files": [
-    ".tasks/TASK-MIRROR-PREFLIGHT-WRAPPER-DETECTION/polish-scope.json",
-    "tests/test_cli.py"
-  ],
-  "before_sha": "435ab5d",
-  "timestamp": "2026-05-29T10:57:58Z"
-}

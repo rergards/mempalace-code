@@ -22,7 +22,7 @@ Scan for and fix entropy in the codebase: duplicated helpers, unvalidated bounda
 - **NEVER** delete code without verifying it's truly unused (check imports, tests)
 - **NEVER** use `git add .` or `git add -A` — explicit staging only
 - **ALWAYS** propose a "golden principle" for each recurring issue — prevent, don't just fix
-- **Scope argument**: accepts an optional directory argument (e.g., `/entropy-gc mempalace/`). If omitted, scans `mempalace/`, `tests/`
+- **Scope argument**: accepts an optional directory argument (e.g., `/entropy-gc mempalace_code/`). If omitted, scans `mempalace_code/`, `tests/`
 
 ## Workflow
 
@@ -52,7 +52,7 @@ Also check for:
 Data consumed without validation at system boundaries:
 
 ```
-Grep: pattern="json\.loads|yaml\.safe_load" glob="*.py" path="mempalace/"
+Grep: pattern="json\.loads|yaml\.safe_load" glob="*.py" path="mempalace_code/"
 ```
 
 **Ignore**: test files, internal module boundaries.
@@ -72,7 +72,7 @@ Cross-reference docs against code reality:
 Patterns that appear in recent files but violate project conventions:
 
 - **Bare except**: `Grep: pattern="except:" glob="*.py"` — should specify exception type
-- **Print statements**: `Grep: pattern="print\(" glob="*.py" path="mempalace/"` — should use logging
+- **Print statements**: `Grep: pattern="print\(" glob="*.py" path="mempalace_code/"` — should use logging
 - **Hardcoded paths**: `Grep: pattern="~/.mempalace|/Users/" glob="*.py"` — should use config
 - **Raw SQL**: `Grep: pattern="execute\(.*SELECT|INSERT|UPDATE" glob="*.py"` — check for injection risks
 
@@ -114,7 +114,7 @@ For each finding, classify the action:
 
 After user approves fixes:
 1. Apply changes in small, reviewable chunks
-2. Run verification: `python -m pytest tests/ -x -q && ruff check mempalace/`
+2. Run verification: `python -m pytest tests/ -x -q -m "not needs_network" && ruff check mempalace_code/ tests/ scripts/`
 3. Do NOT commit — leave for user to review and commit
 
 ### Golden Principles

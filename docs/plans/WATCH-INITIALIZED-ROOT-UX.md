@@ -167,18 +167,18 @@ task_contract:
 
 ## Problem & Approach
 
-**Problem.** `mempalace-code watch <dir>` only ever scans `<dir>` for *immediate initialized child projects*. Running `watch /srv` correctly discovers and watches the initialized child `/srv/dev`, but running `watch /srv/dev` — pointing the command at the initialized project directory itself — finds no child projects and reports nothing to watch, with no hint that the directory was already a valid target or how to fix the invocation.
+**Problem.** `mempalace-code watch <dir>` only ever scans `<dir>` for *immediate initialized child projects*. Running `watch /projects` correctly discovers and watches the initialized child `/projects/app`, but running `watch /projects/app` — pointing the command at the initialized project directory itself — finds no child projects and reports nothing to watch, with no hint that the directory was already a valid target or how to fix the invocation.
 
 **Approach.** Do both halves of the backlog ask:
 1. **Support the initialized root directly.** Before child scanning, `watch_all` checks whether the supplied directory is itself an initialized project; if so it watches/mines that root as a single project (AC-1), taking precedence over any project-looking children to avoid nested duplicate mining (AC-4).
-2. **Emit a clear, actionable diagnostic otherwise.** When the supplied directory is an *uninitialized* project root, exit non-zero and print the exact `mempalace-code init <root>` command (AC-2); when it is a plain parent with no initialized children, keep the existing parent-directory guidance (RISK-3). Existing parent-directory child discovery (`watch /srv` → `/srv/dev`) is preserved unchanged (AC-3).
+2. **Emit a clear, actionable diagnostic otherwise.** When the supplied directory is an *uninitialized* project root, exit non-zero and print the exact `mempalace-code init <root>` command (AC-2); when it is a plain parent with no initialized children, keep the existing parent-directory guidance (RISK-3). Existing parent-directory child discovery (`watch /projects` → `/projects/app`) is preserved unchanged (AC-3).
 
 The change is scoped to watcher project selection plus user-facing CLI/docs text; `detect_projects()`, mining, storage, and steady-state watch loops are untouched (see invariants and out-of-scope below).
 
 ## Design Notes
 
 - Prefer a watch-specific root detector over changing `detect_projects()`. `detect_projects()` is documented and tested as an immediate-child scanner and is also used by `mine-all`; changing it would widen this task beyond the watcher UX issue.
-- Root detection should run before child scanning. If the supplied directory has a mempalace init marker, treat it as the explicit single project target. This makes `watch /srv/dev` mine and watch `/srv/dev`, while `watch /srv` still finds initialized child `/srv/dev`.
+- Root detection should run before child scanning. If the supplied directory has a mempalace init marker, treat it as the explicit single project target. This makes `watch /projects/app` mine and watch `/projects/app`, while `watch /projects` still finds initialized child `/projects/app`.
 - Reuse the existing project-map path by constructing the same entry shape that `detect_projects()` returns (`path`, `markers`, `initialized`). Use existing `resolve_wing_for_project()` for the root so configured wing behavior and config parse errors stay identical.
 - Use the same project-marker catalog from `mempalace_code.mining.projects` to decide whether a non-initialized supplied root looks like a project. If it does, the diagnostic should name the root and print `mempalace-code init <root>`.
 - If the supplied directory is neither initialized nor project-looking, keep the current parent-directory guidance: no initialized projects found under the parent and run init on projects first.

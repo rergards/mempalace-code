@@ -87,6 +87,17 @@ def _save_tiny_hashes(palace_path: str, wing: str, hashes: dict) -> None:
     p.write_text(json.dumps(data))
 
 
+def _scan_hard_exclude_dirs(project_path: Path, palace_path: str) -> list[Path]:
+    """Return storage dirs that must not be mined as source files."""
+    try:
+        palace_dir = Path(palace_path).expanduser().resolve()
+    except OSError:
+        return []
+    if palace_dir == project_path or project_path in palace_dir.parents:
+        return [palace_dir]
+    return []
+
+
 # =============================================================================
 # PALACE — storage operations
 # =============================================================================
@@ -377,6 +388,7 @@ def mine(
         respect_gitignore=respect_gitignore,
         include_ignored=include_ignored,
         scan_rules=scan_rules,
+        hard_exclude_dirs=_scan_hard_exclude_dirs(project_path, palace_path),
     )
     if limit > 0:
         files = files[:limit]

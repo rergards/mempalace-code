@@ -1,3 +1,0 @@
-mempalace_code/storage.py
-tests/test_mcp_server.py
-tests/test_storage.py

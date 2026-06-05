@@ -41,7 +41,7 @@ If the user did not provide a slug, derive one from the task and state it explic
      - `Mode: lite; Codex: skipped`
    - stop
 
-4. For `standard` or `strict`, create task artifacts:
+4. For `standard` or `strict`, create local task artifacts:
 
 ```bash
 mkdir -p .tasks/TASK-<slug> .protocols/TASK-<slug>
@@ -81,7 +81,7 @@ If Codex review is required or justified, run:
 
 9. **Codex accessibility gate.** If Codex review is required but Codex is inaccessible (auth failure, 401, network error, CLI missing):
    - **Stop** — do not continue to the summary step or mark the plan as ready.
-   - **Save progress** — ensure `docs/plans/<slug>.md` and all `.tasks/TASK-<slug>/` artifacts are written to disk.
+   - **Save progress** — ensure `docs/plans/<slug>.md` and all local `.tasks/TASK-<slug>/` artifacts are written to disk.
    - **Update BACKLOG.yaml** — add note that task is blocked on Codex access.
    - **Commit immediately** — follow the shared commit checkpoint in `.claude/skills/_shared/commit-checkpoint.md`.
    - **Report** in chat: what was saved, why Codex failed, and that the task is parked.
@@ -93,7 +93,8 @@ If Codex review is required or justified, run:
 
     Follow the shared commit checkpoint procedure in `.claude/skills/_shared/commit-checkpoint.md`:
     - Read edit log, cross-reference git status, stage explicitly, review diff, commit, post-commit verify.
-    - Expected files to stage: `docs/plans/<slug>.md`, `docs/plans/<slug>-original.md`, `.protocols/TASK-<slug>/`, `.tasks/TASK-<slug>/`.
+    - Expected public files to stage: `docs/plans/<slug>.md`, `docs/plans/<slug>-original.md`, `docs/BACKLOG.yaml` if updated, and other sanitized public docs.
+    - Expected local-only files to leave unstaged: `.protocols/TASK-<slug>/`, `.tasks/TASK-<slug>/`, raw Codex output, local paths, and private benchmark data.
     - Commit message format: `docs(plan): <TASK-SLUG> — <mode> plan ready`
 
 12. End with a brief plan summary in the chat. Keep it short and execution-oriented. Include:
@@ -108,7 +109,7 @@ If Codex review is required or justified, run:
 - **Plan scope constraint**: Plans specify product-level acceptance criteria + high-level approach only. Do NOT include granular implementation steps (function names, variable names, line-by-line code changes). Over-specified plans cascade errors when implementation details are wrong — let the implementing agent determine its own path.
 - Keep `docs/plans/<slug>-original.md` untouched after first write.
 - Canonical final output remains `docs/plans/<slug>.md`.
-- Store supporting artifacts in `.tasks/TASK-<slug>/`.
+- Store supporting artifacts in ignored local `.tasks/TASK-<slug>/`; do not publish raw artifacts unless the user explicitly asks for a sanitized public artifact.
 - Do not treat Codex comments as truth; validate them against repository evidence.
 - Do not stop at writing the plan file; always give the user a brief summary of the final execution-ready plan.
 - If the task clearly qualifies for the fast path after the preflight scan, say so explicitly instead of manufacturing a durable plan just because `/task-plan` was invoked.

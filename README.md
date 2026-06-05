@@ -841,7 +841,7 @@ curl -fsSL https://raw.githubusercontent.com/rergards/mempalace-code/main/script
 
 ```bash
 pip install "mempalace-code[treesitter]"  # AST parsing
-pip install "mempalace-code[chroma]"      # ChromaDB legacy backend (deprecated)
+pip install "mempalace-code[chroma]"      # ChromaDB legacy backend (deprecated, capped below 1.x)
 pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[dev]"         # pytest + ruff + pyright
 ```

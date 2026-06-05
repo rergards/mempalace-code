@@ -266,6 +266,50 @@ def test_scan_project_skip_dirs_still_apply_without_override():
         shutil.rmtree(tmpdir)
 
 
+def test_scan_project_hard_excludes_storage_dir():
+    """Storage directories are never source input, even with readable files inside."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "src" / "main.py", "print('main')\n" * 20)
+        write_file(project_root / "palace" / "lance" / "manifest.json", '{"version":1}\n' * 5)
+        write_file(project_root / "palace" / "lance" / "fragment.py", "print('storage')\n" * 20)
+
+        result = scanned_files(
+            project_root,
+            respect_gitignore=False,
+            hard_exclude_dirs=[project_root / "palace"],
+        )
+
+        assert result == ["src/main.py"]
+        assert "palace/lance/manifest.json" not in result
+        assert "palace/lance/fragment.py" not in result
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_hard_exclude_beats_include_override():
+    """include_ignored cannot force palace storage files into the mine scan."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "src" / "main.py", "print('main')\n" * 20)
+        write_file(project_root / "palace" / "lance" / "fragment.py", "print('storage')\n" * 20)
+
+        result = scanned_files(
+            project_root,
+            respect_gitignore=False,
+            include_ignored=["palace/lance/fragment.py"],
+            hard_exclude_dirs=[project_root / "palace"],
+        )
+
+        assert result == ["src/main.py"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 # =============================================================================
 # Generated / config filename skips (MINE-SKIP-GENERATED-ENTITIES)
 # =============================================================================

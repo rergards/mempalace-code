@@ -445,6 +445,9 @@ written.
    pip install 'mempalace-code[chroma]'
    ```
 
+   The ChromaDB backend is deprecated and currently capped below ChromaDB 1.x
+   while GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
+
 2. If the release host is offline, pre-fetch the embedding model before running
    the smoke (the `migrate-storage` CLI re-embeds source rows into LanceDB):
 

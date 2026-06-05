@@ -6,7 +6,7 @@ items:
       done_summary: Restored and merged repaired Autopilot task branch; Lua mining, search filtering, changelog, plan/audit artifacts, and formatting fix verified.
     - key: BENCH-DOTNET-CLONE-REPO
       summary: Clone jasontaylordev/CleanArchitecture and record the pinned benchmark commit
-      resolution: '2026-04-27: Cloned jasontaylordev/CleanArchitecture tag v7.0.0 into /Users/rerg/.cache/mempalace/benchmarks/CleanArchitecture-v7.0.0; pinned commit 5a600ab8749c110384bc3bd436b9c67f3067b489; updated dotnet_bench.py and benchmarks/README.md to document the pin; validate-queries passes against the pinned corpus; full benchmark baseline is R@5=0.600 / R@10=0.850.'
+      resolution: '2026-04-27: Cloned jasontaylordev/CleanArchitecture tag v7.0.0 into a local benchmark cache; pinned commit 5a600ab8749c110384bc3bd436b9c67f3067b489; updated dotnet_bench.py and benchmarks/README.md to document the pin; validate-queries passes against the pinned corpus; full benchmark baseline is R@5=0.600 / R@10=0.850.'
       archived_date: "2026-04-27"
     - key: MINE-DEVOPS-INFRA
       summary: Add DevOps/infrastructure file support to miner (Terraform, Docker, Helm, Ansible, Make, etc.)

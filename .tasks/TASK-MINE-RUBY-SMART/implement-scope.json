@@ -1,9 +1,0 @@
-{
-  "phase": "implement",
-  "files": [
-    "mempalace_code/mining/symbols.py",
-    "tests/test_symbol_extract.py"
-  ],
-  "before_sha": "5f596fc",
-  "timestamp": "2026-05-12T18:41:33Z"
-}

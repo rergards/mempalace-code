@@ -1,9 +1,0 @@
-{
-  "phase": "harden",
-  "files": [
-    "docs/audits/MIRROR-PREFLIGHT-WRAPPER-DETECTION-round-1.md",
-    "tests/test_cli.py"
-  ],
-  "before_sha": "ac24c3e",
-  "timestamp": "2026-05-29T10:55:53Z"
-}

@@ -23,7 +23,8 @@ pip install -e ".[dev]"
 No Docker required. Everything runs locally in a venv or with pipx.
 
 Optional extras:
-- `.[chroma]` — ChromaDB legacy backend (deprecated; use LanceDB)
+- `.[chroma]` — ChromaDB legacy backend (deprecated; use LanceDB; capped below
+  ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line)
 - `.[spellcheck]` — autocorrect support for room/wing names
 
 ## Running Tests
@@ -86,8 +87,10 @@ Line length: 100. Target: py311. Quote style: double.
 
 ## Storage Backend
 
-- **LanceDB** is the core backend (installed by default via `lancedb>=0.17`).
-- **ChromaDB** is a legacy optional backend: install with `.[chroma]`. It is deprecated and will be removed in a future major version.
+- **LanceDB** is the core backend (installed by default via `lancedb>=0.20`).
+- **ChromaDB** is a legacy optional backend: install with `.[chroma]`. It is
+  deprecated, currently capped below 1.x for GHSA-f4j7-r4q5-qw2c, and will be
+  removed in a future major version.
 
 ## Embedding Model Policy
 
@@ -141,6 +144,10 @@ Per-category R@5:
 - **Verify the environment that will actually run the change.** GitHub Actions runtime changes are not proven by Python tests alone. Use local YAML/static checks such as `actionlint`, then verify the real hosted workflow run when action runtime behavior matters.
 - **Name the verification boundary.** If a workflow is tag-only or release-only, say that it was syntax-checked and version-checked but not execution-tested unless a real trigger was run. Do not imply full local coverage for hosted-only behavior.
 - **Check the intended public release target.** Before publishing, verify the repository, branch, tag, and workflow that public users will see. Do not assume local remote names or private mirrors represent public release truth.
+- **Treat release status as multiple independent facts.** Branch Tests, tag-triggered PyPI publish, GitHub Release creation, PyPI version visibility, and any deployment/release-environment status can diverge. Check all of them before calling a release published or latest; if one is red or missing, either fix it now or record the explicit remaining blocker.
+- **Test dependency drift with a fresh resolver.** Local `.venv` and `uv.lock` success can hide what GitHub Actions or users get from an unlocked `pip install`. For dependency-sensitive failures, reproduce in a clean pip environment matching the hosted workflow before declaring the tests fixed.
+- **Audit dependency targets before raising bounds.** For runtime, dev, and optional extras, check current and target versions against OSV or an equivalent advisory source, then run a resolver-level audit on a fresh environment. Do not raise optional legacy backends into advisory-affected ranges; hold or cap them and backlog the upgrade gate instead.
+- **Separate public and local release information.** Public docs may name package ranges, workflow categories, advisory IDs, and reproducible commands. Private remotes, tokens, local paths, hostnames, and non-public incident details belong only in ignored local notes such as `.codex-local/LESSONS.md`.
 - **Keep benchmark gates tied to measured baselines.** If a release benchmark fails, reproduce it locally against the pinned fixture, update the CI threshold only to the observed stable baseline, and backlog any desired quality increase separately.
 - **Do not call tests "local feature testing."** When asked to test new features locally, run the public CLI/MCP/API behavior itself, not only pytest. For each new feature, exercise at least one success path and one important failure/guard path when safe, record the exact command or request, and name any behavior that was covered only by tests.
 - **Exercise real integration surfaces before release claims.** Direct handler calls are useful for MCP compatibility, but they are not the same as a separate stdio MCP client. CLI help is not the same as executing the command. A release-readiness summary must distinguish unit tests, focused integration tests, direct API smoke, real CLI execution, and hosted/daemon behavior that was not run.

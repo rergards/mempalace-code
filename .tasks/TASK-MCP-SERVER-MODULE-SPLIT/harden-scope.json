@@ -1,8 +1,0 @@
-{
-  "phase": "harden",
-  "files": [
-    "docs/audits/MCP-SERVER-MODULE-SPLIT-round-1.md"
-  ],
-  "before_sha": "8342573",
-  "timestamp": "2026-05-09T01:11:58Z"
-}

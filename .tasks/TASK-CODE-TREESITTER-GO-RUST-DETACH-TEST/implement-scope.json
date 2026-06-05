@@ -1,8 +1,0 @@
-{
-  "phase": "implement",
-  "files": [
-    "tests/test_chunking.py"
-  ],
-  "before_sha": "2a6b6c2",
-  "timestamp": "2026-05-12T20:33:53Z"
-}

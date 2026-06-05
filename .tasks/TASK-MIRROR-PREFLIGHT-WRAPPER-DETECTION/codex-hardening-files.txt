@@ -1,2 +1,0 @@
-mempalace_code/mirror_preflight.py
-tests/test_cli.py

@@ -1,2 +1,0 @@
-mempalace_code/mining/orchestrator.py
-tests/test_miner.py

@@ -41,7 +41,12 @@ Thumbs.db
 docs/plans/
 docs/audits/
 .tasks/
+.protocols/
 autopilot.toml
+
+# Local benchmark outputs for external/private corpora
+benchmarks/results_token_delta_*.json
+!benchmarks/results_token_delta_mempalace.json
 
 # Claude Code session data (keep skills, prompts, settings.json tracked)
 .claude/*

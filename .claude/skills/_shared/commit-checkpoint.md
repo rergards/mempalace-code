@@ -3,7 +3,7 @@
 Shared commit procedure for all skills that commit.
 Referenced by `/task-plan`, `/task-hardening`, `/ship`, and any future committing skill.
 
-**Purpose:** Prevent missed files, wrong staging, and lost work by cross-referencing the edit log against git state before every commit.
+**Purpose:** Prevent missed files, wrong staging, private artifact leaks, and lost work by cross-referencing the edit log against git state before every commit.
 
 ## Procedure
 
@@ -38,11 +38,22 @@ Compare the two lists. Flag discrepancies:
 
 - **Edited but unstaged** (`M` or `?? ` in git status, present in edit log): these MUST be staged or explicitly excluded with a reason.
 - **Staged but not in edit log** (in git status `M ` or `A ` index column, absent from edit log): warn — this may be another agent's work or a stale change. Verify before committing.
-- **Untracked task artifacts** (`?? .tasks/` or `?? .protocols/`): these MUST be staged if they belong to the current task.
+- **Local task artifacts** (`.tasks/`, `.protocols/`, `docs/audits/`): these MUST stay unstaged unless the user explicitly asks to publish a sanitized artifact. Treat them as local evidence by default.
 
 If any discrepancy is found, list it explicitly before proceeding. Do not silently skip mismatched files.
 
-### Step 3: Stage explicitly
+### Step 3: Run public-safety preflight
+
+Before staging, check whether the intended public diff contains secrets, private paths, local artifact directories, or private project names:
+
+```bash
+rg -n "(/Users/|/srv/[^[:space:]'\"`]+|[g]ithub_pat_|[g]hp_|[p]ypi-[A-Za-z0-9_-]{20,}|[s]k-[A-Za-z0-9])" -- $(git ls-files)
+git status --short | grep -E "^.. (\\.tasks/|\\.protocols/|docs/audits/)" && echo "ERROR: local artifacts must not be staged"
+```
+
+False positives such as placeholder tokens or policy text are allowed only after explicit review. Do not publish raw review logs, private benchmark results, local absolute paths, private remotes, or customer/project identifiers.
+
+### Step 4: Stage explicitly
 
 Stage ONLY the files that belong to this commit, by name:
 
@@ -52,15 +63,16 @@ git add <file1> <file2> ...
 
 **NEVER** use `git add .` or `git add -A`. If the edit log shows files you did not intend to modify, investigate before staging.
 
-### Step 4: Review staged diff
+### Step 5: Review staged diff
 
 ```bash
 git diff --cached --stat
+git diff --cached --name-only | grep -E "^(\\.tasks/|\\.protocols/|docs/audits/)" && echo "ERROR: local artifact staged"
 ```
 
 Verify the staged file count and names match expectations. If a file is unexpectedly large or unexpected, investigate.
 
-### Step 5: Commit
+### Step 6: Commit
 
 ```bash
 git commit -m "<message>"
@@ -78,18 +90,15 @@ Scope-risk: <boundary that future changes should be careful about>
 
 Queryable later via `git log --grep="Rejected:"` or `git log --grep="Constraint:"`.
 
-### Step 6: Post-commit verification
+### Step 7: Post-commit verification
 
 ```bash
-git status --short | grep -E "^\?\? \.(tasks|protocols)/TASK-" && echo "ERROR: task artifacts left unstaged — amend now" || echo "ok: no orphaned task artifacts"
+git show --name-only --pretty=format: HEAD | grep -E "^(\.tasks/|\.protocols/|docs/audits/)" && echo "ERROR: local artifact committed — revert/amend before pushing" || echo "ok: no local artifacts committed"
 ```
 
-If task artifacts remain unstaged:
-1. Stage them: `git add .tasks/TASK-<slug>/ .protocols/TASK-<slug>/`
-2. Amend: `git commit --amend --no-edit`
-3. Re-run the check.
+If local artifacts were committed, amend before pushing. Publish only sanitized summaries in tracked docs such as `docs/plans/`, `docs/refactoring/`, `docs/BACKLOG.yaml`, `CHANGELOG.md`, or release notes.
 
-### Step 7: Clear session state
+### Step 8: Clear session state
 
 ```bash
 : > /tmp/claude-edits.log

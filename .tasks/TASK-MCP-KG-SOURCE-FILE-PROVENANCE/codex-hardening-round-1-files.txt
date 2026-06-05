@@ -1,3 +1,0 @@
-mempalace_code/knowledge_graph.py
-mempalace_code/mcp/tools/architecture.py
-tests/test_mcp_server.py

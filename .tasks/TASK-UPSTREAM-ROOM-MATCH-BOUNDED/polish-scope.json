@@ -1,9 +1,0 @@
-{
-  "phase": "polish",
-  "files": [
-    "docs/audits/UPSTREAM-ROOM-MATCH-BOUNDED-polish-1.md",
-    "tests/test_miner.py"
-  ],
-  "before_sha": "4a600b9",
-  "timestamp": "2026-05-23T09:29:01Z"
-}

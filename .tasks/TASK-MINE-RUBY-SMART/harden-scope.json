@@ -1,9 +1,0 @@
-{
-  "phase": "harden",
-  "files": [
-    "docs/audits/MINE-RUBY-SMART-round-1.md",
-    "tests/test_symbol_extract.py"
-  ],
-  "before_sha": "c5c1424",
-  "timestamp": "2026-05-12T18:44:59Z"
-}

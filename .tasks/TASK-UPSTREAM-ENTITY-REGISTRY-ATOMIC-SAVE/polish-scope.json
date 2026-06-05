@@ -1,9 +1,0 @@
-{
-  "phase": "polish",
-  "files": [
-    "docs/audits/UPSTREAM-ENTITY-REGISTRY-ATOMIC-SAVE-polish-1.md",
-    "tests/test_entity_registry.py"
-  ],
-  "before_sha": "7d0e595",
-  "timestamp": "2026-05-23T09:45:50Z"
-}

@@ -1,4 +1,0 @@
-mempalace_code/_stdio.py
-mempalace_code/cli.py
-mempalace_code/mcp/dispatch.py
-tests/test_stdio.py

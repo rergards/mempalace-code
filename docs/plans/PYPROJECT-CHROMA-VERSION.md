@@ -25,6 +25,12 @@ out_of_scope:
   - "Upgrading the lower bound above 0.5.0 (backward compat preserved for existing chroma installs)"
 ---
 
+> Superseded 2026-06-05: do not use this plan as current guidance. ChromaDB
+> 1.0.0 through 1.5.9 is affected by GHSA-f4j7-r4q5-qw2c, so the safe public
+> policy is to keep the deprecated `.[chroma]` extra below 1.x until a fixed
+> 1.x release exists and the clean chroma-compat/audit gate passes. See
+> `DEPENDENCY-SECURITY-UPGRADE-GATE`.
+
 ## Design Notes
 
 - **ChromaDB skipped 0.7**: The package went from 0.5.11 directly to 1.0.0. There is no 0.6.x or 0.7.x release. The current ceiling `<0.7` therefore blocks ALL chromadb 1.x versions (latest: 1.5.8).

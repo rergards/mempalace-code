@@ -28,10 +28,10 @@ For each doc, diff changed source files since last doc commit:
 
 | Doc | Diff scope |
 |-----|-----------|
-| BACKUP_RESTORE.md | `mempalace/backup.py`, `mempalace/storage.py` |
-| AGENT_INSTALL.md | `mempalace/mcp_server.py`, MCP tools |
-| STORAGE.md | `mempalace/storage.py`, schema migrations |
-| CLAUDE.md | `.claude/skills/`, `mempalace/*.py` modules |
+| BACKUP_RESTORE.md | `mempalace_code/backup.py`, `mempalace_code/storage.py` |
+| AGENT_INSTALL.md | `mempalace_code/mcp_server.py`, MCP tools |
+| STORAGE.md | `mempalace_code/storage.py`, schema migrations |
+| CLAUDE.md | `.claude/skills/`, `mempalace_code/**/*.py` modules |
 | README.md | CLI commands, MCP tools, installation |
 
 Skip docs where diff is empty or test-only.

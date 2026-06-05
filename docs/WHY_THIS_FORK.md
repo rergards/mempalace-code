@@ -24,11 +24,11 @@ Every chunk stores `symbol_name` and `symbol_type` (function / class / method). 
 
 **Before:** every chunk was embedded and inserted into the store one row at a time. Slow on large repositories.
 
-**After:** chunks are buffered in batches of 128, passed through the embedding model in a single call, and bulk-inserted into LanceDB. On a 5,653-file monorepo (`wh40kdh2calc_planner`) this is the difference between "until tonight" and "in a reasonable time".
+**After:** chunks are buffered in batches of 128, passed through the embedding model in a single call, and bulk-inserted into LanceDB. On a 5,653-file monorepo benchmark fixture this is the difference between "until tonight" and "in a reasonable time".
 
 ### 5. LanceDB Instead of ChromaDB
 
-The original backend was ChromaDB (SQLite + Python). It had no bulk operations, was slow on large repositories, and was fragile under interruption. This fork moved the core backend to **LanceDB** (Rust + Arrow, columnar, crash-safe). ChromaDB is kept as an opt-in `.[chroma]` extra and marked deprecated.
+The original backend was ChromaDB (SQLite + Python). It had no bulk operations, was slow on large repositories, and was fragile under interruption. This fork moved the core backend to **LanceDB** (Rust + Arrow, columnar, crash-safe). ChromaDB is kept as an opt-in `.[chroma]` extra, marked deprecated, and capped below ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
 
 Direct effects:
 

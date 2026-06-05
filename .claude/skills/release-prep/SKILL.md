@@ -49,10 +49,11 @@ Categorize user-facing changes:
 | Category | Signal |
 |----------|--------|
 | New feature | `feat(*)` with description (e.g. `feat(MINE-DART): Dart language support`) |
-| New MCP tool | `feat(MCP-*)` or diff touches `mempalace/mcp_server.py` tool registry |
+| New MCP tool | `feat(MCP-*)` or diff touches `mempalace_code/mcp_server.py` tool registry |
 | Bug fix | `fix(*)` not tagged `auto-fix verify` |
 | Docs | `docs(*)` |
 | Breaking | Any commit whose body says "BREAKING" or touches storage format / public API |
+| Dependency change | Diff touches `pyproject.toml` or `uv.lock` |
 
 ### Step 3: Detect feature surface changes
 
@@ -61,20 +62,37 @@ Cross-check the commit log against the code to catch anything the commit message
 **New languages in the miner** — diff language dispatch tables:
 
 ```bash
-git diff "$LAST_TAG..HEAD" -- mempalace/miner.py \
+git diff "$LAST_TAG..HEAD" -- mempalace_code/miner.py mempalace_code/mining/ \
   | grep -E '^\+.*(LANG_|_chunks|parse_|tool_|language.*=.*")'
 ```
 
 **New MCP tools** — compare tool registries:
 
 ```bash
-git show "$LAST_TAG:mempalace/mcp_server.py" 2>/dev/null \
+git show "$LAST_TAG:mempalace_code/mcp_server.py" 2>/dev/null \
   | grep -oE '"mempalace_[a-z_]+":' | sort -u > /tmp/mcp_before.txt
-grep -oE '"mempalace_[a-z_]+":' mempalace/mcp_server.py | sort -u > /tmp/mcp_after.txt
+grep -oE '"mempalace_[a-z_]+":' mempalace_code/mcp_server.py | sort -u > /tmp/mcp_after.txt
 diff /tmp/mcp_before.txt /tmp/mcp_after.txt
 ```
 
 **Python version bumps** — scan `pyproject.toml` history for `requires-python` changes.
+
+**Dependency bounds or lockfile changes** — list direct packages and run advisory
+checks before drafting public notes:
+
+```bash
+git diff "$LAST_TAG..HEAD" -- pyproject.toml uv.lock
+python - <<'PY'
+import tomllib
+data = tomllib.load(open("pyproject.toml", "rb"))
+print("runtime:", data["project"]["dependencies"])
+print("optional:", data["project"].get("optional-dependencies", {}))
+print("dev:", data.get("dependency-groups", {}).get("dev", []))
+PY
+```
+
+Do not raise an optional dependency ceiling into a known affected advisory
+range. Record held upgrades in `docs/BACKLOG.yaml` and `docs/plans/`.
 
 ### Step 4: Check docs for staleness
 
@@ -86,6 +104,7 @@ For each item in Step 3, verify it appears in the right docs file.
 | New MCP tool | `README.md` — MCP tool inventory tables (Read / Write / Graph / Diary groups) |
 | New MCP tool | `docs/LLM_USAGE_RULES.md` — Routing table + any relevant rule section |
 | Python minimum bump | `README.md` Requirements section + `pyproject.toml` `requires-python` |
+| Dependency bound/security change | `CHANGELOG.md`, `CLAUDE.md`, and any relevant plan/backlog item |
 | Breaking change | `CHANGELOG.md` under `### Breaking` |
 | Any feature | `CHANGELOG.md` under the release header for this version |
 
@@ -179,6 +198,7 @@ Next: run /release to cut the tag and push to publish.
 - **`git describe --tags --abbrev=0` is wrong for this use case.** It returns the most recent local tag regardless of origin. Upstream tags pulled into the fork (e.g. v3.0.0 from an inherited upstream) will poison the result. Always use `git ls-remote --tags publish`.
 - **`pyproject.toml` version and the `publish`-remote latest tag should match** after the last release. If `pyproject.toml` is ahead, the previous release was cut but the tag never pushed — investigate before bumping again.
 - **Do not push to `origin` on release.** Per project feedback: releases go to `publish` only. `/release` handles this; this skill does not push.
+- **Dependency changes need an audit trail.** Before release notes claim a package upgrade is safe, verify current and target versions against OSV or an equivalent advisory source and test a clean hosted-CI-equivalent resolver. Public notes may include advisory IDs and version ranges; private resolver paths and local incident details stay out.
 - **Skip the per-task changelog headers.** Some autopilot flows write `## YYYY-MM-DD · TASK-SLUG` entries at the top of CHANGELOG as work lands. Before release, consolidate them into a single release header with grouped bullets. Do not leave both forms.
 
 ## Output

@@ -1,9 +1,0 @@
-{
-  "phase": "polish",
-  "files": [
-    "docs/audits/UPSTREAM-KG-TEMPORAL-VALIDATION-polish-1.md",
-    "mempalace_code/knowledge_graph.py"
-  ],
-  "before_sha": "fde6090",
-  "timestamp": "2026-05-23T10:20:26Z"
-}

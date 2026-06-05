@@ -263,6 +263,28 @@ def is_force_included(path: Path, project_path: Path, include_paths: set) -> boo
     return False
 
 
+def normalize_hard_exclude_dirs(hard_exclude_dirs: list | None) -> tuple[Path, ...]:
+    """Normalize absolute directory paths that must never be scanned."""
+    normalized = []
+    for raw_path in hard_exclude_dirs or []:
+        try:
+            normalized.append(Path(raw_path).expanduser().resolve())
+        except OSError:
+            continue
+    return tuple(normalized)
+
+
+def is_hard_excluded_dir(path: Path, hard_exclude_dirs: tuple[Path, ...]) -> bool:
+    """Return True when path is a hard-excluded dir or nested below one."""
+    if not hard_exclude_dirs:
+        return False
+    try:
+        resolved = path.expanduser().resolve()
+    except OSError:
+        resolved = path.expanduser().absolute()
+    return any(resolved == exclude or exclude in resolved.parents for exclude in hard_exclude_dirs)
+
+
 # =============================================================================
 # APP-LEVEL SCAN FILTER RULES
 # =============================================================================
@@ -392,9 +414,14 @@ def scan_project(
     respect_gitignore: bool = True,
     include_ignored: list | None = None,
     scan_rules: Optional[ScanFilterRules] = None,
+    hard_exclude_dirs: list | None = None,
 ) -> list:
     """Return list of all readable file paths."""
     project_path = Path(project_dir).expanduser().resolve()
+    hard_exclude_paths = normalize_hard_exclude_dirs(hard_exclude_dirs)
+    if is_hard_excluded_dir(project_path, hard_exclude_paths):
+        return []
+
     files = []
     active_matchers = []
     matcher_cache = {}
@@ -420,24 +447,32 @@ def scan_project(
         dirs[:] = [
             d
             for d in dirs
-            if is_force_included(root_path / d, project_path, include_paths)
-            or not (
-                should_skip_dir(d)
-                or (dotnet_project and d == "bin")
-                or is_scan_excluded(root_path / d, project_path, scan_rules, is_dir=True)
-                or is_dir_subtree_excluded(root_path / d, project_path, scan_rules)
+            if not is_hard_excluded_dir(root_path / d, hard_exclude_paths)
+            and (
+                is_force_included(root_path / d, project_path, include_paths)
+                or not (
+                    should_skip_dir(d)
+                    or (dotnet_project and d == "bin")
+                    or is_scan_excluded(root_path / d, project_path, scan_rules, is_dir=True)
+                    or is_dir_subtree_excluded(root_path / d, project_path, scan_rules)
+                )
             )
         ]
         if respect_gitignore and active_matchers:
             dirs[:] = [
                 d
                 for d in dirs
-                if is_force_included(root_path / d, project_path, include_paths)
-                or not is_gitignored(root_path / d, active_matchers, is_dir=True)
+                if not is_hard_excluded_dir(root_path / d, hard_exclude_paths)
+                and (
+                    is_force_included(root_path / d, project_path, include_paths)
+                    or not is_gitignored(root_path / d, active_matchers, is_dir=True)
+                )
             ]
 
         for filename in filenames:
             filepath = root_path / filename
+            if is_hard_excluded_dir(filepath.parent, hard_exclude_paths):
+                continue
             force_include = is_force_included(filepath, project_path, include_paths)
             exact_force_include = is_exact_force_include(filepath, project_path, include_paths)
 

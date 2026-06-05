@@ -70,7 +70,7 @@ If Codex should run for this round:
        - Score 0/3: dismiss with one-line justification in the round report. Do NOT backlog.
      - Record the triage decision for each finding in the round report. Format: `Finding | Score | Decision (fix/backlog/dismiss) | Reason`.
    - Implement only the triaged-in fixes (score >= 2/3). Add regression tests for each.
-   - Write the canonical round report to `docs/audits/<slug>-round-<n>.md`.
+   - Write the canonical local round report to `docs/audits/<slug>-round-<n>.md`.
 
 6. Backlog and resolve out-of-scope findings:
    - For every finding dismissed as pre-existing, out of scope, or deferred: either fix it on the spot if it is truly trivial, or add/update a backlog entry with origin context.
@@ -85,13 +85,15 @@ If Codex should run for this round:
     - Update `docs/BACKLOG.yaml` with hardening convergence status.
     - Follow the shared commit checkpoint procedure in `.claude/skills/_shared/commit-checkpoint.md`:
       - Read edit log, cross-reference git status, stage explicitly, review diff, commit, post-commit verify.
-    - Expected files to stage: `docs/audits/<slug>-round-<n>.md`, `docs/BACKLOG.yaml`, `.tasks/TASK-<slug>/`, `.protocols/TASK-<slug>/`, and any hardening fix files.
+    - Expected public files to stage: `docs/BACKLOG.yaml`, any hardening fix files, tests, changelog entries, and sanitized public plan/docs updates when needed.
+    - Expected local-only files to leave unstaged: `docs/audits/<slug>-round-<n>.md`, `.tasks/TASK-<slug>/`, `.protocols/TASK-<slug>/`, raw Codex output, local paths, and private benchmark data.
     - Commit message format: `chore(<slug>): hardening R<n> — <converged|findings backlogged>`
 
 ## Rules
 
-- Canonical round report remains in `docs/audits/`.
-- Codex output remains supporting evidence in `.tasks/TASK-<slug>/`.
+- Canonical round report remains local-only in ignored `docs/audits/`.
+- Codex output remains local-only supporting evidence in ignored `.tasks/TASK-<slug>/`.
+- Publish only sanitized summaries: backlog decisions, release notes, plan deltas, tests, and code changes with relative paths and no private context.
 - Prefer no finding over a weak finding.
 - If Codex cannot run because auth is missing, report that briefly and continue the hardening round.
 - Every dismissed or deferred material finding must be either fixed in-round or backlogged. Do not silently drop it.

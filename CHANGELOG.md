@@ -4,6 +4,41 @@
 
 No changes yet.
 
+## v1.10.3 — 2026-06-05
+
+Follow-up patch for the v1.10.2 release: fixes the hosted test failure, refreshes
+audited dependency locks, and removes ignored local task/audit artifacts from
+the tracked public repository.
+
+### Fixed
+
+- Project mining now hard-excludes the active palace storage directory from
+  scan inputs, preventing LanceDB storage files from being indexed or counted as
+  tiny source files when the palace lives inside the project root.
+
+### Changed
+
+- The deprecated `.[chroma]` optional extra is capped below ChromaDB 1.x while
+  GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
+- `uv.lock` now resolves the default and optional test stacks to audited current
+  package versions, including LanceDB 0.33.0 and fixed transitive web stack
+  dependencies.
+
+### Removed
+
+- Ignored Autopilot task/audit artifacts and a private local benchmark result
+  file are no longer tracked in the public repository.
+
+### Added
+
+- Backlog and release/verification rules for audited dependency upgrades: check
+  current and target versions against advisory data, audit a fresh resolver
+  environment, and test clean CI-like installs before changing dependency
+  ceilings or publishing a release.
+- Autopilot demo quality backlog and roadmap covering public scorecards,
+  static-analysis ratchets, real CLI/MCP contracts, architecture guards,
+  security boundary tests, performance budgets, and docs drift guards.
+
 ## v1.10.2 — 2026-06-04
 
 Patch release for the local-first embedding path.

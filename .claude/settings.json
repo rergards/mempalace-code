@@ -6,17 +6,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit'; then echo '[pre-commit] Running verify gate...'; _s=$(mktemp); _u=$(mktemp); git diff --name-only --cached | sort >\"$_s\"; git diff --name-only | sort >\"$_u\"; MIXED=$(comm -12 \"$_s\" \"$_u\"); rm -f \"$_s\" \"$_u\"; if [ -n \"$MIXED\" ]; then echo '[warn] Staged files have unstaged changes (CI will not see them):'; echo \"$MIXED\" | sed 's/^/  /'; echo ''; fi; _tf=$(mktemp); if python -m pytest tests/ -x -q >\"$_tf\" 2>&1; then echo '[ok] pytest passed'; rm -f \"$_tf\"; else echo '[fail] pytest failed:'; tail -40 \"$_tf\"; rm -f \"$_tf\"; exit 1; fi; _tf=$(mktemp); if ruff check mempalace/ tests/ >\"$_tf\" 2>&1; then echo '[ok] ruff check passed'; rm -f \"$_tf\"; else echo '[fail] ruff check failed:'; cat \"$_tf\"; rm -f \"$_tf\"; exit 1; fi; _tf=$(mktemp); if ruff format --check mempalace/ tests/ >\"$_tf\" 2>&1; then echo '[ok] ruff format passed'; rm -f \"$_tf\"; else echo '[fail] ruff format failed:'; cat \"$_tf\"; rm -f \"$_tf\"; exit 1; fi; if git diff --name-only --cached | grep -q 'BACKLOG.yaml'; then if ! backlog validate --file docs/BACKLOG.yaml >/dev/null 2>&1; then echo '[fail] backlog validate failed'; exit 1; else echo '[ok] backlog validate passed'; fi; fi; fi",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit'; then echo '[pre-commit] Running verify gate...'; _s=$(mktemp); _u=$(mktemp); git diff --name-only --cached | sort >\"$_s\"; git diff --name-only | sort >\"$_u\"; MIXED=$(comm -12 \"$_s\" \"$_u\"); rm -f \"$_s\" \"$_u\"; if [ -n \"$MIXED\" ]; then echo '[warn] Staged files have unstaged changes (CI will not see them):'; echo \"$MIXED\" | sed 's/^/  /'; echo ''; fi; _tf=$(mktemp); if python -m pytest tests/ -x -q >\"$_tf\" 2>&1; then echo '[ok] pytest passed'; rm -f \"$_tf\"; else echo '[fail] pytest failed:'; tail -40 \"$_tf\"; rm -f \"$_tf\"; exit 1; fi; _tf=$(mktemp); if ruff check mempalace_code/ tests/ scripts/ >\"$_tf\" 2>&1; then echo '[ok] ruff check passed'; rm -f \"$_tf\"; else echo '[fail] ruff check failed:'; cat \"$_tf\"; rm -f \"$_tf\"; exit 1; fi; _tf=$(mktemp); if ruff format --check mempalace_code/ tests/ scripts/ >\"$_tf\" 2>&1; then echo '[ok] ruff format passed'; rm -f \"$_tf\"; else echo '[fail] ruff format failed:'; cat \"$_tf\"; rm -f \"$_tf\"; exit 1; fi; _tf=$(mktemp); if python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\" >\"$_tf\" 2>&1; then echo '[ok] pyright passed'; rm -f \"$_tf\"; else echo '[fail] pyright failed:'; cat \"$_tf\"; rm -f \"$_tf\"; exit 1; fi; if git diff --name-only --cached | grep -q 'BACKLOG.yaml'; then if ! backlog validate --file docs/BACKLOG.yaml >/dev/null 2>&1; then echo '[fail] backlog validate failed'; exit 1; else echo '[ok] backlog validate passed'; fi; fi; fi",
             "timeout": 300000
           },
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit'; then if git diff --name-only --cached | grep -qE '^mempalace/mcp_server\\.py$' && ! git diff --name-only --cached | grep -qE '^docs/AGENT_INSTALL\\.md$'; then echo '[warn] MCP server changed without AGENT_INSTALL.md update'; fi; fi",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit'; then if git diff --name-only --cached | grep -qE '^mempalace_code/mcp_server\\.py$' && ! git diff --name-only --cached | grep -qE '^docs/AGENT_INSTALL\\.md$'; then echo '[warn] MCP server changed without AGENT_INSTALL.md update'; fi; fi",
             "timeout": 5000
           },
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit'; then if git diff --name-only --cached | grep -qE '^mempalace/storage\\.py$' && ! git diff --name-only --cached | grep -qE '^docs/STORAGE\\.md$'; then echo '[warn] storage.py changed without STORAGE.md update'; fi; fi",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit'; then if git diff --name-only --cached | grep -qE '^mempalace_code/storage\\.py$' && ! git diff --name-only --cached | grep -qE '^docs/STORAGE\\.md$'; then echo '[warn] storage.py changed without STORAGE.md update'; fi; fi",
             "timeout": 5000
           }
         ]
@@ -38,22 +38,27 @@
           },
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace/mcp_server\\.py'; then echo '[info] MCP server edited - update docs/AGENT_INSTALL.md if tool signatures changed'; fi",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'pyproject\\.toml|uv\\.lock'; then echo '[info] Dependency metadata edited - run advisory checks, pip-audit, and clean resolver tests before release'; fi",
             "timeout": 5000
           },
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace/storage\\.py'; then echo '[info] storage.py edited - run tests: python -m pytest tests/test_storage.py -v'; fi",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace_code/mcp_server\\.py'; then echo '[info] MCP server edited - update docs/AGENT_INSTALL.md if tool signatures changed'; fi",
             "timeout": 5000
           },
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace/miner\\.py'; then echo '[info] miner.py edited - run tests: python -m pytest tests/test_miner.py -v'; fi",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace_code/storage\\.py'; then echo '[info] storage.py edited - run tests: python -m pytest tests/test_storage.py -v'; fi",
             "timeout": 5000
           },
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace/lang_detect\\.py|mempalace/chunker\\.py'; then echo '[info] Language support edited - run: python -m pytest tests/test_lang_detect.py tests/test_chunker.py -v'; fi",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace_code/miner\\.py|mempalace_code/mining/'; then echo '[info] miner edited - run tests: python -m pytest tests/test_miner.py -v'; fi",
+            "timeout": 5000
+          },
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace_code/lang_detect\\.py|mempalace_code/chunker\\.py'; then echo '[info] Language support edited - run: python -m pytest tests/test_lang_detect.py tests/test_chunker.py -v'; fi",
             "timeout": 5000
           }
         ]
@@ -63,7 +68,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace (mine|health|repair|restore)'; then if echo \"$CLAUDE_TOOL_OUTPUT\" 2>/dev/null | grep -qiE 'error|fail|corrupt|missing'; then echo '[alert] Palace operation may have failed - consider running /palace-health'; fi; fi",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'mempalace(-code)? (mine|health|repair|restore)'; then if echo \"$CLAUDE_TOOL_OUTPUT\" 2>/dev/null | grep -qiE 'error|fail|corrupt|missing'; then echo '[alert] Palace operation may have failed - consider running /palace-health'; fi; fi",
             "timeout": 5000
           }
         ]

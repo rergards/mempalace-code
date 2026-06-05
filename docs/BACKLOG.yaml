@@ -35,8 +35,12 @@ sections:
     order: 7
     title: "QUALITY — Tests, Benchmarks, CI"
     description: "Test coverage, code-mining benchmarks, CI hardening."
-  - id: future
+  - id: autopilot_demo
     order: 8
+    title: "AUTOPILOT DEMO — Code Quality Showcase"
+    description: "Measurable, public-safe improvements that demonstrate Autopilot can raise code quality without changing product scope."
+  - id: future
+    order: 9
     title: "FUTURE — Post-v1 Ideas"
     description: "Ideas for after the first public release."
 # ============================================================
@@ -53,3 +57,114 @@ items:
       - Assert `mempalace-code search` exits successfully without `HF_TOKEN`, `unauthenticated`, `huggingface.co`, or retry noise on stdout/stderr.
       - Assert repeated `mempalace-code fetch-model` on a cached model uses local-only resolution and does not perform Hub metadata requests.
       - Keep the existing network-marked download tests separate from this no-network regression guard.
+
+  - key: DEPENDENCY-SECURITY-UPGRADE-GATE
+    section: quality
+    status: open
+    priority: P1
+    summary: Add a repeatable audited dependency-upgrade gate before raising package ceilings or refreshing the lock.
+    acceptance:
+      - Enumerate current and target versions for direct runtime, dev, and optional dependencies from package metadata before changing bounds.
+      - Query OSV or an equivalent advisory source for both current and target direct dependency versions; block target ranges that are compromised or currently affected.
+      - Run pip-audit or an equivalent resolver-level audit on fresh environments for the default install and every optional extra whose bounds change.
+      - Keep deprecated optional backends capped away from affected ranges; do not raise ChromaDB to 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
+      - Update uv.lock only after the audited resolver passes, then run hosted-CI-equivalent tests in a clean pip environment so stale local locks cannot hide dependency drift.
+
+  - key: AUTOPILOT-DEMO-QUALITY-SCORECARD
+    section: autopilot_demo
+    status: open
+    priority: P1
+    summary: Add a deterministic public quality scorecard that makes Autopilot cleanup progress visible across releases.
+    acceptance:
+      - Add a script or command that emits markdown and JSON metrics for code size, largest modules, Ruff ignore counts, Pyright mode, unreasoned suppressions, test count, and available smoke suites.
+      - Generate any raw baseline evidence under local ignored docs/audits/, then commit only a sanitized public summary with public repo data and relative paths.
+      - Document how each Autopilot demo task updates the scorecard with before/after metrics.
+      - CI or `/verify` runs the scorecard command and fails on malformed output.
+
+  - key: AUTOPILOT-DEMO-RUFF-RATCHET
+    section: autopilot_demo
+    status: open
+    priority: P1
+    summary: Reduce transitional Ruff ignores in a measurable ratchet without broad style-only churn.
+    acceptance:
+      - Record baseline counts for global ignores, per-file ignores, and inline suppressions before edits.
+      - Remove at least one global ignore family or reduce per-file ignore entries by at least 25% for a focused module group.
+      - Replace any necessary inline suppressions with reasoned, narrow suppressions; no new blanket `noqa` entries.
+      - "`ruff check`, `ruff format --check`, Pyright, and the relevant focused tests pass; update the quality scorecard."
+
+  - key: AUTOPILOT-DEMO-PYRIGHT-STRICT-SLICE
+    section: autopilot_demo
+    status: open
+    priority: P1
+    summary: Establish a strict Pyright slice for stable low-level modules and expand it gradually.
+    acceptance:
+      - Add a strict typecheck config or command for a small stable slice such as config, reader, MCP tool profiles, and mining scanner.
+      - Replace ad hoc `Any` and broad dictionaries in that slice with typed contracts where the code owns the boundary.
+      - Keep compatibility shims and third-party stub gaps outside the first strict slice unless they can be fixed narrowly.
+      - CI or `/verify` runs both the existing basic Pyright check and the strict-slice check; update the quality scorecard.
+
+  - key: AUTOPILOT-DEMO-ARCHITECTURE-GUARD
+    section: autopilot_demo
+    status: open
+    priority: P1
+    summary: Add an import-boundary guard so core modules cannot accidentally depend on CLI, MCP, or optional legacy backend layers.
+    acceptance:
+      - Add a dependency graph check based on Python imports, using a standard library parser or a small dev-only tool.
+      - Enforce at minimum that storage/config/mining core does not import CLI, MCP dispatch, or Chroma-only modules.
+      - Report cycles and boundary violations with file-level paths that are easy for Autopilot to fix.
+      - Add tests for the guard itself and wire the command into `/verify` or CI; update the quality scorecard.
+
+  - key: AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS
+    section: autopilot_demo
+    status: open
+    priority: P1
+    summary: Build subprocess-level golden CLI scenarios that prove real user workflows, not only unit internals.
+    acceptance:
+      - Run `mempalace-code init`, `mine`, `status`, `search`, `read`, `export`, `import`, `backup`, and `restore` in a disposable temp home/palace.
+      - Cover at least one important guard/failure path such as missing palace, invalid read range, or unsafe mirror preflight.
+      - Force offline/version-check-disabled environment variables so the suite is deterministic and network-free.
+      - Remove all smoke artifacts or report them explicitly; update release/verify docs and the quality scorecard.
+
+  - key: AUTOPILOT-DEMO-MCP-STDIO-CONTRACTS
+    section: autopilot_demo
+    status: open
+    priority: P1
+    summary: Add real MCP stdio contract tests for profiles, tool discovery, and representative tool calls.
+    acceptance:
+      - Start `python -m mempalace_code.mcp_server` as a subprocess and exercise JSON-RPC initialize, tools/list, and tools/call through stdin/stdout.
+      - Verify `minimal`, `code`, `kg`, `notes`, and `full` profiles expose only the expected tools.
+      - Include representative success and error responses for read-only, write, graph/KG, and disabled-tool paths.
+      - Keep direct handler tests as fast unit coverage but label them separately from real MCP stdio coverage; update the quality scorecard.
+
+  - key: AUTOPILOT-DEMO-SECURITY-BOUNDARY-TESTS
+    section: autopilot_demo
+    status: open
+    priority: P2
+    summary: Harden external-input boundaries with focused abuse-case tests for paths, archives, JSONL, YAML, and command preflight parsing.
+    acceptance:
+      - Add tests for backup/restore tar traversal, import/export malformed JSONL, read path ambiguity, YAML project config validation, and mirror preflight command parsing.
+      - Prefer standard-library table-driven tests; add a fuzz/property-test dependency only if it clearly improves signal and stays dev-only.
+      - Every rejected input returns a stable error code/message and does not create partial palace state.
+      - Document any remaining accepted risk in a public-safe plan or backlog follow-up; update the quality scorecard.
+
+  - key: AUTOPILOT-DEMO-PERF-BUDGETS
+    section: autopilot_demo
+    status: open
+    priority: P2
+    summary: Add deterministic performance budgets for mining, search, read, and maintenance on synthetic fixtures.
+    acceptance:
+      - Build generated fixtures that do not require network access or external repositories.
+      - Measure mine time, incremental no-op time, search latency, read latency, and cleanup/optimize smoke duration.
+      - Store conservative budgets and machine-independent comparison rules so CI failures indicate meaningful regressions, not normal hardware variance.
+      - Publish before/after numbers in the quality scorecard and release notes when a demo task improves a budget.
+
+  - key: AUTOPILOT-DEMO-DOCS-DRIFT-GUARD
+    section: autopilot_demo
+    status: open
+    priority: P2
+    summary: Add an automated docs drift guard for CLI commands, MCP tools, optional extras, and release gates.
+    acceptance:
+      - Generate or validate the CLI command inventory from argparse/code instead of manually trusting README snippets.
+      - Validate MCP tool tables in README and AGENT_INSTALL against the authoritative tool registry and profiles.
+      - Validate optional extras and release/dependency gates in public docs against pyproject.toml and workflow files.
+      - Fail with actionable file/section messages and update the quality scorecard.

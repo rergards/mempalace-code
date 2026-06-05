@@ -1,8 +1,0 @@
-{
-  "phase": "implement",
-  "files": [
-    "tests/test_cli.py"
-  ],
-  "before_sha": "d0328ea",
-  "timestamp": "2026-05-01T20:53:22Z"
-}
