@@ -37,9 +37,11 @@ from __future__ import annotations
 
 import argparse
 import ast
+import io
 import json
 import re
 import sys
+import tokenize
 from pathlib import Path
 
 SCHEMA_VERSION = 1
@@ -48,6 +50,12 @@ TESTS_DIR = "tests"
 # Excluded everywhere: negative fixtures intentionally contain bad suppressions
 # (see tests/fixtures/unreasoned_suppression.py) and are not real tests.
 EXCLUDED_DIRS = ("tests/fixtures",)
+# Build artifacts, caches, vendored code, and virtualenv trees are never a source
+# of truth — skip them so a stray local build/venv cannot perturb the
+# byte-identical output the CI gate depends on.
+_SKIP_PARTS = frozenset(
+    {"__pycache__", "build", "dist", ".venv", "venv", "site-packages", "node_modules", "vendor"}
+)
 TOP_MODULES = 10
 
 # Suppression policy — kept identical to tests/test_type_suppressions.py so the
@@ -56,18 +64,28 @@ _SUPPRESSION_RE = re.compile(r"#\s*(?:type|pyright):\s*ignore")
 _ACCEPTED_RE = re.compile(r"#\s*(?:type|pyright):\s*ignore\[[^\]\s]+\]\s*#\s*reason:\s*\S")
 _NOQA_RE = re.compile(r"#\s*noqa")
 _NOQA_BLANKET_RE = re.compile(r"#\s*noqa(?!\s*:)")
-_TEST_DEF_RE = re.compile(r"^\s*(?:async\s+)?def\s+(test\w*)\s*\(")
+# Tolerate a PEP 695 type-parameter list (``def test_x[T](...)``) so the regex
+# fallback agrees with the AST count across Python versions.
+_TEST_DEF_RE = re.compile(r"^\s*(?:async\s+)?def\s+(test\w*)\s*[\[(]")
 
 # Public-safety patterns — the rendered output must never contain a private path,
-# token, or key. Mirrors the commit-checkpoint preflight regex set.
+# token, or key. Extends the commit-checkpoint preflight regex set with the home
+# and temp roots that user-controlled config fields (pyright.include, ruff
+# per-file-ignore keys) could carry verbatim. Path prefixes are matched bare so a
+# non-ASCII username cannot slip past a trailing character class.
 _FORBIDDEN_PATTERNS = (
     re.compile(r"/Users/"),
-    re.compile(r"/home/[A-Za-z0-9._-]+"),
+    re.compile(r"/home/"),
+    re.compile(r"/root/"),
     re.compile(r"/srv/"),
-    re.compile(r"github_pat_"),
-    re.compile(r"\bghp_[A-Za-z0-9]{20,}"),
-    re.compile(r"\bpypi-[A-Za-z0-9_-]{20,}"),
-    re.compile(r"\bsk-[A-Za-z0-9]{16,}"),
+    re.compile(r"/opt/"),
+    re.compile(r"/var/folders/"),
+    re.compile(r"/tmp/"),
+    re.compile(r"[A-Za-z]:\\Users\\"),
+    re.compile(r"[g]ithub_pat_"),
+    re.compile(r"\b[g]hp_[A-Za-z0-9]{20,}"),
+    re.compile(r"\b[p]ypi-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\b[s]k-[A-Za-z0-9]{16,}"),
 )
 
 # Known integration / smoke / contract surfaces. Presence is detected by path so
@@ -88,13 +106,17 @@ _KNOWN_SUITES = (
     ),
 )
 
-# Canonical verification commands a maintainer runs locally / in CI. Listed with
-# relative paths only; this is the public verification surface, not private state.
+# The canonical /verify pre-commit checks. Kept verbatim-identical to the command
+# table in .claude/skills/verify/INSTRUCTIONS.md (a drift test enforces this).
+# Relative paths only; this is the public verification surface, not private state.
 _VERIFICATION_COMMANDS = (
     ("lint", "ruff check mempalace_code/ tests/ scripts/"),
     ("format", "ruff format --check mempalace_code/ tests/ scripts/"),
-    ("typecheck", "python -m pyright"),
     ("tests", 'python -m pytest tests/ -x -q -m "not needs_network"'),
+    (
+        "typecheck",
+        "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
+    ),
     ("scorecard", "python scripts/quality_scorecard.py --check"),
 )
 
@@ -105,8 +127,11 @@ def repo_root() -> Path:
 
 
 def _is_excluded(path: Path, root: Path) -> bool:
-    rel = path.relative_to(root).as_posix()
-    return any(rel == d or rel.startswith(f"{d}/") for d in EXCLUDED_DIRS)
+    rel = path.relative_to(root)
+    if any(part in _SKIP_PARTS or part.endswith(".egg-info") for part in rel.parts):
+        return True
+    rel_posix = rel.as_posix()
+    return any(rel_posix == d or rel_posix.startswith(f"{d}/") for d in EXCLUDED_DIRS)
 
 
 def _iter_py_files(directory: Path, root: Path) -> list[Path]:
@@ -196,6 +221,27 @@ def collect_pyright(pyproject: dict) -> dict:
     }
 
 
+def _comment_units(path: Path) -> list[str]:
+    """Return the comment text of each ``# ...`` token in a file.
+
+    Suppression directives (``# type: ignore``, ``# noqa``) are only meaningful in
+    comments, so scanning comment tokens — not raw lines — avoids counting string
+    literals or docstrings that merely *mention* the syntax (e.g. policy text). A
+    one-line ``# type: ignore[code]  # reason: text`` is a single comment token,
+    so the accepted two-hash form is preserved. Falls back to raw lines if the
+    file does not tokenize.
+    """
+    src = path.read_text(encoding="utf-8")
+    try:
+        return [
+            tok.string
+            for tok in tokenize.generate_tokens(io.StringIO(src).readline)
+            if tok.type == tokenize.COMMENT
+        ]
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return src.splitlines()
+
+
 def collect_suppressions(root: Path) -> dict:
     """Count type/pyright/noqa suppressions across package + tests (no fixtures).
 
@@ -206,14 +252,14 @@ def collect_suppressions(root: Path) -> dict:
     files = _iter_py_files(root / PACKAGE_DIR, root) + _iter_py_files(root / TESTS_DIR, root)
     type_total = type_unreasoned = noqa_total = noqa_blanket = 0
     for path in sorted(files):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if _SUPPRESSION_RE.search(line):
+        for unit in _comment_units(path):
+            if _SUPPRESSION_RE.search(unit):
                 type_total += 1
-                if not _ACCEPTED_RE.search(line):
+                if not _ACCEPTED_RE.search(unit):
                     type_unreasoned += 1
-            if _NOQA_RE.search(line):
+            if _NOQA_RE.search(unit):
                 noqa_total += 1
-                if _NOQA_BLANKET_RE.search(line):
+                if _NOQA_BLANKET_RE.search(unit):
                     noqa_blanket += 1
     return {
         "scope": [PACKAGE_DIR, TESTS_DIR],
@@ -381,7 +427,6 @@ def render_markdown(data: dict) -> str:
     lines.append("")
     for c in data["verification_commands"]:
         lines.append(f"- **{c['name']}**: `{c['command']}`")
-    lines.append("")
     return "\n".join(lines)
 
 
@@ -604,18 +649,28 @@ def main(argv: list[str] | None = None) -> int:
         )
         written = write_outputs(root, out_dir)
         for path in written:
-            print(f"wrote {path.relative_to(root).as_posix()}")
+            rel = (
+                path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
+            )
+            print(f"wrote {rel}")
         return 0
 
     data = build_scorecard(root)
+    md = render_markdown(data)
+    js = render_json(data)
+    # Scan both renderings regardless of --format so the stdout path is as
+    # public-safe as --write and --check; never emit private data.
+    unsafe = scan_public_safety(md, js)
+    if unsafe:
+        raise SystemExit("Refusing to print: public-safety scan failed:\n  " + "\n  ".join(unsafe))
     if args.format == "json":
-        sys.stdout.write(render_json(data))
+        sys.stdout.write(js)
     elif args.format == "both":
-        sys.stdout.write(render_markdown(data))
+        sys.stdout.write(md)
         sys.stdout.write("\n\n")
-        sys.stdout.write(render_json(data))
+        sys.stdout.write(js)
     else:
-        sys.stdout.write(render_markdown(data) + "\n")
+        sys.stdout.write(md + "\n")
     return 0
 
 

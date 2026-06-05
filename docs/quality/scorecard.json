@@ -4,7 +4,7 @@
     "package_files": 73,
     "package_total_lines": 23441,
     "test_files": 53,
-    "test_total_lines": 38890
+    "test_total_lines": 39096
   },
   "largest_modules": [
     {
@@ -178,13 +178,13 @@
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 109,
+    "type_pyright_total": 108,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
     "test_files": 53,
-    "test_functions": 2240
+    "test_functions": 2259
   },
   "verification_commands": [
     {
@@ -196,12 +196,12 @@
       "name": "format"
     },
     {
-      "command": "python -m pyright",
-      "name": "typecheck"
-    },
-    {
       "command": "python -m pytest tests/ -x -q -m \"not needs_network\"",
       "name": "tests"
+    },
+    {
+      "command": "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
+      "name": "typecheck"
     },
     {
       "command": "python scripts/quality_scorecard.py --check",

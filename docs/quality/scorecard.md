@@ -12,7 +12,7 @@ Schema version: 1
 | Package total lines | 23441 |
 | Package code lines | 18978 |
 | Test files (`tests/`) | 53 |
-| Test total lines | 38890 |
+| Test total lines | 39096 |
 
 ## Largest Modules (top 10)
 
@@ -58,7 +58,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| type/pyright ignores (total) | 109 |
+| type/pyright ignores (total) | 108 |
 | type/pyright unreasoned | 0 |
 | noqa (total) | 41 |
 | noqa blanket | 0 |
@@ -69,7 +69,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | Test files | 53 |
-| Test functions | 2240 |
+| Test functions | 2259 |
 
 ## Available Suites
 
@@ -89,7 +89,6 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 - **lint**: `ruff check mempalace_code/ tests/ scripts/`
 - **format**: `ruff format --check mempalace_code/ tests/ scripts/`
-- **typecheck**: `python -m pyright`
 - **tests**: `python -m pytest tests/ -x -q -m "not needs_network"`
+- **typecheck**: `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"`
 - **scorecard**: `python scripts/quality_scorecard.py --check`
-

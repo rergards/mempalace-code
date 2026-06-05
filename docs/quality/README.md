@@ -47,7 +47,9 @@ absolute paths, no machine identifiers:
   (`# type: ignore[code]  # reason: ...`). Fixture dirs are excluded.
 - **Tests** — test file and test-function counts.
 - **Suites** — which CLI/MCP/smoke surfaces exist.
-- **Verification commands** — the canonical local/CI checks.
+- **Verification commands** — the canonical `/verify` pre-commit checks (kept
+  verbatim-identical to `.claude/skills/verify/INSTRUCTIONS.md`, enforced by a
+  drift test).
 
 ## Determinism & public-safety
 
