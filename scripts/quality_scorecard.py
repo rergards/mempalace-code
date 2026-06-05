@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import io
 import json
 import re
@@ -68,26 +69,6 @@ _NOQA_BLANKET_RE = re.compile(r"#\s*noqa(?!\s*:)")
 # fallback agrees with the AST count across Python versions.
 _TEST_DEF_RE = re.compile(r"^\s*(?:async\s+)?def\s+(test\w*)\s*[\[(]")
 
-# Public-safety patterns — the rendered output must never contain a private path,
-# token, or key. Extends the commit-checkpoint preflight regex set with the home
-# and temp roots that user-controlled config fields (pyright.include, ruff
-# per-file-ignore keys) could carry verbatim. Path prefixes are matched bare so a
-# non-ASCII username cannot slip past a trailing character class.
-_FORBIDDEN_PATTERNS = (
-    re.compile(r"/Users/"),
-    re.compile(r"/home/"),
-    re.compile(r"/root/"),
-    re.compile(r"/srv/"),
-    re.compile(r"/opt/"),
-    re.compile(r"/var/folders/"),
-    re.compile(r"/tmp/"),
-    re.compile(r"[A-Za-z]:\\Users\\"),
-    re.compile(r"[g]ithub_pat_"),
-    re.compile(r"\b[g]hp_[A-Za-z0-9]{20,}"),
-    re.compile(r"\b[p]ypi-[A-Za-z0-9_-]{20,}"),
-    re.compile(r"\b[s]k-[A-Za-z0-9]{16,}"),
-)
-
 # Known integration / smoke / contract surfaces. Presence is detected by path so
 # the scorecard reports which real-workflow suites exist, not just unit count.
 _KNOWN_SUITES = (
@@ -117,13 +98,33 @@ _VERIFICATION_COMMANDS = (
         "typecheck",
         "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
     ),
+    ("typecheck_strict_slice", "python -m pyright -p pyrightconfig.strict.json"),
+    ("public_safety", "python scripts/public_safety_scan.py --tracked --staged"),
     ("scorecard", "python scripts/quality_scorecard.py --check"),
 )
+
+_PUBLIC_SAFETY_MODULE = None
 
 
 def repo_root() -> Path:
     """Repository root — the parent of this script's ``scripts/`` directory."""
     return Path(__file__).resolve().parent.parent
+
+
+def _public_safety_module():
+    """Load sibling public_safety_scan.py without requiring package installation."""
+    global _PUBLIC_SAFETY_MODULE
+    if _PUBLIC_SAFETY_MODULE is not None:
+        return _PUBLIC_SAFETY_MODULE
+    module_path = Path(__file__).resolve().parent / "public_safety_scan.py"
+    spec = importlib.util.spec_from_file_location("_mempalace_public_safety_scan", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    _PUBLIC_SAFETY_MODULE = module
+    return module
 
 
 def _is_excluded(path: Path, root: Path) -> bool:
@@ -552,12 +553,23 @@ def validate(data: dict) -> list[str]:
 
 def scan_public_safety(*texts: str) -> list[str]:
     """Return rendered substrings that match a forbidden private/secret pattern."""
-    hits: list[str] = []
-    for text in texts:
-        for pat in _FORBIDDEN_PATTERNS:
-            for match in pat.finditer(text):
-                hits.append(f"{pat.pattern!r} matched {match.group(0)!r}")
-    return sorted(set(hits))
+    return _public_safety_module().scan_rendered_texts(*texts)
+
+
+def check_committed_artifacts(root: Path, markdown: str, json_text: str) -> list[str]:
+    """Return freshness errors for committed docs/quality artifacts."""
+    errors: list[str] = []
+    md_path = root / "docs" / "quality" / "scorecard.md"
+    json_path = root / "docs" / "quality" / "scorecard.json"
+    if not md_path.exists():
+        errors.append("stale-artifact: docs/quality/scorecard.md is missing")
+    elif md_path.read_text(encoding="utf-8") != markdown + "\n":
+        errors.append("stale-artifact: docs/quality/scorecard.md is stale; run --write")
+    if not json_path.exists():
+        errors.append("stale-artifact: docs/quality/scorecard.json is missing")
+    elif json_path.read_text(encoding="utf-8") != json_text:
+        errors.append("stale-artifact: docs/quality/scorecard.json is stale; run --write")
+    return errors
 
 
 def run_check(root: Path) -> int:
@@ -579,6 +591,7 @@ def run_check(root: Path) -> int:
     md = render_markdown(first)
     js = render_json(first)
     problems.extend(f"public-safety: {h}" for h in scan_public_safety(md, js))
+    problems.extend(check_committed_artifacts(root, md, js))
 
     if problems:
         print("quality-scorecard: FAIL", file=sys.stderr)

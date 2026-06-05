@@ -4,11 +4,12 @@ Provides byte parsing, palace/backups footprint measurement, free-space
 checks, backup projection, DiskBudgetStatus, and DiskBudgetError.
 """
 
+from __future__ import annotations
+
 import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 # Conservative default: require at least 1 GiB free before write-producing operations.
 DEFAULT_DISK_MIN_FREE_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
@@ -33,7 +34,7 @@ class DiskBudgetStatus:
         return self.palace_bytes + self.backups_bytes
 
 
-def parse_bytes(value) -> int:
+def parse_bytes(value: object) -> int:
     """Parse an integer byte count from int, str, or str with optional suffix.
 
     Accepts: integers, digit strings, and human suffixes (KB, MB, GB, TB,
@@ -111,7 +112,7 @@ def _dir_size(path: str) -> int:
     return total
 
 
-def palace_footprint(palace_path: str) -> tuple:
+def palace_footprint(palace_path: str) -> tuple[int, int]:
     """Return (palace_bytes, backups_bytes) for the palace and its sibling backups/ dir.
 
     Missing directories count as 0. Permission errors return 0 for that component.
@@ -136,7 +137,7 @@ def free_bytes(path: str) -> int:
 def check_watch_budget(
     palace_path: str,
     min_free_bytes_threshold: int,
-) -> "DiskBudgetStatus":
+) -> DiskBudgetStatus:
     """Check whether the watcher is allowed to run under current disk conditions.
 
     Returns DiskBudgetStatus. allowed=True when free_bytes >= min_free_bytes_threshold.
@@ -157,8 +158,8 @@ def check_backup_budget(
     palace_path: str,
     out_path: str,
     min_free_bytes_threshold: int,
-    kg_path: Optional[str] = None,
-) -> "DiskBudgetStatus":
+    kg_path: str | None = None,
+) -> DiskBudgetStatus:
     """Check whether creating a backup archive is safe given disk budget.
 
     Uses a conservative uncompressed estimate: palace directory size + KG size.

@@ -1,0 +1,16 @@
+{
+  "include": [
+    "mempalace_code/disk_budget.py",
+    "mempalace_code/mcp_tool_profiles.py",
+    "mempalace_code/version.py"
+  ],
+  "strict": [
+    "mempalace_code/disk_budget.py",
+    "mempalace_code/mcp_tool_profiles.py",
+    "mempalace_code/version.py"
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false
+}

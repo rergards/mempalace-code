@@ -9,10 +9,10 @@ Schema version: 1
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 73 |
-| Package total lines | 23441 |
+| Package total lines | 23442 |
 | Package code lines | 18978 |
-| Test files (`tests/`) | 53 |
-| Test total lines | 39096 |
+| Test files (`tests/`) | 54 |
+| Test total lines | 39198 |
 
 ## Largest Modules (top 10)
 
@@ -34,7 +34,7 @@ Schema version: 1
 | Metric | Value |
 |--------|------:|
 | Selected rule families | 12 |
-| Global ignores | 33 |
+| Global ignores | 3 |
 | Per-file ignore patterns | 2 |
 | Per-file ignore entries | 38 |
 
@@ -58,7 +58,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| type/pyright ignores (total) | 108 |
+| type/pyright ignores (total) | 110 |
 | type/pyright unreasoned | 0 |
 | noqa (total) | 41 |
 | noqa blanket | 0 |
@@ -68,8 +68,8 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| Test files | 53 |
-| Test functions | 2259 |
+| Test files | 54 |
+| Test functions | 2266 |
 
 ## Available Suites
 
@@ -91,4 +91,6 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 - **format**: `ruff format --check mempalace_code/ tests/ scripts/`
 - **tests**: `python -m pytest tests/ -x -q -m "not needs_network"`
 - **typecheck**: `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"`
+- **typecheck_strict_slice**: `python -m pyright -p pyrightconfig.strict.json`
+- **public_safety**: `python scripts/public_safety_scan.py --tracked --staged`
 - **scorecard**: `python scripts/quality_scorecard.py --check`

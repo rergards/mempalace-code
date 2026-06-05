@@ -23,6 +23,7 @@ palace/
 .venv/
 venv/
 .env
+.verify-state
 
 # IDE
 .idea/
