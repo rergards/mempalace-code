@@ -41,9 +41,15 @@ destabilizing it. Each task should produce three things:
 
 ## Suggested Sequence
 
-1. `AUTOPILOT-DEMO-QUALITY-SCORECARD`
+1. `AUTOPILOT-DEMO-QUALITY-SCORECARD` — **done (baseline established)**
    - Establish the baseline first. Later tasks should update it instead of
      inventing their own reporting format.
+   - Implemented as `scripts/quality_scorecard.py` (stdlib-only, deterministic,
+     public-safe). Emits Markdown + JSON; `--write` regenerates the committed
+     baseline under `docs/quality/`, `--check` gates shape/determinism/public-
+     safety in CI (`lint` job) and `/verify`.
+   - Baseline artifacts: `docs/quality/scorecard.md`, `docs/quality/scorecard.json`.
+   - Update workflow for later tasks: `docs/quality/README.md`.
 
 2. `AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS` and `AUTOPILOT-DEMO-MCP-STDIO-CONTRACTS`
    - These make the demo credible because they prove real user surfaces before
@@ -76,3 +82,7 @@ destabilizing it. Each task should produce three things:
 
 These are not criticisms by themselves. They are the useful visible surfaces for
 showing controlled, evidence-backed quality improvement.
+
+The current measured values for these signals live in the committed scorecard
+(`docs/quality/scorecard.json`); regenerate with
+`python scripts/quality_scorecard.py --write`.

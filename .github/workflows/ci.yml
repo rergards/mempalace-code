@@ -59,8 +59,10 @@ jobs:
             pyproject.toml
             uv.lock
       - run: pip install ruff
-      - run: ruff check mempalace_code/ tests/
-      - run: ruff format --check mempalace_code/ tests/
+      - run: ruff check mempalace_code/ tests/ scripts/
+      - run: ruff format --check mempalace_code/ tests/ scripts/
+      - name: Quality scorecard (shape + determinism + public-safety)
+        run: python scripts/quality_scorecard.py --check
 
   typecheck:
     runs-on: ubuntu-latest

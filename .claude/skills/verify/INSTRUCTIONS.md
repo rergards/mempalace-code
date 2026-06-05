@@ -49,6 +49,13 @@ Run in parallel:
 | Format | `ruff format --check mempalace_code/ tests/ scripts/` | 30s |
 | Tests | `python -m pytest tests/ -x -q -m "not needs_network"` | 120s |
 | Typecheck | `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"` | 120s |
+| Scorecard | `python scripts/quality_scorecard.py --check` | 30s |
+
+The scorecard check is stdlib-only (no install, no network) and validates the
+quality scorecard's shape, determinism, and public-safety. It fails on malformed
+or unsafe output. After a quality change lands, regenerate the committed
+artifacts with `python scripts/quality_scorecard.py --write` (see
+`docs/quality/README.md`).
 
 ### If storage changed — add these
 
