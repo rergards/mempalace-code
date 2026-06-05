@@ -1,0 +1,211 @@
+{
+  "code_size": {
+    "package_code_lines": 18978,
+    "package_files": 73,
+    "package_total_lines": 23441,
+    "test_files": 53,
+    "test_total_lines": 38890
+  },
+  "largest_modules": [
+    {
+      "lines": 1609,
+      "path": "mempalace_code/storage.py"
+    },
+    {
+      "lines": 1466,
+      "path": "mempalace_code/mining/chunkers.py"
+    },
+    {
+      "lines": 1074,
+      "path": "mempalace_code/dialect.py"
+    },
+    {
+      "lines": 1032,
+      "path": "mempalace_code/watcher.py"
+    },
+    {
+      "lines": 904,
+      "path": "mempalace_code/mining/symbols.py"
+    },
+    {
+      "lines": 858,
+      "path": "mempalace_code/entity_detector.py"
+    },
+    {
+      "lines": 753,
+      "path": "mempalace_code/knowledge_graph.py"
+    },
+    {
+      "lines": 735,
+      "path": "mempalace_code/cli.py"
+    },
+    {
+      "lines": 720,
+      "path": "mempalace_code/mining/orchestrator.py"
+    },
+    {
+      "lines": 660,
+      "path": "mempalace_code/entity_registry.py"
+    }
+  ],
+  "pyright": {
+    "include": [
+      "mempalace_code",
+      "tests"
+    ],
+    "python_version": "3.11",
+    "strict": false,
+    "type_checking_mode": "basic"
+  },
+  "ruff": {
+    "global_ignore_rules": [
+      "ARG001",
+      "ARG002",
+      "ARG005",
+      "B007",
+      "B027",
+      "B033",
+      "B904",
+      "B905",
+      "DTZ001",
+      "DTZ005",
+      "DTZ011",
+      "E501",
+      "PT001",
+      "PT006",
+      "PT017",
+      "RET504",
+      "RET505",
+      "RET508",
+      "SIM102",
+      "SIM103",
+      "SIM105",
+      "SIM108",
+      "SIM114",
+      "SIM115",
+      "SIM116",
+      "SIM117",
+      "UP006",
+      "UP015",
+      "UP024",
+      "UP028",
+      "UP035",
+      "UP036",
+      "UP045"
+    ],
+    "global_ignores": 33,
+    "per_file_ignores": {
+      "by_pattern": [
+        {
+          "count": 24,
+          "pattern": "mempalace_code/**/*.py"
+        },
+        {
+          "count": 14,
+          "pattern": "tests/**/*.py"
+        }
+      ],
+      "patterns": 2,
+      "total_entries": 38
+    },
+    "selected_rule_families": 12
+  },
+  "schema_version": 1,
+  "scope": {
+    "package_dir": "mempalace_code",
+    "tests_dir": "tests"
+  },
+  "suites": [
+    {
+      "description": "CLI command tests",
+      "name": "cli",
+      "path": "tests/test_cli.py",
+      "present": true
+    },
+    {
+      "description": "End-to-end CLI workflow tests",
+      "name": "cli_e2e",
+      "path": "tests/test_e2e.py",
+      "present": true
+    },
+    {
+      "description": "CLI command module tests",
+      "name": "cli_command_modules",
+      "path": "tests/test_cli_command_modules.py",
+      "present": true
+    },
+    {
+      "description": "MCP server handler tests",
+      "name": "mcp_server",
+      "path": "tests/test_mcp_server.py",
+      "present": true
+    },
+    {
+      "description": "MCP stdio transport tests",
+      "name": "mcp_stdio",
+      "path": "tests/test_stdio.py",
+      "present": true
+    },
+    {
+      "description": "MCP tool profile tests",
+      "name": "mcp_tool_profiles",
+      "path": "tests/test_mcp_tool_profiles.py",
+      "present": true
+    },
+    {
+      "description": "Backup/restore CLI tests",
+      "name": "backup_cli",
+      "path": "tests/test_backup_cli.py",
+      "present": true
+    },
+    {
+      "description": "Offline / no-network guard tests",
+      "name": "offline",
+      "path": "tests/test_offline.py",
+      "present": true
+    },
+    {
+      "description": "migrate-storage disposable smoke",
+      "name": "migrate_storage_smoke",
+      "path": "scripts/migrate_storage_smoke.py",
+      "present": true
+    }
+  ],
+  "suppressions": {
+    "noqa_blanket": 0,
+    "noqa_total": 41,
+    "scope": [
+      "mempalace_code",
+      "tests"
+    ],
+    "type_pyright_total": 109,
+    "type_pyright_unreasoned": 0,
+    "unreasoned_total": 0
+  },
+  "tests": {
+    "test_files": 53,
+    "test_functions": 2240
+  },
+  "verification_commands": [
+    {
+      "command": "ruff check mempalace_code/ tests/ scripts/",
+      "name": "lint"
+    },
+    {
+      "command": "ruff format --check mempalace_code/ tests/ scripts/",
+      "name": "format"
+    },
+    {
+      "command": "python -m pyright",
+      "name": "typecheck"
+    },
+    {
+      "command": "python -m pytest tests/ -x -q -m \"not needs_network\"",
+      "name": "tests"
+    },
+    {
+      "command": "python scripts/quality_scorecard.py --check",
+      "name": "scorecard"
+    }
+  ]
+}

@@ -1,0 +1,623 @@
+#!/usr/bin/env python3
+"""
+quality_scorecard.py — Deterministic, public-safe code-quality scorecard.
+
+Emits a repo-local quality snapshot in Markdown and/or JSON. Every metric is
+derived from tracked repository data only (source files, test files, and
+``pyproject.toml``). There are no timestamps, no absolute paths, no machine
+identifiers, and no network access — two runs against the same tree produce
+byte-identical output, which is what makes the scorecard safe for CI validation.
+
+This is the baseline tool for the ``AUTOPILOT DEMO`` backlog section: future
+cleanup tasks regenerate the scorecard and report before/after deltas instead of
+inventing their own reporting format.
+
+Metrics (all public-safe, repo-local):
+    - code size / file counts
+    - largest modules
+    - Ruff global + per-file ignore counts
+    - Pyright mode / strictness status
+    - unreasoned suppressions (same policy as tests/test_type_suppressions.py)
+    - test count
+    - available smoke / CLI / MCP suites
+    - current verification commands
+
+Usage:
+    python scripts/quality_scorecard.py                 # Markdown to stdout
+    python scripts/quality_scorecard.py --format json   # JSON to stdout
+    python scripts/quality_scorecard.py --format both    # both, to stdout
+    python scripts/quality_scorecard.py --write          # write docs/quality/*
+    python scripts/quality_scorecard.py --check          # validate shape (CI)
+
+Stdlib only — no project import, no third-party dependency — so it runs in the
+lint CI job and in /verify without installing the package.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import json
+import re
+import sys
+from pathlib import Path
+
+SCHEMA_VERSION = 1
+PACKAGE_DIR = "mempalace_code"
+TESTS_DIR = "tests"
+# Excluded everywhere: negative fixtures intentionally contain bad suppressions
+# (see tests/fixtures/unreasoned_suppression.py) and are not real tests.
+EXCLUDED_DIRS = ("tests/fixtures",)
+TOP_MODULES = 10
+
+# Suppression policy — kept identical to tests/test_type_suppressions.py so the
+# scorecard's "unreasoned" count matches the gate that enforces it.
+_SUPPRESSION_RE = re.compile(r"#\s*(?:type|pyright):\s*ignore")
+_ACCEPTED_RE = re.compile(r"#\s*(?:type|pyright):\s*ignore\[[^\]\s]+\]\s*#\s*reason:\s*\S")
+_NOQA_RE = re.compile(r"#\s*noqa")
+_NOQA_BLANKET_RE = re.compile(r"#\s*noqa(?!\s*:)")
+_TEST_DEF_RE = re.compile(r"^\s*(?:async\s+)?def\s+(test\w*)\s*\(")
+
+# Public-safety patterns — the rendered output must never contain a private path,
+# token, or key. Mirrors the commit-checkpoint preflight regex set.
+_FORBIDDEN_PATTERNS = (
+    re.compile(r"/Users/"),
+    re.compile(r"/home/[A-Za-z0-9._-]+"),
+    re.compile(r"/srv/"),
+    re.compile(r"github_pat_"),
+    re.compile(r"\bghp_[A-Za-z0-9]{20,}"),
+    re.compile(r"\bpypi-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\bsk-[A-Za-z0-9]{16,}"),
+)
+
+# Known integration / smoke / contract surfaces. Presence is detected by path so
+# the scorecard reports which real-workflow suites exist, not just unit count.
+_KNOWN_SUITES = (
+    ("cli", "tests/test_cli.py", "CLI command tests"),
+    ("cli_e2e", "tests/test_e2e.py", "End-to-end CLI workflow tests"),
+    ("cli_command_modules", "tests/test_cli_command_modules.py", "CLI command module tests"),
+    ("mcp_server", "tests/test_mcp_server.py", "MCP server handler tests"),
+    ("mcp_stdio", "tests/test_stdio.py", "MCP stdio transport tests"),
+    ("mcp_tool_profiles", "tests/test_mcp_tool_profiles.py", "MCP tool profile tests"),
+    ("backup_cli", "tests/test_backup_cli.py", "Backup/restore CLI tests"),
+    ("offline", "tests/test_offline.py", "Offline / no-network guard tests"),
+    (
+        "migrate_storage_smoke",
+        "scripts/migrate_storage_smoke.py",
+        "migrate-storage disposable smoke",
+    ),
+)
+
+# Canonical verification commands a maintainer runs locally / in CI. Listed with
+# relative paths only; this is the public verification surface, not private state.
+_VERIFICATION_COMMANDS = (
+    ("lint", "ruff check mempalace_code/ tests/ scripts/"),
+    ("format", "ruff format --check mempalace_code/ tests/ scripts/"),
+    ("typecheck", "python -m pyright"),
+    ("tests", 'python -m pytest tests/ -x -q -m "not needs_network"'),
+    ("scorecard", "python scripts/quality_scorecard.py --check"),
+)
+
+
+def repo_root() -> Path:
+    """Repository root — the parent of this script's ``scripts/`` directory."""
+    return Path(__file__).resolve().parent.parent
+
+
+def _is_excluded(path: Path, root: Path) -> bool:
+    rel = path.relative_to(root).as_posix()
+    return any(rel == d or rel.startswith(f"{d}/") for d in EXCLUDED_DIRS)
+
+
+def _iter_py_files(directory: Path, root: Path) -> list[Path]:
+    """All ``*.py`` files under ``directory``, excluding fixture dirs, sorted."""
+    files = [p for p in directory.rglob("*.py") if not _is_excluded(p, root)]
+    return sorted(files)
+
+
+def _count_lines(path: Path) -> tuple[int, int]:
+    """Return (total physical lines, code lines).
+
+    A code line is any non-blank line that is not a pure comment. Docstring
+    bodies count as code — the metric tracks size, not semantics, and stays
+    deterministic.
+    """
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    total = len(lines)
+    code = sum(1 for ln in lines if ln.strip() and not ln.lstrip().startswith("#"))
+    return total, code
+
+
+def collect_code_size(root: Path) -> dict:
+    pkg_files = _iter_py_files(root / PACKAGE_DIR, root)
+    test_files = _iter_py_files(root / TESTS_DIR, root)
+    pkg_total = pkg_code = 0
+    for p in pkg_files:
+        t, c = _count_lines(p)
+        pkg_total += t
+        pkg_code += c
+    test_total = sum(_count_lines(p)[0] for p in test_files)
+    return {
+        "package_files": len(pkg_files),
+        "package_total_lines": pkg_total,
+        "package_code_lines": pkg_code,
+        "test_files": len(test_files),
+        "test_total_lines": test_total,
+    }
+
+
+def collect_largest_modules(root: Path, top_n: int = TOP_MODULES) -> list[dict]:
+    sizes = []
+    for p in _iter_py_files(root / PACKAGE_DIR, root):
+        total, _ = _count_lines(p)
+        sizes.append({"path": p.relative_to(root).as_posix(), "lines": total})
+    sizes.sort(key=lambda m: (-m["lines"], m["path"]))
+    return sizes[:top_n]
+
+
+def load_pyproject(root: Path) -> dict:
+    import tomllib
+
+    with (root / "pyproject.toml").open("rb") as fh:
+        return tomllib.load(fh)
+
+
+def collect_ruff(pyproject: dict) -> dict:
+    ruff = pyproject.get("tool", {}).get("ruff", {})
+    lint = ruff.get("lint", {})
+    global_ignores = sorted(lint.get("ignore", []))
+    selected = lint.get("select", [])
+    per_file = lint.get("per-file-ignores", {})
+    by_pattern = sorted(
+        ({"pattern": pat, "count": len(rules)} for pat, rules in per_file.items()),
+        key=lambda e: e["pattern"],
+    )
+    return {
+        "global_ignores": len(global_ignores),
+        "global_ignore_rules": global_ignores,
+        "selected_rule_families": len(selected),
+        "per_file_ignores": {
+            "patterns": len(by_pattern),
+            "total_entries": sum(e["count"] for e in by_pattern),
+            "by_pattern": by_pattern,
+        },
+    }
+
+
+def collect_pyright(pyproject: dict) -> dict:
+    pyright = pyproject.get("tool", {}).get("pyright", {})
+    mode = pyright.get("typeCheckingMode", "off")
+    return {
+        "type_checking_mode": mode,
+        "python_version": str(pyright.get("pythonVersion", "")),
+        "strict": mode == "strict",
+        "include": sorted(pyright.get("include", [])),
+    }
+
+
+def collect_suppressions(root: Path) -> dict:
+    """Count type/pyright/noqa suppressions across package + tests (no fixtures).
+
+    "Unreasoned" follows tests/test_type_suppressions.py: a type/pyright ignore
+    without a ``[code]`` and a ``# reason:`` justification, plus any blanket
+    ``# noqa`` carrying no specific rule code.
+    """
+    files = _iter_py_files(root / PACKAGE_DIR, root) + _iter_py_files(root / TESTS_DIR, root)
+    type_total = type_unreasoned = noqa_total = noqa_blanket = 0
+    for path in sorted(files):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if _SUPPRESSION_RE.search(line):
+                type_total += 1
+                if not _ACCEPTED_RE.search(line):
+                    type_unreasoned += 1
+            if _NOQA_RE.search(line):
+                noqa_total += 1
+                if _NOQA_BLANKET_RE.search(line):
+                    noqa_blanket += 1
+    return {
+        "scope": [PACKAGE_DIR, TESTS_DIR],
+        "type_pyright_total": type_total,
+        "type_pyright_unreasoned": type_unreasoned,
+        "noqa_total": noqa_total,
+        "noqa_blanket": noqa_blanket,
+        "unreasoned_total": type_unreasoned + noqa_blanket,
+    }
+
+
+def _count_test_functions(path: Path) -> int:
+    """Count ``test*`` functions/methods in a file via AST, regex on parse error."""
+    text = path.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return sum(1 for ln in text.splitlines() if _TEST_DEF_RE.match(ln))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
+            "test"
+        ):
+            count += 1
+    return count
+
+
+def collect_tests(root: Path) -> dict:
+    test_files = _iter_py_files(root / TESTS_DIR, root)
+    return {
+        "test_files": len(test_files),
+        "test_functions": sum(_count_test_functions(p) for p in test_files),
+    }
+
+
+def collect_suites(root: Path) -> list[dict]:
+    return [
+        {"name": name, "path": rel, "present": (root / rel).exists(), "description": desc}
+        for name, rel, desc in _KNOWN_SUITES
+    ]
+
+
+def verification_commands() -> list[dict]:
+    return [{"name": name, "command": cmd} for name, cmd in _VERIFICATION_COMMANDS]
+
+
+def build_scorecard(root: Path) -> dict:
+    """Assemble the full scorecard dict. Pure function of the tracked tree."""
+    pyproject = load_pyproject(root)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "scope": {"package_dir": PACKAGE_DIR, "tests_dir": TESTS_DIR},
+        "code_size": collect_code_size(root),
+        "largest_modules": collect_largest_modules(root),
+        "ruff": collect_ruff(pyproject),
+        "pyright": collect_pyright(pyproject),
+        "suppressions": collect_suppressions(root),
+        "tests": collect_tests(root),
+        "suites": collect_suites(root),
+        "verification_commands": verification_commands(),
+    }
+
+
+def render_json(data: dict) -> str:
+    return json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+
+
+def render_markdown(data: dict) -> str:
+    cs = data["code_size"]
+    ruff = data["ruff"]
+    py = data["pyright"]
+    sup = data["suppressions"]
+    tests = data["tests"]
+    lines: list[str] = []
+    lines.append("# Quality Scorecard")
+    lines.append("")
+    lines.append(
+        "Deterministic, repo-local, public-safe metrics generated by "
+        "`scripts/quality_scorecard.py`. Regenerate with "
+        "`python scripts/quality_scorecard.py --write`. No timestamps or absolute "
+        "paths — two runs on the same tree produce identical output."
+    )
+    lines.append("")
+    lines.append(f"Schema version: {data['schema_version']}")
+    lines.append("")
+
+    lines.append("## Code Size")
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|------:|")
+    lines.append(f"| Package files (`{data['scope']['package_dir']}/`) | {cs['package_files']} |")
+    lines.append(f"| Package total lines | {cs['package_total_lines']} |")
+    lines.append(f"| Package code lines | {cs['package_code_lines']} |")
+    lines.append(f"| Test files (`{data['scope']['tests_dir']}/`) | {cs['test_files']} |")
+    lines.append(f"| Test total lines | {cs['test_total_lines']} |")
+    lines.append("")
+
+    lines.append(f"## Largest Modules (top {len(data['largest_modules'])})")
+    lines.append("")
+    lines.append("| Module | Lines |")
+    lines.append("|--------|------:|")
+    for m in data["largest_modules"]:
+        lines.append(f"| `{m['path']}` | {m['lines']} |")
+    lines.append("")
+
+    lines.append("## Ruff Ignores")
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|------:|")
+    lines.append(f"| Selected rule families | {ruff['selected_rule_families']} |")
+    lines.append(f"| Global ignores | {ruff['global_ignores']} |")
+    lines.append(f"| Per-file ignore patterns | {ruff['per_file_ignores']['patterns']} |")
+    lines.append(f"| Per-file ignore entries | {ruff['per_file_ignores']['total_entries']} |")
+    lines.append("")
+    if ruff["per_file_ignores"]["by_pattern"]:
+        lines.append("| Per-file pattern | Entries |")
+        lines.append("|------------------|--------:|")
+        for e in ruff["per_file_ignores"]["by_pattern"]:
+            lines.append(f"| `{e['pattern']}` | {e['count']} |")
+        lines.append("")
+
+    lines.append("## Pyright")
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
+    lines.append(f"| Type-checking mode | {py['type_checking_mode']} |")
+    lines.append(f"| Strict | {str(py['strict']).lower()} |")
+    lines.append(f"| Python version | {py['python_version']} |")
+    lines.append(f"| Include | {', '.join(f'`{i}`' for i in py['include'])} |")
+    lines.append("")
+
+    lines.append("## Suppressions")
+    lines.append("")
+    lines.append(
+        f"Scope: {', '.join(f'`{s}/`' for s in sup['scope'])} (excludes `tests/fixtures/`)."
+    )
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|------:|")
+    lines.append(f"| type/pyright ignores (total) | {sup['type_pyright_total']} |")
+    lines.append(f"| type/pyright unreasoned | {sup['type_pyright_unreasoned']} |")
+    lines.append(f"| noqa (total) | {sup['noqa_total']} |")
+    lines.append(f"| noqa blanket | {sup['noqa_blanket']} |")
+    lines.append(f"| **Unreasoned suppressions (total)** | **{sup['unreasoned_total']}** |")
+    lines.append("")
+
+    lines.append("## Tests")
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|------:|")
+    lines.append(f"| Test files | {tests['test_files']} |")
+    lines.append(f"| Test functions | {tests['test_functions']} |")
+    lines.append("")
+
+    lines.append("## Available Suites")
+    lines.append("")
+    lines.append("| Suite | Path | Present |")
+    lines.append("|-------|------|:-------:|")
+    for s in data["suites"]:
+        mark = "yes" if s["present"] else "no"
+        lines.append(f"| {s['name']} | `{s['path']}` | {mark} |")
+    lines.append("")
+
+    lines.append("## Verification Commands")
+    lines.append("")
+    for c in data["verification_commands"]:
+        lines.append(f"- **{c['name']}**: `{c['command']}`")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def validate(data: dict) -> list[str]:
+    """Return a list of shape errors; empty means the scorecard is well-formed."""
+    errors: list[str] = []
+
+    def require(cond: bool, msg: str) -> None:
+        if not cond:
+            errors.append(msg)
+
+    require(
+        data.get("schema_version") == SCHEMA_VERSION, "schema_version must equal SCHEMA_VERSION"
+    )
+
+    cs = data.get("code_size", {})
+    for key in (
+        "package_files",
+        "package_total_lines",
+        "package_code_lines",
+        "test_files",
+        "test_total_lines",
+    ):
+        require(
+            isinstance(cs.get(key), int) and cs.get(key, -1) >= 0,
+            f"code_size.{key} must be a non-negative int",
+        )
+    require(cs.get("package_files", 0) > 0, "code_size.package_files must be > 0")
+
+    mods = data.get("largest_modules")
+    require(isinstance(mods, list) and len(mods) > 0, "largest_modules must be a non-empty list")
+    if isinstance(mods, list):
+        for m in mods:
+            require(
+                isinstance(m, dict)
+                and isinstance(m.get("path"), str)
+                and isinstance(m.get("lines"), int),
+                "each largest_modules entry needs str path and int lines",
+            )
+        line_vals = [m.get("lines", 0) for m in mods if isinstance(m, dict)]
+        require(
+            line_vals == sorted(line_vals, reverse=True),
+            "largest_modules must be sorted by lines descending",
+        )
+
+    ruff = data.get("ruff", {})
+    for key in ("global_ignores", "selected_rule_families"):
+        require(
+            isinstance(ruff.get(key), int) and ruff.get(key, -1) >= 0,
+            f"ruff.{key} must be a non-negative int",
+        )
+    require(
+        isinstance(ruff.get("global_ignore_rules"), list), "ruff.global_ignore_rules must be a list"
+    )
+    pfi = ruff.get("per_file_ignores", {})
+    require(
+        isinstance(pfi.get("patterns"), int) and isinstance(pfi.get("total_entries"), int),
+        "ruff.per_file_ignores needs int patterns and total_entries",
+    )
+
+    py = data.get("pyright", {})
+    require(
+        isinstance(py.get("type_checking_mode"), str) and py.get("type_checking_mode"),
+        "pyright.type_checking_mode must be a non-empty str",
+    )
+    require(isinstance(py.get("strict"), bool), "pyright.strict must be a bool")
+
+    sup = data.get("suppressions", {})
+    for key in (
+        "type_pyright_total",
+        "type_pyright_unreasoned",
+        "noqa_total",
+        "noqa_blanket",
+        "unreasoned_total",
+    ):
+        require(
+            isinstance(sup.get(key), int) and sup.get(key, -1) >= 0,
+            f"suppressions.{key} must be a non-negative int",
+        )
+    if all(
+        isinstance(sup.get(k), int)
+        for k in ("type_pyright_unreasoned", "noqa_blanket", "unreasoned_total")
+    ):
+        require(
+            sup["unreasoned_total"] == sup["type_pyright_unreasoned"] + sup["noqa_blanket"],
+            "suppressions.unreasoned_total must equal type_pyright_unreasoned + noqa_blanket",
+        )
+
+    tests = data.get("tests", {})
+    for key in ("test_files", "test_functions"):
+        require(
+            isinstance(tests.get(key), int) and tests.get(key, -1) >= 0,
+            f"tests.{key} must be a non-negative int",
+        )
+
+    suites = data.get("suites")
+    require(isinstance(suites, list) and len(suites) > 0, "suites must be a non-empty list")
+    if isinstance(suites, list):
+        for s in suites:
+            require(
+                isinstance(s, dict)
+                and isinstance(s.get("name"), str)
+                and isinstance(s.get("path"), str)
+                and isinstance(s.get("present"), bool),
+                "each suite needs str name, str path, and bool present",
+            )
+
+    cmds = data.get("verification_commands")
+    require(
+        isinstance(cmds, list) and len(cmds) > 0, "verification_commands must be a non-empty list"
+    )
+    if isinstance(cmds, list):
+        for c in cmds:
+            require(
+                isinstance(c, dict)
+                and isinstance(c.get("name"), str)
+                and isinstance(c.get("command"), str),
+                "each verification command needs str name and str command",
+            )
+
+    return errors
+
+
+def scan_public_safety(*texts: str) -> list[str]:
+    """Return rendered substrings that match a forbidden private/secret pattern."""
+    hits: list[str] = []
+    for text in texts:
+        for pat in _FORBIDDEN_PATTERNS:
+            for match in pat.finditer(text):
+                hits.append(f"{pat.pattern!r} matched {match.group(0)!r}")
+    return sorted(set(hits))
+
+
+def run_check(root: Path) -> int:
+    """Validate shape, determinism, and public-safety. Returns process exit code."""
+    problems: list[str] = []
+
+    try:
+        first = build_scorecard(root)
+        second = build_scorecard(root)
+    except Exception as exc:  # noqa: BLE001  # reason: surface any build failure as a check failure
+        print(f"quality-scorecard: FAIL — build raised {exc!r}", file=sys.stderr)
+        return 1
+
+    if render_json(first) != render_json(second):
+        problems.append("non-deterministic output: two builds differ")
+
+    problems.extend(validate(first))
+
+    md = render_markdown(first)
+    js = render_json(first)
+    problems.extend(f"public-safety: {h}" for h in scan_public_safety(md, js))
+
+    if problems:
+        print("quality-scorecard: FAIL", file=sys.stderr)
+        for p in problems:
+            print(f"  - {p}", file=sys.stderr)
+        return 1
+
+    print(
+        "quality-scorecard: OK "
+        f"(schema {first['schema_version']}, "
+        f"{first['code_size']['package_files']} package files, "
+        f"{first['tests']['test_functions']} test functions, "
+        f"{first['suppressions']['unreasoned_total']} unreasoned suppressions)"
+    )
+    return 0
+
+
+def write_outputs(root: Path, out_dir: Path) -> list[Path]:
+    data = build_scorecard(root)
+    md = render_markdown(data)
+    js = render_json(data)
+    unsafe = scan_public_safety(md, js)
+    if unsafe:
+        raise SystemExit("Refusing to write: public-safety scan failed:\n  " + "\n  ".join(unsafe))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    md_path = out_dir / "scorecard.md"
+    json_path = out_dir / "scorecard.json"
+    md_path.write_text(md + "\n", encoding="utf-8")
+    json_path.write_text(js, encoding="utf-8")
+    return [md_path, json_path]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Deterministic, public-safe code-quality scorecard (Markdown + JSON).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--format",
+        choices=["markdown", "json", "both"],
+        default="markdown",
+        help="Output format when printing to stdout (default: markdown).",
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write scorecard.md and scorecard.json into --out-dir instead of stdout.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default="docs/quality",
+        help="Directory for --write output (default: docs/quality).",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate output shape, determinism, and public-safety; exit non-zero on failure.",
+    )
+    args = parser.parse_args(argv)
+    root = repo_root()
+
+    if args.check:
+        return run_check(root)
+
+    if args.write:
+        out_dir = (
+            (root / args.out_dir) if not Path(args.out_dir).is_absolute() else Path(args.out_dir)
+        )
+        written = write_outputs(root, out_dir)
+        for path in written:
+            print(f"wrote {path.relative_to(root).as_posix()}")
+        return 0
+
+    data = build_scorecard(root)
+    if args.format == "json":
+        sys.stdout.write(render_json(data))
+    elif args.format == "both":
+        sys.stdout.write(render_markdown(data))
+        sys.stdout.write("\n\n")
+        sys.stdout.write(render_json(data))
+    else:
+        sys.stdout.write(render_markdown(data) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
