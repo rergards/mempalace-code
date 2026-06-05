@@ -2,9 +2,9 @@
   "code_size": {
     "package_code_lines": 18978,
     "package_files": 73,
-    "package_total_lines": 23441,
-    "test_files": 53,
-    "test_total_lines": 39096
+    "package_total_lines": 23442,
+    "test_files": 54,
+    "test_total_lines": 39198
   },
   "largest_modules": [
     {
@@ -59,41 +59,11 @@
   },
   "ruff": {
     "global_ignore_rules": [
-      "ARG001",
-      "ARG002",
-      "ARG005",
       "B007",
-      "B027",
-      "B033",
-      "B904",
-      "B905",
-      "DTZ001",
-      "DTZ005",
-      "DTZ011",
       "E501",
-      "PT001",
-      "PT006",
-      "PT017",
-      "RET504",
-      "RET505",
-      "RET508",
-      "SIM102",
-      "SIM103",
-      "SIM105",
-      "SIM108",
-      "SIM114",
-      "SIM115",
-      "SIM116",
-      "SIM117",
-      "UP006",
-      "UP015",
-      "UP024",
-      "UP028",
-      "UP035",
-      "UP036",
-      "UP045"
+      "SIM105"
     ],
-    "global_ignores": 33,
+    "global_ignores": 3,
     "per_file_ignores": {
       "by_pattern": [
         {
@@ -178,13 +148,13 @@
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 108,
+    "type_pyright_total": 110,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 53,
-    "test_functions": 2259
+    "test_files": 54,
+    "test_functions": 2266
   },
   "verification_commands": [
     {
@@ -202,6 +172,14 @@
     {
       "command": "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
       "name": "typecheck"
+    },
+    {
+      "command": "python -m pyright -p pyrightconfig.strict.json",
+      "name": "typecheck_strict_slice"
+    },
+    {
+      "command": "python scripts/public_safety_scan.py --tracked --staged",
+      "name": "public_safety"
     },
     {
       "command": "python scripts/quality_scorecard.py --check",

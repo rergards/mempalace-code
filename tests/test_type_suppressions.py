@@ -13,7 +13,9 @@ Bare suppress comments without a bracket code, or any suppression without a
 `# reason:` justification, are rejected.
 """
 
+import io
 import re
+import tokenize
 from pathlib import Path
 
 ACCEPTED_RE = re.compile(r"#\s*(?:type|pyright):\s*ignore\[[^\]\s]+\]\s*#\s*reason:\s*\S")
@@ -34,12 +36,25 @@ def _collect_enforced_files() -> list[Path]:
     return sorted(files)
 
 
+def _comment_units(path: Path) -> list[tuple[int, str]]:
+    """Return (line_number, comment_text) pairs for real Python comment tokens."""
+    src = path.read_text(encoding="utf-8")
+    try:
+        return [
+            (tok.start[0], tok.string)
+            for tok in tokenize.generate_tokens(io.StringIO(src).readline)
+            if tok.type == tokenize.COMMENT
+        ]
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return list(enumerate(src.splitlines(), start=1))
+
+
 def _violations(path: Path) -> list[tuple[int, str]]:
     """Return (line_number, line) pairs that contain a suppression but fail the policy."""
     result = []
-    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if SUPPRESSION_RE.search(line) and not ACCEPTED_RE.search(line):
-            result.append((lineno, line.rstrip()))
+    for lineno, comment in _comment_units(path):
+        if SUPPRESSION_RE.search(comment) and not ACCEPTED_RE.search(comment):
+            result.append((lineno, comment.rstrip()))
     return result
 
 
@@ -68,3 +83,13 @@ def test_fixture_is_rejected():
         "Expected the negative fixture to contain unreasoned suppressions, but none found. "
         "Update tests/fixtures/unreasoned_suppression.py to include bare type: ignore lines."
     )
+
+
+def test_string_literal_mentions_are_ignored(tmp_path):
+    sample = tmp_path / "sample.py"
+    sample.write_text(
+        'TEXT = "not a real # type: ignore suppression"\n'
+        "x = 1  # pyright: ignore[reportUnknownVariableType]  # reason: test fixture\n",
+        encoding="utf-8",
+    )
+    assert _violations(sample) == []

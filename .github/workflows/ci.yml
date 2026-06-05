@@ -61,6 +61,8 @@ jobs:
       - run: pip install ruff
       - run: ruff check mempalace_code/ tests/ scripts/
       - run: ruff format --check mempalace_code/ tests/ scripts/
+      - name: Public-safety scan (tracked + staged)
+        run: python scripts/public_safety_scan.py --tracked --staged
       - name: Quality scorecard (shape + determinism + public-safety)
         run: python scripts/quality_scorecard.py --check
 
@@ -78,6 +80,8 @@ jobs:
       - run: pip install -e ".[dev,chroma,spellcheck,treesitter]"
       - name: Pyright typecheck
         run: python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
+      - name: Pyright strict slice
+        run: python -m pyright -p pyrightconfig.strict.json
 
   model-tests:
     runs-on: ubuntu-latest

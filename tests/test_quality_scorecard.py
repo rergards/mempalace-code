@@ -336,6 +336,11 @@ def test_run_check_fails_on_public_safety_hit(monkeypatch):
     assert sc.run_check(ROOT) == 1
 
 
+def test_run_check_fails_on_stale_committed_artifacts(monkeypatch):
+    monkeypatch.setattr(sc, "check_committed_artifacts", lambda *_: ["stale"])
+    assert sc.run_check(ROOT) == 1
+
+
 def test_run_check_fails_when_build_raises(monkeypatch):
     def _boom(_root):
         raise RuntimeError("nope")
