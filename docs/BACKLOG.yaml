@@ -68,6 +68,30 @@ items:
       - Run pip-audit or an equivalent resolver-level audit on fresh environments for the default install and every optional extra whose bounds change.
       - Keep deprecated optional backends capped away from affected ranges; do not raise ChromaDB to 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
       - Update uv.lock only after the audited resolver passes, then run hosted-CI-equivalent tests in a clean pip environment so stale local locks cannot hide dependency drift.
+  - key: DEPENDENCY-SCHEDULED-AUDIT-CI
+    section: quality
+    status: open
+    priority: P1
+    summary: Add a scheduled dependency audit workflow that checks current resolved packages without changing bounds.
+    acceptance:
+      - Add a GitHub Actions workflow on `schedule` and `workflow_dispatch` that installs the default package and every optional extra in fresh environments.
+      - Run `pip-audit` or an equivalent resolver-level audit for default, `[dev]`, `[treesitter]`, `[spellcheck]`, and `[chroma]` installs.
+      - Query OSV or an equivalent advisory source for direct dependency versions including `lancedb`, `sentence-transformers`, `pyyaml`, `packaging`, `chromadb`, and tree-sitter packages.
+      - Treat known accepted risks as explicit allowlist entries with advisory ID, package, affected range, reason, and expiry date.
+      - Publish only package names, versions, advisory IDs, and remediation notes; never include private resolver caches, machine paths, or credentials.
+      - Open or update a backlog item when an advisory appears, a package becomes yanked, or a previously safe target range becomes affected.
+  - key: RELEASE-PUBLICATION-STATUS-GATE
+    section: quality
+    status: open
+    priority: P1
+    summary: Add a release-status verification gate that checks every public publication surface before calling a release shipped.
+    acceptance:
+      - Add a script or documented command that takes an expected version and checks tag existence, tag workflow status, GitHub Release presence, PyPI version visibility, and clean install smoke from PyPI.
+      - Verify `publish/main`, the version tag, GitHub Actions tag publish run, GitHub Releases, and PyPI JSON/API state as separate facts with separate pass/fail rows.
+      - Fail if branch tests pass but tag publish, release creation, or PyPI visibility is missing or red.
+      - Keep output public-safe: no private remote URLs, tokens, local paths, hostnames, or non-public incident notes.
+      - Wire the command into the `/release` skill/runbook and require it before release completion summaries.
+      - Add tests for parsing mocked GitHub/PyPI responses and for partial-success states such as "tests green, PyPI missing".
   - key: AUTOPILOT-DEMO-QUALITY-SCORECARD
     section: autopilot_demo
     status: done
@@ -124,8 +148,21 @@ items:
     acceptance:
       - Add `mempalace_code/config.py`, `mempalace_code/reader.py`, and `mempalace_code/mining/scanner.py` to `pyrightconfig.strict.json`.
       - Introduce typed config payload aliases, reader result types, gitignore rule types, and scan filter generics instead of broad dict/list shapes.
+      - Add focused tests or type-level assertions for config fallback shape, reader result variants, and scanner rule parsing where the typed contracts expose previously implicit behavior.
+      - Keep the strict-slice command in `/verify` and CI; do not weaken strict diagnostics to make the slice pass.
       - Keep the existing basic Pyright gate green throughout.
       - Update the quality scorecard and report the strict-slice expansion publicly.
+  - key: AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE
+    section: autopilot_demo
+    status: open
+    priority: P1
+    summary: Add an explicit committed-tree public-safety scan mode for publishable release verification.
+    acceptance:
+      - Extend `scripts/public_safety_scan.py` with a mode that scans exactly the committed tree at `HEAD`, independent of staged or unstaged worktree state.
+      - Keep existing `--tracked --staged` behavior for pre-commit use, but document when to use committed-tree mode before release or after merge.
+      - Add tests proving deleted local-only files do not trigger tracked worktree failures, while committed local-only paths still fail.
+      - Wire committed-tree mode into release verification docs or `/release`, not into every edit-time `/verify` run unless it remains fast.
+      - Ensure all failure output remains redacted to rule id and file position only.
   - key: AUTOPILOT-DEMO-WORKFLOW-REVIEW-PROTOCOL
     section: autopilot_demo
     status: done
@@ -146,8 +183,10 @@ items:
     acceptance:
       - Add a dependency graph check based on Python imports, using a standard library parser or a small dev-only tool.
       - Enforce at minimum that storage/config/mining core does not import CLI, MCP dispatch, or Chroma-only modules.
+      - Define explicit layers such as `core`, `storage`, `mining`, `cli`, `mcp`, `legacy_optional`, and `scripts`; keep the layer map in a public config or script constant.
+      - Detect direct violations, transitive cycles, and imports hidden behind `TYPE_CHECKING` separately so intentional type-only imports can be reviewed rather than silently blocked.
       - Report cycles and boundary violations with file-level paths that are easy for Autopilot to fix.
-      - Add tests for the guard itself and wire the command into `/verify` or CI; update the quality scorecard.
+      - Add positive and negative fixture tests for the guard itself and wire the command into `/verify` and CI if it stays fast; update the quality scorecard.
   - key: AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS
     section: autopilot_demo
     status: open
@@ -157,6 +196,9 @@ items:
       - Run `mempalace-code init`, `mine`, `status`, `search`, `read`, `export`, `import`, `backup`, and `restore` in a disposable temp home/palace.
       - Cover at least one important guard/failure path such as missing palace, invalid read range, or unsafe mirror preflight.
       - Force offline/version-check-disabled environment variables so the suite is deterministic and network-free.
+      - Assert stdout/stderr contracts for each scenario: stable success text, stable error text, no HuggingFace token warning noise, and no absolute local paths in publishable output.
+      - Use a generated fixture project small enough for CI but representative enough to include Python source, Markdown, config, and one non-Python supported file.
+      - Add the scenario suite to the quality scorecard as a real workflow suite distinct from unit-level CLI tests.
       - Remove all smoke artifacts or report them explicitly; update release/verify docs and the quality scorecard.
   - key: AUTOPILOT-DEMO-MCP-STDIO-CONTRACTS
     section: autopilot_demo
@@ -167,6 +209,9 @@ items:
       - Start `python -m mempalace_code.mcp_server` as a subprocess and exercise JSON-RPC initialize, tools/list, and tools/call through stdin/stdout.
       - Verify `minimal`, `code`, `kg`, `notes`, and `full` profiles expose only the expected tools.
       - Include representative success and error responses for read-only, write, graph/KG, and disabled-tool paths.
+      - Assert response envelopes follow MCP JSON-RPC shape, include stable error codes/messages where applicable, and do not leak tracebacks for expected user errors.
+      - Add timeout and subprocess cleanup guards so failed tests do not leave orphan MCP server processes.
+      - Record profile/tool counts in the scorecard so future tool-surface changes are visible.
       - Keep direct handler tests as fast unit coverage but label them separately from real MCP stdio coverage; update the quality scorecard.
   - key: AUTOPILOT-DEMO-SECURITY-BOUNDARY-TESTS
     section: autopilot_demo
@@ -187,6 +232,8 @@ items:
       - Build generated fixtures that do not require network access or external repositories.
       - Measure mine time, incremental no-op time, search latency, read latency, and cleanup/optimize smoke duration.
       - Store conservative budgets and machine-independent comparison rules so CI failures indicate meaningful regressions, not normal hardware variance.
+      - Separate hard CI budgets from informational local benchmark output; hard budgets should use ratios or generous floors that survive normal hosted-runner variance.
+      - Include a "budget changed because" field in the public artifact whenever thresholds move.
       - Publish before/after numbers in the quality scorecard and release notes when a demo task improves a budget.
   - key: AUTOPILOT-DEMO-DOCS-DRIFT-GUARD
     section: autopilot_demo
@@ -197,4 +244,28 @@ items:
       - Generate or validate the CLI command inventory from argparse/code instead of manually trusting README snippets.
       - Validate MCP tool tables in README and AGENT_INSTALL against the authoritative tool registry and profiles.
       - Validate optional extras and release/dependency gates in public docs against pyproject.toml and workflow files.
+      - Validate documented verification commands in `CLAUDE.md`, `.claude/skills/verify/INSTRUCTIONS.md`, `.claude/skills/release/INSTRUCTIONS.md`, and `docs/quality/README.md` against canonical command lists.
+      - Add fixture tests for stale docs so the guard proves it fails before it is wired into CI.
       - Fail with actionable file/section messages and update the quality scorecard.
+  - key: AUTOPILOT-DEMO-SCORECARD-METRIC-EXPANSION
+    section: autopilot_demo
+    status: open
+    priority: P2
+    summary: Expand the quality scorecard with metrics for gates that now matter to the public demo.
+    acceptance:
+      - Add strict-slice file count and strict-slice paths from `pyrightconfig.strict.json`.
+      - Add public-safety scan coverage fields for tracked, staged, and committed-tree modes once committed-tree mode exists.
+      - Add architecture guard status, CLI golden scenario count, MCP stdio contract count, docs drift guard status, and dependency audit status as optional metrics that appear when the corresponding scripts exist.
+      - Keep scorecard output deterministic, stdlib-only, timestamp-free, and public-safe.
+      - Update `docs/quality/README.md` to define every new metric and how Autopilot tasks should cite before/after deltas.
+  - key: AUTOPILOT-DEMO-WORKFLOW-EFFECTIVENESS-GUARD
+    section: autopilot_demo
+    status: open
+    priority: P2
+    summary: Add a lightweight guard that workflow review summaries are actionable rather than ceremonial.
+    acceptance:
+      - Define a public-safe workflow summary schema with fields for review lens, finding, evidence file/path, action taken, verification, and deferral reason.
+      - Add a checker for sanitized workflow summary files or PR-body snippets that rejects findings without concrete evidence or explicit action/deferral.
+      - Keep raw multi-agent transcripts local-only under ignored paths; commit only the synthesized public summary when needed.
+      - Document that passive review output is not enough: each surviving finding must either change code/tests/docs or become a backlog item with acceptance criteria.
+      - Add tests for accepted summaries, missing evidence, missing action, and accidental private path/token content.
