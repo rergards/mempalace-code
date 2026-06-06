@@ -882,7 +882,7 @@ wheels = [
 
 [[package]]
 name = "mempalace-code"
-version = "1.10.3"
+version = "1.10.4"
 source = { editable = "." }
 dependencies = [
     { name = "lancedb" },
