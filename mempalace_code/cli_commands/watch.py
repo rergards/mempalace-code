@@ -116,10 +116,22 @@ def cmd_watch_status(args):
                 output = result.stdout
                 state = "unknown"
                 watched_root = None
+                runs_val = None
+                exit_code_val = None
                 for line in output.splitlines():
                     stripped = line.strip()
                     if stripped.startswith("state ="):
                         state = stripped.split("=", 1)[1].strip()
+                    elif stripped.startswith("runs ="):
+                        try:
+                            runs_val = int(stripped.split("=", 1)[1].strip())
+                        except ValueError:
+                            pass
+                    elif stripped.startswith("last exit code ="):
+                        try:
+                            exit_code_val = int(stripped.split("=", 1)[1].strip())
+                        except ValueError:
+                            pass
                     # Command in launchctl print output looks like:
                     #   /path/to/mempalace-code watch /watched/dir
                     if "mempalace" in stripped and "watch" in stripped:
@@ -131,6 +143,10 @@ def cmd_watch_status(args):
                                     watched_root = candidate
                                 break
                 print(f"  LaunchAgent: com.mempalace.watch  state = {state}")
+                if runs_val is not None:
+                    print(f"  LaunchAgent: runs = {runs_val}")
+                if exit_code_val is not None:
+                    print(f"  LaunchAgent: last exit code = {exit_code_val}")
                 if watched_root:
                     print(f"  Watched root: {watched_root}")
             else:

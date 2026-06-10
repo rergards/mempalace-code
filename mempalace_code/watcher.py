@@ -26,6 +26,7 @@ from .mining.orchestrator import mine
 from .mining.scanner import (
     KNOWN_FILENAMES,
     READABLE_EXTENSIONS,
+    SKIP_DIRS,
     SKIP_FILENAMES,
     ScanFilterRules,
     get_scan_filter_rules,
@@ -804,6 +805,21 @@ def watch_all(
     else:
         watch_paths = [str(p) for p in project_map]
         git_to_project = {}
+        # Warn about high-churn directories found as immediate children of each project root.
+        # A recursive watch still observes the whole tree; this informs the operator to prefer
+        # on-commit mode for high-churn trees. Shallow check only — no recursive pre-walk.
+        for proj_path in sorted(project_map):
+            churn_found = sorted(d for d in SKIP_DIRS if (proj_path / d).is_dir())
+            if churn_found:
+                preview = ", ".join(churn_found[:6])
+                suffix = f" (+{len(churn_found) - 6} more)" if len(churn_found) > 6 else ""
+                print(
+                    f"  Warning: [{proj_path.name}] high-churn directories detected: "
+                    f"{preview}{suffix}.\n"
+                    "    Events from these directories are filtered but FSEvents still observes\n"
+                    "    the entire tree. Use on-commit mode (default) for large dependency trees.",
+                    flush=True,
+                )
 
     # Load app-level scan rules; snapshot polls config mtime at each batch boundary.
     scan_rules = get_scan_filter_rules()
@@ -824,8 +840,16 @@ def watch_all(
 
     # In on-commit mode we watch .git/refs/heads/ dirs — the default
     # watchfiles filter ignores .git, so we disable it entirely.
-    # These dirs contain only tiny ref files, so no filtering is needed.
-    commit_filter = None if on_commit else watchfiles.DefaultFilter()
+    # In on-save mode, extend the default ignore dirs with the miner's SKIP_DIRS catalog
+    # so that events from high-churn dependency/build/cache dirs are dropped at the
+    # watchfiles layer rather than reaching Python-level relevance filtering.
+    if on_commit:
+        commit_filter = None
+    else:
+        _default_ignore = frozenset(getattr(watchfiles.DefaultFilter, "ignore_dirs", ()))
+        commit_filter = watchfiles.DefaultFilter(
+            ignore_dirs=tuple(_default_ignore | frozenset(SKIP_DIRS))
+        )
 
     try:
         for changes in watchfiles.watch(
@@ -983,7 +1007,31 @@ def render_watch_schedule(
     if platform not in ("darwin", "linux"):
         raise ValueError(f"Unsupported platform {platform!r}; must be 'darwin' or 'linux'")
 
-    safe_dir = _shlex.quote(str(Path(parent_dir).expanduser().resolve()))
+    watch_root = Path(parent_dir).expanduser().resolve()
+
+    # Validate root — refuse uninitialized roots that would crash-loop under KeepAlive.
+    # Only validates when the directory already exists; future directories are allowed.
+    if watch_root.is_dir():
+        from .mining.projects import detect_projects
+
+        root_kind = _classify_watch_root(watch_root)
+        if root_kind == "project":
+            raise ValueError(
+                f"{watch_root} is a project directory but has not been initialized.\n"
+                f"  Run:  mempalace-code init {watch_root}"
+            )
+        if root_kind == "parent":
+            projects = detect_projects(str(watch_root))
+            if not any(p.get("initialized") for p in projects):
+                raise ValueError(
+                    f"{watch_root} has no initialized MemPalace projects as immediate children.\n"
+                    "  Supported watch roots:\n"
+                    "    - An initialized project directory (contains mempalace.yaml)\n"
+                    "    - A parent directory with at least one initialized immediate child project\n"
+                    f"  Run 'mempalace-code init <dir>' on a project under {watch_root} first."
+                )
+
+    safe_dir = _shlex.quote(str(watch_root))
 
     if mempalace_bin is None:
         resolved_bin = _shutil.which("mempalace-code")
@@ -1022,6 +1070,8 @@ def render_watch_schedule(
         "    <true/>\n"
         "    <key>KeepAlive</key>\n"
         "    <true/>\n"
+        "    <key>ThrottleInterval</key>\n"
+        "    <integer>60</integer>\n"
         "    <key>StandardOutPath</key>\n"
         "    <string>/tmp/mempalace-watch.log</string>\n"
         "    <key>StandardErrorPath</key>\n"

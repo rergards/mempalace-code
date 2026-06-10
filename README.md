@@ -286,6 +286,27 @@ launchctl unload ~/Library/LaunchAgents/com.mempalace.watch.plist   # stop until
 launchctl load   ~/Library/LaunchAgents/com.mempalace.watch.plist   # re-enable after freeing space
 ```
 
+**Diagnosing and stopping a crash-looping job:**
+
+If the daemon was pointed at an uninitialized directory it will crash-loop under `KeepAlive`. Confirm with:
+
+```bash
+mempalace-code watch ~/projects/ status   # shows state, runs count, and last exit code
+```
+
+Stop and optionally remove it:
+
+```bash
+# macOS 10.11+ preferred — unregisters the job immediately:
+launchctl bootout gui/$(id -u)/com.mempalace.watch
+
+# Older macOS / alternative:
+launchctl unload ~/Library/LaunchAgents/com.mempalace.watch.plist
+
+# Remove permanently (re-install after fixing the watch root):
+rm ~/Library/LaunchAgents/com.mempalace.watch.plist
+```
+
 Configure the threshold via environment variable or `~/.mempalace/config.json`:
 
 ```bash

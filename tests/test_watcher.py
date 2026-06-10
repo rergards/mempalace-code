@@ -659,11 +659,110 @@ class TestRenderWatchSchedule:
     def test_default_bin_falls_back_to_mempalace_code_module(self, tmp_path, monkeypatch):
         """Generated daemon snippets should run the renamed package module."""
         monkeypatch.setattr("shutil.which", lambda _name: None)
+        # Write an init marker so the root guard allows rendering.
+        (tmp_path / "mempalace.yaml").write_text("wing: test\n")
 
         out = render_watch_schedule(str(tmp_path), "linux")
 
         assert f"{shlex.quote(sys.executable)} -m mempalace_code watch" in out
         assert "-m mempalace watch" not in out
+
+    def test_darwin_plist_bounds_respawn_with_throttle_interval(self, tmp_path):
+        """Darwin plist contains ThrottleInterval so crash-looping jobs can't respawn unbounded."""
+        (tmp_path / "mempalace.yaml").write_text("wing: test\n")
+        plist = render_watch_schedule(str(tmp_path), "darwin")
+        assert "<key>ThrottleInterval</key>" in plist
+        assert "<integer>60</integer>" in plist
+
+
+# ---------------------------------------------------------------------------
+# render_watch_schedule root guard tests (AC-2, AC-3, AC-4)
+# ---------------------------------------------------------------------------
+
+
+class TestRenderWatchScheduleRootGuard:
+    def test_uninitialized_parent_root_refused(self, tmp_path):
+        """render_watch_schedule raises ValueError for a parent with no initialized children."""
+        with patch("mempalace_code.mining.projects.detect_projects", return_value=[]):
+            with pytest.raises(ValueError, match="initialized"):
+                render_watch_schedule(str(tmp_path), "linux")
+
+    def test_initialized_root_renders_snippet(self, tmp_path):
+        """Initialized project root renders a schedule snippet."""
+        (tmp_path / "mempalace.yaml").write_text("wing: test\n")
+        snippet = render_watch_schedule(str(tmp_path), "linux")
+        assert "@reboot" in snippet
+
+    def test_parent_with_initialized_children_renders_snippet(self, tmp_path):
+        """Parent dir with at least one initialized child renders a schedule snippet."""
+        child = tmp_path / "myproject"
+        child.mkdir()
+        (child / "mempalace.yaml").write_text("wing: child_wing\n")
+
+        fake_projects = [{"path": str(child), "initialized": True}]
+
+        with patch("mempalace_code.mining.projects.detect_projects", return_value=fake_projects):
+            snippet = render_watch_schedule(str(tmp_path), "linux")
+        assert "@reboot" in snippet
+
+    def test_uninitialized_project_root_names_init_command(self, tmp_path):
+        """Project root with project markers but no init file gets exact init command in error."""
+        # Has a project marker (.git) but no mempalace.yaml
+        (tmp_path / ".git").mkdir()
+
+        with pytest.raises(ValueError, match="mempalace-code init"):
+            render_watch_schedule(str(tmp_path), "linux")
+
+
+# ---------------------------------------------------------------------------
+# watch_all() on-save high-churn pruning and warning (AC-5)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchAllHighChurnPrune:
+    def test_on_save_prunes_skip_dirs_and_warns(self, tmp_path, capsys):
+        """watch_all on-save passes extended ignore filter and warns about churn dirs found."""
+        from mempalace_code.mining.scanner import SKIP_DIRS
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / "mempalace.yaml").write_text("wing: test_wing\n")
+        # Create a couple of high-churn dirs so the warning fires
+        (project / "node_modules").mkdir()
+        (project / ".venv").mkdir()
+
+        watch_filter_seen = []
+
+        def fake_watch(*args, watch_filter=None, stop_event=None, **kwargs):
+            watch_filter_seen.append(watch_filter)
+            return iter([])
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            return {}
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=fake_watch),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
+
+        # Filter must have been passed and must include all SKIP_DIRS entries
+        assert len(watch_filter_seen) == 1
+        filt = watch_filter_seen[0]
+        assert filt is not None
+        # _ignore_dirs is the compiled set BaseFilter builds from ignore_dirs
+        assert all(d in filt._ignore_dirs for d in SKIP_DIRS)
+
+        # Pre-start warning must name the churn dirs actually found
+        captured = capsys.readouterr()
+        assert "node_modules" in captured.out
+        assert ".venv" in captured.out
+        assert "high-churn" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -1254,6 +1353,69 @@ class TestWatchStatusCli:
         assert "running" in out
         assert str(palace) in out
         assert "Free:" in out
+
+    def test_status_reports_last_exit_code_and_runs(self, tmp_path, capsys):
+        """watch status prints runs count and last exit code when launchctl exposes them."""
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        fake_launchctl_output = (
+            "com.mempalace.watch = {\n"
+            "    state = waiting\n"
+            "    runs = 42\n"
+            "    last exit code = 1\n"
+            "    program = /usr/local/bin/mempalace-code\n"
+            "}\n"
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = fake_launchctl_output
+
+        with (
+            patch("sys.platform", "darwin"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=5 * 1024**3),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            self._run_status(tmp_path)
+
+        captured = capsys.readouterr()
+        out = captured.out
+        assert "runs = 42" in out
+        assert "last exit code = 1" in out
+        # Existing fields still present
+        assert "com.mempalace.watch" in out
+        assert str(palace) in out
+
+    def test_status_omits_crash_loop_fields_when_absent(self, tmp_path, capsys):
+        """watch status does not print runs/exit-code lines when launchctl output lacks them."""
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        fake_launchctl_output = (
+            "com.mempalace.watch = {\n"
+            "    state = running\n"
+            "    program = /usr/local/bin/mempalace-code\n"
+            "}\n"
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = fake_launchctl_output
+
+        with (
+            patch("sys.platform", "darwin"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=5 * 1024**3),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            self._run_status(tmp_path)
+
+        captured = capsys.readouterr()
+        out = captured.out
+        assert "runs =" not in out
+        assert "last exit code =" not in out
+        # Existing output still present
+        assert "running" in out
 
 
 # ---------------------------------------------------------------------------
