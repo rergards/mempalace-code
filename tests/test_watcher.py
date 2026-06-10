@@ -741,14 +741,8 @@ class TestWatchAllHighChurnPrune:
             watch_filter_seen.append(watch_filter)
             return iter([])
 
-        mine_calls = []
-
-        def fake_mine(**kwargs):
-            mine_calls.append(kwargs)
-            return {}
-
         with (
-            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.mine", return_value={}),
             patch("watchfiles.watch", side_effect=fake_watch),
             patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
             patch("mempalace_code.storage.open_store"),
