@@ -114,6 +114,18 @@ items:
       - Add tests proving a new successful run can be identified even when the same log file contains older disk-budget or backup failures.
       - Document a short daemon health check that combines process state, palace health, current run marker, and latest watch-ready line.
       - Keep failure output useful without leaking secrets; paths may be local operational paths, but docs and tests must remain public-safe.
+  - key: WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD
+    section: storage_reliability
+    status: open
+    priority: P1
+    summary: Prevent broken macOS watch jobs from monitoring broad uninitialized roots and driving sustained FSEvents or Spotlight churn.
+    acceptance:
+      - Investigate the macOS launchd/watch setup path and document the root cause class in a public-safe plan without recording private machine paths, hostnames, diagnostic report names, or local incident history.
+      - Add guards so generated or installed macOS watch jobs refuse broad parent roots that are not initialized MemPalace projects or configured multi-project roots.
+      - If a watched root contains many high-churn dependency, build, cache, virtualenv, or VCS directories, make the watch command either prune them by default or emit an actionable warning before starting.
+      - Add tests for launchd/schedule generation and watch startup covering uninitialized broad roots, initialized project roots, and multi-project roots with ignored high-churn directories.
+      - Document safe operator recovery commands for disabling or fixing a broken watch job, plus a minimal health check for confirming the watcher is not crash-looping.
+      - Keep the fix local-first and public-safe; do not add machine-specific Spotlight settings, private paths, or platform commands that mutate a user's system without an explicit operator action.
   - key: VERSION-INSTALL-METADATA-CONSISTENCY
     section: quality
     status: open
