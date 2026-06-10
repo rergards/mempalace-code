@@ -961,3 +961,33 @@ items:
       resolution: '2026-05-29: completed in pipeline run (commit=7588660, 9 files changed, 213 insertions(+), 1 deletion(-))'
       archived_date: "2026-05-29"
       done_summary: completed in pipeline run (commit=7588660, 9 files changed, 213 insertions(+), 1 deletion(-))
+    - key: AUTOPILOT-DEMO-QUALITY-SCORECARD
+      summary: Add a deterministic public quality scorecard that makes Autopilot cleanup progress visible across releases.
+      resolution: '2026-06-05: Deterministic public scorecard: scripts/quality_scorecard.py emits Markdown+JSON; --check gates shape/determinism/public-safety in CI lint job and /verify; baseline committed to docs/quality/; update workflow in docs/quality/README.md'
+      archived_date: "2026-06-11"
+      done_summary: 'Deterministic public scorecard: scripts/quality_scorecard.py emits Markdown+JSON; --check gates shape/determinism/public-safety in CI lint job and /verify; baseline committed to docs/quality/; update workflow in docs/quality/README.md'
+    - key: AUTOPILOT-DEMO-PUBLIC-SAFETY-GATE
+      summary: Add a repo-wide public-safety gate for tracked and staged files.
+      resolution: '2026-06-06: Added scripts/public_safety_scan.py --tracked --staged, CI and /verify wiring, focused tests, and removed tracked .verify-state while adding it to .gitignore.'
+      archived_date: "2026-06-11"
+      done_summary: Repo-wide public-safety scan now gates tracked/staged files and redacts matched content; .verify-state is local-only.
+    - key: AUTOPILOT-DEMO-RUFF-RATCHET
+      summary: Reduce transitional Ruff ignores in a measurable ratchet without broad style-only churn.
+      resolution: '2026-06-06: Reduced global Ruff ignores from 33 to 3 by keeping existing package/test debt scoped to per-file ignores and making new scripts inherit the stricter rule set.'
+      archived_date: "2026-06-11"
+      done_summary: 'Ruff global ignore ratchet: broad historical ignores are now scoped away from scripts; no new inline suppressions.'
+    - key: AUTOPILOT-DEMO-PYRIGHT-STRICT-SLICE
+      summary: Establish a strict Pyright slice for stable low-level modules and expand it gradually.
+      resolution: '2026-06-06: Added pyrightconfig.strict.json for version.py, mcp_tool_profiles.py, and disk_budget.py; annotated disk_budget.py enough to pass strict; wired strict slice into CI and /verify.'
+      archived_date: "2026-06-11"
+      done_summary: Initial strict Pyright slice gates three stable low-level modules in CI and /verify.
+    - key: AUTOPILOT-DEMO-WORKFLOW-REVIEW-PROTOCOL
+      summary: Document the public-safe adversarial Claude workflow protocol for repo quality work.
+      resolution: '2026-06-06: Added docs/quality/workflow-review-protocol.md and linked it from docs/quality/README.md.'
+      archived_date: "2026-06-11"
+      done_summary: Public-safe multi-agent workflow review protocol is documented for future quality improvements.
+    - key: AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET
+      summary: Generate a deterministic public-safe code-intelligence packet from real MemPalace CLI output and one minimal MCP stdio exhibit on a synthetic fixture project.
+      resolution: '2026-06-11: Deterministic code-intelligence demo packet implemented. scripts/gen_code_intelligence_packet.py builds fixture, mines, generates docs/demo/code-intelligence-packet.{md,json} with 1.5k lines of exhibits. Tests (464 lines) validate normalization, known-answer queries, check-mode drift, and cleanup. Wired into /verify and CI lint job. Quality scorecard updated.'
+      archived_date: "2026-06-11"
+      done_summary: Code-intelligence packet generation script and comprehensive demo artifacts with full test coverage; wired into /verify and CI.
