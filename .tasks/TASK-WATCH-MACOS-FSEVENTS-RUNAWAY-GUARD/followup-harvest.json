@@ -1,0 +1,18 @@
+{
+  "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+  "added": [],
+  "warnings": [],
+  "skipped_duplicates": [],
+  "sources": [
+    "../../../../changelog-result.json",
+    "../../../../contract-reconcile-result.json",
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../polish-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD-polish-1.md",
+    "docs/audits/WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD-round-1.md"
+  ]
+}

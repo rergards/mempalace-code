@@ -1,0 +1,4 @@
+README.md
+mempalace_code/cli_commands/watch.py
+mempalace_code/watcher.py
+tests/test_watcher.py

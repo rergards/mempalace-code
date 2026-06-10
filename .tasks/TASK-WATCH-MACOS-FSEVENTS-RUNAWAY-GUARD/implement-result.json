@@ -1,0 +1,198 @@
+{
+  "blocking_questions": [],
+  "commit": "2c2716f",
+  "contract_exceptions": [],
+  "files_modified": [
+    "mempalace_code/watcher.py",
+    "mempalace_code/cli_commands/watch.py",
+    "tests/test_watcher.py",
+    "README.md"
+  ],
+  "mode": "standard",
+  "new_backlog_items": [],
+  "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+  "status": "ok",
+  "summary": "Add macOS watch runaway guard: root validation in render_watch_schedule, ThrottleInterval in launchd plist, on-save SKIP_DIRS event pruning with pre-start warning, crash-loop signal in watch status, and operator recovery docs in README",
+  "tests_run": [
+    "python -m pytest tests/test_watcher.py::TestRenderWatchScheduleRootGuard -v",
+    "python -m pytest tests/test_watcher.py::TestWatchAllHighChurnPrune -v",
+    "python -m pytest tests/test_watcher.py::TestRenderWatchSchedule -v",
+    "python -m pytest tests/test_watcher.py::TestWatchStatusCli -v",
+    "python -m pytest tests/test_watcher.py -q -m 'not slow'"
+  ],
+  "user_facing_change": true,
+  "verification_evidence": [
+    {
+      "acceptance_ids": [
+        "AC-1"
+      ],
+      "command": "rg -q '^## Root Cause Class' docs/plans/WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD.md \u0026\u0026 ! rg -q '/[U]sers/|/[h]ome/|[.]local/state' docs/plans/WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD.md",
+      "id": "VER-1",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-2"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestRenderWatchScheduleRootGuard::test_uninitialized_parent_root_refused -q",
+      "id": "VER-2",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-3"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestRenderWatchScheduleRootGuard::test_initialized_root_renders_snippet tests/test_watcher.py::TestRenderWatchScheduleRootGuard::test_parent_with_initialized_children_renders_snippet -q",
+      "id": "VER-3",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-4"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestRenderWatchScheduleRootGuard::test_uninitialized_project_root_names_init_command -q",
+      "id": "VER-4",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-5"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestWatchAllHighChurnPrune::test_on_save_prunes_skip_dirs_and_warns -q",
+      "id": "VER-5",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-6"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestRenderWatchSchedule::test_darwin_plist_bounds_respawn_with_throttle_interval -q",
+      "id": "VER-6",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-7"
+      ],
+      "command": "rg -q 'launchctl (bootout|unload)' README.md \u0026\u0026 rg -q 'watch status' README.md",
+      "id": "VER-7",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-8"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestWatchStatusCli::test_status_reports_last_exit_code_and_runs -q",
+      "id": "VER-8",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-3",
+        "AC-6"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestRenderWatchSchedule -q",
+      "id": "REG-1",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-3"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestWatchAllInitializedRoot -q",
+      "id": "REG-2",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-5"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestWatchAll tests/test_watcher.py::TestWatchScanRuleReload -q",
+      "id": "REG-3",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-5"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestWatchAllInitialMineRecovery tests/test_watcher.py::TestWatchAndMineDiskBudget -q",
+      "id": "REG-4",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-8"
+      ],
+      "command": "python -m pytest tests/test_watcher.py::TestWatchStatusCli -q",
+      "id": "REG-5",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-7"
+      ],
+      "command": "rg -q 'owner action required: --install' mempalace_code/cli_commands/watch.py",
+      "id": "REG-6",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-8"
+      ],
+      "command": "python -m pytest tests/test_watcher.py -q -m 'not slow'",
+      "id": "REG-7",
+      "phase": "implement",
+      "slug": "WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD",
+      "source": "implement-result.json tests_run",
+      "status": "passed"
+    }
+  ],
+  "warnings": []
+}
