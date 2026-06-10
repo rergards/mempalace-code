@@ -85,6 +85,11 @@ _KNOWN_SUITES = (
         "scripts/migrate_storage_smoke.py",
         "migrate-storage disposable smoke",
     ),
+    (
+        "code_intelligence_packet",
+        "tests/test_code_intelligence_packet.py",
+        "Code-intelligence demo packet generation and validation tests",
+    ),
 )
 
 # The canonical /verify pre-commit checks. Kept verbatim-identical to the command

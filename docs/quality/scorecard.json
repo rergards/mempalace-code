@@ -3,8 +3,8 @@
     "package_code_lines": 18978,
     "package_files": 73,
     "package_total_lines": 23442,
-    "test_files": 54,
-    "test_total_lines": 39198
+    "test_files": 55,
+    "test_total_lines": 39639
   },
   "largest_modules": [
     {
@@ -139,6 +139,12 @@
       "name": "migrate_storage_smoke",
       "path": "scripts/migrate_storage_smoke.py",
       "present": true
+    },
+    {
+      "description": "Code-intelligence demo packet generation and validation tests",
+      "name": "code_intelligence_packet",
+      "path": "tests/test_code_intelligence_packet.py",
+      "present": true
     }
   ],
   "suppressions": {
@@ -153,8 +159,8 @@
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 54,
-    "test_functions": 2266
+    "test_files": 55,
+    "test_functions": 2316
   },
   "verification_commands": [
     {

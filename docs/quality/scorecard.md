@@ -11,8 +11,8 @@ Schema version: 1
 | Package files (`mempalace_code/`) | 73 |
 | Package total lines | 23442 |
 | Package code lines | 18978 |
-| Test files (`tests/`) | 54 |
-| Test total lines | 39198 |
+| Test files (`tests/`) | 55 |
+| Test total lines | 39639 |
 
 ## Largest Modules (top 10)
 
@@ -68,8 +68,8 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| Test files | 54 |
-| Test functions | 2266 |
+| Test files | 55 |
+| Test functions | 2316 |
 
 ## Available Suites
 
@@ -84,6 +84,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | backup_cli | `tests/test_backup_cli.py` | yes |
 | offline | `tests/test_offline.py` | yes |
 | migrate_storage_smoke | `scripts/migrate_storage_smoke.py` | yes |
+| code_intelligence_packet | `tests/test_code_intelligence_packet.py` | yes |
 
 ## Verification Commands
 
