@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "scripts/gen_code_intelligence_packet.py",
+    "tests/test_code_intelligence_packet.py"
+  ],
+  "before_sha": "de8c950",
+  "timestamp": "2026-06-10T22:06:27Z"
+}

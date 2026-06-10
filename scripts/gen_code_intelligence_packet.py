@@ -372,7 +372,20 @@ _PRIVATE_PATH_RE = re.compile(
     r"|/root/"  # root home
     r"|/private/var/folders/[^\s\"']+"  # macOS temp
     r"|/var/folders/[^\s\"']+"  # macOS temp (non-private)
+    r"|/tmp/\S+"  # generic /tmp paths (not normalized away)
+    r"|/srv/\S+"  # service mount paths
     r"|C:\\Users\\[^\\\s\"']+"  # Windows user dirs
+    r")"
+)
+
+# Secret-like token patterns — matches common API key prefixes.
+_SECRET_TOKEN_RE = re.compile(
+    r"(?:"
+    r"\bghp_[A-Za-z0-9]{20,}"  # GitHub personal access tokens
+    r"|\bgithub_pat_[A-Za-z0-9_]+"  # GitHub fine-grained PATs
+    r"|\bpypi-[A-Za-z0-9_-]{20,}"  # PyPI upload tokens
+    r"|\bsk-[A-Za-z0-9]{20,}"  # OpenAI API keys
+    r"|\bsk-ant-[A-Za-z0-9_-]{16,}"  # Anthropic API keys
     r")"
 )
 
@@ -476,6 +489,11 @@ def _public_safety_check(text: str) -> None:
         raise PublicSafetyError(
             f"Public-safety violation: output contains an absolute path near: "
             f"...{text[max(0, hit.start() - 20) : hit.end() + 20]!r}..."
+        )
+    hit = _SECRET_TOKEN_RE.search(text)
+    if hit:
+        raise PublicSafetyError(
+            f"Public-safety violation: output contains a secret-like token at position {hit.start()}"
         )
 
 
@@ -600,6 +618,11 @@ def _run_cli(args: list[str], env: dict | None = None, timeout: int = 120) -> st
         env=env or _make_env(),
         timeout=timeout,
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"CLI command failed (exit {result.returncode}). "
+            f"stderr={result.stderr!r}"
+        )
     # Combine stdout and stderr (the CLI mixes progress to both).
     output = result.stdout
     if result.stderr:
@@ -691,6 +714,12 @@ def _mcp_exchange(palace_dir: Path) -> dict:
         timeout=60,
     )
 
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"MCP process exited with code {proc.returncode}. "
+            f"stdout={proc.stdout!r}, stderr={proc.stderr!r}"
+        )
+
     responses = []
     for line in proc.stdout.splitlines():
         line = line.strip()
@@ -706,6 +735,17 @@ def _mcp_exchange(palace_dir: Path) -> dict:
             f"MCP exchange returned {len(responses)} responses, expected 3. "
             f"stdout={proc.stdout!r}, stderr={proc.stderr!r}"
         )
+
+    for i, (req, resp) in enumerate(zip(requests, responses)):
+        if resp.get("id") != req["id"]:
+            raise RuntimeError(
+                f"MCP response {i + 1} id mismatch: "
+                f"expected {req['id']!r}, got {resp.get('id')!r}"
+            )
+        if "error" in resp:
+            raise RuntimeError(
+                f"MCP response {i + 1} contains JSON-RPC error: {resp['error']}"
+            )
 
     return {
         "initialize": {"request": requests[0], "response": responses[0]},

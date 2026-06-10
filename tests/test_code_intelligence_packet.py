@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -462,3 +463,116 @@ class TestRenderFunctions:
         # JSON produced with sort_keys=True — verify top-level keys are sorted.
         parsed_keys = list(json.loads(js).keys())
         assert parsed_keys == sorted(parsed_keys)
+
+
+# ── _public_safety_check — extended path and token coverage ───────────────────
+
+
+class TestPublicSafetyCheckExtended:
+    def test_rejects_tmp_path(self):
+        with pytest.raises(_PKT.PublicSafetyError):
+            _PKT._public_safety_check("Source: /tmp/leak/path.txt")
+
+    def test_rejects_srv_path(self):
+        with pytest.raises(_PKT.PublicSafetyError):
+            _PKT._public_safety_check("Repo: /srv/private/repo/file.py")
+
+    def test_rejects_openai_api_key(self):
+        with pytest.raises(_PKT.PublicSafetyError):
+            _PKT._public_safety_check("key=sk-" + "a" * 20)
+
+    def test_rejects_github_personal_access_token(self):
+        with pytest.raises(_PKT.PublicSafetyError):
+            _PKT._public_safety_check("token=ghp_" + "a" * 20)
+
+    def test_rejects_anthropic_api_key(self):
+        with pytest.raises(_PKT.PublicSafetyError):
+            _PKT._public_safety_check("key=sk-ant-api03-" + "a" * 16)
+
+    def test_placeholder_tmp_context_does_not_trip_on_fixture_dir(self):
+        # After normalization, paths become <FIXTURE_DIR>/... — no /tmp/ remains.
+        _PKT._public_safety_check("<FIXTURE_DIR>/src/auth.py")
+
+    def test_short_sk_prefix_is_not_rejected(self):
+        # 'sk-' + fewer than 20 alphanumeric chars must not match (not a real token).
+        _PKT._public_safety_check("sk-short")
+
+
+# ── _run_cli returncode handling ───────────────────────────────────────────────
+
+
+class TestRunCliReturncode:
+    def test_raises_on_nonzero_exit(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = "partial output"
+        mock_result.stderr = "error: something went wrong"
+
+        with patch("subprocess.run", return_value=mock_result):
+            with pytest.raises(RuntimeError, match="exit 1"):
+                _PKT._run_cli(["search", "query"])
+
+    def test_returns_stdout_on_zero_exit(self):
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "search output here"
+        mock_result.stderr = ""
+
+        with patch("subprocess.run", return_value=mock_result):
+            result = _PKT._run_cli(["search", "query"])
+
+        assert "search output here" in result
+
+
+# ── _mcp_exchange response validation ─────────────────────────────────────────
+
+
+class TestMcpExchangeValidation:
+    _GOOD_RESPONSES = [
+        {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}},
+        {"jsonrpc": "2.0", "id": 3, "result": {"content": []}},
+    ]
+
+    def _mock_proc(self, returncode=0, responses=None):
+        mock = MagicMock()
+        mock.returncode = returncode
+        if responses is None:
+            responses = self._GOOD_RESPONSES
+        mock.stdout = "\n".join(json.dumps(r) for r in responses) + "\n"
+        mock.stderr = ""
+        return mock
+
+    def test_raises_on_nonzero_mcp_process_exit(self, tmp_path):
+        palace_dir = tmp_path / "palace"
+        palace_dir.mkdir()
+
+        with patch("subprocess.run", return_value=self._mock_proc(returncode=1)):
+            with pytest.raises(RuntimeError, match="exit.*1"):
+                _PKT._mcp_exchange(palace_dir)
+
+    def test_raises_on_error_response(self, tmp_path):
+        palace_dir = tmp_path / "palace"
+        palace_dir.mkdir()
+        bad_responses = [
+            {"jsonrpc": "2.0", "id": 1, "result": {}},
+            {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}},
+            {"jsonrpc": "2.0", "id": 3, "error": {"code": -32601, "message": "Method not found"}},
+        ]
+
+        with patch("subprocess.run", return_value=self._mock_proc(responses=bad_responses)):
+            with pytest.raises(RuntimeError, match="JSON-RPC error"):
+                _PKT._mcp_exchange(palace_dir)
+
+    def test_raises_on_id_mismatch(self, tmp_path):
+        palace_dir = tmp_path / "palace"
+        palace_dir.mkdir()
+        bad_responses = [
+            {"jsonrpc": "2.0", "id": 99, "result": {}},  # wrong id
+            {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}},
+            {"jsonrpc": "2.0", "id": 3, "result": {}},
+        ]
+
+        with patch("subprocess.run", return_value=self._mock_proc(responses=bad_responses)):
+            with pytest.raises(RuntimeError, match="id mismatch"):
+                _PKT._mcp_exchange(palace_dir)
