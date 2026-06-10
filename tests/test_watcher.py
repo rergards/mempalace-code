@@ -685,7 +685,7 @@ class TestRenderWatchScheduleRootGuard:
         """render_watch_schedule raises ValueError for a parent with no initialized children,
         naming the root path and the supported root shapes per AC-2."""
         with patch("mempalace_code.mining.projects.detect_projects", return_value=[]):
-            with pytest.raises(ValueError) as exc_info:
+            with pytest.raises(ValueError, match="Supported watch roots") as exc_info:
                 render_watch_schedule(str(tmp_path), "linux")
         msg = str(exc_info.value)
         assert str(tmp_path) in msg, "error must name the refused root path"
