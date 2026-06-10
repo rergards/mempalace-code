@@ -92,6 +92,39 @@ items:
       - Keep output public-safe: no private remote URLs, tokens, local paths, hostnames, or non-public incident notes.
       - Wire the command into the `/release` skill/runbook and require it before release completion summaries.
       - Add tests for parsing mocked GitHub/PyPI responses and for partial-success states such as "tests green, PyPI missing".
+  - key: BENCHMARK-FIXTURE-FRESHNESS-FACTS
+    section: quality
+    status: open
+    priority: P1
+    summary: Refresh benchmark baselines and publish compact fixture facts so public savings claims do not depend on stale repo size numbers.
+    acceptance:
+      - Run the token-savings benchmark against the current canonical large-repo fixture and record commit/ref, tracked file count, mined drawer count, supported-language count, median/average/peak savings, and retrieval precision.
+      - Update public benchmark docs and marketing-safe snippets to use the measured fixture facts instead of the older 19k-chunk wording.
+      - Add a small benchmark metadata file or script output that prints fixture facts alongside results so future reruns cannot omit repo size, language coverage, or precision.
+      - Add a freshness guard that warns when fixture drawer count or tracked file count drifts materially from the documented baseline.
+      - Keep the published facts concise and non-private; do not include customer repo names, private remotes, machine paths, or incident history.
+  - key: WATCH-RUN-READINESS-DIAGNOSTICS
+    section: storage_reliability
+    status: open
+    priority: P2
+    summary: Make watch-daemon startup state easy to distinguish from stale appended log failures after disk-budget recovery.
+    acceptance:
+      - Give each `mempalace-code watch` startup attempt a run marker or run id in stdout/stderr and logs.
+      - Emit explicit machine-readable or grep-friendly states for pre-watch-backup failed, initial-mine started, initial-mine completed, optimize completed, and watch-ready.
+      - Add tests proving a new successful run can be identified even when the same log file contains older disk-budget or backup failures.
+      - Document a short daemon health check that combines process state, palace health, current run marker, and latest watch-ready line.
+      - Keep failure output useful without leaking secrets; paths may be local operational paths, but docs and tests must remain public-safe.
+  - key: VERSION-INSTALL-METADATA-CONSISTENCY
+    section: quality
+    status: open
+    priority: P2
+    summary: Add a release/install smoke that catches mismatches between package metadata, `mempalace_code.__version__`, and the CLI version-check output.
+    acceptance:
+      - In a fresh isolated install, assert `importlib.metadata.version("mempalace-code")`, `mempalace_code.__version__`, and `mempalace-code version-check --status` report the same version.
+      - Include pipx or uv-tool style invocation coverage if practical, because operator installs commonly use those surfaces.
+      - Fail with a clear diagnostic that names the disagreeing surfaces and recommended reinstall command without exposing private paths.
+      - Wire the smoke into release verification or the release-status gate, not the whole fast unit suite unless it stays cheap.
+      - Add a local troubleshooting note for stale tool environments where installed metadata and module source disagree.
   - key: AUTOPILOT-DEMO-QUALITY-SCORECARD
     section: autopilot_demo
     status: done
@@ -175,6 +208,21 @@ items:
       - Include the canonical quality verification commands.
     resolution: "2026-06-06: Added docs/quality/workflow-review-protocol.md and linked it from docs/quality/README.md."
     done_summary: "Public-safe multi-agent workflow review protocol is documented for future quality improvements."
+  - key: AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET
+    section: autopilot_demo
+    status: open
+    priority: P1
+    summary: Generate a deterministic public-safe code-intelligence packet from real MemPalace CLI output and one minimal MCP stdio exhibit on a synthetic fixture project.
+    acceptance:
+      - Add a script that builds a generated polyglot fixture project in a temporary directory, mines it into a disposable palace, and emits committed `docs/demo/code-intelligence-packet.md` and `docs/demo/code-intelligence-packet.json` artifacts from real command output.
+      - Include exhibits for fixture inventory, init or mine summary counts, three to five known-answer search queries with expected top hits, one read or source-slice exhibit, and one minimal MCP stdio exhibit covering initialize, `tools/list` for the code profile, and one read-only code-search tool call.
+      - Show the exact CLI commands or JSON-RPC requests used for each exhibit, together with normalized verbatim output that is deterministic across machines.
+      - Fail generation when a known-answer query misses its expected symbol or file in the top results, so the packet cannot silently publish degraded retrieval behavior.
+      - Make output machine-independent by using offline/version-check-disabled environment variables, fixed sort orders, no timestamps or timings, temp paths replaced with placeholders, and similarity scores rounded or omitted.
+      - Add a `--check` mode that regenerates into a temporary directory, diffs or structurally compares against the committed artifacts, validates JSON shape, and applies public-safety rules.
+      - Add focused tests for output normalization, known-answer failure, check-mode drift detection, public-safety rejection, and cleanup of temporary palaces and fixture artifacts.
+      - Update the quality scorecard with a packet status metric and wire the check into `/verify` and CI if it stays fast; otherwise wire it into release verification and document the reason.
+      - Do not duplicate adjacent suites: full CLI workflow assertions stay in `AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS`, MCP profile and contract matrices stay in `AUTOPILOT-DEMO-MCP-STDIO-CONTRACTS`, and timing or savings claims stay in `AUTOPILOT-DEMO-PERF-BUDGETS`.
   - key: AUTOPILOT-DEMO-ARCHITECTURE-GUARD
     section: autopilot_demo
     status: open
