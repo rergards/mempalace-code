@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD-round-1.md",
+    "tests/test_watcher.py"
+  ],
+  "before_sha": "b187593",
+  "timestamp": "2026-06-10T22:55:52Z"
+}
