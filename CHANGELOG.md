@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-06-11 · WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD
+
+Guard `watch_and_mine` / `watch_all` against runaway FSEvents churn on macOS by refusing to monitor uninitialized roots and validating watch targets before `watchdog` observer startup.
+
 ## Unreleased
 
 ### Added
