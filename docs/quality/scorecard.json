@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 18978,
+    "package_code_lines": 19034,
     "package_files": 73,
-    "package_total_lines": 23442,
+    "package_total_lines": 23508,
     "test_files": 55,
-    "test_total_lines": 39776
+    "test_total_lines": 39938
   },
   "largest_modules": [
     {
@@ -16,12 +16,12 @@
       "path": "mempalace_code/mining/chunkers.py"
     },
     {
-      "lines": 1074,
-      "path": "mempalace_code/dialect.py"
+      "lines": 1082,
+      "path": "mempalace_code/watcher.py"
     },
     {
-      "lines": 1032,
-      "path": "mempalace_code/watcher.py"
+      "lines": 1074,
+      "path": "mempalace_code/dialect.py"
     },
     {
       "lines": 904,
@@ -160,7 +160,7 @@
   },
   "tests": {
     "test_files": 55,
-    "test_functions": 2328
+    "test_functions": 2336
   },
   "verification_commands": [
     {
