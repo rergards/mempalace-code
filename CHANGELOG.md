@@ -2,7 +2,15 @@
 
 ## Unreleased
 
-No changes yet.
+### Added
+
+- Code-intelligence demo packet with deterministic public exhibits: generated fixture
+  project mined, searched, and read via real CLI with exact commands and normalized
+  output captured in `docs/demo/code-intelligence-packet.{md,json}`.
+- Generation script `scripts/gen_code_intelligence_packet.py` with `--check` mode
+  for drift detection and public-safety validation; wired into `/verify` and CI.
+- Comprehensive test suite for packet generation with coverage for output
+  normalization, known-answer retrieval assertions, and artifact cleanup.
 
 ## v1.10.4 — 2026-06-06
 

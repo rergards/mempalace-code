@@ -210,7 +210,7 @@ items:
     done_summary: "Public-safe multi-agent workflow review protocol is documented for future quality improvements."
   - key: AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET
     section: autopilot_demo
-    status: open
+    status: done
     priority: P1
     summary: Generate a deterministic public-safe code-intelligence packet from real MemPalace CLI output and one minimal MCP stdio exhibit on a synthetic fixture project.
     acceptance:
@@ -223,6 +223,8 @@ items:
       - Add focused tests for output normalization, known-answer failure, check-mode drift detection, public-safety rejection, and cleanup of temporary palaces and fixture artifacts.
       - Update the quality scorecard with a packet status metric and wire the check into `/verify` and CI if it stays fast; otherwise wire it into release verification and document the reason.
       - Do not duplicate adjacent suites: full CLI workflow assertions stay in `AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS`, MCP profile and contract matrices stay in `AUTOPILOT-DEMO-MCP-STDIO-CONTRACTS`, and timing or savings claims stay in `AUTOPILOT-DEMO-PERF-BUDGETS`.
+    resolution: "2026-06-11: Deterministic code-intelligence demo packet implemented. scripts/gen_code_intelligence_packet.py builds fixture, mines, generates docs/demo/code-intelligence-packet.{md,json} with 1.5k lines of exhibits. Tests (464 lines) validate normalization, known-answer queries, check-mode drift, and cleanup. Wired into /verify and CI lint job. Quality scorecard updated."
+    done_summary: "Code-intelligence packet generation script and comprehensive demo artifacts with full test coverage; wired into /verify and CI."
   - key: AUTOPILOT-DEMO-ARCHITECTURE-GUARD
     section: autopilot_demo
     status: open
