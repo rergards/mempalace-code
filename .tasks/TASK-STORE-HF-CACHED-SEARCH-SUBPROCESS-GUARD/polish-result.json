@@ -1,0 +1,20 @@
+{
+  "blocking_questions": [],
+  "commit": "a584fcd",
+  "diff_classification": "none",
+  "findings_backlogged": 0,
+  "findings_dismissed": 0,
+  "findings_fixed": 0,
+  "findings_total": 0,
+  "mode": "standard",
+  "new_backlog_items": [],
+  "scope_expansions": [],
+  "slug": "STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD",
+  "status": "ok",
+  "summary": "No-op: diff a584fcd..HEAD is empty (a584fcd is HEAD); nothing to polish.",
+  "user_facing_change": false,
+  "verification_evidence": [],
+  "verify_after_polish": "skipped",
+  "verify_skip_reason": "no_polish_changes",
+  "warnings": []
+}
