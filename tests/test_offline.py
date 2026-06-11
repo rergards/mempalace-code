@@ -261,11 +261,11 @@ def _make_subprocess_env(
     return env
 
 
-def _run_subprocess(cmd: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:  # type: ignore[type-arg]
+def _run_subprocess(cmd: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:  # type: ignore[type-arg]  # reason: test helper; CompletedProcess generic param unimportant here
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
-def _read_events(event_log: Path) -> list[dict]:  # type: ignore[type-arg]
+def _read_events(event_log: Path) -> list[dict]:  # type: ignore[type-arg]  # reason: event dicts are dynamic JSON with unconstrained key/value types
     if not event_log.exists():
         return []
     events = []
