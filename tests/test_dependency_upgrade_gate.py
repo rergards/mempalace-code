@@ -399,9 +399,28 @@ def test_ci_check_requires_fresh_report_before_pyproject_or_lock_change(tmp_path
         "slug": "good",
         "pyproject_hash": gate._hash_file(tmp_path / "pyproject.toml"),
         "lockfile_hash": gate._hash_file(tmp_path / "uv.lock"),
-        "dependencies": [],
-        "advisory_results": [],
-        "resolver_audits": [],
+        "dependencies": [
+            {
+                "name": "lancedb",
+                "normalized_name": "lancedb",
+                "group": "runtime",
+                "specifier": ">=0.20",
+                "current_version": "0.20.0",
+                "target_version": "0.21.0",
+            }
+        ],
+        "advisory_results": [
+            {
+                "name": "lancedb",
+                "version": "0.21.0",
+                "role": "target",
+                "advisories": [],
+                "status": "clean",
+            }
+        ],
+        "resolver_audits": [
+            {"extras": [], "status": "success", "summary": "resolver audit for (default): success"}
+        ],
     }
     (report_dir / "good.json").write_text(json.dumps(good_report))
     rc = gate.cmd_ci_check("abc123", tmp_path, git_runner=git_runner)
@@ -627,3 +646,87 @@ def test_normalize_name_lowercases_and_collapses_separators():
     assert gate._normalize_name("sentence-transformers") == "sentence-transformers"
     assert gate._normalize_name("sentence_transformers") == "sentence-transformers"
     assert gate._normalize_name("Sentence.Transformers") == "sentence-transformers"
+
+
+def test_verify_report_rejects_empty_resolver_audits(tmp_path, capsys):
+    """verify-report must fail when resolver_audits is empty — at least one
+    successful resolver audit is required before the report is accepted."""
+    _write_pyproject(tmp_path / "pyproject.toml", runtime=["lancedb>=0.20"])
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0"})
+
+    report_dir = tmp_path / "docs" / "dependency-upgrade-reports"
+    report_dir.mkdir(parents=True)
+    report = {
+        "schema_version": 1,
+        "status": "success",
+        "slug": "no-resolver",
+        "pyproject_hash": gate._hash_file(tmp_path / "pyproject.toml"),
+        "lockfile_hash": gate._hash_file(tmp_path / "uv.lock"),
+        "dependencies": [],
+        "advisory_results": [],
+        "resolver_audits": [],  # empty — must be rejected
+    }
+    report_path = report_dir / "no-resolver.json"
+    report_path.write_text(json.dumps(report))
+
+    rc = gate.cmd_verify_report(report_path, tmp_path)
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "resolver_audits" in err
+
+
+def test_verify_report_rejects_failed_resolver_audit(tmp_path, capsys):
+    """verify-report must fail when any resolver audit entry has a non-success status."""
+    _write_pyproject(tmp_path / "pyproject.toml", runtime=["lancedb>=0.20"])
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0"})
+
+    report_dir = tmp_path / "docs" / "dependency-upgrade-reports"
+    report_dir.mkdir(parents=True)
+    report = {
+        "schema_version": 1,
+        "status": "success",
+        "slug": "failed-resolver",
+        "pyproject_hash": gate._hash_file(tmp_path / "pyproject.toml"),
+        "lockfile_hash": gate._hash_file(tmp_path / "uv.lock"),
+        "dependencies": [],
+        "advisory_results": [],
+        "resolver_audits": [
+            {"extras": [], "status": "success", "summary": "default ok"},
+            {"extras": ["chroma"], "status": "failed", "summary": "chroma install failed"},
+        ],
+    }
+    report_path = report_dir / "failed-resolver.json"
+    report_path.write_text(json.dumps(report))
+
+    rc = gate.cmd_verify_report(report_path, tmp_path)
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "failed" in err.lower()
+
+
+def test_audit_fails_when_direct_dep_missing_from_lockfile(tmp_path, capsys):
+    """audit must fail with a clear error when a direct dependency has no entry in uv.lock."""
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        runtime=["lancedb>=0.20", "pyyaml>=6.0"],
+    )
+    # pyyaml intentionally absent from the lockfile
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0"})
+    manifest = {
+        "targets": {"lancedb": "0.33.0", "pyyaml": "6.0.2"},
+        "changed_groups": ["runtime"],
+        "changed_extras": [],
+    }
+    _write_manifest(tmp_path / "manifest.json", manifest)
+
+    rc = gate.cmd_audit(
+        manifest_path=tmp_path / "manifest.json",
+        root=tmp_path,
+        slug="stale-lock",
+        advisory_querier=_no_advisories,
+        resolver_runner=_no_resolver_failures,
+    )
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "pyyaml" in err.lower()
+    assert "uv.lock" in err.lower()

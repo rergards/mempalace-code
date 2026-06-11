@@ -386,6 +386,18 @@ def cmd_audit(
     # Enumerate all direct dependencies
     deps = _enumerate_deps(pyproject, lock_versions, targets)
 
+    # Fail if any direct dependency is missing from the lockfile — the plan requires
+    # a clear failure rather than silently skipping unknown versions.
+    unknown_deps = [d for d in deps if d["current_version"] == "unknown"]
+    if unknown_deps:
+        for d in unknown_deps:
+            print(
+                f"error: direct dependency {d['name']!r} (group: {d['group']}) "
+                "has no matching entry in uv.lock — refresh the lockfile before auditing",
+                file=sys.stderr,
+            )
+        return 1
+
     # Build advisory queries: current version + target version per dep
     queries: list[dict] = []
     query_meta: list[dict] = []
@@ -519,6 +531,19 @@ def cmd_verify_report(report_path: Path, root: Path) -> int:
 
     if report["status"] != "success":
         errors.append(f"report status is {report['status']!r}, expected 'success'")
+
+    # Validate resolver_audits: must be non-empty and every entry must have passed
+    resolver_audits = report.get("resolver_audits", [])
+    if not resolver_audits:
+        errors.append(
+            "resolver_audits is empty — gate requires at least one successful resolver audit"
+        )
+    else:
+        for i, audit in enumerate(resolver_audits):
+            if audit.get("status") != "success":
+                errors.append(
+                    f"resolver_audits[{i}] has status {audit.get('status')!r}, expected 'success'"
+                )
 
     # Check no advisory-blocked targets survived
     for row in report.get("advisory_results", []):

@@ -85,6 +85,7 @@ jobs:
 
   dependency-upgrade-gate:
     runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v5
         with:
