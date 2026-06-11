@@ -43,12 +43,12 @@ out_of_scope:
   - "Editing backlog metadata, archive files, or bookkeep-owned task state."
 contract_policy:
   flow: full_spdd
-  reason: "Standard security and provider/pipeline task that changes the gate for dependency and lockfile edits."
+  reason: "Strict security and provider/pipeline task that changes the gate for dependency and lockfile edits."
   sync_gate: required
   verification_path: automated
 task_contract:
   version: 1
-  mode: standard
+  mode: strict
   requirements:
     - id: REQ-1
       statement: "The gate must enumerate current and target versions for direct runtime, dev, and optional dependencies from package metadata before dependency bounds or uv.lock are accepted."
