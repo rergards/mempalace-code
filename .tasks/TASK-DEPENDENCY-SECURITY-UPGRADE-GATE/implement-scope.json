@@ -1,0 +1,13 @@
+{
+  "phase": "implement",
+  "files": [
+    ".github/workflows/ci.yml",
+    "docs/DEPENDENCY_UPGRADE_GATE.md",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md",
+    "scripts/dependency_upgrade_gate.py",
+    "tests/test_dependency_upgrade_gate.py"
+  ],
+  "before_sha": "a6e7b12",
+  "timestamp": "2026-06-11T09:48:49Z"
+}
