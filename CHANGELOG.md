@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-06-11 · STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD
+
+Add subprocess-level regression guards for HuggingFace cached model fetch and search operations to verify no token warnings or metadata network calls are emitted during offline operation.
+
 ## 2026-06-11 · WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD
 
 Guard `watch_and_mine` / `watch_all` against runaway FSEvents churn on macOS by refusing to monitor uninitialized roots and validating watch targets before `watchdog` observer startup.

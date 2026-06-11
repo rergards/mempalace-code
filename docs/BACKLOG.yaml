@@ -49,9 +49,11 @@ sections:
 items:
   - key: STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD
     section: quality
-    status: open
+    status: done
     priority: P2
     summary: Add subprocess-level guard that cached model search/fetch never emits HuggingFace token warnings or performs network metadata calls after setup.
+    completed: "2026-06-11"
+    completion_summary: "Added 4 subprocess guard tests to test_offline.py verifying cached fetch-model and search use only local model resolution, emit no HuggingFace metadata calls or socket connections, and produce no token-warning output. Tests: test_cached_fetch_model_subprocess_guard (AC-1), test_cached_search_subprocess_guard (AC-2), test_offline_search_subprocess_no_online_retry_on_local_cache_error (AC-3), test_force_fetch_model_subprocess_setup_boundary_allows_online_load (AC-4). Verification: all 4 tests pass, quality scorecard refreshed."
     acceptance:
       - Run a real CLI subprocess with a preseeded HuggingFace cache and network/socket access blocked or mocked.
       - Assert `mempalace-code search` exits successfully without `HF_TOKEN`, `unauthenticated`, `huggingface.co`, or retry noise on stdout/stderr.
