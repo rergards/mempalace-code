@@ -1,0 +1,82 @@
+name: Dependency Audit
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Weekly on Monday at 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  current-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+
+      - name: Install audit dependencies
+        run: pip install pip-audit
+
+      - name: Run current dependency audit
+        id: audit
+        run: |
+          python scripts/dependency_upgrade_gate.py current-audit \
+            --out-dir dependency-audit-output
+          echo "audit_exit=$?" >> "$GITHUB_OUTPUT"
+        continue-on-error: true
+
+      - name: Upload audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit-report
+          path: dependency-audit-output/
+          if-no-files-found: warn
+
+      - name: Create or update dependency-audit issue
+        if: steps.audit.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ISSUE_TITLE="[dependency-audit] current dependency audit findings"
+          ISSUE_BODY_FILE="dependency-audit-output/current-audit-issue-body.md"
+          ISSUE_LABEL="dependency-audit"
+
+          if [ ! -f "$ISSUE_BODY_FILE" ]; then
+            echo "No issue body file found; skipping issue creation." >&2
+            exit 0
+          fi
+
+          # Find existing open issue with the stable title
+          EXISTING=$(gh issue list \
+            --state open \
+            --search "\"$ISSUE_TITLE\" in:title" \
+            --json number \
+            --jq '.[0].number // empty' 2>/dev/null || true)
+
+          if [ -n "$EXISTING" ]; then
+            gh issue edit "$EXISTING" --body-file "$ISSUE_BODY_FILE"
+            echo "Updated existing issue #$EXISTING"
+          else
+            gh issue create \
+              --title "$ISSUE_TITLE" \
+              --body-file "$ISSUE_BODY_FILE" \
+              --label "$ISSUE_LABEL" 2>/dev/null || \
+            gh issue create \
+              --title "$ISSUE_TITLE" \
+              --body-file "$ISSUE_BODY_FILE"
+          fi
+
+      - name: Fail workflow on audit findings
+        if: steps.audit.outcome == 'failure'
+        run: |
+          echo "Dependency audit found actionable findings. See uploaded artifact and issue."
+          exit 1

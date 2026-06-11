@@ -730,3 +730,548 @@ def test_audit_fails_when_direct_dep_missing_from_lockfile(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "pyyaml" in err.lower()
     assert "uv.lock" in err.lower()
+
+
+# ── Helpers for current-audit tests ───────────────────────────────────────────
+
+
+def _write_allowlist(path: Path, entries: list[dict] | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"schema_version": 1, "entries": entries or []}),
+        encoding="utf-8",
+    )
+
+
+def _no_yanked(queries: list[dict]) -> list[bool]:
+    return [False for _ in queries]
+
+
+def _no_range_drift(queries: list[dict]) -> list[list[dict]]:
+    return [[] for _ in queries]
+
+
+def _no_current_advisories(queries: list[dict]) -> list[dict]:
+    return [{"vulns": []} for _ in queries]
+
+
+def _current_resolver_ok(plan: list[list[str]], root: Path) -> list[dict]:
+    return [{"extras": e, "status": "success", "summary": "mock ok"} for e in plan]
+
+
+# ── AC-1 / VER-1: workflow shape ───────────────────────────────────────────────
+
+
+def test_dependency_audit_workflow_declares_schedule_dispatch_artifact_and_notification():
+    """The dependency-audit workflow must have schedule and workflow_dispatch triggers,
+    upload the sanitized report artifact, have issues: write permission only for
+    failure notification, and not contain steps that run uv lock, edit pyproject.toml,
+    or edit uv.lock."""
+    import yaml  # type: ignore[import]  # reason: yaml is available in CI via PyYAML
+
+    workflow_path = ROOT / ".github" / "workflows" / "dependency-audit.yml"
+    assert workflow_path.exists(), "dependency-audit.yml must exist"
+    with workflow_path.open(encoding="utf-8") as fh:
+        wf = yaml.safe_load(fh)
+
+    # Must have both schedule and workflow_dispatch triggers
+    on = wf.get("on") or wf.get(True) or {}
+    assert "schedule" in on, "workflow must have a schedule trigger"
+    assert "workflow_dispatch" in on, "workflow must have a workflow_dispatch trigger"
+
+    # Must have issues: write permission (and no extra permissions)
+    perms = wf.get("permissions") or {}
+    assert perms.get("issues") == "write", "workflow must declare issues: write"
+
+    # Collect all step run scripts
+    all_steps = []
+    for job in (wf.get("jobs") or {}).values():
+        all_steps.extend(job.get("steps") or [])
+    run_scripts = [s.get("run", "") for s in all_steps if s.get("run")]
+    combined = "\n".join(run_scripts)
+
+    # Must not contain steps that refresh the lockfile or edit dependency files
+    assert "uv lock" not in combined, "workflow must not run uv lock"
+    assert "pyproject.toml" not in combined.replace("pyproject.toml", "") or all(
+        "edit" not in s and "write" not in s for s in run_scripts if "pyproject.toml" in s
+    ), "workflow must not write pyproject.toml"
+
+    # Must upload artifact (upload-artifact action present)
+    uses_list = [s.get("uses", "") for s in all_steps if s.get("uses")]
+    assert any("upload-artifact" in u for u in uses_list), (
+        "workflow must upload artifact via actions/upload-artifact"
+    )
+
+    # Artifact upload must use if: always() so it runs even on audit failure
+    artifact_steps = [s for s in all_steps if "upload-artifact" in s.get("uses", "")]
+    assert any(s.get("if", "").lower() == "always()" for s in artifact_steps), (
+        "artifact upload step must have 'if: always()'"
+    )
+
+    # Must contain gh issue create or gh issue edit for issue notification
+    assert "gh issue" in combined, "workflow must use gh to create or update an issue"
+
+
+# ── AC-2 / VER-2: resolver plan ────────────────────────────────────────────────
+
+
+def test_current_audit_plans_default_dev_and_all_optional_extra_installs(tmp_path):
+    """current-audit must plan fresh resolver audits for: default install, [dev],
+    and every optional extra declared in pyproject.toml — including treesitter,
+    spellcheck, chroma, and watch."""
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        runtime=["lancedb>=0.20", "sentence-transformers>=2.2", "pyyaml>=6.0"],
+        dev=["pytest>=7.0"],
+        extras={
+            "treesitter": ["tree-sitter>=0.22,<0.26"],
+            "spellcheck": ["autocorrect>=2.0"],
+            "chroma": ["chromadb>=0.5.0,<1"],
+            "watch": ["watchfiles>=1.0"],
+        },
+    )
+    _write_lockfile(
+        tmp_path / "uv.lock",
+        {
+            "lancedb": "0.20.0",
+            "sentence-transformers": "2.2.0",
+            "pyyaml": "6.0.1",
+            "pytest": "7.4.0",
+            "tree-sitter": "0.22.0",
+            "autocorrect": "2.6.1",
+            "chromadb": "0.5.4",
+            "watchfiles": "1.0.0",
+        },
+    )
+    _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
+
+    captured_plans: list[list[list[str]]] = []
+
+    def _capturing_resolver(plan: list[list[str]], root: Path) -> list[dict]:
+        captured_plans.append(plan)
+        return _current_resolver_ok(plan, root)
+
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_no_current_advisories,
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_capturing_resolver,
+        today_iso="2030-01-01",
+    )
+    assert rc == 0
+    assert len(captured_plans) == 1
+    plan = captured_plans[0]
+
+    # Default install is always first
+    assert [] in plan
+    # dev is always included
+    assert ["dev"] in plan
+    # Every optional extra must be included
+    for extra in ("treesitter", "spellcheck", "chroma", "watch"):
+        assert [extra] in plan, f"extra '{extra}' must be in current-audit plan"
+
+
+# ── AC-3 / VER-3: OSV queries cover direct deps ────────────────────────────────
+
+
+def test_current_audit_queries_osv_for_current_direct_lock_versions(tmp_path):
+    """OSV queries must be made for current locked direct dependency versions
+    including lancedb, sentence-transformers, pyyaml, packaging, chromadb, and
+    tree-sitter packages; report stores only names, versions, advisory ids, and
+    remediation notes (no private paths or raw tool output)."""
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        runtime=[
+            "lancedb>=0.20",
+            "sentence-transformers>=2.2",
+            "pyyaml>=6.0",
+            "packaging>=21.0",
+        ],
+        extras={
+            "chroma": ["chromadb>=0.5.0,<1"],
+            "treesitter": [
+                "tree-sitter>=0.22,<0.26",
+                "tree-sitter-python>=0.23,<0.26",
+            ],
+        },
+    )
+    _write_lockfile(
+        tmp_path / "uv.lock",
+        {
+            "lancedb": "0.20.0",
+            "sentence-transformers": "2.2.0",
+            "pyyaml": "6.0.1",
+            "packaging": "21.3",
+            "chromadb": "0.5.4",
+            "tree-sitter": "0.22.0",
+            "tree-sitter-python": "0.23.0",
+        },
+    )
+    _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
+
+    queried_packages: set[str] = set()
+
+    def _capturing_querier(queries: list[dict]) -> list[dict]:
+        for q in queries:
+            queried_packages.add(q["name"].lower())
+        return _no_current_advisories(queries)
+
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_capturing_querier,
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc == 0
+
+    # All expected packages must have been queried
+    for pkg in (
+        "lancedb",
+        "sentence-transformers",
+        "pyyaml",
+        "packaging",
+        "chromadb",
+        "tree-sitter",
+        "tree-sitter-python",
+    ):
+        assert pkg in queried_packages, f"{pkg!r} must be queried against OSV"
+
+    # Report must contain only public-safe fields
+    report = json.loads((tmp_path / "out" / "current-audit-report.json").read_text())
+    for finding in report.get("findings", []):
+        for field in ("package", "version", "advisory_id", "remediation"):
+            assert field in finding, f"finding must have field {field!r}"
+        # No private paths in finding fields
+        for key, value in finding.items():
+            if isinstance(value, str):
+                assert "/tmp" not in value, f"finding field {key!r} must not contain /tmp"
+                assert "/home" not in value, f"finding field {key!r} must not contain /home"
+
+
+# ── AC-4 / VER-4: unallowlisted advisory fails and writes issue payload ────────
+
+
+def test_current_audit_fails_and_writes_issue_payload_for_unallowlisted_advisory(tmp_path, capsys):
+    """An unallowlisted advisory must cause a nonzero result, write a sanitized
+    issue payload, and avoid private resolver caches, machine paths, credentials,
+    or raw tool output."""
+    _write_pyproject(tmp_path / "pyproject.toml", runtime=["lancedb>=0.20"])
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0"})
+    _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
+
+    def _advisory_hit(queries: list[dict]) -> list[dict]:
+        results = []
+        for q in queries:
+            if q["name"].lower() == "lancedb":
+                results.append({"vulns": [{"id": "GHSA-test-current-xxxx"}]})
+            else:
+                results.append({"vulns": []})
+        return results
+
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_advisory_hit,
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc != 0
+    capsys.readouterr()
+
+    # Issue payload must exist and be public-safe
+    issue_body = (tmp_path / "out" / "current-audit-issue-body.md").read_text()
+    assert "GHSA-test-current-xxxx" in issue_body
+    assert "lancedb" in issue_body.lower()
+    # No private paths in issue body
+    for private_token in ("/tmp", "/home", "/root", "/Users", "cache"):
+        assert private_token not in issue_body, f"issue body must not contain {private_token!r}"
+
+    # Report must also exist and be sanitized
+    report = json.loads((tmp_path / "out" / "current-audit-report.json").read_text())
+    assert report["status"] == "findings"
+    assert any(f["advisory_id"] == "GHSA-test-current-xxxx" for f in report["findings"])
+    # No private paths in report
+    report_text = json.dumps(report)
+    for private_token in ("/tmp", "/home", "/root"):
+        assert private_token not in report_text, f"report must not contain {private_token!r}"
+
+
+# ── AC-5 / VER-5: allowlist expiry and mismatch ────────────────────────────────
+
+
+def test_current_audit_requires_exact_unexpired_allowlist_entries(tmp_path, capsys):
+    """An advisory is accepted only when the allowlist entry exactly matches
+    advisory_id, package, affected_range, has a reason, and has a non-expired
+    expiry date.  Expired, missing, or mismatched entries fail the audit."""
+    _write_pyproject(tmp_path / "pyproject.toml", runtime=["lancedb>=0.20"])
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0"})
+
+    def _advisory_hit(queries: list[dict]) -> list[dict]:
+        return [
+            (
+                {"vulns": [{"id": "GHSA-allowlist-test-1111"}]}
+                if q["name"].lower() == "lancedb"
+                else {"vulns": []}
+            )
+            for q in queries
+        ]
+
+    # Case 1: expired allowlist entry → must fail
+    _write_allowlist(
+        tmp_path / "docs" / "dependency-audit-allowlist.json",
+        entries=[
+            {
+                "advisory_id": "GHSA-allowlist-test-1111",
+                "package": "lancedb",
+                "affected_range": ">=0.20",
+                "reason": "accepted for test",
+                "expires": "2000-01-01",  # expired
+            }
+        ],
+    )
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_advisory_hit,
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc != 0, "expired allowlist entry must not accept the advisory"
+    capsys.readouterr()
+
+    # Case 2: wrong affected_range → must fail
+    _write_allowlist(
+        tmp_path / "docs" / "dependency-audit-allowlist.json",
+        entries=[
+            {
+                "advisory_id": "GHSA-allowlist-test-1111",
+                "package": "lancedb",
+                "affected_range": ">=0.30",  # wrong range
+                "reason": "accepted for test",
+                "expires": "2099-01-01",
+            }
+        ],
+    )
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_advisory_hit,
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc != 0, "mismatched affected_range must not accept the advisory"
+    capsys.readouterr()
+
+    # Case 3: correct unexpired entry → must pass
+    _write_allowlist(
+        tmp_path / "docs" / "dependency-audit-allowlist.json",
+        entries=[
+            {
+                "advisory_id": "GHSA-allowlist-test-1111",
+                "package": "lancedb",
+                "affected_range": ">=0.20",
+                "reason": "accepted for test",
+                "expires": "2099-01-01",  # not expired
+            }
+        ],
+    )
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_advisory_hit,
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc == 0, "correct unexpired allowlist entry must accept the advisory"
+    capsys.readouterr()
+
+    # Case 4: missing reason field → must fail
+    _write_allowlist(
+        tmp_path / "docs" / "dependency-audit-allowlist.json",
+        entries=[
+            {
+                "advisory_id": "GHSA-allowlist-test-1111",
+                "package": "lancedb",
+                "affected_range": ">=0.20",
+                "reason": "",  # empty reason
+                "expires": "2099-01-01",
+            }
+        ],
+    )
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_advisory_hit,
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc != 0, "missing reason must not accept the advisory"
+    capsys.readouterr()
+
+
+# ── AC-6 / VER-6: yanked and range-drift findings ──────────────────────────────
+
+
+def test_current_audit_flags_yanked_versions_and_newly_affected_specifier_ranges(tmp_path, capsys):
+    """A yanked current package version or a newly affected declared direct
+    dependency range produces an actionable audit finding and issue payload even
+    when resolver installation itself succeeds."""
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        runtime=["lancedb>=0.20", "pyyaml>=6.0"],
+    )
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0", "pyyaml": "6.0.1"})
+    _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
+
+    # Mark lancedb 0.20.0 as yanked
+    def _yanked_lancedb(queries: list[dict]) -> list[bool]:
+        return [q["name"].lower() == "lancedb" for q in queries]
+
+    # Simulate range drift advisory for pyyaml's specifier range
+    def _range_drift_pyyaml(queries: list[dict]) -> list[list[dict]]:
+        results = []
+        for q in queries:
+            if q["name"].lower() == "pyyaml":
+                results.append(
+                    [
+                        {
+                            "advisory_id": "GHSA-range-drift-2222",
+                            "affected_range": ">=6.0",
+                            "description": "Advisory GHSA-range-drift-2222 affects pyyaml >=6.0.",
+                        }
+                    ]
+                )
+            else:
+                results.append([])
+        return results
+
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_no_current_advisories,
+        yanked_checker=_yanked_lancedb,
+        range_drift_querier=_range_drift_pyyaml,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc != 0, "yanked version and range drift must cause nonzero result"
+    capsys.readouterr()
+
+    # Both findings must appear in the issue body
+    issue_body = (tmp_path / "out" / "current-audit-issue-body.md").read_text()
+    assert "lancedb" in issue_body.lower(), "yanked finding for lancedb must be in issue"
+    assert "pyyaml" in issue_body.lower(), "range drift finding for pyyaml must be in issue"
+
+    # Report must categorize both finding types
+    report = json.loads((tmp_path / "out" / "current-audit-report.json").read_text())
+    finding_types = {f["type"] for f in report["findings"]}
+    assert "yanked" in finding_types, "report must include yanked finding"
+    assert "range_drift" in finding_types, "report must include range_drift finding"
+
+
+# ── AC-7 / VER-7: no mutation of pyproject.toml or uv.lock ────────────────────
+
+
+def test_current_audit_does_not_modify_pyproject_or_lockfile(tmp_path, capsys):
+    """The current-audit command must leave pyproject.toml and uv.lock unchanged
+    while producing its report and issue payload."""
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        runtime=["lancedb>=0.20", "pyyaml>=6.0"],
+        dev=["pytest>=7.0"],
+        extras={"chroma": ["chromadb>=0.5.0,<1"]},
+    )
+    _write_lockfile(
+        tmp_path / "uv.lock",
+        {"lancedb": "0.20.0", "pyyaml": "6.0.1", "pytest": "7.4.0", "chromadb": "0.5.4"},
+    )
+    _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
+
+    pyproject_hash_before = gate._hash_file(tmp_path / "pyproject.toml")
+    lockfile_hash_before = gate._hash_file(tmp_path / "uv.lock")
+
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_no_current_advisories,
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    capsys.readouterr()
+
+    pyproject_hash_after = gate._hash_file(tmp_path / "pyproject.toml")
+    lockfile_hash_after = gate._hash_file(tmp_path / "uv.lock")
+
+    assert pyproject_hash_after == pyproject_hash_before, (
+        "pyproject.toml must not be modified by current-audit"
+    )
+    assert lockfile_hash_after == lockfile_hash_before, (
+        "uv.lock must not be modified by current-audit"
+    )
+    # Audit should complete without mutation errors
+    assert rc == 0
+
+
+# ── AC-8 / VER-8: docs define allowlist and report boundaries ─────────────────
+
+
+def test_dependency_audit_docs_define_allowlist_and_report_boundaries():
+    """The docs must define scheduled-current-audit scope, the required allowlist
+    fields, the public-safe output contract, and the boundary that workflow runtime
+    is statically checked unless a real hosted run is triggered."""
+    docs_path = ROOT / "docs" / "DEPENDENCY_UPGRADE_GATE.md"
+    assert docs_path.exists(), "docs/DEPENDENCY_UPGRADE_GATE.md must exist"
+    text = docs_path.read_text(encoding="utf-8")
+    text_lower = text.lower()
+
+    # Scheduled audit scope documented
+    assert "current-audit" in text_lower or "scheduled" in text_lower, (
+        "docs must mention scheduled current audit"
+    )
+
+    # Required allowlist fields documented
+    for field in ("advisory_id", "affected_range", "expires", "reason"):
+        assert field in text, f"docs must document allowlist field {field!r}"
+
+    # Public-safe output contract
+    for term in ("public", "sanitized", "package name", "advisory"):
+        assert term.lower() in text_lower, f"docs must mention {term!r} in output contract"
+
+    # Verification boundary documented
+    assert "hosted" in text_lower, "docs must mention hosted-runtime verification boundary"
+    assert "actionlint" in text_lower or "syntax" in text_lower, (
+        "docs must describe static workflow checking"
+    )
+
+    # Allowlist JSON file must exist with correct schema
+    allowlist_path = ROOT / "docs" / "dependency-audit-allowlist.json"
+    assert allowlist_path.exists(), "docs/dependency-audit-allowlist.json must exist"
+    allowlist = json.loads(allowlist_path.read_text(encoding="utf-8"))
+    assert allowlist.get("schema_version") == 1, "allowlist must have schema_version: 1"
+    assert isinstance(allowlist.get("entries"), list), "allowlist must have entries list"

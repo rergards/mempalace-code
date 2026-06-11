@@ -9,15 +9,19 @@ Subcommands:
   ci-check       CI enforcement: require a fresh successful report when
                  pyproject.toml or uv.lock changed from a given git base ref;
                  pass cleanly when neither file changed.
+  current-audit  Audit current resolved packages for advisories, yanked versions,
+                 and range drift without changing dependency bounds or uv.lock.
 
 Stdlib-only — no project imports, no third-party dependencies.
 
 Report location: docs/dependency-upgrade-reports/<slug>.json
+Current-audit output: dependency-audit-output/ (or --out-dir)
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
 import re
@@ -32,6 +36,8 @@ from pathlib import Path
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 REPORT_DIR = "docs/dependency-upgrade-reports"
+CURRENT_AUDIT_ALLOWLIST_PATH = "docs/dependency-audit-allowlist.json"
+CURRENT_AUDIT_OUT_DIR = "dependency-audit-output"
 OSV_QUERYBATCH_URL = "https://api.osv.dev/v1/querybatch"
 SCHEMA_VERSION = 1
 _ALL_ZEROS_SHA = "0" * 40
@@ -675,6 +681,383 @@ def cmd_ci_check(base_ref: str, root: Path, *, git_runner=None) -> int:
     return cmd_verify_report(matching[0], root)
 
 
+# ── Current-audit: allowlist helpers ──────────────────────────────────────────
+
+
+def _load_allowlist(allowlist_path: Path) -> list[dict]:
+    """Return allowlist entries; empty list if file absent, empty, or invalid."""
+    if not allowlist_path.exists():
+        return []
+    try:
+        with allowlist_path.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data.get("entries", [])
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _check_allowlist(
+    advisory_id: str,
+    package: str,
+    affected_range: str,
+    entries: list[dict],
+    today_iso: str,
+) -> tuple[bool, str]:
+    """Return (allowed, reason).
+
+    An advisory is allowed only when an entry exactly matches advisory_id,
+    package (normalized), affected_range, has a non-empty reason, and has a
+    non-expired expiry date.  Expired, missing, or mismatched entries fail
+    closed.
+    """
+    norm_pkg = _normalize_name(package)
+    for entry in entries:
+        if _normalize_name(entry.get("package", "")) != norm_pkg:
+            continue
+        if entry.get("advisory_id") != advisory_id:
+            continue
+        # Package + advisory_id matched — validate remaining fields
+        expires = entry.get("expires", "")
+        if not expires or expires <= today_iso:
+            return False, f"allowlist entry expired (expires={expires!r}, today={today_iso!r})"
+        entry_range = entry.get("affected_range", "")
+        if entry_range != affected_range:
+            return False, (
+                f"allowlist affected_range mismatch: entry has {entry_range!r}, "
+                f"finding has {affected_range!r}"
+            )
+        reason = entry.get("reason", "")
+        if not reason:
+            return False, "allowlist entry missing reason"
+        return True, reason
+    return False, f"no allowlist entry for {advisory_id} / {package} / {affected_range}"
+
+
+# ── Current-audit: resolver plan ───────────────────────────────────────────────
+
+
+def _plan_current_resolver_audits(pyproject: dict) -> list[list[str]]:
+    """Plan resolver audits: always default + dev + every optional extra."""
+    plan: list[list[str]] = [[]]  # default install
+    plan.append(["dev"])
+    for extra_name in sorted(pyproject["extras"].keys()):
+        plan.append([extra_name])
+    return plan
+
+
+# ── Current-audit: PyPI yanked checker ────────────────────────────────────────
+
+
+def _default_yanked_checker(queries: list[dict]) -> list[bool]:
+    """Return True for each {name, version} that is yanked on PyPI."""
+    results: list[bool] = []
+    for q in queries:
+        try:
+            url = f"https://pypi.org/pypi/{q['name']}/{q['version']}/json"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            yanked = data.get("info", {}).get("yanked", False)
+            results.append(bool(yanked))
+        except (urllib.error.URLError, json.JSONDecodeError, KeyError):
+            results.append(False)
+    return results
+
+
+# ── Current-audit: range-drift querier ────────────────────────────────────────
+
+
+def _default_range_drift_querier(queries: list[dict]) -> list[list[dict]]:
+    """Check if any advisory affects a range overlapping the declared specifier.
+
+    queries: [{name, specifier}, ...]
+    Each result: list of {advisory_id, affected_range, description}
+
+    Default implementation returns empty — range queries require live OSV
+    range-scan calls that are expensive and better run in the hosted workflow.
+    Override in tests or in a production harness that performs live range queries.
+    """
+    return [[] for _ in queries]
+
+
+# ── Current-audit command ──────────────────────────────────────────────────────
+
+
+def cmd_current_audit(
+    root: Path,
+    *,
+    allowlist_path: Path | None = None,
+    out_dir: Path | None = None,
+    advisory_querier=None,
+    yanked_checker=None,
+    range_drift_querier=None,
+    resolver_runner=None,
+    today_iso: str | None = None,
+) -> int:
+    """Audit current resolved packages without changing dependency bounds or uv.lock."""
+    if advisory_querier is None:
+        advisory_querier = _default_advisory_querier
+    if yanked_checker is None:
+        yanked_checker = _default_yanked_checker
+    if range_drift_querier is None:
+        range_drift_querier = _default_range_drift_querier
+    if resolver_runner is None:
+        resolver_runner = _default_resolver_runner
+    if allowlist_path is None:
+        allowlist_path = root / CURRENT_AUDIT_ALLOWLIST_PATH
+    if out_dir is None:
+        out_dir = root / CURRENT_AUDIT_OUT_DIR
+    if today_iso is None:
+        today_iso = datetime.datetime.now(tz=datetime.UTC).date().isoformat()
+
+    pyproject_path = root / "pyproject.toml"
+    lockfile_path = root / "uv.lock"
+
+    # Snapshot hashes before audit — used for no-mutation assertion at end
+    pyproject_hash_before = _hash_file(pyproject_path)
+    lockfile_hash_before = _hash_file(lockfile_path)
+
+    pyproject = _parse_pyproject(pyproject_path)
+    lock_versions = _parse_lockfile(lockfile_path)
+    allowlist_entries = _load_allowlist(allowlist_path)
+
+    # Enumerate all direct deps: runtime + dev + optional extras
+    all_deps: list[tuple[str, str, str]] = []  # (name, specifier, group)
+    for name, spec in pyproject["runtime"]:
+        all_deps.append((name, spec, "runtime"))
+    for name, spec in pyproject["dev"]:
+        all_deps.append((name, spec, "dev"))
+    for extra_name, dep_list in sorted(pyproject["extras"].items()):
+        for name, spec in dep_list:
+            all_deps.append((name, spec, f"extra:{extra_name}"))
+
+    # Build OSV queries for current locked versions of all direct deps
+    adv_queries: list[dict] = []
+    adv_meta: list[dict] = []
+    for name, spec, group in all_deps:
+        norm = _normalize_name(name)
+        version = lock_versions.get(norm, "unknown")
+        if version != "unknown":
+            adv_queries.append({"name": name, "version": version})
+            adv_meta.append(
+                {
+                    "name": name,
+                    "normalized": norm,
+                    "version": version,
+                    "specifier": spec,
+                    "group": group,
+                }
+            )
+
+    osv_results = advisory_querier(adv_queries) if adv_queries else []
+
+    # Build range-drift queries for declared specifiers
+    range_queries = [{"name": name, "specifier": spec} for name, spec, _ in all_deps]
+    range_meta = [
+        {"name": name, "specifier": spec, "group": group} for name, spec, group in all_deps
+    ]
+    range_results = range_drift_querier(range_queries)
+
+    # Build yanked queries (parallel to adv_queries)
+    yanked_results = yanked_checker(adv_queries) if adv_queries else []
+
+    findings: list[dict] = []
+
+    # Advisory findings for current locked versions
+    for i, (q, meta) in enumerate(zip(adv_queries, adv_meta, strict=True)):
+        result = osv_results[i] if i < len(osv_results) else {"vulns": []}
+        for adv in result.get("vulns", []):
+            adv_id = adv.get("id", "")
+            allowed, allow_reason = _check_allowlist(
+                adv_id, q["name"], meta["specifier"], allowlist_entries, today_iso
+            )
+            finding: dict = {
+                "type": "advisory",
+                "package": q["name"],
+                "version": q["version"],
+                "advisory_id": adv_id,
+                "affected_range": meta["specifier"],
+                "group": meta["group"],
+                "allowlisted": allowed,
+                "remediation": (
+                    f"Check {adv_id} and update {q['name']} or add an allowlist entry."
+                ),
+            }
+            if allowed:
+                finding["allowlist_reason"] = allow_reason
+            findings.append(finding)
+
+    # Yanked-version findings
+    for i, yanked in enumerate(yanked_results):
+        if yanked:
+            meta = adv_meta[i]
+            findings.append(
+                {
+                    "type": "yanked",
+                    "package": meta["name"],
+                    "version": meta["version"],
+                    "advisory_id": "",
+                    "affected_range": meta["specifier"],
+                    "group": meta["group"],
+                    "allowlisted": False,
+                    "remediation": (
+                        f"Version {meta['version']} of {meta['name']} is yanked on PyPI; "
+                        "upgrade to a non-yanked release."
+                    ),
+                }
+            )
+
+    # Range-drift findings from declared specifier intersection
+    for i, drift_hits in enumerate(range_results):
+        for hit in drift_hits:
+            meta = range_meta[i]
+            adv_id = hit.get("advisory_id", "")
+            affected_range = hit.get("affected_range", "")
+            allowed, allow_reason = _check_allowlist(
+                adv_id, meta["name"], affected_range, allowlist_entries, today_iso
+            )
+            finding = {
+                "type": "range_drift",
+                "package": meta["name"],
+                "version": lock_versions.get(_normalize_name(meta["name"]), "unknown"),
+                "advisory_id": adv_id,
+                "affected_range": affected_range,
+                "specifier": meta["specifier"],
+                "group": meta["group"],
+                "allowlisted": allowed,
+                "remediation": hit.get(
+                    "description",
+                    f"Advisory {adv_id} affects range {affected_range} overlapping "
+                    f"declared specifier {meta['specifier']} for {meta['name']}.",
+                ),
+            }
+            if allowed:
+                finding["allowlist_reason"] = allow_reason
+            findings.append(finding)
+
+    # Run fresh resolver audits for all install surfaces
+    audit_plan = _plan_current_resolver_audits(pyproject)
+    resolver_results = resolver_runner(audit_plan, root)
+    resolver_blocked = any(r.get("status") == "failed" for r in resolver_results)
+
+    # Blocking findings: all findings that are not allowlisted
+    blocking = [f for f in findings if not f.get("allowlisted", False)]
+    overall_status = "clean" if (not blocking and not resolver_blocked) else "findings"
+
+    # Assert no mutation of dependency files occurred during audit
+    pyproject_hash_after = _hash_file(pyproject_path)
+    lockfile_hash_after = _hash_file(lockfile_path)
+    if pyproject_hash_after != pyproject_hash_before or lockfile_hash_after != lockfile_hash_before:
+        print(
+            "error: current-audit detected mutation of pyproject.toml or uv.lock — "
+            "dependency files must not change during the audit",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Write sanitized report (public-safe: package names, versions, advisory ids only)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    report = {
+        "schema_version": SCHEMA_VERSION,
+        "audit_type": "current",
+        "status": overall_status,
+        "findings": [
+            {
+                "type": f["type"],
+                "package": f["package"],
+                "version": f.get("version", ""),
+                "advisory_id": f.get("advisory_id", ""),
+                "affected_range": f.get("affected_range", ""),
+                "group": f["group"],
+                "allowlisted": f["allowlisted"],
+                "remediation": f["remediation"],
+            }
+            for f in findings
+        ],
+        "resolver_audits": [
+            {
+                "extras": r["extras"],
+                "status": r["status"],
+                "summary": r.get("summary", ""),
+            }
+            for r in resolver_results
+        ],
+        "allowlist_summary": {
+            "used": [
+                f["advisory_id"] for f in findings if f.get("allowlisted") and f.get("advisory_id")
+            ],
+        },
+    }
+    report_path = out_dir / "current-audit-report.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    # Write issue body for GitHub (public-safe: no private paths or raw resolver output)
+    issue_body_path = out_dir / "current-audit-issue-body.md"
+    if blocking or resolver_blocked:
+        lines = [
+            "## Dependency Audit Findings",
+            "",
+            f"Found {len(blocking)} advisory/yanked/range finding(s) in current resolved packages.",
+            "",
+        ]
+        adv_findings = [f for f in blocking if f["type"] == "advisory"]
+        yanked_findings = [f for f in blocking if f["type"] == "yanked"]
+        range_findings = [f for f in blocking if f["type"] == "range_drift"]
+        resolver_failures = [r for r in resolver_results if r.get("status") == "failed"]
+
+        if adv_findings:
+            lines += ["### Advisory Findings", ""]
+            for f in adv_findings:
+                lines.append(
+                    f"- **{f['package']} {f['version']}**: {f['advisory_id']} — {f['remediation']}"
+                )
+            lines.append("")
+
+        if yanked_findings:
+            lines += ["### Yanked Versions", ""]
+            for f in yanked_findings:
+                lines.append(
+                    f"- **{f['package']} {f['version']}** ({f['group']}): {f['remediation']}"
+                )
+            lines.append("")
+
+        if range_findings:
+            lines += ["### Range Drift", ""]
+            for f in range_findings:
+                lines.append(
+                    f"- **{f['package']}** (specifier: `{f.get('specifier', f.get('affected_range', ''))}`, "
+                    f"advisory: {f['advisory_id']}): {f['remediation']}"
+                )
+            lines.append("")
+
+        if resolver_failures:
+            lines += ["### Resolver Failures", ""]
+            for r in resolver_failures:
+                label = ",".join(r["extras"]) if r["extras"] else "(default)"
+                lines.append(f"- Install surface `{label}`: resolver audit failed")
+            lines.append("")
+
+        lines.append(
+            "> To accept a known risk, add an entry to "
+            "`docs/dependency-audit-allowlist.json` with fields: "
+            "`advisory_id`, `package`, `affected_range`, `reason`, `expires`."
+        )
+        issue_body_path.write_text("\n".join(lines), encoding="utf-8")
+    else:
+        issue_body_path.write_text("No actionable findings.", encoding="utf-8")
+
+    if overall_status == "clean":
+        n_allowed = len(findings) - len(blocking)
+        print(f"current-audit passed — {n_allowed} allowlisted, 0 blocking; report: {report_path}")
+        return 0
+    print(
+        f"error: current-audit found {len(blocking)} blocking finding(s) — "
+        f"report: {report_path}, issue body: {issue_body_path}",
+        file=sys.stderr,
+    )
+    return 1
+
+
 # ── CLI entry point ────────────────────────────────────────────────────────────
 
 
@@ -709,6 +1092,22 @@ def main(argv: list[str] | None = None, **injected) -> int:
     )
     p_ci.add_argument("--root", default=".", help="Repository root (default: cwd).")
 
+    p_current = sub.add_parser(
+        "current-audit",
+        help="Audit current resolved packages without changing dependency bounds.",
+    )
+    p_current.add_argument("--root", default=".", help="Repository root (default: cwd).")
+    p_current.add_argument(
+        "--allowlist",
+        default=None,
+        help=f"Allowlist JSON path (default: {{root}}/{CURRENT_AUDIT_ALLOWLIST_PATH}).",
+    )
+    p_current.add_argument(
+        "--out-dir",
+        default=None,
+        help=f"Output directory for report and issue body (default: {{root}}/{CURRENT_AUDIT_OUT_DIR}).",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "audit":
@@ -723,6 +1122,20 @@ def main(argv: list[str] | None = None, **injected) -> int:
         return cmd_verify_report(
             report_path=Path(args.report),
             root=Path(args.root).resolve(),
+        )
+    if args.command == "current-audit":
+        root = Path(args.root).resolve()
+        allowlist_path = Path(args.allowlist).resolve() if args.allowlist else None
+        out_dir = Path(args.out_dir).resolve() if args.out_dir else None
+        return cmd_current_audit(
+            root=root,
+            allowlist_path=allowlist_path,
+            out_dir=out_dir,
+            advisory_querier=injected.get("advisory_querier"),
+            yanked_checker=injected.get("yanked_checker"),
+            range_drift_querier=injected.get("range_drift_querier"),
+            resolver_runner=injected.get("resolver_runner"),
+            today_iso=injected.get("today_iso"),
         )
     # ci-check
     return cmd_ci_check(

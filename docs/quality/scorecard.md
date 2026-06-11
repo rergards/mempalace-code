@@ -12,7 +12,7 @@ Schema version: 1
 | Package total lines | 23508 |
 | Package code lines | 19034 |
 | Test files (`tests/`) | 56 |
-| Test total lines | 41088 |
+| Test total lines | 41633 |
 
 ## Largest Modules (top 10)
 
@@ -58,7 +58,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| type/pyright ignores (total) | 114 |
+| type/pyright ignores (total) | 115 |
 | type/pyright unreasoned | 0 |
 | noqa (total) | 41 |
 | noqa blanket | 0 |
@@ -69,7 +69,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | Test files | 56 |
-| Test functions | 2360 |
+| Test functions | 2368 |
 
 ## Available Suites
 

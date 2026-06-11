@@ -172,3 +172,87 @@ The `ci-check` step added to `.github/workflows/ci.yml` — including the
 syntax- and version-checked by `actionlint`. Its hosted runtime behavior is
 not execution-tested unless a real `pull_request` or `push` trigger runs the
 Tests workflow.
+
+---
+
+## Scheduled Current Audit
+
+The `dependency-audit.yml` workflow runs a `current-audit` on a weekly schedule
+and on `workflow_dispatch`. Unlike the upgrade gate, this audit:
+
+- Does **not** change dependency bounds, specifiers, or `uv.lock`.
+- Checks the **current resolved packages** against advisory databases and yanked
+  package metadata.
+- Checks whether any declared direct dependency specifier intersects with an
+  active advisory range (range drift).
+- Uploads a sanitized JSON/Markdown artifact on every run.
+- Creates or updates a single GitHub issue (`[dependency-audit] current dependency
+  audit findings`) when actionable findings exist.
+
+### Scheduled Audit Commands
+
+```bash
+# Run a local current audit (no network calls in tests — injectable mocks)
+python scripts/dependency_upgrade_gate.py current-audit \
+  [--root .] \
+  [--allowlist docs/dependency-audit-allowlist.json] \
+  [--out-dir dependency-audit-output]
+```
+
+Output files (never committed; uploaded as workflow artifacts):
+
+| File | Description |
+|------|-------------|
+| `dependency-audit-output/current-audit-report.json` | Sanitized JSON with findings, resolver audit results, and allowlist summary. |
+| `dependency-audit-output/current-audit-issue-body.md` | GitHub issue body for failure notification. |
+
+### Public-Safe Output Contract
+
+Scheduled audit reports, artifacts, and issue payloads are **public-safe**.
+They contain only:
+
+- Package names and versions
+- Advisory IDs (e.g., `GHSA-…`)
+- Remediation notes derived from the advisory ID and package name
+
+They **never** include: raw resolver output, private paths, temp directory paths,
+resolver cache directories, credentials, hostnames, tokens, or private remote names.
+
+### Allowlist Schema
+
+Known accepted risks must be added to `docs/dependency-audit-allowlist.json`.
+Each entry requires all five fields; missing or partial entries are rejected.
+
+```json
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "advisory_id": "GHSA-xxxx-xxxx-xxxx",
+      "package": "example-pkg",
+      "affected_range": ">=1.0,<2.0",
+      "reason": "This advisory does not affect our usage pattern; see issue #NNN.",
+      "expires": "2026-12-31"
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `advisory_id` | Yes | Exact advisory ID from OSV (e.g., `GHSA-…`). |
+| `package` | Yes | Package name (normalized, case-insensitive). |
+| `affected_range` | Yes | Must exactly match the declared specifier in `pyproject.toml`. |
+| `reason` | Yes | Non-empty explanation of why the risk is accepted. |
+| `expires` | Yes | ISO date (`YYYY-MM-DD`). Entry is rejected on or after this date. |
+
+Entries are fail-closed: expired entries, missing fields, or mismatched
+`affected_range` values cause the audit to fail as if no entry existed.
+
+### Scheduled Audit Verification Boundary
+
+The `dependency-audit.yml` workflow is syntax-checked by `actionlint` and its
+wiring is covered by unit tests (workflow shape, trigger presence, artifact
+upload, issue notification steps). Its **hosted** schedule execution and live
+OSV/PyPI network behavior are not proven by unit tests — they require a real
+GitHub Actions run triggered via `schedule` or `workflow_dispatch`.

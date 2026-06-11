@@ -4,7 +4,7 @@
     "package_files": 73,
     "package_total_lines": 23508,
     "test_files": 56,
-    "test_total_lines": 41088
+    "test_total_lines": 41633
   },
   "largest_modules": [
     {
@@ -154,13 +154,13 @@
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 114,
+    "type_pyright_total": 115,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
     "test_files": 56,
-    "test_functions": 2360
+    "test_functions": 2368
   },
   "verification_commands": [
     {
