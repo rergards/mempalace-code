@@ -1,0 +1,153 @@
+{
+  "passed": true,
+  "slug": "RELEASE-PUBLICATION-STATUS-GATE",
+  "planned_files": [
+    ".claude/skills/release/SKILL.md",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md",
+    "scripts/release_status_gate.py",
+    "tests/test_release_status_gate.py"
+  ],
+  "actual_files": [
+    ".claude/skills/release/SKILL.md",
+    ".tasks/TASK-RELEASE-PUBLICATION-STATUS-GATE/polish-result.json",
+    ".tasks/TASK-RELEASE-PUBLICATION-STATUS-GATE/polish-scope.json",
+    "docs/audits/RELEASE-PUBLICATION-STATUS-GATE-polish-1.md",
+    "docs/audits/RELEASE-PUBLICATION-STATUS-GATE-round-1.md",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md",
+    "scripts/release_status_gate.py",
+    "tests/test_release_status_gate.py"
+  ],
+  "planned_verification": [
+    "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
+    "python -m pytest tests/test_release_status_gate.py -q",
+    "python -m pytest tests/test_release_status_gate.py::test_gate_fails_and_lists_blockers_when_public_surfaces_diverge -q",
+    "python -m pytest tests/test_release_status_gate.py::test_gate_handles_transient_public_lookup_errors_without_private_leaks -q",
+    "python -m pytest tests/test_release_status_gate.py::test_gate_json_output_is_machine_readable_and_surface_complete -q",
+    "python -m pytest tests/test_release_status_gate.py::test_gate_passes_when_all_public_surfaces_match -q",
+    "python -m pytest tests/test_release_status_gate.py::test_gate_rejects_version_and_release_metadata_edge_cases -q",
+    "python scripts/quality_scorecard.py --check",
+    "python scripts/release_status_gate.py --help",
+    "rg 'release_status_gate.py|Release status gate|Remaining blockers|not shipped' .claude/skills/release/SKILL.md",
+    "rg 'release_status_gate.py|Release status gate|Remaining blockers|not shipped' .claude/skills/release/SKILL.md",
+    "ruff check scripts/release_status_gate.py tests/test_release_status_gate.py \u0026\u0026 ruff format --check scripts/release_status_gate.py tests/test_release_status_gate.py"
+  ],
+  "observed_verification": [
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pyright --pythonpath ...",
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py -q",
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_fails_and_lists_blockers_when_public_surfaces_diverge -q",
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_handles_transient_public_lookup_errors_without_private_leaks -q",
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_json_output_is_machine_readable_and_surface_complete -q",
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_passes_when_all_public_surfaces_match -q",
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_rejects_version_and_release_metadata_edge_cases -q",
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python scripts/quality_scorecard.py --check",
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python scripts/release_status_gate.py --help",
+    "/Users/rerg/.local/pipx/venvs/mempalace-code/bin/ruff check scripts/release_status_gate.py tests/test_release_status_gate.py \u0026\u0026 ruff format --check ...",
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_release_status_gate.py -v",
+    "rg 'release_status_gate.py|Release status gate|Remaining blockers|not shipped' .claude/skills/release/SKILL.md",
+    "ruff check mempalace/ tests/",
+    "ruff check scripts/release_status_gate.py tests/test_release_status_gate.py \u0026\u0026 ruff format --check ...",
+    "ruff format --check mempalace/ tests/",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_release_status_gate.py::test_gate_passes_when_all_public_surfaces_match -q",
+      "matched": "implement-result.json#verification_evidence[0] command=/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_passes_when_all_public_surfaces_match -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_release_status_gate.py::test_gate_fails_and_lists_blockers_when_public_surfaces_diverge -q",
+      "matched": "implement-result.json#verification_evidence[1] command=/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_fails_and_lists_blockers_when_public_surfaces_diverge -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_release_status_gate.py::test_gate_rejects_version_and_release_metadata_edge_cases -q",
+      "matched": "implement-result.json#verification_evidence[2] command=/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_rejects_version_and_release_metadata_edge_cases -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_release_status_gate.py::test_gate_handles_transient_public_lookup_errors_without_private_leaks -q",
+      "matched": "implement-result.json#verification_evidence[3] command=/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_handles_transient_public_lookup_errors_without_private_leaks -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-5",
+      "planned": "python -m pytest tests/test_release_status_gate.py::test_gate_json_output_is_machine_readable_and_surface_complete -q",
+      "matched": "implement-result.json#verification_evidence[4] command=/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py::test_gate_json_output_is_machine_readable_and_surface_complete -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-6",
+      "planned": "rg 'release_status_gate.py|Release status gate|Remaining blockers|not shipped' .claude/skills/release/SKILL.md",
+      "matched": "implement-result.json#verification_evidence[5] command=rg 'release_status_gate.py|Release status gate|Remaining blockers|not shipped' .claude/skills/release/SKILL.md",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_release_status_gate.py -q",
+      "matched": "implement-result.json#verification_evidence[6] command=/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pytest tests/test_release_status_gate.py -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python scripts/release_status_gate.py --help",
+      "matched": "implement-result.json#verification_evidence[7] command=/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python scripts/release_status_gate.py --help",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "ruff check scripts/release_status_gate.py tests/test_release_status_gate.py \u0026\u0026 ruff format --check scripts/release_status_gate.py tests/test_release_status_gate.py",
+      "matched": "implement-result.json#verification_evidence[8] command=ruff check scripts/release_status_gate.py tests/test_release_status_gate.py \u0026\u0026 ruff format --check scripts/release_status_gate.py tests/test_release_status_gate.py",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-4",
+      "planned": "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
+      "matched": "implement-result.json#verification_evidence[9] command=/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -m pyright --pythonpath \"$(/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python -c 'import sys; print(sys.executable)')\"",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-5",
+      "planned": "python scripts/quality_scorecard.py --check",
+      "matched": "implement-result.json#verification_evidence[10] command=/Users/rerg/.local/pipx/venvs/mempalace-code/bin/python scripts/quality_scorecard.py --check",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-6",
+      "planned": "rg 'release_status_gate.py|Release status gate|Remaining blockers|not shipped' .claude/skills/release/SKILL.md",
+      "matched": "implement-result.json#verification_evidence[11] command=rg 'release_status_gate.py|Release status gate|Remaining blockers|not shipped' .claude/skills/release/SKILL.md",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "accepted_scope_expansions": [
+    {
+      "path": "docs/audits/RELEASE-PUBLICATION-STATUS-GATE-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening round audit report required by the harden phase contract.",
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5"
+      ],
+      "check_ids": [
+        "REG-1"
+      ],
+      "policy_id": "policy:audit_only",
+      "policy_match_detail": "matched docs/audits/RELEASE-PUBLICATION-STATUS-GATE- prefix"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}

@@ -1,0 +1,16 @@
+{
+  "slug": "RELEASE-PUBLICATION-STATUS-GATE",
+  "added": [],
+  "warnings": [],
+  "skipped_duplicates": [],
+  "sources": [
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../polish-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    "docs/audits/RELEASE-PUBLICATION-STATUS-GATE-polish-1.md",
+    "docs/audits/RELEASE-PUBLICATION-STATUS-GATE-round-1.md"
+  ]
+}
