@@ -1,0 +1,10 @@
+{
+  "status": "canonical",
+  "expected_path": "/Users/rerg/.local/state/autopilot/autopilot-2636f30f/polish-result.json",
+  "candidate_path": "/Users/rerg/.local/state/autopilot/autopilot-2636f30f/worktrees/AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX/f697a735-001f-4b03-a950-8ba9c77326ae/attempt-1/.tasks/TASK-AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX/polish-result.json",
+  "source": "canonical",
+  "reason": "fresh",
+  "owner": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+  "action": "accepted",
+  "summary": "canonical polish result accepted"
+}

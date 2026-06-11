@@ -1,0 +1,189 @@
+{
+  "passed": true,
+  "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+  "planned_files": [
+    "docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md",
+    "docs/demo/code-intelligence-packet.json",
+    "docs/demo/code-intelligence-packet.md",
+    "docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md",
+    "docs/quality/README.md",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md",
+    "docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md",
+    "scripts/gen_code_intelligence_packet.py",
+    "scripts/quality_scorecard.py",
+    "tests/test_code_intelligence_packet.py"
+  ],
+  "actual_files": [
+    ".tasks/TASK-AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX/polish-result.json",
+    ".tasks/TASK-AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX/polish-scope.json",
+    "docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md",
+    "docs/demo/code-intelligence-packet.json",
+    "docs/demo/code-intelligence-packet.md",
+    "docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md",
+    "docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md",
+    "scripts/gen_code_intelligence_packet.py",
+    "tests/test_code_intelligence_packet.py"
+  ],
+  "planned_verification": [
+    "python -c 'from pathlib import Path; p=Path(\"docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md\"); e=Path(\"docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md\"); a=Path(\"docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md\"); text=p.read_text(encoding=\"utf-8\"); ev=e.read_text(encoding=\"utf-8\"); assert \"fallback: backlog-recovery\" not in text; assert \"files:\" in text and \"verification\" in text; assert \"F-1\" in ev and \"F-2\" in ev; assert not a.exists()'",
+    "python -c 'from pathlib import Path; p=Path(\"docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md\"); e=Path(\"docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md\"); a=Path(\"docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md\"); text=p.read_text(encoding=\"utf-8\"); ev=e.read_text(encoding=\"utf-8\"); assert \"fallback: backlog-recovery\" not in text; assert \"files:\" in text and \"verification\" in text; assert \"F-1\" in ev and \"F-2\" in ev; assert not a.exists()'",
+    "python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'",
+    "python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'",
+    "python -m pytest tests/test_code_intelligence_packet.py -x -q",
+    "python -m pytest tests/test_code_intelligence_packet.py -x -q",
+    "python -m pytest tests/test_code_intelligence_packet.py::TestMcpExchangeValidation::test_raises_on_extra_mcp_response -q",
+    "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_committed_packet_artifacts_expose_owner_acceptance_checklist -q",
+    "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_schema_rejects_missing_owner_acceptance_checklist -q",
+    "python scripts/gen_code_intelligence_packet.py --check",
+    "python scripts/gen_code_intelligence_packet.py --check",
+    "python scripts/quality_scorecard.py --check",
+    "python scripts/quality_scorecard.py --check",
+    "ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+    "ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+    "ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+    "ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py"
+  ],
+  "observed_verification": [
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_code_intelligence_packet.py -x -q",
+    "python -m pytest tests/test_code_intelligence_packet.py::TestMcpExchangeValidation::test_raises_on_extra_mcp_response -q",
+    "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_committed_packet_artifacts_expose_owner_acceptance_checklist -q",
+    "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_schema_rejects_missing_owner_acceptance_checklist -q",
+    "python scripts/gen_code_intelligence_packet.py --check",
+    "python scripts/quality_scorecard.py --check",
+    "python3 -c 'from pathlib import Path; ...'",
+    "python3 -c 'import subprocess, sys; ... public_safety_scan ...'",
+    "python3 scripts/quality_scorecard.py --check",
+    "ruff check mempalace/ tests/",
+    "ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+    "ruff format --check mempalace/ tests/",
+    "ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_committed_packet_artifacts_expose_owner_acceptance_checklist -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_committed_packet_artifacts_expose_owner_acceptance_checklist -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python scripts/gen_code_intelligence_packet.py --check",
+      "matched": "harden-result.json#verification_evidence[1] command=python scripts/gen_code_intelligence_packet.py --check",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_schema_rejects_missing_owner_acceptance_checklist -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_schema_rejects_missing_owner_acceptance_checklist -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_code_intelligence_packet.py::TestMcpExchangeValidation::test_raises_on_extra_mcp_response -q",
+      "matched": "implement-result.json#verification_evidence[3] command=python -m pytest tests/test_code_intelligence_packet.py::TestMcpExchangeValidation::test_raises_on_extra_mcp_response -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-5",
+      "planned": "ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "matched": "implement-result.json#verification_evidence[4] command=ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-6",
+      "planned": "python -m pytest tests/test_code_intelligence_packet.py -x -q",
+      "matched": "implement-result.json#verification_evidence[5] command=python -m pytest tests/test_code_intelligence_packet.py -x -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-7",
+      "planned": "python -c 'from pathlib import Path; p=Path(\"docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md\"); e=Path(\"docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md\"); a=Path(\"docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md\"); text=p.read_text(encoding=\"utf-8\"); ev=e.read_text(encoding=\"utf-8\"); assert \"fallback: backlog-recovery\" not in text; assert \"files:\" in text and \"verification\" in text; assert \"F-1\" in ev and \"F-2\" in ev; assert not a.exists()'",
+      "matched": "implement-result.json#verification_evidence[6] command=python3 -c 'from pathlib import Path; p=Path(\"docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md\"); e=Path(\"docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md\"); a=Path(\"docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md\"); text=p.read_text(encoding=\"utf-8\"); ev=e.read_text(encoding=\"utf-8\"); assert \"fallback: backlog-recovery\" not in text; assert \"files:\" in text and \"verification\" in text.lower(); assert \"F-1\" in ev and \"F-2\" in ev; assert not a.exists()'",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-8",
+      "planned": "python scripts/quality_scorecard.py --check",
+      "matched": "implement-result.json#verification_evidence[7] command=python3 scripts/quality_scorecard.py --check",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-9",
+      "planned": "python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'",
+      "matched": "implement-result.json#verification_evidence[8] command=python3 -c 'import subprocess, sys; p=subprocess.run([\"python3\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-10",
+      "planned": "ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "matched": "implement-result.json#verification_evidence[9] command=ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_code_intelligence_packet.py -x -q",
+      "matched": "implement-result.json#verification_evidence[10] command=python -m pytest tests/test_code_intelligence_packet.py -x -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python scripts/gen_code_intelligence_packet.py --check",
+      "matched": "harden-result.json#verification_evidence[11] command=python scripts/gen_code_intelligence_packet.py --check",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "matched": "implement-result.json#verification_evidence[12] command=ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-4",
+      "planned": "ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "matched": "implement-result.json#verification_evidence[13] command=ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-5",
+      "planned": "python scripts/quality_scorecard.py --check",
+      "matched": "implement-result.json#verification_evidence[14] command=python3 scripts/quality_scorecard.py --check",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-6",
+      "planned": "python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'",
+      "matched": "implement-result.json#verification_evidence[15] command=python3 -c 'import subprocess, sys; p=subprocess.run([\"python3\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-7",
+      "planned": "python -c 'from pathlib import Path; p=Path(\"docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md\"); e=Path(\"docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md\"); a=Path(\"docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md\"); text=p.read_text(encoding=\"utf-8\"); ev=e.read_text(encoding=\"utf-8\"); assert \"fallback: backlog-recovery\" not in text; assert \"files:\" in text and \"verification\" in text; assert \"F-1\" in ev and \"F-2\" in ev; assert not a.exists()'",
+      "matched": "implement-result.json#verification_evidence[16] command=python3 -c 'from pathlib import Path; p=Path(\"docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md\"); e=Path(\"docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md\"); a=Path(\"docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md\"); text=p.read_text(encoding=\"utf-8\"); ev=e.read_text(encoding=\"utf-8\"); assert \"fallback: backlog-recovery\" not in text; assert \"files:\" in text and \"verification\" in text.lower(); assert \"F-1\" in ev and \"F-2\" in ev; assert not a.exists()'",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": null,
+  "blocked_scope_expansions": [
+    {
+      "path": "docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening audit report for this task, per harden phase output contract.",
+      "block_reason": "path was not touched in phase \"harden\" per scope manifest",
+      "acceptance_ids": [
+        "AC-6"
+      ],
+      "check_ids": [
+        "VER-6"
+      ]
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}
