@@ -12,6 +12,10 @@ files:
     change: "Document the target manifest schema, report location, required command order, redaction rules, and the rule that uv.lock is refreshed only after the audited resolver passes."
   - path: .github/workflows/ci.yml
     change: "Add a dependency-upgrade gate step that runs on pull requests/pushes and requires a fresh verified report whenever pyproject.toml or uv.lock changes."
+  - path: docs/quality/scorecard.json
+    change: "Regenerate the committed quality-scorecard data via `python scripts/quality_scorecard.py --write` after adding tests/test_dependency_upgrade_gate.py, because the new test file changes the repository test shape and the CI lint job's `quality_scorecard.py --check` fails on stale artifacts."
+  - path: docs/quality/scorecard.md
+    change: "Regenerate the human-readable scorecard alongside scorecard.json in the same `python scripts/quality_scorecard.py --write` run."
 acceptance:
   - id: AC-1
     when: "`python -m pytest tests/test_dependency_upgrade_gate.py::test_audit_report_enumerates_direct_current_and_target_versions -q` is run"
@@ -157,6 +161,14 @@ task_contract:
         command: "python -m pytest tests/test_chroma_compat.py -q"
         proves: "Existing deprecated Chroma compatibility coverage still runs without requiring a ChromaDB ceiling raise."
         acceptance_ids: [AC-4]
+      - id: REG-4
+        command: "python scripts/quality_scorecard.py --check"
+        proves: "The committed docs/quality/scorecard.{json,md} artifacts match the repository test shape after tests/test_dependency_upgrade_gate.py is added, so the CI lint job's scorecard freshness gate passes instead of failing on stale artifacts."
+        acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6]
+      - id: REG-5
+        command: "actionlint .github/workflows/ci.yml"
+        proves: "The edited Tests workflow YAML is syntactically valid and the new dependency-upgrade gate step is well-formed; this is a static syntax/version check only and hosted execution stays unproven until a real pull_request/push trigger runs the workflow."
+        acceptance_ids: [AC-5]
 ---
 
 ## Design Notes
@@ -172,5 +184,8 @@ task_contract:
 - Fresh resolver audits should use disposable temp virtualenvs and command summaries, not the developer's `.venv`: default install always, `[dev]` when dev changed, and only optional extras named by `changed_extras`. The script may install `pip-audit` inside each temp env; do not add it as a project runtime dependency.
 - Public reports should live outside `docs/audits/` because the existing public-safety scan treats `docs/audits/` as a local-only artifact path. Use a documented public path such as `docs/dependency-upgrade-reports/<slug>.json`, and store only hashes, package names, versions, advisory ids, verdicts, and sanitized command summaries.
 - `verify-report` should re-check report schema, file hashes, status, changed groups/extras, and advisory/resolver verdict fields. `ci-check` should detect changes to `pyproject.toml` or `uv.lock`, require exactly one changed report under the public report directory, and delegate to `verify-report`.
+- Change detection in `ci-check` is host-agnostic and authoritative on file hashes: the committed report records the `pyproject.toml`/`uv.lock` content hashes, and `ci-check` compares those recorded hashes against the current workspace file hashes — a mismatch (or missing matching report) means the gate requires a fresh report. A diff base (`git diff` against the pull_request merge-base, or the push before-SHA) may optionally supplement this, but the hash comparison is the deciding signal so the workflow step is implementable without a deferred design choice and works on both `push` and `pull_request` triggers.
 - Wire the CI gate into the existing Tests workflow without creating the separate scheduled audit workflow. The scheduled audit task remains separate backlog scope for unchanged current dependencies.
+- Validate the edited workflow statically with `actionlint .github/workflows/ci.yml`. Name the verification boundary explicitly in the docs and this plan: the YAML wiring of the new gate step is syntax- and version-checked only; its hosted runtime behavior is not execution-tested unless a real `pull_request`/`push` trigger runs the Tests workflow.
+- Regenerate the committed quality scorecard after the new test file lands: adding `tests/test_dependency_upgrade_gate.py` changes the repository test shape, which stales `docs/quality/scorecard.json` and `docs/quality/scorecard.md` and would fail the CI lint job's `python scripts/quality_scorecard.py --check`. Run `python scripts/quality_scorecard.py --write` to refresh both artifacts and keep `--check` green (REG-4).
 - Keep the ChromaDB rule explicit: API compatibility tests are not enough to raise the ceiling; the selected ChromaDB target must be advisory-clean first, and GHSA-f4j7-r4q5-qw2c blocks the available 1.x line until the advisory source says otherwise.
