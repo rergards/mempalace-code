@@ -111,12 +111,55 @@ unavailable and the user explicitly approves the fallback.
 
 ### Step 6: Verify Hosted Status
 
-Check all public surfaces separately:
+Run the release-status gate first. It checks every public publication surface
+and exits non-zero when any blocker remains:
 
 ```bash
+python scripts/release_status_gate.py --version X.Y.Z \
+  --repo rergards/mempalace-code \
+  --remote publish \
+  --branch main
+```
+
+The gate checks:
+1. publish remote git tag (`v X.Y.Z` on the `publish` remote)
+2. branch Tests workflow — most recent completed run on `main` must be green
+3. Publish to PyPI workflow — most recent completed run must be green
+4. GitHub Release metadata — non-draft, non-prerelease, `isLatest=true`
+5. PyPI JSON — `info.version == X.Y.Z` and both wheel and sdist present
+6. Install smoke — `pip install --no-cache-dir mempalace-code==X.Y.Z` in a disposable venv
+
+A release is **not shipped** when any blocker remains. Report the gate's
+`Remaining blockers` list verbatim in the release summary and do not use
+"shipped" or "latest" language until the gate exits 0.
+
+For machine-readable status (e.g. Autopilot gating):
+
+```bash
+python scripts/release_status_gate.py --version X.Y.Z --json
+```
+
+**Diagnostic-only mode** (skips install smoke; cannot be labeled fully shipped):
+
+```bash
+python scripts/release_status_gate.py --version X.Y.Z --skip-smoke
+```
+
+If the gate finds blockers, investigate the specific surface that failed.
+Manual fallback diagnostics for individual surfaces:
+
+```bash
+# Tag
+git ls-remote --tags publish "refs/tags/vX.Y.Z"
+
+# Workflows
 gh run list --repo rergards/mempalace-code --branch main --workflow Tests --limit 5
 gh run list --repo rergards/mempalace-code --workflow "Publish to PyPI" --limit 5
+
+# GitHub Release
 gh release view vX.Y.Z --repo rergards/mempalace-code
+
+# PyPI JSON
 python - <<'PY'
 import json, urllib.request
 version = "X.Y.Z"
@@ -125,10 +168,6 @@ print(data["info"]["version"])
 assert data["info"]["version"] == version
 PY
 ```
-
-If the branch Tests run is red, the tag publish succeeded but the release is not
-clean. Fix and publish a follow-up patch before creating or advertising the
-GitHub Release as latest.
 
 If PyPI is visible but `gh release view` reports no release, create the GitHub
 Release only after hosted Tests are green:
@@ -151,11 +190,8 @@ tokens, hostnames, or incident-only details.
 Version: X.Y.Z
 Tag: vX.Y.Z
 Pushed to publish: [yes/no]
-Hosted Tests: [pass/fail/not-run]
-Publish to PyPI: [pass/fail/not-run]
-PyPI visible: [yes/no]
-GitHub Release: [created/existing/missing]
+Release status gate: [passed/failed]
 
 Remaining blockers:
-- [none or exact blocker]
+- [none or exact blocker from release_status_gate.py output]
 ```
