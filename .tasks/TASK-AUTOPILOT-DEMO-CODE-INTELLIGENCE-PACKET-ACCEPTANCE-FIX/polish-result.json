@@ -1,0 +1,20 @@
+{
+  "blocking_questions": [],
+  "commit": "9b7314d",
+  "diff_classification": "none",
+  "findings_backlogged": 0,
+  "findings_dismissed": 0,
+  "findings_fixed": 0,
+  "findings_total": 0,
+  "mode": "standard",
+  "new_backlog_items": [],
+  "scope_expansions": [],
+  "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+  "status": "ok",
+  "summary": "No new commits since task base — nothing to polish.",
+  "user_facing_change": false,
+  "verification_evidence": [],
+  "verify_after_polish": "skipped",
+  "verify_skip_reason": "no_polish_changes",
+  "warnings": []
+}
