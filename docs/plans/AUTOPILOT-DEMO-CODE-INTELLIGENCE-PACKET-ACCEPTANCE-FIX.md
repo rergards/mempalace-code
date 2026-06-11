@@ -52,8 +52,8 @@ acceptance:
     when: "`python scripts/quality_scorecard.py --check` is run"
     then: "quality scorecard artifacts are fresh, deterministic, and public-safe after the packet test and wording changes"
   - id: AC-9
-    when: "`python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX\", \"scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'` is run"
-    then: "the tracked public-safety scan output has no findings from this task's generator, packet plan, or relocated evidence; any remaining nonzero scan output is explicitly outside this task"
+    when: "`python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'` is run"
+    then: "the tracked public-safety scan output has no findings on this task's owned surfaces (path-anchored to docs/plans, docs/audits, docs/task-evidence, and scripts/gen_code_intelligence_packet.py); pre-existing tracked .tasks/ phase artifacts and any other nonzero scan output are explicitly outside this task"
   - id: AC-10
     when: "`ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py` is run"
     then: "the focused generator and packet tests are formatted under the repo's Ruff formatter"
@@ -148,8 +148,8 @@ task_contract:
     - id: INV-4
       statement: "Backlog metadata and archive files stay bookkeep-owned and are not edited during implementation."
       applies_to:
-        - "docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md"
-        - "docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md"
+        - "docs/BACKLOG.yaml"
+        - "docs/BACKLOG-archived.yaml"
     - id: INV-5
       statement: "All committed evidence and packet artifacts remain public-safe: no private paths, local artifact directories, hostnames, credentials, or raw secret-like sample tokens."
       applies_to:
@@ -206,8 +206,8 @@ task_contract:
       proves: "Scorecard output is fresh, deterministic, and public-safe after the test and wording changes."
       acceptance_ids: [AC-8]
     - id: VER-9
-      command: "python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX\", \"scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'"
-      proves: "Tracked public-safety output contains no findings from this task's generator, packet plan, or evidence artifact while allowing unrelated pre-existing findings to be documented separately."
+      command: "python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'"
+      proves: "Tracked public-safety output contains no findings on this task's owned docs/scripts surfaces; the path-anchored needles cannot be tripped by pre-existing tracked .tasks/ phase artifacts, and unrelated pre-existing findings are documented separately."
       acceptance_ids: [AC-9]
     - id: VER-10
       command: "ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py"
@@ -238,9 +238,13 @@ task_contract:
         proves: "Quality scorecard artifacts remain fresh and public-safe after test count or suite-description changes."
         acceptance_ids: [AC-8]
       - id: REG-6
-        command: "python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX\", \"scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'"
-        proves: "This task's public-safety footprint stays absent from tracked scan output; unrelated pre-existing findings are not remediated here."
+        command: "python -c 'import subprocess, sys; p=subprocess.run([\"python\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; print(out, end=\"\"); needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'"
+        proves: "This task's public-safety footprint stays absent from tracked scan output on its owned docs/scripts surfaces; pre-existing tracked .tasks/ artifacts and other unrelated findings are not remediated here."
         acceptance_ids: [AC-9]
+      - id: REG-7
+        command: "python -c 'from pathlib import Path; p=Path(\"docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md\"); e=Path(\"docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md\"); a=Path(\"docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md\"); text=p.read_text(encoding=\"utf-8\"); ev=e.read_text(encoding=\"utf-8\"); assert \"fallback: backlog-recovery\" not in text; assert \"files:\" in text and \"verification\" in text; assert \"F-1\" in ev and \"F-2\" in ev; assert not a.exists()'"
+        proves: "The durable plan/evidence artifacts and audit-file removal remain stable across regression: the fallback stub stays replaced, public-safe review evidence stays present, and the local-only audit file stays gone."
+        acceptance_ids: [AC-7]
 ---
 
 ## Design Notes
@@ -256,4 +260,4 @@ task_contract:
 - Reword raw token-pattern examples in comments/tests/evidence with safe split strings or neutral names; do not relax `_SECRET_TOKEN_RE`, `_PRIVATE_PATH_RE`, or repository public-safety scanner rules.
 - Quality wording should make the boundary explicit: `tests/test_code_intelligence_packet.py` is automated scorecard/verify coverage, while `python scripts/gen_code_intelligence_packet.py --check` remains a manual pre-release gate because it needs cached embeddings and is slower.
 - Backlog archive and task-resolution metadata are intentionally not implementation files. If bookkeep later archives this task, it should use the plan/evidence/verification output from this task, but implementation must not edit `docs/BACKLOG.yaml` or `docs/BACKLOG-archived.yaml`.
-- The public-safety command in AC-9/VER-9 intentionally asserts absence of this task's findings rather than full repo success. Existing tracked `docs/audits/` files are outside this task and must be recorded as a boundary if they still make the raw scan command nonzero.
+- The public-safety command in AC-9/VER-9 intentionally asserts absence of this task's findings rather than full repo success. Its needles are path-anchored to this task's owned surfaces (`tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE`, `tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET`, `tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE`, `tracked:scripts/gen_code_intelligence_packet.py`) rather than bare task slugs. This is required because the prior task's `.tasks/TASK-AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET/harden-*.json` artifacts are already tracked and flagged as `local-only-artifact-path`, and this task's own `.tasks/` phase artifacts may be committed during the flow; a bare-slug needle would self-trip on those. The anchored needles still catch the real targets: today the scan flags `docs/audits/...-round-1.md` (github-pat-prefix + local-only-artifact-path) and `scripts/gen_code_intelligence_packet.py:385` (github-pat-prefix), so the command exits nonzero now and exits zero only after the audit file is removed and the generator's `ghp_` literal is encoded. Pre-existing tracked `.tasks/` and other `docs/audits/` findings are outside this task and must be recorded as a boundary if they still make the raw scan command nonzero.
