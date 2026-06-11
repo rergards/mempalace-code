@@ -1,6 +1,11 @@
 {
   "phase": "polish",
-  "files": [],
+  "files": [
+    ".tasks/TASK-AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX/polish-result.json",
+    ".tasks/TASK-AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX/polish-scope.json",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md"
+  ],
   "before_sha": "9b7314d",
-  "timestamp": "2026-06-11T13:15:40Z"
+  "timestamp": "2026-06-11T13:19:05Z"
 }
