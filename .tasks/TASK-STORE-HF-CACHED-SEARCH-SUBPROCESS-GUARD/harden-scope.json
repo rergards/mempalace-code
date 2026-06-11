@@ -1,0 +1,9 @@
+{
+  "phase": "harden",
+  "files": [
+    "docs/audits/STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD-round-1.md",
+    "tests/test_offline.py"
+  ],
+  "before_sha": "16c609a",
+  "timestamp": "2026-06-11T08:15:44Z"
+}

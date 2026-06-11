@@ -451,6 +451,10 @@ def test_offline_search_subprocess_no_online_retry_on_local_cache_error(tmp_path
         f"Expected non-zero exit (local cache failure should not retry); got 0.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+    assert "constructor" in event_types, (
+        f"No constructor event — embedder was not reached before subprocess exited: {event_types}\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
     assert "online_load" not in event_types, (
         f"online_load event recorded — no-retry contract violated: {events}"
     )
