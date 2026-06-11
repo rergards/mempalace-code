@@ -47,18 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: DEPENDENCY-SCHEDULED-AUDIT-CI
-    section: quality
-    status: open
-    priority: P1
-    summary: Add a scheduled dependency audit workflow that checks current resolved packages without changing bounds.
-    acceptance:
-      - Add a GitHub Actions workflow on `schedule` and `workflow_dispatch` that installs the default package and every optional extra in fresh environments.
-      - Run `pip-audit` or an equivalent resolver-level audit for default, `[dev]`, `[treesitter]`, `[spellcheck]`, and `[chroma]` installs.
-      - Query OSV or an equivalent advisory source for direct dependency versions including `lancedb`, `sentence-transformers`, `pyyaml`, `packaging`, `chromadb`, and tree-sitter packages.
-      - Treat known accepted risks as explicit allowlist entries with advisory ID, package, affected range, reason, and expiry date.
-      - Publish only package names, versions, advisory IDs, and remediation notes; never include private resolver caches, machine paths, or credentials.
-      - Open or update a backlog item when an advisory appears, a package becomes yanked, or a previously safe target range becomes affected.
   - key: RELEASE-PUBLICATION-STATUS-GATE
     section: quality
     status: open
