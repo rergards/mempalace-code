@@ -47,18 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: RELEASE-PUBLICATION-STATUS-GATE
-    section: quality
-    status: open
-    priority: P1
-    summary: Add a release-status verification gate that checks every public publication surface before calling a release shipped.
-    acceptance:
-      - Add a script or documented command that takes an expected version and checks tag existence, tag workflow status, GitHub Release presence, PyPI version visibility, and clean install smoke from PyPI.
-      - Verify `publish/main`, the version tag, GitHub Actions tag publish run, GitHub Releases, and PyPI JSON/API state as separate facts with separate pass/fail rows.
-      - Fail if branch tests pass but tag publish, release creation, or PyPI visibility is missing or red.
-      - Keep output public-safe: no private remote URLs, tokens, local paths, hostnames, or non-public incident notes.
-      - Wire the command into the `/release` skill/runbook and require it before release completion summaries.
-      - Add tests for parsing mocked GitHub/PyPI responses and for partial-success states such as "tests green, PyPI missing".
   - key: BENCHMARK-FIXTURE-FRESHNESS-FACTS
     section: quality
     status: open
