@@ -1,0 +1,20 @@
+{
+  "blocking_questions": [],
+  "commit": "96c1dd4",
+  "diff_classification": "none",
+  "findings_backlogged": 0,
+  "findings_dismissed": 0,
+  "findings_fixed": 0,
+  "findings_total": 0,
+  "mode": "strict",
+  "new_backlog_items": [],
+  "scope_expansions": [],
+  "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+  "status": "ok",
+  "summary": "No-op: diff range 96c1dd4..HEAD is empty (HEAD is the base commit)",
+  "user_facing_change": false,
+  "verification_evidence": [],
+  "verify_after_polish": "skipped",
+  "verify_skip_reason": "no_polish_changes",
+  "warnings": []
+}
