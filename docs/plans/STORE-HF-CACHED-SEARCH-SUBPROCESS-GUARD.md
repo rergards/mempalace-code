@@ -32,6 +32,15 @@ contract_policy:
 task_contract:
   version: 1
   mode: standard
+  approved_scope_expansions:
+    - path: docs/quality/scorecard.json
+      phase: polish
+      acceptance_ids: [AC-1, AC-2, AC-3, AC-4]
+      reason: "Generated quality scorecard refresh after adding task-owned offline subprocess tests; JSON stays paired with docs/quality/scorecard.md."
+    - path: docs/quality/scorecard.md
+      phase: polish
+      acceptance_ids: [AC-1, AC-2, AC-3, AC-4]
+      reason: "Generated quality scorecard refresh after adding task-owned offline subprocess tests; Markdown stays paired with docs/quality/scorecard.json."
   requirements:
     - id: REQ-1
       statement: "Cached fetch-model must verify the already prepared model in a subprocess without online-capable model resolution, HuggingFace metadata calls, socket use, or token-warning output."
