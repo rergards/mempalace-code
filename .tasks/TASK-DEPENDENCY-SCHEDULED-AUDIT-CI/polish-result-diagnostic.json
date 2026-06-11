@@ -1,0 +1,10 @@
+{
+  "status": "canonical",
+  "expected_path": "/Users/rerg/.local/state/autopilot/autopilot-2636f30f/polish-result.json",
+  "candidate_path": "/Users/rerg/.local/state/autopilot/autopilot-2636f30f/worktrees/DEPENDENCY-SCHEDULED-AUDIT-CI/45e60e9f-8967-4b90-b5ba-3ffd4c4278b2/attempt-1/.tasks/TASK-DEPENDENCY-SCHEDULED-AUDIT-CI/polish-result.json",
+  "source": "canonical",
+  "reason": "fresh",
+  "owner": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+  "action": "accepted",
+  "summary": "canonical polish result accepted"
+}

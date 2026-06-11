@@ -1,0 +1,169 @@
+{
+  "passed": true,
+  "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+  "planned_files": [
+    ".github/workflows/dependency-audit.yml",
+    "docs/DEPENDENCY_UPGRADE_GATE.md",
+    "docs/dependency-audit-allowlist.json",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md",
+    "scripts/dependency_upgrade_gate.py",
+    "tests/test_dependency_upgrade_gate.py"
+  ],
+  "actual_files": [
+    ".github/workflows/dependency-audit.yml",
+    "docs/DEPENDENCY_UPGRADE_GATE.md",
+    "docs/audits/DEPENDENCY-SCHEDULED-AUDIT-CI-round-1.md",
+    "docs/dependency-audit-allowlist.json",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md",
+    "scripts/dependency_upgrade_gate.py",
+    "tests/test_dependency_upgrade_gate.py"
+  ],
+  "planned_verification": [
+    "actionlint .github/workflows/dependency-audit.yml",
+    "python -m pytest tests/test_dependency_upgrade_gate.py -k 'current_audit or dependency_audit_workflow' -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_does_not_modify_pyproject_or_lockfile -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_fails_and_writes_issue_payload_for_unallowlisted_advisory -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_flags_yanked_versions_and_newly_affected_specifier_ranges -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_plans_default_dev_and_all_optional_extra_installs -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_queries_osv_for_current_direct_lock_versions -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_requires_exact_unexpired_allowlist_entries -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_audit_docs_define_allowlist_and_report_boundaries -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_audit_workflow_declares_schedule_dispatch_artifact_and_notification -q",
+    "python scripts/dependency_upgrade_gate.py current-audit --help",
+    "python scripts/quality_scorecard.py --check",
+    "ruff check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+    "ruff format --check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py"
+  ],
+  "observed_verification": [
+    "actionlint .github/workflows/dependency-audit.yml",
+    "backlog validate --file docs/BACKLOG.yaml",
+    "python -m pytest tests/ -x -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py -k 'current_audit or dependency_audit_workflow' -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_default_range_drift_querier_produces_no_findings -v",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_does_not_modify_pyproject_or_lockfile -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_fails_and_writes_issue_payload_for_unallowlisted_advisory -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_flags_yanked_versions_and_newly_affected_specifier_ranges -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_plans_default_dev_and_all_optional_extra_installs -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_queries_osv_for_current_direct_lock_versions -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_requires_exact_unexpired_allowlist_entries -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_audit_docs_define_allowlist_and_report_boundaries -q",
+    "python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_audit_workflow_declares_schedule_dispatch_artifact_and_notification -q",
+    "python scripts/dependency_upgrade_gate.py current-audit --help",
+    "python scripts/quality_scorecard.py --check",
+    "ruff check mempalace/ tests/",
+    "ruff check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+    "ruff format --check mempalace/ tests/",
+    "ruff format --check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+    "scripts/backlog.sh validate"
+  ],
+  "verification_matches": [
+    {
+      "id": "VER-1",
+      "planned": "python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_audit_workflow_declares_schedule_dispatch_artifact_and_notification -q",
+      "matched": "implement-result.json#verification_evidence[0] command=python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_audit_workflow_declares_schedule_dispatch_artifact_and_notification -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-2",
+      "planned": "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_plans_default_dev_and_all_optional_extra_installs -q",
+      "matched": "implement-result.json#verification_evidence[1] command=python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_plans_default_dev_and_all_optional_extra_installs -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-3",
+      "planned": "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_queries_osv_for_current_direct_lock_versions -q",
+      "matched": "implement-result.json#verification_evidence[2] command=python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_queries_osv_for_current_direct_lock_versions -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-4",
+      "planned": "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_fails_and_writes_issue_payload_for_unallowlisted_advisory -q",
+      "matched": "implement-result.json#verification_evidence[3] command=python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_fails_and_writes_issue_payload_for_unallowlisted_advisory -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-5",
+      "planned": "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_requires_exact_unexpired_allowlist_entries -q",
+      "matched": "implement-result.json#verification_evidence[4] command=python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_requires_exact_unexpired_allowlist_entries -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-6",
+      "planned": "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_flags_yanked_versions_and_newly_affected_specifier_ranges -q",
+      "matched": "implement-result.json#verification_evidence[5] command=python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_flags_yanked_versions_and_newly_affected_specifier_ranges -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-7",
+      "planned": "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_does_not_modify_pyproject_or_lockfile -q",
+      "matched": "implement-result.json#verification_evidence[6] command=python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_does_not_modify_pyproject_or_lockfile -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "VER-8",
+      "planned": "python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_audit_docs_define_allowlist_and_report_boundaries -q",
+      "matched": "implement-result.json#verification_evidence[7] command=python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_audit_docs_define_allowlist_and_report_boundaries -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-1",
+      "planned": "python -m pytest tests/test_dependency_upgrade_gate.py -k 'current_audit or dependency_audit_workflow' -q",
+      "matched": "harden-result.json#verification_evidence[1] command=python -m pytest tests/test_dependency_upgrade_gate.py -k 'current_audit or dependency_audit_workflow' -q",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-2",
+      "planned": "python scripts/dependency_upgrade_gate.py current-audit --help",
+      "matched": "implement-result.json#verification_evidence[9] command=python scripts/dependency_upgrade_gate.py current-audit --help",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-3",
+      "planned": "actionlint .github/workflows/dependency-audit.yml",
+      "matched": "implement-result.json#verification_evidence[10] command=actionlint .github/workflows/dependency-audit.yml",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-4",
+      "planned": "ruff check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+      "matched": "implement-result.json#verification_evidence[11] command=ruff check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-5",
+      "planned": "ruff format --check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+      "matched": "implement-result.json#verification_evidence[12] command=ruff format --check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+      "method": "structured-phase-evidence"
+    },
+    {
+      "id": "REG-6",
+      "planned": "python scripts/quality_scorecard.py --check",
+      "matched": "implement-result.json#verification_evidence[13] command=python scripts/quality_scorecard.py --check",
+      "method": "structured-phase-evidence"
+    }
+  ],
+  "exceptions": [
+    {
+      "type": "skipped_planned_verification",
+      "id": "REG-1-AC8",
+      "acceptance_ids": [
+        "AC-8"
+      ],
+      "reason": "The AC-8 test name (test_dependency_audit_docs_define_allowlist_and_report_boundaries) matches the VER-8 command spec but not the REG-1 keyword filter. AC-8 is verified by VER-8 run separately; REG-1 covers AC-1 through AC-7."
+    }
+  ],
+  "blocked_scope_expansions": [
+    {
+      "path": "docs/audits/DEPENDENCY-SCHEDULED-AUDIT-CI-round-1.md",
+      "phase": "harden",
+      "category": "audit_only",
+      "reason": "Hardening round audit report required by harden phase contract",
+      "block_reason": "no acceptance_id or check_id links to a known plan contract ID"
+    }
+  ],
+  "discrepancies": null,
+  "summary": "all evidence matches plan contract"
+}

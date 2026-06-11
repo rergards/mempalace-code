@@ -1,0 +1,16 @@
+{
+  "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+  "added": [],
+  "warnings": [],
+  "skipped_duplicates": [],
+  "sources": [
+    "../../../../harden-result.json",
+    "../../../../implement-result.json",
+    "../../../../plan-result.json",
+    "../../../../polish-result.json",
+    "../../../../preflight-result.json",
+    "../../../../verify-result.json",
+    ".tasks/TASK-DEPENDENCY-SCHEDULED-AUDIT-CI/findings.jsonl",
+    "docs/audits/DEPENDENCY-SCHEDULED-AUDIT-CI-round-1.md"
+  ]
+}
