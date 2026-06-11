@@ -80,6 +80,19 @@ items:
       - Fail with a clear diagnostic that names the disagreeing surfaces and recommended reinstall command without exposing private paths.
       - Wire the smoke into release verification or the release-status gate, not the whole fast unit suite unless it stays cheap.
       - Add a local troubleshooting note for stale tool environments where installed metadata and module source disagree.
+  - key: AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX
+    section: autopilot_demo
+    status: open
+    priority: P1
+    summary: Close owner-acceptance blockers on the code-intelligence golden packet without broadening into new demo, docs-drift, or repo-wide public-safety work.
+    acceptance:
+      - Replace the fallback backlog-recovery stub at `docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md` with a real durable plan document reflecting the shipped design, files touched, verification, and final scope.
+      - Commit the plan-review evidence as a durable public-safe artifact following existing audit or task-evidence conventions; it must no longer exist only in archived run logs or worktree trails.
+      - Make `scripts/gen_code_intelligence_packet.py` pass focused Ruff and format checks, including the remaining B905 `zip()` request/response pairing issue, without changing packet behavior.
+      - Reconcile task-resolution and docs wording about packet-check wiring: if `python scripts/gen_code_intelligence_packet.py --check` remains a manual pre-release gate, the backlog archive, done summary, scorecard docs, and quality docs must say that consistently.
+      - Remove this task's public-safety findings from `python scripts/public_safety_scan.py --tracked` output without weakening scanner rules; self-referential token-pattern examples in the generator or audit notes must be encoded or worded so they do not trip the scanner.
+      - Re-run and record `python scripts/gen_code_intelligence_packet.py --check`, `python -m pytest tests/test_code_intelligence_packet.py -x -q`, `python scripts/quality_scorecard.py --check`, focused Ruff check/format commands, and `python scripts/public_safety_scan.py --tracked`; if repo-wide public-safety remains blocked by pre-existing findings outside this task, record that boundary explicitly.
+      - Do not remediate pre-existing repo-wide public-safety findings, add committed-tree scan mode, build a docs-drift guard, wire the packet check into daily CI or `/verify`, or change packet exhibits/fixture scope beyond what the fixes require.
   - key: AUTOPILOT-DEMO-PYRIGHT-STRICT-SLICE-EXPANSION
     section: autopilot_demo
     status: open
