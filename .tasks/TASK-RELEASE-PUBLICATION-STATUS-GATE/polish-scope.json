@@ -1,9 +1,13 @@
 {
   "phase": "polish",
   "files": [
+    ".tasks/TASK-RELEASE-PUBLICATION-STATUS-GATE/polish-result.json",
+    ".tasks/TASK-RELEASE-PUBLICATION-STATUS-GATE/polish-scope.json",
     "docs/audits/RELEASE-PUBLICATION-STATUS-GATE-polish-1.md",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md",
     "tests/test_release_status_gate.py"
   ],
   "before_sha": "7ccc9c6",
-  "timestamp": "2026-06-11T11:09:27Z"
+  "timestamp": "2026-06-11T11:13:52Z"
 }
