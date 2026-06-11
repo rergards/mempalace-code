@@ -4,7 +4,7 @@
     "package_files": 73,
     "package_total_lines": 23508,
     "test_files": 57,
-    "test_total_lines": 42272
+    "test_total_lines": 42313
   },
   "largest_modules": [
     {
@@ -149,7 +149,7 @@
   ],
   "suppressions": {
     "noqa_blanket": 0,
-    "noqa_total": 42,
+    "noqa_total": 41,
     "scope": [
       "mempalace_code",
       "tests"
@@ -160,7 +160,7 @@
   },
   "tests": {
     "test_files": 57,
-    "test_functions": 2377
+    "test_functions": 2378
   },
   "verification_commands": [
     {
