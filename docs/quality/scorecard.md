@@ -59,10 +59,10 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | type/pyright ignores (total) | 112 |
-| type/pyright unreasoned | 2 |
+| type/pyright unreasoned | 0 |
 | noqa (total) | 41 |
 | noqa blanket | 0 |
-| **Unreasoned suppressions (total)** | **2** |
+| **Unreasoned suppressions (total)** | **0** |
 
 ## Tests
 
