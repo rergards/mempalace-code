@@ -530,6 +530,7 @@ def test_gate_json_output_is_machine_readable_and_surface_complete():
     data_skip = result_skip.to_dict()
     assert data_skip["ok"] is False
     assert result_skip.partial is True
+    assert data_skip["partial"] is True
     smoke_surf = next(s for s in data_skip["surfaces"] if s["name"] == rsg.SURFACE_SMOKE)
     assert smoke_surf["status"] == rsg.STATUS_SKIP
 
@@ -605,3 +606,43 @@ def test_gate_cli_help_exits_cleanly():
     assert "--version" in r.stdout
     assert "--repo" in r.stdout
     assert "--json" in r.stdout
+
+
+# ── Regression: stale-success masking ────────────────────────────────────────
+
+
+def test_workflow_stale_success_does_not_mask_newer_failure():
+    """A newer completed failure must block the gate even when an older success exists in the window."""
+
+    def gh_newer_failure_older_success(args: list[str]) -> tuple[int, str, str]:
+        if "run" in args and "list" in args:
+            runs = [
+                {"status": "completed", "conclusion": "failure", "headBranch": BRANCH},
+                {"status": "completed", "conclusion": "success", "headBranch": BRANCH},
+            ]
+            return 0, json.dumps(runs), ""
+        if "release" in args and "view" in args:
+            data = {
+                "tagName": f"v{VERSION}",
+                "isDraft": False,
+                "isPrerelease": False,
+                "isLatest": True,
+                "publishedAt": "2024-01-01T00:00:00Z",
+                "url": "https://github.com/testowner/testrepo/releases/tag/v1.2.3",
+                "targetCommitish": "main",
+            }
+            return 0, json.dumps(data), ""
+        return 0, "[]", ""
+
+    result = _call_gate(run_gh=gh_newer_failure_older_success)
+    assert result.ok is False
+
+    tests_surf = next(s for s in result.surfaces if s.name == rsg.SURFACE_TESTS)
+    assert tests_surf.status == rsg.STATUS_FAIL, (
+        f"SURFACE_TESTS must fail when most recent run failed, got {tests_surf.status!r}: {tests_surf.detail}"
+    )
+
+    pub_surf = next(s for s in result.surfaces if s.name == rsg.SURFACE_PUBLISH)
+    assert pub_surf.status == rsg.STATUS_FAIL, (
+        f"SURFACE_PUBLISH must fail when most recent run failed, got {pub_surf.status!r}: {pub_surf.detail}"
+    )

@@ -172,20 +172,20 @@ def check_workflow_run(
             surface_name, STATUS_ERROR, f"unexpected gh run list response shape for {workflow!r}"
         )
     completed = [r for r in runs if isinstance(r, dict) and r.get("status") == "completed"]
-    passed = [r for r in completed if r.get("conclusion") == "success"]
-    if passed:
+    if not completed:
         return SurfaceResult(
-            surface_name, STATUS_OK, f"workflow {workflow!r} has a successful completed run"
+            surface_name, STATUS_FAIL, f"no completed runs found for workflow {workflow!r}"
         )
-    if completed:
-        conclusions = sorted({str(r.get("conclusion", "unknown")) for r in completed})
+    most_recent = completed[0]
+    if most_recent.get("conclusion") == "success":
         return SurfaceResult(
-            surface_name,
-            STATUS_FAIL,
-            f"workflow {workflow!r} completed runs have conclusions: {conclusions}",
+            surface_name, STATUS_OK, f"workflow {workflow!r} most recent completed run succeeded"
         )
+    conclusion = str(most_recent.get("conclusion", "unknown"))
     return SurfaceResult(
-        surface_name, STATUS_FAIL, f"no completed runs found for workflow {workflow!r}"
+        surface_name,
+        STATUS_FAIL,
+        f"workflow {workflow!r} most recent completed run has conclusion: {conclusion!r}",
     )
 
 
