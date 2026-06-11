@@ -1,0 +1,270 @@
+{
+  "blocking_questions": [],
+  "commit": "680870f",
+  "contract_exceptions": [],
+  "findings_backlogged": 0,
+  "findings_dismissed": 0,
+  "findings_fixed": 1,
+  "findings_total": 1,
+  "mode": "standard",
+  "new_backlog_items": [],
+  "scope_expansions": [
+    {
+      "acceptance_ids": [
+        "AC-6"
+      ],
+      "category": "audit_only",
+      "check_ids": [
+        "VER-6"
+      ],
+      "path": "docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX-round-1.md",
+      "phase": "harden",
+      "reason": "Hardening audit report for this task, per harden phase output contract."
+    }
+  ],
+  "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+  "status": "ok",
+  "summary": "Added test_raises_on_fewer_mcp_responses to cover the fewer-response branch of the !=len/strict-zip MCP count guard; all 10 planned verification checks pass.",
+  "user_facing_change": false,
+  "verification": {
+    "commands": [
+      {
+        "classification": "focused",
+        "command": "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_committed_packet_artifacts_expose_owner_acceptance_checklist -q",
+        "reason": "VER-1: validates committed artifacts expose owner checklist"
+      },
+      {
+        "classification": "focused",
+        "command": "python scripts/gen_code_intelligence_packet.py --check",
+        "reason": "VER-2/REG-2: validates committed artifacts match fresh generator output"
+      },
+      {
+        "classification": "focused",
+        "command": "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_schema_rejects_missing_owner_acceptance_checklist -q",
+        "reason": "VER-3: validates schema rejects absent/empty checklist"
+      },
+      {
+        "classification": "focused",
+        "command": "python -m pytest tests/test_code_intelligence_packet.py::TestMcpExchangeValidation::test_raises_on_extra_mcp_response -q",
+        "reason": "VER-4: validates extra MCP response raises RuntimeError"
+      },
+      {
+        "classification": "focused",
+        "command": "ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+        "reason": "VER-5/REG-3: focused lint on changed files"
+      },
+      {
+        "classification": "focused",
+        "command": "python -m pytest tests/test_code_intelligence_packet.py -x -q",
+        "reason": "VER-6/REG-1: full focused packet test slice (66 passed)"
+      },
+      {
+        "classification": "focused",
+        "command": "python3 -c 'from pathlib import Path; ...'",
+        "reason": "VER-7/REG-7: artifact presence/absence check"
+      },
+      {
+        "classification": "focused",
+        "command": "python scripts/quality_scorecard.py --check",
+        "reason": "VER-8/REG-5: scorecard freshness check"
+      },
+      {
+        "classification": "focused",
+        "command": "python3 -c 'import subprocess, sys; ... public_safety_scan ...'",
+        "reason": "VER-9/REG-6: public-safety boundary check (no task-specific findings)"
+      },
+      {
+        "classification": "focused",
+        "command": "ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+        "reason": "VER-10/REG-4: focused format check on changed files"
+      }
+    ],
+    "focused_evidence_sufficient": true,
+    "full_suite_trigger": "",
+    "skipped_broad_checks": [
+      {
+        "command": "python -m pytest tests/ -x -q",
+        "prior_evidence": "VER-6 passed: python -m pytest tests/test_code_intelligence_packet.py -x -q — 66 passed",
+        "reason": "Focused packet test slice (VER-6: 66 passed) covers all planned checks; regression_plan specifies only packet tests as regression targets."
+      }
+    ]
+  },
+  "verification_evidence": [
+    {
+      "acceptance_ids": [
+        "AC-1"
+      ],
+      "command": "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_committed_packet_artifacts_expose_owner_acceptance_checklist -q",
+      "id": "VER-1",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-2"
+      ],
+      "command": "python scripts/gen_code_intelligence_packet.py --check",
+      "id": "VER-2",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-3"
+      ],
+      "command": "python -m pytest tests/test_code_intelligence_packet.py::TestOwnerAcceptanceChecklist::test_schema_rejects_missing_owner_acceptance_checklist -q",
+      "id": "VER-3",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-4"
+      ],
+      "command": "python -m pytest tests/test_code_intelligence_packet.py::TestMcpExchangeValidation::test_raises_on_extra_mcp_response -q",
+      "id": "VER-4",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-5"
+      ],
+      "command": "ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "id": "VER-5",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-6"
+      ],
+      "command": "python -m pytest tests/test_code_intelligence_packet.py -x -q",
+      "id": "VER-6",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-7"
+      ],
+      "command": "python3 -c 'from pathlib import Path; p=Path(\"docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md\"); e=Path(\"docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md\"); a=Path(\"docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md\"); text=p.read_text(encoding=\"utf-8\"); ev=e.read_text(encoding=\"utf-8\"); assert \"fallback: backlog-recovery\" not in text; assert \"files:\" in text and \"verification\" in text; assert \"F-1\" in ev and \"F-2\" in ev; assert not a.exists()'",
+      "id": "VER-7",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-8"
+      ],
+      "command": "python scripts/quality_scorecard.py --check",
+      "id": "VER-8",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-9"
+      ],
+      "command": "python3 -c 'import subprocess, sys; p=subprocess.run([\"python3\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'",
+      "id": "VER-9",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-10"
+      ],
+      "command": "ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "id": "VER-10",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-1",
+        "AC-3",
+        "AC-4",
+        "AC-6"
+      ],
+      "command": "python -m pytest tests/test_code_intelligence_packet.py -x -q",
+      "id": "REG-1",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-2"
+      ],
+      "command": "python scripts/gen_code_intelligence_packet.py --check",
+      "id": "REG-2",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-5"
+      ],
+      "command": "ruff check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "id": "REG-3",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-10"
+      ],
+      "command": "ruff format --check scripts/gen_code_intelligence_packet.py tests/test_code_intelligence_packet.py",
+      "id": "REG-4",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-8"
+      ],
+      "command": "python scripts/quality_scorecard.py --check",
+      "id": "REG-5",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-9"
+      ],
+      "command": "python3 -c 'import subprocess, sys; p=subprocess.run([\"python3\", \"scripts/public_safety_scan.py\", \"--tracked\"], text=True, capture_output=True); out=p.stdout+p.stderr; needles=(\"tracked:docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET\", \"tracked:docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE\", \"tracked:scripts/gen_code_intelligence_packet.py\"); sys.exit(1 if any(n in out for n in needles) else 0)'",
+      "id": "REG-6",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-7"
+      ],
+      "command": "python3 -c 'from pathlib import Path; p=Path(\"docs/plans/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET.md\"); e=Path(\"docs/task-evidence/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-review.md\"); a=Path(\"docs/audits/AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET-round-1.md\"); text=p.read_text(encoding=\"utf-8\"); ev=e.read_text(encoding=\"utf-8\"); assert \"fallback: backlog-recovery\" not in text; assert \"files:\" in text and \"verification\" in text; assert \"F-1\" in ev and \"F-2\" in ev; assert not a.exists()'",
+      "id": "REG-7",
+      "phase": "harden",
+      "slug": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "status": "passed"
+    }
+  ],
+  "warnings": [
+    "skipped broad check: focused evidence sufficient after python -m pytest tests/test_code_intelligence_packet.py -x -q (66 passed)"
+  ]
+}

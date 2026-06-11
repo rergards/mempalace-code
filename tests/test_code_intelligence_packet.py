@@ -610,6 +610,17 @@ class TestMcpExchangeValidation:
             with pytest.raises(RuntimeError, match="responses"):
                 _PKT._mcp_exchange(palace_dir)
 
+    def test_raises_on_fewer_mcp_responses(self, tmp_path):
+        """Two responses with three requests should fail, not proceed with partial pairing."""
+        palace_dir = tmp_path / "palace"
+        palace_dir.mkdir()
+
+        fewer_responses = list(self._GOOD_RESPONSES[:2])
+
+        with patch("subprocess.run", return_value=self._mock_proc(responses=fewer_responses)):
+            with pytest.raises(RuntimeError, match="responses"):
+                _PKT._mcp_exchange(palace_dir)
+
 
 # ── Owner acceptance checklist ─────────────────────────────────────────────────
 
