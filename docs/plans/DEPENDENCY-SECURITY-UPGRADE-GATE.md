@@ -11,7 +11,7 @@ files:
   - path: docs/DEPENDENCY_UPGRADE_GATE.md
     change: "Document the target manifest schema, report location, required command order, redaction rules, and the rule that uv.lock is refreshed only after the audited resolver passes."
   - path: .github/workflows/ci.yml
-    change: "Add a dependency-upgrade gate step that runs on pull requests/pushes and requires a fresh verified report whenever pyproject.toml or uv.lock changes."
+    change: "Add a dependency-upgrade gate step that runs on pull requests/pushes, passes an explicit base ref (pull_request base SHA, push before-SHA) to `ci-check`, and requires a fresh verified report whenever pyproject.toml or uv.lock changed from that base; also set `fetch-depth: 0` on the gate job's checkout step because actions/checkout@v5 defaults to a depth-1 clone that cannot resolve the base ref."
   - path: docs/quality/scorecard.json
     change: "Regenerate the committed quality-scorecard data via `python scripts/quality_scorecard.py --write` after adding tests/test_dependency_upgrade_gate.py, because the new test file changes the repository test shape and the CI lint job's `quality_scorecard.py --check` fails on stale artifacts."
   - path: docs/quality/scorecard.md
@@ -35,6 +35,9 @@ acceptance:
   - id: AC-6
     when: "`python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_gate_docs_define_order_and_public_report_schema -q` is run"
     then: "docs assert the required order: collect targets, query advisories, run fresh resolver audits, write the public report, refresh uv.lock only after success, then run hosted-CI-equivalent clean pip tests"
+  - id: AC-7
+    when: "`python -m pytest tests/test_dependency_upgrade_gate.py::test_ci_check_passes_when_dependencies_unchanged_and_no_report_exists -q` is run"
+    then: "`ci-check` exits zero on a workspace where neither pyproject.toml nor uv.lock differs from the provided base ref and no dependency-upgrade report exists, so clean PRs that do not touch dependencies are never blocked by the gate"
 out_of_scope:
   - "Raising any dependency ceiling, changing dependency specifiers, or refreshing uv.lock in this task."
   - "Adding the separate scheduled dependency audit workflow for unchanged current dependencies."
@@ -67,9 +70,9 @@ task_contract:
       source: "backlog acceptance and CLAUDE.md storage backend policy"
       acceptance_ids: [AC-4]
     - id: REQ-5
-      statement: "CI must fail dependency metadata or lockfile changes unless a fresh successful dependency-upgrade report for the same file hashes is present."
+      statement: "CI must fail dependency metadata or lockfile changes unless a fresh successful dependency-upgrade report for the same file hashes is present, and must pass changes that do not touch dependency files even when no report exists."
       source: "upgrade gate requirement"
-      acceptance_ids: [AC-5]
+      acceptance_ids: [AC-5, AC-7]
     - id: REQ-6
       statement: "Contributor documentation must define the exact gate order and public-safe report schema so future upgrades are repeatable."
       source: "repeatability requirement"
@@ -78,7 +81,7 @@ task_contract:
     - name: "Dependency upgrade gate script"
       kind: cli
       paths: ["scripts/dependency_upgrade_gate.py"]
-      expected_behavior: "Expose `audit`, `verify-report`, and `ci-check` subcommands; parse pyproject.toml and uv.lock with stdlib TOML support; call advisory and resolver-audit runners through injectable helpers for testability; emit redacted JSON reports under a public docs path."
+      expected_behavior: "Expose `audit`, `verify-report`, and `ci-check` subcommands; `ci-check` takes an explicit `--base-ref` and decides whether pyproject.toml/uv.lock changed via `git diff` against it, failing closed when the base ref is missing or unresolvable; parse pyproject.toml and uv.lock with stdlib TOML support; call advisory and resolver-audit runners through injectable helpers for testability; emit redacted JSON reports under a public docs path."
     - name: "Dependency gate tests"
       kind: internal
       paths: ["tests/test_dependency_upgrade_gate.py"]
@@ -90,7 +93,7 @@ task_contract:
     - name: "Hosted CI guard"
       kind: internal
       paths: [".github/workflows/ci.yml"]
-      expected_behavior: "Run the script's CI check in the existing Tests workflow so pull requests that change pyproject.toml or uv.lock cannot pass without a fresh successful dependency-upgrade report."
+      expected_behavior: "Run the script's CI check in the existing Tests workflow with `fetch-depth: 0` on the gate job's checkout and an explicit base ref (`github.event.pull_request.base.sha` on pull_request, `github.event.before` on push) passed to `ci-check`, so pull requests that change pyproject.toml or uv.lock cannot pass without a fresh successful dependency-upgrade report while PRs that leave both files untouched pass with no report."
   invariants:
     - id: INV-1
       statement: "This task must not change dependency specifiers, package ceilings, or uv.lock content."
@@ -145,14 +148,18 @@ task_contract:
       command: "python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_gate_docs_define_order_and_public_report_schema -q"
       proves: "The contributor docs preserve the required gate order and public report schema."
       acceptance_ids: [AC-6]
+    - id: VER-7
+      command: "python -m pytest tests/test_dependency_upgrade_gate.py::test_ci_check_passes_when_dependencies_unchanged_and_no_report_exists -q"
+      proves: "The clean-PR path is covered: when neither dependency file changed from the base ref and no report exists, `ci-check` passes instead of failing closed or silently passing dependency changes."
+      acceptance_ids: [AC-7]
   regression_plan:
     applies: true
     no_behavior_change_exception: ""
     checks:
       - id: REG-1
         command: "python -m pytest tests/test_dependency_upgrade_gate.py -q"
-        proves: "All dependency-upgrade gate decisions remain stable across happy path, advisory failure, Chroma boundary, report freshness, and docs schema checks."
-        acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6]
+        proves: "All dependency-upgrade gate decisions remain stable across happy path, advisory failure, Chroma boundary, report freshness, clean-PR pass, and docs schema checks."
+        acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7]
       - id: REG-2
         command: "python -m pytest tests/test_public_safety_scan.py::test_repository_scan_rejects_local_only_artifact_path -q"
         proves: "The public-safety scan still rejects local-only artifact paths while dependency reports use the documented public-safe location instead of docs/audits."
@@ -167,8 +174,16 @@ task_contract:
         acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6]
       - id: REG-5
         command: "actionlint .github/workflows/ci.yml"
-        proves: "The edited Tests workflow YAML is syntactically valid and the new dependency-upgrade gate step is well-formed; this is a static syntax/version check only and hosted execution stays unproven until a real pull_request/push trigger runs the workflow."
-        acceptance_ids: [AC-5]
+        proves: "The edited Tests workflow YAML — including the fetch-depth checkout change and base-ref expressions — is syntactically valid and the new dependency-upgrade gate step is well-formed; this is a static syntax/version check only and hosted execution stays unproven until a real pull_request/push trigger runs the workflow."
+        acceptance_ids: [AC-5, AC-7]
+      - id: REG-6
+        command: "ruff check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py"
+        proves: "The new gate script and test file pass the same ruff lint gate the hosted CI lint job runs over scripts/ and tests/."
+        acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7]
+      - id: REG-7
+        command: "ruff format --check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py"
+        proves: "The new files pass the hosted CI lint job's ruff format gate so the lint job cannot fail on formatting after this task lands."
+        acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7]
 ---
 
 ## Design Notes
@@ -183,9 +198,15 @@ task_contract:
 - `audit` mode should query OSV `querybatch` or the configured equivalent for both current and target versions of every direct dependency in scope. Treat an affected target as a hard failure before running resolver audits.
 - Fresh resolver audits should use disposable temp virtualenvs and command summaries, not the developer's `.venv`: default install always, `[dev]` when dev changed, and only optional extras named by `changed_extras`. The script may install `pip-audit` inside each temp env; do not add it as a project runtime dependency.
 - Public reports should live outside `docs/audits/` because the existing public-safety scan treats `docs/audits/` as a local-only artifact path. Use a documented public path such as `docs/dependency-upgrade-reports/<slug>.json`, and store only hashes, package names, versions, advisory ids, verdicts, and sanitized command summaries.
-- `verify-report` should re-check report schema, file hashes, status, changed groups/extras, and advisory/resolver verdict fields. `ci-check` should detect changes to `pyproject.toml` or `uv.lock`, require exactly one changed report under the public report directory, and delegate to `verify-report`.
-- Change detection in `ci-check` is host-agnostic and authoritative on file hashes: the committed report records the `pyproject.toml`/`uv.lock` content hashes, and `ci-check` compares those recorded hashes against the current workspace file hashes — a mismatch (or missing matching report) means the gate requires a fresh report. A diff base (`git diff` against the pull_request merge-base, or the push before-SHA) may optionally supplement this, but the hash comparison is the deciding signal so the workflow step is implementable without a deferred design choice and works on both `push` and `pull_request` triggers.
+- `verify-report` should re-check report schema, file hashes, status, changed groups/extras, and advisory/resolver verdict fields. `ci-check` should decide whether `pyproject.toml` or `uv.lock` changed via the base-ref diff below, require exactly one matching report under the public report directory when they did, and delegate report validation to `verify-report`.
+- Change detection in `ci-check` is pinned: a git base ref is the primary and required change detector, and report-hash matching is only the freshness validator applied after a change is detected. Hash matching alone cannot decide the change question — after this task lands there is no committed baseline report (out of scope), so a hash-only rule would either fail every clean PR (fail-closed on "missing report") or wave through unaudited bumps (fail-open). The pinned behavior:
+  - `ci-check` takes an explicit `--base-ref`; the workflow passes `github.event.pull_request.base.sha` on `pull_request` and `github.event.before` on `push`, and the gate diffs `pyproject.toml`/`uv.lock` against that ref.
+  - Neither file changed from the base → **pass**, with or without a report present. This is the clean-PR path (AC-7) and is what lets the gate land with no committed report without breaking every subsequent PR.
+  - Either file changed from the base → require exactly one report under the public report directory whose recorded `pyproject.toml`/`uv.lock` content hashes match the current workspace files and whose audit status is success (via `verify-report`); a missing report, hash mismatch, or non-success status fails the gate (AC-5).
+  - Base ref missing or unresolvable (e.g. all-zero push before-SHA on a force-push) → fail closed by treating the dependency files as changed, so a broken base ref can never let an unaudited bump through.
+  Because `actions/checkout@v5` runs at the default depth-1 clone in this workflow, the gate job's checkout must set `fetch-depth: 0` (or explicitly fetch the base ref) — that checkout edit is part of this task's `.github/workflows/ci.yml` change and is covered by the actionlint regression check.
 - Wire the CI gate into the existing Tests workflow without creating the separate scheduled audit workflow. The scheduled audit task remains separate backlog scope for unchanged current dependencies.
-- Validate the edited workflow statically with `actionlint .github/workflows/ci.yml`. Name the verification boundary explicitly in the docs and this plan: the YAML wiring of the new gate step is syntax- and version-checked only; its hosted runtime behavior is not execution-tested unless a real `pull_request`/`push` trigger runs the Tests workflow.
+- Validate the edited workflow statically with `actionlint .github/workflows/ci.yml`. Name the verification boundary explicitly in the docs and this plan: the YAML wiring of the new gate step — including the `fetch-depth: 0` checkout change and the base-ref event expressions — is syntax- and version-checked only; its hosted runtime behavior is not execution-tested unless a real `pull_request`/`push` trigger runs the Tests workflow.
+- Run `ruff check` and `ruff format --check` over the new script and test file before landing (REG-6/REG-7): the hosted CI lint job gates on `ruff check mempalace_code/ tests/ scripts/` and `ruff format --check` over the same paths, so the new files must pass both locally.
 - Regenerate the committed quality scorecard after the new test file lands: adding `tests/test_dependency_upgrade_gate.py` changes the repository test shape, which stales `docs/quality/scorecard.json` and `docs/quality/scorecard.md` and would fail the CI lint job's `python scripts/quality_scorecard.py --check`. Run `python scripts/quality_scorecard.py --write` to refresh both artifacts and keep `--check` green (REG-4).
 - Keep the ChromaDB rule explicit: API compatibility tests are not enough to raise the ceiling; the selected ChromaDB target must be advisory-clean first, and GHSA-f4j7-r4q5-qw2c blocks the available 1.x line until the advisory source says otherwise.
