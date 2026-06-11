@@ -120,7 +120,7 @@ def _gh_workflow_fail(
 def _gh_no_runs() -> Callable[[list[str]], tuple[int, str, str]]:
     """Return a run_gh stub with no workflow runs and a good release."""
 
-    def run_gh(args: list[str]) -> tuple[int, str, str]:  # noqa: SIM115  # reason: sequential checks on same arg list
+    def run_gh(args: list[str]) -> tuple[int, str, str]:
         if "run" in args and "list" in args:
             return 0, json.dumps([]), ""
         if "release" in args and "view" in args:

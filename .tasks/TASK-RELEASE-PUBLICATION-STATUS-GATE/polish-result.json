@@ -1,0 +1,28 @@
+{
+  "blocking_questions": [],
+  "commit": "7ccc9c6",
+  "diff_classification": "code_behavior_possible",
+  "findings_backlogged": 0,
+  "findings_dismissed": 0,
+  "findings_fixed": 1,
+  "findings_total": 1,
+  "mode": "strict",
+  "new_backlog_items": [],
+  "scope_expansions": [
+    {
+      "acceptance_ids": [],
+      "category": "audit_only",
+      "check_ids": [],
+      "path": "docs/audits/RELEASE-PUBLICATION-STATUS-GATE-polish-1.md",
+      "phase": "polish",
+      "reason": "Polish-phase audit document recording the P-1 finding and fix."
+    }
+  ],
+  "slug": "RELEASE-PUBLICATION-STATUS-GATE",
+  "status": "ok",
+  "summary": "Removed spurious SIM115 noqa (wrong rule: no open() call present) and its incorrect reason comment from _gh_no_runs inner function in test file.",
+  "user_facing_change": false,
+  "verification_evidence": [],
+  "verify_after_polish": "run",
+  "warnings": []
+}
