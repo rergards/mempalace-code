@@ -230,5 +230,37 @@
     "wing": "calcdemo"
   },
   "generated_from": "scripts/gen_code_intelligence_packet.py",
+  "owner_acceptance": {
+    "checklist": [
+      {
+        "description": "Fixture files are static and versioned in the generator; mine output is normalized to remove machine-specific paths and timing.",
+        "evidence_keys": [
+          "fixture.files",
+          "fixture.mine_summary"
+        ],
+        "id": "OA-1",
+        "label": "fixture_determinism"
+      },
+      {
+        "description": "JSON and Markdown artifacts are generated from the same packet dict; checklist ids, search query labels, and MCP exhibit keys map 1-to-1.",
+        "evidence_keys": [
+          "exhibits.search_queries[*].label",
+          "exhibits.mcp_exhibit"
+        ],
+        "id": "OA-2",
+        "label": "json_markdown_parity"
+      },
+      {
+        "description": "MCP exhibit captures real initialize/tools/list/tools/call exchanges from a spawned MCP server subprocess with the code profile.",
+        "evidence_keys": [
+          "exhibits.mcp_exhibit.initialize",
+          "exhibits.mcp_exhibit.tools_list",
+          "exhibits.mcp_exhibit.code_search"
+        ],
+        "id": "OA-3",
+        "label": "mcp_stdio_provenance"
+      }
+    ]
+  },
   "schema_version": 1
 }

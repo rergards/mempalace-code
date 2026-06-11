@@ -227,6 +227,28 @@ def _minimal_valid_packet() -> dict:
                 },
             },
         },
+        "owner_acceptance": {
+            "checklist": [
+                {
+                    "id": "OA-1",
+                    "label": "fixture_determinism",
+                    "description": "Fixture files are static.",
+                    "evidence_keys": ["fixture.files"],
+                },
+                {
+                    "id": "OA-2",
+                    "label": "json_markdown_parity",
+                    "description": "JSON and Markdown match.",
+                    "evidence_keys": ["exhibits.search_queries[*].label"],
+                },
+                {
+                    "id": "OA-3",
+                    "label": "mcp_stdio_provenance",
+                    "description": "MCP exhibit from real subprocess.",
+                    "evidence_keys": ["exhibits.mcp_exhibit.initialize"],
+                },
+            ]
+        },
     }
 
 
@@ -576,3 +598,70 @@ class TestMcpExchangeValidation:
         with patch("subprocess.run", return_value=self._mock_proc(responses=bad_responses)):
             with pytest.raises(RuntimeError, match="id mismatch"):
                 _PKT._mcp_exchange(palace_dir)
+
+    def test_raises_on_extra_mcp_response(self, tmp_path):
+        """Four responses with three requests should fail, not silently truncate."""
+        palace_dir = tmp_path / "palace"
+        palace_dir.mkdir()
+
+        extra_responses = list(self._GOOD_RESPONSES) + [{"jsonrpc": "2.0", "id": 4, "result": {}}]
+
+        with patch("subprocess.run", return_value=self._mock_proc(responses=extra_responses)):
+            with pytest.raises(RuntimeError, match="responses"):
+                _PKT._mcp_exchange(palace_dir)
+
+
+# ── Owner acceptance checklist ─────────────────────────────────────────────────
+
+
+_DEMO_DIR = Path(__file__).resolve().parent.parent / "docs" / "demo"
+_PACKET_JSON_PATH = _DEMO_DIR / "code-intelligence-packet.json"
+_PACKET_MD_PATH = _DEMO_DIR / "code-intelligence-packet.md"
+
+
+class TestOwnerAcceptanceChecklist:
+    def test_committed_packet_artifacts_expose_owner_acceptance_checklist(self):
+        """Committed JSON and Markdown both visibly expose checklist evidence."""
+        data = json.loads(_PACKET_JSON_PATH.read_text(encoding="utf-8"))
+        md = _PACKET_MD_PATH.read_text(encoding="utf-8")
+
+        # JSON must carry the owner_acceptance key with required checklist ids.
+        oa = data.get("owner_acceptance", {})
+        checklist = oa.get("checklist", [])
+        ids = {item["id"] for item in checklist}
+        assert "OA-1" in ids, f"OA-1 missing from checklist ids: {ids}"
+        assert "OA-2" in ids, f"OA-2 missing from checklist ids: {ids}"
+        assert "OA-3" in ids, f"OA-3 missing from checklist ids: {ids}"
+
+        labels = {item["label"] for item in checklist}
+        assert "fixture_determinism" in labels
+        assert "json_markdown_parity" in labels
+        assert "mcp_stdio_provenance" in labels
+
+        # Markdown must expose the same checklist labels for human review.
+        assert "fixture_determinism" in md
+        assert "json_markdown_parity" in md
+        assert "mcp_stdio_provenance" in md
+
+        # Markdown must show the MCP exhibit method/key names for provenance.
+        assert "initialize" in md
+        assert "tools_list" in md or "tools/list" in md
+        assert "code_search" in md or "tools/call" in md
+
+    def test_schema_rejects_missing_owner_acceptance_checklist(self):
+        """validate_packet_schema fails when owner_acceptance is absent or checklist empty."""
+        # Missing owner_acceptance key entirely.
+        p = _minimal_valid_packet()
+        del p["owner_acceptance"]
+        errors = _PKT.validate_packet_schema(p)
+        assert any("owner_acceptance" in e for e in errors), (
+            f"Expected owner_acceptance error, got: {errors}"
+        )
+
+        # Empty checklist — should also fail.
+        p2 = _minimal_valid_packet()
+        p2["owner_acceptance"]["checklist"] = []
+        errors2 = _PKT.validate_packet_schema(p2)
+        assert any("checklist" in e for e in errors2), (
+            f"Expected checklist error for empty list, got: {errors2}"
+        )
