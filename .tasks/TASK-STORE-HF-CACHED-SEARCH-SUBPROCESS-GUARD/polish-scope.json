@@ -1,6 +1,11 @@
 {
   "phase": "polish",
-  "files": [],
+  "files": [
+    ".tasks/TASK-STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD/polish-result.json",
+    ".tasks/TASK-STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD/polish-scope.json",
+    "docs/quality/scorecard.json",
+    "docs/quality/scorecard.md"
+  ],
   "before_sha": "a584fcd",
-  "timestamp": "2026-06-11T08:16:24Z"
+  "timestamp": "2026-06-11T08:18:29Z"
 }
