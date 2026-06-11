@@ -298,6 +298,7 @@ def _seed_palace(palace_path: Path) -> None:
 
 # ── AC-1: Cached fetch-model uses only local resolution ───────────────────────
 
+
 def test_cached_fetch_model_subprocess_guard(tmp_path: Path) -> None:
     """Cached fetch-model: local-only model load, no network calls, no HF token warnings."""
     event_log = tmp_path / "events.jsonl"
@@ -330,8 +331,7 @@ def test_cached_fetch_model_subprocess_guard(tmp_path: Path) -> None:
     event_types = [e["type"] for e in events]
 
     assert result.returncode == 0, (
-        f"fetch-model exited {result.returncode}\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        f"fetch-model exited {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
     constructor_events = [e for e in events if e["type"] == "constructor"]
@@ -352,6 +352,7 @@ def test_cached_fetch_model_subprocess_guard(tmp_path: Path) -> None:
 
 
 # ── AC-2: Cached search initialises query embedder locally ────────────────────
+
 
 def test_cached_search_subprocess_guard(tmp_path: Path) -> None:
     """Cached search: local embedder init, encode called, no network, no HF token warnings."""
@@ -388,8 +389,7 @@ def test_cached_search_subprocess_guard(tmp_path: Path) -> None:
     event_types = [e["type"] for e in events]
 
     assert result.returncode == 0, (
-        f"search exited {result.returncode}\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        f"search exited {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
     constructor_events = [e for e in events if e["type"] == "constructor"]
@@ -411,6 +411,7 @@ def test_cached_search_subprocess_guard(tmp_path: Path) -> None:
 
 
 # ── AC-3: Offline local-cache failure does not fall through to online retry ───
+
 
 def test_offline_search_subprocess_no_online_retry_on_local_cache_error(tmp_path: Path) -> None:
     """Offline search with broken local cache: fails without retrying online."""
@@ -458,6 +459,7 @@ def test_offline_search_subprocess_no_online_retry_on_local_cache_error(tmp_path
 
 
 # ── AC-4: --force setup boundary remains online-capable; warnings still quiet ─
+
 
 def test_force_fetch_model_subprocess_setup_boundary_allows_online_load(tmp_path: Path) -> None:
     """fetch-model --force: one online-capable load allowed; HF warnings still suppressed."""
