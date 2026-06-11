@@ -773,9 +773,11 @@ def _default_range_drift_querier(queries: list[dict]) -> list[list[dict]]:
     queries: [{name, specifier}, ...]
     Each result: list of {advisory_id, affected_range, description}
 
-    Default implementation returns empty — range queries require live OSV
-    range-scan calls that are expensive and better run in the hosted workflow.
-    Override in tests or in a production harness that performs live range queries.
+    Default implementation is a no-op that returns empty for every query.
+    Range-drift detection requires querying an advisory source for all advisories
+    affecting a package's declared specifier range and computing version-range
+    intersection — this is not performed by the default scheduled workflow.
+    Override to enable live range-drift checks in a custom integration.
     """
     return [[] for _ in queries]
 

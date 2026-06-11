@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: read
   issues: write
 
 jobs:
@@ -28,9 +29,12 @@ jobs:
       - name: Run current dependency audit
         id: audit
         run: |
+          set +e
           python scripts/dependency_upgrade_gate.py current-audit \
             --out-dir dependency-audit-output
-          echo "audit_exit=$?" >> "$GITHUB_OUTPUT"
+          rc=$?
+          echo "audit_exit=$rc" >> "$GITHUB_OUTPUT"
+          exit $rc
         continue-on-error: true
 
       - name: Upload audit artifacts

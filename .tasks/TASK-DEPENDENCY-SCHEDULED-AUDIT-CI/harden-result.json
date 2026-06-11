@@ -1,0 +1,168 @@
+{
+  "blocking_questions": [],
+  "commit": "9f8e737",
+  "contract_exceptions": [],
+  "findings_backlogged": 0,
+  "findings_dismissed": 0,
+  "findings_fixed": 3,
+  "findings_total": 3,
+  "mode": "strict",
+  "new_backlog_items": [],
+  "scope_expansions": [
+    {
+      "acceptance_ids": [],
+      "category": "audit_only",
+      "check_ids": [],
+      "path": "docs/audits/DEPENDENCY-SCHEDULED-AUDIT-CI-round-1.md",
+      "phase": "harden",
+      "reason": "Hardening round audit report required by harden phase contract"
+    }
+  ],
+  "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+  "status": "ok",
+  "summary": "Fixed 3 findings: workflow failure signal (audit step exit code), missing contents:read permission, and range-drift no-op mismatch with docs/tests",
+  "user_facing_change": false,
+  "verification": {
+    "commands": [
+      {
+        "classification": "focused",
+        "command": "python -m pytest tests/test_dependency_upgrade_gate.py -k 'current_audit or dependency_audit_workflow' -q",
+        "reason": "Regression plan REG-1: all current-audit and workflow-shape tests"
+      },
+      {
+        "classification": "focused",
+        "command": "python -m pytest tests/test_dependency_upgrade_gate.py::test_current_audit_default_range_drift_querier_produces_no_findings -v",
+        "reason": "New test for F-3 fix: default no-injection path"
+      },
+      {
+        "classification": "focused",
+        "command": "actionlint .github/workflows/dependency-audit.yml",
+        "reason": "REG-3: workflow YAML syntax validation after F-1/F-2 fixes"
+      },
+      {
+        "classification": "focused",
+        "command": "ruff check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+        "reason": "REG-4: lint check on changed files"
+      },
+      {
+        "classification": "focused",
+        "command": "ruff format --check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+        "reason": "REG-5: format check on changed files"
+      },
+      {
+        "classification": "focused",
+        "command": "python scripts/quality_scorecard.py --check",
+        "reason": "REG-6: scorecard freshness after adding test (count 2368→2369)"
+      }
+    ],
+    "focused_evidence_sufficient": true,
+    "full_suite_trigger": "",
+    "skipped_broad_checks": [
+      {
+        "command": "python -m pytest tests/ -x -q",
+        "prior_evidence": "REG-1 through REG-6 all passed with no failures",
+        "reason": "Full suite belongs to verify phase; focused regression checks cover all AC ids for changed files"
+      }
+    ]
+  },
+  "verification_evidence": [
+    {
+      "acceptance_ids": [
+        "AC-1"
+      ],
+      "command": "python -m pytest tests/test_dependency_upgrade_gate.py::test_dependency_audit_workflow_declares_schedule_dispatch_artifact_and_notification -q",
+      "id": "VER-1",
+      "phase": "harden",
+      "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8"
+      ],
+      "command": "python -m pytest tests/test_dependency_upgrade_gate.py -k 'current_audit or dependency_audit_workflow' -q",
+      "id": "REG-1",
+      "phase": "harden",
+      "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-2",
+        "AC-7"
+      ],
+      "command": "python scripts/dependency_upgrade_gate.py current-audit --help",
+      "id": "REG-2",
+      "phase": "harden",
+      "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-1"
+      ],
+      "command": "actionlint .github/workflows/dependency-audit.yml",
+      "id": "REG-3",
+      "phase": "harden",
+      "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8"
+      ],
+      "command": "ruff check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+      "id": "REG-4",
+      "phase": "harden",
+      "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-1",
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-7",
+        "AC-8"
+      ],
+      "command": "ruff format --check scripts/dependency_upgrade_gate.py tests/test_dependency_upgrade_gate.py",
+      "id": "REG-5",
+      "phase": "harden",
+      "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+      "status": "passed"
+    },
+    {
+      "acceptance_ids": [
+        "AC-2",
+        "AC-3",
+        "AC-4",
+        "AC-5",
+        "AC-6",
+        "AC-8"
+      ],
+      "command": "python scripts/quality_scorecard.py --check",
+      "id": "REG-6",
+      "phase": "harden",
+      "slug": "DEPENDENCY-SCHEDULED-AUDIT-CI",
+      "status": "passed"
+    }
+  ],
+  "warnings": []
+}

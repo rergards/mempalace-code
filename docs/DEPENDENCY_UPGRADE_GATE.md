@@ -183,8 +183,10 @@ and on `workflow_dispatch`. Unlike the upgrade gate, this audit:
 - Does **not** change dependency bounds, specifiers, or `uv.lock`.
 - Checks the **current resolved packages** against advisory databases and yanked
   package metadata.
-- Checks whether any declared direct dependency specifier intersects with an
-  active advisory range (range drift).
+- Reports range-drift findings when a custom range-drift querier is provided;
+  the default scheduled run does not perform range-drift checks (range
+  intersection requires a live advisory range-scan that is not included in
+  the default implementation).
 - Uploads a sanitized JSON/Markdown artifact on every run.
 - Creates or updates a single GitHub issue (`[dependency-audit] current dependency
   audit findings`) when actionable findings exist.

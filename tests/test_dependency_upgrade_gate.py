@@ -1238,6 +1238,38 @@ def test_current_audit_does_not_modify_pyproject_or_lockfile(tmp_path, capsys):
     assert rc == 0
 
 
+# ── Default path: no range_drift_querier injection ────────────────────────────
+
+
+def test_current_audit_default_range_drift_querier_produces_no_findings(tmp_path, capsys):
+    """The default _default_range_drift_querier is a no-op: cmd_current_audit must
+    complete without crashing and produce zero range_drift findings when called
+    without injecting range_drift_querier — the scheduled/default CLI path."""
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        runtime=["lancedb>=0.20", "pyyaml>=6.0"],
+    )
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0", "pyyaml": "6.0.1"})
+    _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
+
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_no_current_advisories,
+        yanked_checker=_no_yanked,
+        # range_drift_querier intentionally NOT injected — exercises default no-op
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    capsys.readouterr()
+
+    assert rc == 0, "default range_drift_querier (no-op) must not cause nonzero exit"
+    report = json.loads((tmp_path / "out" / "current-audit-report.json").read_text())
+    range_findings = [f for f in report["findings"] if f["type"] == "range_drift"]
+    assert range_findings == [], "default range_drift_querier must produce no range_drift findings"
+
+
 # ── AC-8 / VER-8: docs define allowlist and report boundaries ─────────────────
 
 
