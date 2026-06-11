@@ -47,17 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: DEPENDENCY-SECURITY-UPGRADE-GATE
-    section: quality
-    status: open
-    priority: P1
-    summary: Add a repeatable audited dependency-upgrade gate before raising package ceilings or refreshing the lock.
-    acceptance:
-      - Enumerate current and target versions for direct runtime, dev, and optional dependencies from package metadata before changing bounds.
-      - Query OSV or an equivalent advisory source for both current and target direct dependency versions; block target ranges that are compromised or currently affected.
-      - Run pip-audit or an equivalent resolver-level audit on fresh environments for the default install and every optional extra whose bounds change.
-      - Keep deprecated optional backends capped away from affected ranges; do not raise ChromaDB to 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
-      - Update uv.lock only after the audited resolver passes, then run hosted-CI-equivalent tests in a clean pip environment so stale local locks cannot hide dependency drift.
   - key: DEPENDENCY-SCHEDULED-AUDIT-CI
     section: quality
     status: open
