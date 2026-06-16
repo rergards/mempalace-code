@@ -44,6 +44,15 @@ contract_policy:
 task_contract:
   version: 1
   mode: standard
+  approved_scope_expansions:
+    - path: docs/quality/scorecard.json
+      phase: polish
+      acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5]
+      reason: "Generated quality scorecard refresh after task-owned watcher.py and tests/test_watcher.py changes; the JSON artifact is enforced by scripts/quality_scorecard.py --check and stays paired with docs/quality/scorecard.md."
+    - path: docs/quality/scorecard.md
+      phase: polish
+      acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5]
+      reason: "Generated quality scorecard refresh after task-owned watcher.py and tests/test_watcher.py changes; the Markdown artifact mirrors docs/quality/scorecard.json."
   requirements:
     - id: REQ-1
       statement: "Every watch startup attempt must have a stable run marker that appears in emitted startup output and therefore in appended daemon logs."
