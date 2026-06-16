@@ -149,6 +149,14 @@ task_contract:
         command: "python -m pytest tests/test_watcher.py::TestWatchAllInitializedRoot::test_initialized_root_is_watched_as_single_project tests/test_watcher.py::TestWatchAllInitializedRoot::test_parent_directory_still_watches_initialized_children -q"
         proves: "watch_all still supports initialized project roots and initialized children while adding the shared state format."
         acceptance_ids: [AC-5]
+      - id: REG-5
+        command: "python -m pytest tests/test_watcher.py::TestWatchAndMine::test_watch_detects_file_change tests/test_watcher.py::TestWatchAndMineDiskBudget::test_ac1_budget_ok_mine_is_called -q"
+        proves: "The successful initial-mine -> watch-loop entry path that AC-1 instruments still holds, so adding readiness markers does not change when a healthy startup runs the initial mine and reaches the watch loop."
+        acceptance_ids: [AC-1]
+      - id: REG-6
+        command: "python -m pytest tests/test_watcher.py::TestWatchRunReadinessDiagnostics::test_latest_successful_run_is_distinguishable_from_stale_appended_failures -q"
+        proves: "Locks the stale-appended-log disambiguation contract for AC-3, which has no pre-existing analog, so later watcher startup changes cannot reintroduce ambiguity between stale disk-budget/backup failures and the current watch-ready run."
+        acceptance_ids: [AC-3]
 ---
 
 ## Design Notes
@@ -158,7 +166,7 @@ task_contract:
 - Emit `state=watch-ready` only after startup gates have completed and immediately before entering `watchfiles.watch`. This makes the latest ready line a reliable boundary in an appended launchd log.
 - Keep existing prose output such as `Watching:`, `Palace:`, `Pre-watch backup:`, `DEGRADED`, and recovery commands. Add machine-readable state lines alongside it so existing users still see familiar messages.
 - On low disk before initial mine, preserve current behavior: skip the mine, print the disk-budget message, and still enter the watch loop so future cycles can recover. Add a `state=initial-mine-skipped reason=disk-budget` line with the current run id before `watch-ready`.
-- For optimize, emit `state=optimize-completed` after the guarded startup optimize returns in a path where initial mine filed drawers and optimize was attempted. Do not change the optimize algorithm or backup gate.
+- For optimize, the emitted state must reflect the actual optimize outcome, not merely that the call returned. `_optimize_once()` (`watcher.py:413-428`) returns normally on its skip paths too — it prints `skipped (backup gate failed)` when the backup gate rejects and `skipped (<exc>)` on exception — so emitting `optimize-completed` unconditionally after the call would mislabel a skipped/failed optimize as completed, the exact confusion this task removes. Emit `state=optimize-completed` only when the optimize pass genuinely succeeded, and emit `state=optimize-skipped reason=<backup-gate|error>` when it short-circuits. This requires `_optimize_once()` to surface its success/skip outcome to the caller; do not change the optimize algorithm or backup gate themselves.
 - Treat launchd logs as the existing stdout/stderr sink. `render_watch_schedule()` already routes both streams to `/tmp/mempalace-watch.log`, so no new log file writer is needed.
 - Documentation should show a compact health check sequence: `mempalace-code watch <dir> status` or `launchctl print ...` for process state, `mempalace-code --palace <path> health` for storage health, and a log command that finds the latest `WATCH_RUN ... state=watch-ready` line plus its `run_id`.
 - Verification commands are rooted at the repo root. `pyproject.toml` sets pytest testpaths to `tests`, skips `needs_network` and `slow` by default, and the dev/watch extras include `pytest` and `watchfiles`, so the planned focused `python -m pytest tests/test_watcher.py::... -q` commands are the correct automated evidence path.
