@@ -208,8 +208,7 @@ def _make_run_id() -> str:
     """Generate a unique run identifier from UTC time and PID."""
     from datetime import UTC, datetime
 
-    now = datetime.now(UTC)
-    return f"{now.strftime('%Y%m%dT%H%M%SZ')}-p{os.getpid()}"
+    return f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-p{os.getpid()}"
 
 
 def _emit_run_state(run_id: str, state: str, extra: str = "") -> None:
