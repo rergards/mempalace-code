@@ -9,8 +9,8 @@ Schema version: 1
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 73 |
-| Package total lines | 23558 |
-| Package code lines | 19075 |
+| Package total lines | 23557 |
+| Package code lines | 19074 |
 | Test files (`tests/`) | 57 |
 | Test total lines | 42553 |
 
@@ -20,7 +20,7 @@ Schema version: 1
 |--------|------:|
 | `mempalace_code/storage.py` | 1609 |
 | `mempalace_code/mining/chunkers.py` | 1466 |
-| `mempalace_code/watcher.py` | 1132 |
+| `mempalace_code/watcher.py` | 1131 |
 | `mempalace_code/dialect.py` | 1074 |
 | `mempalace_code/mining/symbols.py` | 904 |
 | `mempalace_code/entity_detector.py` | 858 |
