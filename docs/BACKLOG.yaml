@@ -58,17 +58,6 @@ items:
       - Add a small benchmark metadata file or script output that prints fixture facts alongside results so future reruns cannot omit repo size, language coverage, or precision.
       - Add a freshness guard that warns when fixture drawer count or tracked file count drifts materially from the documented baseline.
       - Keep the published facts concise and non-private; do not include customer repo names, private remotes, machine paths, or incident history.
-  - key: WATCH-RUN-READINESS-DIAGNOSTICS
-    section: storage_reliability
-    status: open
-    priority: P2
-    summary: Make watch-daemon startup state easy to distinguish from stale appended log failures after disk-budget recovery.
-    acceptance:
-      - Give each `mempalace-code watch` startup attempt a run marker or run id in stdout/stderr and logs.
-      - Emit explicit machine-readable or grep-friendly states for pre-watch-backup failed, initial-mine started, initial-mine completed, optimize completed, and watch-ready.
-      - Add tests proving a new successful run can be identified even when the same log file contains older disk-budget or backup failures.
-      - Document a short daemon health check that combines process state, palace health, current run marker, and latest watch-ready line.
-      - Keep failure output useful without leaking secrets; paths may be local operational paths, but docs and tests must remain public-safe.
   - key: VERSION-INSTALL-METADATA-CONSISTENCY
     section: quality
     status: open
