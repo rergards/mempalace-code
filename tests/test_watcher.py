@@ -1979,7 +1979,9 @@ class TestWatchRunReadinessDiagnostics:
 
         output = capsys.readouterr().out
         assert "WATCH_RUN run_id=LOW-DISK-RUN state=run-started" in output
-        assert "WATCH_RUN run_id=LOW-DISK-RUN state=initial-mine-skipped reason=disk-budget" in output
+        assert (
+            "WATCH_RUN run_id=LOW-DISK-RUN state=initial-mine-skipped reason=disk-budget" in output
+        )
         assert "WATCH_RUN run_id=LOW-DISK-RUN state=watch-ready" in output
 
     def test_watch_all_startup_uses_same_run_state_format(self, tmp_path, capsys):
