@@ -204,6 +204,22 @@ def _is_relevant_change(
     return True
 
 
+def _make_run_id() -> str:
+    """Generate a unique run identifier from UTC time and PID."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    return f"{now.strftime('%Y%m%dT%H%M%SZ')}-p{os.getpid()}"
+
+
+def _emit_run_state(run_id: str, state: str, extra: str = "") -> None:
+    """Emit a grep-friendly WATCH_RUN startup state line to stdout."""
+    line = f"WATCH_RUN run_id={run_id} state={state}"
+    if extra:
+        line += f" {extra}"
+    print(line, flush=True)
+
+
 def watch_and_mine(
     project_dir: str,
     palace_path: str,
@@ -249,6 +265,9 @@ def watch_and_mine(
     print(f"  Watching: {project_path}")
     print(f"  Palace:   {palace_path}")
 
+    run_id = _make_run_id()
+    _emit_run_state(run_id, "run-started")
+
     # Pre-watch backup: required when existing lance data is present.
     # Fail closed if backup creation fails so the initial mine cannot corrupt
     # the palace without a recoverable snapshot in place.
@@ -258,6 +277,7 @@ def watch_and_mine(
             _, pre_watch_archive = create_backup(palace_path, kind="pre_watch")
             print(f"  Pre-watch backup: {pre_watch_archive}", flush=True)
         except Exception as exc:
+            _emit_run_state(run_id, "pre-watch-backup-failed")
             print(
                 f"  Error: pre-watch backup failed: {exc}\n  Watcher did not start.",
                 file=sys.stderr,
@@ -283,6 +303,7 @@ def watch_and_mine(
         return True
 
     if _should_run():
+        _emit_run_state(run_id, "initial-mine-started")
         mine_kwargs = dict(
             project_dir=str(project_path),
             palace_path=palace_path,
@@ -299,6 +320,7 @@ def watch_and_mine(
         stats = _run_initial_mine_with_recovery(mine_kwargs, palace_path, None, pre_watch_archive)
         if stats is None:
             sys.exit(1)
+        _emit_run_state(run_id, "initial-mine-completed")
         filed = stats.get("drawers_filed", 0)
         if filed:
             print(
@@ -309,7 +331,15 @@ def watch_and_mine(
             if _should_run():
                 from .storage import open_store
 
-                _optimize_once(palace_path, open_store)
+                outcome = _optimize_once(palace_path, open_store)
+                if outcome == "completed":
+                    _emit_run_state(run_id, "optimize-completed")
+                elif outcome == "skipped:backup-gate":
+                    _emit_run_state(run_id, "optimize-skipped", "reason=backup-gate")
+                else:
+                    _emit_run_state(run_id, "optimize-skipped", "reason=error")
+    else:
+        _emit_run_state(run_id, "initial-mine-skipped", "reason=disk-budget")
 
     print("  Watching for changes... (Ctrl-C to stop)", flush=True)
 
@@ -329,6 +359,8 @@ def watch_and_mine(
     cycles = 0
     event_count = 0
     start_time = time.monotonic()
+
+    _emit_run_state(run_id, "watch-ready")
 
     try:
         for changes in watchfiles.watch(
@@ -410,8 +442,8 @@ def watch_and_mine(
     )
 
 
-def _optimize_once(palace_path: str, open_store_fn) -> None:
-    """Run a single optimize pass on the palace store via the optimize_store adapter."""
+def _optimize_once(palace_path: str, open_store_fn) -> str:
+    """Run a single optimize pass; return 'completed', 'skipped:backup-gate', or 'skipped:error'."""
     from .config import MempalaceConfig
 
     try:
@@ -422,10 +454,12 @@ def _optimize_once(palace_path: str, open_store_fn) -> None:
         result = optimize_store(store, palace_path, backup_first=config.backup_before_optimize)
         if not result.ok:
             print(" skipped (backup gate failed)", flush=True)
-            return
+            return "skipped:backup-gate"
         print(f" done ({time.time() - t0:.1f}s)", flush=True)
+        return "completed"
     except Exception as exc:
         print(f" skipped ({exc})", flush=True)
+        return "skipped:error"
 
 
 def _quiet_mine(**kwargs) -> dict:
@@ -739,6 +773,9 @@ def watch_all(
         print(f"    {pp.name} -> {project_map[pp]}")
     print(f"  Palace: {palace_path}")
 
+    run_id = _make_run_id()
+    _emit_run_state(run_id, "run-started")
+
     # Pre-watch backup: one archive before the initial multi-project batch.
     # Fail closed if backup creation fails.
     pre_watch_archive: Optional[str] = None
@@ -747,6 +784,7 @@ def watch_all(
             _, pre_watch_archive = create_backup(palace_path, kind="pre_watch")
             print(f"  Pre-watch backup: {pre_watch_archive}", flush=True)
         except Exception as exc:
+            _emit_run_state(run_id, "pre-watch-backup-failed")
             print(
                 f"  Error: pre-watch backup failed: {exc}\n  Watcher did not start.",
                 file=sys.stderr,
@@ -759,6 +797,7 @@ def watch_all(
     print("  Initial mine...", flush=True)
     total_init_filed = 0
     if _should_run_all():
+        _emit_run_state(run_id, "initial-mine-started")
         for proj_path, wing in project_map.items():
             kg = KnowledgeGraph()
             mine_kwargs = dict(
@@ -785,10 +824,19 @@ def watch_all(
                     f"    {wing}: {stats['files_processed']} file(s), {filed} drawer(s)",
                     flush=True,
                 )
+        _emit_run_state(run_id, "initial-mine-completed")
+    else:
+        _emit_run_state(run_id, "initial-mine-skipped", "reason=disk-budget")
 
     # Single guarded optimize after all initial mines (only if something was filed)
     if total_init_filed and _should_run_all():
-        _optimize_once(palace_path, open_store)
+        outcome = _optimize_once(palace_path, open_store)
+        if outcome == "completed":
+            _emit_run_state(run_id, "optimize-completed")
+        elif outcome == "skipped:backup-gate":
+            _emit_run_state(run_id, "optimize-skipped", "reason=backup-gate")
+        else:
+            _emit_run_state(run_id, "optimize-skipped", "reason=error")
 
     print("  Watching for changes... (Ctrl-C to stop)", flush=True)
 
@@ -850,6 +898,8 @@ def watch_all(
         commit_filter = watchfiles.DefaultFilter(
             ignore_dirs=tuple(_default_ignore | frozenset(SKIP_DIRS))
         )
+
+    _emit_run_state(run_id, "watch-ready")
 
     try:
         for changes in watchfiles.watch(

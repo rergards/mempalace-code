@@ -223,6 +223,34 @@ incremental mine.  The archive path is printed to stdout:
 If the archive cannot be created (e.g. disk budget too low), the watcher **exits
 immediately** — the initial mine is never run and the palace is not mutated.
 
+### Startup State Markers
+
+The watcher emits grep-friendly `WATCH_RUN` lines at each startup transition so that the appended daemon log (default `/tmp/mempalace-watch.log`) can be searched to determine the state of any startup attempt:
+
+| State line | Meaning |
+|-----------|---------|
+| `WATCH_RUN run_id=<id> state=run-started` | Daemon startup began |
+| `WATCH_RUN run_id=<id> state=pre-watch-backup-failed` | Pre-watch backup failed; daemon exited before mine |
+| `WATCH_RUN run_id=<id> state=initial-mine-started` | Initial mine is running |
+| `WATCH_RUN run_id=<id> state=initial-mine-completed` | Initial mine finished successfully |
+| `WATCH_RUN run_id=<id> state=initial-mine-skipped reason=disk-budget` | Mine skipped because disk budget is too low |
+| `WATCH_RUN run_id=<id> state=optimize-completed` | Post-mine optimize pass succeeded |
+| `WATCH_RUN run_id=<id> state=optimize-skipped reason=backup-gate` | Optimize skipped (backup gate rejected) |
+| `WATCH_RUN run_id=<id> state=watch-ready` | All startup gates passed; daemon entered the watch loop |
+
+The `run_id` is unique per startup attempt. An appended log file may contain `WATCH_RUN` lines from older runs that exited with disk-budget or backup failures. To find the latest healthy startup, locate the last `state=watch-ready` line and use its `run_id` to filter the associated transitions:
+
+```bash
+# Find the latest run that reached watch-ready
+grep -a 'state=watch-ready' /tmp/mempalace-watch.log | tail -1
+# WATCH_RUN run_id=20260616T120102Z-p12345 state=watch-ready
+
+# See all transitions for that startup (replace the run_id from above)
+grep -a 'run_id=20260616T120102Z-p12345' /tmp/mempalace-watch.log
+```
+
+If `state=pre-watch-backup-failed` appears for the current `run_id`, the daemon exited before modifying the palace. See [Degraded Startup Recovery](#degraded-startup-recovery) for next steps.
+
 ### Degraded Startup Recovery
 
 If the initial mine fails with a Lance missing-fragment error (a symptom of prior

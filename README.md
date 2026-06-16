@@ -307,6 +307,29 @@ launchctl unload ~/Library/LaunchAgents/com.mempalace.watch.plist
 rm ~/Library/LaunchAgents/com.mempalace.watch.plist
 ```
 
+**Daemon health check:**
+
+The daemon emits `WATCH_RUN` lines at each startup transition so the appended log at `/tmp/mempalace-watch.log` can be searched to confirm the latest startup reached the watch loop. Use this sequence to diagnose daemon state:
+
+```bash
+# 1. Process state — is the daemon running?
+launchctl print gui/$(id -u)/com.mempalace.watch
+# Or use the watch status shortcut:
+mempalace-code watch ~/projects/ status
+
+# 2. Palace storage health
+mempalace-code --palace ~/.mempalace/palace health
+
+# 3. Find the latest startup that reached watch-ready
+grep -a 'state=watch-ready' /tmp/mempalace-watch.log | tail -1
+# Example output: WATCH_RUN run_id=20260616T120102Z-p12345 state=watch-ready
+
+# 4. Filter that run's context (replace the run_id from step 3):
+grep -a 'run_id=20260616T120102Z-p12345' /tmp/mempalace-watch.log
+```
+
+A log file may contain `WATCH_RUN` lines from older runs that exited with disk-budget or backup failures. The `run_id` on the latest `state=watch-ready` line identifies the current healthy startup — lines from prior runs with different `run_id` values are stale and can be ignored. If no `watch-ready` line appears, check the most recent `run-started` line and the state that followed it (for example `state=pre-watch-backup-failed` or `state=initial-mine-skipped reason=disk-budget`).
+
 Configure the threshold via environment variable or `~/.mempalace/config.json`:
 
 ```bash

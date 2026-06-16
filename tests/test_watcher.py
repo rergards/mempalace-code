@@ -1864,3 +1864,141 @@ class TestWatchAllInitialMineRecovery:
         assert exc_info.value.code == 1
         assert len(backup_call_count) == 1, "exactly one pre_watch backup before initial batch"
         assert not watch_called, "watch loop must not be entered on unrecovered failure"
+
+
+# ---------------------------------------------------------------------------
+# Watch run readiness diagnostics tests (WATCH-RUN-READINESS-DIAGNOSTICS)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchRunReadinessDiagnostics:
+    """Tests for WATCH_RUN startup state markers."""
+
+    def test_successful_watch_startup_emits_run_marker_and_ready_states(self, tmp_path, capsys):
+        """AC-1: successful single-project startup emits run id and required readiness states."""
+        from mempalace_code.storage import OptimizeResult
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        with (
+            patch("mempalace_code.watcher._make_run_id", return_value="TEST-RUN-ID"),
+            patch(
+                "mempalace_code.watcher.mine",
+                return_value={"drawers_filed": 1, "files_processed": 2, "elapsed_secs": 0},
+            ),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+            patch(
+                "mempalace_code.watcher.optimize_store",
+                return_value=OptimizeResult(ok=True, supported=True),
+            ),
+            patch("mempalace_code.storage.open_store"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=10 * 1024**3),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        output = capsys.readouterr().out
+        assert "WATCH_RUN run_id=TEST-RUN-ID state=run-started" in output
+        assert "WATCH_RUN run_id=TEST-RUN-ID state=initial-mine-started" in output
+        assert "WATCH_RUN run_id=TEST-RUN-ID state=initial-mine-completed" in output
+        assert "WATCH_RUN run_id=TEST-RUN-ID state=optimize-completed" in output
+        assert "WATCH_RUN run_id=TEST-RUN-ID state=watch-ready" in output
+
+    def test_pre_watch_backup_failure_emits_failed_state_for_same_run(self, tmp_path, capsys):
+        """AC-2: backup failure emits pre-watch-backup-failed with the same run id; no watch-ready."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        with (
+            patch("mempalace_code.watcher._make_run_id", return_value="BACKUP-FAIL-RUN"),
+            patch("mempalace_code.watcher.create_backup", side_effect=Exception("disk full")),
+            patch("mempalace_code.watcher.mine"),
+            patch("watchfiles.watch"),
+        ):
+            with pytest.raises(SystemExit):
+                watch_and_mine(str(project), str(palace))
+
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
+        assert "WATCH_RUN run_id=BACKUP-FAIL-RUN state=run-started" in output
+        assert "WATCH_RUN run_id=BACKUP-FAIL-RUN state=pre-watch-backup-failed" in output
+        assert "state=watch-ready" not in output
+
+    def test_latest_successful_run_is_distinguishable_from_stale_appended_failures(self, tmp_path):
+        """AC-3: latest watch-ready run id is identifiable even when stale failures exist in log."""
+        import re
+
+        stale_log = (
+            "WATCH_RUN run_id=OLD-RUN-1 state=run-started\n"
+            "WATCH_RUN run_id=OLD-RUN-1 state=initial-mine-skipped reason=disk-budget\n"
+            "WATCH_RUN run_id=OLD-RUN-2 state=run-started\n"
+            "WATCH_RUN run_id=OLD-RUN-2 state=pre-watch-backup-failed\n"
+            "WATCH_RUN run_id=NEW-RUN-1 state=run-started\n"
+            "WATCH_RUN run_id=NEW-RUN-1 state=initial-mine-started\n"
+            "WATCH_RUN run_id=NEW-RUN-1 state=initial-mine-completed\n"
+            "WATCH_RUN run_id=NEW-RUN-1 state=watch-ready\n"
+        )
+
+        lines = stale_log.splitlines()
+
+        # Locate the latest watch-ready line and extract its run_id
+        latest_run_id = None
+        for line in reversed(lines):
+            if "state=watch-ready" in line:
+                m = re.search(r"run_id=(\S+)", line)
+                if m:
+                    latest_run_id = m.group(1)
+                break
+
+        assert latest_run_id == "NEW-RUN-1", "latest watch-ready must belong to the newest run"
+
+        # Using that run_id, stale disk-budget and backup-failure lines are excluded
+        run_lines = [ln for ln in lines if f"run_id={latest_run_id}" in ln]
+        assert not any("pre-watch-backup-failed" in ln for ln in run_lines)
+        assert not any("reason=disk-budget" in ln for ln in run_lines)
+        assert any("state=watch-ready" in ln for ln in run_lines)
+
+    def test_low_disk_startup_skip_keeps_run_id_and_ready_boundary(self, tmp_path, capsys):
+        """AC-4: low-disk mine skip is tied to the current run id; watch-ready still appears."""
+        project = tmp_path / "proj"
+        project.mkdir()
+
+        with (
+            patch("mempalace_code.watcher._make_run_id", return_value="LOW-DISK-RUN"),
+            patch("mempalace_code.watcher.mine"),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+            patch("mempalace_code.watcher.time.monotonic", return_value=1.0),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=0),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        output = capsys.readouterr().out
+        assert "WATCH_RUN run_id=LOW-DISK-RUN state=run-started" in output
+        assert "WATCH_RUN run_id=LOW-DISK-RUN state=initial-mine-skipped reason=disk-budget" in output
+        assert "WATCH_RUN run_id=LOW-DISK-RUN state=watch-ready" in output
+
+    def test_watch_all_startup_uses_same_run_state_format(self, tmp_path, capsys):
+        """AC-5: watch_all emits the same run id and state format as watch_and_mine."""
+        project = tmp_path / "my_project"
+        project.mkdir()
+        (project / "mempalace.yaml").write_text("wing: root_wing\n")
+
+        with (
+            patch("mempalace_code.watcher._make_run_id", return_value="WATCH-ALL-RUN"),
+            patch("mempalace_code.watcher.mine", return_value={}),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
+
+        output = capsys.readouterr().out
+        assert "WATCH_RUN run_id=WATCH-ALL-RUN state=run-started" in output
+        assert "WATCH_RUN run_id=WATCH-ALL-RUN state=initial-mine-started" in output
+        assert "WATCH_RUN run_id=WATCH-ALL-RUN state=initial-mine-completed" in output
+        assert "WATCH_RUN run_id=WATCH-ALL-RUN state=watch-ready" in output
