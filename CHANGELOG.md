@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-06-16 · WATCH-RUN-READINESS-DIAGNOSTICS
+
+Add startup readiness markers to `watch_and_mine`/`watch_all` so daemon initialization is distinguishable from stale post-recovery log entries.
+
 ## 2026-06-11 · STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD
 
 Add subprocess-level regression guards for HuggingFace cached model fetch and search operations to verify no token warnings or metadata network calls are emitted during offline operation.
