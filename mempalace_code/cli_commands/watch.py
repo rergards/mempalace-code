@@ -118,16 +118,18 @@ def cmd_watch_status(args):
                 watched_root = None
                 runs_val = None
                 exit_code_val = None
+                depth = 0
                 for line in output.splitlines():
                     stripped = line.strip()
-                    if stripped.startswith("state ="):
+                    current_depth = depth
+                    if current_depth == 1 and stripped.startswith("state ="):
                         state = stripped.split("=", 1)[1].strip()
-                    elif stripped.startswith("runs ="):
+                    elif current_depth == 1 and stripped.startswith("runs ="):
                         try:
                             runs_val = int(stripped.split("=", 1)[1].strip())
                         except ValueError:
                             pass
-                    elif stripped.startswith("last exit code ="):
+                    elif current_depth == 1 and stripped.startswith("last exit code ="):
                         try:
                             exit_code_val = int(stripped.split("=", 1)[1].strip())
                         except ValueError:
@@ -142,6 +144,8 @@ def cmd_watch_status(args):
                                 if candidate.startswith("/") and candidate != palace_path:
                                     watched_root = candidate
                                 break
+                    depth += stripped.count("{")
+                    depth -= stripped.count("}")
                 print(f"  LaunchAgent: com.mempalace.watch  state = {state}")
                 if runs_val is not None:
                     print(f"  LaunchAgent: runs = {runs_val}")

@@ -1385,6 +1385,53 @@ class TestWatchStatusCli:
         assert "com.mempalace.watch" in out
         assert str(palace) in out
 
+    def test_status_uses_service_state_not_coalition_state(self, tmp_path, capsys):
+        """watch status reports the top-level launchd state, not nested coalition state."""
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        watched_root = str(tmp_path / "watched_dir")
+        fake_launchctl_output = (
+            "com.mempalace.watch = {\n"
+            "    active count = 0\n"
+            "    state = spawn scheduled\n"
+            "    arguments = {\n"
+            "        /bin/sh\n"
+            "        -c\n"
+            f"        /usr/local/bin/mempalace-code watch {watched_root}\n"
+            "    }\n"
+            "    runs = 42\n"
+            "    last exit code = 1\n"
+            "    resource coalition = {\n"
+            "        state = active\n"
+            "        active count = 1\n"
+            "    }\n"
+            "    jetsam coalition = {\n"
+            "        state = active\n"
+            "        active count = 1\n"
+            "    }\n"
+            "}\n"
+        )
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = fake_launchctl_output
+
+        with (
+            patch("sys.platform", "darwin"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=5 * 1024**3),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            self._run_status(tmp_path)
+
+        captured = capsys.readouterr()
+        out = captured.out
+        assert "state = spawn scheduled" in out
+        assert "state = active" not in out
+        assert "runs = 42" in out
+        assert "last exit code = 1" in out
+        assert f"Watched root: {watched_root}" in out
+
     def test_status_omits_crash_loop_fields_when_absent(self, tmp_path, capsys):
         """watch status does not print runs/exit-code lines when launchctl output lacks them."""
         palace = tmp_path / "palace"
