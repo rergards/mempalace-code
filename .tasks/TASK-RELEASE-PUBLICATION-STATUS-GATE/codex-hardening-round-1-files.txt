@@ -1,5 +1,0 @@
-.claude/skills/release/SKILL.md
-docs/quality/scorecard.json
-docs/quality/scorecard.md
-scripts/release_status_gate.py
-tests/test_release_status_gate.py

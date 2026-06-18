@@ -40,6 +40,50 @@ PACKAGE = "mempalace-code"
 # ── Mock factories ─────────────────────────────────────────────────────────────
 
 
+def _release_view_data(
+    version: str = VERSION,
+    release_draft: bool = False,
+    release_prerelease: bool = False,
+) -> dict[str, object]:
+    return {
+        "tagName": f"v{version}",
+        "isDraft": release_draft,
+        "isPrerelease": release_prerelease,
+        "publishedAt": "2024-01-01T00:00:00Z",
+        "url": f"https://github.com/testowner/testrepo/releases/tag/v{version}",
+        "targetCommitish": "main",
+    }
+
+
+def _release_list_data(
+    version: str = VERSION,
+    release_latest: bool = True,
+) -> list[dict[str, object]]:
+    if release_latest:
+        return [
+            {
+                "tagName": f"v{version}",
+                "isLatest": True,
+                "publishedAt": "2024-01-01T00:00:00Z",
+                "url": f"https://github.com/testowner/testrepo/releases/tag/v{version}",
+            }
+        ]
+    return [
+        {
+            "tagName": "v9.9.9",
+            "isLatest": True,
+            "publishedAt": "2024-02-01T00:00:00Z",
+            "url": "https://github.com/testowner/testrepo/releases/tag/v9.9.9",
+        },
+        {
+            "tagName": f"v{version}",
+            "isLatest": False,
+            "publishedAt": "2024-01-01T00:00:00Z",
+            "url": f"https://github.com/testowner/testrepo/releases/tag/v{version}",
+        },
+    ]
+
+
 def _git_ok(tag_ref: str | None = None) -> Callable[[list[str]], tuple[int, str, str]]:
     """Return a run_git stub that reports the tag as present."""
     ref = tag_ref if tag_ref else f"refs/tags/v{VERSION}"
@@ -74,16 +118,9 @@ def _gh_all_ok(
             run = {"status": "completed", "conclusion": "success", "headBranch": BRANCH}
             return 0, json.dumps([run]), ""
         if "release" in args and "view" in args:
-            data = {
-                "tagName": f"v{version}",
-                "isDraft": release_draft,
-                "isPrerelease": release_prerelease,
-                "isLatest": release_latest,
-                "publishedAt": "2024-01-01T00:00:00Z",
-                "url": "https://github.com/testowner/testrepo/releases/tag/v1.2.3",
-                "targetCommitish": "main",
-            }
-            return 0, json.dumps(data), ""
+            return 0, json.dumps(_release_view_data(version, release_draft, release_prerelease)), ""
+        if "release" in args and "list" in args:
+            return 0, json.dumps(_release_list_data(version, release_latest)), ""
         return 0, "[]", ""
 
     return run_gh
@@ -102,16 +139,9 @@ def _gh_workflow_fail(
             run = {"status": "completed", "conclusion": "success", "headBranch": BRANCH}
             return 0, json.dumps([run]), ""
         if "release" in args and "view" in args:
-            data = {
-                "tagName": f"v{VERSION}",
-                "isDraft": False,
-                "isPrerelease": False,
-                "isLatest": True,
-                "publishedAt": "2024-01-01T00:00:00Z",
-                "url": "https://github.com/...",
-                "targetCommitish": "main",
-            }
-            return 0, json.dumps(data), ""
+            return 0, json.dumps(_release_view_data()), ""
+        if "release" in args and "list" in args:
+            return 0, json.dumps(_release_list_data()), ""
         return 0, "[]", ""
 
     return run_gh
@@ -124,16 +154,9 @@ def _gh_no_runs() -> Callable[[list[str]], tuple[int, str, str]]:
         if "run" in args and "list" in args:
             return 0, json.dumps([]), ""
         if "release" in args and "view" in args:
-            data = {
-                "tagName": f"v{VERSION}",
-                "isDraft": False,
-                "isPrerelease": False,
-                "isLatest": True,
-                "publishedAt": "2024-01-01T00:00:00Z",
-                "url": "https://github.com/...",
-                "targetCommitish": "main",
-            }
-            return 0, json.dumps(data), ""
+            return 0, json.dumps(_release_view_data()), ""
+        if "release" in args and "list" in args:
+            return 0, json.dumps(_release_list_data()), ""
         return 0, "[]", ""
 
     return run_gh
@@ -378,7 +401,7 @@ def test_gate_rejects_version_and_release_metadata_edge_cases():
     rel_surf3 = next(s for s in result_pre_ok.surfaces if s.name == rsg.SURFACE_RELEASE)
     assert rel_surf3.status == rsg.STATUS_OK
 
-    # isLatest=False blocks
+    # A newer latest release in release list blocks
     result_not_latest = _call_gate(run_gh=_gh_all_ok(release_latest=False))
     assert result_not_latest.ok is False
     rel_surf4 = next(s for s in result_not_latest.surfaces if s.name == rsg.SURFACE_RELEASE)
@@ -392,12 +415,13 @@ def test_gate_rejects_version_and_release_metadata_edge_cases():
                 "tagName": "v9.9.9",
                 "isDraft": False,
                 "isPrerelease": False,
-                "isLatest": True,
                 "publishedAt": "2024-01-01T00:00:00Z",
                 "url": "https://github.com/...",
                 "targetCommitish": "main",
             }
             return 0, json.dumps(data), ""
+        if "release" in args and "list" in args:
+            return 0, json.dumps(_release_list_data()), ""
         run = {"status": "completed", "conclusion": "success", "headBranch": BRANCH}
         return 0, json.dumps([run]), ""
 
@@ -606,6 +630,7 @@ def test_gate_cli_help_exits_cleanly():
     assert "--version" in r.stdout
     assert "--repo" in r.stdout
     assert "--json" in r.stdout
+    assert "--smoke-timeout-seconds" in r.stdout
 
 
 # ── Regression: stale-success masking ────────────────────────────────────────
@@ -622,16 +647,9 @@ def test_workflow_stale_success_does_not_mask_newer_failure():
             ]
             return 0, json.dumps(runs), ""
         if "release" in args and "view" in args:
-            data = {
-                "tagName": f"v{VERSION}",
-                "isDraft": False,
-                "isPrerelease": False,
-                "isLatest": True,
-                "publishedAt": "2024-01-01T00:00:00Z",
-                "url": "https://github.com/testowner/testrepo/releases/tag/v1.2.3",
-                "targetCommitish": "main",
-            }
-            return 0, json.dumps(data), ""
+            return 0, json.dumps(_release_view_data()), ""
+        if "release" in args and "list" in args:
+            return 0, json.dumps(_release_list_data()), ""
         return 0, "[]", ""
 
     result = _call_gate(run_gh=gh_newer_failure_older_success)

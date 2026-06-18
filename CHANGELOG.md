@@ -1,18 +1,11 @@
 # Changelog
 
-## 2026-06-16 · WATCH-RUN-READINESS-DIAGNOSTICS
-
-Add startup readiness markers to `watch_and_mine`/`watch_all` so daemon initialization is distinguishable from stale post-recovery log entries.
-
-## 2026-06-11 · STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD
-
-Add subprocess-level regression guards for HuggingFace cached model fetch and search operations to verify no token warnings or metadata network calls are emitted during offline operation.
-
-## 2026-06-11 · WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD
-
-Guard `watch_and_mine` / `watch_all` against runaway FSEvents churn on macOS by refusing to monitor uninitialized roots and validating watch targets before `watchdog` observer startup.
-
 ## Unreleased
+
+## v1.11.0 — 2026-06-18
+
+Minor release for release-readiness gates, dependency audit automation, offline
+search guards, and watcher reliability.
 
 ### Added
 
@@ -23,6 +16,34 @@ Guard `watch_and_mine` / `watch_all` against runaway FSEvents churn on macOS by 
   for drift detection and public-safety validation; wired into `/verify` and CI.
 - Comprehensive test suite for packet generation with coverage for output
   normalization, known-answer retrieval assertions, and artifact cleanup.
+- Dependency upgrade/audit gate covering proposed dependency changes, current
+  resolver audit checks, CI integration, allowlist handling, and documentation.
+- Weekly scheduled dependency audit workflow for the current dependency graph.
+- Six-surface release publication status gate covering publish remote tags,
+  branch tests, PyPI publish workflow status, GitHub Release metadata, PyPI JSON,
+  and fresh install smoke.
+- Watcher startup readiness markers for `watch_and_mine` and `watch_all`, making
+  daemon initialization distinguishable from stale post-recovery log entries.
+
+### Fixed
+
+- `watch_and_mine` and `watch_all` now refuse uninitialized roots before starting
+  macOS FSEvents observers, preventing runaway watcher churn on broad local roots.
+- Cached Hugging Face model fetch and search paths are guarded by subprocess-level
+  offline regressions that catch token warnings or metadata network calls.
+- `watch status` now reports the top-level launchd service state instead of
+  nested coalition state from `launchctl print`.
+- Release status gate no longer requests unsupported `gh release view --json
+  isLatest`; latest release is checked through `gh release list`.
+- Release install smoke subprocesses are bounded by a timeout so public-surface
+  diagnostics cannot hang indefinitely on resolver/network stalls.
+- Release gate token sanitization avoids self-matching scanner literals while
+  still redacting GitHub and PyPI token-shaped values from diagnostics.
+
+### Removed
+
+- Ignored `.tasks/` and `docs/audits/` Autopilot artifacts are no longer tracked
+  in the public tree.
 
 ## v1.10.4 — 2026-06-06
 

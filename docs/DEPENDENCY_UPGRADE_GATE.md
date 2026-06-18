@@ -155,6 +155,11 @@ The Tests workflow runs `ci-check` on every pull request and push:
   gate passes immediately (no report required). Clean PRs that do not touch
   dependencies are never blocked.
 
+- **Only release/package metadata changed** → gate passes without a report when
+  dependency-relevant `pyproject.toml` content is unchanged and `uv.lock` differs
+  only by the root editable package version. Normal release version bumps do not
+  require a dependency-upgrade audit report.
+
 - **Either file changed from the base ref** → the gate requires exactly one
   report under `docs/dependency-upgrade-reports/` whose `pyproject_hash` and
   `lockfile_hash` match the current workspace files, and whose `status` is

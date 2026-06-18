@@ -607,6 +607,77 @@ def _check_dep_files_changed(
     return bool(changed & {"pyproject.toml", "uv.lock"})
 
 
+def _pyproject_dependency_contract(data: dict) -> dict:
+    project = data.get("project", {})
+    return {
+        "requires-python": project.get("requires-python"),
+        "dependencies": project.get("dependencies", []),
+        "optional-dependencies": project.get("optional-dependencies", {}),
+        "dependency-groups": data.get("dependency-groups", {}),
+        "build-system": data.get("build-system", {}),
+    }
+
+
+def _lockfile_dependency_contract(data: dict, project_name: str) -> list[dict]:
+    packages = []
+    for raw_pkg in data.get("package", []):
+        if not isinstance(raw_pkg, dict):
+            continue
+        pkg = dict(raw_pkg)
+        source = pkg.get("source")
+        if (
+            pkg.get("name") == project_name
+            and isinstance(source, dict)
+            and source.get("editable") == "."
+        ):
+            pkg.pop("version", None)
+        packages.append(pkg)
+    return packages
+
+
+def _read_git_file(base_ref: str, path: str, root: Path, git_runner) -> str | None:
+    result = git_runner(["show", f"{base_ref}:{path}"], root)
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _dependency_contract_changed(
+    base_ref: str,
+    root: Path,
+    git_runner,
+) -> bool | None:
+    """Return whether changed dependency files alter install-affecting content.
+
+    Returns None on missing base files or parse failures so callers can fail
+    closed and require a full dependency report.
+    """
+    base_pyproject_text = _read_git_file(base_ref, "pyproject.toml", root, git_runner)
+    base_lock_text = _read_git_file(base_ref, "uv.lock", root, git_runner)
+    if base_pyproject_text is None or base_lock_text is None:
+        return None
+
+    try:
+        base_pyproject = tomllib.loads(base_pyproject_text)
+        current_pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+        base_lock = tomllib.loads(base_lock_text)
+        current_lock = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+
+    project_name = str(
+        current_pyproject.get("project", {}).get(
+            "name",
+            base_pyproject.get("project", {}).get("name", ""),
+        )
+    )
+    return _pyproject_dependency_contract(base_pyproject) != _pyproject_dependency_contract(
+        current_pyproject
+    ) or _lockfile_dependency_contract(base_lock, project_name) != _lockfile_dependency_contract(
+        current_lock, project_name
+    )
+
+
 # ── ci-check command ───────────────────────────────────────────────────────────
 
 
@@ -628,6 +699,14 @@ def cmd_ci_check(base_ref: str, root: Path, *, git_runner=None) -> int:
 
     if not changed:
         print("ci-check passed: dependency files unchanged from base ref")
+        return 0
+
+    dependency_contract_changed = _dependency_contract_changed(base_ref, root, git_runner)
+    if dependency_contract_changed is False:
+        print(
+            "ci-check passed: dependency files changed but dependency contract "
+            "is unchanged from base ref"
+        )
         return 0
 
     # Dependency files changed — require exactly one fresh successful report

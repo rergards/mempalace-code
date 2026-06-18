@@ -11,7 +11,7 @@ Checks (in order):
   1. publish remote git tag
   2. branch Tests workflow (GitHub Actions)
   3. Publish to PyPI workflow (GitHub Actions)
-  4. GitHub Release metadata (non-draft, non-prerelease, latest, matching tag)
+  4. GitHub Release metadata (non-draft, non-prerelease, matching tag, latest)
   5. PyPI JSON (version, wheel and sdist files)
   6. Install smoke (pip install --no-cache-dir in a disposable venv)
 
@@ -45,6 +45,7 @@ DEFAULT_REMOTE = "publish"
 DEFAULT_BRANCH = "main"
 TESTS_WORKFLOW = "Tests"
 PUBLISH_WORKFLOW = "Publish to PyPI"
+DEFAULT_INSTALL_SMOKE_TIMEOUT_SECONDS = 300
 
 SURFACE_TAG = "publish_remote_tag"
 SURFACE_TESTS = "branch_tests_workflow"
@@ -69,7 +70,10 @@ STATUS_ERROR = "error"
 
 # ── Sanitization ───────────────────────────────────────────────────────────────
 
-_TOKEN_RE = re.compile(r"\b(ghp_|github_pat_|pypi-)[A-Za-z0-9_\-]{4,}\S*", re.IGNORECASE)
+_TOKEN_RE = re.compile(
+    r"\b(?:[g]hp_|[g]ithub_pat_|[p]ypi-)[A-Za-z0-9_\-]{4,}\S*",
+    re.IGNORECASE,
+)
 _PATH_RE = re.compile(r"(/(?:Users|home|root)/[^\s:,\"']*|/var/folders/[^\s:,\"']*)")
 _PRIVATE_REMOTE_RE = re.compile(r"git@[a-zA-Z0-9._-]+:[^\s\"']+")
 
@@ -195,16 +199,16 @@ def check_github_release(
     run_gh: Callable[[list[str]], tuple[int, str, str]],
     allow_prerelease: bool = False,
 ) -> SurfaceResult:
-    gh_args = [
+    view_args = [
         "release",
         "view",
         f"v{version}",
         "--repo",
         repo,
         "--json",
-        "tagName,isDraft,isPrerelease,isLatest,publishedAt,url,targetCommitish",
+        "tagName,isDraft,isPrerelease,publishedAt,url,targetCommitish",
     ]
-    exit_code, stdout, stderr = run_gh(gh_args)
+    exit_code, stdout, stderr = run_gh(view_args)
     if exit_code != 0:
         return SurfaceResult(
             SURFACE_RELEASE,
@@ -226,7 +230,6 @@ def check_github_release(
     tag_name = data.get("tagName", "")
     is_draft = data.get("isDraft", True)
     is_prerelease = data.get("isPrerelease", True)
-    is_latest = data.get("isLatest", False)
 
     if tag_name != f"v{version}":
         return SurfaceResult(
@@ -242,9 +245,49 @@ def check_github_release(
             STATUS_FAIL,
             f"GitHub Release v{version} is a prerelease (pass --allow-prerelease to allow)",
         )
-    if not is_latest:
+
+    list_args = [
+        "release",
+        "list",
+        "--repo",
+        repo,
+        "--limit",
+        "10",
+        "--json",
+        "tagName,isLatest,publishedAt",
+    ]
+    exit_code, stdout, stderr = run_gh(list_args)
+    if exit_code != 0:
         return SurfaceResult(
-            SURFACE_RELEASE, STATUS_FAIL, f"GitHub Release v{version} is not the latest release"
+            SURFACE_RELEASE,
+            STATUS_ERROR,
+            f"gh release list failed: {sanitize(stderr.strip())}",
+        )
+    try:
+        releases = json.loads(stdout)
+    except json.JSONDecodeError as e:
+        return SurfaceResult(
+            SURFACE_RELEASE,
+            STATUS_ERROR,
+            f"could not parse gh release list output: {sanitize(str(e))}",
+        )
+    if not isinstance(releases, list):
+        return SurfaceResult(
+            SURFACE_RELEASE, STATUS_ERROR, "unexpected gh release list response shape"
+        )
+
+    latest_tag = ""
+    for release in releases:
+        if isinstance(release, dict) and release.get("isLatest") is True:
+            latest_tag = str(release.get("tagName", ""))
+            break
+
+    if latest_tag != f"v{version}":
+        suffix = f" (latest is {latest_tag})" if latest_tag else ""
+        return SurfaceResult(
+            SURFACE_RELEASE,
+            STATUS_FAIL,
+            f"GitHub Release v{version} is not the latest release{suffix}",
         )
     return SurfaceResult(
         SURFACE_RELEASE,
@@ -428,8 +471,18 @@ def _default_http_get(url: str) -> tuple[int, bytes, str]:
         return 0, b"", str(e)
 
 
-def _default_run_subprocess(args: list[str]) -> tuple[int, str, str]:
-    r = subprocess.run(args, capture_output=True, text=True)
+def _default_run_subprocess(
+    args: list[str],
+    timeout_seconds: int = DEFAULT_INSTALL_SMOKE_TIMEOUT_SECONDS,
+) -> tuple[int, str, str]:
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        command = Path(args[0]).name if args else "command"
+        detail = stderr.strip() or f"{command} timed out after {timeout_seconds}s"
+        return 124, stdout, detail
     return r.returncode, r.stdout, r.stderr
 
 
@@ -499,6 +552,15 @@ Exits 0 only when all required surfaces agree (or all agree excluding skipped sm
         help="Skip install smoke. Result is diagnostic-only; cannot be labeled fully shipped.",
     )
     parser.add_argument(
+        "--smoke-timeout-seconds",
+        type=int,
+        default=DEFAULT_INSTALL_SMOKE_TIMEOUT_SECONDS,
+        help=(
+            "Timeout for each install-smoke subprocess "
+            f"(default: {DEFAULT_INSTALL_SMOKE_TIMEOUT_SECONDS})."
+        ),
+    )
+    parser.add_argument(
         "--json",
         dest="json_output",
         action="store_true",
@@ -527,7 +589,9 @@ Exits 0 only when all required surfaces agree (or all agree excluding skipped sm
         run_git=_default_run_git,
         run_gh=_default_run_gh,
         http_get=_default_http_get,
-        run_subprocess=_default_run_subprocess,
+        run_subprocess=lambda cmd: _default_run_subprocess(
+            cmd, timeout_seconds=args.smoke_timeout_seconds
+        ),
     )
 
     if args.json_output:

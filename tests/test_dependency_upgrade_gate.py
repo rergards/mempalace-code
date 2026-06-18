@@ -341,7 +341,11 @@ def test_chromadb_one_x_target_is_rejected_while_ghsa_f4j7_r4q5_qw2c_affects_it(
 # ── AC-5: CI report freshness ──────────────────────────────────────────────────
 
 
-def _make_git_runner(changed_files: list[str] | None = None, resolvable: bool = True):
+def _make_git_runner(
+    changed_files: list[str] | None = None,
+    resolvable: bool = True,
+    base_files: dict[str, str] | None = None,
+):
     """Return a git_runner that reports specific file changes."""
 
     def _runner(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
@@ -351,6 +355,11 @@ def _make_git_runner(changed_files: list[str] | None = None, resolvable: bool = 
         if args[0] == "diff":
             output = "\n".join(changed_files or []) + ("\n" if changed_files else "")
             return subprocess.CompletedProcess(args, 0, stdout=output, stderr="")
+        if args[0] == "show":
+            path = args[1].split(":", 1)[1] if ":" in args[1] else args[1]
+            if base_files and path in base_files:
+                return subprocess.CompletedProcess(args, 0, stdout=base_files[path], stderr="")
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="not found")
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     return _runner
@@ -467,6 +476,104 @@ def test_ci_check_passes_when_dependencies_unchanged_and_no_report_exists(tmp_pa
     assert rc == 0
     out = capsys.readouterr().out
     assert "unchanged" in out
+
+
+def test_ci_check_allows_version_only_release_bump_without_dependency_report(tmp_path, capsys):
+    """Release version bumps touch pyproject.toml and the root editable lock package,
+    but they must not require a dependency-upgrade report when install-affecting
+    dependency content is unchanged."""
+    base_pyproject = "\n".join(
+        [
+            "[project]",
+            'name = "test-pkg"',
+            'version = "0.1.0"',
+            'dependencies = ["lancedb>=0.20"]',
+            "",
+        ]
+    )
+    current_pyproject = base_pyproject.replace('version = "0.1.0"', 'version = "0.2.0"')
+    base_lock = "\n".join(
+        [
+            "version = 1",
+            'requires-python = ">=3.11"',
+            "",
+            "[[package]]",
+            'name = "test-pkg"',
+            'version = "0.1.0"',
+            'source = { editable = "." }',
+            "dependencies = [",
+            '    { name = "lancedb" },',
+            "]",
+            "",
+            "[[package]]",
+            'name = "lancedb"',
+            'version = "0.20.0"',
+            'source = { registry = "https://pypi.org/simple" }',
+            "",
+        ]
+    )
+    current_lock = base_lock.replace('version = "0.1.0"', 'version = "0.2.0"', 1)
+
+    (tmp_path / "pyproject.toml").write_text(current_pyproject, encoding="utf-8")
+    (tmp_path / "uv.lock").write_text(current_lock, encoding="utf-8")
+
+    git_runner = _make_git_runner(
+        changed_files=["pyproject.toml", "uv.lock"],
+        base_files={"pyproject.toml": base_pyproject, "uv.lock": base_lock},
+    )
+
+    rc = gate.cmd_ci_check("abc123", tmp_path, git_runner=git_runner)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "dependency contract is unchanged" in out
+
+
+def test_ci_check_still_requires_report_when_dependency_contract_changes(tmp_path, capsys):
+    base_pyproject = "\n".join(
+        [
+            "[project]",
+            'name = "test-pkg"',
+            'version = "0.1.0"',
+            'dependencies = ["lancedb>=0.20"]',
+            "",
+        ]
+    )
+    current_pyproject = base_pyproject.replace("lancedb>=0.20", "lancedb>=0.21")
+    base_lock = "\n".join(
+        [
+            "version = 1",
+            'requires-python = ">=3.11"',
+            "",
+            "[[package]]",
+            'name = "test-pkg"',
+            'version = "0.1.0"',
+            'source = { editable = "." }',
+            "dependencies = [",
+            '    { name = "lancedb" },',
+            "]",
+            "",
+            "[[package]]",
+            'name = "lancedb"',
+            'version = "0.20.0"',
+            'source = { registry = "https://pypi.org/simple" }',
+            "",
+        ]
+    )
+
+    (tmp_path / "pyproject.toml").write_text(current_pyproject, encoding="utf-8")
+    (tmp_path / "uv.lock").write_text(base_lock, encoding="utf-8")
+
+    git_runner = _make_git_runner(
+        changed_files=["pyproject.toml"],
+        base_files={"pyproject.toml": base_pyproject, "uv.lock": base_lock},
+    )
+
+    rc = gate.cmd_ci_check("abc123", tmp_path, git_runner=git_runner)
+
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "no report directory" in err
 
 
 # ── Additional edge-case tests ─────────────────────────────────────────────────
