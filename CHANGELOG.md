@@ -5,7 +5,7 @@
 ## v1.11.0 — 2026-06-18
 
 Minor release for release-readiness gates, dependency audit automation, offline
-search guards, and watcher reliability.
+search guards, watcher reliability, and clearer CLI recovery guidance.
 
 ### Added
 
@@ -25,6 +25,18 @@ search guards, and watcher reliability.
 - Watcher startup readiness markers for `watch_and_mine` and `watch_all`, making
   daemon initialization distinguishable from stale post-recovery log entries.
 
+### Changed
+
+- Human-facing CLI failures now prefer explicit `Next:` recovery guidance across
+  search, read, export, backup/restore, watch status, mine-all, compress, health,
+  cleanup, and model-fetch flows.
+- Pipe-sensitive commands keep machine-readable output clean: `read` failures and
+  `export --out -` diagnostics go to stderr, and generated backup/watch schedule
+  snippets remain on stdout while install hints go to stderr.
+- Legacy Claude Code hook prompts now give concise MCP save contracts instead of
+  broad "save everything" instructions, while Codex/Gemini docs point to MCP +
+  canonical usage rules.
+
 ### Fixed
 
 - `watch_and_mine` and `watch_all` now refuse uninitialized roots before starting
@@ -39,6 +51,8 @@ search guards, and watcher reliability.
   diagnostics cannot hang indefinitely on resolver/network stalls.
 - Release gate token sanitization avoids self-matching scanner literals while
   still redacting GitHub and PyPI token-shaped values from diagnostics.
+- `search --palace <missing>` now fails with a clear stderr diagnostic instead
+  of reporting an empty result set.
 
 ### Removed
 
