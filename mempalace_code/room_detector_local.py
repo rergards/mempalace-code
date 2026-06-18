@@ -259,7 +259,11 @@ def get_user_approval(rooms: list) -> list:
     print("    [add]    Add a room manually")
     print()
 
-    choice = input("  Your choice [enter/edit/add]: ").strip().lower()
+    while True:
+        choice = input("  Your choice [enter/edit/add]: ").strip().lower()
+        if choice in ("", "y", "yes", "edit", "add"):
+            break
+        print("  Not recognized. Press enter to accept, or type edit/add.")
 
     if choice in ("", "y", "yes"):
         return rooms

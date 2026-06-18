@@ -101,6 +101,11 @@ def cmd_watch_status(args):
     print(f"  Backups:  {format_bytes(status.backups_bytes)}")
     runnable = "yes" if status.allowed else "no  (disk budget exceeded)"
     print(f"  Runnable: {runnable}")
+    next_action = None
+    if not status.allowed:
+        next_action = (
+            "free disk space or lower watch_disk_min_free_bytes, then rerun this status command."
+        )
 
     # LaunchAgent state (macOS only)
     if sys.platform.startswith("darwin"):
@@ -153,13 +158,43 @@ def cmd_watch_status(args):
                     print(f"  LaunchAgent: last exit code = {exit_code_val}")
                 if watched_root:
                     print(f"  Watched root: {watched_root}")
+                if next_action is None:
+                    if exit_code_val is not None and exit_code_val != 0:
+                        next_action = (
+                            "inspect /tmp/mempalace-watch.log, fix the last failure, "
+                            "then rerun this status command."
+                        )
+                    elif state not in ("running", "waiting"):
+                        next_action = (
+                            "check launchctl state and /tmp/mempalace-watch.log, "
+                            "then rerun this status command."
+                        )
             else:
                 print("  LaunchAgent: com.mempalace.watch  (not loaded)")
+                if next_action is None:
+                    next_action = (
+                        "if ~/Library/LaunchAgents/com.mempalace.watch.plist already points at "
+                        "the intended root, run launchctl load "
+                        "~/Library/LaunchAgents/com.mempalace.watch.plist; otherwise run "
+                        f"mempalace-code watch {args.dir} schedule > "
+                        "~/Library/LaunchAgents/com.mempalace.watch.plist first."
+                    )
         except FileNotFoundError:
             print("  LaunchAgent: launchctl not found")
+            if next_action is None:
+                next_action = "run the watcher in the foreground: mempalace-code watch <dir>"
         except subprocess.TimeoutExpired:
             print("  LaunchAgent: state unavailable (launchctl timed out)")
+            if next_action is None:
+                next_action = (
+                    "retry status; if it repeats, inspect launchctl and /tmp/mempalace-watch.log."
+                )
         except Exception as exc:
             print(f"  LaunchAgent: state unavailable ({exc})")
+            if next_action is None:
+                next_action = "inspect launchctl and /tmp/mempalace-watch.log, then rerun status."
     else:
         print("  LaunchAgent: not available (launchd is macOS-only)")
+
+    if next_action:
+        print(f"  Next: {next_action}")

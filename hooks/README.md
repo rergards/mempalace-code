@@ -6,10 +6,10 @@ Optional Claude Code hooks that trigger automatic memory saves during conversati
 
 | Hook | When It Fires | What Happens |
 |------|--------------|-------------|
-| **Save Hook** | Every 15 human messages | Blocks the AI, tells it to save key topics/decisions/quotes to the palace |
-| **PreCompact Hook** | Right before context compaction | Emergency save — forces the AI to save EVERYTHING before losing context |
+| **Save Hook** | Every 15 human messages | Blocks the AI and tells it to save durable decisions, root causes, concise evidence, and a diary note via MCP |
+| **PreCompact Hook** | Right before context compaction | Blocks the AI and requests a final scoped save before detailed context is compressed |
 
-The AI does the actual filing — it knows the conversation context, so it classifies memories into the right wings/halls/closets. The hooks just tell it WHEN to save.
+The AI does the actual filing with MCP tools and the canonical usage rules, including duplicate checks, one topic per drawer, and diary vs drawer separation. The hooks only decide when to block.
 
 ## Install — Claude Code
 
@@ -54,7 +54,7 @@ These hooks are **Claude Code-only** — they rely on Claude Code's `Stop` and `
 | **Conversation context** (decisions, discussions) | MCP tools — `mempalace_add_drawer`, `mempalace_diary_write` |
 | **Session continuity** | Add mempalace usage rules to agent instructions (see `docs/AGENT_INSTALL.md` Section 7) |
 
-For Codex specifically, wire the MCP server in `~/.codex/config.toml` (see `docs/AGENT_INSTALL.md` Step 5.2) and add a system prompt instruction like: *"At the end of each session, save key decisions and context to mempalace using `mempalace_add_drawer` and `mempalace_diary_write`."*
+For Codex specifically, wire the MCP server in `~/.codex/config.toml` (see `docs/AGENT_INSTALL.md` Step 5.2) and add the canonical usage rules from `docs/LLM_USAGE_RULES.md` to `~/.codex/AGENTS.md` or the project `AGENTS.md`.
 
 ## Configuration
 

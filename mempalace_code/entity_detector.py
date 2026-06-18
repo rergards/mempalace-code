@@ -755,10 +755,25 @@ def confirm_entities(detected: dict, yes: bool = False) -> dict:
     print("    [add]    Add missing people or projects")
     print()
 
-    choice = input("  Your choice [enter/edit/add]: ").strip().lower()
+    while True:
+        choice = input("  Your choice [enter/edit/add]: ").strip().lower()
+        if choice in ("", "y", "yes", "edit", "add"):
+            break
+        print("  Not recognized. Press enter to accept, or type edit/add.")
 
     confirmed_people = [e["name"] for e in detected["people"]]
     confirmed_projects = [e["name"] for e in detected["projects"]]
+
+    if choice in ("", "y", "yes"):
+        print(f"\n{'=' * 58}")
+        print("  Confirmed:")
+        print(f"  People:   {', '.join(confirmed_people) or '(none)'}")
+        print(f"  Projects: {', '.join(confirmed_projects) or '(none)'}")
+        print(f"{'=' * 58}\n")
+        return {
+            "people": confirmed_people,
+            "projects": confirmed_projects,
+        }
 
     if choice == "edit":
         # Handle uncertain first
@@ -789,7 +804,9 @@ def confirm_entities(detected: dict, yes: bool = False) -> dict:
             to_remove = {int(x.strip()) - 1 for x in remove.split(",") if x.strip().isdigit()}
             confirmed_projects = [p for i, p in enumerate(confirmed_projects) if i not in to_remove]
 
-    if choice == "add" or input("\n  Add any missing? [y/N]: ").strip().lower() == "y":
+    if choice == "add" or (
+        choice == "edit" and input("\n  Add any missing? [y/N]: ").strip().lower() == "y"
+    ):
         while True:
             name = input("  Name (or enter to stop): ").strip()
             if not name:

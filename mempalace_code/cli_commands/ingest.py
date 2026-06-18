@@ -96,10 +96,18 @@ def cmd_mine(args):
         # Validate incompatible flag combinations
         if args.dry_run:
             print("  Error: --watch is incompatible with --dry-run.", file=sys.stderr)
+            print(
+                "  Next: run the dry run without --watch, then start watch separately.",
+                file=sys.stderr,
+            )
             sys.exit(2)
         if args.full:
             print(
                 "  Error: --watch is incompatible with --full (watch always uses incremental).",
+                file=sys.stderr,
+            )
+            print(
+                "  Next: run --full once without --watch, then start watch separately.",
                 file=sys.stderr,
             )
             sys.exit(2)
@@ -109,9 +117,14 @@ def cmd_mine(args):
                 "(watch must process all files for correct stale-file cleanup).",
                 file=sys.stderr,
             )
+            print("  Next: remove --limit before starting watch.", file=sys.stderr)
             sys.exit(2)
         if args.mode == "convos":
             print("  Error: --watch is not supported with --mode convos.", file=sys.stderr)
+            print(
+                "  Next: mine conversation exports once without --watch, or watch a project-source directory.",
+                file=sys.stderr,
+            )
             sys.exit(2)
 
         try:
@@ -189,6 +202,10 @@ def cmd_mine_all(args):
 
     if not projects:
         print(f"  No projects found in {parent_dir}")
+        print(
+            "  Next: run mempalace-code init <project-dir>, or point mine-all at a "
+            "parent directory with initialized project subdirectories."
+        )
         return
 
     # Resolve wing names; config parse errors are fatal before any mining starts.

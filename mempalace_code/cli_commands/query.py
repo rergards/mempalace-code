@@ -94,6 +94,7 @@ def cmd_compress(args):
     if not docs:
         wing_label = f" in wing '{args.wing}'" if args.wing else ""
         print(f"\n  No drawers found{wing_label}.")
+        print("  Next: check --wing/--room filters, or run mempalace-code mine <project-dir>.")
         return
 
     print(
@@ -162,11 +163,22 @@ def cmd_read(args):
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
 
+    if not os.path.isdir(palace_path):
+        print(f"\n  No palace found at {palace_path}", file=sys.stderr)
+        print(
+            "  Next: run mempalace-code init <dir>, then mempalace-code mine <dir>.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     try:
         store = open_store(palace_path, create=False, read_only=True)
     except Exception:
-        print(f"\n  No palace found at {palace_path}")
-        print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")
+        print(f"\n  No palace found at {palace_path}", file=sys.stderr)
+        print(
+            "  Next: run mempalace-code init <dir>, then mempalace-code mine <dir>.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     result = read_slice(store, args.source_file, args.start, args.end, wing=args.wing)
@@ -174,24 +186,44 @@ def cmd_read(args):
     error = result.get("error")
     if error == "not_found":
         print(
-            f"\n  Not found: no palace chunks for '{result.get('source_file', args.source_file)}'"
+            f"\n  Not found: no palace chunks for '{result.get('source_file', args.source_file)}'",
+            file=sys.stderr,
+        )
+        print(
+            '  Next: run mempalace-code search "<query>" and copy the exact Source path; '
+            "if the file should be indexed, rerun mempalace-code mine <project-dir>.",
+            file=sys.stderr,
         )
         sys.exit(1)
     if error == "stale_pointer":
-        print(f"\n  Stale pointer: {result.get('detail', '')}")
-        print(f"  source_file: {result.get('source_file', args.source_file)}")
+        print(f"\n  Stale pointer: {result.get('detail', '')}", file=sys.stderr)
+        print(f"  source_file: {result.get('source_file', args.source_file)}", file=sys.stderr)
+        print(
+            "  Next: rerun mempalace-code mine <project-dir> to refresh line metadata, "
+            "then retry with the Source path from search.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     if error == "invalid_range":
-        print(f"\n  Invalid range: {result.get('detail', '')}")
+        print(f"\n  Invalid range: {result.get('detail', '')}", file=sys.stderr)
+        print(
+            "  Next: pass positive line numbers with --start less than or equal to --end.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     if error == "ambiguous_source":
-        print(f"\n  Ambiguous source: '{args.source_file}' matches multiple stored paths.")
-        print("  Use the full stored path from one of these candidates:")
+        print(
+            f"\n  Ambiguous source: '{args.source_file}' matches multiple stored paths.",
+            file=sys.stderr,
+        )
+        print(
+            "  Next: retry with the full stored path from one of these candidates:", file=sys.stderr
+        )
         for candidate in result.get("candidates", []):
-            print(f"    {candidate}")
+            print(f"    {candidate}", file=sys.stderr)
         sys.exit(1)
     if error:
-        print(f"\n  Error: {error}")
+        print(f"\n  Error: {error}", file=sys.stderr)
         sys.exit(1)
 
     for entry in result.get("lines", []):

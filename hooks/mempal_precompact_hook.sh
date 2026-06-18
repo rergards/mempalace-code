@@ -5,8 +5,8 @@
 # gets compressed to free up context window space.
 #
 # This is the safety net. When compaction happens, the AI loses detailed
-# context about what was discussed. This hook forces one final save of
-# EVERYTHING before that happens.
+# context about what was discussed. This hook requests one final scoped save
+# before that happens.
 #
 # Unlike the save hook (which triggers every N exchanges), this ALWAYS
 # blocks — because compaction is always worth saving before.
@@ -24,13 +24,7 @@
 #     }]
 #   }
 #
-# For Codex CLI, add to .codex/hooks.json:
-#
-#   "PreCompact": [{
-#     "type": "command",
-#     "command": "/absolute/path/to/mempal_precompact_hook.sh",
-#     "timeout": 30
-#   }]
+# Other agents: use MCP + usage rules instead of Claude Code hook events.
 #
 # === HOW IT WORKS ===
 #
@@ -38,7 +32,7 @@
 #   session_id — unique session identifier
 #
 # We always return decision: "block" with a reason telling the AI
-# to save everything. After the AI saves, compaction proceeds normally.
+# to make a scoped MCP save. After the AI saves, compaction proceeds normally.
 #
 # === MEMPALACE CLI ===
 # This repo uses: mempalace-code mine <dir>
@@ -73,10 +67,10 @@ if [ -n "$MEMPAL_DIR" ] && [ -d "$MEMPAL_DIR" ]; then
     fi
 fi
 
-# Always block — compaction = save everything
+# Always block: compaction needs a final scoped save.
 cat << 'HOOKJSON'
 {
   "decision": "block",
-  "reason": "COMPACTION IMMINENT. Save ALL topics, decisions, quotes, code, and important context from this session to your memory system. Be thorough — after compaction, detailed context will be lost. Organize into appropriate categories. Use verbatim quotes where possible. Save everything, then allow compaction to proceed."
+  "reason": "PRE-COMPACT checkpoint. Save only durable context before compaction. Call mempalace_check_duplicate before substantial drawer prose. Use mempalace_add_drawer for decisions, root causes, or concise verbatim evidence; one topic per drawer, <=60 lines, paths/IDs instead of blobs. Use mempalace_diary_write for session continuity. Then allow compaction."
 }
 HOOKJSON

@@ -82,17 +82,29 @@ class TestWatchFlagValidation:
             except SystemExit as exc:
                 return exc.code
 
-    def test_watch_rejects_dry_run(self, tmp_path):
+    def test_watch_rejects_dry_run(self, tmp_path, capsys):
         assert self._run(tmp_path, "--dry-run") == 2
+        err = capsys.readouterr().err
+        assert "Next:" in err
+        assert "without --watch" in err
 
-    def test_watch_rejects_full(self, tmp_path):
+    def test_watch_rejects_full(self, tmp_path, capsys):
         assert self._run(tmp_path, "--full") == 2
+        err = capsys.readouterr().err
+        assert "Next:" in err
+        assert "--full once without --watch" in err
 
-    def test_watch_rejects_limit(self, tmp_path):
+    def test_watch_rejects_limit(self, tmp_path, capsys):
         assert self._run(tmp_path, "--limit", "5") == 2
+        err = capsys.readouterr().err
+        assert "Next:" in err
+        assert "remove --limit" in err
 
-    def test_watch_rejects_convos(self, tmp_path):
+    def test_watch_rejects_convos(self, tmp_path, capsys):
         assert self._run(tmp_path, "--mode", "convos") == 2
+        err = capsys.readouterr().err
+        assert "Next:" in err
+        assert "without --watch" in err
 
 
 # ---------------------------------------------------------------------------
@@ -1315,6 +1327,52 @@ class TestWatchStatusCli:
         assert "not loaded" in captured.out or "not loaded" in captured.err
         assert str(palace) in captured.out
 
+    def test_status_not_loaded_prints_safe_next_action(self, tmp_path, capsys):
+        """watch status tells the operator how to proceed when launchd is not loaded."""
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+
+        with (
+            patch("sys.platform", "darwin"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=5 * 1024**3),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            self._run_status(tmp_path)
+
+        out = capsys.readouterr().out
+        assert "LaunchAgent: com.mempalace.watch  (not loaded)" in out
+        assert "Next:" in out
+        assert "already points at the intended root" in out
+        assert "launchctl load" in out
+        assert "mempalace-code watch" in out
+        assert "schedule >" in out
+
+    def test_status_disk_budget_prints_disk_next_action(self, tmp_path, capsys):
+        """Disk-budget blocks should point at disk recovery before launchd actions."""
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = ""
+
+        with (
+            patch("sys.platform", "darwin"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=0),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            self._run_status(tmp_path)
+
+        out = capsys.readouterr().out
+        assert "Runnable: no" in out
+        assert "Next:" in out
+        assert "free disk space" in out
+        assert "launchctl load" not in out
+
     def test_ac5_macos_loaded_prints_required_fields(self, tmp_path, capsys):
         """AC-5: on macOS with running daemon, stdout includes com.mempalace.watch and state."""
 
@@ -1384,6 +1442,8 @@ class TestWatchStatusCli:
         # Existing fields still present
         assert "com.mempalace.watch" in out
         assert str(palace) in out
+        assert "Next:" in out
+        assert "/tmp/mempalace-watch.log" in out
 
     def test_status_uses_service_state_not_coalition_state(self, tmp_path, capsys):
         """watch status reports the top-level launchd state, not nested coalition state."""

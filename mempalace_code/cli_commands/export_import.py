@@ -1,5 +1,6 @@
 """Export and import command handlers."""
 
+import os
 import sys
 
 from ..config import MempalaceConfig
@@ -11,7 +12,25 @@ def cmd_export(args):
     from ..storage import open_store
 
     palace_path = args.palace or MempalaceConfig().palace_path
-    store = open_store(palace_path, create=False, read_only=True)
+    if not os.path.isdir(palace_path):
+        print(f"  Error: no palace found at {palace_path}", file=sys.stderr)
+        print(
+            "  Next: run mempalace-code init <dir> then mempalace-code mine <dir>, "
+            "or pass the correct --palace path.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    try:
+        store = open_store(palace_path, create=False, read_only=True)
+    except Exception as exc:
+        print(f"  Error: cannot open palace at {palace_path}: {exc}", file=sys.stderr)
+        print(
+            "  Next: if this is the wrong palace, pass the correct --palace path. "
+            f"If this is your palace, run mempalace-code --palace {palace_path} health, "
+            "then mempalace-code repair --rollback --dry-run before retrying export.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     kg = KnowledgeGraph() if args.with_kg else None
 
     print(f"  Exporting from: {palace_path}", file=sys.stderr)
@@ -32,6 +51,12 @@ def cmd_export(args):
         f"  Exported {summary['drawer_count']} drawers, {summary['kg_count']} KG triples → {args.out}",
         file=sys.stderr,
     )
+    if summary["drawer_count"] == 0 and summary["kg_count"] == 0:
+        print(
+            "  Next: relax export filters (--only-manual/--wing/--room/--since), "
+            "or mine/add content before exporting.",
+            file=sys.stderr,
+        )
 
 
 def cmd_import(args):

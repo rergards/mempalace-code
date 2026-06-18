@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-searcher.py — Find anything. Exact words.
+searcher.py — Semantic search; verbatim stored text.
 
 Semantic search against the palace.
 Returns verbatim text — the actual words, never summaries.
@@ -8,6 +8,8 @@ Returns verbatim text — the actual words, never summaries.
 
 import fnmatch
 import logging
+import os
+import sys
 
 from .language_catalog import searchable_languages
 from .storage import open_store
@@ -30,11 +32,22 @@ def search(
     Search the palace. Returns verbatim drawer content.
     Optionally filter by wing (project) or room (aspect).
     """
+    if not os.path.isdir(palace_path):
+        print(f"\n  No palace found at {palace_path}", file=sys.stderr)
+        print(
+            "  Next: run mempalace-code init <dir>, then mempalace-code mine <dir>.",
+            file=sys.stderr,
+        )
+        raise SearchError(f"No palace found at {palace_path}")
+
     try:
         store = open_store(palace_path, create=False)
     except Exception:
-        print(f"\n  No palace found at {palace_path}")
-        print("  Run: mempalace-code init <dir> then mempalace-code mine <dir>")
+        print(f"\n  No palace found at {palace_path}", file=sys.stderr)
+        print(
+            "  Next: run mempalace-code init <dir>, then mempalace-code mine <dir>.",
+            file=sys.stderr,
+        )
         raise SearchError(f"No palace found at {palace_path}")
 
     # Build where filter
@@ -58,7 +71,12 @@ def search(
         results = store.query(**kwargs)
 
     except Exception as e:
-        print(f"\n  Search error: {e}")
+        print(f"\n  Search error: {e}", file=sys.stderr)
+        print(
+            "  Next: run mempalace-code health; if degraded, run "
+            "mempalace-code repair --rollback --dry-run before retrying search.",
+            file=sys.stderr,
+        )
         raise SearchError(f"Search error: {e}") from e
 
     docs = results["documents"][0]

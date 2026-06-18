@@ -16,7 +16,7 @@ Commands:
     mempalace-code mine-all <parent-dir>       Mine all projects in a directory
     mempalace-code watch <parent-dir>          Watch all projects for changes, re-mine automatically
     mempalace-code watch <parent-dir> schedule Print launchd/cron snippet for watch daemon
-    mempalace-code search "query"              Find anything, exact words
+    mempalace-code search "query"              Semantic search, verbatim stored text
     mempalace-code wake-up                     Show L0 + L1 wake-up context
     mempalace-code wake-up --wing my_app       Wake-up for a specific project
     mempalace-code status                      Show what's been filed
@@ -228,7 +228,11 @@ def main():
     )
 
     # search
-    p_search = sub.add_parser("search", help="Find anything, exact words")
+    p_search = sub.add_parser(
+        "search",
+        help="Semantic search; returns verbatim stored text",
+        description="Semantic search; returns verbatim stored text.",
+    )
     p_search.add_argument("query", help="What to search for")
     p_search.add_argument("--wing", default=None, help="Limit to one project")
     p_search.add_argument("--room", default=None, help="Limit to one room")

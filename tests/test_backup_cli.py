@@ -163,6 +163,8 @@ def test_restore_cli_error_exit(seeded_collection, palace_path, tmp_dir, capsys)
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "Use --force" in captured.err
+    assert "Next:" in captured.err
+    assert "replace the current palace" in captured.err
 
 
 def test_restore_cli_missing_archive_exits_1(palace_path, tmp_dir, capsys):

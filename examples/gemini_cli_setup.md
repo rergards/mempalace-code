@@ -47,41 +47,18 @@ gemini mcp add mempalace-code /absolute/path/to/mempalace-code/.venv/bin/python3
 ```
 *Note: Use the absolute path to ensure it works from any directory.*
 
-## 4. Enable Auto-Saving (Hooks)
+## 4. Teach Gemini When to Use Memory
 
-To ensure the AI saves memories automatically when conversation history becomes too long, add a `PreCompress` hook to your Gemini CLI settings.
+MCP wiring exposes the tools. To make Gemini use them proactively, add the canonical usage rules from `docs/LLM_USAGE_RULES.md` to your Gemini instruction file.
 
-Edit your `~/.gemini/settings.json` and add the following:
-
-```json
-{
-  "hooks": {
-    "PreCompress": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/absolute/path/to/mempalace-code/hooks/mempal_precompact_hook.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Make sure the hook scripts are executable:
-```bash
-chmod +x hooks/*.sh
-```
+Do not use the scripts in `hooks/` for Gemini. They are Claude Code-only legacy hooks and expect Claude Code hook events.
 
 ## 5. Usage
 
 Once connected, Gemini CLI will automatically:
 - Start the mempalace-code server on launch.
 - Use `mempalace_search` to find relevant past discussions.
-- Use the `PreCompress` hook to save new memories before they are lost.
+- Use the usage rules to decide when to save decisions, root causes, concise evidence, and diary notes.
 
 ### Manual Mining
 If you want the AI to learn from your existing code or docs immediately, run the "mine" command:
@@ -92,4 +69,4 @@ If you want the AI to learn from your existing code or docs immediately, run the
 ### Verification
 In a Gemini CLI session, you can run:
 - `/mcp list`: Verify `mempalace-code` is `CONNECTED`.
-- `/hooks panel`: Verify the `PreCompress` hook is active.
+- Ask Gemini to follow `docs/LLM_USAGE_RULES.md`, then verify it can call `mempalace_status`.

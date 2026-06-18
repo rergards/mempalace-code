@@ -38,6 +38,7 @@ def cmd_backup_list(args):
 
     if not entries:
         print("No backups found.")
+        print("Next: create one with mempalace-code backup create.")
         return
 
     # Fixed-width table: TIMESTAMP  SIZE  DRAWERS  KIND  FLAGS  PATH
@@ -110,9 +111,12 @@ def cmd_backup_schedule(args):
 
     print(snippet, end="")
     if platform == "darwin":
-        print("\n  # To install: launchctl load ~/Library/LaunchAgents/com.mempalace.backup.plist")
+        print(
+            "\n  # To install: launchctl load ~/Library/LaunchAgents/com.mempalace.backup.plist",
+            file=sys.stderr,
+        )
     else:
-        print("\n  # To install: crontab -e  (paste the line above)")
+        print("\n  # To install: crontab -e  (paste the line above)", file=sys.stderr)
 
 
 def cmd_backup(args):
@@ -147,6 +151,11 @@ def cmd_restore(args):
         meta = restore_backup(args.archive, palace_path, force=args.force, kg_path=kg_path)
     except FileExistsError as exc:
         print(f"  Error: {exc}", file=sys.stderr)
+        print(
+            "  Next: use --force only if you intend to replace the current palace at "
+            f"{palace_path}.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     except Exception as exc:
         print(f"  Error: {exc}", file=sys.stderr)

@@ -25,13 +25,7 @@
 #     }]
 #   }
 #
-# For Codex CLI, add to .codex/hooks.json:
-#
-#   "Stop": [{
-#     "type": "command",
-#     "command": "/absolute/path/to/mempal_save_hook.sh",
-#     "timeout": 30
-#   }]
+# Other agents: use MCP + usage rules instead of Claude Code hook events.
 #
 # === HOW IT WORKS ===
 #
@@ -138,12 +132,12 @@ if [ "$SINCE_LAST" -ge "$SAVE_INTERVAL" ] && [ "$EXCHANGE_COUNT" -gt 0 ]; then
         fi
     fi
 
-    # Block the AI and tell it to save
-    # The "reason" becomes a system message the AI sees and acts on
+    # Block the AI and give it an executable MCP save contract.
+    # The "reason" becomes a system message the AI sees and acts on.
     cat << 'HOOKJSON'
 {
   "decision": "block",
-  "reason": "AUTO-SAVE checkpoint. Save key topics, decisions, quotes, and code from this session to your memory system. Organize into appropriate categories. Use verbatim quotes where possible. Continue conversation after saving."
+  "reason": "AUTO-SAVE checkpoint. Use MCP tools. Call mempalace_check_duplicate before substantial drawer prose. Use mempalace_add_drawer only for decisions, root causes, or concise verbatim evidence; one topic per drawer, <=60 lines, paths/IDs instead of blobs. Use mempalace_diary_write once for session continuity. Continue conversation after saving."
 }
 HOOKJSON
 else

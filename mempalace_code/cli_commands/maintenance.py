@@ -63,6 +63,11 @@ def cmd_health(args):
                 f"deletion-files: current={s['current_deletion_files']} "
                 f"on-disk={s['on_disk_deletion_files']}"
             )
+        if not report["ok"]:
+            print(
+                "  Next: run mempalace-code repair --rollback --dry-run; "
+                "apply rollback only if the candidate looks right."
+            )
 
     if not report["ok"]:
         sys.exit(1)
@@ -109,6 +114,11 @@ def cmd_cleanup(args):
         sys.exit(1)
     except Exception as e:
         print(f"  Cleanup failed: {e}", file=sys.stderr)
+        print(
+            "  Next: run mempalace-code health and retry cleanup after stopping "
+            "watchers, miners, maintenance commands, and MCP servers.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     if getattr(args, "json", False):
@@ -124,6 +134,11 @@ def cmd_cleanup(args):
         print(f"  Freed: {fmt_bytes(result['freed_bytes'])}")
         if not result["ok"]:
             print(f"  Error: {result.get('error', 'unknown')}", file=sys.stderr)
+            print(
+                "  Next: run mempalace-code health and retry cleanup after stopping "
+                "watchers, miners, maintenance commands, and MCP servers.",
+                file=sys.stderr,
+            )
 
     if not result["ok"]:
         sys.exit(1)
@@ -195,8 +210,13 @@ def cmd_repair(args):
         return
 
     if not os.path.isdir(palace_path):
-        print(f"\n  No palace found at {palace_path}")
-        return
+        print(f"\n  No palace found at {palace_path}", file=sys.stderr)
+        print(
+            "  Next: run mempalace-code init <dir> then mempalace-code mine <dir>, "
+            "or pass the correct --palace path.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     print(f"\n{'=' * 55}")
     print("  MemPalace Repair")

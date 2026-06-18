@@ -638,6 +638,31 @@ class TestHealthCommand:
         assert "ok" in captured.out.lower()
         assert "1" in captured.out  # total_rows = 1
 
+    def test_health_degraded_prints_next_action(self, tmp_path, capsys):
+        from mempalace_code.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        open_store(palace, create=True)
+        degraded_report = {
+            "ok": False,
+            "total_rows": 1,
+            "current_version": 7,
+            "errors": [{"kind": "fragment", "probe": "head", "message": "missing fragment"}],
+            "warnings": [],
+            "storage": {"error": "not available"},
+        }
+
+        with patch.object(LanceStore, "health_check", return_value=degraded_report):
+            with patch.object(sys, "argv", ["mempalace", "--palace", palace, "health"]):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert "DEGRADED" in captured.out
+        assert "Next:" in captured.out
+        assert "repair --rollback --dry-run" in captured.out
+
     def test_health_command_json_output(self, tmp_path, capsys):
         import json
 
@@ -708,6 +733,22 @@ class TestRepairRollbackCommand:
             with pytest.raises(SystemExit) as exc:
                 main()
         assert exc.value.code == 2
+
+    def test_repair_full_missing_palace_exits_nonzero_with_next_action(self, tmp_path, capsys):
+        """Full repair on a missing palace must fail closed and tell the user what to do."""
+        palace = str(tmp_path / "missing-palace")
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "repair"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert "No palace found" in captured.err
+        assert "Next:" in captured.err
+        assert "init <dir>" in captured.err
+        assert "mine <dir>" in captured.err
+        assert "--palace" in captured.err
 
     def test_repair_rollback_live_no_candidate_exits_1(self, tmp_path, capsys):
         """F-2 regression: --rollback live mode exits 1 when no candidate version found."""
@@ -826,6 +867,34 @@ class TestCleanupCommand:
 
         captured = capsys.readouterr()
         assert "no other writer" in captured.out.lower() or "writer" in captured.out.lower()
+
+    def test_cleanup_failed_result_prints_next_action(self, tmp_path, capsys):
+        """Failed cleanup result should tell the operator how to proceed safely."""
+        from mempalace_code.storage import LanceStore
+
+        palace = str(tmp_path / "palace")
+        open_store(palace, create=True)
+        failed_result = {
+            "ok": False,
+            "rows_before": 1,
+            "rows_after": 1,
+            "version_count_before": 2,
+            "version_count_after": 2,
+            "freed_bytes": 0,
+            "error": "simulated cleanup failure",
+        }
+
+        with patch.object(LanceStore, "cleanup_stale_fragments", return_value=failed_result):
+            with patch.object(sys, "argv", ["mempalace", "--palace", palace, "cleanup"]):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert "FAILED" in captured.out
+        assert "simulated cleanup failure" in captured.err
+        assert "Next:" in captured.err
+        assert "stopping watchers" in captured.err
 
     def test_cleanup_unsafe_now_json_delete_unverified_true(self, tmp_path, capsys):
         """cleanup --unsafe-now --json has delete_unverified=true in output (AC-3)."""
@@ -974,6 +1043,8 @@ class TestBackupCommand:
             main()  # must not raise
         captured = capsys.readouterr()
         assert "No backups found" in captured.out
+        assert "Next:" in captured.out
+        assert "backup create" in captured.out
 
     def test_backup_list_populated(self, tmp_path, capsys):
         """backup list shows archive name and drawer count."""
@@ -1038,6 +1109,8 @@ class TestBackupCommand:
         assert "<?xml" in captured.out
         assert "StartCalendarInterval" in captured.out
         assert "--kind scheduled" in captured.out
+        assert "To install" not in captured.out
+        assert "To install" in captured.err
 
     def test_backup_schedule_hourly_darwin(self, tmp_path, capsys, monkeypatch):
         """darwin hourly → StartInterval and 3600."""
@@ -1072,6 +1145,8 @@ class TestBackupCommand:
         assert re.search(r"0\s+3\s+\*\s+\*\s+\*", captured.out)
         assert "--kind scheduled" in captured.out
         assert "--palace" in captured.out
+        assert "To install" not in captured.out
+        assert "To install" in captured.err
 
     def test_backup_schedule_install_rejected(self, tmp_path, capsys):
         """AC-15: --install exits non-zero with 'owner action required' message."""
@@ -1614,6 +1689,8 @@ class TestMineAllCommand:
 
         out = capsys.readouterr().out
         assert "No projects" in out or "no projects" in out.lower()
+        assert "Next:" in out
+        assert "mempalace-code init <project-dir>" in out
 
     def test_mine_all_error_continues(self, tmp_path):
         """AC-5: one mine() raises, others still mined; summary shows 1 error."""
@@ -2351,6 +2428,12 @@ class TestReadCommand:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code != 0
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Not found" in captured.err
+        assert "Next:" in captured.err
+        assert "exact Source path" in captured.err
+        assert "mempalace-code mine <project-dir>" in captured.err
 
     def test_read_command_stale_pointer_exits_nonzero(self, tmp_path, capsys, monkeypatch):
         """read_command: exits non-zero when range overlaps no stored chunk (AC-5)."""
@@ -2376,6 +2459,11 @@ class TestReadCommand:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code != 0
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Stale pointer" in captured.err
+        assert "Next:" in captured.err
+        assert "refresh line metadata" in captured.err
 
     def test_read_command_invalid_range_exits_nonzero(self, tmp_path, capsys, monkeypatch):
         """read_command: exits non-zero when start > end (AC-5)."""
@@ -2401,6 +2489,11 @@ class TestReadCommand:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code != 0
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Invalid range" in captured.err
+        assert "Next:" in captured.err
+        assert "--start" in captured.err
 
 
 # ─── CLI read command: source path discovery tests ────────────────────────────
@@ -2540,13 +2633,17 @@ class TestReadCommandSourcePathDiscovery:
                 main()
         assert exc_info.value.code != 0
 
-        out = capsys.readouterr().out
-        assert "Ambiguous" in out or "ambiguous" in out
-        assert "/project/src/auth.py" in out
-        assert "/project/web/auth.py" in out
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        err = captured.err
+        assert "Ambiguous" in err or "ambiguous" in err
+        assert "Next:" in err
+        assert "full stored path" in err
+        assert "/project/src/auth.py" in err
+        assert "/project/web/auth.py" in err
         # Must not print drawer content on ambiguous read
-        assert "authenticate" not in out
-        assert "AuthController" not in out
+        assert "authenticate" not in err
+        assert "AuthController" not in err
 
     def test_read_command_source_path_discovery_missing_exits_nonzero(
         self, tmp_path, capsys, monkeypatch
@@ -2577,8 +2674,10 @@ class TestReadCommandSourcePathDiscovery:
                 main()
         assert exc_info.value.code != 0
 
-        out = capsys.readouterr().out
-        assert "Not found" in out or "not found" in out
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Not found" in captured.err or "not found" in captured.err
+        assert "Next:" in captured.err
 
 
 # ─── export --out - stdout cleanliness tests ─────────────────────────────────
@@ -2696,6 +2795,67 @@ class TestExportStdoutClean:
         captured = capsys.readouterr()
         assert "Exporting from" in captured.err
         assert "Exported" in captured.err
+
+    def test_export_zero_results_prints_next_action_on_stderr(self, tmp_path, capsys):
+        """A filtered empty export should keep stdout clean and explain the next action on stderr."""
+        palace = str(tmp_path / "palace")
+        open_store(palace, create=True)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "export", "--out", "-", "--only-manual"],
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        assert "Next:" not in captured.out
+        assert "Next:" in captured.err
+        assert "relax export filters" in captured.err
+
+    def test_export_missing_palace_exits_with_next_action(self, tmp_path, capsys):
+        """Export on a missing palace should fail without a traceback."""
+        palace = str(tmp_path / "missing-palace")
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "--palace", palace, "export", "--out", "-"],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "no palace found" in captured.err
+        assert "Next:" in captured.err
+        assert "init <dir>" in captured.err
+
+    def test_export_unopenable_palace_points_to_health_and_repair(self, tmp_path, capsys):
+        """Export on an existing broken palace should not suggest only init/mine."""
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        with (
+            patch("mempalace_code.storage.open_store", side_effect=RuntimeError("corrupt")),
+            patch.object(
+                sys,
+                "argv",
+                ["mempalace", "--palace", str(palace), "export", "--out", "-"],
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "cannot open palace" in captured.err
+        assert "Next:" in captured.err
+        assert "correct --palace path" in captured.err
+        assert "health" in captured.err
+        assert "repair --rollback --dry-run" in captured.err
 
 
 # ─── No-embedder regression: read-only non-search CLI paths ──────────────────
@@ -2838,6 +2998,25 @@ class TestReadOnlyNonSearchNoEmbedder:
                 main()
         assert exc.value.code != 0
         assert not os.path.isdir(palace)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "No palace found" in captured.err
+        assert "Next:" in captured.err
+        assert "mempalace-code init <dir>" in captured.err
+        assert "mempalace-code mine <dir>" in captured.err
+
+    def test_compress_dry_run_empty_palace_prints_next_action(self, tmp_path, capsys):
+        """Empty compress result should name the safe next action."""
+        palace = str(tmp_path / "palace")
+        open_store(palace, create=True)
+
+        with patch.object(sys, "argv", ["mempalace", "--palace", palace, "compress", "--dry-run"]):
+            main()
+
+        captured = capsys.readouterr()
+        assert "No drawers found" in captured.out
+        assert "Next:" in captured.out
+        assert "mempalace-code mine <project-dir>" in captured.out
 
     def test_compress_dry_run_missing_palace_no_create_readonly_non_search_no_embedder(
         self, tmp_path, capsys

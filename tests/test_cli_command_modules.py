@@ -47,6 +47,19 @@ def test_no_runpy_warning_on_unknown_command():
     )
 
 
+def test_search_help_describes_semantic_verbatim_behavior():
+    """Search help should not imply exact keyword search semantics."""
+    result = subprocess.run(
+        [sys.executable, "-m", "mempalace_code.cli", "search", "--help"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"search --help should exit 0; stderr={result.stderr!r}"
+    assert "Semantic search" in result.stdout
+    assert "verbatim stored text" in result.stdout
+    assert "Find anything, exact words" not in result.stdout
+
+
 def test_package_main_is_callable():
     """AC-3: import mempalace_code; mempalace_code.main must be callable for console-script compat."""
     import mempalace_code
@@ -261,10 +274,12 @@ def test_fetch_model_downloads_after_local_cache_miss(monkeypatch, capsys):
         (DEFAULT_EMBED_MODEL, {"local_files_only": True}),
         (DEFAULT_EMBED_MODEL, {"local_files_only": False}),
     ]
-    assert "Downloading model" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Downloading model" in output
+    assert "Waiting for model download" in output
 
 
-def test_fetch_model_force_skips_local_probe(monkeypatch):
+def test_fetch_model_force_skips_local_probe(monkeypatch, capsys):
     """--force must re-download instead of accepting a local cached load."""
     from mempalace_code.cli_commands import model
     from mempalace_code.storage import DEFAULT_EMBED_MODEL
@@ -275,6 +290,7 @@ def test_fetch_model_force_skips_local_probe(monkeypatch):
     model.fetch_model(DEFAULT_EMBED_MODEL, force=True)
 
     assert calls == [(DEFAULT_EMBED_MODEL, {"local_files_only": False})]
+    assert "Waiting for model download" in capsys.readouterr().out
 
 
 def test_fetch_model_existing_local_path_does_not_retry_online(tmp_path, monkeypatch):

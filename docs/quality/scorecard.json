@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 19078,
+    "package_code_lines": 19259,
     "package_files": 73,
-    "package_total_lines": 23561,
+    "package_total_lines": 23746,
     "test_files": 57,
-    "test_total_lines": 42725
+    "test_total_lines": 43047
   },
   "largest_modules": [
     {
@@ -28,7 +28,7 @@
       "path": "mempalace_code/mining/symbols.py"
     },
     {
-      "lines": 858,
+      "lines": 875,
       "path": "mempalace_code/entity_detector.py"
     },
     {
@@ -36,7 +36,7 @@
       "path": "mempalace_code/knowledge_graph.py"
     },
     {
-      "lines": 735,
+      "lines": 739,
       "path": "mempalace_code/cli.py"
     },
     {
@@ -160,7 +160,7 @@
   },
   "tests": {
     "test_files": 57,
-    "test_functions": 2390
+    "test_functions": 2404
   },
   "verification_commands": [
     {

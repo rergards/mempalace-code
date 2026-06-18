@@ -7,7 +7,7 @@ Tests the library-facing search interface (not the CLI print variant).
 import pytest
 
 from mempalace_code.language_catalog import sorted_searchable_languages
-from mempalace_code.searcher import code_search, search, search_memories
+from mempalace_code.searcher import SearchError, code_search, search, search_memories
 from mempalace_code.storage import open_store
 
 
@@ -48,6 +48,7 @@ class TestSearchMemories:
     def test_no_palace_returns_error(self):
         result = search_memories("anything", "/nonexistent/path")
         assert "error" in result
+        assert result["error"] == "No palace found"
 
     def test_result_fields(self, palace_path, seeded_collection):
         result = search_memories("authentication", palace_path)
@@ -831,7 +832,7 @@ class TestNoneMetadataRobustness:
         assert len(result["results"]) == 1
         assert result["results"][0]["source_file"] == "/src/handler.go"
 
-    def test_search_cli_tolerates_none_metadata_and_document(self, monkeypatch, capsys):
+    def test_search_cli_tolerates_none_metadata_and_document(self, tmp_path, monkeypatch, capsys):
         """CLI search() does not crash when metadata or document is None and prints fallback values."""
         store = _FakeNoneMetaStore(
             documents=[None],
@@ -839,15 +840,17 @@ class TestNoneMetadataRobustness:
             distances=[0.3],
         )
         monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: store)
+        palace = tmp_path / "palace"
+        palace.mkdir()
 
-        search("query", "/fake/palace")
+        search("query", str(palace))
 
         captured = capsys.readouterr()
         assert "[1] ? / ?" in captured.out
         assert "Source: ?" in captured.out
         assert "Match:  0.7" in captured.out
 
-    def test_search_cli_full_source_file_path(self, monkeypatch, capsys):
+    def test_search_cli_full_source_file_path(self, tmp_path, monkeypatch, capsys):
         """CLI search() prints the full stored source_file path, not just the basename (AC-1)."""
         store = _FakeNoneMetaStore(
             documents=["def authenticate(): return current_user"],
@@ -861,14 +864,47 @@ class TestNoneMetadataRobustness:
             distances=[0.125],
         )
         monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: store)
+        palace = tmp_path / "palace"
+        palace.mkdir()
 
-        search("credential lookup", "/fake/palace")
+        search("credential lookup", str(palace))
 
         captured = capsys.readouterr()
         assert "Source: /private/var/tmp/project/auth.py" in captured.out, (
             f"Expected full stored path in Source: line, got:\n{captured.out}"
         )
         assert "Source: auth.py" not in captured.out, "Source: line must not trim to basename only"
+
+    def test_search_cli_missing_palace_uses_stderr_next_action(self, capsys):
+        """CLI search() failures should not pollute stdout and should give the next step."""
+        with pytest.raises(SearchError):
+            search("anything", "/nonexistent/path")
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "No palace found" in captured.err
+        assert "Next:" in captured.err
+        assert "mempalace-code init <dir>" in captured.err
+
+    def test_search_cli_store_error_uses_stderr_next_action(self, tmp_path, monkeypatch, capsys):
+        """CLI search() runtime failures should tell the user how to recover."""
+
+        class FailingStore:
+            def query(self, **_kwargs):
+                raise RuntimeError("broken index")
+
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: FailingStore())
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        with pytest.raises(SearchError):
+            search("anything", str(palace))
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Search error" in captured.err
+        assert "Next:" in captured.err
+        assert "repair --rollback --dry-run" in captured.err
 
 
 class TestCodeSearchHybridRerank:

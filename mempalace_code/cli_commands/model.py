@@ -79,9 +79,11 @@ def fetch_model(model_name: str, force: bool = False) -> None:
             if _is_existing_model_path(model_name):
                 raise
             print(f"  Downloading model '{model_name}' …")
+            print("  Waiting for model download; no input is needed.")
             _load_model(model_name, local_files_only=False)
     else:
         print(f"  Downloading model '{model_name}' …")
+        print("  Waiting for model download; no input is needed.")
         _load_model(model_name, local_files_only=False)
 
     # Report cache location and size
@@ -93,7 +95,9 @@ def fetch_model(model_name: str, force: bool = False) -> None:
     elif _is_existing_model_path(model_name):
         print(f"  Local model path: {Path(model_name).expanduser()}")
     else:
-        print(f"  Model ready (cache path not found at expected location: {model_dir})")
+        print("  Model loaded successfully.")
+        print(f"  Cache path could not be reported (expected: {model_dir}).")
+        print("  No action needed unless offline search or mining fails later.")
 
 
 def cmd_fetch_model(args):
