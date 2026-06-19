@@ -569,11 +569,10 @@ def test_mcp_stdio_contract_count_equals_class_methods():
     count_from_scorecard = gates["mcp_stdio_contracts"]["count"]
 
     # Derive expected count directly from the source class via AST
-    tree = _ast.parse(
-        (ROOT / "tests" / "test_mcp_server.py").read_text(encoding="utf-8")
-    )
+    tree = _ast.parse((ROOT / "tests" / "test_mcp_server.py").read_text(encoding="utf-8"))
     cls_node = next(
-        n for n in _ast.walk(tree)
+        n
+        for n in _ast.walk(tree)
         if isinstance(n, _ast.ClassDef) and n.name == "TestMCPStdioContracts"
     )
     expected = sum(
@@ -592,7 +591,12 @@ def test_mcp_stdio_contract_count_equals_class_methods():
 def test_demo_gates_all_absent_on_fake_repo(tmp_path):
     root = _make_fake_repo(tmp_path)
     gates = sc.collect_demo_gates(root)
-    for key in ("architecture_guard", "cli_golden_scenarios", "dependency_audit", "docs_drift_guard"):
+    for key in (
+        "architecture_guard",
+        "cli_golden_scenarios",
+        "dependency_audit",
+        "docs_drift_guard",
+    ):
         assert gates[key]["status"] == "absent"
     assert gates["mcp_stdio_contracts"]["count"] == 0
     assert gates["mcp_stdio_contracts"]["status"] == "absent"
