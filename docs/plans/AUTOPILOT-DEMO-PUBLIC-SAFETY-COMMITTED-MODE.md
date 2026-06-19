@@ -106,8 +106,12 @@ task_contract:
       proves: "The existing pre-commit public-safety command remains runnable and public-safe after the change."
       acceptance_ids: [AC-4]
     - id: VER-4
-      command: "rg -n -- \"--tracked --staged|--committed|before release|after merge\" docs/quality/README.md .claude/skills/release/SKILL.md"
-      proves: "Release and quality docs expose both public-safety modes and the release/after-merge committed-tree use case."
+      command: "rg -n \"[-][-]committed\" docs/quality/README.md && rg -n \"[-][-]committed\" .claude/skills/release/SKILL.md"
+      proves: "Both release-facing docs reference the new --committed mode. The bracketed pattern matches the literal --committed flag, which is absent from both files in the pre-change tree, so a passing check distinguishes the documented post-change state from today's repository (the old alternation passed on the unchanged repo because --tracked --staged already appears in docs/quality/README.md)."
+      acceptance_ids: [AC-4]
+    - id: VER-5
+      command: "rg -n \"before release|after merge|release readiness|release-readiness\" docs/quality/README.md .claude/skills/release/SKILL.md"
+      proves: "The committed-tree scan is documented as the before-release/after-merge release-readiness check alongside the pre-commit --tracked --staged scan. This framing text is absent from the pre-change tree, so the check fails until AC-4's use-case distinction is actually written."
       acceptance_ids: [AC-4]
   regression_plan:
     applies: true
@@ -115,8 +119,8 @@ task_contract:
     checks:
       - id: REG-1
         command: "python -m pytest tests/test_public_safety_scan.py -q"
-        proves: "Focused regression coverage for existing staged leak detection and redacted output while adding committed-mode cases."
-        acceptance_ids: [AC-2, AC-3]
+        proves: "Focused regression coverage for committed-mode clean-HEAD success (the OK summary naming committed mode and the snapshot count), existing staged leak detection, and redacted output, while adding committed-mode cases. Running the whole file re-asserts the committed-mode success test that proves AC-1."
+        acceptance_ids: [AC-1, AC-2, AC-3]
       - id: REG-2
         command: "python scripts/public_safety_scan.py --tracked --staged"
         proves: "The original edit-time scan command still passes on the repository after implementation."
