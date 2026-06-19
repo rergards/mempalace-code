@@ -162,3 +162,11 @@ items:
       - Keep raw multi-agent transcripts local-only under ignored paths; commit only the synthesized public summary when needed.
       - Document that passive review output is not enough: each surviving finding must either change code/tests/docs or become a backlog item with acceptance criteria.
       - Add tests for accepted summaries, missing evidence, missing action, and accidental private path/token content.
+  - key: PUBLIC-SAFETY-SCAN-COMBINED-MODE-TEST
+    summary: "Add test for --committed combined with --tracked or --staged to verify dual-source scan output"
+    type: task
+    status: open
+    priority: low
+    size: XS
+    section_id: quality
+    description: "## Scope\n\nThe committed, tracked, and staged source selectors in `scan_git_sources` are independent branches that can be combined in a single invocation. When combined, the same file is scanned under two source prefixes, such as `committed:foo.txt` and `tracked:foo.txt`, producing separate hits per source. There is currently no test covering any combined invocation. If a future refactor accidentally merged the branches or short-circuited one, no test would catch it.\n\nAdd one focused pytest test in `tests/test_public_safety_scan.py` that runs `--committed --tracked` against a fixture repo with a committed file and verifies both source prefixes appear in the output. Use `_init_repo_with_commit` helper already present in the test file. No changes to `scripts/public_safety_scan.py` are expected because the combination is already supported.\n\nSource: harden follow-up from `AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE` archive `AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE-20260619-172224.tar.gz`.\n\n## Acceptance criteria\n\n- A test named `test_committed_and_tracked_combined` exists.\n- The test calls `--committed --tracked`.\n- The test asserts that both `committed:<path>` and `tracked:<path>` source prefixes appear in the error output for the same flagged file."
