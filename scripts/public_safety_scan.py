@@ -156,6 +156,10 @@ def staged_paths(root: Path) -> list[str]:
     )
 
 
+def committed_paths(root: Path) -> list[str]:
+    return sorted(_split_z(_git(root, ["ls-tree", "-r", "-z", "--name-only", "HEAD"])))
+
+
 def _read_worktree(root: Path, rel_path: str) -> bytes | None:
     path = root / rel_path
     if not path.is_file():
@@ -170,6 +174,13 @@ def _read_staged(root: Path, rel_path: str) -> bytes | None:
         return None
 
 
+def _read_committed(root: Path, rel_path: str) -> bytes | None:
+    try:
+        return _git(root, ["show", f"HEAD:{rel_path}"])
+    except subprocess.CalledProcessError:
+        return None
+
+
 def _path_policy_hit(source: str, rel_path: str) -> PublicSafetyHit | None:
     normalized = rel_path.strip("/")
     for prefix in LOCAL_ONLY_PREFIXES:
@@ -180,11 +191,25 @@ def _path_policy_hit(source: str, rel_path: str) -> PublicSafetyHit | None:
 
 
 def scan_git_sources(
-    root: Path, *, tracked: bool, staged: bool
+    root: Path, *, tracked: bool, staged: bool, committed: bool = False
 ) -> tuple[list[PublicSafetyHit], int]:
     rules = repository_rules(root)
     hits: list[PublicSafetyHit] = []
     scanned = 0
+
+    if committed:
+        for rel_path in committed_paths(root):
+            source = f"committed:{rel_path}"
+            path_hit = _path_policy_hit(source, rel_path)
+            if path_hit:
+                hits.append(path_hit)
+                scanned += 1
+                continue
+            content = _read_committed(root, rel_path)
+            if content is None:
+                continue
+            scanned += 1
+            hits.extend(scan_bytes(source, content, rules))
 
     if tracked:
         for rel_path in tracked_paths(root):
@@ -215,19 +240,24 @@ def scan_git_sources(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Scan tracked/staged files for public-safety leaks."
+        description="Scan tracked/staged/committed files for public-safety leaks."
     )
     parser.add_argument("--repo-root", default=".", help=argparse.SUPPRESS)
     parser.add_argument("--tracked", action="store_true", help="Scan tracked worktree files.")
     parser.add_argument("--staged", action="store_true", help="Scan staged index blobs.")
+    parser.add_argument(
+        "--committed", action="store_true", help="Scan committed HEAD blobs (release check)."
+    )
     args = parser.parse_args(argv)
 
-    if not args.tracked and not args.staged:
-        parser.error("choose at least one of --tracked or --staged")
+    if not args.tracked and not args.staged and not args.committed:
+        parser.error("choose at least one of --tracked, --staged, or --committed")
 
     root = Path(args.repo_root).resolve()
     try:
-        hits, scanned = scan_git_sources(root, tracked=args.tracked, staged=args.staged)
+        hits, scanned = scan_git_sources(
+            root, tracked=args.tracked, staged=args.staged, committed=args.committed
+        )
     except subprocess.CalledProcessError as exc:
         print(f"public-safety-scan: FAIL - git command failed: {exc.cmd}", file=sys.stderr)
         return 1
@@ -239,7 +269,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     modes = ", ".join(
-        mode for mode, enabled in (("tracked", args.tracked), ("staged", args.staged)) if enabled
+        mode
+        for mode, enabled in (
+            ("tracked", args.tracked),
+            ("staged", args.staged),
+            ("committed", args.committed),
+        )
+        if enabled
     )
     print(f"public-safety-scan: OK ({modes}; scanned {scanned} file snapshots)")
     return 0

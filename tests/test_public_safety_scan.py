@@ -70,3 +70,80 @@ def test_repository_scan_rejects_local_only_artifact_path(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "local-only-artifact-path" in err
     assert "staged:.tasks/TASK-demo/raw.txt" in err
+
+
+# ---------------------------------------------------------------------------
+# Committed-mode tests (AC-1, AC-2, AC-3)
+# ---------------------------------------------------------------------------
+
+
+def _init_repo_with_commit(tmp_path, files: dict) -> Path:
+    """Create a git repo with an initial commit containing the given files."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    for rel_path, content in files.items():
+        fpath = repo / rel_path
+        fpath.parent.mkdir(parents=True, exist_ok=True)
+        fpath.write_text(content, encoding="utf-8")
+        subprocess.run(["git", "add", rel_path], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c", "user.name=Test",
+            "-c", "user.email=test@example.com",
+            "commit", "-m", "initial",
+        ],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    return repo
+
+
+def test_committed_mode_clean_head_exits_ok(tmp_path, capsys):
+    repo = _init_repo_with_commit(tmp_path, {"README.md": "# mempalace\nPublic content.\n"})
+
+    assert ps.main(["--repo-root", str(repo), "--committed"]) == 0
+    out = capsys.readouterr().out
+    assert "committed" in out
+    assert "scanned 1 file snapshots" in out
+
+
+def test_committed_mode_secret_rejected_and_redacted(tmp_path, capsys):
+    token = "gh" + "p_" + "B" * 30
+    repo = _init_repo_with_commit(tmp_path, {"leak.txt": token + "\n"})
+
+    assert ps.main(["--repo-root", str(repo), "--committed"]) == 1
+    err = capsys.readouterr().err
+    assert "github-token-prefix" in err
+    assert token not in err
+
+
+def test_committed_mode_local_only_artifact_path_rejected(tmp_path, capsys):
+    repo = _init_repo_with_commit(
+        tmp_path, {".tasks/TASK-demo/raw.txt": "local evidence\n"}
+    )
+
+    assert ps.main(["--repo-root", str(repo), "--committed"]) == 1
+    err = capsys.readouterr().err
+    assert "local-only-artifact-path" in err
+    assert "committed:.tasks/TASK-demo/raw.txt" in err
+
+
+def test_committed_vs_tracked_deleted_worktree(tmp_path, capsys):
+    repo = _init_repo_with_commit(
+        tmp_path, {".tasks/TASK-demo/raw.txt": "local evidence\n"}
+    )
+    # Delete the worktree copy; HEAD still contains the file.
+    (repo / ".tasks" / "TASK-demo" / "raw.txt").unlink()
+
+    # --tracked skips the file because the worktree copy is gone.
+    assert ps.main(["--repo-root", str(repo), "--tracked"]) == 0
+
+    capsys.readouterr()  # clear stdout/stderr
+
+    # --committed finds the path in HEAD and rejects it.
+    assert ps.main(["--repo-root", str(repo), "--committed"]) == 1
+    err = capsys.readouterr().err
+    assert "local-only-artifact-path" in err

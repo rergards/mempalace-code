@@ -68,6 +68,22 @@ public-safety scan for private paths and secret-like tokens. CI (`lint` job) and
 checks the repository files themselves for real local paths, secret-like tokens,
 and local-only artifact paths.
 
+### Pre-commit scan vs release-readiness scan
+
+`scripts/public_safety_scan.py` supports two distinct use-cases:
+
+| Mode | Command | When to use |
+|------|---------|-------------|
+| Pre-commit / edit-time | `python scripts/public_safety_scan.py --tracked --staged` | Before each commit or as the `/verify` gate — scans the worktree and index snapshot as it is right now. |
+| Release readiness / after merge | `python scripts/public_safety_scan.py --committed` | Before release or after merging to main — scans exactly the HEAD committed tree, independent of any local worktree or staged changes. |
+
+Use `--tracked --staged` during development to catch leaks before they land in a
+commit. Use `--committed` as the before-release or after-merge release-readiness
+check to verify that HEAD itself — the exact tree that will be published — is
+public-safe. A file deleted from the worktree but still present in HEAD will be
+flagged by `--committed` but silently skipped by `--tracked`, making the
+committed-tree scan the authoritative release gate.
+
 ## How Autopilot demo tasks update this scorecard
 
 Every task in the `AUTOPILOT DEMO` backlog section should record a before/after

@@ -18,6 +18,20 @@ version metadata.
 
 ### Step 1: Preflight
 
+Run the committed-tree public-safety scan before any release claim. This checks
+that HEAD itself — the exact tree that will be published — contains no private
+local paths, secret-like tokens, or local-only artifact paths. Use this as the
+release-readiness check after merge and before pushing a release tag:
+
+```bash
+python scripts/public_safety_scan.py --committed
+```
+
+A non-zero exit means HEAD contains a public-safety violation. Fix the
+violation, commit the fix, and re-run before proceeding. Do not bypass this
+check — the committed-tree scan is the authoritative before-release gate because
+it reads git objects directly, independent of worktree state.
+
 Run `/verify`. If dependency bounds, lockfiles, workflows, storage, miner, or
 optional extras changed, also run the dependency gate:
 
