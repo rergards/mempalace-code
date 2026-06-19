@@ -3843,6 +3843,8 @@ class TestMCPStdioContracts:
                 assert sentinel in tool_names, (
                     f"Sentinel tool {sentinel!r} missing from default tools/list"
                 )
+
+            _assert_no_model_noise(stdout, stderr)
         finally:
             import shutil
 
@@ -3944,6 +3946,8 @@ class TestMCPStdioContracts:
                 f"Active tools mismatch.\nExtra: {sorted(tool_names - expected_names)}\n"
                 f"Missing: {sorted(expected_names - tool_names)}"
             )
+
+            _assert_no_model_noise(stdout, stderr)
         finally:
             import shutil
 
@@ -3993,6 +3997,8 @@ class TestMCPStdioContracts:
             assert "Unknown tool" not in error["message"], (
                 f"Profile-hidden error must be distinct from unknown-tool error: {error['message']!r}"
             )
+
+            _assert_no_model_noise(stdout, stderr)
         finally:
             import shutil
 
