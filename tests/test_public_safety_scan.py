@@ -90,9 +90,13 @@ def _init_repo_with_commit(tmp_path, files: dict) -> Path:
     subprocess.run(
         [
             "git",
-            "-c", "user.name=Test",
-            "-c", "user.email=test@example.com",
-            "commit", "-m", "initial",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "initial",
         ],
         cwd=repo,
         check=True,
@@ -121,9 +125,7 @@ def test_committed_mode_secret_rejected_and_redacted(tmp_path, capsys):
 
 
 def test_committed_mode_local_only_artifact_path_rejected(tmp_path, capsys):
-    repo = _init_repo_with_commit(
-        tmp_path, {".tasks/TASK-demo/raw.txt": "local evidence\n"}
-    )
+    repo = _init_repo_with_commit(tmp_path, {".tasks/TASK-demo/raw.txt": "local evidence\n"})
 
     assert ps.main(["--repo-root", str(repo), "--committed"]) == 1
     err = capsys.readouterr().err
@@ -132,9 +134,7 @@ def test_committed_mode_local_only_artifact_path_rejected(tmp_path, capsys):
 
 
 def test_committed_vs_tracked_deleted_worktree(tmp_path, capsys):
-    repo = _init_repo_with_commit(
-        tmp_path, {".tasks/TASK-demo/raw.txt": "local evidence\n"}
-    )
+    repo = _init_repo_with_commit(tmp_path, {".tasks/TASK-demo/raw.txt": "local evidence\n"})
     # Delete the worktree copy; HEAD still contains the file.
     (repo / ".tasks" / "TASK-demo" / "raw.txt").unlink()
 
