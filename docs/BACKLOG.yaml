@@ -140,17 +140,6 @@ items:
       - Validate documented verification commands in `CLAUDE.md`, `.claude/skills/verify/INSTRUCTIONS.md`, `.claude/skills/release/INSTRUCTIONS.md`, and `docs/quality/README.md` against canonical command lists.
       - Add fixture tests for stale docs so the guard proves it fails before it is wired into CI.
       - Fail with actionable file/section messages and update the quality scorecard.
-  - key: AUTOPILOT-DEMO-SCORECARD-METRIC-EXPANSION
-    section: autopilot_demo
-    status: open
-    priority: P2
-    summary: Expand the quality scorecard with metrics for gates that now matter to the public demo.
-    acceptance:
-      - Add strict-slice file count and strict-slice paths from `pyrightconfig.strict.json`.
-      - Add public-safety scan coverage fields for tracked, staged, and committed-tree modes once committed-tree mode exists.
-      - Add architecture guard status, CLI golden scenario count, MCP stdio contract count, docs drift guard status, and dependency audit status as optional metrics that appear when the corresponding scripts exist.
-      - Keep scorecard output deterministic, stdlib-only, timestamp-free, and public-safe.
-      - Update `docs/quality/README.md` to define every new metric and how Autopilot tasks should cite before/after deltas.
   - key: AUTOPILOT-DEMO-WORKFLOW-EFFECTIVENESS-GUARD
     section: autopilot_demo
     status: open
