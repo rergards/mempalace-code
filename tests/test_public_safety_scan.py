@@ -120,6 +120,7 @@ def test_committed_mode_secret_rejected_and_redacted(tmp_path, capsys):
 
     assert ps.main(["--repo-root", str(repo), "--committed"]) == 1
     err = capsys.readouterr().err
+    assert "committed:leak.txt" in err
     assert "github-token-prefix" in err
     assert token not in err
 
