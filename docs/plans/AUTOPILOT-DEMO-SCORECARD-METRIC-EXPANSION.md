@@ -7,7 +7,7 @@ files:
   - path: scripts/quality_scorecard.py
     change: "Add strict-slice, public-safety coverage, and optional demo-gate collectors; render and validate the new schema deterministically."
   - path: tests/test_quality_scorecard.py
-    change: "Cover new metrics, absent optional gates, malformed metric validation, and committed artifact freshness."
+    change: "Cover new metrics, absent optional gates, malformed metric validation, and committed artifact freshness, plus a test asserting mcp_stdio_contracts equals the TestMCPStdioContracts method count in tests/test_mcp_server.py and a test that demo-gate collectors spawn no subprocess on the absent-gate path."
   - path: docs/quality/README.md
     change: "Define every new metric and how demo tasks should cite before/after deltas."
   - path: docs/quality/scorecard.json
@@ -20,7 +20,7 @@ acceptance:
     then: "the JSON includes strict-slice file_count and sorted paths from pyrightconfig.strict.json, and includes tracked, staged, and committed public-safety scan modes"
   - id: AC-2
     when: "the JSON scorecard is inspected in the current repository"
-    then: "demo gate metrics report dependency audit as present, MCP stdio contract count as greater than zero, and architecture/docs-drift/CLI-golden gates with deterministic absent-or-present status"
+    then: "demo gate metrics report dependency audit as present, MCP stdio contract count (sourced from the TestMCPStdioContracts suite in tests/test_mcp_server.py) as greater than zero, and architecture/docs-drift/CLI-golden gates with deterministic absent-or-present status"
   - id: AC-3
     when: "scorecard validation receives a malformed expanded metric shape such as a missing committed public-safety mode or non-integer scenario count"
     then: "validation fails with an actionable shape error instead of silently accepting the output"
@@ -111,13 +111,13 @@ task_contract:
       acceptance_ids: [AC-1]
     - id: VER-2
       command: >-
-        python -c 'import json, subprocess, sys; data=json.loads(subprocess.check_output([sys.executable,"scripts/quality_scorecard.py","--format","json"])); gates=data["demo_gates"]; assert gates["dependency_audit"]["status"] == "present"; assert gates["mcp_stdio_contracts"]["count"] > 0; assert "architecture_guard" in gates and "docs_drift_guard" in gates and "cli_golden_scenarios" in gates'
-      proves: "Rendered JSON reports current and absent optional demo gate metrics deterministically."
+        python -c 'import ast, json, subprocess, sys; data=json.loads(subprocess.check_output([sys.executable,"scripts/quality_scorecard.py","--format","json"])); gates=data["demo_gates"]; assert gates["dependency_audit"]["status"] == "present"; tree=ast.parse(open("tests/test_mcp_server.py", encoding="utf-8").read()); cls=next(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == "TestMCPStdioContracts"); expected=sum(1 for m in cls.body if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name.startswith("test")); assert gates["mcp_stdio_contracts"]["count"] == expected > 0; assert "architecture_guard" in gates and "docs_drift_guard" in gates and "cli_golden_scenarios" in gates'
+      proves: "Rendered JSON reports current and absent optional demo gate metrics deterministically, and the MCP stdio contract count is sourced from the TestMCPStdioContracts suite (not the test_stdio.py transport helpers, which would yield a different count)."
       acceptance_ids: [AC-2, AC-4]
     - id: VER-3
       command: >-
-        python -m pytest tests/test_quality_scorecard.py -q -k "strict_slice or public_safety_modes or demo_gates or malformed_expanded_metric"
-      proves: "Focused unit tests cover new collectors plus malformed-shape failure behavior."
+        python -m pytest tests/test_quality_scorecard.py -q -k "strict_slice or public_safety_modes or demo_gates or mcp_stdio_contract or malformed_expanded_metric or no_subprocess"
+      proves: "Focused unit tests cover new collectors, the class-scoped MCP stdio contract count equalling the TestMCPStdioContracts method count, malformed-shape failure behavior, and the no-subprocess absent-gate path."
       acceptance_ids: [AC-1, AC-2, AC-3, AC-4]
     - id: VER-4
       command: "python scripts/quality_scorecard.py --check"
@@ -152,9 +152,10 @@ task_contract:
 - Add a top-level `demo_gates` object with stable keys:
   - `architecture_guard`: status based on the future guard script/config path.
   - `cli_golden_scenarios`: count from a future golden scenario test file when present, otherwise absent with count 0.
-  - `mcp_stdio_contracts`: count from `tests/test_stdio.py` test functions.
+  - `mcp_stdio_contracts`: count of `test*` methods in the `TestMCPStdioContracts` class in `tests/test_mcp_server.py` — the MCP stdio *contract* suite landed by AUTOPILOT-DEMO-MCP-STDIO-CONTRACTS (currently 5). Do **not** source this from `tests/test_stdio.py`: that file is the Windows UTF-8 stdio transport-helper suite (9 functions, mostly stream reconfigure/encoding) and is already tracked separately as the `mcp_stdio` entry in `_KNOWN_SUITES` (scripts/quality_scorecard.py:79). Counting it would report a semantically wrong number that still passes a bare `count > 0` check.
   - `docs_drift_guard`: status based on the future docs drift guard script/test path.
   - `dependency_audit`: status based on `scripts/dependency_upgrade_gate.py` and `.github/workflows/dependency-audit.yml`.
-- For counts, reuse AST-based test-function counting already present in the scorecard instead of string matching test names.
+- For counts, reuse the existing AST-based test-function counting where it fits (whole-file `test*` functions via `_count_test_functions`, scripts/quality_scorecard.py:280). That helper counts every `test*` function in a file, so it would over-count the hundreds of tests in `test_mcp_server.py`; add a small class-scoped AST counter (count `test*` methods inside a named `ClassDef`) and use it for `mcp_stdio_contracts`. Avoid string matching on test names.
 - Do not add heavyweight checks to `run_check`; it should continue to build twice, validate shape, scan rendered output, and compare committed artifacts.
 - `docs/quality/scorecard.md` should add compact sections rather than duplicating long command output; the JSON remains the detailed machine source.
+- To make the AC-4 / INV-3 no-subprocess guarantee observable (not just documented), add a unit test that the demo-gate collectors perform only file-presence and AST reads — e.g. monkeypatch `subprocess.run` / `subprocess.check_output` / `subprocess.Popen` to raise and assert rendering still succeeds with deterministic absent-or-present output.
