@@ -81,18 +81,6 @@ items:
       - Keep the strict-slice command in `/verify` and CI; do not weaken strict diagnostics to make the slice pass.
       - Keep the existing basic Pyright gate green throughout.
       - Update the quality scorecard and report the strict-slice expansion publicly.
-  - key: AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE
-    section: autopilot_demo
-    status: open
-    priority: P1
-    summary: Add an explicit committed-tree public-safety scan mode for publishable release verification.
-    acceptance:
-      - Extend `scripts/public_safety_scan.py` with a mode that scans exactly the committed tree at `HEAD`, independent of staged or unstaged worktree state.
-      - Keep existing `--tracked --staged` behavior for pre-commit use, but document when to use committed-tree mode before release or after merge.
-      - Add tests proving deleted local-only files do not trigger tracked worktree failures, while committed local-only paths still fail.
-      - Wire committed-tree mode into release verification docs or `/release`, not into every edit-time `/verify` run unless it remains fast.
-      - Do not edit `CHANGELOG.md`; changelog/bookkeep automation owns task completion notes.
-      - Ensure all failure output remains redacted to rule id and file position only.
   - key: AUTOPILOT-DEMO-ARCHITECTURE-GUARD
     section: autopilot_demo
     status: open
