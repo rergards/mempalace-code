@@ -2012,7 +2012,7 @@ class TestWatchRunReadinessDiagnostics:
         assert "WATCH_RUN run_id=TEST-RUN-ID state=watch-ready" in output
 
     def test_watch_and_mine_pre_watch_backup_failure_emits_failed_state(self, tmp_path, capsys):
-        """AC-2: watch_and_mine backup failure emits pre-watch-backup-failed with the same run id; no watch-ready."""
+        """AC-2: watch_and_mine backup failure emits pre-watch-backup-failed; no watch-ready."""
         palace = tmp_path / "palace"
         lance_dir = palace / "lance"
         lance_dir.mkdir(parents=True)
@@ -2113,7 +2113,7 @@ class TestWatchRunReadinessDiagnostics:
         assert "WATCH_RUN run_id=WATCH-ALL-RUN state=watch-ready" in output
 
     def test_watch_all_pre_watch_backup_failure_emits_failed_state(self, tmp_path, capsys):
-        """AC-1: watch_all backup failure with existing lance data emits pre-watch-backup-failed; exits 1; no watch loop."""
+        """AC-1: watch_all backup failure emits pre-watch-backup-failed; exits 1; no watch loop."""
         palace = tmp_path / "palace"
         lance_dir = palace / "lance"
         lance_dir.mkdir(parents=True)
