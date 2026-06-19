@@ -3523,31 +3523,11 @@ def _run_mcp_stdio(
     sys_executable: str,
     fresh_home: str,
     timeout: int = 60,
+    server_args: list | None = None,
 ):
     """Spawn the MCP stdio server, send JSON-RPC requests, return (responses, stdout, stderr)."""
-    import os
-    import subprocess
-
-    stdin_data = "\n".join(json.dumps(r) for r in requests) + "\n"
-
-    env = os.environ.copy()
-    env["MEMPALACE_PALACE_PATH"] = palace_path
-    env["HOME"] = fresh_home
-    env["USERPROFILE"] = fresh_home
-    env["HF_HUB_OFFLINE"] = "1"
-    env["TRANSFORMERS_OFFLINE"] = "1"
-    # Remove HF cache env vars so the subprocess has no model cache.
-    env.pop("HF_HOME", None)
-    env.pop("HUGGINGFACE_HUB_CACHE", None)
-    env.pop("TRANSFORMERS_CACHE", None)
-
-    result = subprocess.run(
-        [sys_executable, "-m", "mempalace_code.mcp_server"],
-        input=stdin_data,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env=env,
+    result = _run_mcp_stdio_proc(
+        requests, palace_path, sys_executable, fresh_home, timeout=timeout, server_args=server_args
     )
 
     responses = []
@@ -3560,6 +3540,46 @@ def _run_mcp_stdio(
                 pass
 
     return responses, result.stdout, result.stderr
+
+
+def _run_mcp_stdio_proc(
+    requests: list,
+    palace_path: str,
+    sys_executable: str,
+    fresh_home: str,
+    timeout: int = 60,
+    server_args: list | None = None,
+):
+    """Spawn the MCP stdio server and return the raw subprocess.CompletedProcess.
+
+    Use this when the caller needs the return code (e.g. invalid-startup tests).
+    For normal JSON-RPC contract tests, prefer _run_mcp_stdio.
+    """
+    import os
+    import subprocess
+
+    stdin_data = "\n".join(json.dumps(r) for r in requests) + "\n" if requests else ""
+
+    env = os.environ.copy()
+    env["MEMPALACE_PALACE_PATH"] = palace_path
+    env["HOME"] = fresh_home
+    env["USERPROFILE"] = fresh_home
+    env["HF_HUB_OFFLINE"] = "1"
+    env["TRANSFORMERS_OFFLINE"] = "1"
+    # Remove HF cache env vars so the subprocess has no model cache.
+    env.pop("HF_HOME", None)
+    env.pop("HUGGINGFACE_HUB_CACHE", None)
+    env.pop("TRANSFORMERS_CACHE", None)
+
+    cmd = [sys_executable, "-m", "mempalace_code.mcp_server"] + (server_args or [])
+    return subprocess.run(
+        cmd,
+        input=stdin_data,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+    )
 
 
 class TestDeleteAfterReadOfflineNoEmbedder:
@@ -3768,6 +3788,254 @@ class TestDeleteAfterReadOfflineNoEmbedder:
             assert "error" in delete_wing_result
 
             _assert_no_model_noise(stdout, stderr)
+        finally:
+            import shutil
+
+            shutil.rmtree(fresh_home, ignore_errors=True)
+
+
+# ── MCP stdio contract tests ───────────────────────────────────────────────────
+
+
+class TestMCPStdioContracts:
+    """Real stdio MCP subprocess contract tests for profile discovery and tool calls."""
+
+    def test_default_full_profile_tools_list_over_stdio(self, palace_path):
+        """Default server exposes all TOOLS registry entries through stdio tools/list."""
+        import sys
+        import tempfile
+
+        from mempalace_code.mcp.registry import TOOLS
+
+        fresh_home = tempfile.mkdtemp(prefix="mcp_fresh_home_")
+        try:
+            requests = [
+                {"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                {"jsonrpc": "2.0", "method": "tools/list", "id": 2, "params": {}},
+            ]
+
+            responses, stdout, stderr = _run_mcp_stdio(
+                requests, palace_path, sys.executable, fresh_home
+            )
+
+            assert len(responses) == 2, (
+                f"Expected 2 responses, got {len(responses)}.\nstdout: {stdout}\nstderr: {stderr}"
+            )
+
+            # initialize must name the server
+            assert responses[0]["result"]["serverInfo"]["name"] == "mempalace-code"
+
+            # tools/list must expose exactly the full TOOLS registry
+            tool_names = frozenset(t["name"] for t in responses[1]["result"]["tools"])
+            expected_names = frozenset(TOOLS)
+            assert tool_names == expected_names, (
+                f"tools/list mismatch.\nExtra: {sorted(tool_names - expected_names)}\n"
+                f"Missing: {sorted(expected_names - tool_names)}"
+            )
+
+            # Sentinel check: representative tools must be present
+            for sentinel in (
+                "mempalace_status",
+                "mempalace_delete_wing",
+                "mempalace_mine",
+                "mempalace_diary_read",
+            ):
+                assert sentinel in tool_names, (
+                    f"Sentinel tool {sentinel!r} missing from default tools/list"
+                )
+        finally:
+            import shutil
+
+            shutil.rmtree(fresh_home, ignore_errors=True)
+
+    def test_minimal_profile_status_call_over_stdio(self, palace_path, seeded_collection):
+        """Minimal profile exposes exactly four tools and mempalace_status returns seeded drawer count."""
+        import sys
+        import tempfile
+
+        from mempalace_code.mcp_tool_profiles import PROFILES
+
+        fresh_home = tempfile.mkdtemp(prefix="mcp_fresh_home_")
+        try:
+            requests = [
+                {"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                {"jsonrpc": "2.0", "method": "tools/list", "id": 2, "params": {}},
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 3,
+                    "params": {"name": "mempalace_status", "arguments": {}},
+                },
+            ]
+
+            responses, stdout, stderr = _run_mcp_stdio(
+                requests,
+                palace_path,
+                sys.executable,
+                fresh_home,
+                server_args=["--profile=minimal"],
+            )
+
+            assert len(responses) == 3, (
+                f"Expected 3 responses, got {len(responses)}.\nstdout: {stdout}\nstderr: {stderr}"
+            )
+
+            # tools/list must contain exactly the minimal profile tools
+            tool_names = frozenset(t["name"] for t in responses[1]["result"]["tools"])
+            expected_names = PROFILES["minimal"]
+            assert tool_names == expected_names, (
+                f"Expected minimal profile tools {sorted(expected_names)}, got {sorted(tool_names)}"
+            )
+
+            # mempalace_status must return total_drawers from the seeded palace
+            status_result = json.loads(responses[2]["result"]["content"][0]["text"])
+            assert "error" not in status_result, f"mempalace_status failed: {status_result}"
+            assert "total_drawers" in status_result, (
+                f"total_drawers missing from status response: {status_result}"
+            )
+            assert status_result["total_drawers"] >= 1
+
+            _assert_no_model_noise(stdout, stderr)
+        finally:
+            import shutil
+
+            shutil.rmtree(fresh_home, ignore_errors=True)
+
+    def test_include_exclude_profile_tools_list_over_stdio(self, palace_path):
+        """--include adds kg_query and --exclude removes search from the minimal base set."""
+        import sys
+        import tempfile
+
+        from mempalace_code.mcp_tool_profiles import PROFILES
+
+        fresh_home = tempfile.mkdtemp(prefix="mcp_fresh_home_")
+        try:
+            requests = [
+                {"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                {"jsonrpc": "2.0", "method": "tools/list", "id": 2, "params": {}},
+            ]
+
+            responses, stdout, stderr = _run_mcp_stdio(
+                requests,
+                palace_path,
+                sys.executable,
+                fresh_home,
+                server_args=["--profile=minimal", "--include=kg_query", "--exclude=search"],
+            )
+
+            assert len(responses) == 2, (
+                f"Expected 2 responses, got {len(responses)}.\nstdout: {stdout}\nstderr: {stderr}"
+            )
+
+            tool_names = frozenset(t["name"] for t in responses[1]["result"]["tools"])
+
+            # kg_query must be present (added by --include)
+            assert "mempalace_kg_query" in tool_names, (
+                f"mempalace_kg_query missing after --include=kg_query; got {sorted(tool_names)}"
+            )
+            # search must be absent (removed by --exclude)
+            assert "mempalace_search" not in tool_names, (
+                f"mempalace_search still present after --exclude=search; got {sorted(tool_names)}"
+            )
+
+            # Remaining minimal-profile tools (minus search, plus kg_query) must be present
+            expected_names = (PROFILES["minimal"] | {"mempalace_kg_query"}) - {"mempalace_search"}
+            assert tool_names == expected_names, (
+                f"Active tools mismatch.\nExtra: {sorted(tool_names - expected_names)}\n"
+                f"Missing: {sorted(expected_names - tool_names)}"
+            )
+        finally:
+            import shutil
+
+            shutil.rmtree(fresh_home, ignore_errors=True)
+
+    def test_hidden_profile_tool_call_errors_over_stdio(self, palace_path):
+        """Calling a profile-hidden tool returns -32601 with a 'not enabled' message."""
+        import sys
+        import tempfile
+
+        fresh_home = tempfile.mkdtemp(prefix="mcp_fresh_home_")
+        try:
+            requests = [
+                {"jsonrpc": "2.0", "method": "initialize", "id": 1, "params": {}},
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "id": 2,
+                    "params": {"name": "mempalace_delete_wing", "arguments": {"wing": "project"}},
+                },
+            ]
+
+            responses, stdout, stderr = _run_mcp_stdio(
+                requests,
+                palace_path,
+                sys.executable,
+                fresh_home,
+                server_args=["--profile=minimal"],
+            )
+
+            assert len(responses) == 2, (
+                f"Expected 2 responses, got {len(responses)}.\nstdout: {stdout}\nstderr: {stderr}"
+            )
+
+            # tools/call for a profile-hidden tool must return a JSON-RPC error
+            error = responses[1].get("error")
+            assert error is not None, (
+                f"Expected JSON-RPC error for profile-hidden tool, got: {responses[1]}"
+            )
+            assert error["code"] == -32601, (
+                f"Expected error code -32601, got {error['code']}: {error['message']}"
+            )
+            # Message must say "not enabled by the active MCP profile", distinct from "Unknown tool"
+            assert "not enabled" in error["message"], (
+                f"Expected 'not enabled' wording for profile-hidden tool, got: {error['message']!r}"
+            )
+            assert "Unknown tool" not in error["message"], (
+                f"Profile-hidden error must be distinct from unknown-tool error: {error['message']!r}"
+            )
+        finally:
+            import shutil
+
+            shutil.rmtree(fresh_home, ignore_errors=True)
+
+    def test_invalid_profile_exits_before_stdio_responses(self, palace_path):
+        """Invalid --profile exits nonzero with stderr naming the bad profile before any JSON-RPC."""
+        import sys
+        import tempfile
+
+        fresh_home = tempfile.mkdtemp(prefix="mcp_fresh_home_")
+        try:
+            proc = _run_mcp_stdio_proc(
+                [],
+                palace_path,
+                sys.executable,
+                fresh_home,
+                timeout=10,
+                server_args=["--profile=not_a_real_profile"],
+            )
+
+            # Process must exit nonzero
+            assert proc.returncode != 0, (
+                f"Expected nonzero exit for invalid profile, got returncode={proc.returncode}"
+            )
+
+            # stderr must name the invalid profile selector
+            assert "not_a_real_profile" in proc.stderr, (
+                f"Expected invalid profile name in stderr: {proc.stderr!r}"
+            )
+
+            # stdout must have no parsed JSON-RPC response lines
+            parsed_responses = []
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if line:
+                    try:
+                        parsed_responses.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+            assert len(parsed_responses) == 0, (
+                f"Expected no JSON-RPC responses before invalid-profile exit, got: {parsed_responses}"
+            )
         finally:
             import shutil
 
