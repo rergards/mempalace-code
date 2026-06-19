@@ -120,7 +120,9 @@ def test_build_scorecard_has_required_top_level_keys():
         "schema_version",
         "scope",
         "code_size",
+        "demo_gates",
         "largest_modules",
+        "public_safety",
         "ruff",
         "pyright",
         "suppressions",
@@ -187,6 +189,9 @@ def test_markdown_has_required_sections():
         "## Largest Modules",
         "## Ruff Ignores",
         "## Pyright",
+        "## Pyright Strict Slice",
+        "## Public Safety",
+        "## Demo Gates",
         "## Suppressions",
         "## Tests",
         "## Available Suites",
@@ -487,3 +492,160 @@ def test_verification_commands_match_verify_skill():
     )
     for _name, cmd in sc._VERIFICATION_COMMANDS:
         assert cmd in instructions, f"verification command not in /verify verbatim: {cmd!r}"
+
+
+# ── Strict-slice metrics ───────────────────────────────────────────────────────
+
+
+def test_strict_slice_in_pyright():
+    data = sc.build_scorecard(ROOT)
+    ss = data["pyright"]["strict_slice"]
+    assert isinstance(ss["file_count"], int) and ss["file_count"] >= 0
+    assert isinstance(ss["paths"], list)
+    assert ss["file_count"] == len(ss["paths"])
+    assert ss["paths"] == sorted(ss["paths"]), "strict_slice.paths must be sorted"
+    assert isinstance(ss["include_strict_match"], bool)
+    # Live repo has pyrightconfig.strict.json with known entries
+    assert ss["file_count"] > 0
+    assert "mempalace_code/disk_budget.py" in ss["paths"]
+
+
+def test_strict_slice_absent_config_gives_zero(tmp_path):
+    root = _make_fake_repo(tmp_path)
+    # No pyrightconfig.strict.json in fake repo
+    ss = sc.collect_pyright_strict_slice(root)
+    assert ss["file_count"] == 0
+    assert ss["paths"] == []
+    assert isinstance(ss["include_strict_match"], bool)
+
+
+# ── Public-safety coverage metadata ───────────────────────────────────────────
+
+
+def test_public_safety_modes_present():
+    data = sc.build_scorecard(ROOT)
+    pub = data["public_safety"]
+    assert isinstance(pub["modes"], list)
+    for mode in ("committed", "staged", "tracked"):
+        assert mode in pub["modes"], f"public_safety.modes missing: {mode!r}"
+
+
+def test_public_safety_modes_have_commands():
+    pub = sc.collect_public_safety_coverage()
+    for mode in pub["modes"]:
+        assert mode in pub["commands"], f"no command for mode {mode!r}"
+        assert "--" + mode in pub["commands"][mode]
+
+
+# ── Demo gate metrics ──────────────────────────────────────────────────────────
+
+
+def test_demo_gates_keys():
+    gates = sc.build_scorecard(ROOT)["demo_gates"]
+    for key in (
+        "architecture_guard",
+        "cli_golden_scenarios",
+        "dependency_audit",
+        "docs_drift_guard",
+        "mcp_stdio_contracts",
+    ):
+        assert key in gates, f"demo_gates missing: {key!r}"
+        assert gates[key]["status"] in ("present", "absent")
+    # dependency_audit must be present in live repo (both gate files exist)
+    assert gates["dependency_audit"]["status"] == "present"
+    # architecture/docs_drift/cli_golden absent — future gates
+    assert gates["architecture_guard"]["status"] == "absent"
+    assert gates["docs_drift_guard"]["status"] == "absent"
+    assert gates["cli_golden_scenarios"]["status"] == "absent"
+    assert gates["cli_golden_scenarios"]["count"] == 0
+
+
+def test_mcp_stdio_contract_count_equals_class_methods():
+    """mcp_stdio_contracts count must equal the TestMCPStdioContracts method count in test_mcp_server.py."""
+    import ast as _ast
+
+    gates = sc.build_scorecard(ROOT)["demo_gates"]
+    count_from_scorecard = gates["mcp_stdio_contracts"]["count"]
+
+    # Derive expected count directly from the source class via AST
+    tree = _ast.parse(
+        (ROOT / "tests" / "test_mcp_server.py").read_text(encoding="utf-8")
+    )
+    cls_node = next(
+        n for n in _ast.walk(tree)
+        if isinstance(n, _ast.ClassDef) and n.name == "TestMCPStdioContracts"
+    )
+    expected = sum(
+        1
+        for m in cls_node.body
+        if isinstance(m, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and m.name.startswith("test")
+    )
+
+    assert expected > 0, "TestMCPStdioContracts must have at least one test method"
+    assert count_from_scorecard == expected, (
+        f"scorecard mcp_stdio_contracts count {count_from_scorecard} != "
+        f"TestMCPStdioContracts method count {expected}"
+    )
+
+
+def test_demo_gates_all_absent_on_fake_repo(tmp_path):
+    root = _make_fake_repo(tmp_path)
+    gates = sc.collect_demo_gates(root)
+    for key in ("architecture_guard", "cli_golden_scenarios", "dependency_audit", "docs_drift_guard"):
+        assert gates[key]["status"] == "absent"
+    assert gates["mcp_stdio_contracts"]["count"] == 0
+    assert gates["mcp_stdio_contracts"]["status"] == "absent"
+    assert gates["cli_golden_scenarios"]["count"] == 0
+
+
+# ── Malformed expanded metric validation ───────────────────────────────────────
+
+
+def test_malformed_expanded_metric_missing_public_safety_mode():
+    data = sc.build_scorecard(ROOT)
+    data["public_safety"]["modes"] = ["tracked", "staged"]  # missing "committed"
+    errors = sc.validate(data)
+    assert errors, "validate must flag a missing public-safety mode"
+    assert any("committed" in e for e in errors)
+
+
+def test_malformed_expanded_metric_non_integer_scenario_count():
+    data = sc.build_scorecard(ROOT)
+    data["demo_gates"]["cli_golden_scenarios"]["count"] = "five"
+    errors = sc.validate(data)
+    assert errors, "validate must flag a non-integer scenario count"
+
+
+def test_malformed_expanded_metric_missing_strict_slice():
+    data = sc.build_scorecard(ROOT)
+    del data["pyright"]["strict_slice"]
+    errors = sc.validate(data)
+    assert errors, "validate must flag absent strict_slice"
+
+
+def test_malformed_expanded_metric_bad_strict_slice_count():
+    data = sc.build_scorecard(ROOT)
+    data["pyright"]["strict_slice"]["file_count"] = -1
+    errors = sc.validate(data)
+    assert errors, "validate must flag negative strict_slice.file_count"
+
+
+# ── No-subprocess guarantee for demo-gate collectors ──────────────────────────
+
+
+def test_no_subprocess_in_demo_gates(monkeypatch):
+    """Demo-gate collection runs on file-presence and AST reads only — no subprocess."""
+    import subprocess
+
+    def _raise(*args, **kwargs):
+        raise AssertionError("subprocess must not be called during demo_gates collection")
+
+    monkeypatch.setattr(subprocess, "run", _raise)
+    monkeypatch.setattr(subprocess, "check_output", _raise)
+    monkeypatch.setattr(subprocess, "Popen", _raise)
+
+    gates = sc.collect_demo_gates(ROOT)
+    assert isinstance(gates, dict)
+    assert "mcp_stdio_contracts" in gates
+    assert isinstance(gates["mcp_stdio_contracts"]["count"], int)
+    assert gates["dependency_audit"]["status"] == "present"

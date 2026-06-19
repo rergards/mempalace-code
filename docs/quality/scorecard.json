@@ -4,7 +4,26 @@
     "package_files": 73,
     "package_total_lines": 23746,
     "test_files": 57,
-    "test_total_lines": 43427
+    "test_total_lines": 43595
+  },
+  "demo_gates": {
+    "architecture_guard": {
+      "status": "absent"
+    },
+    "cli_golden_scenarios": {
+      "count": 0,
+      "status": "absent"
+    },
+    "dependency_audit": {
+      "status": "present"
+    },
+    "docs_drift_guard": {
+      "status": "absent"
+    },
+    "mcp_stdio_contracts": {
+      "count": 5,
+      "status": "present"
+    }
   },
   "largest_modules": [
     {
@@ -48,6 +67,18 @@
       "path": "mempalace_code/entity_registry.py"
     }
   ],
+  "public_safety": {
+    "commands": {
+      "committed": "python scripts/public_safety_scan.py --committed",
+      "staged": "python scripts/public_safety_scan.py --staged",
+      "tracked": "python scripts/public_safety_scan.py --tracked"
+    },
+    "modes": [
+      "committed",
+      "staged",
+      "tracked"
+    ]
+  },
   "pyright": {
     "include": [
       "mempalace_code",
@@ -55,6 +86,15 @@
     ],
     "python_version": "3.11",
     "strict": false,
+    "strict_slice": {
+      "file_count": 3,
+      "include_strict_match": true,
+      "paths": [
+        "mempalace_code/disk_budget.py",
+        "mempalace_code/mcp_tool_profiles.py",
+        "mempalace_code/version.py"
+      ]
+    },
     "type_checking_mode": "basic"
   },
   "ruff": {
@@ -80,7 +120,7 @@
     },
     "selected_rule_families": 12
   },
-  "schema_version": 1,
+  "schema_version": 2,
   "scope": {
     "package_dir": "mempalace_code",
     "tests_dir": "tests"
@@ -160,7 +200,7 @@
   },
   "tests": {
     "test_files": 57,
-    "test_functions": 2414
+    "test_functions": 2426
   },
   "verification_commands": [
     {

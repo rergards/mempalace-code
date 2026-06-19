@@ -48,6 +48,28 @@ absolute paths, no machine identifiers:
 - **Ruff ignores** — global ignore count, selected rule families, and per-file
   ignore patterns/entries from `pyproject.toml`.
 - **Pyright** — type-checking mode and strict status.
+- **Strict slice** — files under strict Pyright type-checking, sourced from
+  `pyrightconfig.strict.json`. Reports `file_count`, sorted `paths`, and
+  `include_strict_match` (whether `include` and `strict` arrays are identical).
+  Use `before → after` deltas to track expansion of the strict coverage footprint.
+- **Public-safety scan coverage** — metadata about the three supported
+  `public_safety_scan.py` scan modes: `tracked` (worktree scan for pre-commit
+  guards), `staged` (index snapshot), and `committed` (HEAD tree for release
+  readiness). No scan is executed during scorecard rendering; the section is
+  coverage metadata only.
+- **Demo gates** — deterministic present/absent status for optional public-demo
+  quality gates, sourced from file-presence and AST reads only (no subprocess):
+  - `dependency audit` — `scripts/dependency_upgrade_gate.py` plus
+    `.github/workflows/dependency-audit.yml` must both exist.
+  - `mcp_stdio_contracts` — count of `test*` methods in the
+    `TestMCPStdioContracts` class in `tests/test_mcp_server.py` (the MCP stdio
+    contract suite; counted class-scoped, not file-wide, to avoid conflating it
+    with the MCP stdio *transport* helper suite in `tests/test_stdio.py`).
+  - `architecture_guard`, `cli_golden_scenarios`, `docs_drift_guard` — future
+    gates; reported as `absent` and `count: 0` until the corresponding
+    scripts/test files land.
+  Demo gates use `"status": "present" | "absent"` so absent is a documented
+  baseline metric, not a release blocker.
 - **Suppressions** — total and *unreasoned* type/pyright ignores and blanket
   `noqa`, using the same policy as
   [`tests/test_type_suppressions.py`](../../tests/test_type_suppressions.py)
@@ -98,8 +120,9 @@ delta here:
    `python scripts/quality_scorecard.py --write`.
 4. In the PR/commit description and release notes, cite the moved metric using
    public repo data only — e.g. "unreasoned suppressions N → M",
-   "Ruff global ignores N → M", "Pyright strict slice added". The committed
-   `scorecard.json` diff is the evidence.
+   "Ruff global ignores N → M", "Pyright strict slice file_count N → M",
+   "demo gate X: absent → present". The committed `scorecard.json` diff is the
+   evidence.
 
 Run `python scripts/quality_scorecard.py --check` before committing so the
 regenerated artifacts stay well-formed and public-safe.

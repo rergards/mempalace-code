@@ -45,7 +45,7 @@ import sys
 import tokenize
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PACKAGE_DIR = "mempalace_code"
 TESTS_DIR = "tests"
 # Excluded everywhere: negative fixtures intentionally contain bad suppressions
@@ -293,6 +293,26 @@ def _count_test_functions(path: Path) -> int:
     return count
 
 
+def _count_class_test_methods(path: Path, class_name: str) -> int:
+    """Count test* methods inside a named ClassDef via AST. Returns 0 if absent or unparseable."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return 0
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return sum(
+                1
+                for m in node.body
+                if isinstance(m, ast.FunctionDef | ast.AsyncFunctionDef) and m.name.startswith("test")
+            )
+    return 0
+
+
 def collect_tests(root: Path) -> dict:
     test_files = _iter_py_files(root / TESTS_DIR, root)
     return {
@@ -312,16 +332,82 @@ def verification_commands() -> list[dict]:
     return [{"name": name, "command": cmd} for name, cmd in _VERIFICATION_COMMANDS]
 
 
+def collect_pyright_strict_slice(root: Path) -> dict:
+    """Metrics for the strict Pyright slice from pyrightconfig.strict.json."""
+    config_path = root / "pyrightconfig.strict.json"
+    if not config_path.exists():
+        return {"file_count": 0, "include_strict_match": False, "paths": []}
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    include_paths = sorted(data.get("include", []))
+    strict_paths = sorted(data.get("strict", []))
+    return {
+        "file_count": len(include_paths),
+        "include_strict_match": include_paths == strict_paths,
+        "paths": include_paths,
+    }
+
+
+def collect_public_safety_coverage() -> dict:
+    """Metadata about supported public-safety scan modes — no subprocess, no scan execution."""
+    return {
+        "commands": {
+            "committed": "python scripts/public_safety_scan.py --committed",
+            "staged": "python scripts/public_safety_scan.py --staged",
+            "tracked": "python scripts/public_safety_scan.py --tracked",
+        },
+        "modes": ["committed", "staged", "tracked"],
+    }
+
+
+def collect_demo_gates(root: Path) -> dict:
+    """Public-demo gate metrics via file-presence and AST reads only — no subprocess."""
+    # architecture_guard: future guard script
+    arch_status = "present" if (root / "scripts" / "architecture_guard.py").exists() else "absent"
+
+    # cli_golden_scenarios: count from future golden scenario test file
+    cli_golden_path = root / "tests" / "test_cli_golden_scenarios.py"
+    cli_golden_present = cli_golden_path.exists()
+    cli_golden_count = _count_test_functions(cli_golden_path) if cli_golden_present else 0
+
+    # mcp_stdio_contracts: class-scoped count from TestMCPStdioContracts in test_mcp_server.py
+    mcp_server_path = root / "tests" / "test_mcp_server.py"
+    mcp_count = _count_class_test_methods(mcp_server_path, "TestMCPStdioContracts")
+    mcp_status = "present" if mcp_count > 0 else "absent"
+
+    # docs_drift_guard: future docs drift guard script
+    docs_drift_status = "present" if (root / "scripts" / "docs_drift_guard.py").exists() else "absent"
+
+    # dependency_audit: both gate script and workflow must exist
+    dep_gate = (root / "scripts" / "dependency_upgrade_gate.py").exists()
+    dep_wf = (root / ".github" / "workflows" / "dependency-audit.yml").exists()
+    dep_status = "present" if dep_gate and dep_wf else "absent"
+
+    return {
+        "architecture_guard": {"status": arch_status},
+        "cli_golden_scenarios": {
+            "count": cli_golden_count,
+            "status": "present" if cli_golden_present else "absent",
+        },
+        "dependency_audit": {"status": dep_status},
+        "docs_drift_guard": {"status": docs_drift_status},
+        "mcp_stdio_contracts": {"count": mcp_count, "status": mcp_status},
+    }
+
+
 def build_scorecard(root: Path) -> dict:
     """Assemble the full scorecard dict. Pure function of the tracked tree."""
     pyproject = load_pyproject(root)
+    pyright_data = collect_pyright(pyproject)
+    pyright_data["strict_slice"] = collect_pyright_strict_slice(root)
     return {
         "schema_version": SCHEMA_VERSION,
         "scope": {"package_dir": PACKAGE_DIR, "tests_dir": TESTS_DIR},
         "code_size": collect_code_size(root),
+        "demo_gates": collect_demo_gates(root),
         "largest_modules": collect_largest_modules(root),
+        "public_safety": collect_public_safety_coverage(),
         "ruff": collect_ruff(pyproject),
-        "pyright": collect_pyright(pyproject),
+        "pyright": pyright_data,
         "suppressions": collect_suppressions(root),
         "tests": collect_tests(root),
         "suites": collect_suites(root),
@@ -395,6 +481,40 @@ def render_markdown(data: dict) -> str:
     lines.append(f"| Strict | {str(py['strict']).lower()} |")
     lines.append(f"| Python version | {py['python_version']} |")
     lines.append(f"| Include | {', '.join(f'`{i}`' for i in py['include'])} |")
+    lines.append("")
+
+    ss = py.get("strict_slice", {})
+    lines.append("## Pyright Strict Slice")
+    lines.append("")
+    lines.append(
+        f"Files under strict type-checking (`pyrightconfig.strict.json`): {ss.get('file_count', 0)}."
+    )
+    if ss.get("paths"):
+        lines.append("")
+        for _p in ss["paths"]:
+            lines.append(f"- `{_p}`")
+    lines.append("")
+
+    pub = data["public_safety"]
+    lines.append("## Public Safety")
+    lines.append("")
+    lines.append("| Mode | Command |")
+    lines.append("|------|---------|")
+    for _mode in pub["modes"]:
+        _cmd = pub.get("commands", {}).get(_mode, "")
+        lines.append(f"| {_mode} | `{_cmd}` |")
+    lines.append("")
+
+    demo = data["demo_gates"]
+    lines.append("## Demo Gates")
+    lines.append("")
+    lines.append("| Gate | Status | Count |")
+    lines.append("|------|:------:|------:|")
+    for _gate_key in sorted(demo.keys()):
+        _gate = demo[_gate_key]
+        _status = _gate.get("status", "absent")
+        _count = str(_gate["count"]) if "count" in _gate else ""
+        lines.append(f"| {_gate_key} | {_status} | {_count} |")
     lines.append("")
 
     lines.append("## Suppressions")
@@ -499,6 +619,58 @@ def validate(data: dict) -> list[str]:
         "pyright.type_checking_mode must be a non-empty str",
     )
     require(isinstance(py.get("strict"), bool), "pyright.strict must be a bool")
+
+    ss = py.get("strict_slice", None)
+    require(isinstance(ss, dict), "pyright.strict_slice must be a dict")
+    if isinstance(ss, dict):
+        require(
+            isinstance(ss.get("file_count"), int) and ss.get("file_count", -1) >= 0,
+            "pyright.strict_slice.file_count must be a non-negative int",
+        )
+        require(isinstance(ss.get("paths"), list), "pyright.strict_slice.paths must be a list")
+        require(
+            isinstance(ss.get("include_strict_match"), bool),
+            "pyright.strict_slice.include_strict_match must be a bool",
+        )
+        if isinstance(ss.get("paths"), list) and isinstance(ss.get("file_count"), int):
+            require(
+                ss["file_count"] == len(ss["paths"]),
+                "pyright.strict_slice.file_count must equal len(paths)",
+            )
+            require(
+                ss["paths"] == sorted(ss["paths"]),
+                "pyright.strict_slice.paths must be sorted",
+            )
+
+    ps = data.get("public_safety", {})
+    require(isinstance(ps.get("modes"), list), "public_safety.modes must be a list")
+    if isinstance(ps.get("modes"), list):
+        for _mode in ("committed", "staged", "tracked"):
+            require(_mode in ps["modes"], f"public_safety.modes must include '{_mode}'")
+
+    gates = data.get("demo_gates", {})
+    require(isinstance(gates, dict), "demo_gates must be a dict")
+    if isinstance(gates, dict):
+        for _gate in (
+            "architecture_guard",
+            "cli_golden_scenarios",
+            "dependency_audit",
+            "docs_drift_guard",
+            "mcp_stdio_contracts",
+        ):
+            require(_gate in gates, f"demo_gates.{_gate} must be present")
+            if isinstance(gates.get(_gate), dict):
+                require(
+                    gates[_gate].get("status") in ("present", "absent"),
+                    f"demo_gates.{_gate}.status must be 'present' or 'absent'",
+                )
+        for _count_gate in ("cli_golden_scenarios", "mcp_stdio_contracts"):
+            if isinstance(gates.get(_count_gate), dict):
+                require(
+                    isinstance(gates[_count_gate].get("count"), int)
+                    and gates[_count_gate].get("count", -1) >= 0,
+                    f"demo_gates.{_count_gate}.count must be a non-negative int",
+                )
 
     sup = data.get("suppressions", {})
     for key in (
