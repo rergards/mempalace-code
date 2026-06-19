@@ -2011,8 +2011,8 @@ class TestWatchRunReadinessDiagnostics:
         assert "WATCH_RUN run_id=TEST-RUN-ID state=optimize-completed" in output
         assert "WATCH_RUN run_id=TEST-RUN-ID state=watch-ready" in output
 
-    def test_pre_watch_backup_failure_emits_failed_state_for_same_run(self, tmp_path, capsys):
-        """AC-2: backup failure emits pre-watch-backup-failed with the same run id; no watch-ready."""
+    def test_watch_and_mine_pre_watch_backup_failure_emits_failed_state(self, tmp_path, capsys):
+        """AC-2: watch_and_mine backup failure emits pre-watch-backup-failed with the same run id; no watch-ready."""
         palace = tmp_path / "palace"
         lance_dir = palace / "lance"
         lance_dir.mkdir(parents=True)
@@ -2111,3 +2111,37 @@ class TestWatchRunReadinessDiagnostics:
         assert "WATCH_RUN run_id=WATCH-ALL-RUN state=initial-mine-started" in output
         assert "WATCH_RUN run_id=WATCH-ALL-RUN state=initial-mine-completed" in output
         assert "WATCH_RUN run_id=WATCH-ALL-RUN state=watch-ready" in output
+
+    def test_watch_all_pre_watch_backup_failure_emits_failed_state(self, tmp_path, capsys):
+        """AC-1: watch_all backup failure with existing lance data emits pre-watch-backup-failed; exits 1; no watch loop."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / "mempalace.yaml").write_text("wing: test_wing\n")
+
+        watch_entered = []
+
+        with (
+            patch("mempalace_code.watcher._make_run_id", return_value="WATCH-ALL-BACKUP-FAIL"),
+            patch("mempalace_code.watcher.create_backup", side_effect=Exception("disk full")),
+            patch("mempalace_code.watcher.mine") as mock_mine,
+            patch(
+                "watchfiles.watch",
+                side_effect=lambda *a, **kw: watch_entered.append(1) or iter([]),
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                watch_all(str(project), str(palace), on_commit=False)
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
+        assert "WATCH_RUN run_id=WATCH-ALL-BACKUP-FAIL state=run-started" in output
+        assert "WATCH_RUN run_id=WATCH-ALL-BACKUP-FAIL state=pre-watch-backup-failed" in output
+        assert "state=watch-ready" not in output
+        mock_mine.assert_not_called()
+        assert not watch_entered, "watch loop must not be entered on backup failure"
