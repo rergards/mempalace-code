@@ -106,19 +106,6 @@ items:
       - Use a generated fixture project small enough for CI but representative enough to include Python source, Markdown, config, and one non-Python supported file.
       - Add the scenario suite to the quality scorecard as a real workflow suite distinct from unit-level CLI tests.
       - Remove all smoke artifacts or report them explicitly; update release/verify docs and the quality scorecard.
-  - key: AUTOPILOT-DEMO-MCP-STDIO-CONTRACTS
-    section: autopilot_demo
-    status: open
-    priority: P1
-    summary: Add real MCP stdio contract tests for profiles, tool discovery, and representative tool calls.
-    acceptance:
-      - Start `python -m mempalace_code.mcp_server` as a subprocess and exercise JSON-RPC initialize, tools/list, and tools/call through stdin/stdout.
-      - Verify `minimal`, `code`, `kg`, `notes`, and `full` profiles expose only the expected tools.
-      - Include representative success and error responses for read-only, write, graph/KG, and disabled-tool paths.
-      - Assert response envelopes follow MCP JSON-RPC shape, include stable error codes/messages where applicable, and do not leak tracebacks for expected user errors.
-      - Add timeout and subprocess cleanup guards so failed tests do not leave orphan MCP server processes.
-      - Record profile/tool counts in the scorecard so future tool-surface changes are visible.
-      - Keep direct handler tests as fast unit coverage but label them separately from real MCP stdio coverage; update the quality scorecard.
   - key: AUTOPILOT-DEMO-SECURITY-BOUNDARY-TESTS
     section: autopilot_demo
     status: open
