@@ -500,7 +500,8 @@ def test_verification_commands_match_verify_skill():
 def test_strict_slice_in_pyright():
     data = sc.build_scorecard(ROOT)
     ss = data["pyright"]["strict_slice"]
-    assert isinstance(ss["file_count"], int) and ss["file_count"] >= 0
+    assert isinstance(ss["file_count"], int)
+    assert ss["file_count"] >= 0
     assert isinstance(ss["paths"], list)
     assert ss["file_count"] == len(ss["paths"])
     assert ss["paths"] == sorted(ss["paths"]), "strict_slice.paths must be sorted"
