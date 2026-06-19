@@ -4,7 +4,7 @@
     "package_files": 73,
     "package_total_lines": 23746,
     "test_files": 57,
-    "test_total_lines": 43158
+    "test_total_lines": 43427
   },
   "largest_modules": [
     {
@@ -160,7 +160,7 @@
   },
   "tests": {
     "test_files": 57,
-    "test_functions": 2409
+    "test_functions": 2414
   },
   "verification_commands": [
     {
