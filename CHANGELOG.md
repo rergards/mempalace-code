@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 2026-06-19 · AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE
+
+Add committed-tree public-safety scan mode to `scripts/public_safety_scan.py` for release verification that inspects HEAD independently of worktree state.
+
 ## v1.11.0 — 2026-06-18
 
 Minor release for release-readiness gates, dependency audit automation, offline
