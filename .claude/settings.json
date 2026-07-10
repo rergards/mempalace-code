@@ -16,7 +16,7 @@
           },
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit'; then if git diff --name-only --cached | grep -qE '^mempalace_code/storage\\.py$' && ! git diff --name-only --cached | grep -qE '^docs/STORAGE\\.md$'; then echo '[warn] storage.py changed without STORAGE.md update'; fi; fi",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'git commit'; then if git diff --name-only --cached | grep -qE '^mempalace_code/storage\\.py$' && ! git diff --name-only --cached | grep -qE '^docs/BACKUP_RESTORE\\.md$'; then echo '[warn] storage.py changed without BACKUP_RESTORE.md update'; fi; fi",
             "timeout": 5000
           }
         ]

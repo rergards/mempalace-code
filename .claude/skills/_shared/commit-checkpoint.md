@@ -47,7 +47,7 @@ If any discrepancy is found, list it explicitly before proceeding. Do not silent
 Before staging, check whether the intended public diff contains secrets, private paths, local artifact directories, or private project names:
 
 ```bash
-rg -n "(/Users/|/srv/[^[:space:]'\"`]+|[g]ithub_pat_|[g]hp_|[p]ypi-[A-Za-z0-9_-]{20,}|[s]k-[A-Za-z0-9])" -- $(git ls-files)
+rg -n "(/Users/|/srv/[^[:space:]'\"\`]+|[g]ithub_pat_|[g]hp_|[p]ypi-[A-Za-z0-9_-]{20,}|[s]k-[A-Za-z0-9])" -- $(git ls-files)
 git status --short | grep -E "^.. (\\.tasks/|\\.protocols/|docs/audits/)" && echo "ERROR: local artifacts must not be staged"
 ```
 

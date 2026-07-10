@@ -15,7 +15,7 @@ Weekly documentation refresh + maintenance. All steps mechanical — execute seq
 Run in parallel:
 
 ```bash
-git log --oneline -1 -- docs/BACKUP_RESTORE.md docs/AGENT_INSTALL.md docs/STORAGE.md CLAUDE.md README.md
+git log --oneline -1 -- docs/BACKUP_RESTORE.md docs/AGENT_INSTALL.md CLAUDE.md README.md
 ```
 ```bash
 git log --oneline -30 main
@@ -30,7 +30,6 @@ For each doc, diff changed source files since last doc commit:
 |-----|-----------|
 | BACKUP_RESTORE.md | `mempalace_code/backup.py`, `mempalace_code/storage.py` |
 | AGENT_INSTALL.md | `mempalace_code/mcp_server.py`, MCP tools |
-| STORAGE.md | `mempalace_code/storage.py`, schema migrations |
 | CLAUDE.md | `.claude/skills/`, `mempalace_code/**/*.py` modules |
 | README.md | CLI commands, MCP tools, installation |
 
@@ -70,12 +69,11 @@ backlog validate --file docs/BACKLOG.yaml
 
 Fix any schema errors. Dangling links are warnings — ignore.
 
-### 4b. Memory cleanup
+### 4b. Durable-context audit
 
-Scan `MEMORY.md` per memory-write-policy. Remove:
-- Outdated versions or archived workflows
-- Session-specific notes that should have been removed
-- Duplicates of CLAUDE.md content
+Search MemPalace wing `mempalace` for the changed topic. Flag stale source/task
+references and duplicated canonical docs. Keep current product truth in tracked
+files; keep original evidence, decisions, and root causes in focused drawers.
 
 ### 4c. Verify check
 
@@ -94,7 +92,9 @@ If >= 30 unverified commits: flag prominently, recommend `/verify` before next d
 ### 4d. Dead doc references
 
 ```bash
-grep -rohn 'docs/[a-zA-Z0-9_./-]*\.md' docs/ CLAUDE.md .claude/ | while IFS=: read -r file line path; do
+git grep -n -o -E 'docs/[a-zA-Z0-9_./-]+\.md' -- docs CLAUDE.md .claude/ \
+  ':(exclude)docs/plans/**' ':(exclude)docs/audits/**' ':(exclude)docs/demo/**' \
+  ':(exclude).claude/prompts/**' | while IFS=: read -r file line path; do
   [ ! -f "$path" ] && echo "DEAD REF: $file:$line -> $path"
 done
 ```

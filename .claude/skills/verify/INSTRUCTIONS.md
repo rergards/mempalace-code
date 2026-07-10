@@ -119,11 +119,14 @@ Rules for the verdict:
 - **PASS**: All checks passed
 - **FAIL**: ANY check failed — list the failed checks and suggest fixes
 
-**If verdict is PASS** — save the current HEAD SHA as the new baseline:
+Verification is read-only by default. Report the verified HEAD:
 
 ```bash
-git rev-parse HEAD > .verify-state
+git rev-parse HEAD
 ```
+
+Update `.verify-state` only when the caller explicitly requests a baseline
+refresh. Do not hide that write inside routine verification.
 
 **If verdict is FAIL** — do NOT update `.verify-state`. The baseline should reflect the last known-good state so the next run still catches everything that changed since then.
 
