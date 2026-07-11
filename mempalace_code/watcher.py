@@ -16,8 +16,9 @@ import signal
 import sys
 import threading
 import time
+from functools import wraps
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .backup import create_backup
 from .config import MempalaceConfig
@@ -39,12 +40,37 @@ from .mining.scanner import (
     normalize_include_paths,
     should_skip_dir,
 )
+from .operation_lock import OperationLock, OperationLockedError
 from .storage import optimize_store
 
 _UNSET: object = object()  # sentinel for _ScanRulesSnapshot._bad_mtime
 
 # Throttle: print disk-budget skip message at most once per this many seconds.
 _BUDGET_LOG_INTERVAL = 300  # 5 minutes
+
+
+def _with_watcher_lease(func: Callable) -> Callable:
+    """Hold a shared operation lease for a watcher invocation's full lifetime."""
+
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        operation_lock = kwargs.get("operation_lock") or OperationLock.default()
+        try:
+            lease = operation_lock.acquire_shared("watcher")
+        except OperationLockedError as exc:
+            owner = exc.owner
+            owner_text = " ".join(
+                f"{key}={value}" for key, value in owner.items() if key in {"operation", "pid"}
+            )
+            print(
+                f"  Watcher refused: update operation owns this installation. {owner_text}".rstrip(),
+                file=sys.stderr,
+            )
+            raise SystemExit(3) from exc
+        with lease:
+            return func(*args, **kwargs)
+
+    return wrapped
 
 
 def _load_watch_min_free() -> int:
@@ -219,6 +245,7 @@ def _emit_run_state(run_id: str, state: str, extra: str = "") -> None:
     print(line, flush=True)
 
 
+@_with_watcher_lease
 def watch_and_mine(
     project_dir: str,
     palace_path: str,
@@ -227,6 +254,7 @@ def watch_and_mine(
     respect_gitignore: bool = True,
     include_ignored: list | None = None,
     kg=None,
+    operation_lock: OperationLock | None = None,
 ) -> None:
     """Watch *project_dir* for file changes and re-mine incrementally.
 
@@ -639,12 +667,14 @@ def _classify_watch_root(root: Path) -> str:
     return "parent"
 
 
+@_with_watcher_lease
 def watch_all(
     parent_dir: str,
     palace_path: str,
     agent: str = "mempalace",
     respect_gitignore: bool = True,
     on_commit: bool = True,
+    operation_lock: OperationLock | None = None,
 ) -> None:
     """Watch initialized projects under *parent_dir* (or *parent_dir* itself) and re-mine on changes.
 

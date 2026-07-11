@@ -983,6 +983,32 @@ mempalace/
 
 ---
 
+## Opt-in updates
+
+Supported isolated installs can inspect and explicitly apply upgrades. The command never runs
+from ordinary MemPalace startup, and its systemd-user scheduler is disabled until installed by
+the operator.
+
+```bash
+mempalace-code update status                 # read-only: installer, extras, provenance, service, timer
+mempalace-code update check                  # read-only canonical PyPI provenance refresh
+mempalace-code update apply --yes            # explicit package and managed-watcher transaction
+mempalace-code update scheduler render       # inspect systemd-user units without writing them
+mempalace-code update scheduler install --yes # explicit daily scheduler opt-in (Linux systemd-user)
+```
+
+The first slice supports `uv tool`, `pipx`, and the documented `~/.mempalace/venv` bootstrap
+install. It refuses system Python, distro-managed, editable/source, and ambiguous environments
+before stopping a watcher or changing package state. Stable, compatible-major releases are selected
+from canonical PyPI provenance; prereleases, yanked files, and releases without a wheel are refused.
+Detected extras are retained. A configured watcher missing its required `watch` extra is also a
+preflight refusal.
+
+An update serializes with watchers, records its stage and bounded log under `~/.mempalace/updates/`,
+validates the new console and palace, then restores a previously active managed watcher. Any failure
+after version recording invokes the same installer to roll back the prior version and restores the
+prior watcher state. See [the update runbook](docs/UPDATES.md) for recovery.
+
 ## Contributing
 
 PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -24,6 +24,7 @@ import yaml
 
 from mempalace_code.cli import main
 from mempalace_code.miner import ScanFilterRules
+from mempalace_code.operation_lock import OperationLock
 from mempalace_code.watcher import (
     _invalidate_gitignore_cache,
     _is_relevant_change,
@@ -566,6 +567,34 @@ class TestWatchAndMine:
 
         # Only the initial mine — workspace.json was filtered by the refreshed rules
         assert len(mine_calls) == 1
+
+
+class TestWatcherOperationLease:
+    def test_watcher_refuses_while_update_owns_exclusive_lease(self, tmp_path, capsys):
+        project = tmp_path / "proj"
+        project.mkdir()
+        lock = OperationLock(tmp_path / "operation.lock")
+
+        with lock.acquire_exclusive("update"):
+            with pytest.raises(SystemExit) as exc_info:
+                watch_and_mine(str(project), str(tmp_path / "palace"), operation_lock=lock)
+
+        assert exc_info.value.code == 3
+        assert "Watcher refused" in capsys.readouterr().err
+
+    def test_watcher_releases_shared_lease_after_shutdown(self, tmp_path):
+        project = tmp_path / "proj"
+        project.mkdir()
+        lock = OperationLock(tmp_path / "operation.lock")
+
+        with (
+            patch("mempalace_code.watcher.mine", return_value={}),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"), operation_lock=lock)
+
+        with lock.acquire_exclusive("update"):
+            pass
 
 
 # ---------------------------------------------------------------------------

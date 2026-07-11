@@ -246,6 +246,22 @@ def _smoke_venv_fail() -> Callable[[list[str]], tuple[int, str, str]]:
     return run_subprocess
 
 
+def test_install_smoke_requires_update_command_surface():
+    calls: list[list[str]] = []
+
+    def missing_update(command: list[str]) -> tuple[int, str, str]:
+        calls.append(command)
+        if command[-2:] == ["update", "--help"]:
+            return 2, "", "unknown command: update"
+        return 0, "ok", ""
+
+    result = rsg.check_install_smoke(VERSION, PACKAGE, missing_update)
+
+    assert result.status == rsg.STATUS_FAIL
+    assert "update command surface" in result.detail
+    assert calls[-1][-2:] == ["update", "--help"]
+
+
 def _call_gate(
     version: str = VERSION,
     allow_prerelease: bool = False,

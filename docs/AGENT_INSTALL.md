@@ -851,6 +851,42 @@ For automated installs, CI pipelines, and non-interactive agents:
   `MEMPALACE_VERSION_CHECK=0` in the environment.
 - No version-check network call is ever made unless the user has opted in or passed `--check-now`.
 
+### Opt-in package updates (supported Linux installs)
+
+Version checks only report metadata. Package updates use the separate explicit command surface:
+
+```bash
+mempalace-code update status
+mempalace-code update check
+mempalace-code update apply --yes
+```
+
+`status` and `check` do not install packages, stop services, enable a timer, or replace update
+state. They report canonical PyPI provenance, the stable compatible-major candidate, detected
+installer, retained extras, watcher state, and next systemd-user run. `apply --yes` is required for
+mutation. The supported install boundary is `uv tool`, `pipx`, or the bootstrap
+`~/.mempalace/venv`; system Python, distro-managed, editable/source, and ambiguous environments
+remain visible refusals.
+
+When a managed `mempalace-watch.service` is active, the updater stops it, acquires the exclusive
+operation lease, retains detected extras, validates the new console and palace, and restarts the
+service. It only restarts a watcher that was active before the attempt. Every post-preflight failure
+rolls back through the same installer and records the failed stage plus a bounded log in
+`~/.mempalace/updates/logs/`. A watcher requires the retained `watch` extra; missing required extras
+fail before service or package mutation.
+
+Automatic checks are disabled by default. Linux operators using systemd-user may inspect then opt in:
+
+```bash
+mempalace-code update scheduler render
+mempalace-code update scheduler install --yes
+mempalace-code update scheduler status
+```
+
+The scheduler uses a guarded systemd-user service and timer. It has no machine-wide, cron, launchd,
+or Windows equivalent in this release. Use `mempalace-code update status` and the log path returned
+by an update attempt to diagnose a refusal or rollback; do not retry through a system package manager.
+
 ---
 
 ## Reference

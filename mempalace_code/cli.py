@@ -25,6 +25,8 @@ Commands:
     mempalace-code repair [--rollback] [--dry-run]  Repair palace (rollback or full rebuild)
     mempalace-code backup [--out FILE]         Snapshot palace to a .tar.gz archive
     mempalace-code restore FILE [--force] [--kg-path PATH]  Restore palace from a .tar.gz archive
+    mempalace-code update status                Inspect explicit upgrade eligibility and provenance
+    mempalace-code update apply --yes           Apply an opt-in supported-install upgrade
     mempalace-code diary write --agent <name> --entry "<text>"  Write a diary entry
 
 Examples:
@@ -55,6 +57,7 @@ from .cli_commands.maintenance import cmd_cleanup, cmd_health, cmd_migrate_stora
 from .cli_commands.model import cmd_fetch_model, fetch_model
 from .cli_commands.preflight import cmd_preflight
 from .cli_commands.query import cmd_compress, cmd_read, cmd_search, cmd_wakeup
+from .cli_commands.update import cmd_update
 from .cli_commands.version_check import cmd_version_check
 from .cli_commands.watch import cmd_watch
 
@@ -654,6 +657,52 @@ def main():
         help="Show current version-check settings without contacting PyPI (default action)",
     )
 
+    # update — all package, service, and timer mutation requires --yes in the handler.
+    p_update = sub.add_parser(
+        "update",
+        help="Inspect or explicitly apply a safe upgrade for supported isolated installs",
+    )
+    update_sub = p_update.add_subparsers(dest="update_command")
+    for name, help_text in (
+        ("status", "Show eligibility, provenance, installer, watcher, and scheduler state"),
+        ("check", "Refresh canonical PyPI release provenance without installing"),
+    ):
+        update_parser = update_sub.add_parser(name, help=help_text)
+        update_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    p_update_apply = update_sub.add_parser(
+        "apply", help="Apply an explicit supported-install upgrade"
+    )
+    p_update_apply.add_argument(
+        "--yes", action="store_true", help="Confirm package and service mutation"
+    )
+    p_update_apply.add_argument("--scheduled", action="store_true", help=argparse.SUPPRESS)
+    p_update_apply.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    p_update_scheduler = update_sub.add_parser(
+        "scheduler", help="Manage the opt-in systemd-user timer"
+    )
+    scheduler_sub = p_update_scheduler.add_subparsers(dest="scheduler_command")
+    p_update_scheduler_status = scheduler_sub.add_parser("status", help="Show timer state")
+    p_update_scheduler_status.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    p_update_scheduler_render = scheduler_sub.add_parser(
+        "render", help="Print deterministic user-unit files"
+    )
+    p_update_scheduler_render.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    for name, help_text in (
+        ("install", "Write and enable the systemd-user update timer"),
+        ("remove", "Disable the systemd-user update timer"),
+    ):
+        scheduler_parser = scheduler_sub.add_parser(name, help=help_text)
+        scheduler_parser.add_argument(
+            "--yes", action="store_true", help="Confirm systemd-user mutation"
+        )
+        scheduler_parser.add_argument(
+            "--json", action="store_true", help="Emit machine-readable JSON"
+        )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -673,6 +722,10 @@ def main():
 
     if args.command == "preflight":
         args._preflight_parser = p_preflight
+
+    if args.command == "update":
+        args._update_parser = p_update
+        args._scheduler_parser = p_update_scheduler
 
     if args.command == "mine" and args.include_emotional:
         if args.mode != "convos" or args.extract != "general":
@@ -702,12 +755,13 @@ def main():
         "export": cmd_export,
         "import": cmd_import,
         "version-check": cmd_version_check,
+        "update": cmd_update,
         "preflight": cmd_preflight,
     }
 
     # --- opt-in version-check hook ---
     # version-check command handles itself; all others may get a first-run prompt.
-    if args.command != "version-check":
+    if args.command not in ("version-check", "update"):
         from .version import __version__ as _current_version
         from .version_check import (
             load_state,
@@ -727,7 +781,7 @@ def main():
     dispatch[args.command](args)
 
     # Automatic check runs after the command succeeds; skipped on SystemExit.
-    if args.command != "version-check" and _vc_config.enabled:  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
+    if args.command not in ("version-check", "update") and _vc_config.enabled:  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
         run_automatic_check(  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
             _current_version,  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
             _vc_config,

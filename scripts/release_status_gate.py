@@ -366,8 +366,19 @@ def check_install_smoke(
             if rc != 0:
                 detail = sanitize((err or out).strip())
                 return SurfaceResult(SURFACE_SMOKE, STATUS_FAIL, f"install smoke failed: {detail}")
+            console = str(venv_dir / "bin" / "mempalace-code")
+            rc, out, err = run_subprocess([console, "update", "--help"])
+            if rc != 0:
+                detail = sanitize((err or out).strip())
+                return SurfaceResult(
+                    SURFACE_SMOKE,
+                    STATUS_FAIL,
+                    f"install smoke missing update command surface: {detail}",
+                )
             return SurfaceResult(
-                SURFACE_SMOKE, STATUS_OK, f"no-cache install of {package}=={version} succeeded"
+                SURFACE_SMOKE,
+                STATUS_OK,
+                f"no-cache install of {package}=={version} and update command smoke succeeded",
             )
     except OSError as exc:
         return SurfaceResult(
