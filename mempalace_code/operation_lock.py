@@ -13,7 +13,7 @@ from typing import Literal
 try:  # pragma: no cover - Windows is outside the first supported scheduler slice.
     import fcntl
 except ImportError:  # pragma: no cover
-    fcntl = None  # type: ignore[assignment]
+    fcntl = None  # type: ignore[assignment]  # reason: Windows has no fcntl; None is the intended sentinel
 
 
 LockMode = Literal["shared", "exclusive"]

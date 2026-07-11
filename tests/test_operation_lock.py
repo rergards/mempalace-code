@@ -18,7 +18,7 @@ def test_exclusive_lock_reports_shared_watcher_owner_and_releases(tmp_path):
 
     with lock.acquire_exclusive("update") as lease:
         assert lease.mode == "exclusive"
-        assert lock.owner_details()["operation"] == "update"  # type: ignore[index]
+        assert lock.owner_details()["operation"] == "update"  # type: ignore[index]  # reason: owner_details() returns dict when lock is held
 
     assert lock.owner_details() is None
 

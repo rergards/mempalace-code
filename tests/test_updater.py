@@ -111,10 +111,10 @@ class TestUpdateStatus:
         assert result.ok is True
         assert result.stage == "status"
         assert result.data["eligible"] is True
-        assert result.data["provenance"]["target_version"] == "1.11.1"  # type: ignore[index]
-        assert result.data["provenance"]["sha256"] == "a" * 64  # type: ignore[index]
-        assert result.data["installation"]["extras"] == ["spellcheck", "watch"]  # type: ignore[index]
-        assert result.data["watcher"]["active"] is True  # type: ignore[index]
+        assert result.data["provenance"]["target_version"] == "1.11.1"  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
+        assert result.data["provenance"]["sha256"] == "a" * 64  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
+        assert result.data["installation"]["extras"] == ["spellcheck", "watch"]  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
+        assert result.data["watcher"]["active"] is True  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
         assert result.data["next_run"] is None
         assert not (tmp_path / "state" / "updates" / "state.json").exists()
         assert all("pip" not in command for command in commands)

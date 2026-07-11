@@ -195,8 +195,8 @@
       "tests"
     ],
     "type_pyright_total": 125,
-    "type_pyright_unreasoned": 6,
-    "unreasoned_total": 6
+    "type_pyright_unreasoned": 0,
+    "unreasoned_total": 0
   },
   "tests": {
     "test_files": 59,
