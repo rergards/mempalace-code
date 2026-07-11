@@ -1,9 +1,0 @@
-stash_ref: 2e010af08a4cea0ef4358294ef24145a783c2c8d
-reason: failed
-slug: RELEASE-PREP-1-12-0
-restore: git stash apply 2e010af08a4cea0ef4358294ef24145a783c2c8d
-phase: implement
-commit_before: a3f2e92
-paths:
-- pyproject.toml
-- tests/test_updater.py
