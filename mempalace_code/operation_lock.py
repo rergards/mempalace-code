@@ -94,10 +94,17 @@ class OperationLock:
 
     def owner_details(self) -> dict[str, object] | None:
         """Return one current owner record for actionable contention diagnostics."""
-        owners = self._read_owners()
+        owners = self._active_owners()
         if not owners:
             return None
         return next(iter(owners.values()))
+
+    def exclusive_owner_details(self) -> dict[str, object] | None:
+        """Return a live exclusive owner without treating stale metadata as a lock."""
+        return next(
+            (owner for owner in self._active_owners().values() if owner.get("mode") == "exclusive"),
+            None,
+        )
 
     def _acquire(self, mode: LockMode, operation: str) -> OperationLease:
         if fcntl is None:  # pragma: no cover - platform guard
@@ -145,6 +152,37 @@ class OperationLock:
             return {}
         return {str(key): value for key, value in raw.items() if isinstance(value, dict)}
 
+    def _active_owners(self) -> dict[str, dict[str, object]]:
+        """Read owner diagnostics and prune records whose owning process has exited."""
+        fd = self._metadata_fd()
+        try:
+            owners = self._read_owners()
+            active = {
+                token: owner for token, owner in owners.items() if self._owner_is_alive(owner)
+            }
+            if active != owners:
+                self._write_owners(active)
+            return active
+        finally:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    @staticmethod
+    def _owner_is_alive(owner: dict[str, object]) -> bool:
+        pid = owner.get("pid")
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+        return True
+
     def _write_owners(self, owners: dict[str, dict[str, object]]) -> None:
         temp_path = self.owners_path.with_name(f".{self.owners_path.name}.{os.getpid()}.tmp")
         temp_path.write_text(json.dumps(owners, sort_keys=True), encoding="utf-8")
@@ -154,7 +192,11 @@ class OperationLock:
     def _add_owner(self, token: str, owner: dict[str, object]) -> None:
         fd = self._metadata_fd()
         try:
-            owners = self._read_owners()
+            owners = {
+                existing_token: existing_owner
+                for existing_token, existing_owner in self._read_owners().items()
+                if self._owner_is_alive(existing_owner)
+            }
             owners[token] = owner
             self._write_owners(owners)
         finally:

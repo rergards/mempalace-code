@@ -32,3 +32,17 @@ def test_multiple_watchers_share_lease_but_block_update(tmp_path):
 
     with lock.acquire_exclusive("update"):
         pass
+
+
+def test_dead_owner_metadata_is_pruned_before_the_next_lease(tmp_path):
+    lock = OperationLock(tmp_path / "operation.lock")
+    lock.owners_path.write_text(
+        '{"stale": {"mode": "exclusive", "operation": "update", "pid": 999999999}}',
+        encoding="utf-8",
+    )
+
+    assert lock.exclusive_owner_details() is None
+    assert lock.owner_details() is None
+
+    with lock.acquire_exclusive("update") as lease:
+        assert lease.mode == "exclusive"

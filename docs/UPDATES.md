@@ -51,6 +51,8 @@ the palace, then restarts and verifies the watcher if it was running before the 
 
 Watchers hold shared leases throughout their lifetime. The updater reports lock owner metadata rather
 than racing an unmanaged watcher. A scheduled overlap exits before package or service mutation.
+Dead-PID owner records from an interrupted process are pruned before they can block a later update;
+the kernel lease remains the concurrency authority.
 
 ## Scheduled update
 

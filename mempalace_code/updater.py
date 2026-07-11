@@ -33,6 +33,7 @@ DEFAULT_WATCHER_UNIT = "mempalace-watch.service"
 DEFAULT_TIMER_UNIT = "mempalace-update.timer"
 DEFAULT_SERVICE_UNIT = "mempalace-update.service"
 MIN_FREE_BYTES = 100 * 1024 * 1024
+DEFAULT_COMMAND_TIMEOUT = 15 * 60
 
 CommandRunner = Callable[[list[str]], tuple[int, str, str]]
 PypiFetcher = Callable[[], dict[str, Any]]
@@ -174,7 +175,7 @@ class SystemdUserService:
     def _run(self, command: list[str]) -> tuple[int, str, str]:
         try:
             return self.runner(command)
-        except OSError as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             return 127, "", str(exc)
 
 
@@ -256,8 +257,16 @@ def detect_installation(
             )
         return Installation.unsupported("pipx environment found but pipx executable is unavailable")
 
-    uv_tool_dir = env.get("UV_TOOL_DIR") or env.get("UV_TOOL_BIN_DIR")
-    if uv_tool_dir and Path(uv_tool_dir).expanduser() in {env_prefix, *env_prefix.parents}:
+    xdg_data_home = Path(env.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+    uv_tool_roots = [
+        Path(env["UV_TOOL_DIR"]) if env.get("UV_TOOL_DIR") else None,
+        xdg_data_home / "uv" / "tools",
+        Path.home() / "Library" / "Application Support" / "uv" / "tools",
+    ]
+    if any(
+        root is not None and root.expanduser().resolve() in {env_prefix, *env_prefix.parents}
+        for root in uv_tool_roots
+    ):
         uv = which("uv")
         if uv:
             return Installation(
@@ -277,7 +286,13 @@ def detect_installation(
 
 
 def _default_runner(command: list[str]) -> tuple[int, str, str]:
-    completed = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=DEFAULT_COMMAND_TIMEOUT,
+        check=False,
+    )
     return completed.returncode, completed.stdout, completed.stderr
 
 
@@ -394,8 +409,8 @@ class UpdateManager:
         # Do not stop a managed watcher just to discover an already-running update.
         # A shared watcher lease is handled below after its service has stopped; an
         # exclusive lease can only be another updater and must fail without mutation.
-        existing_owner = self.lock.owner_details()
-        if existing_owner and existing_owner.get("mode") == "exclusive":
+        existing_owner = self.lock.exclusive_owner_details()
+        if existing_owner:
             return UpdateResult(
                 False,
                 "lock",
@@ -435,57 +450,80 @@ class UpdateManager:
                 "provenance": provenance.as_dict(),
                 "log_path": str(log_path),
             }
-            self._transition(state, "preflight-passed")
-            target = provenance.target_version
-            if target is None:  # guarded by _preflight_error; retain fail-closed invariant.
-                return self._rollback(
-                    state, installation, was_active, "preflight", "no eligible target"
+            state_persisted = False
+            try:
+                self._transition(state, "preflight-passed")
+                state_persisted = True
+                target = provenance.target_version
+                if target is None:  # guarded by _preflight_error; retain fail-closed invariant.
+                    return self._rollback(
+                        state, installation, was_active, "preflight", "no eligible target"
+                    )
+
+                self._transition(state, "watcher-stopped")
+                self._transition(state, "installer-started")
+                ok, detail = self._run_logged(log_path, installation.install_command(target))
+                if not ok:
+                    return self._rollback(state, installation, was_active, "installer", detail)
+
+                ok, detail = self._run_logged(
+                    log_path, [*installation.cli_command, "update", "--help"]
                 )
+                if not ok:
+                    return self._rollback(state, installation, was_active, "cli-health", detail)
+                self._transition(state, "package-validated")
 
-            self._transition(state, "watcher-stopped")
-            self._transition(state, "installer-started")
-            ok, detail = self._run_logged(log_path, installation.install_command(target))
-            if not ok:
-                return self._rollback(state, installation, was_active, "installer", detail)
+                ok, detail = self.palace_validator(self.palace_path)
+                self._append_log(log_path, f"palace-health: {detail}")
+                if not ok:
+                    return self._rollback(state, installation, was_active, "palace-health", detail)
+                self._transition(state, "palace-validated")
 
-            ok, detail = self._run_logged(log_path, [*installation.cli_command, "update", "--help"])
-            if not ok:
-                return self._rollback(state, installation, was_active, "cli-health", detail)
-            self._transition(state, "package-validated")
-
-            ok, detail = self.palace_validator(self.palace_path)
-            self._append_log(log_path, f"palace-health: {detail}")
-            if not ok:
-                return self._rollback(state, installation, was_active, "palace-health", detail)
-            self._transition(state, "palace-validated")
-
-            if was_active:
-                started, detail = self.service.start()
-                if not started:
+                if was_active:
+                    started, detail = self.service.start()
+                    if not started:
+                        return self._rollback(
+                            state, installation, was_active, "watcher-restart", detail
+                        )
+                    active_after, detail = self.service.is_active()
+                    if not active_after:
+                        return self._rollback(
+                            state, installation, was_active, "watcher-validate", detail
+                        )
+                self._transition(state, "watcher-validated")
+                self._transition(state, "succeeded")
+                return UpdateResult(
+                    True,
+                    "succeeded",
+                    f"updated {PACKAGE_NAME} to {target}",
+                    0,
+                    str(log_path),
+                    {"previous_version": provenance.current_version, "target_version": target},
+                )
+            except Exception as exc:
+                if state_persisted:
                     return self._rollback(
-                        state, installation, was_active, "watcher-restart", detail
+                        state,
+                        installation,
+                        was_active,
+                        "transaction",
+                        f"unexpected transaction error: {exc}",
                     )
-                active_after, detail = self.service.is_active()
-                if not active_after:
-                    return self._rollback(
-                        state, installation, was_active, "watcher-validate", detail
-                    )
-            self._transition(state, "watcher-validated")
-            self._transition(state, "succeeded")
-            return UpdateResult(
-                True,
-                "succeeded",
-                f"updated {PACKAGE_NAME} to {target}",
-                0,
-                str(log_path),
-                {"previous_version": provenance.current_version, "target_version": target},
-            )
+                if was_active:
+                    self.service.start()
+                return UpdateResult(
+                    False,
+                    "transaction",
+                    f"could not persist update state: {exc}",
+                    1,
+                    str(log_path),
+                )
 
     def scheduler_status(self) -> dict[str, object]:
         """Read current systemd-user timer state; unavailable systems remain diagnostic only."""
         try:
             rc, out, err = self.runner(["systemctl", "--user", "is-enabled", DEFAULT_TIMER_UNIT])
-        except OSError as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             return {"supported": False, "enabled": False, "detail": str(exc), "next_run": None}
         enabled = rc == 0 and "enabled" in out
         return {
@@ -741,7 +779,7 @@ class UpdateManager:
     def _run_logged(self, log_path: Path, command: list[str]) -> tuple[bool, str]:
         try:
             rc, out, err = self.runner(command)
-        except OSError as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             self._append_log(log_path, f"command unavailable: {exc}")
             return False, str(exc)
         rendered = " ".join(shlex.quote(part) for part in command)
@@ -752,7 +790,7 @@ class UpdateManager:
     def _run_plain(self, command: list[str]) -> tuple[bool, str]:
         try:
             rc, out, err = self.runner(command)
-        except OSError as exc:
+        except (OSError, subprocess.SubprocessError) as exc:
             return False, str(exc)
         return rc == 0, (err or out).strip() or f"command exited {rc}"
 
@@ -767,7 +805,7 @@ class UpdateManager:
                     "--property=NextElapseUSecRealtime",
                 ]
             )
-        except OSError:
+        except (OSError, subprocess.SubprocessError):
             return None
         if rc != 0 or "=" not in out:
             return None
