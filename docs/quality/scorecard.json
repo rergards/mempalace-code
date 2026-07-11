@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 19259,
-    "package_files": 73,
-    "package_total_lines": 23746,
-    "test_files": 57,
-    "test_total_lines": 43600
+    "package_code_lines": 20265,
+    "package_files": 76,
+    "package_total_lines": 24898,
+    "test_files": 59,
+    "test_total_lines": 43913
   },
   "demo_gates": {
     "architecture_guard": {
@@ -35,7 +35,7 @@
       "path": "mempalace_code/mining/chunkers.py"
     },
     {
-      "lines": 1131,
+      "lines": 1161,
       "path": "mempalace_code/watcher.py"
     },
     {
@@ -51,20 +51,20 @@
       "path": "mempalace_code/entity_detector.py"
     },
     {
+      "lines": 793,
+      "path": "mempalace_code/cli.py"
+    },
+    {
+      "lines": 789,
+      "path": "mempalace_code/updater.py"
+    },
+    {
       "lines": 753,
       "path": "mempalace_code/knowledge_graph.py"
     },
     {
-      "lines": 739,
-      "path": "mempalace_code/cli.py"
-    },
-    {
       "lines": 720,
       "path": "mempalace_code/mining/orchestrator.py"
-    },
-    {
-      "lines": 660,
-      "path": "mempalace_code/entity_registry.py"
     }
   ],
   "public_safety": {
@@ -189,18 +189,18 @@
   ],
   "suppressions": {
     "noqa_blanket": 0,
-    "noqa_total": 41,
+    "noqa_total": 42,
     "scope": [
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 118,
-    "type_pyright_unreasoned": 0,
-    "unreasoned_total": 0
+    "type_pyright_total": 125,
+    "type_pyright_unreasoned": 6,
+    "unreasoned_total": 6
   },
   "tests": {
-    "test_files": 57,
-    "test_functions": 2426
+    "test_files": 59,
+    "test_functions": 2438
   },
   "verification_commands": [
     {

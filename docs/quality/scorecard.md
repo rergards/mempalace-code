@@ -8,11 +8,11 @@ Schema version: 2
 
 | Metric | Value |
 |--------|------:|
-| Package files (`mempalace_code/`) | 73 |
-| Package total lines | 23746 |
-| Package code lines | 19259 |
-| Test files (`tests/`) | 57 |
-| Test total lines | 43600 |
+| Package files (`mempalace_code/`) | 76 |
+| Package total lines | 24898 |
+| Package code lines | 20265 |
+| Test files (`tests/`) | 59 |
+| Test total lines | 43913 |
 
 ## Largest Modules (top 10)
 
@@ -20,14 +20,14 @@ Schema version: 2
 |--------|------:|
 | `mempalace_code/storage.py` | 1609 |
 | `mempalace_code/mining/chunkers.py` | 1466 |
-| `mempalace_code/watcher.py` | 1131 |
+| `mempalace_code/watcher.py` | 1161 |
 | `mempalace_code/dialect.py` | 1074 |
 | `mempalace_code/mining/symbols.py` | 904 |
 | `mempalace_code/entity_detector.py` | 875 |
+| `mempalace_code/cli.py` | 793 |
+| `mempalace_code/updater.py` | 789 |
 | `mempalace_code/knowledge_graph.py` | 753 |
-| `mempalace_code/cli.py` | 739 |
 | `mempalace_code/mining/orchestrator.py` | 720 |
-| `mempalace_code/entity_registry.py` | 660 |
 
 ## Ruff Ignores
 
@@ -84,18 +84,18 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| type/pyright ignores (total) | 118 |
-| type/pyright unreasoned | 0 |
-| noqa (total) | 41 |
+| type/pyright ignores (total) | 125 |
+| type/pyright unreasoned | 6 |
+| noqa (total) | 42 |
 | noqa blanket | 0 |
-| **Unreasoned suppressions (total)** | **0** |
+| **Unreasoned suppressions (total)** | **6** |
 
 ## Tests
 
 | Metric | Value |
 |--------|------:|
-| Test files | 57 |
-| Test functions | 2426 |
+| Test files | 59 |
+| Test functions | 2438 |
 
 ## Available Suites
 
