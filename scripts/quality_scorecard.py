@@ -308,7 +308,8 @@ def _count_class_test_methods(path: Path, class_name: str) -> int:
             return sum(
                 1
                 for m in node.body
-                if isinstance(m, ast.FunctionDef | ast.AsyncFunctionDef) and m.name.startswith("test")
+                if isinstance(m, ast.FunctionDef | ast.AsyncFunctionDef)
+                and m.name.startswith("test")
             )
     return 0
 
@@ -375,7 +376,9 @@ def collect_demo_gates(root: Path) -> dict:
     mcp_status = "present" if mcp_count > 0 else "absent"
 
     # docs_drift_guard: future docs drift guard script
-    docs_drift_status = "present" if (root / "scripts" / "docs_drift_guard.py").exists() else "absent"
+    docs_drift_status = (
+        "present" if (root / "scripts" / "docs_drift_guard.py").exists() else "absent"
+    )
 
     # dependency_audit: both gate script and workflow must exist
     dep_gate = (root / "scripts" / "dependency_upgrade_gate.py").exists()
