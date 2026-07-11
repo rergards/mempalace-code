@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-11 · AUTO-UPDATE-RELEASE-AUTOMATION
+
+Add an opt-in `mempalace-code update` workflow with provenance-checked version policy, extras preservation, watcher coordination, staged validation, rollback, and a disabled-by-default systemd-user scheduler.
+
 ## Unreleased
 
 ## 2026-06-19 · AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE
