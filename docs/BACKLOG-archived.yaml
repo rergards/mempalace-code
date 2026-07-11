@@ -1051,3 +1051,8 @@ items:
       resolution: '2026-07-11: completed in pipeline run (delivered: Added explicit, provenance-checked supported-install updates with watcher coordination, rollback, systemd-user scheduling, release smoke, and operator runbooks., artifacts: README.md, docs/AGENT_INSTALL.md, docs/UPDATES.md (+10), verified: VER-1, VER-2, VER-3 (+12), phase_commit=94c3e11, final_commit=117066b, 18 files changed, 1851 insertions(+), 81 deletions(-))'
       archived_date: "2026-07-11"
       done_summary: 'completed in pipeline run (delivered: Added explicit, provenance-checked supported-install updates with watcher coordination, rollback, systemd-user scheduling, release smoke, and operator runbooks., artifacts: README.md, docs/AGENT_INSTALL.md, docs/UPDATES.md (+10), verified: VER-1, VER-2, VER-3 (+12), phase_commit=94c3e11, final_commit=117066b, 18 files changed, 1851 insertions(+), 81 deletions(-))'
+    - key: AUTO-UPDATE-LOCAL-RELEASE-GATE
+      summary: Restore the local release gate after automatic-update hardening
+      resolution: '2026-07-12: completed in pipeline run (delivered: Formatted the scorecard generator and regenerated the paired scorecard artifacts from the final tree., artifacts: scripts/quality_scorecard.py, docs/quality/scorecard.md, docs/quality/scorecard.json, verified: VER-1, REG-1, VER-2 (+4), phase_commit=4eac475d, final_commit=4eac475)'
+      archived_date: "2026-07-12"
+      done_summary: 'completed in pipeline run (delivered: Formatted the scorecard generator and regenerated the paired scorecard artifacts from the final tree., artifacts: scripts/quality_scorecard.py, docs/quality/scorecard.md, docs/quality/scorecard.json, verified: VER-1, REG-1, VER-2 (+4), phase_commit=4eac475d, final_commit=4eac475)'

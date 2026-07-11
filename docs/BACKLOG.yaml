@@ -168,12 +168,3 @@ items:
     section_id: storage_reliability
     labels: [watcher, backup, reliability]
     description: "## Symptom\n\nA dangling or unreadable source symlink can fail initial mining after the watcher has created a pre-watch archive. A service manager then restarts the watcher and repeats the archive creation.\n\n## Steps to reproduce\n\n1. Include a dangling symlink with a supported source extension in a watched project.\n2. Start the watcher with an existing palace.\n3. Observe initial mining fail after the pre-watch archive and the service restart the command.\n\n## Acceptance criteria\n\n- Scanner excludes dangling or unreadable symlinks before startup backup and hashing, with a bounded diagnostic.\n- A watcher startup containing only that invalid source remains running and produces no repeated pre-watch archives.\n- Valid symlinks and regular source files retain current mining behavior.\n- Focused tests cover the invalid-symlink guard and the normal valid-symlink path."
-  - key: AUTO-UPDATE-LOCAL-RELEASE-GATE
-    summary: "Restore the local release gate after automatic-update hardening"
-    type: bug
-    status: open
-    priority: highest
-    size: M
-    section_id: quality
-    labels: [quality, generated-artifacts, release-readiness]
-    description: "## Symptom\n\nThe completed AUTO-UPDATE-RELEASE-AUTOMATION task leaves docs/quality/scorecard.md and docs/quality/scorecard.json stale after hardening changes. The local release gate also detects pre-existing formatting drift in scripts/quality_scorecard.py.\n\n## Steps to reproduce\n\n1. Run python scripts/quality_scorecard.py --check from the repository root.\n2. Observe the stale-artifact failures for both committed scorecard files.\n3. Run ruff format --check mempalace_code/ tests/ scripts/ and observe the formatting failure for scripts/quality_scorecard.py.\n\n## Acceptance criteria\n\n- ruff format --check mempalace_code/ tests/ scripts/ exits zero.\n- python scripts/quality_scorecard.py --check exits zero and the committed scorecard artifacts reflect the final tree.\n- python -m pytest tests/ -x -q, standard Pyright, strict Pyright, and python scripts/public_safety_scan.py --committed exit zero.\n- The task remains local-only: it must not push, tag, publish, merge, or deploy.\n\n## Verification\n\n- Run the acceptance commands from the repository root.\n- Build the package and install the resulting wheel in a disposable virtual environment; mempalace-code update --help must succeed."
