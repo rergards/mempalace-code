@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-12 · RELEASE-PREP-1-12-0
+
+Harden automatic-update release fixtures for the v1.12.0 package release.
+
 ## 2026-07-11 · AUTO-UPDATE-RELEASE-AUTOMATION
 
 Add an opt-in `mempalace-code update` workflow with provenance-checked version policy, extras preservation, watcher coordination, staged validation, rollback, and a disabled-by-default systemd-user scheduler.
