@@ -53,17 +53,17 @@ def _installation(extras: frozenset[str] = frozenset({"watch", "spellcheck"})) -
 def _pypi():
     return {
         "releases": {
-            "1.11.1": [
+            "1.12.1": [
                 {
                     "packagetype": "bdist_wheel",
-                    "filename": "mempalace_code-1.11.1-py3-none-any.whl",
-                    "url": "https://files.pythonhosted.org/mempalace-1.11.1.whl",
+                    "filename": "mempalace_code-1.12.1-py3-none-any.whl",
+                    "url": "https://files.pythonhosted.org/mempalace-1.12.1.whl",
                     "digests": {"sha256": "a" * 64},
                     "upload_time_iso_8601": "2026-07-11T00:00:00Z",
                     "yanked": False,
                 }
             ],
-            "1.12.0rc1": [{"packagetype": "bdist_wheel", "yanked": False}],
+            "1.12.2rc1": [{"packagetype": "bdist_wheel", "yanked": False}],
             "2.0.0": [{"packagetype": "bdist_wheel", "yanked": False}],
         }
     }
@@ -113,7 +113,7 @@ class TestUpdateStatus:
         assert result.ok is True
         assert result.stage == "status"
         assert result.data["eligible"] is True
-        assert result.data["provenance"]["target_version"] == "1.11.1"  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
+        assert result.data["provenance"]["target_version"] == "1.12.1"  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
         assert result.data["provenance"]["sha256"] == "a" * 64  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
         assert result.data["installation"]["extras"] == ["spellcheck", "watch"]  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
         assert result.data["watcher"]["active"] is True  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
@@ -135,7 +135,7 @@ class TestApplyUpdate:
         assert result.ok is True
         assert result.stage == "succeeded"
         install = next(command for command in commands if "install" in command)
-        assert "mempalace-code[spellcheck,watch]==1.11.1" in install
+        assert "mempalace-code[spellcheck,watch]==1.12.1" in install
         assert service.calls == ["is-active", "stop", "start", "is-active"]
         assert (tmp_path / "state" / "updates" / "state.json").exists()
         assert result.log_path is not None
@@ -158,8 +158,8 @@ class TestRollback:
         assert result.log_path is not None
         assert Path(result.log_path).exists()
         install_commands = [command for command in commands if "install" in command]
-        assert install_commands[0][-1].endswith("==1.11.1")
-        assert install_commands[1][-1].endswith("==1.11.0")
+        assert install_commands[0][-1].endswith("==1.12.1")
+        assert install_commands[1][-1].endswith("==1.12.0")
         state = (tmp_path / "state" / "updates" / "state.json").read_text(encoding="utf-8")
         assert '"stage": "rollback-succeeded"' in state
         assert service.active is True
@@ -170,7 +170,7 @@ class TestRollback:
 
         def timeout_runner(command: list[str]):
             commands.append(command)
-            if "install" in command and command[-1].endswith("==1.11.1"):
+            if "install" in command and command[-1].endswith("==1.12.1"):
                 raise subprocess.TimeoutExpired(command, timeout=900)
             return 0, "ok", ""
 
@@ -183,8 +183,8 @@ class TestRollback:
         assert "timed out" in result.message
         install_commands = [command for command in commands if "install" in command]
         assert [command[-1] for command in install_commands] == [
-            "mempalace-code[spellcheck,watch]==1.11.1",
-            "mempalace-code[spellcheck,watch]==1.11.0",
+            "mempalace-code[spellcheck,watch]==1.12.1",
+            "mempalace-code[spellcheck,watch]==1.12.0",
         ]
         assert service.calls == ["is-active", "stop", "start", "is-active"]
         state = json.loads(manager.state_path.read_text(encoding="utf-8"))
@@ -208,7 +208,7 @@ class TestRollback:
         assert result.stage == "transaction"
         assert "health probe unexpectedly crashed" in result.message
         install_commands = [command for command in commands if "install" in command]
-        assert install_commands[1][-1].endswith("==1.11.0")
+        assert install_commands[1][-1].endswith("==1.12.0")
         assert service.calls == ["is-active", "stop", "start", "is-active"]
         state = json.loads(manager.state_path.read_text(encoding="utf-8"))
         assert state["stage"] == "rollback-succeeded"
