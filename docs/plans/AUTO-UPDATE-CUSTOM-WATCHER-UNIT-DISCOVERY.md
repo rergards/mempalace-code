@@ -43,12 +43,12 @@ out_of_scope:
   - "Adding automatic update execution outside the existing explicit scheduler-install flow."
 contract_policy:
   flow: full_spdd
-  reason: "Standard reliability task changes package-update coordination with user services and requires fail-closed mutation behavior."
+  reason: "Strict reliability task changes package-update coordination with user services and requires fail-closed mutation behavior."
   sync_gate: required
   verification_path: automated
 task_contract:
   version: 1
-  mode: standard
+  mode: strict
   requirements:
     - id: REQ-1
       statement: "The updater must discover and identify one active named MemPalace watcher unit when it is uniquely attributable."
