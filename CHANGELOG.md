@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-07-12 · AUTO-UPDATE-CUSTOM-WATCHER-UNIT-DISCOVERY
+
+`mempalace-code update status`/`apply` now discovers and coordinates active named systemd-user watcher units (`mempalace-watch-<root>.service`), not just the legacy default unit, and safely refuses mutation when discovery is ambiguous or unavailable.
+
 ## v1.12.0 — 2026-07-12
 
 Minor release for the opt-in `mempalace-code update` workflow.
