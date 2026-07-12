@@ -63,8 +63,28 @@ def _pypi():
                     "yanked": False,
                 }
             ],
-            "1.12.2rc1": [{"packagetype": "bdist_wheel", "yanked": False}],
-            "2.0.0": [{"packagetype": "bdist_wheel", "yanked": False}],
+            # Keep rejected releases installable so target selection proves the
+            # prerelease and major-version policy instead of missing wheel metadata.
+            "1.12.2rc1": [
+                {
+                    "packagetype": "bdist_wheel",
+                    "filename": "mempalace_code-1.12.2rc1-py3-none-any.whl",
+                    "url": "https://files.pythonhosted.org/mempalace-1.12.2rc1.whl",
+                    "digests": {"sha256": "b" * 64},
+                    "upload_time_iso_8601": "2026-07-12T00:00:00Z",
+                    "yanked": False,
+                }
+            ],
+            "2.0.0": [
+                {
+                    "packagetype": "bdist_wheel",
+                    "filename": "mempalace_code-2.0.0-py3-none-any.whl",
+                    "url": "https://files.pythonhosted.org/mempalace-2.0.0.whl",
+                    "digests": {"sha256": "c" * 64},
+                    "upload_time_iso_8601": "2026-07-12T00:00:00Z",
+                    "yanked": False,
+                }
+            ],
         }
     }
 
