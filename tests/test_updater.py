@@ -19,6 +19,7 @@ from mempalace_code.updater import (
     SystemdUserService,
     UpdateManager,
     UpdateResult,
+    WatcherDiscovery,
     detect_installation,
 )
 
@@ -31,6 +32,9 @@ class FakeService:
         self.active = active
         self.unit = "mempalace-watch.service"
         self.calls: list[str] = []
+
+    def discover(self) -> WatcherDiscovery:
+        return WatcherDiscovery(unit=self.unit, active=self.active, safe=True, detail="")
 
     def is_active(self) -> tuple[bool, str]:
         self.calls.append("is-active")

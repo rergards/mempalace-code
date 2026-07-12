@@ -49,6 +49,8 @@ class WatcherService(Protocol):
 
     unit: str
 
+    def discover(self) -> WatcherDiscovery: ...
+
     def is_active(self) -> tuple[bool, str]: ...
 
     def stop(self) -> tuple[bool, str]: ...
@@ -867,18 +869,15 @@ class UpdateManager:
         return None
 
     def _watcher_status(self) -> WatcherDiscovery:
-        discover = getattr(self.service, "discover", None)
-        discovery: WatcherDiscovery | None = None
-        if callable(discover):
-            discovery = discover()
-            if not discovery.safe:
-                return discovery
+        discovery = self.service.discover()
+        if not discovery.safe:
+            return discovery
         active, detail = self.service.is_active()
         return WatcherDiscovery(
             unit=self.service.unit,
             active=active,
             safe=True,
-            detail=f"{discovery.detail}; {detail}" if discovery else detail,
+            detail=discovery.detail or detail,
         )
 
     def _rollback(
