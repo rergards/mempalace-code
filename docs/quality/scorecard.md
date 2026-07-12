@@ -9,10 +9,10 @@ Schema version: 2
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 76 |
-| Package total lines | 25152 |
-| Package code lines | 20501 |
+| Package total lines | 25153 |
+| Package code lines | 20502 |
 | Test files (`tests/`) | 59 |
-| Test total lines | 44233 |
+| Test total lines | 44237 |
 
 ## Largest Modules (top 10)
 

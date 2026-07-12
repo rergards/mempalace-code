@@ -877,7 +877,10 @@ post-preflight failure rolls back through the same installer and records the fai
 bounded log in `~/.mempalace/updates/logs/`. A watcher requires the retained `watch` extra; missing
 required extras fail before service or package mutation.
 
-Automatic checks are disabled by default. Linux operators using systemd-user may inspect then opt in:
+Automatic checks are disabled by default. The update timer remains disabled until
+`mempalace-code update scheduler install --yes` completes.
+The scheduler is disabled until install runs. Linux operators using systemd-user may inspect then
+opt in:
 
 ```bash
 mempalace-code update scheduler render

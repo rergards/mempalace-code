@@ -33,8 +33,9 @@ def _render(result: UpdateResult, as_json: bool) -> None:
         print(f"  Current version: {provenance.get('current_version', 'unknown')}")
         print(f"  Eligible target: {provenance.get('target_version') or 'none'}")
         print(f"  Provenance: {provenance.get('project_url', 'unavailable')}")
+        watcher_state = "active" if watcher.get("active", False) else "inactive"
         print(
-            f"  Watcher ({watcher.get('unit', 'unknown')}): "
+            f"  Watcher ({watcher.get('unit', 'unknown')}, {watcher_state}): "
             f"{watcher.get('detail', 'unknown')}"
         )
         print(f"  Scheduler enabled: {scheduler.get('enabled', False)}")

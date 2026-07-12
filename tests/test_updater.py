@@ -479,7 +479,10 @@ class TestInstallerDetection:
 
 
 class TestUpdateCommand:
-    def test_status_renders_selected_watcher_unit_for_humans(self, capsys):
+    @pytest.mark.parametrize(("active", "state"), [(True, "active"), (False, "inactive")])
+    def test_status_renders_selected_watcher_unit_and_state_for_humans(
+        self, capsys, active, state
+    ):
         manager = MagicMock()
         manager.status.return_value = UpdateResult(
             True,
@@ -491,6 +494,7 @@ class TestUpdateCommand:
                 "provenance": {},
                 "watcher": {
                     "unit": "mempalace-watch-srv-dev.service",
+                    "active": active,
                     "detail": "selected active named watcher: mempalace-watch-srv-dev.service",
                 },
                 "scheduler": {},
@@ -501,7 +505,7 @@ class TestUpdateCommand:
         with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=manager):
             cmd_update(args)
 
-        assert "Watcher (mempalace-watch-srv-dev.service):" in capsys.readouterr().out
+        assert f"Watcher (mempalace-watch-srv-dev.service, {state}):" in capsys.readouterr().out
 
     def test_status_renders_json_without_invoking_apply(self, capsys):
         manager = MagicMock()

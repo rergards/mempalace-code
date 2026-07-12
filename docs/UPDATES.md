@@ -68,7 +68,8 @@ mempalace-code update scheduler status
 ```
 
 The user service runs the guarded `update apply --yes --scheduled` command. The timer is persistent,
-uses systemd-user only, and remains disabled unless `install --yes` has completed. Disable it with:
+uses systemd-user only, and remains disabled unless `install --yes` has completed. The scheduler
+remains disabled until `install --yes` runs. Disable it with:
 
 ```bash
 mempalace-code update scheduler remove --yes

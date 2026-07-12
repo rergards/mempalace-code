@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 20501,
+    "package_code_lines": 20502,
     "package_files": 76,
-    "package_total_lines": 25152,
+    "package_total_lines": 25153,
     "test_files": 59,
-    "test_total_lines": 44233
+    "test_total_lines": 44237
   },
   "demo_gates": {
     "architecture_guard": {
