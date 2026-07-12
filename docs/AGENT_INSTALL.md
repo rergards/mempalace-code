@@ -868,12 +868,14 @@ mutation. The supported install boundary is `uv tool`, `pipx`, or the bootstrap
 `~/.mempalace/venv`; system Python, distro-managed, editable/source, and ambiguous environments
 remain visible refusals.
 
-When a managed `mempalace-watch.service` is active, the updater stops it, acquires the exclusive
-operation lease, retains detected extras, validates the new console and palace, and restarts the
-service. It only restarts a watcher that was active before the attempt. Every post-preflight failure
-rolls back through the same installer and records the failed stage plus a bounded log in
-`~/.mempalace/updates/logs/`. A watcher requires the retained `watch` extra; missing required extras
-fail before service or package mutation.
+The updater selects either the legacy `mempalace-watch.service` or one active named
+`mempalace-watch-<root>.service` with a supported MemPalace `watch` ExecStart. Ambiguous, malformed,
+unrelated, or unavailable systemd-user discovery refuses the update before package, lease, or service
+mutation. For a selected active watcher, the updater acquires the exclusive operation lease, retains
+detected extras, validates the new console and palace, then restarts that same unit. Every
+post-preflight failure rolls back through the same installer and records the failed stage plus a
+bounded log in `~/.mempalace/updates/logs/`. A watcher requires the retained `watch` extra; missing
+required extras fail before service or package mutation.
 
 Automatic checks are disabled by default. Linux operators using systemd-user may inspect then opt in:
 

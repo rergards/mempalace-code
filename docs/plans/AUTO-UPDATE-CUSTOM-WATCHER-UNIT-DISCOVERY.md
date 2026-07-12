@@ -118,7 +118,7 @@ task_contract:
       proves: "named-unit selection appears in JSON and human status, the exact selected unit is coordinated on success and rollback, default fallback remains compatible, and unsafe discovery refuses without mutation"
       acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5]
     - id: VER-2
-      command: "rg -n -e 'mempalace-watch-.*service' -e 'disabled until.*install' docs/UPDATES.md docs/AGENT_INSTALL.md"
+      command: "rg -q 'mempalace-watch-.*service' docs/UPDATES.md docs/AGENT_INSTALL.md && rg -q 'disabled until.*install' docs/UPDATES.md docs/AGENT_INSTALL.md"
       proves: "both operator guides expose named-unit discovery and the explicit disabled-by-default scheduler boundary"
       acceptance_ids: [AC-6]
   regression_plan:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -34,6 +35,7 @@ DEFAULT_TIMER_UNIT = "mempalace-update.timer"
 DEFAULT_SERVICE_UNIT = "mempalace-update.service"
 MIN_FREE_BYTES = 100 * 1024 * 1024
 DEFAULT_COMMAND_TIMEOUT = 15 * 60
+_CUSTOM_WATCHER_UNIT = re.compile(r"^mempalace-watch-[A-Za-z0-9][A-Za-z0-9_.@-]*\.service$")
 
 CommandRunner = Callable[[list[str]], tuple[int, str, str]]
 PypiFetcher = Callable[[], dict[str, Any]]
@@ -51,6 +53,16 @@ class WatcherService(Protocol):
     def stop(self) -> tuple[bool, str]: ...
 
     def start(self) -> tuple[bool, str]: ...
+
+
+@dataclass(frozen=True)
+class WatcherDiscovery:
+    """A watcher selection that is safe to coordinate during an update."""
+
+    unit: str
+    active: bool
+    safe: bool
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -156,8 +168,61 @@ class SystemdUserService:
     def __init__(self, runner: CommandRunner, unit: str = DEFAULT_WATCHER_UNIT) -> None:
         self.runner = runner
         self.unit = unit
+        self._discovery: WatcherDiscovery | None = None
+
+    def discover(self) -> WatcherDiscovery:
+        """Select one attributable active watcher once and retain it for this adapter."""
+        if self._discovery is not None:
+            return self._discovery
+
+        rc, out, err = self._run(
+            [
+                "systemctl",
+                "--user",
+                "list-units",
+                "--type=service",
+                "--state=active",
+                "--no-legend",
+                "--plain",
+            ]
+        )
+        if rc != 0:
+            detail = (err or out).strip() or "systemd-user manager is unavailable"
+            return self._record_discovery(False, f"watcher discovery unavailable: {detail}")
+
+        units = self._active_watcher_units(out)
+        malformed = [unit for unit in units if not self._is_valid_watcher_unit(unit)]
+        if malformed:
+            return self._record_discovery(
+                False, f"watcher discovery found malformed unit name: {malformed[0]}"
+            )
+
+        attributable: list[str] = []
+        for unit in units:
+            valid, detail = self._is_mempalace_watch_command(unit)
+            if not valid:
+                return self._record_discovery(
+                    False, f"watcher discovery refused {unit}: {detail}"
+                )
+            attributable.append(unit)
+
+        named = [unit for unit in attributable if unit != DEFAULT_WATCHER_UNIT]
+        if len(named) > 1 or (named and DEFAULT_WATCHER_UNIT in attributable):
+            return self._record_discovery(
+                False, "watcher discovery is ambiguous; exactly one active watcher is required"
+            )
+        if named:
+            return self._record_discovery(True, f"selected active named watcher: {named[0]}", named[0])
+        if DEFAULT_WATCHER_UNIT in attributable:
+            return self._record_discovery(
+                True, f"selected active legacy watcher: {DEFAULT_WATCHER_UNIT}"
+            )
+        return self._record_discovery(True, "no active MemPalace watcher discovered")
 
     def is_active(self) -> tuple[bool, str]:
+        discovery = self.discover()
+        if not discovery.safe:
+            return False, discovery.detail
         rc, out, err = self._run(["systemctl", "--user", "is-active", "--quiet", self.unit])
         if rc == 0:
             return True, "active"
@@ -165,12 +230,80 @@ class SystemdUserService:
         return False, detail or "inactive"
 
     def stop(self) -> tuple[bool, str]:
+        discovery = self.discover()
+        if not discovery.safe:
+            return False, discovery.detail
         rc, out, err = self._run(["systemctl", "--user", "stop", self.unit])
         return rc == 0, (err or out).strip()
 
     def start(self) -> tuple[bool, str]:
+        discovery = self.discover()
+        if not discovery.safe:
+            return False, discovery.detail
         rc, out, err = self._run(["systemctl", "--user", "start", self.unit])
         return rc == 0, (err or out).strip()
+
+    @staticmethod
+    def _is_valid_watcher_unit(unit: str) -> bool:
+        return unit == DEFAULT_WATCHER_UNIT or bool(_CUSTOM_WATCHER_UNIT.fullmatch(unit))
+
+    @staticmethod
+    def _active_watcher_units(output: str) -> list[str]:
+        related: list[str] = []
+        for line in output.splitlines():
+            parts = line.split(maxsplit=1)
+            if parts and (
+                parts[0] == DEFAULT_WATCHER_UNIT or parts[0].startswith("mempalace-watch-")
+            ):
+                related.append(parts[0])
+        return list(dict.fromkeys(related))
+
+    def _is_mempalace_watch_command(self, unit: str) -> tuple[bool, str]:
+        rc, out, err = self._run(
+            ["systemctl", "--user", "show", unit, "--property=ExecStart", "--value"]
+        )
+        if rc != 0:
+            return False, (err or out).strip() or "could not inspect ExecStart"
+        tokens = self._parse_exec_start(out)
+        if tokens is None:
+            return False, "ExecStart is malformed"
+        if self._is_supported_watch_command(tokens):
+            return True, ""
+        return False, "ExecStart is not a MemPalace watch command"
+
+    @staticmethod
+    def _parse_exec_start(output: str) -> list[str] | None:
+        value = output.strip()
+        if value.startswith("ExecStart="):
+            value = value.removeprefix("ExecStart=").strip()
+        match = re.search(r"argv\[\]=(.*?)(?=\s*;\s*[A-Za-z_][A-Za-z0-9_]*=|\s*})", value)
+        if match:
+            value = match.group(1).strip()
+        if not value or value.startswith("{"):
+            return None
+        try:
+            tokens = shlex.split(value)
+        except ValueError:
+            return None
+        return tokens or None
+
+    @staticmethod
+    def _is_supported_watch_command(tokens: list[str]) -> bool:
+        if len(tokens) >= 2 and Path(tokens[0]).name == "mempalace-code":
+            return tokens[1] == "watch"
+        return (
+            len(tokens) >= 4
+            and tokens[1] == "-m"
+            and tokens[2] == "mempalace_code"
+            and tokens[3] == "watch"
+        )
+
+    def _record_discovery(
+        self, safe: bool, detail: str, unit: str = DEFAULT_WATCHER_UNIT
+    ) -> WatcherDiscovery:
+        self.unit = unit
+        self._discovery = WatcherDiscovery(unit=unit, active=False, safe=safe, detail=detail)
+        return self._discovery
 
     def _run(self, command: list[str]) -> tuple[int, str, str]:
         try:
@@ -369,11 +502,13 @@ class UpdateManager:
         """Inspect eligibility and service/scheduler state without creating or changing files."""
         installation = self._get_installation()
         provenance = self._resolve_provenance() if refresh else self._cached_provenance()
-        active, service_detail = self.service.is_active()
+        watcher = self._watcher_status()
         scheduler = self.scheduler_status()
         state = self._read_state()
-        required_missing = self._required_extra_missing(installation, active)
-        if required_missing:
+        required_missing = self._required_extra_missing(installation, watcher.active)
+        if not watcher.safe:
+            eligibility_reason = watcher.detail
+        elif required_missing:
             eligibility_reason = required_missing
         elif not installation.supported:
             eligibility_reason = installation.reason
@@ -382,8 +517,18 @@ class UpdateManager:
         data = {
             "installation": installation.as_dict(),
             "provenance": provenance.as_dict(),
-            "eligible": installation.supported and provenance.eligible and required_missing is None,
-            "watcher": {"unit": self.service.unit, "active": active, "detail": service_detail},
+            "eligible": (
+                installation.supported
+                and provenance.eligible
+                and required_missing is None
+                and watcher.safe
+            ),
+            "watcher": {
+                "unit": watcher.unit,
+                "active": watcher.active,
+                "detail": watcher.detail,
+                "safe": watcher.safe,
+            },
             "scheduler": scheduler,
             "next_run": scheduler.get("next_run"),
             "last_update": state,
@@ -401,8 +546,11 @@ class UpdateManager:
         """Run the explicit, compensating update transaction for a supported installation."""
         installation = self._get_installation()
         provenance = self._resolve_provenance()
-        active, _ = self.service.is_active()
-        preflight_error = self._preflight_error(installation, provenance, active)
+        watcher = self._watcher_status()
+        active = watcher.active
+        preflight_error = self._preflight_error(
+            installation, provenance, active, watcher.safe, watcher.detail
+        )
         if preflight_error:
             return UpdateResult(False, "preflight", preflight_error, 2)
 
@@ -444,6 +592,7 @@ class UpdateManager:
             state: dict[str, object] = {
                 "previous_version": provenance.current_version,
                 "target_version": provenance.target_version,
+                "watcher_unit": watcher.unit,
                 "watcher_was_active": was_active,
                 "started_at": self._timestamp(),
                 "scheduled": scheduled,
@@ -685,8 +834,15 @@ class UpdateManager:
         return None
 
     def _preflight_error(
-        self, installation: Installation, provenance: ReleaseProvenance, watcher_active: bool
+        self,
+        installation: Installation,
+        provenance: ReleaseProvenance,
+        watcher_active: bool,
+        watcher_safe: bool,
+        watcher_detail: str,
     ) -> str | None:
+        if not watcher_safe:
+            return watcher_detail
         if not installation.supported:
             return installation.reason
         if not provenance.eligible:
@@ -707,6 +863,21 @@ class UpdateManager:
         if not backup_ok:
             return f"backup preflight failed: {backup_detail}"
         return None
+
+    def _watcher_status(self) -> WatcherDiscovery:
+        discover = getattr(self.service, "discover", None)
+        discovery: WatcherDiscovery | None = None
+        if callable(discover):
+            discovery = discover()
+            if not discovery.safe:
+                return discovery
+        active, detail = self.service.is_active()
+        return WatcherDiscovery(
+            unit=self.service.unit,
+            active=active,
+            safe=True,
+            detail=f"{discovery.detail}; {detail}" if discovery else detail,
+        )
 
     def _rollback(
         self,

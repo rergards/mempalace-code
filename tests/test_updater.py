@@ -13,7 +13,14 @@ import pytest
 
 from mempalace_code.cli_commands.update import cmd_update
 from mempalace_code.operation_lock import OperationLock
-from mempalace_code.updater import Installation, UpdateManager, UpdateResult, detect_installation
+from mempalace_code.updater import (
+    DEFAULT_WATCHER_UNIT,
+    Installation,
+    SystemdUserService,
+    UpdateManager,
+    UpdateResult,
+    detect_installation,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -123,6 +130,57 @@ def _manager(
     return manager, commands
 
 
+def _systemd_manager(
+    tmp_path: Path,
+    *,
+    active_units: list[str],
+    exec_starts: dict[str, str],
+    list_rc: int = 0,
+    palace_validator: Callable[[str], tuple[bool, str]] | None = None,
+):
+    commands: list[list[str]] = []
+    active = set(active_units)
+
+    def runner(command: list[str]):
+        commands.append(command)
+        if command[:3] == ["systemctl", "--user", "list-units"]:
+            if list_rc:
+                return list_rc, "", "user manager unavailable"
+            lines = [f"{unit} loaded active running watcher" for unit in sorted(active)]
+            return 0, "\n".join(lines), ""
+        if command[:3] == ["systemctl", "--user", "show"]:
+            unit = command[3]
+            if "--property=ExecStart" in command:
+                exec_start = exec_starts.get(unit, "")
+                return 0, f"{{ path=/bin/sh ; argv[]={exec_start} ; ignore_errors=no ; }}", ""
+            return 0, "NextElapseUSecRealtime=\n", ""
+        if command[:3] == ["systemctl", "--user", "is-active"]:
+            return (0, "active\n", "") if command[-1] in active else (3, "inactive\n", "")
+        if command[:3] == ["systemctl", "--user", "stop"]:
+            active.discard(command[-1])
+            return 0, "", ""
+        if command[:3] == ["systemctl", "--user", "start"]:
+            active.add(command[-1])
+            return 0, "", ""
+        if command[:3] == ["systemctl", "--user", "is-enabled"]:
+            return 1, "disabled\n", ""
+        return 0, "ok", ""
+
+    manager = UpdateManager(
+        state_root=tmp_path / "state",
+        palace_path=str(tmp_path / "palace"),
+        installation=_installation(),
+        runner=runner,
+        fetcher=_pypi,
+        lock=OperationLock(tmp_path / "state" / "operation.lock"),
+        service=SystemdUserService(runner),
+        palace_validator=palace_validator or (lambda _path: (True, "healthy")),
+        backup_preflight=lambda: (True, "backup policy checked"),
+        minimum_free_bytes=0,
+    )
+    return manager, commands
+
+
 class TestUpdateStatus:
     def test_status_reports_eligibility_provenance_and_next_run_without_mutation(self, tmp_path):
         service = FakeService(active=True)
@@ -141,6 +199,118 @@ class TestUpdateStatus:
         assert not (tmp_path / "state" / "updates" / "state.json").exists()
         assert all("pip" not in command for command in commands)
         assert service.calls == ["is-active"]
+
+
+class TestSystemdWatcherDiscovery:
+    def test_status_selects_unique_named_module_watcher_without_mutation(self, tmp_path):
+        unit = "mempalace-watch-srv-dev.service"
+        manager, commands = _systemd_manager(
+            tmp_path,
+            active_units=[unit],
+            exec_starts={unit: "/opt/mempalace/bin/python -m mempalace_code watch /srv/dev"},
+        )
+
+        result = manager.status()
+
+        watcher = result.data["watcher"]
+        assert watcher["unit"] == unit  # type: ignore[index]  # reason: result data is stable JSON-like test data
+        assert watcher["active"] is True  # type: ignore[index]  # reason: result data is stable JSON-like test data
+        assert watcher["safe"] is True  # type: ignore[index]  # reason: result data is stable JSON-like test data
+        assert "selected active named watcher" in watcher["detail"]  # type: ignore[operator]  # reason: result data is stable JSON-like test data
+        assert ["systemctl", "--user", "stop", unit] not in commands
+        assert ["systemctl", "--user", "start", unit] not in commands
+        assert not any("install" in command for command in commands)
+
+    def test_status_retains_active_legacy_console_script_watcher(self, tmp_path):
+        manager, _ = _systemd_manager(
+            tmp_path,
+            active_units=[DEFAULT_WATCHER_UNIT],
+            exec_starts={DEFAULT_WATCHER_UNIT: "/usr/local/bin/mempalace-code watch /srv/dev"},
+        )
+
+        result = manager.status()
+
+        watcher = result.data["watcher"]
+        assert watcher["unit"] == DEFAULT_WATCHER_UNIT  # type: ignore[index]  # reason: result data is stable JSON-like test data
+        assert watcher["active"] is True  # type: ignore[index]  # reason: result data is stable JSON-like test data
+        assert "selected active legacy watcher" in watcher["detail"]  # type: ignore[operator]  # reason: result data is stable JSON-like test data
+
+    @pytest.mark.parametrize(
+        ("active_units", "exec_starts", "list_rc", "expected_detail"),
+        [
+            (
+                ["mempalace-watch-one.service", "mempalace-watch-two.service"],
+                {
+                    "mempalace-watch-one.service": "mempalace-code watch /one",
+                    "mempalace-watch-two.service": "mempalace-code watch /two",
+                },
+                0,
+                "ambiguous",
+            ),
+            (["mempalace-watch-.service"], {}, 0, "malformed"),
+            (
+                ["mempalace-watch-srv-dev.service"],
+                {"mempalace-watch-srv-dev.service": "/usr/bin/other-watch /srv/dev"},
+                0,
+                "not a MemPalace watch command",
+            ),
+            ([], {}, 1, "discovery unavailable"),
+        ],
+    )
+    def test_apply_refuses_unsafe_discovery_before_mutation(
+        self, tmp_path, active_units, exec_starts, list_rc, expected_detail
+    ):
+        manager, commands = _systemd_manager(
+            tmp_path,
+            active_units=active_units,
+            exec_starts=exec_starts,
+            list_rc=list_rc,
+        )
+
+        result = manager.apply()
+
+        assert result.ok is False
+        assert result.stage == "preflight"
+        assert expected_detail in result.message
+        assert not any(command[:3] == ["systemctl", "--user", "stop"] for command in commands)
+        assert not any(command[:3] == ["systemctl", "--user", "start"] for command in commands)
+        assert not any("install" in command for command in commands)
+        assert not manager.state_path.exists()
+
+    def test_apply_coordinates_the_selected_named_watcher(self, tmp_path):
+        unit = "mempalace-watch-srv-dev.service"
+        manager, commands = _systemd_manager(
+            tmp_path,
+            active_units=[unit],
+            exec_starts={unit: "mempalace-code watch /srv/dev"},
+        )
+
+        result = manager.apply()
+
+        assert result.ok is True
+        assert ["systemctl", "--user", "stop", unit] in commands
+        assert ["systemctl", "--user", "start", unit] in commands
+        assert ["systemctl", "--user", "stop", DEFAULT_WATCHER_UNIT] not in commands
+        assert ["systemctl", "--user", "start", DEFAULT_WATCHER_UNIT] not in commands
+        state = json.loads(manager.state_path.read_text(encoding="utf-8"))
+        assert state["watcher_unit"] == unit
+
+    def test_rollback_restarts_the_selected_named_watcher(self, tmp_path):
+        unit = "mempalace-watch-srv-dev.service"
+        manager, commands = _systemd_manager(
+            tmp_path,
+            active_units=[unit],
+            exec_starts={unit: "mempalace-code watch /srv/dev"},
+            palace_validator=lambda _path: (False, "fragment probe failed"),
+        )
+
+        result = manager.apply()
+
+        assert result.ok is False
+        assert result.stage == "palace-health"
+        assert ["systemctl", "--user", "stop", unit] in commands
+        assert ["systemctl", "--user", "start", unit] in commands
+        assert ["systemctl", "--user", "start", DEFAULT_WATCHER_UNIT] not in commands
 
 
 class TestApplyUpdate:
@@ -309,6 +479,30 @@ class TestInstallerDetection:
 
 
 class TestUpdateCommand:
+    def test_status_renders_selected_watcher_unit_for_humans(self, capsys):
+        manager = MagicMock()
+        manager.status.return_value = UpdateResult(
+            True,
+            "status",
+            "update status inspected without mutation",
+            0,
+            data={
+                "installation": {},
+                "provenance": {},
+                "watcher": {
+                    "unit": "mempalace-watch-srv-dev.service",
+                    "detail": "selected active named watcher: mempalace-watch-srv-dev.service",
+                },
+                "scheduler": {},
+            },
+        )
+        args = Namespace(update_command="status", palace=None, json=False)
+
+        with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=manager):
+            cmd_update(args)
+
+        assert "Watcher (mempalace-watch-srv-dev.service):" in capsys.readouterr().out
+
     def test_status_renders_json_without_invoking_apply(self, capsys):
         manager = MagicMock()
         manager.status.return_value = UpdateResult(

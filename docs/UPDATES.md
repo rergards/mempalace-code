@@ -44,10 +44,13 @@ mempalace-code update apply --yes
 ```
 
 `--yes` confirms package and service mutation. The updater records the old version and whether the
-managed `mempalace-watch.service` was active only after installer, provenance, extras, disk/backup,
-and operation-lease preflight succeeds. It stops an active managed watcher, takes the exclusive lease,
-installs the selected version with retained extras, validates `mempalace-code update --help`, probes
-the palace, then restarts and verifies the watcher if it was running before the attempt.
+selected managed watcher was active only after installer, provenance, extras, disk/backup, and
+operation-lease preflight succeeds. Discovery accepts the legacy `mempalace-watch.service` or one
+active named `mempalace-watch-<root>.service` whose `ExecStart` is a supported MemPalace `watch`
+command. Ambiguous, malformed, unrelated, or unavailable systemd-user discovery is a visible refusal
+before package, lease, or service mutation. It stops the selected active watcher, takes the exclusive
+lease, installs the selected version with retained extras, validates `mempalace-code update --help`,
+probes the palace, then restarts and verifies that same watcher if it was running before the attempt.
 
 Watchers hold shared leases throughout their lifetime. The updater reports lock owner metadata rather
 than racing an unmanaged watcher. A scheduled overlap exits before package or service mutation.
@@ -85,5 +88,5 @@ failed stage and log path with a nonzero exit. A rollback failure requires opera
 2. Run `mempalace-code update status` to inspect installer, provenance, watcher, and scheduler state.
 3. Restore the recorded version only through the detected supported installer; do not use a system
    package manager for this installation.
-4. Run `mempalace-code health` and check `systemctl --user status mempalace-watch.service` before
-   re-enabling the scheduler.
+4. Run `mempalace-code health` and check the watcher unit named by `mempalace-code update status`
+   before re-enabling the scheduler.

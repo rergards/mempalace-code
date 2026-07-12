@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 20342,
+    "package_code_lines": 20501,
     "package_files": 76,
-    "package_total_lines": 24978,
+    "package_total_lines": 25152,
     "test_files": 59,
-    "test_total_lines": 44039
+    "test_total_lines": 44233
   },
   "demo_gates": {
     "architecture_guard": {
@@ -43,16 +43,16 @@
       "path": "mempalace_code/dialect.py"
     },
     {
+      "lines": 998,
+      "path": "mempalace_code/updater.py"
+    },
+    {
       "lines": 904,
       "path": "mempalace_code/mining/symbols.py"
     },
     {
       "lines": 875,
       "path": "mempalace_code/entity_detector.py"
-    },
-    {
-      "lines": 827,
-      "path": "mempalace_code/updater.py"
     },
     {
       "lines": 793,
@@ -194,13 +194,13 @@
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 125,
+    "type_pyright_total": 132,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
     "test_files": 59,
-    "test_functions": 2443
+    "test_functions": 2449
   },
   "verification_commands": [
     {
