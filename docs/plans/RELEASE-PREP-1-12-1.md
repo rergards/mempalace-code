@@ -83,8 +83,8 @@ task_contract:
       expected_behavior: "The declared project and editable locked root package expose the same 1.12.1 version without dependency-resolution drift."
     - name: "Public release references"
       kind: internal
-      paths: ["README.md", "CHANGELOG.md"]
-      expected_behavior: "The badge and one dated patch-release entry present v1.12.1 and its named watcher coordination guarantees."
+      paths: ["README.md"]
+      expected_behavior: "The public version shield presents v1.12.1. The dedicated changelog phase owns the dated patch-release entry."
     - name: "Updater release-policy fixtures"
       kind: internal
       paths: ["tests/test_updater.py"]
@@ -104,7 +104,7 @@ task_contract:
       applies_to: ["pyproject.toml", "uv.lock"]
     - id: INV-5
       statement: "Release automation and publication remain unchanged and outside provider-owned implementation."
-      applies_to: ["pyproject.toml", "uv.lock", "README.md", "CHANGELOG.md", "tests/test_updater.py"]
+      applies_to: ["pyproject.toml", "uv.lock", "README.md", "tests/test_updater.py"]
   risks:
     - id: RISK-1
       risk: "Leaving 1.12.1 as the fake target after the package bump would turn the update happy path into a no-update case."
@@ -140,11 +140,6 @@ task_contract:
       command: python -m pytest tests/test_updater.py::TestUpdateStatus::test_status_reports_eligibility_provenance_and_next_run_without_mutation tests/test_updater.py::TestApplyUpdate -q
       proves: "Selection accepts the newer compatible stable fixture while excluding prerelease and next-major candidates."
       acceptance_ids: [AC-5]
-    - id: VER-6
-      command: >-
-        python -c 'from pathlib import Path; text = Path("CHANGELOG.md").read_text(encoding="utf-8"); header = "## v1.12.1 — 2026-07-12"; assert text.count(header) == 1; assert "AUTO-UPDATE-CUSTOM-WATCHER-UNIT-DISCOVERY" not in text; section = text.split(header, 1)[1].split("\n## ", 1)[0].lower(); assert "named" in section and "systemd-user" in section and "ambiguous" in section and "stop" in section and "start" in section and "exact" in section'
-      proves: "The changelog has one accurately scoped v1.12.1 section and no temporary task entry."
-      acceptance_ids: [AC-6]
     - id: VER-7
       command: python scripts/quality_scorecard.py --check && python scripts/public_safety_scan.py --committed
       proves: "Generated scorecard artifacts match the tree and the exact committed release candidate is public-safe."
@@ -181,11 +176,6 @@ task_contract:
         command: python -m pytest tests/test_release_status_gate.py -q
         proves: "The unchanged release-status gate retains its six-surface success, blocker, JSON, and install-smoke behavior before live v1.12.1 use."
         acceptance_ids: [AC-8]
-      - id: REG-4
-        command: >-
-          python -c 'from pathlib import Path; text = Path("CHANGELOG.md").read_text(encoding="utf-8"); header = "## v1.12.1 — 2026-07-12"; assert text.count(header) == 1; assert "AUTO-UPDATE-CUSTOM-WATCHER-UNIT-DISCOVERY" not in text; section = text.split(header, 1)[1].split("\n## ", 1)[0].lower(); assert "named" in section and "systemd-user" in section and "ambiguous" in section and "stop" in section and "start" in section and "exact" in section'
-        proves: "The changelog has exactly one v1.12.1 section with the required named-unit coordination wording and no temporary task heading."
-        acceptance_ids: [AC-6]
       - id: REG-5
         command: python scripts/quality_scorecard.py --check && python scripts/public_safety_scan.py --committed
         proves: "The deterministic quality scorecard artifacts remain current and the committed release tree has no public-safety findings."
