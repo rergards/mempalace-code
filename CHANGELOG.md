@@ -1,8 +1,14 @@
 # Changelog
 
-## 2026-07-12 · AUTO-UPDATE-CUSTOM-WATCHER-UNIT-DISCOVERY
+## v1.12.1 — 2026-07-12
 
-`mempalace-code update status`/`apply` now discovers and coordinates active named systemd-user watcher units (`mempalace-watch-<root>.service`), not just the legacy default unit, and safely refuses mutation when discovery is ambiguous or unavailable.
+Patch release for named systemd-user watcher coordination in the opt-in updater.
+
+### Fixed
+
+- `mempalace-code update status` and `apply` discover an attributable active named watcher unit, including root-specific units such as `mempalace-watch-srv-dev.service`.
+- Discovery refuses before package or service mutation when the watcher is ambiguous, malformed, unrelated, or unavailable.
+- Apply and rollback coordinate the exact selected watcher unit.
 
 ## v1.12.0 — 2026-07-12
 
