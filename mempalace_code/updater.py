@@ -36,6 +36,7 @@ DEFAULT_SERVICE_UNIT = "mempalace-update.service"
 MIN_FREE_BYTES = 100 * 1024 * 1024
 DEFAULT_COMMAND_TIMEOUT = 15 * 60
 _CUSTOM_WATCHER_UNIT = re.compile(r"^mempalace-watch-[A-Za-z0-9][A-Za-z0-9_.@-]*\.service$")
+_PYTHON_EXECUTABLE = re.compile(r"^python(?:3(?:\.\d+)?t?)?$")
 
 CommandRunner = Callable[[list[str]], tuple[int, str, str]]
 PypiFetcher = Callable[[], dict[str, Any]]
@@ -293,6 +294,7 @@ class SystemdUserService:
             return tokens[1] == "watch"
         return (
             len(tokens) >= 4
+            and bool(_PYTHON_EXECUTABLE.fullmatch(Path(tokens[0]).name))
             and tokens[1] == "-m"
             and tokens[2] == "mempalace_code"
             and tokens[3] == "watch"

@@ -254,6 +254,12 @@ class TestSystemdWatcherDiscovery:
                 0,
                 "not a MemPalace watch command",
             ),
+            (
+                ["mempalace-watch-srv-dev.service"],
+                {"mempalace-watch-srv-dev.service": "other-binary -m mempalace_code watch /srv/dev"},
+                0,
+                "not a MemPalace watch command",
+            ),
             ([], {}, 1, "discovery unavailable"),
         ],
     )
