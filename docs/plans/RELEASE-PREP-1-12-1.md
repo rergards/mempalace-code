@@ -183,6 +183,15 @@ task_contract:
         command: python -m pytest tests/test_release_status_gate.py -q
         proves: "The unchanged release-status gate retains its six-surface success, blocker, JSON, and install-smoke behavior before live v1.12.1 use."
         acceptance_ids: [AC-8]
+      - id: REG-4
+        command: >-
+          python -c 'from pathlib import Path; text = Path("CHANGELOG.md").read_text(encoding="utf-8"); header = "## v1.12.1 — 2026-07-12"; assert text.count(header) == 1; assert "AUTO-UPDATE-CUSTOM-WATCHER-UNIT-DISCOVERY" not in text; section = text.split(header, 1)[1].split("\n## ", 1)[0].lower(); assert "named" in section and "systemd-user" in section and "ambiguous" in section and "stop" in section and "start" in section and "exact" in section'
+        proves: "The changelog has exactly one v1.12.1 section with the required named-unit coordination wording and no temporary task heading."
+        acceptance_ids: [AC-6]
+      - id: REG-5
+        command: python scripts/quality_scorecard.py --check && python scripts/public_safety_scan.py --committed
+        proves: "The deterministic quality scorecard artifacts remain current and the committed release tree has no public-safety findings."
+        acceptance_ids: [AC-7]
 
 ---
 
