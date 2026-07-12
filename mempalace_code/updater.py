@@ -204,9 +204,7 @@ class SystemdUserService:
         for unit in units:
             valid, detail = self._is_mempalace_watch_command(unit)
             if not valid:
-                return self._record_discovery(
-                    False, f"watcher discovery refused {unit}: {detail}"
-                )
+                return self._record_discovery(False, f"watcher discovery refused {unit}: {detail}")
             attributable.append(unit)
 
         named = [unit for unit in attributable if unit != DEFAULT_WATCHER_UNIT]
@@ -215,7 +213,9 @@ class SystemdUserService:
                 False, "watcher discovery is ambiguous; exactly one active watcher is required"
             )
         if named:
-            return self._record_discovery(True, f"selected active named watcher: {named[0]}", named[0])
+            return self._record_discovery(
+                True, f"selected active named watcher: {named[0]}", named[0]
+            )
         if DEFAULT_WATCHER_UNIT in attributable:
             return self._record_discovery(
                 True, f"selected active legacy watcher: {DEFAULT_WATCHER_UNIT}"
