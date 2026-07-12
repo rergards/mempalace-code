@@ -480,9 +480,7 @@ class TestInstallerDetection:
 
 class TestUpdateCommand:
     @pytest.mark.parametrize(("active", "state"), [(True, "active"), (False, "inactive")])
-    def test_status_renders_selected_watcher_unit_and_state_for_humans(
-        self, capsys, active, state
-    ):
+    def test_status_renders_selected_watcher_unit_and_state_for_humans(self, capsys, active, state):
         manager = MagicMock()
         manager.status.return_value = UpdateResult(
             True,
