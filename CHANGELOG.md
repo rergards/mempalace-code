@@ -1,12 +1,17 @@
 # Changelog
 
-## 2026-07-12 · RELEASE-PREP-1-12-0
+## v1.12.0 — 2026-07-12
 
-Harden automatic-update release fixtures for the v1.12.0 package release.
+Minor release for the opt-in `mempalace-code update` workflow.
 
-## 2026-07-11 · AUTO-UPDATE-RELEASE-AUTOMATION
+### Added
 
-Add an opt-in `mempalace-code update` workflow with provenance-checked version policy, extras preservation, watcher coordination, staged validation, rollback, and a disabled-by-default systemd-user scheduler.
+- Explicit status, check, apply, and disabled-by-default systemd-user scheduler commands for package updates.
+- Canonical PyPI provenance checks, extras preservation, exclusive operation leasing, watcher coordination, staged validation, and rollback.
+
+### Changed
+
+- Package metadata, lockfile, README version shield, and updater fixtures now use the v1.12.0 release baseline.
 
 ## Unreleased
 
