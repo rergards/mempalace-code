@@ -10,8 +10,6 @@ files:
     change: "Regenerate the editable root-package lock metadata at 1.12.1 without changing dependency policy or third-party resolutions."
   - path: README.md
     change: "Advance the public version shield from 1.12.0 to 1.12.1."
-  - path: CHANGELOG.md
-    change: "Replace the temporary watcher-discovery task note with one public v1.12.1 entry covering named-unit discovery, safe refusal, and exact stop/start coordination."
   - path: tests/test_updater.py
     change: "Advance fake stable-release, prerelease, install, and rollback literals so updater behavior is exercised from the 1.12.1 release baseline."
 acceptance:
