@@ -1,0 +1,29 @@
+name: Upstream drift
+
+on:
+  schedule:
+    # Daily, off the hour to avoid the top-of-hour scheduling crowd.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-drift-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  upstream-drift:
+    if: github.repository == 'rergards/mempalace-code'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Upstream comparison guard (live head, read-only)
+        # Fails when the pinned upstream commit no longer matches the branch head,
+        # which is the signal to re-review docs/UPSTREAM_COMPARISON.md and its
+        # manifest. The guard never writes files and never mutates GitHub state.
+        run: python scripts/upstream_comparison_guard.py --check-live --json

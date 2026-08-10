@@ -122,6 +122,7 @@ def test_build_scorecard_has_required_top_level_keys():
         "code_size",
         "demo_gates",
         "largest_modules",
+        "performance_budgets",
         "public_safety",
         "ruff",
         "pyright",
@@ -153,9 +154,12 @@ def test_suppressions_invariant_holds():
 
 def test_suites_include_known_surfaces():
     suites = {s["name"]: s for s in sc.build_scorecard(ROOT)["suites"]}
-    for name in ("cli", "mcp_stdio", "migrate_storage_smoke"):
+    for name in ("cli", "cli_golden_scenarios", "mcp_stdio", "migrate_storage_smoke"):
         assert name in suites
         assert suites[name]["present"] is True
+    # cli_golden_scenarios is a distinct suite from cli (subprocess workflows vs
+    # in-process unit coverage) — same path never satisfies both.
+    assert suites["cli_golden_scenarios"]["path"] != suites["cli"]["path"]
 
 
 # ── Determinism ────────────────────────────────────────────────────────────────
@@ -192,6 +196,7 @@ def test_markdown_has_required_sections():
         "## Pyright Strict Slice",
         "## Public Safety",
         "## Demo Gates",
+        "## Performance Budgets",
         "## Suppressions",
         "## Tests",
         "## Available Suites",
@@ -365,6 +370,8 @@ def test_run_check_fails_when_build_raises(monkeypatch):
         lambda d: d["suites"][0].pop("present"),
         lambda d: d["verification_commands"][0].pop("command"),
         lambda d: d["ruff"].__setitem__("global_ignore_rules", {}),
+        lambda d: d["performance_budgets"].__setitem__("valid", "yes"),
+        lambda d: d["performance_budgets"]["metrics"][0].pop("current"),
     ],
 )
 def test_validate_flags_malformed_shapes(mutate):
@@ -494,6 +501,29 @@ def test_verification_commands_match_verify_skill():
         assert cmd in instructions, f"verification command not in /verify verbatim: {cmd!r}"
 
 
+def test_strict_slice_command_in_verify_and_ci():
+    """AC-4: the strict-slice command stays wired into /verify and CI, and the strict
+    config keeps reportMissingImports enabled rather than being weakened to pass."""
+    strict_cmd = next(
+        cmd for name, cmd in sc._VERIFICATION_COMMANDS if name == "typecheck_strict_slice"
+    )
+    assert strict_cmd == "python -m pyright -p pyrightconfig.strict.json"
+
+    instructions = (ROOT / ".claude" / "skills" / "verify" / "INSTRUCTIONS.md").read_text(
+        encoding="utf-8"
+    )
+    assert strict_cmd in instructions, "strict-slice command missing from /verify INSTRUCTIONS.md"
+
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert strict_cmd in ci, "strict-slice command missing from .github/workflows/ci.yml"
+
+    strict_config = json.loads((ROOT / "pyrightconfig.strict.json").read_text(encoding="utf-8"))
+    assert strict_config["reportMissingImports"] is True
+    assert strict_config["include"] == strict_config["strict"], (
+        "strict slice include/strict arrays must stay identical"
+    )
+
+
 # ── Strict-slice metrics ───────────────────────────────────────────────────────
 
 
@@ -554,11 +584,30 @@ def test_demo_gates_keys():
         assert gates[key]["status"] in ("present", "absent")
     # dependency_audit must be present in live repo (both gate files exist)
     assert gates["dependency_audit"]["status"] == "present"
-    # architecture/docs_drift/cli_golden absent — future gates
-    assert gates["architecture_guard"]["status"] == "absent"
+    assert gates["architecture_guard"]["status"] == "present"
+    assert gates["docs_drift_guard"]["status"] == "present"
+    assert gates["cli_golden_scenarios"]["status"] == "present"
+    assert gates["cli_golden_scenarios"]["count"] > 0
+
+
+def test_docs_drift_guard_reports_expanded_coverage():
+    """demo_gates.docs_drift_guard must name the expanded check categories (present)."""
+    gates = sc.build_scorecard(ROOT)["demo_gates"]
+    coverage = gates["docs_drift_guard"]["coverage"]
+    assert coverage == [
+        "cli_commands",
+        "mcp_tools_and_profiles",
+        "optional_extras",
+        "release_and_dependency_gates",
+        "verification_commands",
+    ]
+
+
+def test_docs_drift_guard_coverage_empty_on_fake_repo(tmp_path):
+    root = _make_fake_repo(tmp_path)
+    gates = sc.collect_demo_gates(root)
     assert gates["docs_drift_guard"]["status"] == "absent"
-    assert gates["cli_golden_scenarios"]["status"] == "absent"
-    assert gates["cli_golden_scenarios"]["count"] == 0
+    assert gates["docs_drift_guard"]["coverage"] == []
 
 
 def test_mcp_stdio_contract_count_equals_class_methods():
@@ -601,6 +650,79 @@ def test_demo_gates_all_absent_on_fake_repo(tmp_path):
     assert gates["mcp_stdio_contracts"]["count"] == 0
     assert gates["mcp_stdio_contracts"]["status"] == "absent"
     assert gates["cli_golden_scenarios"]["count"] == 0
+
+
+# ── Performance-budget rows (demo_performance_budgets) ─────────────────────────
+
+_PERF_METRIC_NAMES = (
+    "mine_full",
+    "mine_incremental_noop",
+    "search_p95",
+    "read_p95",
+    "maintenance",
+)
+
+
+def test_demo_performance_budgets_valid_on_live_repo():
+    """The committed benchmarks/demo_perf_budgets.json validates on the real repo."""
+    pb = sc.build_scorecard(ROOT)["performance_budgets"]
+    assert pb["valid"] is True
+    assert pb["errors"] == []
+    assert pb["budget_changed_because"].strip() != ""
+    assert {m["name"] for m in pb["metrics"]} == set(_PERF_METRIC_NAMES)
+
+
+def test_demo_performance_budgets_metrics_have_before_current_budget():
+    pb = sc.build_scorecard(ROOT)["performance_budgets"]
+    for m in pb["metrics"]:
+        assert set(m) == {"name", "unit", "before", "current", "budget", "comparison"}
+        assert m["unit"] in ("secs", "ms")
+        assert isinstance(m["current"], (int, float))
+        assert isinstance(m["budget"], (int, float))
+        assert m["before"] is None or isinstance(m["before"], (int, float))
+        # Never executed here — a fresh baseline is always <= its own hard budget.
+        assert m["current"] <= m["budget"]
+
+
+def test_demo_performance_budgets_renders_markdown_table():
+    md = sc.render_markdown(sc.build_scorecard(ROOT))
+    assert "## Performance Budgets" in md
+    assert "| Metric | Unit | Before | Current | Budget |" in md
+    for name in _PERF_METRIC_NAMES:
+        assert f"| {name} |" in md
+
+
+def test_demo_performance_budgets_missing_artifact_is_invalid(tmp_path):
+    root = _make_fake_repo(tmp_path)  # no benchmarks/ directory at all
+    pb = sc.collect_performance_budgets(root)
+    assert pb["valid"] is False
+    assert len(pb["errors"]) == 1
+    assert "missing" in pb["errors"][0]
+    assert pb["metrics"] == []
+    # Shape still validates — "invalid" is itself a well-formed, non-gating state.
+    data = sc.build_scorecard(root)
+    assert sc.validate(data) == []
+
+
+def test_demo_performance_budgets_malformed_artifact_fails_closed(tmp_path):
+    root = _make_fake_repo(tmp_path)
+    bench_dir = root / "benchmarks"
+    bench_dir.mkdir()
+    (bench_dir / "demo_perf_budgets.json").write_text("{not valid json", encoding="utf-8")
+
+    pb = sc.collect_performance_budgets(root)
+    assert pb["valid"] is False
+    assert len(pb["errors"]) == 1
+    assert "malformed" in pb["errors"][0].lower()
+
+
+def test_demo_performance_budgets_before_absent_renders_baseline_absent():
+    """A first-ever baseline (before=None) must render deterministically, not crash."""
+    data = copy.deepcopy(sc.build_scorecard(ROOT))
+    for m in data["performance_budgets"]["metrics"]:
+        m["before"] = None
+    md = sc.render_markdown(data)
+    assert "baseline absent" in md
 
 
 # ── Malformed expanded metric validation ───────────────────────────────────────

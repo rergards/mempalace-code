@@ -20,13 +20,13 @@ Mine a codebase into the palace with validation checks.
 ### Step 1: Pre-flight Health Check
 
 ```bash
-mempalace health --json
+mempalace-code health --json
 ```
 
 Record baseline:
-- Current drawer count
-- Current wing count
-- Health status
+- `total_rows`
+- `ok`
+- `errors` and `warnings`
 
 ### Step 2: Validate Target
 
@@ -44,7 +44,7 @@ Check for `.gitignore` exclusions:
 ### Step 3: Run Mining
 
 ```bash
-mempalace mine <target_dir> [--full]
+mempalace-code mine <target_dir> [--full]
 ```
 
 Options:
@@ -52,25 +52,25 @@ Options:
 - Default: Incremental (only changed files)
 
 Monitor output for:
-- Files scanned
-- Chunks created
+- Files processed
+- Drawers filed
 - Errors/warnings
 
 ### Step 4: Post-mine Validation
 
 ```bash
-mempalace health --json
+mempalace-code health --json
 ```
 
 Compare to baseline:
-- Drawer count increased?
-- New wing created?
-- Health still OK?
+- Did `total_rows` change as expected?
+- Is `ok` still `true`?
+- Are `errors` and `warnings` empty?
 
 ### Step 5: Verify Search Works
 
 ```bash
-mempalace search "main function" --wing <project_wing> --limit 3
+mempalace-code search "main function" --wing <project_wing> --results 3
 ```
 
 Confirm results return from the mined project.
@@ -85,13 +85,11 @@ Mode: [incremental | full]
 
 Before:
 - Drawers: N
-- Wings: N
 
 After:
 - Drawers: N (+M new)
-- Wings: N
-- Files scanned: N
-- Chunks created: N
+- Files processed: N
+- Drawers filed: N
 
 Health: [OK | WARN: <issue>]
 Search test: [PASS | FAIL]
@@ -105,6 +103,6 @@ Issues:
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | 0 files scanned | Wrong path or gitignore | Check path, verify files exist |
-| Health FAIL after mine | optimize() corruption | `mempalace repair --rollback` |
-| Search returns empty | Embedding mismatch | Full re-mine: `mempalace mine --full` |
+| Health FAIL after mine | optimize() corruption | Stop and request approval before `mempalace-code repair --rollback` |
+| Search returns empty | Embedding mismatch | Full re-mine: `mempalace-code mine <target_dir> --full` |
 | Wing not created | No recognizable code files | Check language support |

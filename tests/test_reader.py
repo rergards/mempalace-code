@@ -10,9 +10,19 @@ Covers:
   - Legacy rows with line_start=0 are not treated as overlapping (AC-6)
 """
 
+import json
+from typing import assert_type
+
 import pytest
 
 from mempalace_code.reader import (
+    ReadAmbiguousSource,
+    ReadInvalidRange,
+    ReadLine,
+    ReadNotFound,
+    ReadStalePointer,
+    ReadSuccess,
+    ReadUnknownWing,
     _ends_with_components,
     _lines_from_chunk,
     _macos_var_aliases,
@@ -21,6 +31,56 @@ from mempalace_code.reader import (
     read_slice,
 )
 from mempalace_code.storage import open_store
+
+# ─── Type-level assertions for ReadResult variants (AC-3) ────────────────────
+
+
+class TestReadResultVariantShapes:
+    """Each ReadResult TypedDict variant's field set matches the module docstring."""
+
+    def test_read_success_fields(self):
+        assert set(ReadSuccess.__required_keys__) == {"source_file", "start", "end", "lines"}
+
+    def test_read_line_fields(self):
+        assert set(ReadLine.__required_keys__) == {"line", "text"}
+
+    def test_read_not_found_fields(self):
+        assert set(ReadNotFound.__required_keys__) == {"error", "source_file"}
+        assert set(ReadNotFound.__optional_keys__) == {"detail"}
+
+    def test_read_stale_pointer_fields(self):
+        assert set(ReadStalePointer.__required_keys__) == {"error", "source_file", "detail"}
+
+    def test_read_invalid_range_fields(self):
+        assert set(ReadInvalidRange.__required_keys__) == {"error", "detail"}
+
+    def test_read_ambiguous_source_fields(self):
+        assert set(ReadAmbiguousSource.__required_keys__) == {
+            "error",
+            "source_file",
+            "candidates",
+        }
+
+    def test_read_unknown_wing_fields(self):
+        assert set(ReadUnknownWing.__required_keys__) == {
+            "error",
+            "filter",
+            "value",
+            "suggestions",
+        }
+
+    def test_validate_range_success_narrows_to_int_tuple(self):
+        """_validate_range's success branch is a plain (int, int) tuple, not an error dict."""
+        result = _validate_range(3, 5)
+        assert not isinstance(result, dict)
+        assert_type(result, tuple[int, int])
+
+    def test_validate_range_error_narrows_to_read_invalid_range(self):
+        result = _validate_range(5, 3)
+        assert isinstance(result, dict)
+        assert_type(result, ReadInvalidRange)
+        assert result["error"] == "invalid_range"
+
 
 # ─── Unit tests for helpers ───────────────────────────────────────────────────
 
@@ -234,11 +294,11 @@ class TestReadSlice:
         assert len(line_nos) == len(set(line_nos))
 
     def test_wing_filter_restricts_to_matching_wing(self, palace_path):
-        """read_slice: wing filter returns not_found when no chunk in that wing (AC-3)."""
+        """read_slice: wing filter returns not_found when no chunk in that (valid) wing (AC-3)."""
         store = open_store(palace_path, create=True)
         store.add(
-            ids=["wf_chunk0"],
-            documents=["def foo(): return True"],
+            ids=["wf_chunk0", "wf_chunk1"],
+            documents=["def foo(): return True", "def bar(): return False"],
             metadatas=[
                 {
                     "wing": "proj_a",
@@ -249,7 +309,17 @@ class TestReadSlice:
                     "filed_at": "2026-01-01T00:00:00",
                     "line_start": 1,
                     "line_end": 1,
-                }
+                },
+                {
+                    "wing": "proj_b",
+                    "room": "backend",
+                    "source_file": "/src/bar.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
             ],
         )
         # Correct wing finds the chunk
@@ -257,9 +327,24 @@ class TestReadSlice:
         assert "error" not in result_ok
         assert result_ok["lines"][0]["text"] == "def foo(): return True"
 
-        # Wrong wing returns not_found (chunk exists but not in proj_b)
+        # proj_b is a valid, known wing — but /src/foo.py isn't indexed there:
+        # not_found, not unknown_wing.
         result_miss = read_slice(store, "/src/foo.py", 1, 1, wing="proj_b")
         assert result_miss["error"] == "not_found"
+
+    def test_read_unknown_wing_error_shape(self, palace_path, sliceable_store):
+        """AC-1/AC-3: a wing absent from the taxonomy returns unknown_wing, not not_found."""
+        result = read_slice(sliceable_store, "/src/sliceable.py", 2, 4, wing="does-not-exist")
+        assert result["error"] == "unknown_wing"
+        assert result["filter"] == "wing"
+        assert result["value"] == "does-not-exist"
+
+    def test_read_slice_taxonomy_filter_validation_valid_wing_stays_not_found(
+        self, palace_path, sliceable_store
+    ):
+        """A valid, known wing with no matching source file remains not_found (INV-4)."""
+        result = read_slice(sliceable_store, "/nonexistent/file.py", 1, 5, wing="proj")
+        assert result["error"] == "not_found"
 
 
 # ─── Unit tests for path resolution helpers ──────────────────────────────────
@@ -505,3 +590,87 @@ class TestSourceFileResolution:
         assert "error" not in result
         assert result["source_file"] == "auth.py"
         assert result["lines"][0]["text"] == "def exact(): pass"
+
+
+# ─── Security boundary: ambiguous read never leaks drawer text or live files ─────
+
+
+class TestReadSliceResultKeySets:
+    """AC-3: read_slice's runtime payload keys match each ReadResult TypedDict variant
+    exactly — no extra/missing keys sneak past the typed boundary."""
+
+    def test_success_key_set_matches_read_success(self, palace_path, sliceable_store):
+        result = read_slice(sliceable_store, "/src/sliceable.py", 2, 4)
+        assert set(result.keys()) == set(ReadSuccess.__required_keys__)
+
+    def test_not_found_key_set_matches_read_not_found_required_keys(
+        self, palace_path, sliceable_store
+    ):
+        result = read_slice(sliceable_store, "/nonexistent/file.py", 1, 5)
+        assert result["error"] == "not_found"
+        assert set(result.keys()) == set(ReadNotFound.__required_keys__)
+
+    def test_stale_pointer_key_set_matches_read_stale_pointer(self, palace_path, sliceable_store):
+        result = read_slice(sliceable_store, "/src/sliceable.py", 100, 200)
+        assert result["error"] == "stale_pointer"
+        assert set(result.keys()) == set(ReadStalePointer.__required_keys__)
+
+    def test_invalid_range_key_set_matches_read_invalid_range(self, palace_path, sliceable_store):
+        result = read_slice(sliceable_store, "/src/sliceable.py", 10, 5)
+        assert result["error"] == "invalid_range"
+        assert set(result.keys()) == set(ReadInvalidRange.__required_keys__)
+
+    def test_unknown_wing_key_set_matches_read_unknown_wing(self, palace_path, sliceable_store):
+        result = read_slice(sliceable_store, "/src/sliceable.py", 2, 4, wing="does-not-exist")
+        assert result["error"] == "unknown_wing"
+        assert set(result.keys()) == set(ReadUnknownWing.__required_keys__)
+
+
+class TestReadAmbiguitySecurityBoundary:
+    """AC-1/AC-3: an ambiguous source_file returns only candidate metadata — never
+    drawer text, and never a live-disk fallback (INV-3)."""
+
+    def test_security_boundary_ambiguous_payload_has_no_content_keys(
+        self, palace_path, multi_source_store
+    ):
+        """The ambiguous_source payload is limited to error/source_file/candidates —
+        no 'lines', 'text', or other drawer-content field is present."""
+        result = read_slice(multi_source_store, "auth.py", 1, 1, wing="proj")
+
+        assert result["error"] == "ambiguous_source"
+        assert set(result.keys()) == {"error", "source_file", "candidates"}
+        assert "lines" not in result
+        assert "text" not in result
+
+    def test_security_boundary_ambiguous_does_not_read_live_disk_file(
+        self, palace_path, multi_source_store, tmp_path, monkeypatch
+    ):
+        """Even when a real file exists on disk at one of the ambiguous candidate
+        paths, read_slice must never open it — the palace is the only source of
+        truth and ambiguity must not trigger a live-file fallback."""
+        live_file = tmp_path / "auth.py"
+        live_file.write_text("SECRET LIVE DISK CONTENT — must never be returned")
+
+        opened_paths = []
+        real_open = open
+
+        def _tracking_open(path, *args, **kwargs):
+            opened_paths.append(str(path))
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.open", _tracking_open)
+
+        result = read_slice(multi_source_store, "auth.py", 1, 1, wing="proj")
+
+        assert result["error"] == "ambiguous_source"
+        assert str(live_file) not in opened_paths
+        assert "SECRET LIVE DISK CONTENT" not in json.dumps(result)
+
+    def test_security_boundary_ambiguous_candidates_are_palace_paths_only(
+        self, palace_path, multi_source_store
+    ):
+        """Candidates returned on ambiguity are exactly the stored palace paths that
+        share the queried basename — nothing synthesized from the live filesystem."""
+        result = read_slice(multi_source_store, "auth.py", 1, 1, wing="proj")
+
+        assert result["candidates"] == sorted(["/project/src/auth.py", "/project/web/auth.py"])

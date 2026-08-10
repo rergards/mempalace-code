@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+from packaging.version import Version
 
 from mempalace_code.cli_commands.update import cmd_update
 from mempalace_code.operation_lock import OperationLock
@@ -22,9 +23,19 @@ from mempalace_code.updater import (
     WatcherDiscovery,
     detect_installation,
 )
+from mempalace_code.updater import __version__ as _INSTALLED_VERSION
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+# Release fixtures are derived from the installed version rather than hard-coded,
+# so they stay eligible/prerelease/incompatible relative to whatever version this
+# checkout actually reports instead of drifting stale as releases ship.
+_CURRENT = Version(_INSTALLED_VERSION)
+CURRENT_VERSION = str(_CURRENT)
+ELIGIBLE_VERSION = f"{_CURRENT.major}.{_CURRENT.minor}.{_CURRENT.micro + 1}"
+PRERELEASE_VERSION = f"{_CURRENT.major}.{_CURRENT.minor}.{_CURRENT.micro + 2}rc1"
+INCOMPATIBLE_MAJOR_VERSION = f"{_CURRENT.major + 1}.0.0"
 
 
 class FakeService:
@@ -64,11 +75,11 @@ def _installation(extras: frozenset[str] = frozenset({"watch", "spellcheck"})) -
 def _pypi():
     return {
         "releases": {
-            "1.12.2": [
+            ELIGIBLE_VERSION: [
                 {
                     "packagetype": "bdist_wheel",
-                    "filename": "mempalace_code-1.12.2-py3-none-any.whl",
-                    "url": "https://files.pythonhosted.org/mempalace-1.12.2.whl",
+                    "filename": f"mempalace_code-{ELIGIBLE_VERSION}-py3-none-any.whl",
+                    "url": f"https://files.pythonhosted.org/mempalace-{ELIGIBLE_VERSION}.whl",
                     "digests": {"sha256": "a" * 64},
                     "upload_time_iso_8601": "2026-07-11T00:00:00Z",
                     "yanked": False,
@@ -76,21 +87,21 @@ def _pypi():
             ],
             # Keep rejected releases installable so target selection proves the
             # prerelease and major-version policy instead of missing wheel metadata.
-            "1.12.3rc1": [
+            PRERELEASE_VERSION: [
                 {
                     "packagetype": "bdist_wheel",
-                    "filename": "mempalace_code-1.12.3rc1-py3-none-any.whl",
-                    "url": "https://files.pythonhosted.org/mempalace-1.12.3rc1.whl",
+                    "filename": f"mempalace_code-{PRERELEASE_VERSION}-py3-none-any.whl",
+                    "url": f"https://files.pythonhosted.org/mempalace-{PRERELEASE_VERSION}.whl",
                     "digests": {"sha256": "b" * 64},
                     "upload_time_iso_8601": "2026-07-12T00:00:00Z",
                     "yanked": False,
                 }
             ],
-            "2.0.0": [
+            INCOMPATIBLE_MAJOR_VERSION: [
                 {
                     "packagetype": "bdist_wheel",
-                    "filename": "mempalace_code-2.0.0-py3-none-any.whl",
-                    "url": "https://files.pythonhosted.org/mempalace-2.0.0.whl",
+                    "filename": f"mempalace_code-{INCOMPATIBLE_MAJOR_VERSION}-py3-none-any.whl",
+                    "url": f"https://files.pythonhosted.org/mempalace-{INCOMPATIBLE_MAJOR_VERSION}.whl",
                     "digests": {"sha256": "c" * 64},
                     "upload_time_iso_8601": "2026-07-12T00:00:00Z",
                     "yanked": False,
@@ -195,7 +206,7 @@ class TestUpdateStatus:
         assert result.ok is True
         assert result.stage == "status"
         assert result.data["eligible"] is True
-        assert result.data["provenance"]["target_version"] == "1.12.2"  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
+        assert result.data["provenance"]["target_version"] == ELIGIBLE_VERSION  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
         assert result.data["provenance"]["sha256"] == "a" * 64  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
         assert result.data["installation"]["extras"] == ["spellcheck", "watch"]  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
         assert result.data["watcher"]["active"] is True  # type: ignore[index]  # reason: result.data is typed as object; dict access is safe in tests
@@ -337,7 +348,7 @@ class TestApplyUpdate:
         assert result.ok is True
         assert result.stage == "succeeded"
         install = next(command for command in commands if "install" in command)
-        assert "mempalace-code[spellcheck,watch]==1.12.2" in install
+        assert f"mempalace-code[spellcheck,watch]=={ELIGIBLE_VERSION}" in install
         assert service.calls == ["is-active", "stop", "start", "is-active"]
         assert (tmp_path / "state" / "updates" / "state.json").exists()
         assert result.log_path is not None
@@ -360,8 +371,8 @@ class TestRollback:
         assert result.log_path is not None
         assert Path(result.log_path).exists()
         install_commands = [command for command in commands if "install" in command]
-        assert install_commands[0][-1].endswith("==1.12.2")
-        assert install_commands[1][-1].endswith("==1.12.1")
+        assert install_commands[0][-1].endswith(f"=={ELIGIBLE_VERSION}")
+        assert install_commands[1][-1].endswith(f"=={CURRENT_VERSION}")
         state = (tmp_path / "state" / "updates" / "state.json").read_text(encoding="utf-8")
         assert '"stage": "rollback-succeeded"' in state
         assert service.active is True
@@ -372,7 +383,7 @@ class TestRollback:
 
         def timeout_runner(command: list[str]):
             commands.append(command)
-            if "install" in command and command[-1].endswith("==1.12.2"):
+            if "install" in command and command[-1].endswith(f"=={ELIGIBLE_VERSION}"):
                 raise subprocess.TimeoutExpired(command, timeout=900)
             return 0, "ok", ""
 
@@ -385,8 +396,8 @@ class TestRollback:
         assert "timed out" in result.message
         install_commands = [command for command in commands if "install" in command]
         assert [command[-1] for command in install_commands] == [
-            "mempalace-code[spellcheck,watch]==1.12.2",
-            "mempalace-code[spellcheck,watch]==1.12.1",
+            f"mempalace-code[spellcheck,watch]=={ELIGIBLE_VERSION}",
+            f"mempalace-code[spellcheck,watch]=={CURRENT_VERSION}",
         ]
         assert service.calls == ["is-active", "stop", "start", "is-active"]
         state = json.loads(manager.state_path.read_text(encoding="utf-8"))
@@ -410,7 +421,7 @@ class TestRollback:
         assert result.stage == "transaction"
         assert "health probe unexpectedly crashed" in result.message
         install_commands = [command for command in commands if "install" in command]
-        assert install_commands[1][-1].endswith("==1.12.1")
+        assert install_commands[1][-1].endswith(f"=={CURRENT_VERSION}")
         assert service.calls == ["is-active", "stop", "start", "is-active"]
         state = json.loads(manager.state_path.read_text(encoding="utf-8"))
         assert state["stage"] == "rollback-succeeded"

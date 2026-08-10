@@ -60,11 +60,21 @@ def cmd_export(args):
 
 
 def cmd_import(args):
-    from ..export import import_jsonl
+    from ..export import JsonlInputError, import_jsonl, read_jsonl
     from ..knowledge_graph import KnowledgeGraph
     from ..storage import open_store
 
     palace_path = args.palace or MempalaceConfig().palace_path
+
+    # Validate (and fully buffer) the JSONL input before opening/creating any
+    # palace or KG state, so malformed input — including from stdin, which can
+    # only be read once — never leaves partial CLI-created state behind.
+    try:
+        records = list(read_jsonl(args.jsonl_file))
+    except JsonlInputError as exc:
+        print(f"  Error: malformed JSONL input: {exc}", file=sys.stderr)
+        sys.exit(1)
+
     store = open_store(palace_path, create=True)
     kg = None if args.skip_kg else KnowledgeGraph()
 
@@ -80,6 +90,7 @@ def cmd_import(args):
         skip_kg=args.skip_kg,
         dry_run=args.dry_run,
         wing_override=args.wing_override,
+        records=records,
     )
 
     print(f"  Imported drawers:   {summary['imported_drawers']}")

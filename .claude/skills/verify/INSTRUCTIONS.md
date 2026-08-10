@@ -52,6 +52,7 @@ Run in parallel:
 | Strict slice typecheck | `python -m pyright -p pyrightconfig.strict.json` | 60s |
 | Public safety | `python scripts/public_safety_scan.py --tracked --staged` | 30s |
 | Scorecard | `python scripts/quality_scorecard.py --check` | 30s |
+| Architecture guard | `python scripts/architecture_guard.py --root .` | 30s |
 
 The scorecard check is stdlib-only (no install, no network) and validates the
 quality scorecard's shape, determinism, public-safety, and committed artifact

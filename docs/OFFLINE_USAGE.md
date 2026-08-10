@@ -145,13 +145,20 @@ one-time model download. Search/mining model startup first uses local-only
 resolution, so a populated cache does not require HuggingFace metadata checks.
 None of these commands contact PyPI or any external service.
 
-The **only** optional network activity is the version check:
+The only optional network activity exposed by the CLI and MCP server is the version
+check:
 
 - **Default (no opt-in):** no network calls, ever.
 - **Opted-in automatic checks:** contact `https://pypi.org/pypi/mempalace-code/json` for
   package metadata at most once per interval (default 168 h). Only the `info.version` field
   is read. No telemetry, no user IDs, no installed-package inventory.
 - **`--check-now`:** single metadata fetch, result printed to stdout.
+
+The low-level Python API also exposes one explicit network-capable method:
+`EntityRegistry.research()`. Calling it directly contacts the English Wikipedia REST
+API for the requested word and caches the result in the entity registry. Standard CLI,
+MCP, onboarding, mining, search, update, and watcher flows never call this method.
+Airgapped applications should omit direct calls to `EntityRegistry.research()`.
 
 To guarantee offline operation in automation or airgapped environments:
 
@@ -160,6 +167,7 @@ export MEMPALACE_VERSION_CHECK=0
 ```
 
 This env var overrides any saved preference and prevents all version-check network calls.
+It does not alter an application that explicitly calls `EntityRegistry.research()`.
 
 ---
 

@@ -94,6 +94,13 @@ If Codex should run for this round:
 - Canonical round report remains local-only in ignored `docs/audits/`.
 - Codex output remains local-only supporting evidence in ignored `.tasks/TASK-<slug>/`.
 - Publish only sanitized summaries: backlog decisions, release notes, plan deltas, tests, and code changes with relative paths and no private context.
+- **Validate synthesized public summaries before publishing or committing.** Run the workflow summary guard on any synthesized multi-agent review summary before it lands in a tracked file or PR body:
+  ```bash
+  python scripts/workflow_summary_guard.py --file path/to/summary.md
+  # or from stdin:
+  cat pr-body.md | python scripts/workflow_summary_guard.py
+  ```
+  The guard rejects findings that lack concrete evidence, lack an action or deferral branch (with backlog ID and acceptance criteria), or contain private paths or secret-like tokens. Fix rejections before publishing.
 - Prefer no finding over a weak finding.
 - If Codex cannot run because auth is missing, report that briefly and continue the hardening round.
 - Every dismissed or deferred material finding must be either fixed in-round or backlogged. Do not silently drop it.

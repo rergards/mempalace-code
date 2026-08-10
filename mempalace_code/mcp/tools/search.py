@@ -88,6 +88,13 @@ def tool_file_context(source_file: str, wing: str | None = None):
     if not col:
         return runtime._no_palace()
 
+    if wing:
+        from ...taxonomy_filters import validate_wing_against_store
+
+        taxonomy_error = validate_wing_against_store(col, wing)
+        if taxonomy_error is not None:
+            return taxonomy_error
+
     where = (
         {"$and": [{"source_file": source_file}, {"wing": wing}]}
         if wing
@@ -152,14 +159,32 @@ def tool_read(
 
 TOOL_SPECS = {
     "mempalace_search": {
-        "description": "Semantic search. Returns verbatim drawer content with similarity scores. Each hit includes wing, room, source_file, symbol_name, symbol_type, language, and similarity.",
+        "description": (
+            "Semantic search. Returns verbatim drawer content with similarity scores. Each hit "
+            "includes wing, room, source_file, symbol_name, symbol_type, language, and similarity. "
+            "An explicit wing/room filter is validated against the palace taxonomy before search; "
+            "an unknown wing/room returns a structured error with advisory suggestions, while a "
+            "valid empty scope returns a successful {results: []}."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "What to search for"},
                 "limit": {"type": "integer", "description": "Max results (default 5)"},
-                "wing": {"type": "string", "description": "Filter by wing (optional)"},
-                "room": {"type": "string", "description": "Filter by room (optional)"},
+                "wing": {
+                    "type": "string",
+                    "description": (
+                        "Filter by wing (optional) — validated against the palace taxonomy; "
+                        "unknown values return a structured error with advisory suggestions"
+                    ),
+                },
+                "room": {
+                    "type": "string",
+                    "description": (
+                        "Filter by room (optional) — validated against the palace taxonomy; "
+                        "unknown values return a structured error with advisory suggestions"
+                    ),
+                },
             },
             "required": ["query"],
         },
@@ -202,7 +227,13 @@ TOOL_SPECS = {
                     "type": "string",
                     "description": "Filter by file path glob (e.g. */mempalace/*.py)",
                 },
-                "wing": {"type": "string", "description": "Filter by wing (optional)"},
+                "wing": {
+                    "type": "string",
+                    "description": (
+                        "Filter by wing (optional) — validated against the palace taxonomy; "
+                        "unknown values return a structured error with advisory suggestions"
+                    ),
+                },
                 "n_results": {
                     "type": "integer",
                     "description": "Max results to return, 1–50 (default 10)",
@@ -233,7 +264,10 @@ TOOL_SPECS = {
                 },
                 "wing": {
                     "type": "string",
-                    "description": "Filter to a specific wing (optional)",
+                    "description": (
+                        "Filter to a specific wing (optional) — validated against the palace "
+                        "taxonomy; unknown values return a structured error with advisory suggestions"
+                    ),
                 },
             },
             "required": ["source_file"],
@@ -263,7 +297,8 @@ TOOL_SPECS = {
             "Returns {source_file, start, end, lines} on success; "
             "{error: not_found} when the file has no indexed chunks; "
             "{error: stale_pointer} when no stored chunk overlaps the requested range; "
-            "{error: invalid_range} for bad line numbers."
+            "{error: invalid_range} for bad line numbers; "
+            "{error: unknown_wing} when an explicit wing filter is not in the palace taxonomy."
         ),
         "input_schema": {
             "type": "object",
@@ -282,7 +317,10 @@ TOOL_SPECS = {
                 },
                 "wing": {
                     "type": "string",
-                    "description": "Filter to a specific wing (optional)",
+                    "description": (
+                        "Filter to a specific wing (optional) — validated against the palace "
+                        "taxonomy; unknown values return a structured error with advisory suggestions"
+                    ),
                 },
             },
             "required": ["source_file", "start_line", "end_line"],

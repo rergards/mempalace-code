@@ -219,17 +219,25 @@ def _pypi_error(msg: str = "Connection refused") -> Callable[[str], tuple[int, b
     return http_get
 
 
-def _smoke_ok() -> Callable[[list[str]], tuple[int, str, str]]:
-    def run_subprocess(args: list[str]) -> tuple[int, str, str]:
-        return 0, "ok", ""
+def _smoke_ok(version: str = VERSION) -> Callable[..., tuple[int, str, str]]:
+    def run_subprocess(args: list[str], env=None, cwd=None) -> tuple[int, str, str]:
+        if "-m" in args and "venv" in args:
+            return 0, "", ""
+        if "install" in args and "--no-cache-dir" in args:
+            return 0, "", ""
+        if "-c" in args:
+            return 0, f"METADATA={version}\nMODULE={version}\n", ""
+        if "version-check" in args:
+            return 0, f"  Current version: {version}\n", ""
+        return 0, "", ""
 
     return run_subprocess
 
 
 def _smoke_fail(
     msg: str = "Could not find a version",
-) -> Callable[[list[str]], tuple[int, str, str]]:
-    def run_subprocess(args: list[str]) -> tuple[int, str, str]:
+) -> Callable[..., tuple[int, str, str]]:
+    def run_subprocess(args: list[str], env=None, cwd=None) -> tuple[int, str, str]:
         if "-m" in args and "venv" in args:
             return 0, "", ""
         return 1, "", msg
@@ -237,8 +245,8 @@ def _smoke_fail(
     return run_subprocess
 
 
-def _smoke_venv_fail() -> Callable[[list[str]], tuple[int, str, str]]:
-    def run_subprocess(args: list[str]) -> tuple[int, str, str]:
+def _smoke_venv_fail() -> Callable[..., tuple[int, str, str]]:
+    def run_subprocess(args: list[str], env=None, cwd=None) -> tuple[int, str, str]:
         if "-m" in args and "venv" in args:
             return 1, "", "venv creation error"
         return 0, "ok", ""
@@ -246,20 +254,50 @@ def _smoke_venv_fail() -> Callable[[list[str]], tuple[int, str, str]]:
     return run_subprocess
 
 
-def test_install_smoke_requires_update_command_surface():
-    calls: list[list[str]] = []
+def _smoke_mismatch(
+    metadata_version: str = VERSION, module_version: str = "9.9.9"
+) -> Callable[..., tuple[int, str, str]]:
+    def run_subprocess(args: list[str], env=None, cwd=None) -> tuple[int, str, str]:
+        if "-m" in args and "venv" in args:
+            return 0, "", ""
+        if "install" in args and "--no-cache-dir" in args:
+            return 0, "", ""
+        if "-c" in args:
+            return 0, f"METADATA={metadata_version}\nMODULE={module_version}\n", ""
+        if "version-check" in args:
+            return 0, f"  Current version: {metadata_version}\n", ""
+        return 0, "", ""
 
-    def missing_update(command: list[str]) -> tuple[int, str, str]:
-        calls.append(command)
-        if command[-2:] == ["update", "--help"]:
-            return 2, "", "unknown command: update"
-        return 0, "ok", ""
+    return run_subprocess
 
-    result = rsg.check_install_smoke(VERSION, PACKAGE, missing_update)
 
-    assert result.status == rsg.STATUS_FAIL
-    assert "update command surface" in result.detail
-    assert calls[-1][-2:] == ["update", "--help"]
+# ── AC-4: install_smoke delegates to the metadata consistency smoke ──────────
+
+
+def test_install_smoke_checks_version_metadata_surfaces():
+    # All three surfaces agree with the requested version → ok.
+    result_ok = rsg.check_install_smoke(VERSION, PACKAGE, _smoke_ok())
+    assert result_ok.status == rsg.STATUS_OK
+    assert VERSION in result_ok.detail
+    assert "metadata" in result_ok.detail.lower() or "module" in result_ok.detail.lower()
+
+    # Module version disagrees with metadata/CLI → fail, names the mismatch.
+    result_mismatch = rsg.check_install_smoke(VERSION, PACKAGE, _smoke_mismatch())
+    assert result_mismatch.status == rsg.STATUS_FAIL
+    assert "module_version" in result_mismatch.detail
+    assert "9.9.9" in result_mismatch.detail
+
+    # All surfaces internally agree but not with the requested release version → fail.
+    result_stale = rsg.check_install_smoke(VERSION, PACKAGE, _smoke_ok(version="1.0.0"))
+    assert result_stale.status == rsg.STATUS_FAIL
+    assert "1.0.0" in result_stale.detail
+    assert VERSION in result_stale.detail
+
+    # Gate-level integration: a metadata mismatch blocks the whole gate.
+    gate_result = _call_gate(run_subprocess=_smoke_mismatch())
+    assert gate_result.ok is False
+    smoke_surf = next(s for s in gate_result.surfaces if s.name == rsg.SURFACE_SMOKE)
+    assert smoke_surf.status == rsg.STATUS_FAIL
 
 
 def _call_gate(
@@ -471,7 +509,7 @@ def test_gate_handles_transient_public_lookup_errors_without_private_leaks():
     def http_get_with_leak(url: str) -> tuple[int, bytes, str]:
         return 0, b"", f"Connection refused from {fake_path}"
 
-    def run_subprocess_with_leak(args: list[str]) -> tuple[int, str, str]:
+    def run_subprocess_with_leak(args: list[str], env=None, cwd=None) -> tuple[int, str, str]:
         if "-m" in args and "venv" in args:
             return 0, "", ""
         return 1, "", f"pip failed at {fake_path}: token {fake_token}"
@@ -515,6 +553,11 @@ def test_gate_handles_transient_public_lookup_errors_without_private_leaks():
     assert rsg.sanitize(fake_token) == "[REDACTED-TOKEN]"
     assert rsg.sanitize(fake_path) == "[REDACTED-PATH]"
     assert rsg.sanitize(fake_remote) == "[REDACTED-REMOTE]"
+
+    # The smoke script's own TemporaryDirectory() defaults to /tmp on Linux
+    # (including this project's GitHub Actions Ubuntu runners), not /var/folders.
+    fake_linux_tmp = "/tmp/mempalace-install-smoke-abc123/venv/bin/pip"
+    assert rsg.sanitize(fake_linux_tmp) == "[REDACTED-PATH]"
 
 
 # ── AC-5: JSON output is machine-readable and surface-complete ────────────────
@@ -629,6 +672,23 @@ def test_smoke_venv_failure_is_error_not_fail():
     smoke = next(s for s in result.surfaces if s.name == rsg.SURFACE_SMOKE)
     assert smoke.status == rsg.STATUS_ERROR
     assert "venv" in smoke.detail.lower()
+
+
+def test_smoke_missing_sibling_module_is_error_not_a_crash(monkeypatch):
+    # release_status_gate.py documents itself as runnable standalone; if the sibling
+    # release_install_metadata_smoke.py script is missing or unreadable, the gate must
+    # report a STATUS_ERROR surface instead of letting the loader's OSError propagate.
+    def _raise_missing():
+        raise FileNotFoundError(
+            "[Errno 2] No such file or directory: '/tmp/x/release_install_metadata_smoke.py'"
+        )
+
+    monkeypatch.setattr(rsg, "_load_install_metadata_smoke", _raise_missing)
+
+    result = rsg.check_install_smoke(VERSION, PACKAGE, _smoke_ok())
+    assert result.status == rsg.STATUS_ERROR
+    assert "install smoke setup failed" in result.detail
+    assert "/tmp/x/" not in result.detail
 
 
 # ── Additional: CLI --help exits cleanly ──────────────────────────────────────

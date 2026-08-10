@@ -29,6 +29,7 @@ from mempalace_code.miner import (
     resolve_wing_for_project,
     scan_project,
 )
+from mempalace_code.mining.projects import InvalidProjectConfigError, load_config
 from mempalace_code.storage import open_store
 
 
@@ -233,6 +234,242 @@ def test_scan_project_can_include_exact_file_without_known_extension():
         write_file(project_root / "README", "hello\n" * 20)
 
         assert scanned_files(project_root, include_ignored=["README"]) == ["README"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_guard_skips_dangling_source_symlink():
+    """Opt-in guard drops a symlink whose target does not exist and records the reason."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        link = project_root / "broken.py"
+        link.symlink_to(project_root / "does_not_exist.py")
+
+        diagnostics = []
+        files = scan_project(
+            str(project_root),
+            skip_invalid_source_symlinks=True,
+            symlink_diagnostics=diagnostics,
+        )
+
+        assert files == []
+        assert diagnostics == [{"path": str(link), "reason": "dangling"}]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_guard_skips_unreadable_source_symlink():
+    """Opt-in guard drops a symlink whose target exists but cannot be read."""
+    tmpdir = tempfile.mkdtemp()
+    outside_dir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        # The unreadable target lives outside the scanned tree so it can't also be
+        # picked up as its own (unrelated) regular-file scan result.
+        target = Path(outside_dir).resolve() / "secret.py"
+        write_file(target, "print('secret')\n" * 20)
+        target.chmod(0o000)
+        link = project_root / "link.py"
+        link.symlink_to(target)
+
+        try:
+            # Some environments (e.g. tests run as root) ignore permission bits and can
+            # still read the target — skip rather than assert a platform-dependent result.
+            with open(link, "rb") as f:
+                f.read(1)
+            pytest.skip("current user can read despite chmod 0o000 (e.g. running as root)")
+        except OSError:
+            pass
+
+        diagnostics = []
+        files = scan_project(
+            str(project_root),
+            skip_invalid_source_symlinks=True,
+            symlink_diagnostics=diagnostics,
+        )
+
+        assert files == []
+        assert diagnostics == [{"path": str(link), "reason": "unreadable"}]
+    finally:
+        target.chmod(0o644)
+        shutil.rmtree(tmpdir)
+        shutil.rmtree(outside_dir)
+
+
+def test_scan_project_guard_keeps_valid_source_symlink():
+    """Opt-in guard keeps a symlink to a readable file, unresolved to its target path."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        target = project_root / "real.py"
+        write_file(target, "print('real')\n" * 20)
+        link = project_root / "link.py"
+        link.symlink_to(target)
+
+        diagnostics = []
+        files = scan_project(
+            str(project_root),
+            skip_invalid_source_symlinks=True,
+            symlink_diagnostics=diagnostics,
+        )
+
+        assert diagnostics == []
+        assert sorted(p.name for p in files) == ["link.py", "real.py"]
+        link_entry = next(p for p in files if p.name == "link.py")
+        assert link_entry == link, "valid symlinks must keep the symlink path, not the target"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_guard_skips_symlink_to_non_regular_file():
+    """Opt-in guard drops a symlink whose target exists but is not a regular file.
+
+    ``os.walk`` classifies a symlink-to-directory as a directory, so the only way a
+    symlink reaches the file loop with an existing-but-non-file target is a symlink to
+    a non-regular file such as a FIFO — this exercises the "not-a-file" reason directly.
+    """
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("os.mkfifo is not available on this platform")
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        fifo_path = project_root / "pipe"
+        os.mkfifo(fifo_path)
+        link = project_root / "link.py"
+        link.symlink_to(fifo_path)
+
+        diagnostics = []
+        files = scan_project(
+            str(project_root),
+            skip_invalid_source_symlinks=True,
+            symlink_diagnostics=diagnostics,
+        )
+
+        assert files == []
+        assert diagnostics == [{"path": str(link), "reason": "not-a-file"}]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_project_guard_keeps_regular_source_file():
+    """Opt-in guard never rejects a regular (non-symlink) source file."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+
+        write_file(project_root / "plain.py", "print('plain')\n" * 20)
+
+        diagnostics = []
+        files = scan_project(
+            str(project_root),
+            skip_invalid_source_symlinks=True,
+            symlink_diagnostics=diagnostics,
+        )
+
+        assert diagnostics == []
+        assert [p.name for p in files] == ["plain.py"]
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+# =============================================================================
+# Typed boundary coverage — GitignoreRule / ScanFilterRules / SymlinkDiagnostic (AC-2, AC-3)
+# =============================================================================
+
+
+def test_gitignore_matcher_rules_have_typed_gitignore_rule_shape():
+    """GitignoreMatcher.from_dir() parses each line into the GitignoreRule field set."""
+    from mempalace_code.mining.scanner import GitignoreMatcher
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        write_file(
+            project_root / ".gitignore",
+            "*.log\n/anchored.py\ngenerated/\n!keep.log\n",
+        )
+
+        matcher = GitignoreMatcher.from_dir(project_root)
+        assert matcher is not None
+        assert len(matcher.rules) == 4
+        for rule in matcher.rules:
+            assert set(rule.keys()) == {"pattern", "anchored", "dir_only", "negated"}
+            assert isinstance(rule["pattern"], str)
+            assert isinstance(rule["anchored"], bool)
+            assert isinstance(rule["dir_only"], bool)
+            assert isinstance(rule["negated"], bool)
+
+        by_pattern = {r["pattern"]: r for r in matcher.rules}
+        assert by_pattern["*.log"] == {
+            "pattern": "*.log",
+            "anchored": False,
+            "dir_only": False,
+            "negated": False,
+        }
+        assert by_pattern["anchored.py"] == {
+            "pattern": "anchored.py",
+            "anchored": True,
+            "dir_only": False,
+            "negated": False,
+        }
+        assert by_pattern["generated"] == {
+            "pattern": "generated",
+            "anchored": False,
+            "dir_only": True,
+            "negated": False,
+        }
+        assert by_pattern["keep.log"] == {
+            "pattern": "keep.log",
+            "anchored": False,
+            "dir_only": False,
+            "negated": True,
+        }
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_gitignore_matcher_from_dir_none_without_gitignore_file():
+    """GitignoreMatcher.from_dir() returns None when no .gitignore is present."""
+    from mempalace_code.mining.scanner import GitignoreMatcher
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        assert GitignoreMatcher.from_dir(Path(tmpdir)) is None
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_scan_filter_rules_accepts_frozenset_and_list_fields():
+    """ScanFilterRules keeps its NamedTuple-like runtime contract for typed field access."""
+    rules = ScanFilterRules(
+        skip_dirs=frozenset({"a", "b"}),
+        skip_files=frozenset({"c"}),
+        skip_globs=["x/**", "y/*.js"],
+    )
+    assert rules.skip_dirs == frozenset({"a", "b"})
+    assert rules.skip_files == frozenset({"c"})
+    assert rules.skip_globs == ["x/**", "y/*.js"]
+    assert rules._fields == ("skip_dirs", "skip_files", "skip_globs")
+
+
+def test_invalid_source_symlink_reason_valid_symlink_returns_none():
+    """invalid_source_symlink_reason returns None for a symlink resolving to a readable file."""
+    from mempalace_code.mining.scanner import invalid_source_symlink_reason
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        target = project_root / "real.py"
+        write_file(target, "print('real')\n")
+        link = project_root / "link.py"
+        link.symlink_to(target)
+
+        assert invalid_source_symlink_reason(link) is None
+        assert invalid_source_symlink_reason(target) is None
     finally:
         shutil.rmtree(tmpdir)
 
@@ -1246,6 +1483,118 @@ def test_status_shows_storage_metrics(capsys):
         shutil.rmtree(tmpdir)
 
 
+def test_status_summary_orchestrator_prints_counts_storage_and_versions(capsys):
+    """status(summary=True) prints only drawer/wing/room-pair counts plus storage/version metrics (AC-1)."""
+    from mempalace_code.miner import status
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        palace_path = os.path.join(tmpdir, "palace")
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["su1", "su2", "su3"],
+            documents=["summary drawer one", "summary drawer two", "summary drawer three"],
+            metadatas=[
+                {"wing": "alpha_wing", "room": "general"},
+                {"wing": "alpha_wing", "room": "notes"},
+                {"wing": "beta_wing", "room": "general"},
+            ],
+        )
+
+        status(palace_path, summary=True)
+        captured = capsys.readouterr().out
+
+        assert "Drawers: 3" in captured, f"Expected 'Drawers: 3' in output:\n{captured}"
+        assert "Wings: 2" in captured, f"Expected 'Wings: 2' in output:\n{captured}"
+        assert "Room pairs: 3" in captured, f"Expected 'Room pairs: 3' in output:\n{captured}"
+        assert "Storage:" in captured
+        assert "Versions:" in captured
+        assert "WING:" not in captured
+        assert "ROOM:" not in captured
+        assert "alpha_wing" not in captured
+        assert "beta_wing" not in captured
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_status_summary_high_cardinality_fixture_has_bounded_output(capsys):
+    """status(summary=True) output stays bounded regardless of taxonomy cardinality (AC-2)."""
+    from mempalace_code.miner import status
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        palace_path = os.path.join(tmpdir, "palace")
+        store = open_store(palace_path, create=True)
+        n_pairs = 250
+        ids = [f"hc{i}" for i in range(n_pairs)]
+        documents = [f"high cardinality summary drawer {i}" for i in range(n_pairs)]
+        metadatas = [
+            {"wing": f"sentinel_wing_{i:04d}", "room": f"sentinel_room_{i:04d}"}
+            for i in range(n_pairs)
+        ]
+        store.add(ids=ids, documents=documents, metadatas=metadatas)
+
+        status(palace_path, summary=True)
+        captured = capsys.readouterr().out
+
+        assert "sentinel_wing_0000" not in captured
+        assert "sentinel_room_0000" not in captured
+        assert "WING:" not in captured
+        assert "ROOM:" not in captured
+        assert f"Wings: {n_pairs}" in captured
+        assert f"Room pairs: {n_pairs}" in captured
+
+        n_lines = len(captured.splitlines())
+        n_bytes = len(captured.encode("utf-8"))
+        assert n_lines < 20, f"summary output grew with taxonomy cardinality: {n_lines} lines"
+        assert n_bytes < 2000, f"summary output grew with taxonomy cardinality: {n_bytes} bytes"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_status_summary_empty_palace_no_embedder(capsys, monkeypatch):
+    """status(summary=True) on an empty initialized palace shows zero counts without the
+    embedder (AC-1, AC-4) — the empty-but-initialized boundary is distinct from the
+    missing-palace path and must not be mistaken for it."""
+    from mempalace_code.miner import status
+    from mempalace_code.storage import LanceStore
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        palace_path = os.path.join(tmpdir, "palace")
+        # Initialize palace with no drawers BEFORE patching the embedder.
+        open_store(palace_path, create=True)
+
+        def _embedder_raises(self):
+            raise RuntimeError("embedder must not be called for empty-palace status --summary")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_raises)
+
+        status(palace_path, summary=True)
+        captured = capsys.readouterr()
+        out = captured.out + captured.err
+
+        assert "No palace found" not in captured.out, (
+            f"empty initialized palace must not be reported as missing:\n{captured.out}"
+        )
+        assert "Drawers: 0" in captured.out, f"Expected 'Drawers: 0' in output:\n{captured.out}"
+        assert "Wings: 0" in captured.out, f"Expected 'Wings: 0' in output:\n{captured.out}"
+        assert "Room pairs: 0" in captured.out, (
+            f"Expected 'Room pairs: 0' in output:\n{captured.out}"
+        )
+        assert "WING:" not in captured.out
+        assert "ROOM:" not in captured.out
+        for marker in (
+            "Loading embedding model",
+            "Loading weights",
+            "huggingface",
+            "sentence-transformers",
+        ):
+            assert marker not in out, f"Model-loading marker {marker!r} leaked:\n{out}"
+    finally:
+        shutil.rmtree(tmpdir)
+
+
 def test_status_no_embedder(capsys, monkeypatch):
     """AC-1: populated status reads inventory and metrics without initializing the embedder."""
     from mempalace_code.miner import status
@@ -1450,6 +1799,31 @@ def test_mine_calls_warmup_once():
             mine(str(project_root), palace_path)
 
         mock_store.warmup.assert_called_once()
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_mine_noop_with_injected_collection_does_not_warm_embedder():
+    """A no-op incremental mine reads metadata without warming the injected store."""
+    from mempalace_code.mining.orchestrator import _file_hash
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        source = project_root / "code.py"
+        write_file(source, MULTI_FUNC_PY)
+        _make_palace_config(project_root)
+        palace_path = str(project_root / "palace")
+        mock_store = _make_mock_store()
+        mock_store.get_source_file_hashes.return_value = {str(source): _file_hash(source)}
+
+        with patch("mempalace_code.mining.orchestrator.get_collection") as get_collection:
+            stats = mine(str(project_root), palace_path, collection=mock_store)
+
+        assert stats["drawers_filed"] == 0
+        assert not stats["embedder_warmed"]
+        mock_store.warmup.assert_not_called()
+        get_collection.assert_not_called()
     finally:
         shutil.rmtree(tmpdir)
 
@@ -3104,6 +3478,70 @@ class TestMultiProjectWingResolution:
         (proj / "mempalace.yaml").write_text("{invalid: yaml: :\n")
         with pytest.raises(ValueError, match="cannot parse"):
             resolve_wing_for_project(str(proj))
+
+    def test_security_boundary_yaml_config_malformed_syntax_has_stable_code(self, tmp_path):
+        """Malformed YAML syntax raises InvalidProjectConfigError with a stable code
+        and config_path attribute (AC-1, AC-3)."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        config_path = proj / "mempalace.yaml"
+        config_path.write_text("{invalid: yaml: :\n")
+
+        with pytest.raises(InvalidProjectConfigError) as exc_info:
+            resolve_wing_for_project(str(proj))
+
+        assert exc_info.value.code == "invalid_project_config"
+        assert str(exc_info.value.config_path).endswith("mempalace.yaml")
+
+    def test_security_boundary_yaml_config_non_mapping_list_rejected(self, tmp_path):
+        """A top-level YAML list is not a valid project config and must be rejected,
+        not silently treated as 'no usable wing' (AC-1, AC-3)."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("- room_a\n- room_b\n")
+
+        with pytest.raises(InvalidProjectConfigError) as exc_info:
+            resolve_wing_for_project(str(proj))
+
+        assert exc_info.value.code == "invalid_project_config"
+
+    def test_security_boundary_yaml_config_non_mapping_scalar_rejected(self, tmp_path):
+        """A top-level YAML scalar string is not a valid project config and must be
+        rejected with the same stable error code (AC-1, AC-3)."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("just_a_bare_string\n")
+
+        with pytest.raises(InvalidProjectConfigError) as exc_info:
+            resolve_wing_for_project(str(proj))
+
+        assert exc_info.value.code == "invalid_project_config"
+
+    def test_security_boundary_yaml_config_load_config_rejects_non_mapping(self, tmp_path):
+        """load_config() (used by the mining orchestrator) rejects non-mapping
+        top-level YAML the same way resolve_wing_for_project does."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("- not\n- a\n- mapping\n")
+
+        with pytest.raises(InvalidProjectConfigError) as exc_info:
+            load_config(str(proj))
+
+        assert exc_info.value.code == "invalid_project_config"
+
+    def test_security_boundary_yaml_config_valid_mapping_without_wing_still_falls_back(
+        self, tmp_path
+    ):
+        """INV-4 regression: a syntactically valid mapping with no usable wing key
+        still falls back to git/folder wing derivation instead of raising."""
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("rooms:\n  - name: general\n")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 1
+            mock_run.return_value.stdout = ""
+            result = resolve_wing_for_project(str(proj))
+        assert result == "proj"
 
     def test_resolution_no_config_no_git_uses_folder(self, tmp_path):
         """With no config and no git remote, folder name is the final fallback."""

@@ -18,12 +18,14 @@ git status --porcelain | grep -v "^??" || echo "clean"
 
 ```bash
 # Check Python venv is active and has mempalace installed
-python -c "import mempalace; print(f'mempalace: {mempalace.__file__}')" 2>/dev/null || echo "mempalace: NOT installed in active Python"
+python -c "import mempalace_code; print(f'mempalace-code: {mempalace_code.__file__}')" 2>/dev/null || echo "mempalace-code: NOT installed in active Python"
 ```
 
 ```bash
 # Check palace health
-python -c "from mempalace.storage import LanceStore; s=LanceStore(); print(f'palace: {s.count()} drawers')" 2>/dev/null || echo "palace: unreachable"
+mempalace-code health --json 2>/dev/null \
+  | python -c 'import json,sys; d=json.load(sys.stdin); print("palace: {} drawers ({})".format(d.get("total_rows", 0), "healthy" if d.get("ok") else "unhealthy"))' \
+  || echo "palace: unreachable"
 ```
 
 ```bash
@@ -40,7 +42,7 @@ fi
 **Check:**
 - Branch SHOULD be `main`. If on a feature branch, note it.
 - If mempalace is not installed, warn: `pip install -e ".[dev]"`
-- If palace is unreachable, warn: `mempalace health`
+- If palace is unreachable, warn: `mempalace-code health`
 - If unverified commits >= 30, escalate: "run `/verify` before any new work."
 
 ### Step 2: Load Active Backlog
@@ -57,7 +59,7 @@ Output 4-5 lines max:
 
 ```
 On `main` branch. [clean | tracked: <files>]. Python [mempalace installed | warn: not installed].
-Palace: [N drawers | unreachable — run mempalace health]
+Palace: [N drawers | unhealthy | unreachable — run mempalace-code health]
 [verify: current | UNVERIFIED: N commits — run /verify | no baseline]
 [Active blockers: <count> item(s) in IMMEDIATE (from BACKLOG.yaml) | IMMEDIATE clear]
 ```

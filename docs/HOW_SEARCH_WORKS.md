@@ -110,9 +110,24 @@ Previously indexed files that now fall under an exclusion rule are **not automat
 removed** from the palace. Run `mempalace-code mine <dir> --full` to force a clean rebuild
 that sweeps stale drawers for files no longer discovered by the scanner.
 
+## Taxonomy Filter Validation
+
+Every explicit `wing` and/or `room` filter — CLI `search`/`read`, the Python `search_memories()`/`code_search()`/`read_slice()` APIs, and the MCP `mempalace_search`/`mempalace_code_search`/`mempalace_file_context`/`mempalace_read`/`mempalace_explain_subsystem` tools — is validated against the palace taxonomy *before* any embedding or row retrieval happens. Validation is metadata-only (`count_by_pair("wing", "room")` on a read-only store) and never initializes the embedding model.
+
+- **A valid empty result is still success.** If the requested wing/room scope exists in the taxonomy but the query has no matches, the response is a normal successful empty result (`results: []`, CLI exit status 0) — not an error.
+- **An unknown taxonomy filter is different from a valid empty result.** If the supplied wing, room, or wing/room pair does not exist in the taxonomy, retrieval returns a structured validation error instead of running the query:
+  - `unknown_wing` — the wing does not exist.
+  - `unknown_room` — the room does not exist anywhere in the palace (rooms are validated globally when no wing is supplied).
+  - `unknown_wing_room` — the wing and the room both exist individually, but not as that exact pair.
+
+  Every error payload has the shape `{"error": <code>, "filter": <"wing"|"room"|"wing_room">, "value": <supplied value(s)>, "suggestions": [...]}`. The CLI prints the same information to stderr and exits with status 2.
+- **Suggestions are bounded and advisory only.** Up to 3 close taxonomy identifiers are ranked by casefolded, punctuation-stripped similarity (so `migrate_openclaw` ranks `migrate-openclaw` highly), but a suggestion is never auto-selected or used to rewrite the request — the `value` in the error payload always matches exactly what was supplied.
+- **Validation only runs against a readable, non-empty taxonomy.** A missing palace (nothing on disk yet), a palace whose taxonomy read fails, and a palace that has been initialized but has no wings or rooms mined yet all skip taxonomy validation rather than reporting every supplied filter as unknown — those cases fall through to each surface's existing no-palace/degraded-palace handling, and retrieval proceeds normally (a `--wing` typo against a freshly initialized, never-mined palace returns a valid empty result rather than a validation error).
+
 ## Where the Code Lives
 
 - `mempalace_code/searcher.py` — high-level `search()` and `search_memories()` functions.
+- `mempalace_code/taxonomy_filters.py` — shared explicit wing/room validation contract used by every retrieval surface.
 - `mempalace_code/storage.py` — `LanceStore.query()`, which owns the embedding model, the LanceDB handle, the actual vector search call, and the deterministic project-file/symbol rerank.
 - `mempalace_code/retrieval_rerank.py` — deterministic overfetch/rerank for project-file and CamelCase symbol-intent queries.
 - `mempalace_code/search_reranker.py` — optional hybrid token-overlap reranker used by `code_search(rerank="hybrid")` and the .NET benchmark comparison.

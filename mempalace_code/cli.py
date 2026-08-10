@@ -20,6 +20,7 @@ Commands:
     mempalace-code wake-up                     Show L0 + L1 wake-up context
     mempalace-code wake-up --wing my_app       Wake-up for a specific project
     mempalace-code status                      Show what's been filed
+    mempalace-code status --summary            Bounded agent-facing status (drawer/wing/room-pair counts + storage)
     mempalace-code health [--json]             Probe palace for fragment corruption
     mempalace-code cleanup [--older-than-days N] [--unsafe-now] [--json]  Reclaim stale Lance versions
     mempalace-code repair [--rollback] [--dry-run]  Repair palace (rollback or full rebuild)
@@ -237,8 +238,22 @@ def main():
         description="Semantic search; returns verbatim stored text.",
     )
     p_search.add_argument("query", help="What to search for")
-    p_search.add_argument("--wing", default=None, help="Limit to one project")
-    p_search.add_argument("--room", default=None, help="Limit to one room")
+    p_search.add_argument(
+        "--wing",
+        default=None,
+        help=(
+            "Limit to one project (wing) — validated against the palace taxonomy; "
+            "an unknown wing exits with status 2 and advisory suggestions"
+        ),
+    )
+    p_search.add_argument(
+        "--room",
+        default=None,
+        help=(
+            "Limit to one room — validated against the palace taxonomy; "
+            "an unknown room exits with status 2 and advisory suggestions"
+        ),
+    )
     p_search.add_argument("--results", type=int, default=5, help="Number of results")
 
     # read
@@ -258,11 +273,18 @@ def main():
         "--start", type=int, required=True, help="First line to include (1-indexed)"
     )
     p_read.add_argument("--end", type=int, required=True, help="Last line to include (1-indexed)")
-    p_read.add_argument("--wing", default=None, help="Filter to a specific wing (optional)")
+    p_read.add_argument(
+        "--wing",
+        default=None,
+        help=(
+            "Filter to a specific wing (optional) — validated against the palace taxonomy; "
+            "an unknown wing exits with status 2 and advisory suggestions"
+        ),
+    )
 
     # compress
     p_compress = sub.add_parser(
-        "compress", help="Compress drawers using AAAK Dialect (~30x reduction)"
+        "compress", help="Lossy structured summarization/abbreviation of drawers via AAAK Dialect"
     )
     p_compress.add_argument("--wing", default=None, help="Wing to compress (default: all wings)")
     p_compress.add_argument(
@@ -398,7 +420,15 @@ def main():
     )
 
     # status
-    sub.add_parser("status", help="Show what's been filed")
+    p_status = sub.add_parser("status", help="Show what's been filed")
+    p_status.add_argument(
+        "--summary",
+        action="store_true",
+        help=(
+            "Print only bounded metrics (drawer/wing/room-pair counts plus storage/version "
+            "metrics) instead of the full wing/room inventory — for agent-facing CLI discovery"
+        ),
+    )
 
     # install-alias
     p_alias = sub.add_parser(

@@ -1,14 +1,14 @@
 # mempalace-code vs Graphify — Honest Comparison
 
-**Date**: 2026-06-04
-**Graphify version surveyed**: v4 / 0.3.28 (21.7k stars, `safishamsi/graphify`)
-**mempalace-code version surveyed**: v1.10.2 release state
+**Date**: 2026-08-10
+**Graphify version surveyed**: v8 / 0.9.38, ~104.9k GitHub stars as of 2026-08-10 (approximate, date-bound — check [github.com/Graphify-Labs/graphify](https://github.com/Graphify-Labs/graphify) for current count). The repo previously lived at `safishamsi/graphify`; it now redirects to `Graphify-Labs/graphify` (YC S26). The OSS CLI declares Apache-2.0 and ships bundled MIT license notices; the org also runs an early-access hosted platform at graphify.com that is out of scope for this comparison.
+**mempalace-code version surveyed**: v1.13.0 release state
 
 This document is written for prospective users trying to decide which project fits their needs. It is deliberately honest about where each wins. There is no single "better" tool — the two projects solve adjacent problems using orthogonal techniques and their strengths do not overlap much.
 
 ## TL;DR
 
-- **Graphify** builds a **static structural knowledge graph** from your repo using tree-sitter ASTs and Leiden community detection. It has **no embeddings**. Queries are graph traversals that find "god nodes" (highly-connected hubs) and community clusters. Output is a Markdown report surfaced to the AI assistant before every search tool call via a PreToolUse hook.
+- **Graphify** builds a **static structural knowledge graph** from your repo using tree-sitter ASTs and (optionally) Leiden community detection. It has **no embeddings** — see [`README.md#what-it-does`](https://github.com/Graphify-Labs/graphify/blob/v0.9.38/README.md). Queries are graph traversals that find "god nodes" (highly-connected hubs) and community clusters. Output is a Markdown report and an interactive HTML graph, surfaced to the AI assistant before search tool calls via a per-platform hook or instruction file.
 - **mempalace-code** builds a **semantic vector index** over code, prose, and conversations using `sentence-transformers` and LanceDB. On top it tracks **temporal facts** via a separate SQLite knowledge graph with validity windows. Queries are cosine-distance retrieval filtered by wing/room.
 
 If you want to answer "what are the structural hubs of my codebase and which files are unexpectedly central?" → graphify.
@@ -18,34 +18,34 @@ If you want to answer "what did we decide about auth last quarter?" or "find the
 
 | Dimension | Graphify | mempalace-code |
 |-----------|----------|-----------|
-| Core data structure | NetworkX MultiDiGraph | LanceDB columnar vector store + SQLite KG |
-| Code understanding | tree-sitter AST, 20 languages | language-aware mining: optional tree-sitter chunks for Python/JS/TS/TSX/JSX/Go/Rust, regex/static structural chunks, YAML-aware Kubernetes/Helm/Ansible, adaptive config/prose chunks; 45 searchable language labels |
-| Semantic layer | Claude subagent extracts concepts into graph nodes | `all-MiniLM-L6-v2` embeddings (384d, local) |
-| Graph clustering | **Leiden community detection** (produces "god nodes" + clusters) | no clustering; architecture extraction emits pattern/layer/namespace/project KG facts for .NET and Python |
+| Core data structure | NetworkX MultiDiGraph (optional push to Neo4j / FalkorDB) | LanceDB columnar vector store + SQLite KG |
+| Code understanding | tree-sitter AST, ~40 languages, cross-file `calls`/`imports`/`inherits`/`mixes_in` resolution ([README §What it does](https://github.com/Graphify-Labs/graphify/blob/v0.9.38/README.md#what-it-does)) | language-aware mining: optional tree-sitter chunks for Python/JS/TS/TSX/JSX/Go/Rust, regex/static structural chunks, YAML-aware Kubernetes/Helm/Ansible, adaptive config/prose chunks; 45 searchable language labels |
+| Semantic layer | code parsing needs no LLM; the semantic pass over docs/PDFs/images uses whatever model the host IDE/assistant runs, or (headless `graphify extract`) an explicit backend: Gemini, Kimi, Claude, OpenAI, DeepSeek, Azure, Bedrock, or local Ollama | `all-MiniLM-L6-v2` embeddings (384d, local) |
+| Graph clustering | **Leiden community detection**, now an *optional* extra (`graphifyy[leiden]`) and only available on Python < 3.13 (`graspologic` dependency) | no clustering; architecture extraction emits pattern/layer/namespace/project KG facts for .NET and Python |
 | Search primitive | graph traversal, BFS with hop limits | cosine distance over vectors, filtered by wing/room |
 | Temporal facts | none | SQLite KG triples with `valid_from` / `valid_until` |
-| Cross-project memory | per-project `graphify-out/` directory | single palace spans all wings |
+| Cross-project memory | per-project `graphify-out/` directory (an optional shared HTTP MCP server can serve one project's graph to a team, but graphs are not merged across projects) | single palace spans all wings |
 | Conversation mining | none | `convo_miner.py` ingests Claude/ChatGPT/Slack exports |
-| Multimodal | **PDFs, images, videos, YouTube links** (via host LLM API) | text only |
-| Visualization | **interactive HTML graph** (pyvis) | none |
+| Multimodal | **PDFs, images, videos, YouTube links.** Video/audio is now transcribed **locally** with `faster-whisper`; PDFs/images/office docs still go through a host or API model | text only |
+| Visualization | **interactive HTML graph** (pyvis), plus optional SVG/Mermaid export | none |
 | Incremental rebuild | **SHA256 file-level cache** | content-hash incremental mining; only changed files are re-chunked |
-| Privacy on ingest | code stays local; **docs/PDFs/images sent to host LLM API** | no content leaves the host; one-time embedding model download during setup, then local-only model resolution |
-| Embedding dependency | none | 80 MB `all-MiniLM-L6-v2` model cached once |
-| MCP surface | `/graphify query`, `/graphify path`, `/graphify explain` | 29 MCP tools (search, traverse, diary, KG, arch-retrieval, stats, …) |
-| Always-on integration | **PreToolUse hook** fires before every Glob/Grep/Bash | none — agent calls tools explicitly |
-| Supported agents | Claude Code, Codex, OpenCode, Cursor, Gemini CLI, Aider, OpenClaw, Factory Droid, Trae | Claude Code, Codex, any MCP client; hooks not shipped |
-| Installation | `pip install graphifyy` + `graphify install --platform <x>` | `uv tool install mempalace-code` + MCP registration as `mempalace-code` |
-| Stars / visibility | 21.7k (launched ~Mar 2026) | newer fork of upstream, lower public visibility |
+| Privacy on ingest | code (and now audio/video) processed fully locally, no API key needed with `--code-only`; **docs/PDFs/images/office files** are sent to the host assistant's model or a configured API (or `--backend ollama` for a fully local semantic pass) | no content leaves the host; one-time embedding model download during setup, then local-only model resolution |
+| Embedding dependency | none (embeddings are not part of the architecture) | 80 MB `all-MiniLM-L6-v2` model cached once |
+| MCP surface | optional MCP server (`graphifyy[mcp]`, stdio or Streamable HTTP): `query_graph`, `get_node`, `get_neighbors`, `shortest_path`, `list_prs`, `get_pr_impact`, `triage_prs` — 7 tools | 29 MCP tools (search, traverse, diary, KG, arch-retrieval, stats, …) |
+| Always-on integration | hook or instruction-file fires before search-style tool calls (Claude Code/Gemini CLI use a real hook incl. Read/Glob; other platforms use `AGENTS.md`-style files); an opt-in **strict mode** on Claude Code blocks the first raw file read of a session and redirects to the graph | none — agent calls tools explicitly |
+| Supported agents | 20+ via `graphify <platform> install`: Claude Code, CodeBuddy, Codex, OpenCode, Kilo Code, GitHub Copilot CLI, VS Code Copilot Chat, Aider, OpenClaw, Factory Droid, Trae/Trae CN, Cursor, Gemini CLI, Hermes, Kimi Code, Amp, Kiro, Pi, Devin CLI, Google Antigravity, plus a generic Agent Skills installer | Claude Code, Codex, any MCP client; hooks not shipped |
+| Installation | `uv tool install graphifyy` (PyPI name unchanged) + `graphify install [--platform <x>]` | `uv tool install mempalace-code` + MCP registration as `mempalace-code` |
+| Stars / visibility | ~104.9k stars as of 2026-08-10 (grew from 21.7k in mid-2026; treat as a snapshot, not a stable figure) | newer fork of upstream, lower public visibility |
 
 ## Where mempalace-code Wins
 
-### 1. Full offline ingest — no files leave the host
+### 1. Full offline ingest — no files leave the host, with zero configuration
 
-Graphify's docs-and-multimodal layer sends PDFs, images, and video frames to the **host LLM API** (Claude, GPT, Gemini) during extraction to produce concept nodes. Code stays local, but the non-code layer does not.
+Graphify has narrowed this gap since v4: code parsing is tree-sitter only (always local), and video/audio is now transcribed locally with `faster-whisper`. A code-only corpus (`graphify extract --code-only`) is fully offline and needs no API key. But PDFs, images, and office docs still require a semantic pass through either the host IDE's assistant model or an explicit API backend (Gemini, Kimi, Claude, OpenAI, DeepSeek, Azure, Bedrock) — the one fully-local option for that layer is `--backend ollama`, which most users will not have running by default. See [Graphify README §Privacy](https://github.com/Graphify-Labs/graphify/blob/v0.9.38/README.md#privacy).
 
-mempalace-code has no content-ingest API dependency. The embedding model is downloaded once during setup (`init` or `fetch-model`); after that, model startup tries local-only resolution first, the chunker is pure Python, and the KG is SQLite. There is no network path from mine → store → query when the model cache is populated.
+mempalace-code has no content-ingest API dependency at all — for code, prose, or conversations. The embedding model is downloaded once during setup (`init` or `fetch-model`); after that, model startup tries local-only resolution first, the chunker is pure Python, and the KG is SQLite. There is no network path from mine → store → query when the model cache is populated, and no per-content-type decision about which layer is local.
 
-**Who this matters for**: consultants, regulated industries, researchers under NDA, anyone running on an air-gapped machine.
+**Who this matters for**: consultants, regulated industries, researchers under NDA, anyone running on an air-gapped machine, or anyone who wants offline-by-default without having to remember `--code-only` or stand up a local Ollama instance.
 
 ### 2. Temporal knowledge graph
 
@@ -87,7 +87,7 @@ mempalace-code has no visualization layer. Vector spaces do not visualize well; 
 
 ### 2. Full AST graph precision across more languages
 
-Graphify uses tree-sitter for parsing, covering 20 languages precisely. Function calls, imports, class references, and type usages are captured at AST fidelity.
+Graphify uses tree-sitter for parsing, now covering roughly 40 languages precisely (up from 20 at the v4 survey), with `calls`/`imports`/`inherits`/`mixes_in` edges resolved across files. Function calls, imports, class references, and type usages are captured at AST fidelity, and each edge is tagged `EXTRACTED` (read directly from source) or `INFERRED` (resolved by graphify), so provenance is explicit.
 
 mempalace-code uses tree-sitter for chunk boundaries when optional grammars are installed for Python, TypeScript/JavaScript/TSX/JSX, Go, and Rust. It also uses regex structural chunking for Java, Kotlin, .NET languages, XAML, Swift, PHP, Scala, Dart, Lua, Ruby, and Terraform/HCL, YAML-aware/static splitting for Kubernetes manifests, Helm charts/templates, and Ansible playbooks/roles/inventory, and adaptive chunking for configs/data/prose. That is still not a call graph: it cannot track `foo()` → function definition of `foo` across files. Symbol metadata is per-chunk only, not cross-referenced.
 
@@ -95,13 +95,13 @@ mempalace-code uses tree-sitter for chunk boundaries when optional grammars are 
 
 ### 3. Leiden community detection / god nodes
 
-The Leiden algorithm identifies tightly-coupled clusters and high-degree hub nodes. This is genuine structural insight — "this file is a god node, changes here ripple everywhere" — and it is surfaced at the top of graphify's `GRAPH_REPORT.md`.
+The Leiden algorithm identifies tightly-coupled clusters and high-degree hub nodes. This is genuine structural insight — "this file is a god node, changes here ripple everywhere" — and it is surfaced at the top of graphify's `GRAPH_REPORT.md`. **Caveat as of v8**: Leiden clustering moved to the optional `graphifyy[leiden]` extra and depends on `graspologic`, which is only installable on Python < 3.13. A default `pip install graphifyy` on Python 3.13+ will not get community detection. God nodes (degree-based) are unaffected by this.
 
 mempalace-code has partial architecture KG extraction now: it records pattern, layer, namespace, and project facts for .NET and Python. That is still not equivalent to Leiden clustering or a full structural graph. `palace_graph.py` handles cross-wing drawer connections, not source-code community detection.
 
-### 4. Multimodal ingest (PDFs, images, videos)
+### 4. Multimodal ingest (PDFs, images, videos, office docs, SQL schemas)
 
-For projects that include research papers, architecture diagrams as PNGs, or recorded walkthroughs, graphify ingests all of it into the same graph. The privacy trade-off is real (non-code content is sent to the host LLM API) but the capability is real too.
+For projects that include research papers, architecture diagrams as PNGs, spreadsheets, or recorded walkthroughs, graphify ingests all of it into the same graph. Video/audio transcription now runs locally (`faster-whisper`); PDFs, images, and office docs still need a host or API model. The privacy trade-off for that remaining layer is real, but the capability is real too, and it keeps growing (SQL schema extraction, live Postgres introspection, and MCP-config parsing were all added since v4).
 
 mempalace-code is text-only. No PDF parsing, no image captioning, no video transcription.
 
@@ -111,9 +111,9 @@ Graphify caches parsed AST by file SHA256. Re-running on an unchanged file is a 
 
 mempalace-code now also mines incrementally by content hash: unchanged drawers are skipped and only changed files are re-chunked unless `--full` is passed. Graphify still wins on full structural graph analysis, but the basic "do not rebuild every unchanged file" capability is now table stakes for both tools.
 
-### 6. 10-platform reach via installer
+### 6. 20+-platform reach via installer
 
-`graphify install --platform codex|cursor|gemini|aider|droid|...` ships per-platform adapters. Graphify runs on 10 AI coding assistants out of the box.
+`graphify <platform> install` (Claude Code, CodeBuddy, Codex, OpenCode, Kilo Code, GitHub Copilot CLI, VS Code Copilot Chat, Aider, OpenClaw, Factory Droid, Trae/Trae CN, Cursor, Gemini CLI, Hermes, Kimi Code, Amp, Kiro, Pi, Devin CLI, Google Antigravity, plus a generic Agent Skills installer) ships per-platform adapters. Graphify runs on 20+ AI coding assistants out of the box, up from 10 at the v4 survey.
 
 mempalace-code ships an MCP server that works in any MCP client. Codex now supports MCP natively (`codex mcp add`), so coverage includes the two dominant AI coding assistants. Other MCP clients (Cursor, Continue, etc.) are growing.
 
@@ -121,11 +121,11 @@ mempalace-code ships an MCP server that works in any MCP client. Codex now suppo
 
 This is graphify's flagship ergonomic feature and it deserves a separate section — see below.
 
-### 8. Concrete published benchmark number
+### 8. Judge-validated cross-system benchmark (superseding the old marketing number)
 
-Graphify's landing page claims **71.5× token reduction per query** on a 100-file Python repo. The methodology is not published but the number is out there and it is memorable.
+The v4-era "71.5× token reduction" headline is gone from graphify's docs as of v8. In its place, graphify now publishes a much more rigorous evaluation in [`BENCHMARKS.md`](https://github.com/Graphify-Labs/graphify/blob/v0.9.38/BENCHMARKS.md): on LOCOMO (n=300) it reports recall@10 of 0.497 and QA accuracy of 45.3%, and on LongMemEval-S (n=50) 76% QA accuracy, tied with dense RAG. Every system in the comparison (graphify, mem0, supermemory, dense RAG, BM25, hybrid RRF) ran on the same harness, same model, same budgets, with a second judge blind-validating agreement (90.6%, Cohen's κ 0.81). This is a genuinely stronger evidentiary bar than a single unmethodologized number, and it directly compares graphify's graph-expand retrieval against dense/vector RAG on QA accuracy — a claim mempalace has not made or measured for itself.
 
-mempalace-code publishes token-savings methodology in `docs/BENCH_TOKEN_DELTA.md`: on a 19k-chunk project, measured retrieval used 595x fewer tokens at peak and 80x fewer tokens at median than grep + read.
+mempalace-code publishes token-savings methodology in `docs/BENCH_TOKEN_DELTA.md`: on the canonical fixture, measured retrieval used 33.8x fewer tokens at peak and 14.5x fewer tokens at median than grep + read. That is a different axis (token cost vs. QA accuracy) and the two are not directly comparable.
 
 ## The Always-On Hook: Evidence Against Making It Default
 
@@ -150,7 +150,7 @@ The audit's primary recommendation was not "add more hooks" but the opposite:
 
 **The key insight**: passive context injection is a ritual by default. The bottleneck is not "did the tool fire" — it is "did the agent acknowledge the output and change behavior". An always-on hook that fires before every tool call maximizes the "did the tool fire" metric but **amplifies the noise ratio**, because the agent has no task-specific reason to look at the injected context in most cases.
 
-Graphify's hook does not gate by phase or task. It fires unconditionally. By autopilot's measurement, this is exactly the shape of intervention that produces 76% ceremonial usage. Graphify's own GitHub issue tracker shows the cost side: #182 (broken hook format on Codex upgrade), PR #54 (PreToolUse hook output fix), #178 (version drift warning breaks the hook). Every platform needs its own hook adapter and every one is a potential breakage surface.
+Graphify's default hook does not gate by phase or task — it fires unconditionally before search-style tool calls. By autopilot's measurement, this is exactly the shape of intervention that produces 76% ceremonial usage. As of v8, graphify has added an opt-in **strict mode** (`graphify install --project --strict`, or `GRAPHIFY_HOOK_STRICT=1`) that actually *blocks* the first raw file read of a session and redirects it to the graph, rather than just nudging — a direct, if partial, answer to the "agent ignores the nudge" problem. But it has introduced its own friction: as of 2026-08-10 there is an open issue reporting that the strict-mode hook reminder reads as a prompt injection to a spawned subagent ([#2202](https://github.com/Graphify-Labs/graphify/issues/2202)), and another noting the hook does not cover subagent-spawned tool calls at all ([#2145](https://github.com/Graphify-Labs/graphify/issues/2145)) — i.e. the exact surface where most exploration happens in multi-agent workflows. Every platform still needs its own hook/instruction-file adapter, and the tracker shows a steady stream of platform-specific breakage (e.g. Windows interpreter path resolution, [#2581](https://github.com/Graphify-Labs/graphify/issues/2581)).
 
 ### When An Always-On Hook IS The Right Call
 
@@ -187,7 +187,7 @@ Note: the always-on PreToolUse hook is intentionally absent from this list. See 
 ## What To Position Against, What To Leave Alone
 
 **Attack**:
-- offline privacy (files never leave host)
+- offline privacy (files never leave host, for every content type — not just code)
 - temporal KG (versioned facts, as-of queries)
 - conversation mining (Claude / ChatGPT / Slack exports)
 - cross-project palace (single wing-scoped search)
@@ -201,6 +201,6 @@ Note: the always-on PreToolUse hook is intentionally absent from this list. See 
 - "beats graphify on code retrieval" — the two tools measure different things and a head-to-head benchmark would be misleading either way
 
 **Do not attempt to match**:
-- 10-platform installer reach (MCP now covers the top 2 — Claude Code + Codex — without per-platform adapters)
-- always-on hook default-on (see evidence section)
-- marketing hero number like "71.5× fewer tokens" (mempalace's honest number will be reported with methodology, as a footnote, not a headline)
+- 20+-platform installer reach (MCP now covers the top 2 — Claude Code + Codex — without per-platform adapters)
+- always-on hook default-on, including its opt-in strict-block mode (see evidence section)
+- a cross-system QA-accuracy benchmark against mem0/supermemory/dense RAG — mempalace has not run this evaluation and should not imply it has

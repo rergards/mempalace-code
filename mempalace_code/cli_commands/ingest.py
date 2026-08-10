@@ -133,9 +133,10 @@ def cmd_mine(args):
             print(f"  Error importing watcher: {exc}", file=sys.stderr)
             sys.exit(1)
 
-        from ..knowledge_graph import KnowledgeGraph
+        from ..knowledge_graph import LazyKnowledgeGraph, palace_kg_path
 
-        kg = KnowledgeGraph()
+        kg_db_path = palace_kg_path(palace_path) if args.palace else None
+        kg = LazyKnowledgeGraph(db_path=kg_db_path)
         watch_and_mine(
             project_dir=args.dir,
             palace_path=palace_path,
@@ -166,10 +167,11 @@ def cmd_mine(args):
             ),
         )
     else:
-        from ..knowledge_graph import KnowledgeGraph
+        from ..knowledge_graph import LazyKnowledgeGraph, palace_kg_path
         from ..mining.orchestrator import mine
 
-        kg = KnowledgeGraph()
+        kg_db_path = palace_kg_path(palace_path) if args.palace else None
+        kg = LazyKnowledgeGraph(db_path=kg_db_path)
         mine(
             project_dir=args.dir,
             palace_path=palace_path,
@@ -187,7 +189,7 @@ def cmd_mine(args):
 
 def cmd_mine_all(args):
     """Mine all detected projects in a parent directory."""
-    from ..knowledge_graph import KnowledgeGraph
+    from ..knowledge_graph import LazyKnowledgeGraph, palace_kg_path
     from ..mining.orchestrator import mine
     from ..mining.projects import detect_projects, resolve_wing_for_project
 
@@ -293,7 +295,7 @@ def cmd_mine_all(args):
 
         print(f"  MINE  {proj_name}  ->  wing: {wing_name}")
         try:
-            kg = KnowledgeGraph()
+            kg = LazyKnowledgeGraph(db_path=palace_kg_path(palace_path) if args.palace else None)
             mine(
                 project_dir=proj_path,
                 palace_path=palace_path,
@@ -356,4 +358,4 @@ def cmd_status(args):
     from ..mining.orchestrator import status
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
-    status(palace_path=palace_path)
+    status(palace_path=palace_path, summary=getattr(args, "summary", False))

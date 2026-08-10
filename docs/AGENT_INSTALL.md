@@ -155,7 +155,7 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 **Parse response:**
 - `user` → Set `INSTALL_METHOD=user`. Prefer `uv tool install` if `HAS_UV=true`, else fall back to `pipx`.
 - `project` → Set `INSTALL_METHOD=project`.
-- Anything else → Repeat the question once. If still unclear, default to `user` and inform the human.
+- Anything else → Repeat the question once. If still unclear, stop and ask the human to choose `user` or `project`; do not choose an install boundary.
 
 **Skip if:** `ALREADY_INSTALLED=true` — no install needed.
 
@@ -169,7 +169,7 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 - `default` → Set `PALACE_PATH=~/.mempalace/palace`.
 - An absolute path (starts with `/` or `~/`) → Set `PALACE_PATH=<that path>`.
 - A `MEMPALACE_PALACE_PATH=...` export → Record the env var; set `PALACE_PATH` from it.
-- Anything else → Repeat once; default to `~/.mempalace/palace` if still unclear.
+- Anything else → Repeat once. If still unclear, stop and ask the human for `default`, an absolute path, or an environment-variable export; do not choose a storage path.
 
 **Note:** `PALACE_PATH` is the vector DB storage location. It is separate from the project directory passed to `mempalace-code init`.
 
@@ -194,7 +194,7 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 **Parse response:**
 - `global` → Set `MCP_SCOPE=global`.
 - `project` → Set `MCP_SCOPE=project`.
-- Anything else → Repeat once; default to `global`.
+- Anything else → Repeat once. If still unclear, stop and ask the human to choose `global` or `project`; do not choose an MCP scope.
 
 ---
 
@@ -215,7 +215,7 @@ If unsure, reply `full` to start with everything and narrow later."
 - `kg` → Set `MCP_PROFILE=kg`.
 - `code` → Set `MCP_PROFILE=code`.
 - `notes` → Set `MCP_PROFILE=notes`.
-- Anything else → Repeat once; default to `full`.
+- Anything else → Repeat once. If still unclear, stop and ask the human to choose a profile; do not silently add tools to the agent context.
 
 ---
 
@@ -228,7 +228,7 @@ If unsure, reply `full` to start with everything and narrow later."
 - `convos:/abs/path` → Set `MINE_PATH=<path>` and `MINE_MODE=convos`.
 - A bare absolute path → Set `MINE_PATH=<that path>` and `MINE_MODE=projects`.
 - `skip` → Set `MINE_PATH=skip` and `MINE_MODE=projects`.
-- Anything else → Repeat once; default to `skip`.
+- Anything else → Repeat once. If still unclear, stop and ask the human for a path or `skip`; do not infer a corpus to mine.
 
 ---
 
@@ -485,6 +485,12 @@ when the checkout is on `PYTHONPATH`, so older repo-local Codex/Autopilot MCP
 configs keep working. New installs and docs should use
 `python -m mempalace_code.mcp_server`.
 
+**Protocol note:** both entrypoints negotiate the protocol per request — a
+modern client calling `server/discover` gets the stable **2026-07-28**
+revision, while a legacy client calling `initialize` gets the same handshake
+it always has. Existing operator registrations for either entrypoint do not
+need to change to pick this up.
+
 **Fail →** Find the pipx venv Python:
 ```bash
 MPALACE_PYTHON=$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace-code/bin/python
@@ -621,15 +627,17 @@ Run all checks. Each one is a pass/fail with an explicit failure action.
 
 ---
 
-### Step 6.1: Palace status
+### Step 6.1: Palace integrity
 
 ```bash
-mempalace-code status
+mempalace-code --palace "$PALACE_PATH" health --json
 ```
 
-**Pass →** Exit code 0. Output shows palace path, total drawers, and wing list. Confirm `palace_path` in the output matches `PALACE_PATH`.
+**Pass →** Exit code 0 and JSON contains `"ok": true`. The explicit `--palace` value verifies the target selected in Section 2.
 
-**Fail →** Exit code non-zero or output is empty/error. Likely causes: wrong `PALACE_PATH`, palace not initialized. **ASK HUMAN:** "Palace status check failed. Error: `<paste stderr>`. Common fix: check `MEMPALACE_PALACE_PATH` env var or run `mempalace-code init <project_dir>`. Reply `retry` after fixing, or `skip`."
+**Fail →** Exit code non-zero or JSON reports `"ok": false`. Likely causes: wrong `PALACE_PATH`, an uninitialized palace, or a storage read error. **ASK HUMAN:** "Palace integrity check failed. Error: `<paste stderr>`. Common fix: check `MEMPALACE_PALACE_PATH` or run `mempalace-code init <project_dir>`. Reply `retry` after fixing, or `skip`."
+
+`mempalace-code status` prints the full wing/room inventory and can grow with palace size. Do not use it as an automated verification step. When shell-based readiness metrics are needed, prefer `mempalace-code status --summary`, which prints only bounded drawer/wing/room-pair and storage metrics.
 
 ---
 
@@ -726,9 +734,11 @@ mempalace-code is a local semantic memory system exposed over MCP. Content is st
 | Save/update a temporal fact                         | `mempalace_kg_invalidate` + `mempalace_kg_add` |
 | End-of-session continuity note (self-scoped)        | `mempalace_diary_write`              |
 | Resume prior session continuity                     | `mempalace_diary_read`               |
-| Verify palace is alive before relying on it         | `mempalace_status`                   |
+| Inspect palace inventory when explicitly requested  | `mempalace_status`                   |
 
 Default to `mempalace_search` only when no more specific tool applies.
+
+Use `mempalace_status` only for an explicit inventory or diagnostic request. It is not a mandatory bootstrap call, because its wing and room maps grow with the palace. Start a task with the specific search or KG query that answers the task instead.
 
 ## Search rules
 
@@ -828,7 +838,7 @@ A successful install produces:
 |------|---------------|
 | `python3 -c "import mempalace_code; print(mempalace_code.__version__)"` | Prints version string |
 | `command -v mempalace-code` | Returns path to binary |
-| `mempalace-code status` | Exit 0, shows palace path |
+| `mempalace-code --palace "$PALACE_PATH" health --json` | Exit 0, JSON contains `"ok": true` |
 | `mempalace-code search "test" --results 1` | Exit 0, formatted output |
 | `claude mcp list \| grep mempalace-code` | Shows entry (if Claude Code target) |
 | `~/.codex/config.toml` contains `mcp_servers.mempalace-code` | Present (if Codex target) |
@@ -939,11 +949,59 @@ mempalace-code backup list
 mempalace-code restore <backup.tar.gz>
 ```
 
+### Stale installed metadata vs. imported module
+
+Symptom: `python3 -c "import mempalace_code; print(mempalace_code.__version__)"`
+and `mempalace-code version-check --status` print different versions, or one
+of them lags behind the version you expect. This means the installed tool
+environment (pipx, `uv tool`, or a venv) is stale — a partial or interrupted
+install left package metadata, the imported module, and the console script
+out of sync.
+
+`scripts/release_install_metadata_smoke.py` in this repo checks exactly this:
+it proves `importlib.metadata.version("mempalace-code")`,
+`mempalace_code.__version__`, and `mempalace-code version-check --status` all
+agree before a release ships. The same three surfaces are what to check
+locally when troubleshooting an operator install.
+
+Reinstall with the tool that manages the install, using the exact pinned
+version if known:
+
+```bash
+# pip / venv install
+python -m pip install --upgrade --force-reinstall mempalace-code
+
+# pipx install
+pipx reinstall mempalace-code
+
+# uv tool install
+uv tool install --force mempalace-code
+```
+
+After reinstalling, re-run Step 3.4's post-install verification and
+`mempalace-code version-check --status` and confirm both report the same
+version.
+
 ---
 
 ## Validation Log
 
-*End-to-end validation status: pending — to be recorded after first clean-machine agent run.*
+Latest local release-candidate validation: **passed on 2026-08-10**. The run built
+wheel and sdist artifacts, installed the wheel in a neutral disposable venv, ran a
+separate pipx metadata smoke, and exercised init, mine, no-op mine, backup, restore,
+search, read, and a real watch cycle with the cached embedding model forced offline.
+Package metadata and import provenance resolved to the installed artifact. The separate
+clean-machine/hosted-runner contour remains pending and must be recorded before claiming
+that boundary.
+
+```text
+Agent:      Codex CLI
+Date:       2026-08-10
+Machine:    local macOS; disposable neutral-directory venv and pipx contours
+Deviations: cached embedding model used in forced-offline mode; not a clean VM
+Questions outside script: none
+Result:     pass for local build, install, metadata, CLI workflow, and watcher resource bounds
+```
 
 Record format (fill in after validation):
 ```

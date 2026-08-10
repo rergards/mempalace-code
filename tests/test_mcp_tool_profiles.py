@@ -26,6 +26,15 @@ from mempalace_code.mcp_tool_profiles import (
 
 _ALL = frozenset(TOOLS)
 
+
+@pytest.fixture(scope="module")
+def rules_path() -> Path:
+    repo_root = Path(__file__).parent.parent
+    path = repo_root / "docs" / "LLM_USAGE_RULES.md"
+    assert path.exists(), f"LLM_USAGE_RULES.md not found at {path}"
+    return path
+
+
 # ── Profile Contents ──────────────────────────────────────────────────────────
 
 
@@ -300,13 +309,6 @@ class TestUsageRulesConsistency:
       ...
       <!-- mcp-profile:<name> end -->
     """
-
-    @pytest.fixture(scope="class")
-    def rules_path(self):
-        repo_root = Path(__file__).parent.parent
-        p = repo_root / "docs" / "LLM_USAGE_RULES.md"
-        assert p.exists(), f"LLM_USAGE_RULES.md not found at {p}"
-        return p
 
     def _extract_blocks(self, text: str) -> dict[str, str]:
         """Return {profile_name: block_content} for each marked block."""

@@ -1,8 +1,8 @@
 # mempalace-code — LLM Usage Rules
 
-Usage rules for any MCP-capable LLM agent (Claude Code, Codex, Cursor, Windsurf, Continue.dev, Zed, Aider, …) using mempalace-code. **Installing the MCP server makes the tools available, but the assistant needs these rules to know *when* and *how* to use them.** Without them, mempalace sits idle.
+Usage rules for any MCP-capable LLM agent (Claude Code, Codex, Cursor, Gemini CLI, Windsurf, Continue.dev, Zed, Aider, …) using mempalace-code. **Installing the MCP server makes the tools available, but the assistant needs these rules to know *when* and *how* to use them.** Without them, proactive retrieval and filing may not happen.
 
-> The README states an assistant can "learn the memory protocol automatically from `mempalace_status`." That claim is aspirational — `mempalace_status` returns stats, not protocol. Explicit rules are still required until MCP tool descriptions carry the full protocol.
+> `mempalace_status` is an inventory response, not an operating protocol. Its current response includes one entry per wing and room, so do not invoke it automatically at session start. These rules define the protocol.
 
 ## How to use this file
 
@@ -18,6 +18,8 @@ Pick the path that matches your agent (alphabetical — no preference):
 | Codex CLI (per-project) | Append to `<project>/AGENTS.md` |
 | Continue.dev | `.continuerules` or `~/.continue/config.json` system message |
 | Cursor | Settings → Rules for AI → paste below |
+| Gemini CLI (global) | Append to `~/.gemini/GEMINI.md` |
+| Gemini CLI (per-project) | Append to `<project>/GEMINI.md` |
 | Windsurf | `.windsurfrules` in project root |
 | Zed | `assistant.system_prompt` in settings |
 | Other MCP clients | Wherever that client stores system-prompt / agent instructions |
@@ -30,6 +32,9 @@ cat docs/LLM_USAGE_RULES.md >> ~/.claude/CLAUDE.md
 
 # Codex CLI (global)
 cat docs/LLM_USAGE_RULES.md >> ~/.codex/AGENTS.md
+
+# Gemini CLI (global)
+cat docs/LLM_USAGE_RULES.md >> ~/.gemini/GEMINI.md
 ```
 
 For per-project installs, append to whichever rules file the agent reads (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.windsurfrules`, `.continuerules`, etc.) using the same `cat … >> <target>` pattern.
@@ -72,9 +77,11 @@ mempalace-code is a local semantic memory system exposed over MCP. Content is st
 | Save/update a temporal fact                         | `mempalace_kg_invalidate` + `mempalace_kg_add` |
 | End-of-session continuity note (self-scoped)        | `mempalace_diary_write`              |
 | Resume prior session continuity                     | `mempalace_diary_read`               |
-| Verify palace is alive before relying on it         | `mempalace_status`                   |
+| Inspect palace inventory when explicitly requested  | `mempalace_status`                   |
 
 Default to `mempalace_search` only when no more specific tool applies.
+
+Use `mempalace_status` only for an explicit inventory or diagnostic request. It is not a mandatory bootstrap call, because its wing and room maps grow with the palace. Start a task with the specific search or KG query that answers the task instead.
 
 ## Search rules
 
@@ -84,6 +91,10 @@ Call `mempalace_search` **before substantial repo exploration** (reading many fi
 - Scope with `wing=<project_slug>` for project-local topics; omit for cross-cutting ones.
 - On persistent miss, proceed with host tools and consider writing a drawer after the task so the next agent finds it.
 - For entity-specific facts, also call `mempalace_kg_query`.
+- Treat `unknown_wing`, `unknown_room`, and `unknown_wing_room_pair` as filter
+  errors. Query the taxonomy, select the exact intended identifier, and retry.
+  Suggestions are advisory only; never silently drop the filter and broaden the
+  search without user intent.
 
 Skip search for pure mechanical operations (run tests, format files, rename within one file).
 
@@ -171,7 +182,7 @@ Active tools: `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate
 
 | Task | Tool |
 |------|------|
-| Palace health check | `mempalace_status` |
+| Palace overview when explicitly requested | `mempalace_status` |
 | Semantic search | `mempalace_search` |
 | Duplicate check before filing | `mempalace_check_duplicate` |
 | Save a decision or note | `mempalace_add_drawer` |
@@ -189,7 +200,7 @@ Active tools: `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate
 
 | Task | Tool |
 |------|------|
-| Palace health check | `mempalace_status` |
+| Palace overview when explicitly requested | `mempalace_status` |
 | Semantic search | `mempalace_search` |
 | Duplicate check before filing | `mempalace_check_duplicate` |
 | Save a decision or note | `mempalace_add_drawer` |
@@ -212,7 +223,7 @@ Active tools: `mempalace_status`, `mempalace_code_search`, `mempalace_file_conte
 
 | Task | Tool |
 |------|------|
-| Palace health check | `mempalace_status` |
+| Palace overview when explicitly requested | `mempalace_status` |
 | Find a function/class/symbol | `mempalace_code_search` |
 | All indexed chunks for a file | `mempalace_file_context` |
 | Find types implementing an interface | `mempalace_find_implementations` |
@@ -238,7 +249,7 @@ Active tools: `mempalace_status`, `mempalace_search`, `mempalace_add_drawer`,
 
 | Task | Tool |
 |------|------|
-| Palace health check | `mempalace_status` |
+| Palace overview when explicitly requested | `mempalace_status` |
 | Semantic search | `mempalace_search` |
 | Save a decision or note | `mempalace_add_drawer` |
 | Duplicate check before filing | `mempalace_check_duplicate` |
@@ -283,7 +294,7 @@ The template is a recommendation, not a schema. Skip sections that do not apply.
 
 # Appendix C — Maintenance
 
-- `mempalace_status` at session start when you intend to rely heavily on memory; a stale or empty palace should change your plan.
+- Do not call `mempalace_status` automatically at session start. Its current inventory response expands with the palace taxonomy. Start with the task-specific search or KG query; when host-shell access is allowed, use `mempalace-code status --summary` for bounded drawer/wing/room-pair and storage metrics, or `mempalace-code health --json` for a compact integrity check.
 - `mempalace_check_duplicate` before filing substantial new prose.
 - Prefer additive corrections over destructive ones: new drawers preserve history; deletions erase it.
 - No update tool exists. To correct *wrong* content: `mempalace_search` the drawer → `mempalace_delete_drawer` with its ID → `mempalace_add_drawer` with the fix. For *evolved* facts, add a new drawer instead and let history stand; track current state in the KG.

@@ -1,0 +1,16 @@
+{
+  "fixture_ref": "7b4fa0d9ff67d5cb",
+  "commit": "79b8653e91188d11595a873a5e2ec990f64de2b6",
+  "tracked_file_count": 378,
+  "mined_drawer_count": 2024,
+  "supported_language_count": 45,
+  "fixture_language_count": 3,
+  "query_count": 20,
+  "results_per_query": 5,
+  "median_ratio": 14.49828360454964,
+  "mean_ratio": 15.836904537015112,
+  "peak_ratio": 33.820791648542844,
+  "retrieval_precision_at_5": 0.5,
+  "generated_at": "2026-08-09T10:39:49",
+  "drift_warnings": []
+}

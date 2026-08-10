@@ -392,6 +392,59 @@ class TestSearchTool:
         assert result["results"][0]["source_file"] == "/project/src/auth.py"
 
 
+class TestSearchToolTaxonomyValidation:
+    """mempalace_search/mempalace_code_search validate explicit wing/room filters."""
+
+    def test_search_taxonomy_filter_validation_unknown_wing(
+        self, monkeypatch, config, palace_path, seeded_collection, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_search
+
+        result = tool_search(query="anything", wing="does-not-exist")
+        assert result["error"] == "unknown_wing"
+        assert result["filter"] == "wing"
+        assert result["value"] == "does-not-exist"
+        assert "results" not in result
+
+    def test_search_taxonomy_filter_validation_unknown_room(
+        self, monkeypatch, config, palace_path, seeded_collection, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_search
+
+        result = tool_search(query="anything", room="does-not-exist")
+        assert result["error"] == "unknown_room"
+
+    def test_search_valid_empty_search_scope_returns_success(
+        self, monkeypatch, config, palace_path, seeded_collection, kg
+    ):
+        """AC-1: a valid wing with zero query hits stays a successful {results: []}."""
+        from mempalace_code.storage import LanceStore
+
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_search
+
+        def _empty_query(self, *args, **kwargs):
+            return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+        monkeypatch.setattr(LanceStore, "query", _empty_query)
+
+        result = tool_search(query="anything", wing="project")
+        assert "error" not in result
+        assert result["results"] == []
+
+    def test_code_search_taxonomy_filter_validation_unknown_wing(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_code_search
+
+        result = tool_code_search(query="anything", wing="does-not-exist")
+        assert result["error"] == "unknown_wing"
+        assert result["filter"] == "wing"
+
+
 # ── Write Tools ─────────────────────────────────────────────────────────
 
 
@@ -1669,12 +1722,18 @@ class TestExplainSubsystem:
     def test_no_results_empty_response(
         self, monkeypatch, config, palace_path, code_seeded_collection, kg
     ):
-        """AC-6: No matching code chunks → empty response, no error."""
+        """AC-6: No matching code chunks for a valid, known wing → empty response, no error."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace_code.mcp_server import tool_explain_subsystem
+        from mempalace_code.storage import LanceStore
+
+        def _empty_query(self, *args, **kwargs):
+            return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+        monkeypatch.setattr(LanceStore, "query", _empty_query)
 
         result = tool_explain_subsystem(
-            query="quantum entanglement teleportation", wing="nonexistent_wing_xyz"
+            query="quantum entanglement teleportation", wing="mempalace"
         )
         assert result["entry_points"] == []
         assert result["symbol_graph"] == {}
@@ -1683,6 +1742,25 @@ class TestExplainSubsystem:
             "relationships_found": 0,
             "entry_point_count": 0,
         }
+
+    def test_explain_subsystem_unknown_wing_stops_before_kg_expansion(
+        self, monkeypatch, config, palace_path, code_seeded_collection, kg
+    ):
+        """AC-1/AC-3: an unknown wing returns a structured taxonomy error before KG expansion."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_explain_subsystem
+
+        def _no_kg_expansion(self, *args, **kwargs):
+            raise AssertionError("KG expansion must not run for an unknown wing")
+
+        monkeypatch.setattr(type(kg), "query_entity", _no_kg_expansion)
+
+        result = tool_explain_subsystem(
+            query="quantum entanglement teleportation", wing="nonexistent_wing_xyz"
+        )
+        assert result["error"] == "unknown_wing"
+        assert result["filter"] == "wing"
+        assert result["value"] == "nonexistent_wing_xyz"
 
     def test_no_palace_returns_error(self, monkeypatch, config, kg):
         """AC-7: No palace → error dict with hint."""
@@ -2209,6 +2287,21 @@ class TestFileContextTool:
         assert result["total"] == 3
         assert result["wing"] == "wing_a"
         assert all(c["wing"] == "wing_a" for c in result["chunks"])  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
+
+    def test_file_context_unknown_wing_returns_error(
+        self, monkeypatch, config, palace_path, collection, kg
+    ):
+        """AC-1/AC-3: a wing absent from the taxonomy returns a structured taxonomy error."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _seed_file_context(collection, source_file="shared/utils.py", wing="wing_a")
+        from mempalace_code.mcp_server import tool_file_context
+
+        result = tool_file_context(source_file="shared/utils.py", wing="does-not-exist")
+
+        assert result["error"] == "unknown_wing"
+        assert result["filter"] == "wing"
+        assert result["value"] == "does-not-exist"
+        assert "total" not in result
 
     def test_chunks_sorted_by_chunk_index(self, monkeypatch, config, palace_path, collection, kg):
         """AC-4: chunks inserted in reverse order → response sorted ascending by chunk_index.
@@ -3265,6 +3358,19 @@ class TestMCPReadSlice:
 
         result = tool_read("/project/src/sliceable.py", start_line=10, end_line=5)
         assert result["error"] == "invalid_range"
+
+    def test_read_unknown_wing_returns_error(self, monkeypatch, config, palace_path, kg):
+        """AC-1/AC-3: a wing absent from the taxonomy returns unknown_wing, not not_found."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        self._seed_sliceable(palace_path)
+        from mempalace_code.mcp_server import tool_read
+
+        result = tool_read(
+            "/project/src/sliceable.py", start_line=2, end_line=4, wing="does-not-exist"
+        )
+        assert result["error"] == "unknown_wing"
+        assert result["filter"] == "wing"
+        assert result["value"] == "does-not-exist"
 
     def test_read_tool_registered_in_tools_list(self):
         """read_slice: mempalace_read appears in the MCP tools/list response."""

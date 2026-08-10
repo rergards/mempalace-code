@@ -8,6 +8,7 @@ Uses the shared fixtures from conftest.py:
   seeded_kg          — KG pre-loaded with triples
 """
 
+import io
 import json
 import os
 import shlex
@@ -18,7 +19,13 @@ from unittest.mock import patch
 
 import pytest
 
-from mempalace_code.backup import create_backup, list_backups, render_schedule, restore_backup
+from mempalace_code.backup import (
+    BackupArchiveError,
+    create_backup,
+    list_backups,
+    render_schedule,
+    restore_backup,
+)
 from mempalace_code.storage import open_store
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -35,6 +42,40 @@ def _read_metadata(path: str) -> dict:
         f = tar.extractfile(member)
         assert f is not None, "metadata.json is not a regular file in the archive"
         return json.loads(f.read().decode())
+
+
+def _write_member(
+    tar: tarfile.TarFile, name: str, member_type: bytes, content: bytes = b""
+) -> None:
+    """Add a single managed member of *member_type* to an open tar for abuse tests."""
+    info = tarfile.TarInfo(name=name)
+    info.type = member_type
+    if member_type == tarfile.SYMTYPE:
+        info.linkname = "/etc/passwd"
+    elif member_type == tarfile.LNKTYPE:
+        info.linkname = "mempalace_backup/metadata.json"
+    elif member_type in (tarfile.CHRTYPE, tarfile.BLKTYPE):
+        info.devmajor = 1
+        info.devminor = 1
+    if member_type == tarfile.REGTYPE:
+        info.size = len(content)
+        tar.addfile(info, io.BytesIO(content))
+    else:
+        tar.addfile(info)
+
+
+def _build_malicious_archive(
+    tmp_dir: str, archive_name: str, member_name: str, member_type: bytes, content: bytes = b""
+) -> str:
+    """Build a minimal .tar.gz archive containing one unsafe managed member."""
+    out = os.path.join(tmp_dir, archive_name)
+    with tarfile.open(out, "w:gz") as tar:
+        meta_bytes = json.dumps({"drawer_count": 0, "wings": []}).encode()
+        meta_info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
+        meta_info.size = len(meta_bytes)
+        tar.addfile(meta_info, io.BytesIO(meta_bytes))
+        _write_member(tar, member_name, member_type, content)
+    return out
 
 
 # ── create_backup ──────────────────────────────────────────────────────────────
@@ -1495,3 +1536,199 @@ class TestPreWatchBackups:
         assert path1 != path2, "rapid pre-watch backups must produce unique filenames"
         assert os.path.isfile(path1), "first archive must still exist (not overwritten)"
         assert os.path.isfile(path2), "second archive must exist"
+
+
+# ── Restore archive abuse cases (security boundary) ─────────────────────────────
+
+
+class TestRestoreArchiveSecurityBoundary:
+    """AC-1/AC-3: restore_backup rejects unsafe managed archive members before any
+
+    staged extraction, and leaves no palace/lance/KG side effect behind.
+    """
+
+    UNSAFE_CASES = [
+        (
+            "parent_traversal",
+            "mempalace_backup/lance/../../../../etc/passwd",
+            tarfile.REGTYPE,
+            b"pwned",
+        ),
+        (
+            "absolute_component",
+            "mempalace_backup//etc/passwd",
+            tarfile.REGTYPE,
+            b"pwned",
+        ),
+        (
+            "windows_drive_component",
+            "mempalace_backup/C:/evil",
+            tarfile.REGTYPE,
+            b"pwned",
+        ),
+        (
+            "empty_component",
+            "mempalace_backup/lance//evil.lance",
+            tarfile.REGTYPE,
+            b"pwned",
+        ),
+        (
+            "symlink_member",
+            "mempalace_backup/lance/evil_link",
+            tarfile.SYMTYPE,
+            b"",
+        ),
+        (
+            "hardlink_member",
+            "mempalace_backup/lance/evil_hardlink",
+            tarfile.LNKTYPE,
+            b"",
+        ),
+        (
+            "fifo_member",
+            "mempalace_backup/lance/evil_fifo",
+            tarfile.FIFOTYPE,
+            b"",
+        ),
+        (
+            "device_member",
+            "mempalace_backup/lance/evil_dev",
+            tarfile.CHRTYPE,
+            b"",
+        ),
+    ]
+
+    def test_security_boundary_restore_rejects_unsafe_members(self, tmp_dir):
+        """Each unsafe managed member raises BackupArchiveError(unsafe_archive_member)
+        before any lance/KG data is copied into the destination palace (AC-1, AC-3)."""
+        for case_id, member_name, member_type, content in self.UNSAFE_CASES:
+            archive = _build_malicious_archive(
+                tmp_dir, f"malicious_{case_id}.tar.gz", member_name, member_type, content
+            )
+            restore_dir = os.path.join(tmp_dir, f"restored_{case_id}")
+            restore_kg = os.path.join(tmp_dir, f"restored_kg_{case_id}.sqlite3")
+
+            with pytest.raises(BackupArchiveError) as exc_info:
+                restore_backup(archive, restore_dir, kg_path=restore_kg)
+
+            assert exc_info.value.code == "unsafe_archive_member", case_id
+            assert exc_info.value.member_name == member_name, case_id
+
+            # No side effects: nothing was written to the target palace or KG path.
+            assert not os.path.exists(restore_dir), (
+                f"{case_id}: unsafe archive must not create the destination palace directory"
+            )
+            assert not os.path.exists(restore_kg), (
+                f"{case_id}: unsafe archive must not write a KG file"
+            )
+
+    def test_security_boundary_restore_unsafe_member_leaves_existing_palace_untouched(
+        self, seeded_collection, palace_path, tmp_dir
+    ):
+        """A malicious archive rejected via --force must not delete the existing lance/
+        directory it was about to overwrite (validation runs before any destructive
+        action, not just before the final copy)."""
+        # First, populate a real target palace with a valid backup so it is non-empty.
+        valid_out = os.path.join(tmp_dir, "valid.tar.gz")
+        kg_path = os.path.join(tmp_dir, "kg.sqlite3")
+        create_backup(palace_path, out_path=valid_out, kg_path=kg_path)
+
+        target_dir = os.path.join(tmp_dir, "target_palace")
+        target_kg = os.path.join(tmp_dir, "target_kg.sqlite3")
+        restore_backup(valid_out, target_dir, kg_path=target_kg)
+        assert os.path.isdir(os.path.join(target_dir, "lance"))
+
+        malicious = _build_malicious_archive(
+            tmp_dir,
+            "malicious_force.tar.gz",
+            "mempalace_backup/lance/../../evil",
+            tarfile.REGTYPE,
+            b"pwned",
+        )
+
+        with pytest.raises(BackupArchiveError):
+            restore_backup(malicious, target_dir, force=True, kg_path=target_kg)
+
+        # The pre-existing lance/ directory from the earlier valid restore must survive.
+        assert os.path.isdir(os.path.join(target_dir, "lance")), (
+            "existing palace data must not be deleted before an unsafe archive is rejected"
+        )
+
+    def test_security_boundary_restore_malformed_metadata_rejected(self, tmp_dir):
+        """An archive with safe managed members but malformed metadata.json must raise
+        a stable BackupArchiveError, not an uncontrolled json.JSONDecodeError."""
+        archive = os.path.join(tmp_dir, "malformed_metadata.tar.gz")
+        with tarfile.open(archive, "w:gz") as tar:
+            meta_bytes = b"{not valid json"
+            meta_info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
+            meta_info.size = len(meta_bytes)
+            tar.addfile(meta_info, io.BytesIO(meta_bytes))
+
+        restore_dir = os.path.join(tmp_dir, "restored_malformed_metadata")
+        restore_kg = os.path.join(tmp_dir, "restored_malformed_metadata_kg.sqlite3")
+
+        with pytest.raises(BackupArchiveError) as exc_info:
+            restore_backup(archive, restore_dir, kg_path=restore_kg)
+
+        assert exc_info.value.code == "malformed_metadata"
+        assert not os.path.exists(restore_dir)
+        assert not os.path.exists(restore_kg)
+
+    def test_security_boundary_restore_malformed_metadata_leaves_existing_palace_untouched(
+        self, seeded_collection, palace_path, tmp_dir
+    ):
+        """With --force, an archive whose members pass validation but whose
+        metadata.json is malformed must not delete the existing lance/ directory —
+        metadata must be parsed before the destructive rmtree, not after."""
+        valid_out = os.path.join(tmp_dir, "valid.tar.gz")
+        kg_path = os.path.join(tmp_dir, "kg.sqlite3")
+        create_backup(palace_path, out_path=valid_out, kg_path=kg_path)
+
+        target_dir = os.path.join(tmp_dir, "target_palace")
+        target_kg = os.path.join(tmp_dir, "target_kg.sqlite3")
+        restore_backup(valid_out, target_dir, kg_path=target_kg)
+        assert os.path.isdir(os.path.join(target_dir, "lance"))
+
+        malformed = os.path.join(tmp_dir, "malformed_metadata_force.tar.gz")
+        with tarfile.open(malformed, "w:gz") as tar:
+            meta_bytes = b"{not valid json"
+            meta_info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
+            meta_info.size = len(meta_bytes)
+            tar.addfile(meta_info, io.BytesIO(meta_bytes))
+
+        with pytest.raises(BackupArchiveError) as exc_info:
+            restore_backup(malformed, target_dir, force=True, kg_path=target_kg)
+
+        assert exc_info.value.code == "malformed_metadata"
+        assert os.path.isdir(os.path.join(target_dir, "lance")), (
+            "existing palace data must not be deleted before malformed metadata is rejected"
+        )
+
+    def test_security_boundary_restore_valid_archive_still_restores(self, tmp_dir):
+        """Regression: a well-formed archive containing only safe managed members is
+        unaffected by the new member validation (INV-1)."""
+        safe = os.path.join(tmp_dir, "safe.tar.gz")
+        with tarfile.open(safe, "w:gz") as tar:
+            meta_bytes = json.dumps({"drawer_count": 1, "wings": ["proj"]}).encode()
+            meta_info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
+            meta_info.size = len(meta_bytes)
+            tar.addfile(meta_info, io.BytesIO(meta_bytes))
+
+            dir_info = tarfile.TarInfo(name="mempalace_backup/lance")
+            dir_info.type = tarfile.DIRTYPE
+            tar.addfile(dir_info)
+
+            file_bytes = b"safe-file-content"
+            file_info = tarfile.TarInfo(name="mempalace_backup/lance/data.lance")
+            file_info.size = len(file_bytes)
+            tar.addfile(file_info, io.BytesIO(file_bytes))
+
+        restore_dir = os.path.join(tmp_dir, "safe_restored")
+        restore_kg = os.path.join(tmp_dir, "safe_restored_kg.sqlite3")
+        metadata = restore_backup(safe, restore_dir, kg_path=restore_kg)
+
+        assert metadata["drawer_count"] == 1
+        restored_file = os.path.join(restore_dir, "lance", "data.lance")
+        assert os.path.isfile(restored_file)
+        with open(restored_file, "rb") as f:
+            assert f.read() == b"safe-file-content"

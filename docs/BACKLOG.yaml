@@ -47,124 +47,36 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: BENCHMARK-FIXTURE-FRESHNESS-FACTS
-    section: quality
-    status: open
-    priority: P1
-    summary: Refresh benchmark baselines and publish compact fixture facts so public savings claims do not depend on stale repo size numbers.
-    acceptance:
-      - Run the token-savings benchmark against the current canonical large-repo fixture and record commit/ref, tracked file count, mined drawer count, supported-language count, median/average/peak savings, and retrieval precision.
-      - Update public benchmark docs and marketing-safe snippets to use the measured fixture facts instead of the older 19k-chunk wording.
-      - Add a small benchmark metadata file or script output that prints fixture facts alongside results so future reruns cannot omit repo size, language coverage, or precision.
-      - Add a freshness guard that warns when fixture drawer count or tracked file count drifts materially from the documented baseline.
-      - Keep the published facts concise and non-private; do not include customer repo names, private remotes, machine paths, or incident history.
-  - key: VERSION-INSTALL-METADATA-CONSISTENCY
-    section: quality
-    status: open
-    priority: P2
-    summary: Add a release/install smoke that catches mismatches between package metadata, `mempalace_code.__version__`, and the CLI version-check output.
-    acceptance:
-      - In a fresh isolated install, assert `importlib.metadata.version("mempalace-code")`, `mempalace_code.__version__`, and `mempalace-code version-check --status` report the same version.
-      - Include pipx or uv-tool style invocation coverage if practical, because operator installs commonly use those surfaces.
-      - Fail with a clear diagnostic that names the disagreeing surfaces and recommended reinstall command without exposing private paths.
-      - Wire the smoke into release verification or the release-status gate, not the whole fast unit suite unless it stays cheap.
-      - Add a local troubleshooting note for stale tool environments where installed metadata and module source disagree.
-  - key: AUTOPILOT-DEMO-PYRIGHT-STRICT-SLICE-EXPANSION
-    section: autopilot_demo
-    status: open
-    priority: P1
-    summary: Expand the strict Pyright slice to config, reader, and mining scanner after adding typed boundaries.
-    acceptance:
-      - Add `mempalace_code/config.py`, `mempalace_code/reader.py`, and `mempalace_code/mining/scanner.py` to `pyrightconfig.strict.json`.
-      - Introduce typed config payload aliases, reader result types, gitignore rule types, and scan filter generics instead of broad dict/list shapes.
-      - Add focused tests or type-level assertions for config fallback shape, reader result variants, and scanner rule parsing where the typed contracts expose previously implicit behavior.
-      - Keep the strict-slice command in `/verify` and CI; do not weaken strict diagnostics to make the slice pass.
-      - Keep the existing basic Pyright gate green throughout.
-      - Update the quality scorecard and report the strict-slice expansion publicly.
-  - key: AUTOPILOT-DEMO-ARCHITECTURE-GUARD
-    section: autopilot_demo
-    status: open
-    priority: P1
-    summary: Add an import-boundary guard so core modules cannot accidentally depend on CLI, MCP, or optional legacy backend layers.
-    acceptance:
-      - Add a dependency graph check based on Python imports, using a standard library parser or a small dev-only tool.
-      - Enforce at minimum that storage/config/mining core does not import CLI, MCP dispatch, or Chroma-only modules.
-      - Define explicit layers such as `core`, `storage`, `mining`, `cli`, `mcp`, `legacy_optional`, and `scripts`; keep the layer map in a public config or script constant.
-      - Detect direct violations, transitive cycles, and imports hidden behind `TYPE_CHECKING` separately so intentional type-only imports can be reviewed rather than silently blocked.
-      - Report cycles and boundary violations with file-level paths that are easy for Autopilot to fix.
-      - Add positive and negative fixture tests for the guard itself and wire the command into `/verify` and CI if it stays fast; update the quality scorecard.
-  - key: AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS
-    section: autopilot_demo
-    status: open
-    priority: P1
-    summary: Build subprocess-level golden CLI scenarios that prove real user workflows, not only unit internals.
-    acceptance:
-      - Run `mempalace-code init`, `mine`, `status`, `search`, `read`, `export`, `import`, `backup`, and `restore` in a disposable temp home/palace.
-      - Cover at least one important guard/failure path such as missing palace, invalid read range, or unsafe mirror preflight.
-      - Force offline/version-check-disabled environment variables so the suite is deterministic and network-free.
-      - Assert stdout/stderr contracts for each scenario: stable success text, stable error text, no HuggingFace token warning noise, and no absolute local paths in publishable output.
-      - Use a generated fixture project small enough for CI but representative enough to include Python source, Markdown, config, and one non-Python supported file.
-      - Add the scenario suite to the quality scorecard as a real workflow suite distinct from unit-level CLI tests.
-      - Remove all smoke artifacts or report them explicitly; update release/verify docs and the quality scorecard.
-  - key: AUTOPILOT-DEMO-SECURITY-BOUNDARY-TESTS
-    section: autopilot_demo
-    status: open
-    priority: P2
-    summary: Harden external-input boundaries with focused abuse-case tests for paths, archives, JSONL, YAML, and command preflight parsing.
-    acceptance:
-      - Add tests for backup/restore tar traversal, import/export malformed JSONL, read path ambiguity, YAML project config validation, and mirror preflight command parsing.
-      - Prefer standard-library table-driven tests; add a fuzz/property-test dependency only if it clearly improves signal and stays dev-only.
-      - Every rejected input returns a stable error code/message and does not create partial palace state.
-      - Document any remaining accepted risk in a public-safe plan or backlog follow-up; update the quality scorecard.
-  - key: AUTOPILOT-DEMO-PERF-BUDGETS
-    section: autopilot_demo
-    status: open
-    priority: P2
-    summary: Add deterministic performance budgets for mining, search, read, and maintenance on synthetic fixtures.
-    acceptance:
-      - Build generated fixtures that do not require network access or external repositories.
-      - Measure mine time, incremental no-op time, search latency, read latency, and cleanup/optimize smoke duration.
-      - Store conservative budgets and machine-independent comparison rules so CI failures indicate meaningful regressions, not normal hardware variance.
-      - Separate hard CI budgets from informational local benchmark output; hard budgets should use ratios or generous floors that survive normal hosted-runner variance.
-      - Include a "budget changed because" field in the public artifact whenever thresholds move.
-      - Publish before/after numbers in the quality scorecard and release notes when a demo task improves a budget.
-  - key: AUTOPILOT-DEMO-DOCS-DRIFT-GUARD
-    section: autopilot_demo
-    status: open
-    priority: P2
-    summary: Add an automated docs drift guard for CLI commands, MCP tools, optional extras, and release gates.
-    acceptance:
-      - Generate or validate the CLI command inventory from argparse/code instead of manually trusting README snippets.
-      - Validate MCP tool tables in README and AGENT_INSTALL against the authoritative tool registry and profiles.
-      - Validate optional extras and release/dependency gates in public docs against pyproject.toml and workflow files.
-      - Validate documented verification commands in `CLAUDE.md`, `.claude/skills/verify/INSTRUCTIONS.md`, `.claude/skills/release/INSTRUCTIONS.md`, and `docs/quality/README.md` against canonical command lists.
-      - Add fixture tests for stale docs so the guard proves it fails before it is wired into CI.
-      - Fail with actionable file/section messages and update the quality scorecard.
-  - key: AUTOPILOT-DEMO-WORKFLOW-EFFECTIVENESS-GUARD
-    section: autopilot_demo
-    status: open
-    priority: P2
-    summary: Add a lightweight guard that workflow review summaries are actionable rather than ceremonial.
-    acceptance:
-      - Define a public-safe workflow summary schema with fields for review lens, finding, evidence file/path, action taken, verification, and deferral reason.
-      - Add a checker for sanitized workflow summary files or PR-body snippets that rejects findings without concrete evidence or explicit action/deferral.
-      - Keep raw multi-agent transcripts local-only under ignored paths; commit only the synthesized public summary when needed.
-      - Document that passive review output is not enough: each surviving finding must either change code/tests/docs or become a backlog item with acceptance criteria.
-      - Add tests for accepted summaries, missing evidence, missing action, and accidental private path/token content.
-  - key: PUBLIC-SAFETY-SCAN-COMBINED-MODE-TEST
-    summary: "Add test for --committed combined with --tracked or --staged to verify dual-source scan output"
-    type: task
-    status: open
-    priority: low
-    size: XS
-    section_id: quality
-    description: "## Scope\n\nThe committed, tracked, and staged source selectors in `scan_git_sources` are independent branches that can be combined in a single invocation. When combined, the same file is scanned under two source prefixes, such as `committed:foo.txt` and `tracked:foo.txt`, producing separate hits per source. There is currently no test covering any combined invocation. If a future refactor accidentally merged the branches or short-circuited one, no test would catch it.\n\nAdd one focused pytest test in `tests/test_public_safety_scan.py` that runs `--committed --tracked` against a fixture repo with a committed file and verifies both source prefixes appear in the output. Use `_init_repo_with_commit` helper already present in the test file. No changes to `scripts/public_safety_scan.py` are expected because the combination is already supported.\n\nSource: harden follow-up from `AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE` archive `AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE-20260619-172224.tar.gz`.\n\n## Acceptance criteria\n\n- A test named `test_committed_and_tracked_combined` exists.\n- The test calls `--committed --tracked`.\n- The test asserts that both `committed:<path>` and `tracked:<path>` source prefixes appear in the error output for the same flagged file."
-  - key: WATCHER-BROKEN-SYMLINK-STARTUP-GUARD
-    summary: "Prevent broken source symlinks from triggering restart-loop backups"
+  - key: PALACE-SCOPE-RESOURCE-BOUNDARY
+    summary: "Keep scoped palace operations isolated and resource-bounded"
     type: bug
-    status: open
+    status: done
+    priority: highest
+    size: L
+    section_id: storage_reliability
+    assignee: bot
+    description: "## Symptom\n\nA CLI invocation scoped with --palace can copy the default global knowledge graph into scoped backup and pre-optimize archives. A palace with two drawers and no local graph produced a 12 MB backup and restored a 62 MB graph whose digest matched the global graph. Repeated no-op mine runs load the embedding model and create then prune those archives. A ten-event watch run grew RSS from about 655 MB to about 910 MB while palace and model-cache disk usage stayed flat. Search results using the canonical macOS /private/tmp spelling cannot be read back through the equivalent /tmp spelling.\n\n## Steps to reproduce\n\n1. Create an isolated palace and distinct default-global and palace-local graph fixtures.\n2. Run the built wheel CLI with --palace through mine, no-op mine, backup, restore, search, read, and watch.\n3. Compare archive members and graph digests, archive directory size, canonical source paths, process RSS after warm-up, and process shutdown.\n\n## Scope\n\nFix the shared palace-scope and lifecycle boundaries used by CLI backup, restore, mining, optimization, reader path resolution, and watcher remine cycles. Cover the reusable APIs and installed CLI behavior. Preserve archive safety and ambiguous-path rejection.\n\n## Expected vs actual\n\nExpected: explicit palace selection is a complete data boundary; absent local state is omitted; no-op work creates no backup or optimization churn; equivalent canonical paths round-trip; repeated watcher updates have bounded memory and disk use after warm-up.\nActual: scoped operations read global graph state, no-op work creates large archives and model churn, equivalent macOS paths diverge, and watcher RSS grows materially per event.\n\n## Root cause hypothesis\n\nThe backup API defaults an omitted graph path to process-global state, callers do not bind graph scope to the selected palace, incremental orchestration performs expensive lifecycle work before proving a delta exists, path identity is normalized incompletely, and watcher cycles retain per-mine state.\n\n## Acceptance criteria\n\n- Explicit --palace backup and pre-optimize paths include only that palace local graph, or omit the graph when absent; tests use distinct global and local digests and fail on cross-scope reads.\n- Restore round-trips the scoped archive without importing default-global graph data.\n- A true no-op incremental mine does not load the embedder, create an archive, optimize storage, or increase palace disk usage.\n- Search-to-read accepts filesystem-equivalent canonical spellings such as macOS /tmp and /private/tmp while retaining traversal, ambiguity, and external-path guards.\n- A real subprocess watcher stress test exercises at least 20 sequential edits and asserts bounded post-warm-up RSS, file descriptors where observable, palace size, archive count, and clean SIGINT shutdown.\n- Installed-wheel CLI regression coverage exercises init, mine, no-op mine, backup, restore, search, read, and watch outside the repository working directory.\n- Document measured before and after resource evidence and exact reproduction commands in a public-safe quality artifact."
+    resolution: "2026-08-10: completed through reviewed Autopilot implementation plus bounded hybrid recovery; explicit palace KG isolation, no-op preflight, macOS path aliasing, watcher-owned model lifecycle, a real 20-event resource regression, and an installed-wheel golden workflow landed; task-closure snapshot: 2953 non-network tests and 2 network tests passed alongside Pyright basic/strict, public safety, quality/architecture/docs/performance, build/Twine/artifact inspection, pipx installation, and the installed CLI workflow; watcher RSS growth fell from 346.11 MiB to 5.94 MiB, file descriptors stayed at 190, and late combined palace-plus-backup disk growth was 40 bytes"
+    done_summary: "completed through reviewed Autopilot implementation plus bounded hybrid recovery; scoped storage and no-op lifecycle boundaries, canonical path round-tripping, bounded watcher resources, and installed-wheel end-to-end behavior are enforced; watcher RSS growth fell from 346.11 MiB to 5.94 MiB with file descriptors at 190 and late combined disk growth of 40 bytes"
+  - key: AUTOPILOT-DEMO-END-TO-END-GATE-CLOSURE
+    summary: "Make demo quality claims enforce built artifacts and installed behavior"
+    type: bug
+    status: done
+    priority: highest
+    size: L
+    section_id: autopilot_demo
+    assignee: bot
+    description: "## Symptom\n\nThe completed AUTOPILOT-DEMO backlog claims stronger release and verification gates, but the live enforcement topology and built artifacts disagree. Autopilot runs only Ruff, Ruff format, and pytest; CI and the verification instructions claim additional Pyright, public-safety, scorecard, docs, architecture, and performance gates. The committed public-safety scan currently fails on its own test fixture. Basic Pyright reports ten errors. The source distribution includes a tracked local-only .codex-local artifact. The repository pipx smoke assumes sys.executable -m pipx and fails under a valid Homebrew layout although the external pipx executable works.\n\n## Steps to reproduce\n\n1. Compare the commands in autopilot.toml, CI workflows, verification instructions, release documentation, and the quality scorecard.\n2. Run basic and strict Pyright, public_safety_scan.py --committed --tracked --staged, all scorecard and drift checks, package build, twine check, archive-content inspection, neutral-directory venv install, and pipx install smoke.\n3. Audit every archived AUTOPILOT-DEMO item against the roadmap promises of measurable delta, stronger automated gate, public-safe explanation, and real CLI, MCP, or API evidence where behavior changed.\n\n## Scope\n\nCreate one canonical release and quality gate topology consumed or mechanically checked by Autopilot, CI, local verification, scorecard generation, and release smoke. Close current failures at their shared boundaries. Validate built wheel and sdist behavior without source-tree shadowing. Produce an evidence ledger for all AUTOPILOT-DEMO items; fix systemic enforcement gaps rather than rewriting historical summaries.\n\n## Expected vs actual\n\nExpected: each claimed gate is executable, green, aligned across entry points, and proves the distributable artifact and installed behavior.\nActual: claimed gates can be bypassed by Autopilot, several are red, package contents leak local-only material, and the pipx smoke rejects a supported environment.\n\n## Root cause hypothesis\n\nGate definitions are duplicated across configuration, workflow, docs, and scorecard code; checks focus on source-tree fixtures instead of built-artifact boundaries; packaging has no explicit public allowlist; install smoke couples pipx invocation to the target interpreter.\n\n## Acceptance criteria\n\n- One canonical command inventory, or an equivalent parity fitness test, keeps Autopilot, CI, local verification, scorecard metadata, and release documentation aligned for Ruff, formatting, basic and strict Pyright, the complete intended pytest marker set, public safety, scorecard, docs drift, architecture, performance, package build, artifact inspection, and installed smoke.\n- Basic and strict Pyright pass from the declared environment with optional-dependency handling documented and tested.\n- Public-safety tracked, staged, and committed modes pass the repository while scanner fixtures still prove secret detection without committing a scanner-triggering literal.\n- Wheel and sdist content checks reject local-only control artifacts including .codex-local, task state, protocol state, caches, and operator audit residue; both artifacts pass twine check.\n- The release install smoke discovers and invokes a working pipx executable independently of the target Python module set, covers the Homebrew layout, and also validates an isolated venv from the wheel.\n- Installed CLI and MCP checks run from a neutral directory and prove import provenance points to the built artifact rather than the checkout.\n- Audit every AUTOPILOT-DEMO archived item against the quality roadmap and commit a public-safe pass/gap ledger with exact commands, before and after metrics, behavioral evidence, and the enforcing gate.\n- A single documented release-readiness command fails when any canonical gate or artifact check fails and passes after remediation.\n\n## Planner constraints\n\n- CHANGELOG.md is runner-owned completion metadata. Exclude it from provider files, touched_files, implementation scope, and verification outputs.\n- autopilot.toml is an ignored local configuration input for this task. Read it for parity evidence but do not plan, edit, stage, or publish it. Enforce the shared contract through tracked scripts, tests, CI configuration, release documentation, or other tracked public paths.\n- Put public evidence in a tracked docs/quality or docs/task-evidence path. Do not use ignored or task-local output paths as release evidence."
+    resolution: "2026-08-10: completed through reviewed Autopilot implementation plus bounded hybrid recovery after terminal-result contract rejection; landed commits 99c24c3..c6bc04f; task-closure snapshot at c6bc04f: canonical gates, built wheel/sdist inspection, Twine, disposable venv/pipx install, Pyright basic/strict, public safety, quality/architecture/docs/performance, 2900 non-network tests, 2 slow tests, and 2 network tests passed"
+    done_summary: "completed through reviewed Autopilot implementation plus bounded hybrid recovery after terminal-result contract rejection; landed commits 99c24c3..c6bc04f; the task-closure snapshot at c6bc04f passed canonical quality, artifact, install, and test gates"
+  - key: RELEASE-VERSION-COUPLED-UPDATER-FIXTURES
+    summary: "Decouple updater release fixtures from the package version"
+    type: bug
+    status: done
     priority: high
     size: S
-    section_id: storage_reliability
-    labels: [watcher, backup, reliability]
-    description: "## Symptom\n\nA dangling or unreadable source symlink can fail initial mining after the watcher has created a pre-watch archive. A service manager then restarts the watcher and repeats the archive creation.\n\n## Steps to reproduce\n\n1. Include a dangling symlink with a supported source extension in a watched project.\n2. Start the watcher with an existing palace.\n3. Observe initial mining fail after the pre-watch archive and the service restart the command.\n\n## Acceptance criteria\n\n- Scanner excludes dangling or unreadable symlinks before startup backup and hashing, with a bounded diagnostic.\n- A watcher startup containing only that invalid source remains running and produces no repeated pre-watch archives.\n- Valid symlinks and regular source files retain current mining behavior.\n- Focused tests cover the invalid-symlink guard and the normal valid-symlink path."
+    section_id: quality
+    assignee: bot
+    description: "## Symptom\n\nBumping project.version from 1.12.1 to 1.13.0 makes the updater eligibility and rollback suite fail because tests/test_updater.py hard-codes 1.12.1 as the installed version and 1.12.2 as the eligible target.\n\n## Steps to reproduce\n\n1. Update pyproject.toml and uv.lock to 1.13.0.\n2. Run python -m pytest tests/ -x -q -m \"not needs_network\".\n3. Observe TestUpdateStatus.test_status_reports_eligibility_provenance_and_next_run_without_mutation fail because the hard-coded target is older than the package version.\n\n## Scope\n\nReplace release-coupled updater fixtures and assertions with versions derived from the package version. Preserve stable same-major target selection, prerelease rejection, incompatible-major rejection, install command construction, and rollback coverage.\n\n## Expected vs actual\n\nExpected: an ordinary version bump keeps updater tests meaningful without manual search-and-replace.\nActual: every release bump invalidates the fixture and produces a false eligibility failure.\n\n## Root cause hypothesis\n\nThe updater fixture encodes one historical release transition instead of deriving current, next-patch, prerelease, and incompatible-major cases from mempalace_code.__version__.\n\n## Acceptance criteria\n\n- tests/test_updater.py derives current, eligible next-patch, prerelease, and incompatible-major versions from the package version.\n- Eligibility, install command, rollback, prerelease rejection, and compatible-major assertions remain explicit.\n- No production updater behavior changes.\n- The updater module, release metadata tests, and complete not-needs_network suite pass for v1.13.0."
+    resolution: "2026-08-10: derived current, eligible next-patch, prerelease, and incompatible-major updater fixtures from the package version without production changes; task-closure snapshot recorded in release-prep commit 1bab66a: 39 focused updater tests, the complete non-network suite (2952 passed, 3 skipped, 2 deselected), and both network tests passed for v1.13.0"
+    done_summary: "derived release fixtures from the package version; the task-closure snapshot recorded in release-prep commit 1bab66a passed 39 focused updater tests, 2952 non-network tests, and 2 network tests for v1.13.0"

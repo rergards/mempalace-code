@@ -1,24 +1,31 @@
 {
   "code_size": {
-    "package_code_lines": 20502,
-    "package_files": 76,
-    "package_total_lines": 25154,
-    "test_files": 59,
-    "test_total_lines": 44247
+    "package_code_lines": 21508,
+    "package_files": 80,
+    "package_total_lines": 26439,
+    "test_files": 81,
+    "test_total_lines": 54289
   },
   "demo_gates": {
     "architecture_guard": {
-      "status": "absent"
+      "status": "present"
     },
     "cli_golden_scenarios": {
-      "count": 0,
-      "status": "absent"
+      "count": 4,
+      "status": "present"
     },
     "dependency_audit": {
       "status": "present"
     },
     "docs_drift_guard": {
-      "status": "absent"
+      "coverage": [
+        "cli_commands",
+        "mcp_tools_and_profiles",
+        "optional_extras",
+        "release_and_dependency_gates",
+        "verification_commands"
+      ],
+      "status": "present"
     },
     "mcp_stdio_contracts": {
       "count": 5,
@@ -27,7 +34,7 @@
   },
   "largest_modules": [
     {
-      "lines": 1609,
+      "lines": 1621,
       "path": "mempalace_code/storage.py"
     },
     {
@@ -35,7 +42,7 @@
       "path": "mempalace_code/mining/chunkers.py"
     },
     {
-      "lines": 1161,
+      "lines": 1340,
       "path": "mempalace_code/watcher.py"
     },
     {
@@ -55,18 +62,66 @@
       "path": "mempalace_code/entity_detector.py"
     },
     {
-      "lines": 793,
+      "lines": 823,
       "path": "mempalace_code/cli.py"
     },
     {
-      "lines": 753,
-      "path": "mempalace_code/knowledge_graph.py"
+      "lines": 816,
+      "path": "mempalace_code/mining/orchestrator.py"
     },
     {
-      "lines": 720,
-      "path": "mempalace_code/mining/orchestrator.py"
+      "lines": 778,
+      "path": "mempalace_code/knowledge_graph.py"
     }
   ],
+  "performance_budgets": {
+    "budget_changed_because": "Raised mine_full floor from 5s to 20s to absorb hosted-runner fixed-overhead variance; measurement baseline and ratios unchanged.",
+    "errors": [],
+    "fixture_file_count": 4,
+    "metrics": [
+      {
+        "before": null,
+        "budget": 20.0,
+        "comparison": "actual_secs <= max(floor_secs, baseline_secs * ratio)",
+        "current": 2.8238878750125878,
+        "name": "mine_full",
+        "unit": "secs"
+      },
+      {
+        "before": null,
+        "budget": 2.0,
+        "comparison": "actual_secs <= max(floor_secs, baseline_secs * ratio)",
+        "current": 0.015535584010649472,
+        "name": "mine_incremental_noop",
+        "unit": "secs"
+      },
+      {
+        "before": null,
+        "budget": 200.0,
+        "comparison": "actual_p95_ms <= max(floor_ms, baseline_p95_ms * ratio)",
+        "current": 17.5026145996526,
+        "name": "search_p95",
+        "unit": "ms"
+      },
+      {
+        "before": null,
+        "budget": 143.72264427947823,
+        "comparison": "actual_p95_ms <= max(floor_ms, baseline_p95_ms * ratio)",
+        "current": 28.74452885589565,
+        "name": "read_p95",
+        "unit": "ms"
+      },
+      {
+        "before": null,
+        "budget": 5.0,
+        "comparison": "actual_secs <= max(floor_secs, baseline_secs * ratio)",
+        "current": 0.025520917028188705,
+        "name": "maintenance",
+        "unit": "secs"
+      }
+    ],
+    "valid": true
+  },
   "public_safety": {
     "commands": {
       "committed": "python scripts/public_safety_scan.py --committed",
@@ -87,11 +142,14 @@
     "python_version": "3.11",
     "strict": false,
     "strict_slice": {
-      "file_count": 3,
+      "file_count": 6,
       "include_strict_match": true,
       "paths": [
+        "mempalace_code/config.py",
         "mempalace_code/disk_budget.py",
         "mempalace_code/mcp_tool_profiles.py",
+        "mempalace_code/mining/scanner.py",
+        "mempalace_code/reader.py",
         "mempalace_code/version.py"
       ]
     },
@@ -120,7 +178,7 @@
     },
     "selected_rule_families": 12
   },
-  "schema_version": 2,
+  "schema_version": 3,
   "scope": {
     "package_dir": "mempalace_code",
     "tests_dir": "tests"
@@ -142,6 +200,12 @@
       "description": "CLI command module tests",
       "name": "cli_command_modules",
       "path": "tests/test_cli_command_modules.py",
+      "present": true
+    },
+    {
+      "description": "Subprocess-level golden CLI workflow scenarios",
+      "name": "cli_golden_scenarios",
+      "path": "tests/test_cli_golden_scenarios.py",
       "present": true
     },
     {
@@ -189,18 +253,18 @@
   ],
   "suppressions": {
     "noqa_blanket": 0,
-    "noqa_total": 42,
+    "noqa_total": 44,
     "scope": [
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 132,
+    "type_pyright_total": 150,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 59,
-    "test_functions": 2449
+    "test_files": 81,
+    "test_functions": 2885
   },
   "verification_commands": [
     {
@@ -230,6 +294,10 @@
     {
       "command": "python scripts/quality_scorecard.py --check",
       "name": "scorecard"
+    },
+    {
+      "command": "python scripts/architecture_guard.py --root .",
+      "name": "architecture_guard"
     }
   ]
 }

@@ -8,11 +8,17 @@ from ..config import MempalaceConfig
 
 def cmd_backup_create(args):
     from ..backup import create_backup
+    from ..knowledge_graph import palace_kg_path
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
     kind = getattr(args, "kind", "manual") or "manual"
+    # When --palace is explicit, scope the KG to the palace-local path so the backup
+    # never captures the default global KG from a different location.
+    kg_path = palace_kg_path(palace_path) if args.palace else None
     try:
-        meta, out_path = create_backup(palace_path, out_path=args.out or None, kind=kind)
+        meta, out_path = create_backup(
+            palace_path, out_path=args.out or None, kind=kind, kg_path=kg_path
+        )
     except Exception as exc:
         # Includes the disk-space guard's RuntimeError("insufficient free space …").
         print(f"  Error: {exc}", file=sys.stderr)

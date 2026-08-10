@@ -182,8 +182,9 @@ Tests workflow.
 
 ## Scheduled Current Audit
 
-The `dependency-audit.yml` workflow runs a `current-audit` on a weekly schedule
-and on `workflow_dispatch`. Unlike the upgrade gate, this audit:
+The `dependency-audit.yml` workflow, named **Dependency Audit** in GitHub
+Actions, runs a `current-audit` on a weekly schedule and on
+`workflow_dispatch`. Unlike the upgrade gate, this audit:
 
 - Does **not** change dependency bounds, specifiers, or `uv.lock`.
 - Checks the **current resolved packages** against advisory databases and yanked

@@ -16,7 +16,9 @@ import json
 import os
 import shutil
 
-from mempalace_code.export import import_jsonl, read_jsonl, write_jsonl
+import pytest
+
+from mempalace_code.export import JsonlInputError, import_jsonl, read_jsonl, write_jsonl
 from mempalace_code.knowledge_graph import KnowledgeGraph
 from mempalace_code.storage import open_store
 
@@ -560,3 +562,161 @@ class TestExportReadOnlyNoEmbedder:
         assert len(drawers) == 1
         # Stored vector must be present (written during seeding, not recomputed here)
         assert drawers[0]["embedding"] is not None
+
+
+# ── Malformed JSONL import abuse cases (security boundary) ──────────────────────
+
+
+class TestImportJsonlSecurityBoundary:
+    """AC-1/AC-3: malformed JSONL import fails with a stable line-numbered error and
+    leaves no partial drawer/KG writes behind."""
+
+    def test_security_boundary_jsonl_read_jsonl_raises_with_line_number(self, tmp_path):
+        """read_jsonl surfaces a stable JsonlInputError with the 1-based bad line number."""
+        bad_file = str(tmp_path / "malformed.jsonl")
+        with open(bad_file, "w", encoding="utf-8") as f:
+            f.write('{"type": "export_header", "version": "1.0"}\n')
+            f.write('{"type": "drawer", "id": "ok1", "text": "fine"}\n')
+            f.write("{not valid json at all\n")  # line 3 — malformed
+
+        with pytest.raises(JsonlInputError) as exc_info:
+            list(read_jsonl(bad_file))
+
+        assert exc_info.value.code == "malformed_jsonl"
+        assert exc_info.value.line_number == 3
+
+    NON_OBJECT_JSONL_CASES = [
+        ("bare_number", "5"),
+        ("bare_string", '"str"'),
+        ("bare_list", "[1, 2]"),
+        ("bare_null", "null"),
+    ]
+
+    def test_security_boundary_jsonl_read_jsonl_rejects_non_object_lines(self, tmp_path):
+        """A line that is valid JSON but not an object (number/string/list/null) must
+        raise JsonlInputError with the correct line number, not be yielded as-is —
+        otherwise import_jsonl's record.get(...) calls crash with a raw AttributeError."""
+        for case_id, json_line in self.NON_OBJECT_JSONL_CASES:
+            bad_file = str(tmp_path / f"non_object_{case_id}.jsonl")
+            with open(bad_file, "w", encoding="utf-8") as f:
+                f.write('{"type": "export_header", "version": "1.0"}\n')
+                f.write(json_line + "\n")  # line 2 — valid JSON, not an object
+
+            with pytest.raises(JsonlInputError) as exc_info:
+                list(read_jsonl(bad_file))
+
+            assert exc_info.value.code == "malformed_jsonl", case_id
+            assert exc_info.value.line_number == 2, case_id
+
+    def test_security_boundary_jsonl_import_non_object_line_rejects_before_any_write(
+        self, tmp_path
+    ):
+        """import_jsonl must reject a non-object JSONL line the same all-or-nothing way
+        as syntactically invalid JSON — no partial drawer/KG writes from earlier lines."""
+        palace = str(tmp_path / "palace")
+        store = _store(palace)
+        kg = KnowledgeGraph(db_path=str(tmp_path / "kg.sqlite3"))
+        bad_file = str(tmp_path / "non_object_import.jsonl")
+
+        with open(bad_file, "w", encoding="utf-8") as f:
+            f.write('{"type": "export_header", "version": "1.0"}\n')
+            f.write(
+                '{"type": "drawer", "id": "would_be_imported", '
+                '"text": "Should never land in the store.", "wing": "notes", "room": "general"}\n'
+            )
+            f.write("[1, 2]\n")  # line 3 — valid JSON, not an object
+
+        before_drawer_count = store.count()
+        before_kg_stats = kg.stats()
+
+        with pytest.raises(JsonlInputError) as exc_info:
+            import_jsonl(path=bad_file, store=store, kg=kg, skip_kg=False)
+
+        assert exc_info.value.code == "malformed_jsonl"
+        assert exc_info.value.line_number == 3
+
+        assert store.count() == before_drawer_count
+        assert kg.stats() == before_kg_stats
+        result = store.get(ids=["would_be_imported"], include=["documents"])
+        assert result["ids"] == []
+
+    def test_security_boundary_jsonl_import_rejects_before_any_write(self, tmp_path):
+        """A malformed line after valid drawers must reject the whole import — no
+        drawers or triples from earlier lines are written (all-or-nothing)."""
+        palace = str(tmp_path / "palace")
+        store = _store(palace)
+        kg = KnowledgeGraph(db_path=str(tmp_path / "kg.sqlite3"))
+        bad_file = str(tmp_path / "malformed_import.jsonl")
+
+        with open(bad_file, "w", encoding="utf-8") as f:
+            f.write('{"type": "export_header", "version": "1.0"}\n')
+            f.write(
+                '{"type": "drawer", "id": "would_be_imported", '
+                '"text": "Should never land in the store.", "wing": "notes", "room": "general"}\n'
+            )
+            f.write(
+                '{"type": "kg_triple", "subject": "A", "predicate": "would_be", "object": "B"}\n'
+            )
+            f.write("{ this is not json\n")  # malformed line 4
+
+        before_drawer_count = store.count()
+        before_kg_stats = kg.stats()
+
+        with pytest.raises(JsonlInputError) as exc_info:
+            import_jsonl(path=bad_file, store=store, kg=kg, skip_kg=False)
+
+        assert exc_info.value.code == "malformed_jsonl"
+        assert exc_info.value.line_number == 4
+
+        # No partial writes: drawer count and KG triple count are unchanged.
+        assert store.count() == before_drawer_count
+        assert kg.stats() == before_kg_stats
+        result = store.get(ids=["would_be_imported"], include=["documents"])
+        assert result["ids"] == []
+
+    def test_security_boundary_jsonl_import_empty_line_is_skipped_not_malformed(self, tmp_path):
+        """Blank lines are whitespace, not malformed input — import still succeeds."""
+        from mempalace_code.version import __version__
+
+        palace = str(tmp_path / "palace")
+        store = _store(palace)
+        good_file = str(tmp_path / "with_blank_lines.jsonl")
+
+        with open(good_file, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "export_header", "version": __version__}) + "\n")
+            f.write("\n")
+            f.write(
+                '{"type": "drawer", "id": "blank_ok", "text": "Valid drawer despite blank lines.", '
+                '"wing": "notes", "room": "general"}\n'
+            )
+            f.write("   \n")
+
+        summary = import_jsonl(path=good_file, store=store, skip_kg=True)
+        assert summary["imported_drawers"] == 1
+        assert summary["warnings"] == []
+
+    def test_security_boundary_jsonl_import_accepts_preparsed_records(self, tmp_path):
+        """import_jsonl accepts a records= override so callers (the CLI) can validate
+        input once — e.g. from stdin, which can only be consumed a single time — and
+        pass the already-parsed records through without re-reading the path."""
+        palace = str(tmp_path / "palace")
+        store = _store(palace)
+        export_file = str(tmp_path / "preparsed.jsonl")
+
+        with open(export_file, "w", encoding="utf-8") as f:
+            f.write('{"type": "export_header", "version": "1.0"}\n')
+            f.write(
+                '{"type": "drawer", "id": "preparsed1", "text": "Pre-parsed record content.", '
+                '"wing": "notes", "room": "general"}\n'
+            )
+
+        records = list(read_jsonl(export_file))
+        # Use an unreadable bogus path to prove import_jsonl never re-reads from disk.
+        summary = import_jsonl(
+            path="/nonexistent/should-not-be-read.jsonl",
+            store=store,
+            skip_kg=True,
+            records=records,
+        )
+        assert summary["imported_drawers"] == 1
+        assert store.count() == 1

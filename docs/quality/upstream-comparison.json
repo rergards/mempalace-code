@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "reviewed_date": "2026-07-25",
+  "canonical_repository": "https://github.com/MemPalace/mempalace",
+  "branch": "develop",
+  "commit": "aa89bd82272f55381206c83b6f306e79351824eb",
+  "canonical_document": "docs/UPSTREAM_COMPARISON.md",
+  "readme_path": "README.md",
+  "tracked_source_paths": [
+    "README.md"
+  ],
+  "readme_markers": [
+    "## This Fork vs Upstream",
+    "docs/UPSTREAM_COMPARISON.md",
+    "docs/UPSTREAM_HARDENING.md"
+  ],
+  "comparison_markers": [
+    "## Snapshot",
+    "## Source Links",
+    "## Capability Comparison",
+    "## Capability Identifiers",
+    "## Fork Stance",
+    "## Evidence Limits",
+    "## Automation Policy"
+  ],
+  "capabilities": {
+    "upstream_advertised": [
+      "optional-embeddinggemma-multilingual-model",
+      "hybrid-retrieval",
+      "optional-llm-reranking",
+      "backend-chromadb",
+      "backend-sqlite-exact",
+      "backend-milvus",
+      "backend-qdrant",
+      "backend-pgvector"
+    ],
+    "fork_current": [
+      "code-first-mining",
+      "backend-lancedb-default",
+      "backend-chromadb-optional-deprecated",
+      "local-deterministic-code-search-hybrid-rerank",
+      "no-llm-reranker",
+      "no-supported-multilingual-configuration-migration",
+      "no-server-vector-backends"
+    ]
+  }
+}

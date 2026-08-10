@@ -1,0 +1,56 @@
+{
+  "budget_changed_because": "Raised mine_full floor from 5s to 20s to absorb hosted-runner fixed-overhead variance; measurement baseline and ratios unchanged.",
+  "fixture": {
+    "file_count": 4,
+    "files": [
+      "NOTES.md",
+      "app.py",
+      "service.go",
+      "settings.toml"
+    ],
+    "total_bytes": 901
+  },
+  "metrics": {
+    "maintenance": {
+      "baseline": 0.025520917028188705,
+      "before": null,
+      "comparison": "actual_secs <= max(floor_secs, baseline_secs * ratio)",
+      "floor": 5.0,
+      "ratio": 5.0,
+      "unit": "secs"
+    },
+    "mine_full": {
+      "baseline": 2.8238878750125878,
+      "before": null,
+      "comparison": "actual_secs <= max(floor_secs, baseline_secs * ratio)",
+      "floor": 20.0,
+      "ratio": 3.0,
+      "unit": "secs"
+    },
+    "mine_incremental_noop": {
+      "baseline": 0.015535584010649472,
+      "before": null,
+      "comparison": "actual_secs <= max(floor_secs, baseline_secs * ratio)",
+      "floor": 2.0,
+      "ratio": 4.0,
+      "unit": "secs"
+    },
+    "read_p95": {
+      "baseline": 28.74452885589565,
+      "before": null,
+      "comparison": "actual_p95_ms <= max(floor_ms, baseline_p95_ms * ratio)",
+      "floor": 100.0,
+      "ratio": 5.0,
+      "unit": "ms"
+    },
+    "search_p95": {
+      "baseline": 17.5026145996526,
+      "before": null,
+      "comparison": "actual_p95_ms <= max(floor_ms, baseline_p95_ms * ratio)",
+      "floor": 200.0,
+      "ratio": 5.0,
+      "unit": "ms"
+    }
+  },
+  "schema_version": 1
+}

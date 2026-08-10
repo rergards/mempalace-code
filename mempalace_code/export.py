@@ -224,14 +224,45 @@ def write_jsonl(
 # ── Import ────────────────────────────────────────────────────────────────────
 
 
+class JsonlInputError(ValueError):
+    """Raised when a JSONL input file/stream contains a malformed line.
+
+    Attributes:
+        code: stable machine-testable error code ("malformed_jsonl").
+        line_number: 1-based line number of the offending line.
+    """
+
+    code = "malformed_jsonl"
+
+    def __init__(self, line_number: int, detail: str):
+        self.line_number = line_number
+        self.detail = detail
+        super().__init__(f"{self.code}: line {line_number}: {detail}")
+
+
 def read_jsonl(path: str) -> Iterator[Dict[str, Any]]:
-    """Yield parsed JSON objects from a JSONL file."""
+    """Yield parsed JSON objects from a JSONL file.
+
+    Raises JsonlInputError (with the offending line number) if a non-blank line
+    fails to parse as JSON, or parses to a JSON value that is not an object
+    (e.g. a bare number, string, list, or null).
+    """
     fh = sys.stdin if path == "-" else open(path, encoding="utf-8")
     try:
-        for line in fh:
-            line = line.strip()
-            if line:
-                yield json.loads(line)
+        for line_number, raw_line in enumerate(fh, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise JsonlInputError(line_number, str(exc)) from exc
+            if not isinstance(parsed, dict):
+                raise JsonlInputError(
+                    line_number,
+                    f"top-level value must be a JSON object, got {type(parsed).__name__}",
+                )
+            yield parsed
     finally:
         if fh is not sys.stdin:
             fh.close()
@@ -245,11 +276,22 @@ def import_jsonl(
     skip_kg: bool = False,
     dry_run: bool = False,
     wing_override: Optional[str] = None,
+    records: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Import drawers and KG triples from a JSONL export file.
 
+    *records*, when given, is used instead of re-reading *path* — callers that must
+    validate input before opening store/KG state (e.g. the CLI) parse once with
+    :func:`read_jsonl` and pass the result here, which also lets stdin be consumed
+    exactly once. When *records* is None, the whole file is parsed upfront so a
+    malformed line raises :class:`JsonlInputError` before any drawer or KG write
+    happens (all-or-nothing on malformed input).
+
     Returns summary: {imported_drawers, skipped_duplicates, imported_triples, warnings}.
     """
+    if records is None:
+        records = list(read_jsonl(path))
+
     imported_drawers = 0
     skipped_duplicates = 0
     imported_triples = 0
@@ -258,7 +300,7 @@ def import_jsonl(
     header_seen = False
     no_header_warned = False
 
-    for record in read_jsonl(path):
+    for record in records:
         rtype = record.get("type")
 
         if rtype == "export_header":

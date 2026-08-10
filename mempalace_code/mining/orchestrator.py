@@ -348,6 +348,11 @@ def mine(
     kg=None,
     skip_optimize: bool = False,
     spellcheck: bool = False,
+    skip_invalid_source_symlinks: bool = False,
+    symlink_diagnostics: Optional[list] = None,
+    kg_path: Optional[str] = None,
+    collection=None,
+    warmup: bool = True,
 ):
     """Mine a project directory into the palace.
 
@@ -365,6 +370,21 @@ def mine(
     When *skip_optimize* is True, post-mine storage compaction is skipped.  Callers
     (e.g. the watcher) that run many mine() calls in sequence should skip optimize
     on each call and run a single optimize at the end.
+
+    *skip_invalid_source_symlinks* and *symlink_diagnostics* are forwarded to
+    ``scan_project()`` (opt-in, default disabled) — see its docstring.
+
+    *kg_path* is passed to ``optimize_store()`` for pre-optimize backups so that
+    scoped palace operations never archive the default global KG.  When None the
+    backup module default is used.
+
+    *collection* optionally injects an already-open drawer store.  Watchers use
+    this to keep one store (and its lazy embedder) for their full lifecycle.
+    Standalone callers retain the existing behavior when it is omitted.
+
+    When *warmup* is False, mining uses the injected store without explicitly
+    warming its embedding model.  This is for callers that have already warmed
+    the same lifecycle-owned store.
     """
 
     project_path = Path(project_dir).expanduser().resolve()
@@ -389,6 +409,8 @@ def mine(
         include_ignored=include_ignored,
         scan_rules=scan_rules,
         hard_exclude_dirs=_scan_hard_exclude_dirs(project_path, palace_path),
+        skip_invalid_source_symlinks=skip_invalid_source_symlinks,
+        symlink_diagnostics=symlink_diagnostics,
     )
     if limit > 0:
         files = files[:limit]
@@ -412,20 +434,74 @@ def mine(
         print(f"  Include: {', '.join(sorted(normalize_include_paths(include_ignored)))}")
     print(f"{'─' * 55}\n")
 
-    if not dry_run:
-        print("  Loading embedding model...", flush=True)
-        collection = get_collection(palace_path)
-        collection.warmup()
-        print("  Model ready.\n", flush=True)
-        existing_hashes = _bulk_existing_file_hashes(collection, wing)
-        # Tiny files produce no drawers so their hashes live in a sidecar. Load it
-        # for incremental runs; start fresh for full rebuilds so the sidecar is
-        # rebuilt from scratch.
-        tiny_hashes: dict = _load_tiny_hashes(palace_path, wing) if incremental else {}
-    else:
+    # Pre-compute file hashes for no-op detection in incremental mode.
+    # Running before warmup lets a true no-op skip the embedding model entirely.
+    _precomputed_hashes: dict = {}  # {source_file_str: hash} — populated below when useful
+    existing_hashes: dict = {}
+    tiny_hashes: dict = {}
+    _hashes_loaded = False  # True when hashes were already fetched for the main loop
+
+    if dry_run:
         collection = None
-        existing_hashes = {}
-        tiny_hashes = {}
+    elif collection is None:
+        collection = get_collection(palace_path)
+    embedder_warmed = False
+
+    if not dry_run and incremental and limit == 0:
+        for _f in files:
+            _precomputed_hashes[str(_f)] = _file_hash(_f)
+        existing_hashes = _bulk_existing_file_hashes(collection, wing)
+        tiny_hashes = _load_tiny_hashes(palace_path, wing)
+        _hashes_loaded = True
+        _walked_set = set(_precomputed_hashes.keys())
+        _any_changed = any(
+            not (
+                (existing_hashes.get(sf, "") == h and existing_hashes.get(sf, "") != "")
+                or (tiny_hashes.get(sf, "") == h and tiny_hashes.get(sf, "") != "")
+            )
+            for sf, h in _precomputed_hashes.items()
+        )
+        _any_deleted = bool((set(existing_hashes.keys()) | set(tiny_hashes.keys())) - _walked_set)
+        if not _any_changed and not _any_deleted:
+            elapsed = time.time() - mine_start
+            mins, secs = divmod(int(elapsed), 60)
+            _tiny_count = sum(
+                1
+                for sf, h in _precomputed_hashes.items()
+                if tiny_hashes.get(sf, "") == h and tiny_hashes.get(sf, "") != ""
+            )
+            _skip_count = len(_walked_set) - _tiny_count
+            print(f"\n{'=' * 55}")
+            print("  Done. (incremental — no changes detected)")
+            print(f"  Files skipped (already filed): {_skip_count}")
+            if _tiny_count:
+                print(f"  Files too small to index: {_tiny_count}")
+            print("  Drawers filed: 0")
+            print(f"  Time: {mins}m {secs}s")
+            print(f"{'=' * 55}\n")
+            return {
+                "files_processed": 0,
+                "files_skipped": _skip_count,
+                "files_tiny": _tiny_count,
+                "drawers_filed": 0,
+                "elapsed_secs": elapsed,
+                "embedder_warmed": False,
+            }
+
+    if not dry_run:
+        assert collection is not None
+        if warmup:
+            print("  Loading embedding model...", flush=True)
+            collection.warmup()
+            embedder_warmed = True
+            print("  Model ready.\n", flush=True)
+        if not _hashes_loaded:
+            existing_hashes = _bulk_existing_file_hashes(collection, wing)
+            # Tiny files produce no drawers so their hashes live in a sidecar. Load it
+            # for incremental runs; start fresh for full rebuilds so the sidecar is
+            # rebuilt from scratch.
+            tiny_hashes = _load_tiny_hashes(palace_path, wing) if incremental else {}
+    # else: dry-run — existing_hashes and tiny_hashes stay {}
 
     total_drawers = 0
     files_skipped = 0
@@ -482,7 +558,7 @@ def mine(
                     flush=True,
                 )
 
-            current_hash = _file_hash(filepath)
+            current_hash = _precomputed_hashes.get(source_file) or _file_hash(filepath)
 
             if incremental:
                 stored_hash = existing_hashes.get(source_file, "")
@@ -611,7 +687,9 @@ def mine(
                     if backup_first:
                         print("  >> Backing up before optimize...", flush=True)
                     print("  >> Optimizing storage...", end="", flush=True)
-                    result = optimize_store(collection, palace_path, backup_first=backup_first)
+                    result = optimize_store(
+                        collection, palace_path, backup_first=backup_first, kg_path=kg_path
+                    )
                     if result.ok:
                         print(f" done ({time.time() - t0:.1f}s)", flush=True)
                     else:
@@ -653,6 +731,7 @@ def mine(
         "files_tiny": files_tiny,
         "drawers_filed": total_drawers,
         "elapsed_secs": elapsed,
+        "embedder_warmed": embedder_warmed,
     }
 
 
@@ -669,8 +748,15 @@ def _fmt_bytes(n: int | float) -> str:
     return f"{n:.1f} TB"
 
 
-def status(palace_path: str):
-    """Show what's been filed in the palace."""
+def status(palace_path: str, summary: bool = False):
+    """Show what's been filed in the palace.
+
+    When *summary* is True, print only a fixed set of bounded metrics
+    (drawer count, wing count, room-pair count, plus storage/version
+    metrics) instead of enumerating every wing/room pair. Output size then
+    stays constant regardless of taxonomy cardinality, unlike the default
+    detailed report below.
+    """
     from ..storage import LanceStore
 
     lance_dir = os.path.join(palace_path, "lance")
@@ -690,14 +776,24 @@ def status(palace_path: str):
     total = store.count()
     wing_rooms = store.count_by_pair("wing", "room")
 
-    print(f"\n{'=' * 55}")
-    print(f"  MemPalace Status — {total} drawers")
-    print(f"{'=' * 55}\n")
-    for wing, rooms in sorted(wing_rooms.items()):
-        print(f"  WING: {wing}")
-        for room, count in sorted(rooms.items(), key=lambda x: x[1], reverse=True):
-            print(f"    ROOM: {room:20} {count:5} drawers")
-        print()
+    if summary:
+        wing_count = len(wing_rooms)
+        room_pair_count = sum(len(rooms) for rooms in wing_rooms.values())
+        print(f"\n{'=' * 55}")
+        print("  MemPalace Status Summary")
+        print(f"{'=' * 55}\n")
+        print(f"  Drawers: {total}")
+        print(f"  Wings: {wing_count}")
+        print(f"  Room pairs: {room_pair_count}")
+    else:
+        print(f"\n{'=' * 55}")
+        print(f"  MemPalace Status — {total} drawers")
+        print(f"{'=' * 55}\n")
+        for wing, rooms in sorted(wing_rooms.items()):
+            print(f"  WING: {wing}")
+            for room, count in sorted(rooms.items(), key=lambda x: x[1], reverse=True):
+                print(f"    ROOM: {room:20} {count:5} drawers")
+            print()
 
     if isinstance(store, LanceStore):
         try:

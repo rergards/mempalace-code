@@ -9,6 +9,7 @@ from ..config import MempalaceConfig
 
 def cmd_search(args):
     from ..searcher import SearchError, search
+    from ..taxonomy_filters import TaxonomyValidationError, format_cli_lines
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
     try:
@@ -19,6 +20,10 @@ def cmd_search(args):
             room=args.room,
             n_results=args.results,
         )
+    except TaxonomyValidationError as e:
+        for line in format_cli_lines(e.payload):
+            print(line, file=sys.stderr)
+        sys.exit(2)
     except SearchError:
         sys.exit(1)
 
@@ -184,6 +189,12 @@ def cmd_read(args):
     result = read_slice(store, args.source_file, args.start, args.end, wing=args.wing)
 
     error = result.get("error")
+    if error in ("unknown_wing", "unknown_room", "unknown_wing_room"):
+        from ..taxonomy_filters import format_cli_lines
+
+        for line in format_cli_lines(result):
+            print(line, file=sys.stderr)
+        sys.exit(2)
     if error == "not_found":
         print(
             f"\n  Not found: no palace chunks for '{result.get('source_file', args.source_file)}'",

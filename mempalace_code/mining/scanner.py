@@ -1,17 +1,20 @@
 """mining.scanner — Project filesystem scan: gitignore, skip rules, file discovery."""
 
+from __future__ import annotations
+
 import fnmatch
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
 from ..config import MempalaceConfig
 from ..language_catalog import known_filenames, readable_extensions
 
-KNOWN_FILENAMES = known_filenames()
-READABLE_EXTENSIONS = readable_extensions()
+KNOWN_FILENAMES: set[str] = known_filenames()
+READABLE_EXTENSIONS: set[str] = readable_extensions()
 
-SKIP_DIRS = {
+SKIP_DIRS: set[str] = {
     ".git",
     "node_modules",
     "__pycache__",
@@ -41,7 +44,7 @@ SKIP_DIRS = {
     ".terraform",
 }
 
-SKIP_FILENAMES = {
+SKIP_FILENAMES: set[str] = {
     "mempalace.yaml",
     "mempalace.yml",
     "mempal.yaml",
@@ -57,15 +60,24 @@ SKIP_FILENAMES = {
 # =============================================================================
 
 
+class GitignoreRule(TypedDict):
+    """One parsed .gitignore line."""
+
+    pattern: str
+    anchored: bool
+    dir_only: bool
+    negated: bool
+
+
 class GitignoreMatcher:
     """Lightweight matcher for one directory's .gitignore patterns."""
 
-    def __init__(self, base_dir: Path, rules: list):
+    def __init__(self, base_dir: Path, rules: list[GitignoreRule]) -> None:
         self.base_dir = base_dir
         self.rules = rules
 
     @classmethod
-    def from_dir(cls, dir_path: Path):
+    def from_dir(cls, dir_path: Path) -> GitignoreMatcher | None:
         gitignore_path = dir_path / ".gitignore"
         if not gitignore_path.is_file():
             return None
@@ -75,7 +87,7 @@ class GitignoreMatcher:
         except Exception:
             return None
 
-        rules = []
+        rules: list[GitignoreRule] = []
         for raw_line in lines:
             line = raw_line.strip()
             if not line:
@@ -115,7 +127,7 @@ class GitignoreMatcher:
 
         return cls(dir_path, rules)
 
-    def matches(self, path: Path, is_dir: bool | None = None):
+    def matches(self, path: Path, is_dir: bool | None = None) -> bool | None:
         try:
             relative = path.relative_to(self.base_dir).as_posix().strip("/")
         except ValueError:
@@ -127,13 +139,13 @@ class GitignoreMatcher:
         if is_dir is None:
             is_dir = path.is_dir()
 
-        ignored = None
+        ignored: bool | None = None
         for rule in self.rules:
             if self._rule_matches(rule, relative, is_dir):
                 ignored = not rule["negated"]
         return ignored
 
-    def _rule_matches(self, rule: dict, relative: str, is_dir: bool) -> bool:
+    def _rule_matches(self, rule: GitignoreRule, relative: str, is_dir: bool) -> bool:
         pattern = rule["pattern"]
         parts = relative.split("/")
         pattern_parts = pattern.split("/")
@@ -151,7 +163,7 @@ class GitignoreMatcher:
 
         return any(fnmatch.fnmatch(part, pattern) for part in parts)
 
-    def _match_from_root(self, target_parts: list, pattern_parts: list) -> bool:
+    def _match_from_root(self, target_parts: list[str], pattern_parts: list[str]) -> bool:
         def matches(path_index: int, pattern_index: int) -> bool:
             if pattern_index == len(pattern_parts):
                 return True
@@ -173,14 +185,17 @@ class GitignoreMatcher:
         return matches(0, 0)
 
 
-def load_gitignore_matcher(dir_path: Path, cache: dict):
+GitignoreMatcherCache: TypeAlias = dict[Path, GitignoreMatcher | None]
+
+
+def load_gitignore_matcher(dir_path: Path, cache: GitignoreMatcherCache) -> GitignoreMatcher | None:
     """Load and cache one directory's .gitignore matcher."""
     if dir_path not in cache:
         cache[dir_path] = GitignoreMatcher.from_dir(dir_path)
     return cache[dir_path]
 
 
-def is_gitignored(path: Path, matchers: list, is_dir: bool = False) -> bool:
+def is_gitignored(path: Path, matchers: list[GitignoreMatcher], is_dir: bool = False) -> bool:
     """Apply active .gitignore matchers in ancestor order; last match wins."""
     ignored = False
     for matcher in matchers:
@@ -190,7 +205,7 @@ def is_gitignored(path: Path, matchers: list, is_dir: bool = False) -> bool:
     return ignored
 
 
-_DOTNET_MARKERS = (
+_DOTNET_MARKERS: tuple[str, ...] = (
     "*.sln",
     "*.csproj",
     "*.fsproj",
@@ -216,9 +231,12 @@ def should_skip_dir(dirname: str) -> bool:
     return dirname in SKIP_DIRS or dirname.endswith(".egg-info")
 
 
-def normalize_include_paths(include_ignored: list | None) -> set:
+IncludePaths: TypeAlias = Iterable[str]
+
+
+def normalize_include_paths(include_ignored: IncludePaths | None) -> set[str]:
     """Normalize comma-parsed include paths into project-relative POSIX strings."""
-    normalized = set()
+    normalized: set[str] = set()
     for raw_path in include_ignored or []:
         candidate = str(raw_path).strip().strip("/")
         if candidate:
@@ -226,7 +244,7 @@ def normalize_include_paths(include_ignored: list | None) -> set:
     return normalized
 
 
-def is_exact_force_include(path: Path, project_path: Path, include_paths: set) -> bool:
+def is_exact_force_include(path: Path, project_path: Path, include_paths: set[str]) -> bool:
     """Return True when a path exactly matches an explicit include override."""
     if not include_paths:
         return False
@@ -239,7 +257,7 @@ def is_exact_force_include(path: Path, project_path: Path, include_paths: set) -
     return relative in include_paths
 
 
-def is_force_included(path: Path, project_path: Path, include_paths: set) -> bool:
+def is_force_included(path: Path, project_path: Path, include_paths: set[str]) -> bool:
     """Return True when a path or one of its ancestors/descendants was explicitly included."""
     if not include_paths:
         return False
@@ -263,9 +281,9 @@ def is_force_included(path: Path, project_path: Path, include_paths: set) -> boo
     return False
 
 
-def normalize_hard_exclude_dirs(hard_exclude_dirs: list | None) -> tuple[Path, ...]:
+def normalize_hard_exclude_dirs(hard_exclude_dirs: Iterable[str | Path] | None) -> tuple[Path, ...]:
     """Normalize absolute directory paths that must never be scanned."""
-    normalized = []
+    normalized: list[Path] = []
     for raw_path in hard_exclude_dirs or []:
         try:
             normalized.append(Path(raw_path).expanduser().resolve())
@@ -293,12 +311,12 @@ def is_hard_excluded_dir(path: Path, hard_exclude_dirs: tuple[Path, ...]) -> boo
 class ScanFilterRules(NamedTuple):
     """Immutable app-level scan exclusion rules loaded from ~/.mempalace/config.json."""
 
-    skip_dirs: frozenset  # directory basenames to exclude
-    skip_files: frozenset  # file basenames to exclude
-    skip_globs: list  # project-relative POSIX glob patterns to exclude
+    skip_dirs: frozenset[str]  # directory basenames to exclude
+    skip_files: frozenset[str]  # file basenames to exclude
+    skip_globs: list[str]  # project-relative POSIX glob patterns to exclude
 
 
-def get_scan_filter_rules(config=None) -> ScanFilterRules:
+def get_scan_filter_rules(config: MempalaceConfig | None = None) -> ScanFilterRules:
     """Return ScanFilterRules from app config (or defaults when config is None)."""
     if config is None:
         config = MempalaceConfig()
@@ -352,7 +370,7 @@ def is_scan_excluded(
     return False
 
 
-def _subtree_glob_prefix(pattern: str) -> Optional[str]:
+def _subtree_glob_prefix(pattern: str) -> str | None:
     """Return the literal directory prefix if *pattern* covers an entire subtree, else None.
 
     A pattern covers a whole subtree when:
@@ -379,6 +397,38 @@ def _subtree_glob_prefix(pattern: str) -> Optional[str]:
         if any(ch in part for ch in "*?["):
             return None
     return "/".join(parts[:star_idx]).strip("/")
+
+
+SymlinkSkipReason: TypeAlias = Literal["dangling", "not-a-file", "unreadable"]
+
+
+class SymlinkDiagnostic(TypedDict):
+    """One dropped source-file symlink, recorded when skip_invalid_source_symlinks is on."""
+
+    path: str
+    reason: SymlinkSkipReason
+
+
+def invalid_source_symlink_reason(path: Path) -> SymlinkSkipReason | None:
+    """Return a reason string when *path* is a symlinked source file that fails the guard.
+
+    Returns None for non-symlinks and for symlinks that resolve to a readable file.
+    Otherwise returns one of ``"dangling"`` (missing target), ``"not-a-file"``
+    (target is a directory or other non-file), or ``"unreadable"`` (target exists
+    and is a file but cannot be opened for a small read).
+    """
+    if not path.is_symlink():
+        return None
+    try:
+        if not path.exists():
+            return "dangling"
+        if not path.is_file():
+            return "not-a-file"
+        with open(path, "rb") as f:
+            f.read(1)
+    except OSError:
+        return "unreadable"
+    return None
 
 
 def is_dir_subtree_excluded(dir_path: Path, project_path: Path, rules: ScanFilterRules) -> bool:
@@ -412,19 +462,29 @@ def is_dir_subtree_excluded(dir_path: Path, project_path: Path, rules: ScanFilte
 def scan_project(
     project_dir: str,
     respect_gitignore: bool = True,
-    include_ignored: list | None = None,
-    scan_rules: Optional[ScanFilterRules] = None,
-    hard_exclude_dirs: list | None = None,
-) -> list:
-    """Return list of all readable file paths."""
+    include_ignored: IncludePaths | None = None,
+    scan_rules: ScanFilterRules | None = None,
+    hard_exclude_dirs: Iterable[str | Path] | None = None,
+    skip_invalid_source_symlinks: bool = False,
+    symlink_diagnostics: list[SymlinkDiagnostic] | None = None,
+) -> list[Path]:
+    """Return list of all readable file paths.
+
+    When *skip_invalid_source_symlinks* is True (opt-in, default disabled), a selected
+    source-file symlink is dropped when its target is missing, is not a file, or cannot
+    be read through the symlink path. Valid symlinks keep their symlink path (not resolved
+    to their target) and regular files are never affected by this guard. When
+    *symlink_diagnostics* is provided, each dropped symlink appends a
+    ``{"path": str, "reason": str}`` entry.
+    """
     project_path = Path(project_dir).expanduser().resolve()
     hard_exclude_paths = normalize_hard_exclude_dirs(hard_exclude_dirs)
     if is_hard_excluded_dir(project_path, hard_exclude_paths):
         return []
 
-    files = []
-    active_matchers = []
-    matcher_cache = {}
+    files: list[Path] = []
+    active_matchers: list[GitignoreMatcher] = []
+    matcher_cache: GitignoreMatcherCache = {}
     include_paths = normalize_include_paths(include_ignored)
     dotnet_project = _is_dotnet_project(project_path)
 
@@ -485,6 +545,12 @@ def scan_project(
                     continue
             if respect_gitignore and active_matchers and not force_include:
                 if is_gitignored(filepath, active_matchers, is_dir=False):
+                    continue
+            if skip_invalid_source_symlinks:
+                reason = invalid_source_symlink_reason(filepath)
+                if reason is not None:
+                    if symlink_diagnostics is not None:
+                        symlink_diagnostics.append({"path": str(filepath), "reason": reason})
                     continue
             files.append(filepath)
     return files

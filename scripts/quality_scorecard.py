@@ -45,7 +45,7 @@ import sys
 import tokenize
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 PACKAGE_DIR = "mempalace_code"
 TESTS_DIR = "tests"
 # Excluded everywhere: negative fixtures intentionally contain bad suppressions
@@ -75,6 +75,11 @@ _KNOWN_SUITES = (
     ("cli", "tests/test_cli.py", "CLI command tests"),
     ("cli_e2e", "tests/test_e2e.py", "End-to-end CLI workflow tests"),
     ("cli_command_modules", "tests/test_cli_command_modules.py", "CLI command module tests"),
+    (
+        "cli_golden_scenarios",
+        "tests/test_cli_golden_scenarios.py",
+        "Subprocess-level golden CLI workflow scenarios",
+    ),
     ("mcp_server", "tests/test_mcp_server.py", "MCP server handler tests"),
     ("mcp_stdio", "tests/test_stdio.py", "MCP stdio transport tests"),
     ("mcp_tool_profiles", "tests/test_mcp_tool_profiles.py", "MCP tool profile tests"),
@@ -106,9 +111,12 @@ _VERIFICATION_COMMANDS = (
     ("typecheck_strict_slice", "python -m pyright -p pyrightconfig.strict.json"),
     ("public_safety", "python scripts/public_safety_scan.py --tracked --staged"),
     ("scorecard", "python scripts/quality_scorecard.py --check"),
+    ("architecture_guard", "python scripts/architecture_guard.py --root ."),
 )
 
 _PUBLIC_SAFETY_MODULE = None
+_PERF_BUDGETS_MODULE = None
+PERF_BUDGET_ARTIFACT_RELPATH = "benchmarks/demo_perf_budgets.json"
 
 
 def repo_root() -> Path:
@@ -129,6 +137,27 @@ def _public_safety_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     _PUBLIC_SAFETY_MODULE = module
+    return module
+
+
+def _perf_budgets_module():
+    """Load sibling benchmarks/demo_perf_budgets.py — schema/comparison logic only.
+
+    This never runs a benchmark measurement; it only reuses the module's stdlib-only
+    ``load_and_validate_artifact``/``budget_for``/``METRIC_NAMES`` so the scorecard's
+    validation stays byte-identical to the CI gate's own validation.
+    """
+    global _PERF_BUDGETS_MODULE
+    if _PERF_BUDGETS_MODULE is not None:
+        return _PERF_BUDGETS_MODULE
+    module_path = Path(__file__).resolve().parent.parent / "benchmarks" / "demo_perf_budgets.py"
+    spec = importlib.util.spec_from_file_location("_mempalace_demo_perf_budgets", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    _PERF_BUDGETS_MODULE = module
     return module
 
 
@@ -362,10 +391,10 @@ def collect_public_safety_coverage() -> dict:
 
 def collect_demo_gates(root: Path) -> dict:
     """Public-demo gate metrics via file-presence and AST reads only — no subprocess."""
-    # architecture_guard: future guard script
+    # architecture_guard: stdlib AST import-boundary guard script
     arch_status = "present" if (root / "scripts" / "architecture_guard.py").exists() else "absent"
 
-    # cli_golden_scenarios: count from future golden scenario test file
+    # cli_golden_scenarios: test-function count from the golden scenario suite
     cli_golden_path = root / "tests" / "test_cli_golden_scenarios.py"
     cli_golden_present = cli_golden_path.exists()
     cli_golden_count = _count_test_functions(cli_golden_path) if cli_golden_present else 0
@@ -375,9 +404,25 @@ def collect_demo_gates(root: Path) -> dict:
     mcp_count = _count_class_test_methods(mcp_server_path, "TestMCPStdioContracts")
     mcp_status = "present" if mcp_count > 0 else "absent"
 
-    # docs_drift_guard: future docs drift guard script
+    # docs_drift_guard: static package-to-documentation consistency guard
     docs_drift_status = (
         "present" if (root / "scripts" / "docs_drift_guard.py").exists() else "absent"
+    )
+    # Static coverage list — kept in sync by hand with the check categories
+    # scripts/docs_drift_guard.py implements (CLI inventory, MCP tools/profiles,
+    # optional extras, release/dependency gates, canonical verification
+    # commands). No AST introspection of the guard itself; this is a fixed,
+    # deterministic label list, empty when the guard is absent.
+    docs_drift_coverage = (
+        [
+            "cli_commands",
+            "mcp_tools_and_profiles",
+            "optional_extras",
+            "release_and_dependency_gates",
+            "verification_commands",
+        ]
+        if docs_drift_status == "present"
+        else []
     )
 
     # dependency_audit: both gate script and workflow must exist
@@ -392,8 +437,43 @@ def collect_demo_gates(root: Path) -> dict:
             "status": "present" if cli_golden_present else "absent",
         },
         "dependency_audit": {"status": dep_status},
-        "docs_drift_guard": {"status": docs_drift_status},
+        "docs_drift_guard": {"status": docs_drift_status, "coverage": docs_drift_coverage},
         "mcp_stdio_contracts": {"count": mcp_count, "status": mcp_status},
+    }
+
+
+def collect_performance_budgets(root: Path) -> dict:
+    """Read + validate the committed synthetic performance-budget artifact.
+
+    Never executes a benchmark — reads ``benchmarks/demo_perf_budgets.json`` and
+    reuses the runner module's own schema/comparison logic so this stays
+    byte-identical to what ``--check --ci`` itself validates.
+    """
+    mod = _perf_budgets_module()
+    artifact_path = root / PERF_BUDGET_ARTIFACT_RELPATH
+    data, errors = mod.load_and_validate_artifact(artifact_path)
+    if data is None:
+        return {"valid": False, "errors": errors, "metrics": []}
+
+    metrics = []
+    for name in mod.METRIC_NAMES:
+        m = data["metrics"][name]
+        metrics.append(
+            {
+                "name": name,
+                "unit": m["unit"],
+                "before": m["before"],
+                "current": m["baseline"],
+                "budget": mod.budget_for(m["baseline"], m["floor"], m["ratio"]),
+                "comparison": m["comparison"],
+            }
+        )
+    return {
+        "valid": True,
+        "errors": [],
+        "budget_changed_because": data["budget_changed_because"],
+        "fixture_file_count": data["fixture"]["file_count"],
+        "metrics": metrics,
     }
 
 
@@ -408,6 +488,7 @@ def build_scorecard(root: Path) -> dict:
         "code_size": collect_code_size(root),
         "demo_gates": collect_demo_gates(root),
         "largest_modules": collect_largest_modules(root),
+        "performance_budgets": collect_performance_budgets(root),
         "public_safety": collect_public_safety_coverage(),
         "ruff": collect_ruff(pyproject),
         "pyright": pyright_data,
@@ -519,6 +600,37 @@ def render_markdown(data: dict) -> str:
         _count = str(_gate["count"]) if "count" in _gate else ""
         lines.append(f"| {_gate_key} | {_status} | {_count} |")
     lines.append("")
+    _docs_drift_coverage = demo.get("docs_drift_guard", {}).get("coverage", [])
+    if _docs_drift_coverage:
+        lines.append(
+            "`docs_drift_guard` coverage: " + ", ".join(f"`{c}`" for c in _docs_drift_coverage)
+        )
+        lines.append("")
+
+    pb = data["performance_budgets"]
+    lines.append("## Performance Budgets")
+    lines.append("")
+    lines.append(
+        "Deterministic synthetic performance budgets for mine, incremental no-op, "
+        "search, read, and maintenance, read from "
+        f"`{PERF_BUDGET_ARTIFACT_RELPATH}` (never executed by the scorecard). CI enforces "
+        "the hard budgets with `python benchmarks/demo_perf_budgets.py --check --ci`."
+    )
+    lines.append("")
+    if not pb["valid"]:
+        lines.append(f"**Artifact invalid**: {'; '.join(pb['errors'])}")
+        lines.append("")
+    else:
+        lines.append(f"Current baseline reason: {pb['budget_changed_because']}")
+        lines.append("")
+        lines.append("| Metric | Unit | Before | Current | Budget |")
+        lines.append("|--------|:----:|-------:|--------:|-------:|")
+        for m in pb["metrics"]:
+            _before = "baseline absent" if m["before"] is None else f"{m['before']:.4f}"
+            lines.append(
+                f"| {m['name']} | {m['unit']} | {_before} | {m['current']:.4f} | {m['budget']:.4f} |"
+            )
+        lines.append("")
 
     lines.append("## Suppressions")
     lines.append("")
@@ -674,6 +786,43 @@ def validate(data: dict) -> list[str]:
                     and gates[_count_gate].get("count", -1) >= 0,
                     f"demo_gates.{_count_gate}.count must be a non-negative int",
                 )
+        if isinstance(gates.get("docs_drift_guard"), dict):
+            coverage = gates["docs_drift_guard"].get("coverage")
+            require(
+                isinstance(coverage, list) and all(isinstance(c, str) for c in coverage),
+                "demo_gates.docs_drift_guard.coverage must be a list of str",
+            )
+
+    pb = data.get("performance_budgets", {})
+    require(isinstance(pb, dict), "performance_budgets must be a dict")
+    if isinstance(pb, dict):
+        require(isinstance(pb.get("valid"), bool), "performance_budgets.valid must be a bool")
+        if pb.get("valid") is True:
+            metrics = pb.get("metrics")
+            require(
+                isinstance(metrics, list) and len(metrics) > 0,
+                "performance_budgets.metrics must be a non-empty list when valid",
+            )
+            if isinstance(metrics, list):
+                for m in metrics:
+                    require(
+                        isinstance(m, dict)
+                        and isinstance(m.get("name"), str)
+                        and isinstance(m.get("unit"), str)
+                        and isinstance(m.get("current"), (int, float))
+                        and isinstance(m.get("budget"), (int, float)),
+                        "each performance_budgets.metrics entry needs name/unit/current/budget",
+                    )
+            require(
+                isinstance(pb.get("budget_changed_because"), str)
+                and pb.get("budget_changed_because", "").strip() != "",
+                "performance_budgets.budget_changed_because must be a non-empty string when valid",
+            )
+        elif pb.get("valid") is False:
+            require(
+                isinstance(pb.get("errors"), list) and len(pb["errors"]) > 0,
+                "performance_budgets.errors must be a non-empty list when invalid",
+            )
 
     sup = data.get("suppressions", {})
     for key in (

@@ -2,7 +2,78 @@ import json
 import os
 import tempfile
 
-from mempalace_code.config import MempalaceConfig
+from mempalace_code.config import (
+    DEFAULT_HALL_KEYWORDS,
+    DEFAULT_PALACE_PATH,
+    DEFAULT_TOPIC_WINGS,
+    MempalaceConfig,
+)
+
+
+def test_malformed_config_json_falls_back_to_empty_file_config():
+    """INV-1: invalid JSON syntax in config.json falls back to an empty file payload,
+    not a crash — every property still resolves to its default."""
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        f.write("{not valid json,,,")
+    cfg = MempalaceConfig(config_dir=tmpdir)
+    assert cfg.palace_path == DEFAULT_PALACE_PATH
+    assert cfg.collection_name == "mempalace_drawers"
+    assert cfg.hall_keywords == DEFAULT_HALL_KEYWORDS
+    assert cfg.topic_wings == DEFAULT_TOPIC_WINGS
+
+
+def test_hall_keywords_default_and_file_override():
+    """hall_keywords returns the built-in defaults, or the file override when present."""
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.hall_keywords == DEFAULT_HALL_KEYWORDS
+    assert "emotions" in cfg.hall_keywords
+
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"hall_keywords": {"custom": ["alpha", "beta"]}}, f)
+    cfg2 = MempalaceConfig(config_dir=tmpdir)
+    assert cfg2.hall_keywords == {"custom": ["alpha", "beta"]}
+
+
+def test_topic_wings_default_and_file_override():
+    """topic_wings returns the built-in defaults, or the file override when present."""
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.topic_wings == DEFAULT_TOPIC_WINGS
+
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"topic_wings": ["custom_wing"]}, f)
+    cfg2 = MempalaceConfig(config_dir=tmpdir)
+    assert cfg2.topic_wings == ["custom_wing"]
+
+
+def test_people_map_defaults_to_empty_without_file():
+    """people_map is an empty dict when neither people_map.json nor a file-config key exists."""
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.people_map == {}
+
+
+def test_people_map_reads_dedicated_file_over_config_key():
+    """people_map.json, when present, wins over a people_map key in config.json."""
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"people_map": {"stale": "from-config-json"}}, f)
+    with open(os.path.join(tmpdir, "people_map.json"), "w") as f:
+        json.dump({"fresh": "from-dedicated-file"}, f)
+    cfg = MempalaceConfig(config_dir=tmpdir)
+    assert cfg.people_map == {"fresh": "from-dedicated-file"}
+
+
+def test_people_map_malformed_dedicated_file_falls_back_to_config_key():
+    """A corrupt people_map.json falls back to the people_map key in config.json."""
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"people_map": {"fallback": "value"}}, f)
+    with open(os.path.join(tmpdir, "people_map.json"), "w") as f:
+        f.write("{not valid json")
+    cfg = MempalaceConfig(config_dir=tmpdir)
+    assert cfg.people_map == {"fallback": "value"}
 
 
 def test_default_config():

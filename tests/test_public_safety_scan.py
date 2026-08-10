@@ -148,3 +148,18 @@ def test_committed_vs_tracked_deleted_worktree(tmp_path, capsys):
     assert ps.main(["--repo-root", str(repo), "--committed"]) == 1
     err = capsys.readouterr().err
     assert "local-only-artifact-path" in err
+
+
+def test_committed_and_tracked_combined_report_separate_source_findings(tmp_path, capsys):
+    token = "gh" + "p_" + "C" * 30
+    repo = _init_repo_with_commit(tmp_path, {"leak.txt": token + "\n"})
+
+    assert ps.main(["--repo-root", str(repo), "--committed", "--tracked"]) == 1
+    err = capsys.readouterr().err
+
+    assert "committed:leak.txt" in err
+    assert "tracked:leak.txt" in err
+    assert "staged:leak.txt" not in err
+    assert "github-token-prefix" in err
+    assert token not in err
+    assert err.count(":leak.txt") == 2

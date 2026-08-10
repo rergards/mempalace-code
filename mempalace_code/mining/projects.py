@@ -34,10 +34,46 @@ PROJECT_MARKER_GLOBS = ["*.sln", "*.csproj"]
 INIT_MARKERS = frozenset(["mempalace.yaml", "mempal.yaml"])
 
 
-def load_config(project_dir: str) -> dict:
-    """Load mempalace.yaml from project directory (falls back to mempal.yaml)."""
+class InvalidProjectConfigError(ValueError):
+    """Raised when mempalace.yaml/mempal.yaml cannot be parsed or is not a mapping.
+
+    Attributes:
+        code: stable machine-testable error code ("invalid_project_config").
+        config_path: path to the offending config file.
+    """
+
+    code = "invalid_project_config"
+
+    def __init__(self, config_path, detail: str):
+        self.config_path = config_path
+        self.detail = detail
+        super().__init__(f"cannot parse {config_path}: {detail}")
+
+
+def _load_yaml_mapping(config_path: Path) -> dict:
+    """Load *config_path* as YAML and validate its top-level content is a mapping.
+
+    Returns an empty dict for an empty file. Raises InvalidProjectConfigError (a
+    ValueError subclass) when the file cannot be parsed or its top-level content
+    is not a mapping (e.g. a list or scalar).
+    """
     import yaml
 
+    try:
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise InvalidProjectConfigError(config_path, str(exc)) from exc
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise InvalidProjectConfigError(
+            config_path, f"top-level content must be a mapping, got {type(data).__name__}"
+        )
+    return data
+
+
+def load_config(project_dir: str) -> dict:
+    """Load mempalace.yaml from project directory (falls back to mempal.yaml)."""
     config_path = Path(project_dir).expanduser().resolve() / "mempalace.yaml"
     if not config_path.exists():
         # Fallback to legacy name
@@ -48,8 +84,7 @@ def load_config(project_dir: str) -> dict:
             print(f"ERROR: No mempalace.yaml found in {project_dir}")
             print(f"Run: mempalace-code init {project_dir}")
             sys.exit(1)
-    with open(config_path) as f:
-        return yaml.safe_load(f)
+    return _load_yaml_mapping(config_path)
 
 
 def _tokenize(text: str) -> list[str]:
@@ -261,26 +296,21 @@ def resolve_wing_for_project(project_dir: str) -> str:
     2. Git origin repo name, via :func:`derive_wing_name`.
     3. Normalized folder name, via :func:`derive_wing_name`.
 
-    Raises :class:`ValueError` if a config file exists but cannot be parsed
-    (e.g. invalid YAML), so callers can report the error rather than silently
+    Raises :class:`InvalidProjectConfigError` (a :class:`ValueError` subclass) if a
+    config file exists but cannot be parsed (e.g. invalid YAML) or its top-level
+    content is not a mapping, so callers can report the error rather than silently
     falling back to an unrelated wing name.
     """
-    import yaml
-
     project_path = Path(project_dir).expanduser().resolve()
 
     for config_name in ("mempalace.yaml", "mempal.yaml"):
         config_path = project_path / config_name
         if not config_path.exists():
             continue
-        try:
-            config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            raise ValueError(f"cannot parse {config_path}: {exc}") from exc
-        if isinstance(config, dict):
-            wing = config.get("wing", "")
-            if wing and isinstance(wing, str) and wing.strip():
-                return _normalize_wing_name(wing.strip())
+        config = _load_yaml_mapping(config_path)
+        wing = config.get("wing", "")
+        if wing and isinstance(wing, str) and wing.strip():
+            return _normalize_wing_name(wing.strip())
         # config file exists but has no usable wing — stop looking, fall through
         break
 

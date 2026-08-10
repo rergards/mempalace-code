@@ -1,72 +1,83 @@
 # Gemini CLI Integration Guide
 
-This guide explains how to set up mempalace-code as a permanent memory for the [Gemini CLI](https://github.com/google/gemini-cli).
+This guide explains how to connect mempalace-code to the [Gemini CLI](https://github.com/google/gemini-cli) through MCP.
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.11+
 - Gemini CLI installed and configured
 
 ## 1. Installation
 
-On many Linux systems, installing Python packages globally is restricted. We recommend using a local virtual environment within the mempalace-code directory.
+On many Linux systems, installing Python packages globally is restricted. Use an isolated virtual environment; a source checkout is not required.
 
 ```bash
-# Clone the repository (if you haven't already)
-git clone https://github.com/rergards/mempalace-code.git
-cd mempalace-code
+# Create an isolated environment and install the released package
+python3 -m venv ~/.local/share/mempalace-code
+~/.local/share/mempalace-code/bin/pip install --upgrade pip mempalace-code
 
-# Create a virtual environment
-python3 -m venv .venv
-
-# Install dependencies and mempalace-code in editable mode
-.venv/bin/pip install -e .
+# Reuse these paths in the commands below (run them in this shell)
+export MPALACE=~/.local/share/mempalace-code/bin/mempalace-code
+export MPALACE_PYTHON=~/.local/share/mempalace-code/bin/python
 ```
 
 ## 2. Initialization
 
-Set up your "Palace" (the database) and configure your identity.
+Set up the palace, then mine the project you want the agent to search.
 
 ```bash
-# Initialize the palace in the current directory
-.venv/bin/mempalace-code init .
+# Initialize a project and cache the local embedding model if needed
+"$MPALACE" init ~/projects/my-project
+"$MPALACE" mine ~/projects/my-project
 ```
 
-### Identity and Wings (Optional but Recommended)
-You can manually define who you are and what projects you work on by creating/editing these files in `~/.mempalace/`:
+### Optional Identity
+`mempalace-code wake-up` can include a local identity note:
 
-- **`~/.mempalace/identity.txt`**: A plain text file describing your role and focus.
-- **`~/.mempalace/wing_config.json`**: A JSON file mapping projects and name variants to "Wings".
+- **`~/.mempalace/identity.txt`**: A plain-text file describing your role and focus.
+
+Project wings come from the directory or explicit mining options. Do not create an undocumented `wing_config.json` as part of this setup.
 
 ## 3. Connect to Gemini CLI (MCP)
 
-Register mempalace-code as an MCP server so Gemini CLI can use its tools.
+Add mempalace-code to Gemini CLI's MCP settings. Edit `~/.gemini/settings.json`
+for every project, or `.gemini/settings.json` in a project for that project only.
+Merge this `mcpServers` entry into an existing JSON object; do not overwrite
+unrelated settings.
 
-```bash
-gemini mcp add mempalace-code /absolute/path/to/mempalace-code/.venv/bin/python3 -m mempalace_code.mcp_server --scope user
+```json
+{
+  "mcpServers": {
+    "mempalace-code": {
+      "command": "/absolute/path/to/mempalace-code/bin/python",
+      "args": ["-m", "mempalace_code.mcp_server"]
+    }
+  }
+}
 ```
-*Note: Use the absolute path to ensure it works from any directory.*
+
+Replace the placeholder with the absolute value of `$MPALACE_PYTHON` printed by
+your shell. An absolute Python path lets the server start from any working
+directory.
 
 ## 4. Teach Gemini When to Use Memory
 
-MCP wiring exposes the tools. To make Gemini use them proactively, add the canonical usage rules from `docs/LLM_USAGE_RULES.md` to your Gemini instruction file.
+MCP wiring exposes the tools. To make Gemini use them proactively, add the canonical usage rules from `docs/LLM_USAGE_RULES.md` to `~/.gemini/GEMINI.md` for global use or `<project>/GEMINI.md` for project use. Reload instruction context with `/memory reload` after editing a file during a session.
 
 Do not use the scripts in `hooks/` for Gemini. They are Claude Code-only legacy hooks and expect Claude Code hook events.
 
 ## 5. Usage
 
-Once connected, Gemini CLI will automatically:
-- Start the mempalace-code server on launch.
-- Use `mempalace_search` to find relevant past discussions.
-- Use the usage rules to decide when to save decisions, root causes, concise evidence, and diary notes.
+When Gemini CLI starts, it connects to the configured MCP server and discovers its tools. The usage rules determine when the agent should search or file memory; tool calls remain subject to the active model and tool policy.
 
 ### Manual Mining
 If you want the AI to learn from your existing code or docs immediately, run the "mine" command:
 ```bash
-.venv/bin/mempalace-code mine /path/to/your/project
+"$MPALACE" mine /path/to/your/project
 ```
 
 ### Verification
 In a Gemini CLI session, you can run:
 - `/mcp list`: Verify `mempalace-code` is `CONNECTED`.
-- Ask Gemini to follow `docs/LLM_USAGE_RULES.md`, then verify it can call `mempalace_status`.
+- `/memory show`: Confirm the intended `GEMINI.md` instructions are loaded.
+- Ask Gemini to follow `docs/LLM_USAGE_RULES.md`, then give it a task-specific recall question that requires `mempalace_search`.

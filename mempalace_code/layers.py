@@ -184,7 +184,7 @@ class Layer2:
     """
     ~200-500 tokens per retrieval.
     Loaded when a specific topic or wing comes up in conversation.
-    Queries ChromaDB with a wing/room filter.
+    Queries the palace drawer store with a wing/room filter.
     """
 
     def __init__(self, palace_path: str | None = None):
@@ -243,7 +243,7 @@ class Layer2:
 
 
 # ---------------------------------------------------------------------------
-# Layer 3 — Deep Search (full semantic search via ChromaDB)
+# Layer 3 — Deep Search (full semantic search via the palace drawer store)
 # ---------------------------------------------------------------------------
 
 
@@ -435,7 +435,7 @@ class MemoryStack:
                 "description": "Wing/room filtered retrieval",
             },
             "L3_deep_search": {
-                "description": "Full semantic search via ChromaDB",
+                "description": "Full semantic search via the palace drawer store",
             },
         }
 

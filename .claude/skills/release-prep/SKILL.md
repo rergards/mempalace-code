@@ -66,13 +66,12 @@ git diff "$LAST_TAG..HEAD" -- mempalace_code/miner.py mempalace_code/mining/ \
   | grep -E '^\+.*(LANG_|_chunks|parse_|tool_|language.*=.*")'
 ```
 
-**New MCP tools** — compare tool registries:
+**MCP surface changes** — verify the current public contract and inspect changed tool families:
 
 ```bash
-git show "$LAST_TAG:mempalace_code/mcp_server.py" 2>/dev/null \
-  | grep -oE '"mempalace_[a-z_]+":' | sort -u > /tmp/mcp_before.txt
-grep -oE '"mempalace_[a-z_]+":' mempalace_code/mcp_server.py | sort -u > /tmp/mcp_after.txt
-diff /tmp/mcp_before.txt /tmp/mcp_after.txt
+python scripts/docs_drift_guard.py --json
+git diff --name-status "$LAST_TAG..HEAD" -- \
+  mempalace_code/mcp/registry.py mempalace_code/mcp/tools/
 ```
 
 **Python version bumps** — scan `pyproject.toml` history for `requires-python` changes.
@@ -109,6 +108,16 @@ For each item in Step 3, verify it appears in the right docs file.
 | Any feature | `CHANGELOG.md` under the release header for this version |
 
 Report each stale location as a to-fix item. Do not assume commit messages already covered it.
+
+Run the deterministic contract check after documentation edits:
+
+```bash
+python scripts/docs_drift_guard.py
+```
+
+It verifies the package version, Python minimum, MCP tool/profile counts, LLM
+profile blocks, changelog release heading, README badge, and the canonical
+GitHub About source text in `docs/RELEASING.md`.
 
 ### Step 5: Propose version bump
 

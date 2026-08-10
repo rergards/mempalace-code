@@ -13,6 +13,7 @@ import sys
 
 from .language_catalog import searchable_languages
 from .storage import open_store
+from .taxonomy_filters import TaxonomyValidationError, validate_taxonomy_filters
 
 logger = logging.getLogger("mempalace_mcp")
 
@@ -39,6 +40,10 @@ def search(
             file=sys.stderr,
         )
         raise SearchError(f"No palace found at {palace_path}")
+
+    error_payload = validate_taxonomy_filters(palace_path, wing=wing, room=room)
+    if error_payload is not None:
+        raise TaxonomyValidationError(error_payload)
 
     try:
         store = open_store(palace_path, create=False)
@@ -127,6 +132,10 @@ def search_memories(
     Programmatic search — returns a dict instead of printing.
     Used by the MCP server and other callers that need data.
     """
+    error_payload = validate_taxonomy_filters(palace_path, wing=wing, room=room)
+    if error_payload is not None:
+        return error_payload
+
     try:
         store = open_store(palace_path, create=False)
     except Exception as e:
@@ -301,6 +310,10 @@ def code_search(
                 "error": f"Invalid symbol_type: {symbol_type!r}",
                 "valid_symbol_types": sorted(VALID_SYMBOL_TYPES),
             }
+
+    error_payload = validate_taxonomy_filters(palace_path, wing=wing)
+    if error_payload is not None:
+        return error_payload
 
     n_results = max(1, min(50, n_results))
 

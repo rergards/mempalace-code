@@ -18,19 +18,18 @@ version metadata.
 
 ### Step 1: Preflight
 
-Run the committed-tree public-safety scan before any release claim. This checks
+Run the local release preflight before any release claim. This checks
 that HEAD itself — the exact tree that will be published — contains no private
-local paths, secret-like tokens, or local-only artifact paths. Use this as the
-release-readiness check after merge and before pushing a release tag:
+local paths, secret-like tokens, or local-only artifact paths, and verifies the
+public documentation contract. Use this after merge and before pushing a release tag:
 
 ```bash
-python scripts/public_safety_scan.py --committed
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean
 ```
 
-A non-zero exit means HEAD contains a public-safety violation. Fix the
-violation, commit the fix, and re-run before proceeding. Do not bypass this
-check — the committed-tree scan is the authoritative before-release gate because
-it reads git objects directly, independent of worktree state.
+A non-zero exit means tag metadata, public documentation, public-safety, or
+worktree state is not release-ready. Fix the violation, commit the fix, and
+re-run before proceeding. Do not bypass this check.
 
 Run `/verify`. If dependency bounds, lockfiles, workflows, storage, miner, or
 optional extras changed, also run the dependency gate:
@@ -119,9 +118,11 @@ git push publish main
 git push publish vX.Y.Z
 ```
 
-The tag triggers `.github/workflows/publish.yml` and publishes to PyPI through
-trusted publishing. Do not run manual `twine upload` unless the workflow is
-unavailable and the user explicitly approves the fallback.
+The tag-only `.github/workflows/publish.yml` verifies tag/version and tag/main
+provenance, builds and checks both distributions, publishes through the
+protected trusted-publishing environment, then creates the GitHub Release. Do
+not run manual `twine upload` unless the workflow is unavailable and the user
+explicitly approves the fallback.
 
 ### Step 6: Verify Hosted Status
 

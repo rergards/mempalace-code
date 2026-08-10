@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "code_minilm": {
+    "source": "benchmarks/results_embed_ab_2026-04-09.json",
+    "model": "all-MiniLM-L6-v2",
+    "date": "2026-04-09",
+    "query_count": 20,
+    "chunk_count": 469,
+    "r_at_5": 0.95,
+    "r_at_10": 1.0
+  },
+  "dotnet_cleanarchitecture": {
+    "source": "benchmarks/dotnet_bench.py",
+    "repo": "jasontaylordev/CleanArchitecture",
+    "repo_commit": "5a600ab8749c110384bc3bd436b9c67f3067b489",
+    "measured_date": "2026-05-03",
+    "vector_r_at_5": 0.9,
+    "hybrid_r_at_5": 1.0,
+    "reproduction_command": "python benchmarks/dotnet_bench.py --repo-dir /path/to/CleanArchitecture --compare-rerank"
+  }
+}

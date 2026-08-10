@@ -4,9 +4,26 @@ MemPalace configuration system.
 Priority: env vars > config file (~/.mempalace/config.json) > defaults
 """
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+# Raw JSON payload boundary: config.json / people_map.json decode to this shape once.
+# scan_skip_* properties normalize via _normalize_scan_list, and *_enabled-style
+# properties normalize via _parse_optional_bool. collection_name, people_map,
+# topic_wings, and hall_keywords instead return this Any-typed payload cast to a
+# narrower annotation with no runtime check — a malformed config.json can produce
+# a value that mismatches the annotation undetected by strict Pyright.
+ConfigPayload: TypeAlias = dict[str, Any]
+PeopleMap: TypeAlias = dict[str, str]
+HallKeywords: TypeAlias = dict[str, list[str]]
+ScanSkipList: TypeAlias = list[str]
 
 DEFAULT_PALACE_PATH = os.path.expanduser("~/.mempalace/palace")
 DEFAULT_COLLECTION_NAME = "mempalace_drawers"
@@ -35,11 +52,11 @@ DEFAULT_VERSION_CHECK_INTERVAL_HOURS = 168  # 1 week
 # Disk-budget safety defaults
 DEFAULT_DISK_MIN_FREE_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
 
-DEFAULT_SCAN_SKIP_DIRS = [".kotlin-lsp"]
-DEFAULT_SCAN_SKIP_FILES = []
-DEFAULT_SCAN_SKIP_GLOBS = []
+DEFAULT_SCAN_SKIP_DIRS: ScanSkipList = [".kotlin-lsp"]
+DEFAULT_SCAN_SKIP_FILES: ScanSkipList = []
+DEFAULT_SCAN_SKIP_GLOBS: ScanSkipList = []
 
-DEFAULT_TOPIC_WINGS = [
+DEFAULT_TOPIC_WINGS: list[str] = [
     "emotions",
     "consciousness",
     "memory",
@@ -49,7 +66,7 @@ DEFAULT_TOPIC_WINGS = [
     "creative",
 ]
 
-DEFAULT_HALL_KEYWORDS = {
+DEFAULT_HALL_KEYWORDS: HallKeywords = {
     "emotions": [
         "scared",
         "afraid",
@@ -96,7 +113,7 @@ class MempalaceConfig:
     Load order: env vars > config file > defaults.
     """
 
-    def __init__(self, config_dir=None):
+    def __init__(self, config_dir: str | Path | None = None) -> None:
         """Initialize config.
 
         Args:
@@ -108,7 +125,7 @@ class MempalaceConfig:
         )
         self._config_file = self._config_dir / "config.json"
         self._people_map_file = self._config_dir / "people_map.json"
-        self._file_config = {}
+        self._file_config: ConfigPayload = {}
 
         if self._config_file.exists():
             try:
@@ -118,7 +135,7 @@ class MempalaceConfig:
                 self._file_config = {}
 
     @property
-    def palace_path(self):
+    def palace_path(self) -> str:
         """Path to the memory palace data directory."""
         env_val = os.environ.get("MEMPALACE_PALACE_PATH") or os.environ.get("MEMPAL_PALACE_PATH")
         if env_val:
@@ -126,12 +143,12 @@ class MempalaceConfig:
         return self._file_config.get("palace_path", DEFAULT_PALACE_PATH)
 
     @property
-    def collection_name(self):
+    def collection_name(self) -> str:
         """ChromaDB collection name."""
         return self._file_config.get("collection_name", DEFAULT_COLLECTION_NAME)
 
     @property
-    def people_map(self):
+    def people_map(self) -> PeopleMap:
         """Mapping of name variants to canonical names."""
         if self._people_map_file.exists():
             try:
@@ -142,17 +159,17 @@ class MempalaceConfig:
         return self._file_config.get("people_map", {})
 
     @property
-    def topic_wings(self):
+    def topic_wings(self) -> list[str]:
         """List of topic wing names."""
         return self._file_config.get("topic_wings", DEFAULT_TOPIC_WINGS)
 
     @property
-    def hall_keywords(self):
+    def hall_keywords(self) -> HallKeywords:
         """Mapping of hall names to keyword lists."""
         return self._file_config.get("hall_keywords", DEFAULT_HALL_KEYWORDS)
 
     @property
-    def optimize_after_mine(self):
+    def optimize_after_mine(self) -> bool:
         """Whether to run optimize() after mining. Disable to prevent compaction corruption."""
         env_val = os.environ.get("MEMPALACE_OPTIMIZE_AFTER_MINE")
         if env_val is not None:
@@ -160,7 +177,7 @@ class MempalaceConfig:
         return self._file_config.get("optimize_after_mine", DEFAULT_OPTIMIZE_AFTER_MINE)
 
     @property
-    def backup_before_optimize(self):
+    def backup_before_optimize(self) -> bool:
         """Whether to create a backup before optimize(). On by default.
 
         Priority: MEMPALACE_AUTO_BACKUP_BEFORE_OPTIMIZE env > MEMPALACE_BACKUP_BEFORE_OPTIMIZE env
@@ -180,12 +197,12 @@ class MempalaceConfig:
         return self._file_config.get("backup_before_optimize", DEFAULT_BACKUP_BEFORE_OPTIMIZE)
 
     @property
-    def auto_backup_before_optimize(self):
+    def auto_backup_before_optimize(self) -> bool:
         """Preferred alias for backup_before_optimize. Returns the same value."""
         return self.backup_before_optimize
 
     @property
-    def backup_retain_count(self):
+    def backup_retain_count(self) -> int:
         """Raw explicit/global backup retain count; use retain_count_for_kind() for defaults."""
         raw_value = os.environ.get("MEMPALACE_BACKUP_RETAIN_COUNT")
         if raw_value is None:
@@ -244,7 +261,7 @@ class MempalaceConfig:
         return self.backup_retain_count
 
     @property
-    def backup_min_free_bytes(self):
+    def backup_min_free_bytes(self) -> int:
         """Minimum free bytes required before creating a backup. 0 disables the disk guard."""
         raw_value = os.environ.get("MEMPALACE_BACKUP_MIN_FREE_BYTES")
         if raw_value is None:
@@ -258,7 +275,7 @@ class MempalaceConfig:
         return max(0, val)
 
     @property
-    def backup_warn_size_bytes(self):
+    def backup_warn_size_bytes(self) -> int:
         """Archive size above which backup list marks the entry as oversized. 0 disables."""
         raw_value = os.environ.get("MEMPALACE_BACKUP_WARN_SIZE_BYTES")
         if raw_value is None:
@@ -272,7 +289,7 @@ class MempalaceConfig:
         return max(0, val)
 
     @property
-    def backup_schedule(self):
+    def backup_schedule(self) -> str:
         """Scheduled backup frequency: off | daily | weekly | hourly."""
         env_val = os.environ.get("MEMPALACE_BACKUP_SCHEDULE")
         if env_val is not None:
@@ -280,7 +297,7 @@ class MempalaceConfig:
         return self._file_config.get("backup_schedule", DEFAULT_BACKUP_SCHEDULE)
 
     @property
-    def spellcheck_enabled(self):
+    def spellcheck_enabled(self) -> bool | None:
         """Tri-state spellcheck setting: True, False, or None for mode defaults."""
         env_val = os.environ.get("MEMPALACE_SPELLCHECK_ENABLED")
         if env_val is not None:
@@ -297,7 +314,7 @@ class MempalaceConfig:
         return DEFAULT_SPELLCHECK_ENABLED
 
     @property
-    def entity_detection(self):
+    def entity_detection(self) -> bool:
         """Whether init should run heuristic people/project detection."""
         env_val = os.environ.get("MEMPALACE_ENTITY_DETECTION")
         if env_val is not None:
@@ -312,7 +329,7 @@ class MempalaceConfig:
                 return parsed
         return DEFAULT_ENTITY_DETECTION
 
-    def _parse_bytes_config(self, raw) -> int:
+    def _parse_bytes_config(self, raw: object) -> int:
         """Parse a bytes value from int/str, falling back to DEFAULT_DISK_MIN_FREE_BYTES on error."""
         from .disk_budget import parse_bytes as _parse_bytes
 
@@ -369,7 +386,7 @@ class MempalaceConfig:
         return self.disk_min_free_bytes
 
     @property
-    def version_check_enabled(self):
+    def version_check_enabled(self) -> bool | None:
         """Tri-state version-check setting: True, False, or None (no explicit choice).
 
         Priority: MEMPALACE_VERSION_CHECK env > version_check_enabled file key > None.
@@ -408,28 +425,28 @@ class MempalaceConfig:
         return DEFAULT_VERSION_CHECK_INTERVAL_HOURS
 
     @property
-    def scan_skip_dirs(self) -> list:
+    def scan_skip_dirs(self) -> ScanSkipList:
         """Directory basenames excluded from scan_project() and watcher filtering."""
         raw = self._file_config.get("scan_skip_dirs", DEFAULT_SCAN_SKIP_DIRS)
         return _normalize_scan_list(raw, DEFAULT_SCAN_SKIP_DIRS)
 
     @property
-    def scan_skip_files(self) -> list:
+    def scan_skip_files(self) -> ScanSkipList:
         """File basenames excluded from scan_project() and watcher filtering."""
         raw = self._file_config.get("scan_skip_files", DEFAULT_SCAN_SKIP_FILES)
         return _normalize_scan_list(raw, DEFAULT_SCAN_SKIP_FILES)
 
     @property
-    def scan_skip_globs(self) -> list:
+    def scan_skip_globs(self) -> ScanSkipList:
         """Project-relative POSIX glob patterns excluded during scanning."""
         raw = self._file_config.get("scan_skip_globs", DEFAULT_SCAN_SKIP_GLOBS)
         return _normalize_scan_list(raw, DEFAULT_SCAN_SKIP_GLOBS)
 
-    def init(self):
+    def init(self) -> Path:
         """Create config directory and write default config.json if it doesn't exist."""
         self._config_dir.mkdir(parents=True, exist_ok=True)
         if not self._config_file.exists():
-            default_config = {
+            default_config: ConfigPayload = {
                 "palace_path": DEFAULT_PALACE_PATH,
                 "collection_name": DEFAULT_COLLECTION_NAME,
                 "entity_detection": DEFAULT_ENTITY_DETECTION,
@@ -443,7 +460,7 @@ class MempalaceConfig:
                 json.dump(default_config, f, indent=2)
         return self._config_file
 
-    def save_people_map(self, people_map):
+    def save_people_map(self, people_map: PeopleMap) -> Path:
         """Write people_map.json to config directory.
 
         Args:
@@ -455,7 +472,7 @@ class MempalaceConfig:
         return self._people_map_file
 
 
-def _normalize_scan_list(value, default: list) -> list:
+def _normalize_scan_list(value: object, default: ScanSkipList) -> ScanSkipList:
     """Normalize a scan_skip_* config value to a deduplicated list of non-empty strings.
 
     Accepts list/tuple; non-string items are dropped (silent coercion would turn
@@ -464,9 +481,10 @@ def _normalize_scan_list(value, default: list) -> list:
     """
     if not isinstance(value, (list, tuple)):
         return list(default)
-    seen: set = set()
-    result = []
-    for item in value:
+    items = cast("Sequence[object]", value)
+    seen: set[str] = set()
+    result: ScanSkipList = []
+    for item in items:
         if not isinstance(item, str):
             continue
         entry = item.strip()
@@ -476,7 +494,7 @@ def _normalize_scan_list(value, default: list) -> list:
     return result
 
 
-def _parse_optional_bool(value):
+def _parse_optional_bool(value: object) -> bool | None:
     """Parse bool-like config values, returning None for unset/invalid values."""
     if isinstance(value, bool):
         return value

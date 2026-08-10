@@ -1,5 +1,11 @@
 """
 mempalace_code.mcp.dispatch — JSON-RPC handle_request, startup flag parsing, and stdio main loop.
+
+Speaks both the legacy ``initialize``-based dialect (2024-11-05) and the
+modern 2026-07-28 dialect over the same stdio transport. A request opts into
+2026-07-28 by carrying ``_meta`` (see ``protocol_compat``); anything else is
+legacy and behaves exactly as before this module gained protocol_compat
+(INV-4).
 """
 
 import json
@@ -8,6 +14,7 @@ import sys
 from typing import Optional
 
 from ..version import __version__
+from . import protocol_compat
 from .registry import TOOLS
 
 logger = logging.getLogger("mempalace_mcp")
@@ -31,12 +38,28 @@ def handle_request(request, active_registry=None):
     params = request.get("params") or {}
     req_id = request.get("id")
 
+    if method == "server/discover":
+        # server/discover has no legacy counterpart: it always requires full
+        # modern _meta, even when the _meta object itself is entirely absent.
+        try:
+            protocol_compat.validate_modern_meta(params)
+        except (
+            protocol_compat.ProtocolMetadataError,
+            protocol_compat.UnsupportedProtocolVersionError,
+        ) as exc:
+            return protocol_compat.protocol_error_response(req_id, exc)
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "result": protocol_compat.build_discover_result(),
+        }
+
     if method == "initialize":
         return {
             "jsonrpc": "2.0",
             "id": req_id,
             "result": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": protocol_compat.LEGACY_PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "mempalace-code", "version": __version__},
             },
@@ -44,6 +67,20 @@ def handle_request(request, active_registry=None):
     elif method.startswith("notifications/"):
         return None
     elif method == "tools/list":
+        modern = protocol_compat.is_modern_attempt(params)
+        if modern:
+            try:
+                protocol_compat.validate_modern_meta(params)
+            except (
+                protocol_compat.ProtocolMetadataError,
+                protocol_compat.UnsupportedProtocolVersionError,
+            ) as exc:
+                return protocol_compat.protocol_error_response(req_id, exc)
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": protocol_compat.build_tools_list_result(registry),
+            }
         return {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -55,6 +92,15 @@ def handle_request(request, active_registry=None):
             },
         }
     elif method == "tools/call":
+        modern = protocol_compat.is_modern_attempt(params)
+        if modern:
+            try:
+                protocol_compat.validate_modern_meta(params)
+            except (
+                protocol_compat.ProtocolMetadataError,
+                protocol_compat.UnsupportedProtocolVersionError,
+            ) as exc:
+                return protocol_compat.protocol_error_response(req_id, exc)
         tool_name = params.get("name")
         raw_args = params.get("arguments")
         if raw_args is None:
@@ -95,6 +141,12 @@ def handle_request(request, active_registry=None):
                 tool_args[key] = float(value)
         try:
             result = registry[tool_name]["handler"](**tool_args)
+            if modern:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": protocol_compat.build_call_tool_result(result),
+                }
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,

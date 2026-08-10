@@ -10,12 +10,15 @@ The Python package that powers mempalace-code. All modules, all logic.
 | `cli_commands/` | CLI command handlers — init, mine, search, watch, backup/restore, export/import, health, cleanup, wake-up, model fetch, alias install, diary, and version-check |
 | `config.py` | Configuration loading — `~/.mempalace/config.json`, env vars, defaults, scan excludes, disk-budget floors |
 | `disk_budget.py` | Shared disk-budget parsing, footprint measurement, and watcher/backup guard checks |
+| `backup.py` | Safe palace archives and restore validation — managed-member allowlist, retention kinds, and palace-local KG scoping |
 | `language_catalog.py` | Shared language metadata for miner detection, `code_search` validation, and MCP language hints |
 | `normalize.py` | Converts 7 chat formats (Claude Code JSONL, Codex CLI JSONL, Gemini CLI JSONL, Claude.ai JSON, ChatGPT JSON, Slack JSON, plain text) to standard transcript format |
 | `miner.py` | Public mining facade kept for compatibility; implementation lives under `mining/` |
 | `mining/` | Project file ingest package — scans directories, detects languages, chunks code/prose/config, extracts symbols, batches embeddings, and stores drawers; Markdown chunks keep heading path and section metadata |
 | `convo_miner.py` | Conversation ingest — chunks by exchange pair (Q+A), detects rooms from content |
 | `searcher.py` | Semantic search via LanceDB vectors — filters by wing/room/language/symbol, returns verbatim text, scores, and stored metadata such as Markdown heading path |
+| `reader.py` | Guarded stored-source reads with palace taxonomy validation and filesystem-equivalent path resolution |
+| `taxonomy_filters.py` | Shared wing/room validation and bounded suggestions for CLI, Python, and MCP retrieval surfaces |
 | `retrieval_rerank.py` | Deterministic project-file and CamelCase symbol reranking for code retrieval |
 | `search_reranker.py` | Optional hybrid token-overlap reranker for `code_search(rerank="hybrid")` and benchmark comparisons |
 | `layers.py` | 4-layer memory stack: L0 (identity), L1 (critical facts), L2 (room recall), L3 (deep search) |
@@ -23,8 +26,9 @@ The Python package that powers mempalace-code. All modules, all logic.
 | `knowledge_graph.py` | Temporal entity-relationship graph — SQLite, time-filtered queries, fact invalidation |
 | `palace_graph.py` | Room-based navigation graph — BFS traversal, tunnel detection across wings |
 | `mcp_server.py` | MCP server public entrypoint shim — re-exports `TOOLS`, `handle_request`, `main`, and all `tool_*` handlers; implementation lives under `mcp/` |
-| `mcp/` | MCP implementation package: `runtime.py` (shared state), `registry.py` (29-tool TOOLS dict), `dispatch.py` (handle_request/main), `protocol_text.py` (AAAK/protocol strings), `tools/` (one module per tool family) |
+| `mcp/` | MCP implementation package: `runtime.py` (shared state), `registry.py` (29-tool TOOLS dict), `dispatch.py` (handle_request/main; negotiates legacy `initialize` vs. stable 2026-07-28 `server/discover` per request), `protocol_compat.py` (SDK-backed 2026-07-28 metadata validation, error/result construction via the official `mcp` SDK types), `protocol_text.py` (AAAK/protocol strings), `tools/` (one module per tool family) |
 | `mcp_tool_profiles.py` | Static MCP tool profiles and selector resolution (`--profile`, `--tools`, `--include`, `--exclude`) |
+| `watcher.py` | Commit/save watchers with guarded startup, disk budgets, scoped backups, and one reusable store/model lifecycle per run |
 | `version_check.py` | Strictly opt-in PyPI version checks, first-run prompt state, throttling, and env/config overrides |
 | `onboarding.py` | Guided first-run setup — asks about people/projects, generates AAAK bootstrap + wing config |
 | `entity_registry.py` | Entity code registry — maps names to AAAK codes, handles ambiguous names |

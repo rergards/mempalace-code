@@ -1,6 +1,6 @@
 [project]
 name = "mempalace-code"
-version = "1.12.1"
+version = "1.13.0"
 description = "Developer memory tool — mine codebases and conversations into a LanceDB-backed searchable palace. No API key required."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,7 @@ dependencies = [
     "sentence-transformers>=2.2",
     "pyyaml>=6.0",
     "packaging>=21.0",
+    "mcp>=2,<3",
 ]
 
 [project.urls]
@@ -47,7 +48,7 @@ mempalace-code = "mempalace_code:main"
 mempalace-code-alias = "mempalace_code.cli:main_alias"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff>=0.4.0", "watchfiles>=1.0"]
+dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff>=0.4.0", "watchfiles>=1.0", "build>=1.0", "twine>=5.0"]
 spellcheck = ["autocorrect>=2.0"]
 # ChromaDB is a deprecated legacy backend. Keep below 1.x while
 # GHSA-f4j7-r4q5-qw2c affects the current 1.x line.
@@ -62,7 +63,7 @@ treesitter = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff>=0.4.0", "watchfiles>=1.0"]
+dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff>=0.4.0", "watchfiles>=1.0", "build>=1.0", "twine>=5.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -70,6 +71,25 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mempalace_code"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    # Local-only control artifacts must not appear in published sdists.
+    ".codex-local/",
+    ".tasks/",
+    ".protocols/",
+    ".verify-state",
+    "docs/audits/",
+    "__pycache__/",
+    ".mypy_cache/",
+    ".ruff_cache/",
+    ".pytest_cache/",
+    "*.pyc",
+    ".venv/",
+    "venv/",
+    "dist/",
+    "build/",
+]
 
 [tool.ruff]
 line-length = 100
@@ -143,6 +163,14 @@ quote-style = "double"
 [tool.pyright]
 pythonVersion = "3.11"
 include = ["mempalace_code", "tests"]
+exclude = [
+    # mcp SDK (core dep) does not expose `types` as a static attribute; lazy-import pattern
+    # is correct at runtime but Pyright cannot verify the attribute without stubs.
+    "mempalace_code/mcp/protocol_compat.py",
+    "tests/test_mcp_protocol_compat.py",
+    # chromadb is an optional [chroma] extra; import-guarded by skipif at test level.
+    "tests/test_migrate_storage_smoke.py",
+]
 typeCheckingMode = "basic"
 reportMissingImports = true
 reportMissingTypeStubs = false

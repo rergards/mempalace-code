@@ -24,7 +24,7 @@ Run retrieval quality and performance benchmarks.
 ls benchmarks/data/ 2>/dev/null || echo "No benchmark data"
 
 # Verify current model
-python -c "from mempalace.embeddings import get_embedder; e=get_embedder(); print(f'Model: {e.model_name}')"
+python -c "from mempalace_code.storage import DEFAULT_EMBED_MODEL; print(f'Model: {DEFAULT_EMBED_MODEL}')"
 ```
 
 ### Step 2: Code Retrieval Benchmark
@@ -32,7 +32,10 @@ python -c "from mempalace.embeddings import get_embedder; e=get_embedder(); prin
 Run the standard code retrieval benchmark:
 
 ```bash
-python benchmarks/code_retrieval_bench.py --output benchmarks/results_$(date +%Y%m%d).json
+python benchmarks/code_retrieval_bench.py \
+  --repo-dir . \
+  --modes smart \
+  --out benchmarks/results_$(date +%Y%m%d).json
 ```
 
 Metrics collected:
@@ -58,10 +61,10 @@ If benchmark supports categories:
 If comparing multiple models:
 
 ```bash
-# Test each candidate
-for model in "all-MiniLM-L6-v2" "all-mpnet-base-v2"; do
-  MEMPALACE_EMBED_MODEL=$model python benchmarks/code_retrieval_bench.py --output benchmarks/results_${model}_$(date +%Y%m%d).json
-done
+python benchmarks/embed_ab_bench.py \
+  --models minilm,mpnet \
+  --skip-longmemeval \
+  --out benchmarks/results_models_$(date +%Y%m%d).json
 ```
 
 ### Step 5: Text Retrieval Gate (if changing models)
@@ -69,7 +72,13 @@ done
 Per project policy, any embedding model change must also pass text retrieval benchmarks:
 
 ```bash
-python benchmarks/text_retrieval_bench.py --dataset longmemeval
+test -f benchmarks/data/longmemeval_s_cleaned.json \
+  || { echo "Missing LongMemEval fixture"; exit 1; }
+
+python benchmarks/embed_ab_bench.py \
+  --models minilm,mpnet \
+  --longmemeval-data benchmarks/data/longmemeval_s_cleaned.json \
+  --out benchmarks/results_models_with_text_gate_$(date +%Y%m%d).json
 ```
 
 Target: Match or beat current model on LongMemEval R@5.

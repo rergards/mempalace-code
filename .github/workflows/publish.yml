@@ -3,14 +3,13 @@ name: Publish to PyPI
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
-  repository_dispatch:
-    types: [publish]
-  release:
-    types: [published]
 
 permissions:
-  id-token: write
+  contents: read
+
+concurrency:
+  group: pypi-${{ github.repository }}-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -18,15 +17,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - run: pip install build
-      - run: python -m build
-      - uses: actions/upload-artifact@v6
+      - run: pip install build twine
+      - name: Verify tag targets current main and matches package version
+        run: |
+          git fetch origin main --depth=1
+          MAIN_SHA=$(git rev-parse origin/main)
+          TAG_SHA=$(git rev-list -n 1 "$GITHUB_REF_NAME")
+          if [ "$TAG_SHA" != "$MAIN_SHA" ]; then
+            echo "Release tag must target current main: tag=$TAG_SHA main=$MAIN_SHA" >&2
+            exit 1
+          fi
+          python scripts/release_preflight.py --tag "$GITHUB_REF_NAME" --require-clean
+      - name: Upstream comparison guard (live head, read-only)
+        run: python scripts/upstream_comparison_guard.py --check-live
+      - name: Build distributions
+        run: python -m build
+      - name: Validate distribution metadata
+        run: twine check dist/*
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
+          retention-days: 7
 
   publish:
     if: github.repository == 'rergards/mempalace-code'
@@ -36,8 +53,20 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    if: github.repository == 'rergards/mempalace-code'
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create public GitHub Release after PyPI publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes

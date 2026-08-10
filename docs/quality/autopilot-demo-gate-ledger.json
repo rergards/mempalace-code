@@ -1,0 +1,250 @@
+{
+  "schema_version": 1,
+  "source": "docs/BACKLOG-archived.yaml",
+  "description": "Public-safe pass/gap ledger for every archived AUTOPILOT-DEMO backlog item. Each entry names the enforcing commands, before/after metrics or gap rationale, and behavioral evidence. No timestamps, local paths, or private data.",
+  "items": [
+    {
+      "key": "AUTOPILOT-DEMO-QUALITY-SCORECARD",
+      "summary": "Add a deterministic public quality scorecard for Autopilot cleanup progress across releases.",
+      "archived_date": "2026-06-11",
+      "status": "pass",
+      "commands": [
+        "python scripts/quality_scorecard.py --check",
+        "python scripts/quality_scorecard.py --format json"
+      ],
+      "before": "No machine-readable quality snapshot; Autopilot progress was prose-only.",
+      "after": "scripts/quality_scorecard.py emits Markdown+JSON; --check gates shape, determinism, and public-safety in CI and /verify; baseline committed to docs/quality/.",
+      "behavioral_evidence": "Two runs against the same tree produce byte-identical output. --check exits nonzero when shape or public-safety invariants are violated.",
+      "enforcing_gate": "python scripts/quality_scorecard.py --check"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-PUBLIC-SAFETY-GATE",
+      "summary": "Add a repo-wide public-safety gate for tracked and staged files.",
+      "archived_date": "2026-06-11",
+      "status": "pass",
+      "commands": [
+        "python scripts/public_safety_scan.py --tracked --staged"
+      ],
+      "before": "No automated guard prevented committing tokens, local paths, or private remotes to tracked history.",
+      "after": "scripts/public_safety_scan.py --tracked --staged runs in CI and /verify; matched content is redacted; .verify-state is local-only.",
+      "behavioral_evidence": "Scanner exits 1 when any tracked or staged file contains a token/path/remote pattern. Output never prints matched text verbatim.",
+      "enforcing_gate": "python scripts/public_safety_scan.py --tracked --staged"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-RUFF-RATCHET",
+      "summary": "Reduce transitional Ruff ignores without broad style-only churn.",
+      "archived_date": "2026-06-11",
+      "status": "pass",
+      "commands": [
+        "ruff check mempalace_code/ tests/ scripts/"
+      ],
+      "before": "33 global Ruff ignores covering historical suppression debt.",
+      "after": "3 global Ruff ignores; remaining debt scoped to per-file ignores; new scripts inherit the stricter rule set.",
+      "behavioral_evidence": "ruff check exits 0 with no new inline suppressions introduced. Per-file ignore count is stable.",
+      "enforcing_gate": "ruff check mempalace_code/ tests/ scripts/"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-PYRIGHT-STRICT-SLICE",
+      "summary": "Establish a strict Pyright slice for stable low-level modules.",
+      "archived_date": "2026-06-11",
+      "status": "pass",
+      "commands": [
+        "python -m pyright -p pyrightconfig.strict.json"
+      ],
+      "before": "Only basic Pyright mode; no strict-mode coverage for any modules.",
+      "after": "pyrightconfig.strict.json covers version.py, mcp_tool_profiles.py, and disk_budget.py; wired into CI and /verify.",
+      "behavioral_evidence": "python -m pyright -p pyrightconfig.strict.json exits 0 from the declared dev environment.",
+      "enforcing_gate": "python -m pyright -p pyrightconfig.strict.json"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-WORKFLOW-REVIEW-PROTOCOL",
+      "summary": "Document the public-safe adversarial Claude workflow protocol for repo quality work.",
+      "archived_date": "2026-06-11",
+      "status": "pass",
+      "commands": [
+        "python scripts/workflow_review_protocol_guard.py --check"
+      ],
+      "before": "No public documentation of multi-agent quality-review workflow or review criteria.",
+      "after": "docs/quality/workflow-review-protocol.md documents adversarial review workflow; linked from docs/quality/README.md.",
+      "behavioral_evidence": "Workflow review guard validates the protocol document for required sections and actionable language.",
+      "enforcing_gate": "python scripts/workflow_review_protocol_guard.py --check"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET",
+      "summary": "Generate a deterministic public-safe code-intelligence packet from real MemPalace CLI output.",
+      "archived_date": "2026-06-11",
+      "status": "pass",
+      "commands": [
+        "python scripts/gen_code_intelligence_packet.py --check",
+        "python -m pytest tests/test_code_intelligence_packet.py -q"
+      ],
+      "before": "No deterministic code-intelligence demo artifact; demo claims were not reproducible from the repo.",
+      "after": "scripts/gen_code_intelligence_packet.py produces docs/demo/code-intelligence-packet.{md,json}; 464-line test suite validates normalization, known-answer queries, check-mode drift, and cleanup.",
+      "behavioral_evidence": "--check exits nonzero when committed packet drifts from freshly generated output. Tests cover known-answer retrieval queries against a synthetic fixture palace.",
+      "enforcing_gate": "python scripts/gen_code_intelligence_packet.py --check"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX",
+      "summary": "Close owner-acceptance blockers on the code-intelligence golden packet.",
+      "archived_date": "2026-06-11",
+      "status": "pass",
+      "commands": [
+        "python scripts/gen_code_intelligence_packet.py --check",
+        "python -m pytest tests/test_code_intelligence_packet.py -q"
+      ],
+      "before": "Scanner-flagged token literal in source, audit evidence at non-public path, missing owner-acceptance checklist.",
+      "after": "Token literal encoded; audit evidence at public-safe path; owner-acceptance checklist in packet generator/artifacts; B905 zip strictness fixed.",
+      "behavioral_evidence": "Public-safety scan passes on committed source. Packet generator --check exits 0. All 12 test suite verifications pass.",
+      "enforcing_gate": "python scripts/gen_code_intelligence_packet.py --check"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE",
+      "summary": "Add an explicit committed-tree public-safety scan mode for publishable release verification.",
+      "archived_date": "2026-06-19",
+      "status": "pass",
+      "commands": [
+        "python scripts/public_safety_scan.py --committed --tracked --staged"
+      ],
+      "before": "Public-safety gate only covered tracked and staged files; committed HEAD blobs were unchecked before release.",
+      "after": "Added --committed mode scanning HEAD blobs via git objects; redacted failure output; documented pre-commit vs release-readiness scan distinction.",
+      "behavioral_evidence": "python scripts/public_safety_scan.py --committed --tracked --staged exits 0 on clean repository. Four fixture tests prove clean HEAD, secret redaction, local-only artifact rejection, and deleted-worktree boundary.",
+      "enforcing_gate": "python scripts/public_safety_scan.py --committed --tracked --staged"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-MCP-STDIO-CONTRACTS",
+      "summary": "Add real MCP stdio contract tests for profiles, tool discovery, and representative tool calls.",
+      "archived_date": "2026-06-19",
+      "status": "pass",
+      "commands": [
+        "python -m pytest tests/test_mcp_server.py -q -m \"not needs_network\""
+      ],
+      "before": "MCP server tests covered unit handlers only; no real stdio subprocess integration tests.",
+      "after": "TestMCPStdioContracts class with 5 real stdio tests: full/default discovery, minimal profile filtering, include/exclude precedence, hidden-tool error, invalid-profile startup.",
+      "behavioral_evidence": "Tests launch the MCP server as a real subprocess and exchange JSON-RPC over stdio. All 5 contract tests pass without network access.",
+      "enforcing_gate": "python -m pytest tests/test_mcp_server.py::TestMCPStdioContracts -q"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-SCORECARD-METRIC-EXPANSION",
+      "summary": "Expand the quality scorecard with metrics for gates that matter to the public demo.",
+      "archived_date": "2026-06-19",
+      "status": "pass",
+      "commands": [
+        "python scripts/quality_scorecard.py --check"
+      ],
+      "before": "Scorecard schema v1 lacked strict-slice, public-safety, and demo-gate metrics.",
+      "after": "Schema v2 adds strict-slice coverage, public-safety gate status, and demo-gate inventory; 12 new tests; committed artifacts regenerated.",
+      "behavioral_evidence": "python scripts/quality_scorecard.py --check exits 0 with v3 schema and all required metric sections present.",
+      "enforcing_gate": "python scripts/quality_scorecard.py --check"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-DOCS-DRIFT-GUARD",
+      "summary": "Add an automated docs drift guard for CLI commands, MCP tools, optional extras, and release gates.",
+      "archived_date": "2026-08-09",
+      "status": "pass",
+      "commands": [
+        "python scripts/docs_drift_guard.py"
+      ],
+      "before": "No automated check that public docs (README, CLAUDE.md, RELEASING.md) matched the actual CLI commands, MCP tools, optional extras, or release gate workflow names.",
+      "after": "scripts/docs_drift_guard.py validates argparse-derived CLI inventory, MCP tools/profiles, optional extras, release workflow names, and canonical verification commands against public docs.",
+      "behavioral_evidence": "Guard exits 1 with per-surface diff when any documented command string or tool name diverges from the live source. Live docs aligned.",
+      "enforcing_gate": "python scripts/docs_drift_guard.py"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS",
+      "summary": "Build subprocess-level golden CLI scenarios that prove real user workflows, not only unit internals.",
+      "archived_date": "2026-08-09",
+      "status": "pass",
+      "commands": [
+        "python -m pytest tests/test_cli_golden_scenarios.py -q"
+      ],
+      "before": "CLI tests covered unit handlers; no subprocess-level golden scenario coverage of init/mine/search/backup/restore end-to-end.",
+      "after": "tests/test_cli_golden_scenarios.py covers init, mine, status, search, read, export, import, backup, restore plus guard paths as real subprocess invocations.",
+      "behavioral_evidence": "All golden scenarios run as real subprocess calls. Tests exit 0 when the CLI behaves as documented and fail when guard paths are violated.",
+      "enforcing_gate": "python -m pytest tests/test_cli_golden_scenarios.py -q"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-SECURITY-BOUNDARY-TESTS",
+      "summary": "Harden external-input boundaries with focused abuse-case tests for paths, archives, JSONL, YAML, and command preflight.",
+      "archived_date": "2026-08-09",
+      "status": "pass",
+      "commands": [
+        "python -m pytest tests/ -q -m \"not needs_network\" -k security_boundary"
+      ],
+      "before": "No dedicated security-boundary tests for path traversal in archives, malformed JSONL, invalid project config, or command preflight abuse cases.",
+      "after": "BackupArchiveError/unsafe_archive_member, JsonlInputError/malformed_jsonl, InvalidProjectConfigError/invalid_project_config, and security_boundary_* tests in place.",
+      "behavioral_evidence": "All security_boundary_* tests pass. Abuse cases (path traversal in archive members, malformed JSONL, invalid config) raise the documented exception types.",
+      "enforcing_gate": "python -m pytest tests/ -q -m \"not needs_network\" -k security_boundary"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-ARCHITECTURE-GUARD",
+      "summary": "Add an import-boundary guard so core modules cannot depend on CLI, MCP, or optional legacy backend layers.",
+      "archived_date": "2026-08-09",
+      "status": "pass",
+      "commands": [
+        "python scripts/architecture_guard.py --root .",
+        "python -m pytest tests/test_architecture_guard.py -q"
+      ],
+      "before": "No import-boundary enforcement; core modules could accidentally import CLI, MCP, or optional backend layers.",
+      "after": "scripts/architecture_guard.py enforces layer isolation; tests validate allowed/forbidden import pairs; wired into CI and /verify.",
+      "behavioral_evidence": "Guard exits 1 when any core module imports a CLI, MCP, or optional layer. Four contract-named tests cover boundary enforcement.",
+      "enforcing_gate": "python scripts/architecture_guard.py --root ."
+    },
+    {
+      "key": "AUTOPILOT-DEMO-PYRIGHT-STRICT-SLICE-EXPANSION",
+      "summary": "Expand the strict Pyright slice to config, reader, and mining/scanner modules.",
+      "archived_date": "2026-08-09",
+      "status": "pass",
+      "commands": [
+        "python -m pyright -p pyrightconfig.strict.json"
+      ],
+      "before": "Strict slice covered 3 modules (version.py, mcp_tool_profiles.py, disk_budget.py).",
+      "after": "Strict slice expanded to 6 modules: added config.py, reader.py, mining/scanner.py with typed boundaries.",
+      "behavioral_evidence": "python -m pyright -p pyrightconfig.strict.json exits 0 with all 6 modules in the strict include list.",
+      "enforcing_gate": "python -m pyright -p pyrightconfig.strict.json"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-PERF-BUDGETS",
+      "summary": "Add deterministic performance budgets for mining, search, read, and maintenance on synthetic fixtures.",
+      "archived_date": "2026-08-09",
+      "status": "pass",
+      "commands": [
+        "python benchmarks/demo_perf_budgets.py --check --ci",
+        "python -m pytest tests/test_demo_perf_budgets.py -q"
+      ],
+      "before": "No performance gates; mining/search/read latency could regress silently between releases.",
+      "after": "benchmarks/demo_perf_budgets.py --check --ci enforces hard latency budgets on synthetic fixtures; 10 unit tests validate budget enforcement logic.",
+      "behavioral_evidence": "--check --ci exits nonzero when any measured operation exceeds its budget. All 10 unit tests and 6 scorecard tests pass.",
+      "enforcing_gate": "python benchmarks/demo_perf_budgets.py --check --ci"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-WORKFLOW-EFFECTIVENESS-GUARD",
+      "summary": "Add a lightweight guard that workflow review summaries are actionable rather than ceremonial.",
+      "archived_date": "2026-08-09",
+      "status": "pass",
+      "commands": [
+        "python -m pytest tests/test_workflow_review_protocol.py -q"
+      ],
+      "before": "Workflow review summaries had no enforced structure; ceremonial wording could satisfy the form without actionable findings.",
+      "after": "Guard validates workflow-review-protocol.md for required sections, actionable language, and absence of vague approval phrases; 33 tests pass.",
+      "behavioral_evidence": "All 33 workflow review guard tests pass. Protocol document wording was updated to replace insufficient phrasing.",
+      "enforcing_gate": "python -m pytest tests/test_workflow_review_protocol.py -q"
+    },
+    {
+      "key": "AUTOPILOT-DEMO-END-TO-END-GATE-CLOSURE",
+      "summary": "Canonicalize all AUTOPILOT-DEMO gates, add built-artifact inspection, installed-provenance smoke, and a public evidence ledger.",
+      "archived_date": null,
+      "status": "pass",
+      "commands": [
+        "python scripts/gate_inventory.py --check",
+        "python scripts/release_artifact_gate.py --dist dist --require-wheel --require-sdist",
+        "python scripts/release_readiness_gate.py --check --json",
+        "python scripts/release_install_metadata_smoke.py --install-spec . --json",
+        "python -m pytest tests/test_gate_inventory.py tests/test_release_artifact_gate.py tests/test_release_readiness_gate.py tests/test_release_install_metadata_smoke.py tests/test_installed_artifact_behavior.py tests/test_autopilot_demo_gate_ledger.py tests/test_pyright_optional_dependencies.py -q"
+      ],
+      "before": "Gate commands were scattered across CLAUDE.md, CI YAML, and scorecard metadata; no canonical single source; built artifacts not inspected before release; install smoke used sys.executable -m pipx.",
+      "after": "scripts/gate_inventory.py is the single canonical source; release_artifact_gate.py inspects wheel and sdist member lists; release_readiness_gate.py orchestrates build+artifact+smoke; install smoke discovers pipx via PATH and Homebrew fallback.",
+      "behavioral_evidence": "gate_inventory.py --check exits 0 when CI and /verify docs match all canonical commands. Artifact gate rejects .codex-local, .tasks, .protocols, caches, .verify-state, and confirms wheel and sdist both pass twine check. Install smoke reports package_metadata/module_version/cli_version_check agreement from a disposable venv and a pipx install discovered independently of the target interpreter. At task closure, release_readiness_gate.py --check --json returned ok; the separately executed basic and strict Pyright, public safety, scorecard, docs-drift, architecture, performance budget, and full non-network pytest gates also passed.",
+      "enforcing_gate": "python scripts/release_readiness_gate.py --check --json"
+    }
+  ]
+}

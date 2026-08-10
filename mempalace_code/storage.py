@@ -24,6 +24,7 @@ present (raises ImportError with a helpful message when it is not).
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -210,19 +211,33 @@ class OptimizeResult:
 class SafeOptimizeStore(Protocol):
     """Optional protocol for stores that support fail-safe compaction."""
 
-    def safe_optimize(self, palace_path: str, backup_first: bool = False) -> bool: ...
+    def safe_optimize(
+        self, palace_path: str, backup_first: bool = False, kg_path: Optional[str] = None
+    ) -> bool: ...
+
+
+class OptimizableStore(Protocol):
+    """Minimal capability optimize_store actually relies on for the fallback path."""
+
+    def optimize(self) -> None: ...
 
 
 def optimize_store(
-    store: DrawerStore, palace_path: str, backup_first: bool = False
+    store: OptimizableStore | SafeOptimizeStore,
+    palace_path: str,
+    backup_first: bool = False,
+    kg_path: Optional[str] = None,
 ) -> OptimizeResult:
     """Route optimization through safe_optimize when supported, otherwise use optimize().
 
     Returns OptimizeResult(ok, supported) so callers can distinguish failure from
     an unsupported/no-op path without relying on hasattr checks.
+
+    kg_path: explicit KG path for pre-optimize backups. When None, the backup module
+        default is used. Pass palace_kg_path(palace_path) for scoped palace operations.
     """
     if isinstance(store, SafeOptimizeStore):
-        ok = store.safe_optimize(palace_path, backup_first=backup_first)
+        ok = store.safe_optimize(palace_path, backup_first=backup_first, kg_path=kg_path)
         return OptimizeResult(ok=ok, supported=True)
     store.optimize()
     return OptimizeResult(ok=True, supported=False)
@@ -965,7 +980,9 @@ class LanceStore(DrawerStore):
         if table is not None:
             table.optimize()
 
-    def safe_optimize(self, palace_path: str, backup_first: bool = False) -> bool:
+    def safe_optimize(
+        self, palace_path: str, backup_first: bool = False, kg_path: Optional[str] = None
+    ) -> bool:
         """Optimize with optional pre-backup and post-verification.
 
         Fail-closed contract: if backup_first=True and the backup fails, returns False
@@ -975,6 +992,9 @@ class LanceStore(DrawerStore):
             palace_path: Path to palace directory (for backup).
             backup_first: Create backup before optimizing. If True and backup fails,
                           returns False without optimizing.
+            kg_path: Explicit KG path for the pre-optimize backup. When None, the backup
+                     module default (DEFAULT_KG_PATH) is used. Pass palace_kg_path(palace_path)
+                     for scoped palace operations to avoid archiving the global KG.
 
         Returns:
             True if optimize succeeded and table is readable, False otherwise.
@@ -987,9 +1007,10 @@ class LanceStore(DrawerStore):
         # Disk guard and per-kind retention run inside create_backup.
         if backup_first:
             try:
-                from .backup import create_backup
-
-                _, backup_path = create_backup(palace_path, kind="pre_optimize")
+                backup_mod = importlib.import_module("mempalace_code.backup")
+                _, backup_path = backup_mod.create_backup(
+                    palace_path, kind="pre_optimize", kg_path=kg_path
+                )
                 logger.info("Pre-optimize backup: %s", backup_path)
             except Exception as e:
                 logger.error("Pre-optimize backup failed — skipping optimize: %s", e)
@@ -1540,14 +1561,8 @@ class LanceStore(DrawerStore):
 
 def __getattr__(name: str):
     if name == "ChromaStore":
-        try:
-            from ._chroma_store import ChromaStore
-
-            return ChromaStore
-        except ImportError as exc:
-            raise ImportError(
-                "ChromaStore requires the [chroma] extra: pip install 'mempalace-code[chroma]'"
-            ) from exc
+        chroma_gateway = importlib.import_module("mempalace_code.legacy_optional.chroma")
+        return chroma_gateway.get_chroma_store_class()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -1598,12 +1613,9 @@ def open_store(
             logger.warning(
                 "read_only=True is not supported for the ChromaDB backend; opening as writable"
             )
-        try:
-            from ._chroma_store import ChromaStore
-        except ImportError as exc:
-            raise ImportError(
-                "ChromaDB backend requires the [chroma] extra: pip install 'mempalace-code[chroma]'"
-            ) from exc
-        return ChromaStore(palace_path, collection_name=collection_name, create=create)
+        chroma_gateway = importlib.import_module("mempalace_code.legacy_optional.chroma")
+        return chroma_gateway.open_chroma_store(
+            palace_path, collection_name=collection_name, create=create
+        )
     else:
         raise ValueError(f"Unknown storage backend: {backend!r}. Use 'lance' or 'chroma'.")

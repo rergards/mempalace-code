@@ -23,7 +23,8 @@ from typing import Callable, Optional
 from .backup import create_backup
 from .config import MempalaceConfig
 from .disk_budget import DiskBudgetStatus, check_watch_budget, format_bytes
-from .mining.orchestrator import mine
+from .knowledge_graph import palace_kg_path as _palace_kg_path
+from .mining.orchestrator import get_collection, mine
 from .mining.scanner import (
     KNOWN_FILENAMES,
     READABLE_EXTENSIONS,
@@ -38,6 +39,7 @@ from .mining.scanner import (
     is_scan_excluded,
     load_gitignore_matcher,
     normalize_include_paths,
+    scan_project,
     should_skip_dir,
 )
 from .operation_lock import OperationLock, OperationLockedError
@@ -47,6 +49,34 @@ _UNSET: object = object()  # sentinel for _ScanRulesSnapshot._bad_mtime
 
 # Throttle: print disk-budget skip message at most once per this many seconds.
 _BUDGET_LOG_INTERVAL = 300  # 5 minutes
+
+
+class _WatcherMiningStore:
+    """Own one reusable drawer store and its warmup state for a watcher run."""
+
+    def __init__(self, palace_path: str):
+        self._palace_path = palace_path
+        self._collection = None
+        self._embedder_warmed = False
+
+    @property
+    def collection(self):
+        if self._collection is None:
+            self._collection = get_collection(self._palace_path)
+        return self._collection
+
+    def mine_kwargs(self) -> dict:
+        """Return injected mine() arguments for the current lifecycle state."""
+        return {"collection": self.collection, "warmup": not self._embedder_warmed}
+
+    def note_mine(self, stats: dict) -> None:
+        """Record a successful explicit warmup performed by mine()."""
+        self._embedder_warmed = self._embedder_warmed or stats.get("embedder_warmed", False)
+
+    def recreate(self) -> None:
+        """Discard a stale post-rollback handle before retrying initial mining."""
+        self._collection = get_collection(self._palace_path)
+        self._embedder_warmed = False
 
 
 def _with_watcher_lease(func: Callable) -> Callable:
@@ -245,6 +275,41 @@ def _emit_run_state(run_id: str, state: str, extra: str = "") -> None:
     print(line, flush=True)
 
 
+_SYMLINK_DIAGNOSTIC_PREVIEW = 5
+
+
+def _startup_source_discovery(
+    project_path: Path,
+    respect_gitignore: bool,
+    include_ignored: Optional[list],
+) -> tuple[int, list]:
+    """Guarded startup scan: count valid sources and collect invalid-symlink diagnostics.
+
+    Runs before pre-watch backup creation and initial mine so a dangling or unreadable
+    source symlink is excluded before it can reach hashing.
+    """
+    diagnostics: list = []
+    files = scan_project(
+        str(project_path),
+        respect_gitignore=respect_gitignore,
+        include_ignored=include_ignored,
+        skip_invalid_source_symlinks=True,
+        symlink_diagnostics=diagnostics,
+    )
+    return len(files), diagnostics
+
+
+def _print_skipped_symlink_diagnostic(diagnostics: list) -> None:
+    """Print a bounded diagnostic for source symlinks skipped by the startup guard."""
+    total = len(diagnostics)
+    print(f"  Skipped {total} invalid source symlink(s):", flush=True)
+    for entry in diagnostics[:_SYMLINK_DIAGNOSTIC_PREVIEW]:
+        print(f"    {entry['path']} ({entry['reason']})", flush=True)
+    omitted = total - _SYMLINK_DIAGNOSTIC_PREVIEW
+    if omitted > 0:
+        print(f"    (+{omitted} more)", flush=True)
+
+
 @_with_watcher_lease
 def watch_and_mine(
     project_dir: str,
@@ -295,13 +360,29 @@ def watch_and_mine(
     run_id = _make_run_id()
     _emit_run_state(run_id, "run-started")
 
+    # Guarded startup source discovery — runs before pre-watch backup creation and
+    # initial mine so a dangling or unreadable source symlink is diagnosed and excluded
+    # before it can reach hashing.
+    valid_source_count, symlink_diagnostics = _startup_source_discovery(
+        project_path, respect_gitignore, include_ignored
+    )
+    if symlink_diagnostics:
+        _print_skipped_symlink_diagnostic(symlink_diagnostics)
+    invalid_only_startup = valid_source_count == 0 and bool(symlink_diagnostics)
+
     # Pre-watch backup: required when existing lance data is present.
     # Fail closed if backup creation fails so the initial mine cannot corrupt
-    # the palace without a recoverable snapshot in place.
+    # the palace without a recoverable snapshot in place. Skipped entirely when
+    # the only discovered source is an invalid symlink — there is nothing safe to
+    # mine, so creating an archive here would just churn on every restart.
+    _local_kg_path = _palace_kg_path(palace_path)
+    mining_store = _WatcherMiningStore(palace_path)
     pre_watch_archive: Optional[str] = None
-    if _has_existing_lance_data(palace_path):
+    if not invalid_only_startup and _has_existing_lance_data(palace_path):
         try:
-            _, pre_watch_archive = create_backup(palace_path, kind="pre_watch")
+            _, pre_watch_archive = create_backup(
+                palace_path, kind="pre_watch", kg_path=_local_kg_path
+            )
             print(f"  Pre-watch backup: {pre_watch_archive}", flush=True)
         except Exception as exc:
             _emit_run_state(run_id, "pre-watch-backup-failed")
@@ -329,7 +410,9 @@ def watch_and_mine(
             return False
         return True
 
-    if _should_run():
+    if invalid_only_startup:
+        _emit_run_state(run_id, "initial-mine-skipped", "reason=no-valid-sources")
+    elif _should_run():
         _emit_run_state(run_id, "initial-mine-started")
         mine_kwargs = dict(
             project_dir=str(project_path),
@@ -343,8 +426,12 @@ def watch_and_mine(
             incremental=True,
             kg=kg,
             skip_optimize=True,
+            skip_invalid_source_symlinks=True,
+            kg_path=_local_kg_path,
         )
-        stats = _run_initial_mine_with_recovery(mine_kwargs, palace_path, None, pre_watch_archive)
+        stats = _run_initial_mine_with_recovery(
+            mine_kwargs, palace_path, None, pre_watch_archive, mining_store
+        )
         if stats is None:
             sys.exit(1)
         _emit_run_state(run_id, "initial-mine-completed")
@@ -358,7 +445,12 @@ def watch_and_mine(
             if _should_run():
                 from .storage import open_store
 
-                outcome = _optimize_once(palace_path, open_store)
+                outcome = _optimize_once(
+                    palace_path,
+                    open_store,
+                    kg_path=_local_kg_path,
+                    store=mining_store.collection,
+                )
                 if outcome == "completed":
                     _emit_run_state(run_id, "optimize-completed")
                 elif outcome == "skipped:backup-gate":
@@ -423,18 +515,23 @@ def watch_and_mine(
             if not _should_run():
                 continue
 
-            stats = _quiet_mine(
-                project_dir=str(project_path),
-                palace_path=palace_path,
-                wing_override=wing_override,
-                agent=agent,
-                limit=0,
-                dry_run=False,
-                respect_gitignore=respect_gitignore,
-                include_ignored=include_ignored,
-                incremental=True,
-                kg=kg,
-                skip_optimize=True,
+            stats = _run_watcher_mine(
+                {
+                    "project_dir": str(project_path),
+                    "palace_path": palace_path,
+                    "wing_override": wing_override,
+                    "agent": agent,
+                    "limit": 0,
+                    "dry_run": False,
+                    "respect_gitignore": respect_gitignore,
+                    "include_ignored": include_ignored,
+                    "incremental": True,
+                    "kg": kg,
+                    "skip_optimize": True,
+                    "skip_invalid_source_symlinks": True,
+                    "kg_path": _local_kg_path,
+                },
+                mining_store,
             )
             filed = stats.get("drawers_filed", 0)
             if filed:
@@ -453,7 +550,12 @@ def watch_and_mine(
                 if _should_run():
                     from .storage import open_store
 
-                    _optimize_once(palace_path, open_store)
+                    _optimize_once(
+                        palace_path,
+                        open_store,
+                        kg_path=_local_kg_path,
+                        store=mining_store.collection,
+                    )
             cycles += 1
             event_count += len(relevant)
 
@@ -469,16 +571,25 @@ def watch_and_mine(
     )
 
 
-def _optimize_once(palace_path: str, open_store_fn) -> str:
+def _optimize_once(
+    palace_path: str,
+    open_store_fn,
+    kg_path: Optional[str] = None,
+    *,
+    store=None,
+) -> str:
     """Run a single optimize pass; return 'completed', 'skipped:backup-gate', or 'skipped:error'."""
     from .config import MempalaceConfig
 
     try:
         t0 = time.time()
         print("  >> Optimizing storage...", end="", flush=True)
-        store = open_store_fn(palace_path, create=False)
+        if store is None:
+            store = open_store_fn(palace_path, create=False)
         config = MempalaceConfig()
-        result = optimize_store(store, palace_path, backup_first=config.backup_before_optimize)
+        result = optimize_store(
+            store, palace_path, backup_first=config.backup_before_optimize, kg_path=kg_path
+        )
         if not result.ok:
             print(" skipped (backup gate failed)", flush=True)
             return "skipped:backup-gate"
@@ -508,6 +619,15 @@ def _quiet_mine(**kwargs) -> dict:
         os.close(devnull)
         os.close(old_out)
         os.close(old_err)
+
+
+def _run_watcher_mine(mine_kwargs: dict, mining_store: _WatcherMiningStore) -> dict:
+    """Run mine() with one watcher-owned store and record a successful warmup."""
+    kwargs = dict(mine_kwargs)
+    kwargs.update(mining_store.mine_kwargs())
+    stats = _quiet_mine(**kwargs) or {}
+    mining_store.note_mine(stats)
+    return stats
 
 
 def _has_existing_lance_data(palace_path: str) -> bool:
@@ -559,6 +679,7 @@ def _run_initial_mine_with_recovery(
     palace_path: str,
     wing_label: Optional[str],
     pre_watch_archive: Optional[str],
+    mining_store: Optional[_WatcherMiningStore] = None,
 ) -> Optional[dict]:
     """Run initial mine; on Lance missing-fragment error attempt rollback and retry once.
 
@@ -568,8 +689,13 @@ def _run_initial_mine_with_recovery(
     """
     wing_prefix = f" [{wing_label}]" if wing_label else ""
 
+    def run_mine() -> dict:
+        if mining_store is None:
+            return _quiet_mine(**mine_kwargs) or {}
+        return _run_watcher_mine(mine_kwargs, mining_store)
+
     try:
-        return _quiet_mine(**mine_kwargs) or {}
+        return run_mine()
     except Exception as exc:
         if not _is_mine_missing_fragment(exc, palace_path):
             print(
@@ -609,8 +735,11 @@ def _run_initial_mine_with_recovery(
             flush=True,
         )
 
+        if mining_store is not None:
+            mining_store.recreate()
+
         try:
-            return _quiet_mine(**mine_kwargs) or {}
+            return run_mine()
         except Exception as retry_exc:
             print(
                 f"  Retry{wing_prefix} failed after rollback: {retry_exc}",
@@ -805,12 +934,35 @@ def watch_all(
     run_id = _make_run_id()
     _emit_run_state(run_id, "run-started")
 
+    # Guarded per-project startup source discovery — runs before the shared pre-watch
+    # backup so a dangling or unreadable source symlink is diagnosed and excluded before
+    # it can reach hashing. Projects whose only discovered source is an invalid symlink
+    # are skipped for initial mining below.
+    project_valid_counts: dict = {}
+    project_diagnostics: dict = {}
+    any_valid_source = False
+    for proj_path, wing in project_map.items():
+        valid_count, diagnostics = _startup_source_discovery(proj_path, respect_gitignore, None)
+        project_valid_counts[proj_path] = valid_count
+        project_diagnostics[proj_path] = diagnostics
+        if diagnostics:
+            print(f"  [{wing}]", flush=True)
+            _print_skipped_symlink_diagnostic(diagnostics)
+        if valid_count > 0:
+            any_valid_source = True
+    invalid_only_startup = not any_valid_source and any(project_diagnostics.values())
+
+    _all_local_kg_path = _palace_kg_path(palace_path)
+    mining_store = _WatcherMiningStore(palace_path)
     # Pre-watch backup: one archive before the initial multi-project batch.
-    # Fail closed if backup creation fails.
+    # Fail closed if backup creation fails. Skipped entirely when every project's
+    # only discovered source is an invalid symlink — there is nothing safe to mine.
     pre_watch_archive: Optional[str] = None
-    if _has_existing_lance_data(palace_path):
+    if not invalid_only_startup and _has_existing_lance_data(palace_path):
         try:
-            _, pre_watch_archive = create_backup(palace_path, kind="pre_watch")
+            _, pre_watch_archive = create_backup(
+                palace_path, kind="pre_watch", kg_path=_all_local_kg_path
+            )
             print(f"  Pre-watch backup: {pre_watch_archive}", flush=True)
         except Exception as exc:
             _emit_run_state(run_id, "pre-watch-backup-failed")
@@ -825,10 +977,15 @@ def watch_all(
     # per project that actually had changes.
     print("  Initial mine...", flush=True)
     total_init_filed = 0
-    if _should_run_all():
+    if invalid_only_startup:
+        _emit_run_state(run_id, "initial-mine-skipped", "reason=no-valid-sources")
+    elif _should_run_all():
         _emit_run_state(run_id, "initial-mine-started")
         for proj_path, wing in project_map.items():
-            kg = KnowledgeGraph()
+            if project_valid_counts[proj_path] == 0 and project_diagnostics[proj_path]:
+                # Invalid-only project: nothing safe to mine, skip just this one.
+                continue
+            kg = KnowledgeGraph(db_path=_all_local_kg_path)
             mine_kwargs = dict(
                 project_dir=str(proj_path),
                 palace_path=palace_path,
@@ -840,9 +997,11 @@ def watch_all(
                 incremental=True,
                 kg=kg,
                 skip_optimize=True,
+                skip_invalid_source_symlinks=True,
+                kg_path=_all_local_kg_path,
             )
             stats = _run_initial_mine_with_recovery(
-                mine_kwargs, palace_path, wing, pre_watch_archive
+                mine_kwargs, palace_path, wing, pre_watch_archive, mining_store
             )
             if stats is None:
                 sys.exit(1)
@@ -859,7 +1018,12 @@ def watch_all(
 
     # Single guarded optimize after all initial mines (only if something was filed)
     if total_init_filed and _should_run_all():
-        outcome = _optimize_once(palace_path, open_store)
+        outcome = _optimize_once(
+            palace_path,
+            open_store,
+            kg_path=_all_local_kg_path,
+            store=mining_store.collection,
+        )
         if outcome == "completed":
             _emit_run_state(run_id, "optimize-completed")
         elif outcome == "skipped:backup-gate":
@@ -957,18 +1121,23 @@ def watch_all(
                     continue
 
                 for proj_path, wing in triggered.items():
-                    kg = KnowledgeGraph()
-                    stats = _quiet_mine(
-                        project_dir=str(proj_path),
-                        palace_path=palace_path,
-                        wing_override=wing,
-                        agent=agent,
-                        limit=0,
-                        dry_run=False,
-                        respect_gitignore=respect_gitignore,
-                        incremental=True,
-                        kg=kg,
-                        skip_optimize=True,
+                    kg = KnowledgeGraph(db_path=_all_local_kg_path)
+                    stats = _run_watcher_mine(
+                        {
+                            "project_dir": str(proj_path),
+                            "palace_path": palace_path,
+                            "wing_override": wing,
+                            "agent": agent,
+                            "limit": 0,
+                            "dry_run": False,
+                            "respect_gitignore": respect_gitignore,
+                            "incremental": True,
+                            "kg": kg,
+                            "skip_optimize": True,
+                            "skip_invalid_source_symlinks": True,
+                            "kg_path": _all_local_kg_path,
+                        },
+                        mining_store,
                     )
                     filed = stats.get("drawers_filed", 0)
                     batch_filed += filed
@@ -1016,18 +1185,23 @@ def watch_all(
 
                 for proj_path, relevant in by_project.items():
                     wing = project_map[proj_path]
-                    kg = KnowledgeGraph()
-                    stats = _quiet_mine(
-                        project_dir=str(proj_path),
-                        palace_path=palace_path,
-                        wing_override=wing,
-                        agent=agent,
-                        limit=0,
-                        dry_run=False,
-                        respect_gitignore=respect_gitignore,
-                        incremental=True,
-                        kg=kg,
-                        skip_optimize=True,
+                    kg = KnowledgeGraph(db_path=_all_local_kg_path)
+                    stats = _run_watcher_mine(
+                        {
+                            "project_dir": str(proj_path),
+                            "palace_path": palace_path,
+                            "wing_override": wing,
+                            "agent": agent,
+                            "limit": 0,
+                            "dry_run": False,
+                            "respect_gitignore": respect_gitignore,
+                            "incremental": True,
+                            "kg": kg,
+                            "skip_optimize": True,
+                            "skip_invalid_source_symlinks": True,
+                            "kg_path": _all_local_kg_path,
+                        },
+                        mining_store,
                     )
                     filed = stats.get("drawers_filed", 0)
                     batch_filed += filed
@@ -1044,7 +1218,12 @@ def watch_all(
 
             # Guarded optimize: only when something was filed and budget still allows it
             if batch_filed and _should_run_all():
-                _optimize_once(palace_path, open_store)
+                _optimize_once(
+                    palace_path,
+                    open_store,
+                    kg_path=_all_local_kg_path,
+                    store=mining_store.collection,
+                )
 
     except KeyboardInterrupt:
         pass

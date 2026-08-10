@@ -1,5 +1,61 @@
 # Changelog
 
+## Unreleased
+
+## v1.13.0 — 2026-08-10
+
+Minor release for MCP protocol compatibility, bounded agent discovery, safer
+scoped palace operations, watcher lifecycle stability, and executable release
+quality gates.
+
+### Added
+
+- Stable MCP **2026-07-28** negotiation through the official Python MCP SDK 2.x,
+  while preserving legacy `initialize` clients and the existing stdio entrypoints.
+- Bounded `mempalace-code status --summary` output for agent-safe drawer, taxonomy,
+  and storage discovery.
+- Subprocess-level golden CLI scenarios covering init, mine, no-op mine, status,
+  search, read, export, import, backup, restore, and watch from installed artifacts.
+- Canonical architecture, documentation-drift, performance-budget, public-safety,
+  package-content, installed-metadata, and workflow-summary gates shared by local
+  verification and CI.
+- Public-safe quality evidence for every `AUTOPILOT-DEMO-*` item, including the
+  enforcing command and real CLI, MCP, package, or API boundary where applicable.
+- Compact benchmark fixture facts that keep published token-savings claims tied to
+  a reproducible corpus and query set.
+- Machine-readable retrieval-quality facts, complete README coverage for all 29 MCP
+  tools, and CI compatibility coverage for every supported Python 3.11–3.14 runtime.
+
+### Changed
+
+- Explicit wing and room filters are validated against the palace taxonomy before
+  retrieval across CLI, Python, and MCP surfaces. Unknown identifiers return bounded,
+  advisory suggestions; valid scopes with no matches remain successful empty results.
+- Token-savings documentation now reports the refreshed canonical fixture: 14.5x
+  median and 33.8x peak fewer tokens for its 20-query workload.
+- PyPI publishing is tag-only, validates tag-to-version and tag-to-main
+  provenance, checks wheel/sdist metadata, serializes concurrent release work,
+  and creates the GitHub Release only after trusted publishing succeeds.
+- Offline guidance now distinguishes standard CLI/MCP operation from the explicit
+  low-level `EntityRegistry.research()` Wikipedia lookup.
+
+### Fixed
+
+- Explicit `--palace` backup, restore, mining, and pre-optimize paths now form a
+  complete data boundary: absent palace-local KG state is omitted and default-global
+  graph data is never imported into a scoped archive.
+- True no-op incremental mining proves the no-op before loading the embedder,
+  creating an archive, optimizing storage, or growing palace disk usage.
+- Watcher runs reuse one warmed store/model lifecycle across remine cycles, keep
+  post-warm-up RSS, file descriptors, archives, and disk growth bounded, and shut
+  down cleanly on SIGINT.
+- Watcher startup rejects dangling or unreadable source symlinks before creating a
+  backup or entering a restart loop.
+- Search-to-read accepts filesystem-equivalent macOS `/tmp` and `/private/tmp`
+  spellings while retaining traversal, ambiguity, and external-path guards.
+- Backup archives, JSONL imports, and project configuration failures reject unsafe
+  or malformed inputs before mutating palace state.
+
 ## v1.12.1 — 2026-07-12
 
 Patch release for named systemd-user watcher coordination in the opt-in updater.
@@ -22,8 +78,6 @@ Minor release for the opt-in `mempalace-code update` workflow.
 ### Changed
 
 - Package metadata, lockfile, README version shield, and updater fixtures now use the v1.12.0 release baseline.
-
-## Unreleased
 
 ## 2026-06-19 · AUTOPILOT-DEMO-PUBLIC-SAFETY-COMMITTED-MODE
 

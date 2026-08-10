@@ -17,10 +17,27 @@ python -m pytest tests/ -v
 python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
 ruff check mempalace_code/ tests/ scripts/
 ruff format --check mempalace_code/ tests/ scripts/
+python scripts/docs_drift_guard.py
+python scripts/public_safety_scan.py --tracked --staged
+python scripts/quality_scorecard.py --check
 ```
 
 All tests and checks must pass before submitting a PR. Tests should run without
 API keys or network access unless they are explicitly marked `needs_network`.
+
+## Release Changes
+
+Changes to public CLI/MCP behavior, package metadata, documentation, workflows,
+or release tooling must keep the release contract green:
+
+```bash
+python scripts/docs_drift_guard.py
+python scripts/release_preflight.py
+```
+
+See [docs/RELEASING.md](docs/RELEASING.md) for the tag, trusted-publishing, public
+repository, and post-publication verification sequence. Contributors must not
+create tags, releases, or package publications without maintainer approval.
 
 ## Running Benchmarks
 

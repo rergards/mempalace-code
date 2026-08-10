@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -32,6 +33,7 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
+from mempalace_code.language_catalog import searchable_languages  # noqa: E402
 from mempalace_code.miner import load_config, process_file, scan_project  # noqa: E402
 from mempalace_code.searcher import search_memories  # noqa: E402
 from mempalace_code.storage import open_store  # noqa: E402
@@ -330,21 +332,22 @@ def mine_project(project_dir: str, palace_path: str) -> tuple:
 def mempalace_search_tokens(query: str, palace_path: str, limit: int = 5) -> tuple:
     """Search mempalace and count tokens in concatenated results.
 
-    Returns (token_count, result_count, result_sources).
+    Returns (token_count, result_count, result_sources, result_languages).
     """
     result = search_memories(query, palace_path, n_results=limit)
 
     if "error" in result:
-        return (0, 0, [])
+        return (0, 0, [], [])
 
     hits = result.get("results", [])
     if not hits:
-        return (0, 0, [])
+        return (0, 0, [], [])
 
     combined_text = "\n".join(h["text"] for h in hits)
     sources = [h["source_file"] for h in hits]
+    languages = [h["language"] for h in hits if h.get("language")]
     token_count = count_tokens(combined_text)
-    return (token_count, len(hits), sources)
+    return (token_count, len(hits), sources, languages)
 
 
 # =============================================================================
@@ -375,6 +378,132 @@ def percentile(values: list, pct: float) -> float:
     if c >= len(s):
         return s[f]
     return s[f] + (k - f) * (s[c] - s[f])
+
+
+# =============================================================================
+# FIXTURE FACTS — sanitized, public-safe summary of the benchmarked fixture
+# =============================================================================
+
+
+def anonymized_fixture_ref(project_dir: str) -> str:
+    """Return a stable, non-reversible identifier for a fixture checkout path.
+
+    Lets baseline comparisons confirm two runs targeted the same fixture without
+    committing the fixture's real name or filesystem path to the repo.
+    """
+    resolved = str(Path(project_dir).resolve())
+    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
+
+
+def git_commit_ref(project_dir: str) -> str | None:
+    """Return the fixture's HEAD commit SHA, or None if it is not a git checkout."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", project_dir, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def git_tracked_file_count(project_dir: str) -> int | None:
+    """Return `git ls-files` count for the fixture, or None if not a git checkout."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", project_dir, "ls-files"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if result.returncode != 0:
+        return None
+    return len([line for line in result.stdout.splitlines() if line.strip()])
+
+
+def retrieval_precision_at_k(query_results: list) -> float:
+    """Share of queries whose expected file basename appears among mempalace sources.
+
+    A query counts as a hit when any of its `expected_files` basenames matches
+    the basename of any `mempalace_sources` entry. Queries with no expected
+    files are excluded from the denominator.
+    """
+    scored = [qr for qr in query_results if qr.get("expected_files")]
+    if not scored:
+        return 0.0
+
+    hits = 0
+    for qr in scored:
+        expected = set(qr["expected_files"])
+        got = {Path(src).name for src in qr.get("mempalace_sources", [])}
+        if expected & got:
+            hits += 1
+
+    return hits / len(scored)
+
+
+def build_fixture_facts(
+    project_dir: str,
+    query_results: list,
+    chunk_count: int,
+    tracked_file_count_fallback: int,
+    summary: dict,
+    results_per_query: int,
+) -> dict:
+    """Build the sanitized, committable fixture-facts summary for one benchmark run.
+
+    Contains only aggregate counts and scores — no fixture name, local path,
+    per-file result lists, or other identifying detail (INV-3).
+    """
+    tracked = git_tracked_file_count(project_dir)
+    if tracked is None:
+        tracked = tracked_file_count_fallback
+
+    languages = {lang for qr in query_results for lang in qr.get("mempalace_languages", [])}
+
+    return {
+        "fixture_ref": anonymized_fixture_ref(project_dir),
+        "commit": git_commit_ref(project_dir),
+        "tracked_file_count": tracked,
+        "mined_drawer_count": chunk_count,
+        "supported_language_count": len(searchable_languages()),
+        "fixture_language_count": len(languages),
+        "query_count": len(query_results),
+        "results_per_query": results_per_query,
+        "median_ratio": summary["median_ratio"],
+        "mean_ratio": summary["mean_ratio"],
+        "peak_ratio": summary["peak_ratio"],
+        "retrieval_precision_at_5": retrieval_precision_at_k(query_results),
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "drift_warnings": [],
+    }
+
+
+def check_fixture_drift(current: dict, baseline: dict, threshold_pct: float) -> list:
+    """Compare current fixture facts against a committed baseline.
+
+    Warns when `tracked_file_count` or `mined_drawer_count` drift by more than
+    `threshold_pct` percent. Drift exactly equal to the threshold does not warn.
+    """
+    warnings = []
+    for field in ("tracked_file_count", "mined_drawer_count"):
+        baseline_val = baseline.get(field)
+        current_val = current.get(field)
+        if not baseline_val or current_val is None:
+            continue
+        pct = abs(current_val - baseline_val) / baseline_val * 100
+        if pct > threshold_pct:
+            warnings.append(
+                f"{field} drifted {pct:.1f}% from baseline ({baseline_val} -> {current_val}), "
+                f"exceeds {threshold_pct}% threshold"
+            )
+    return warnings
 
 
 # =============================================================================
@@ -509,6 +638,25 @@ def main():
         default=5,
         help="Number of results/files to retrieve per query (default: 5)",
     )
+    parser.add_argument(
+        "--fixture-facts-out",
+        default=None,
+        help=(
+            "Write a sanitized, public-safe fixture-facts JSON summary to this path "
+            "(commit/ref, file/drawer/language counts, savings, retrieval precision)."
+        ),
+    )
+    parser.add_argument(
+        "--baseline-facts",
+        default=None,
+        help="Path to a previously-committed fixture-facts JSON to check for drift.",
+    )
+    parser.add_argument(
+        "--drift-threshold-pct",
+        type=float,
+        default=10.0,
+        help="Percent drift in tracked file / drawer counts that triggers a warning (default: 10).",
+    )
     args = parser.parse_args()
 
     project_dir = str(Path(args.project).resolve())
@@ -553,7 +701,7 @@ def main():
             )
 
             # MemPalace: search
-            mp_tokens, mp_results, mp_sources = mempalace_search_tokens(
+            mp_tokens, mp_results, mp_sources, mp_languages = mempalace_search_tokens(
                 query_text, palace_path, limit=args.limit
             )
 
@@ -585,6 +733,7 @@ def main():
                     "mempalace_tokens": mp_tokens,
                     "mempalace_results": mp_results,
                     "mempalace_sources": mp_sources,
+                    "mempalace_languages": mp_languages,
                     "ratio": ratio,
                     "keywords_used": extract_keywords(query_text),
                 }
@@ -601,7 +750,48 @@ def main():
             "median_ratio": median(ratios),
             "mean_ratio": sum(ratios) / len(ratios) if ratios else 0,
             "p95_ratio": percentile(ratios, 95),
+            "peak_ratio": max(ratios) if ratios else 0,
         }
+
+        # Phase 4: Fixture facts — sanitized, committable summary + drift check
+        fixture_facts = None
+        if args.fixture_facts_out or args.baseline_facts:
+            baseline_facts = None
+            if args.baseline_facts and Path(args.baseline_facts).exists():
+                with open(args.baseline_facts) as f:
+                    baseline_facts = json.load(f)
+
+            fixture_facts = build_fixture_facts(
+                project_dir,
+                query_results,
+                chunk_count,
+                len(scan_project(project_dir)),
+                summary,
+                args.limit,
+            )
+
+            if baseline_facts is not None:
+                fixture_facts["drift_warnings"] = check_fixture_drift(
+                    fixture_facts, baseline_facts, args.drift_threshold_pct
+                )
+            elif args.baseline_facts:
+                print(
+                    f"\n  No baseline facts found at {args.baseline_facts} — skipping drift check."
+                )
+
+            print(f"\n{'─' * 55}")
+            print("  Phase 4: Fixture facts")
+            print(f"{'─' * 55}")
+            print(json.dumps(fixture_facts, indent=2))
+            for warning in fixture_facts["drift_warnings"]:
+                print(f"  ⚠ FIXTURE DRIFT: {warning}")
+
+            if args.fixture_facts_out:
+                Path(args.fixture_facts_out).parent.mkdir(parents=True, exist_ok=True)
+                with open(args.fixture_facts_out, "w") as f:
+                    json.dump(fixture_facts, f, indent=2)
+                    f.write("\n")
+                print(f"\n  Fixture facts saved to: {args.fixture_facts_out}")
 
         out_path = args.out
         if not out_path:
@@ -619,6 +809,8 @@ def main():
             "summary": summary,
             "queries": query_results,
         }
+        if fixture_facts is not None:
+            report["fixture_facts"] = fixture_facts
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w") as f:
             json.dump(report, f, indent=2)

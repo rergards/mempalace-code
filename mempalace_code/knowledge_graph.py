@@ -141,6 +141,31 @@ def _in_window(
 DEFAULT_KG_PATH = os.path.expanduser("~/.mempalace/knowledge_graph.sqlite3")
 
 
+def palace_kg_path(palace_path: str) -> str:
+    """Return the conventional palace-local KG path: <palace>/knowledge_graph.sqlite3."""
+    return os.path.join(palace_path, "knowledge_graph.sqlite3")
+
+
+class LazyKnowledgeGraph:
+    """KnowledgeGraph proxy that defers instantiation until the first method call.
+
+    Use this on incremental mine/watch paths so a no-op run cannot create a
+    SQLite file by construction.
+    """
+
+    def __init__(self, db_path: str | None = None):
+        self._db_path = db_path
+        self._kg: KnowledgeGraph | None = None
+
+    def _get_kg(self) -> "KnowledgeGraph":
+        if self._kg is None:
+            self._kg = KnowledgeGraph(db_path=self._db_path)
+        return self._kg
+
+    def __getattr__(self, name: str):
+        return getattr(self._get_kg(), name)
+
+
 class KnowledgeGraph:
     def __init__(self, db_path: str | None = None):
         self.db_path = db_path or DEFAULT_KG_PATH

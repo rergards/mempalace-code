@@ -1656,6 +1656,83 @@ class TestWatchInitialMineRecovery:
         out = capsys.readouterr()
         assert "DEGRADED" in (out.out + out.err)
 
+    def test_initial_recovery_recreates_lifecycle_store_before_retry(self, tmp_path):
+        """Rollback retries with a fresh collection instead of the stale failing handle."""
+        from mempalace_code import watcher
+
+        palace = tmp_path / "palace"
+        stale_store = MagicMock(name="stale_store")
+        fresh_store = MagicMock(name="fresh_store")
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            if len(mine_calls) == 1:
+                raise Exception("no such file or directory: fragment.lance")
+            return {"embedder_warmed": kwargs["warmup"]}
+
+        recovery_store = MagicMock()
+        recovery_store.recover_to_last_working_version.return_value = {
+            "recovered": True,
+            "restored_to": 5,
+            "rows_after": 10,
+        }
+
+        with (
+            patch(
+                "mempalace_code.watcher.get_collection",
+                side_effect=[stale_store, fresh_store],
+            ) as get_collection,
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.storage.open_store", return_value=recovery_store),
+        ):
+            mining_store = watcher._WatcherMiningStore(str(palace))
+            stats = watcher._run_initial_mine_with_recovery(
+                {}, str(palace), None, None, mining_store
+            )
+
+        assert stats == {"embedder_warmed": True}
+        assert [call["collection"] for call in mine_calls] == [stale_store, fresh_store]
+        assert all(call["warmup"] for call in mine_calls)
+        assert get_collection.call_count == 2
+        recovery_store.recover_to_last_working_version.assert_called_once_with(dry_run=False)
+
+    def test_watcher_lifecycle_reuses_one_collection_and_warms_once(self, tmp_path):
+        """Changed cycles share the watcher collection after its first explicit warmup."""
+        project = tmp_path / "proj"
+        _make_project(project)
+        collection = MagicMock()
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            if kwargs["warmup"]:
+                kwargs["collection"].warmup()
+            return {
+                "drawers_filed": 1,
+                "files_processed": 1,
+                "elapsed_secs": 0,
+                "embedder_warmed": kwargs["warmup"],
+            }
+
+        changes = [{(1, str(project / "app.py"))}, {(1, str(project / "app.py"))}]
+        with (
+            patch(
+                "mempalace_code.watcher.get_collection", return_value=collection
+            ) as get_collection,
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher._optimize_once", return_value="completed"),
+            patch("mempalace_code.watcher._load_watch_min_free", return_value=0),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        assert len(mine_calls) == 3, "initial mine plus two changed watcher cycles"
+        assert {id(call["collection"]) for call in mine_calls} == {id(collection)}
+        assert [call["warmup"] for call in mine_calls] == [True, False, False]
+        collection.warmup.assert_called_once()
+        get_collection.assert_called_once_with(str(tmp_path / "palace"))
+
     def test_missing_fragment_without_candidate_exits_with_recovery_commands(
         self, tmp_path, capsys
     ):
@@ -1798,6 +1875,245 @@ class TestWatchInitialMineRecovery:
         all_output = out.out + out.err
         assert shlex.quote(str(palace)) in all_output
         assert "repair --rollback --dry-run" in all_output
+
+
+# ---------------------------------------------------------------------------
+# Broken source symlink startup guard (WATCHER-BROKEN-SYMLINK-STARTUP-GUARD)
+# ---------------------------------------------------------------------------
+
+
+class TestWatcherStartupSourceSymlinkGuard:
+    """Tests for the watcher startup source-symlink guard."""
+
+    def test_invalid_source_symlink_is_diagnosed_before_backup_or_mine(self, tmp_path, capsys):
+        """AC-1: guarded discovery diagnoses an invalid symlink before backup/mine run."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / "app.py").write_text("print('ok')\n" * 20)
+        dangling = project / "broken.py"
+        dangling.symlink_to(project / "does_not_exist.py")
+
+        call_order = []
+
+        def fake_create_backup(palace_path, kind=None, **kwargs):
+            call_order.append("backup")
+            return {}, str(tmp_path / "pre_watch.tar.gz")
+
+        def fake_mine(**kwargs):
+            call_order.append("mine")
+            return {}
+
+        with (
+            patch("mempalace_code.watcher.create_backup", side_effect=fake_create_backup),
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            watch_and_mine(str(project), str(palace))
+
+        assert call_order == ["backup", "mine"], "backup and mine still run for a mixed project"
+
+        out = capsys.readouterr().out
+        assert "Skipped 1 invalid source symlink(s):" in out
+        assert str(dangling) in out
+        assert "dangling" in out
+        diagnostic_index = out.index("Skipped 1 invalid source symlink(s):")
+        backup_index = out.index("Pre-watch backup:")
+        assert diagnostic_index < backup_index, (
+            "guarded source discovery and its diagnostic must run before pre-watch backup"
+        )
+
+    def test_invalid_only_startup_enters_watch_without_pre_watch_backup_churn(
+        self, tmp_path, capsys
+    ):
+        """AC-2: invalid-only startup stays alive without repeated pre_watch backups."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        dangling = project / "broken.py"
+        dangling.symlink_to(project / "does_not_exist.py")
+
+        backup_calls = []
+        mine_calls = []
+        watch_calls = []
+
+        with (
+            patch(
+                "mempalace_code.watcher.create_backup",
+                side_effect=lambda *a, **kw: backup_calls.append(1),
+            ),
+            patch("mempalace_code.watcher.mine", side_effect=lambda **kw: mine_calls.append(1)),
+            patch(
+                "watchfiles.watch",
+                side_effect=lambda *a, **kw: watch_calls.append(1) or iter([]),
+            ),
+        ):
+            watch_and_mine(str(project), str(palace))
+            watch_and_mine(str(project), str(palace))
+
+        assert not backup_calls, "invalid-only startup must not create a pre_watch archive"
+        assert not mine_calls, "invalid-only startup must not attempt an initial mine"
+        assert len(watch_calls) == 2, "watcher must still reach the watch loop each startup"
+
+        out = capsys.readouterr().out
+        assert out.count("reason=no-valid-sources") == 2
+
+    def test_valid_symlink_and_regular_file_startup_still_runs_initial_mine(self, tmp_path):
+        """AC-3: valid symlinks and regular files keep current initial-mine behavior."""
+        palace = tmp_path / "palace"
+        project = tmp_path / "proj"
+        project.mkdir()
+        target = project / "real.py"
+        target.write_text("print('real')\n" * 20)
+        link = project / "link.py"
+        link.symlink_to(target)
+
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            return {}
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            watch_and_mine(str(project), str(palace))
+
+        assert len(mine_calls) == 1, "initial mine must still run for valid sources"
+        assert mine_calls[0]["skip_invalid_source_symlinks"] is True
+
+    def test_watch_all_invalid_only_startup_enters_watch_without_backup_or_mine(
+        self, tmp_path, capsys
+    ):
+        """AC-4: watch_all skips the shared backup and every mine when all projects are
+        invalid-symlink-only, and still reaches the watch loop."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        parent = tmp_path / "parent"
+        parent.mkdir()
+        proj_a = parent / "proj_a"
+        proj_b = parent / "proj_b"
+        proj_a.mkdir()
+        proj_b.mkdir()
+        (proj_a / "broken.py").symlink_to(proj_a / "does_not_exist.py")
+        (proj_b / "broken.py").symlink_to(proj_b / "does_not_exist.py")
+
+        backup_calls = []
+        mine_calls = []
+        watch_calls = []
+
+        fake_projects = [
+            {"path": str(proj_a), "initialized": True},
+            {"path": str(proj_b), "initialized": True},
+        ]
+
+        def fake_resolve_wing(project_dir):
+            return f"wing_{Path(project_dir).name}"
+
+        with (
+            patch(
+                "mempalace_code.watcher.create_backup",
+                side_effect=lambda *a, **kw: backup_calls.append(1),
+            ),
+            patch("mempalace_code.watcher.mine", side_effect=lambda **kw: mine_calls.append(kw)),
+            patch(
+                "watchfiles.watch",
+                side_effect=lambda *a, **kw: watch_calls.append(1) or iter([]),
+            ),
+            patch("mempalace_code.mining.projects.detect_projects", return_value=fake_projects),
+            patch(
+                "mempalace_code.mining.projects.resolve_wing_for_project",
+                side_effect=fake_resolve_wing,
+            ),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+        ):
+            watch_all(str(parent), str(palace), on_commit=False)
+
+        assert not backup_calls, "all-invalid startup must not create a shared pre_watch archive"
+        assert not mine_calls, "all-invalid startup must not attempt any initial mine"
+        assert watch_calls == [1], "watcher must still reach the watch loop"
+
+        out = capsys.readouterr().out
+        assert out.count("Skipped 1 invalid source symlink(s):") == 2, (
+            "each invalid-only project prints its own bounded diagnostic"
+        )
+        assert "[wing_proj_a]" in out
+        assert "[wing_proj_b]" in out
+        assert "reason=no-valid-sources" in out
+
+    def test_watch_all_mixed_startup_mines_only_valid_project(self, tmp_path, capsys):
+        """AC-4: watch_all keeps the shared backup and mines only the project with valid
+        sources when a sibling project's only discovered source is an invalid symlink."""
+        palace = tmp_path / "palace"
+        lance_dir = palace / "lance"
+        lance_dir.mkdir(parents=True)
+        (lance_dir / "data.lance").write_bytes(b"x")
+
+        parent = tmp_path / "parent"
+        parent.mkdir()
+        proj_a = parent / "proj_a"
+        proj_b = parent / "proj_b"
+        proj_a.mkdir()
+        proj_b.mkdir()
+        (proj_a / "real.py").write_text("print('real')\n" * 20)
+        (proj_b / "broken.py").symlink_to(proj_b / "does_not_exist.py")
+
+        backup_calls = []
+        mine_calls = []
+        watch_calls = []
+        backup_archive = str(tmp_path / "pre_watch_20260101_120000.tar.gz")
+
+        fake_projects = [
+            {"path": str(proj_a), "initialized": True},
+            {"path": str(proj_b), "initialized": True},
+        ]
+
+        def fake_resolve_wing(project_dir):
+            return f"wing_{Path(project_dir).name}"
+
+        def fake_create_backup(palace_path, kind=None, **kwargs):
+            backup_calls.append(1)
+            return {}, backup_archive
+
+        with (
+            patch("mempalace_code.watcher.create_backup", side_effect=fake_create_backup),
+            patch("mempalace_code.watcher.mine", side_effect=lambda **kw: mine_calls.append(kw)),
+            patch(
+                "watchfiles.watch",
+                side_effect=lambda *a, **kw: watch_calls.append(1) or iter([]),
+            ),
+            patch("mempalace_code.mining.projects.detect_projects", return_value=fake_projects),
+            patch(
+                "mempalace_code.mining.projects.resolve_wing_for_project",
+                side_effect=fake_resolve_wing,
+            ),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+        ):
+            watch_all(str(parent), str(palace), on_commit=False)
+
+        assert backup_calls == [1], "mixed startup still creates the shared pre_watch backup"
+        assert len(mine_calls) == 1, "only the project with a valid source is mined"
+        assert mine_calls[0]["wing_override"] == "wing_proj_a"
+        assert watch_calls == [1], "watcher must still reach the watch loop"
+
+        out = capsys.readouterr().out
+        assert out.count("Skipped 1 invalid source symlink(s):") == 1, (
+            "only the invalid-only project prints a diagnostic"
+        )
+        assert "[wing_proj_b]" in out
+        assert "[wing_proj_a]" not in out, "the valid project must not print a skip diagnostic"
 
 
 # ---------------------------------------------------------------------------

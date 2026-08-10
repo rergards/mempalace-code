@@ -1516,6 +1516,80 @@ class TestMirrorPreflightCommand:
             assert "OK" in out, f"Expected OK for: {cmd!r}, got: {out!r}"
 
 
+class TestMirrorPreflightSecurityBoundary:
+    """AC-1/AC-3: mirror preflight command parsing abuse cases — malformed command
+    text is rejected with a stable parse_error and never spawns a subprocess."""
+
+    # Unterminated double-quote — shlex.split fails at the top level (not inside a wrapper).
+    UNTERMINATED_QUOTE_CMD = 'rsync -a --delete "~/.mempalace/ user@host:.mempalace/'
+
+    def test_security_boundary_mirror_preflight_malformed_text_exits_with_parse_error(self, capsys):
+        """Top-level unterminated-quote command text exits 2 with a stderr parse error."""
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace", "preflight", "mirror", "--command", self.UNTERMINATED_QUOTE_CMD],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    def test_security_boundary_mirror_preflight_malformed_text_json_output(self, capsys):
+        """--json mode reports {"ok": false, "parse_error": ...} for malformed text."""
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace",
+                "preflight",
+                "mirror",
+                "--json",
+                "--command",
+                self.UNTERMINATED_QUOTE_CMD,
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 2
+        data = json.loads(capsys.readouterr().out)
+        assert data["ok"] is False
+        assert data["parse_error"]
+
+    def test_security_boundary_mirror_preflight_empty_command_is_parse_error(self, capsys):
+        """A blank/whitespace-only command string is rejected, not silently accepted."""
+        with patch.object(sys, "argv", ["mempalace", "preflight", "mirror", "--command", "   "]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert "ERROR" in captured.err
+
+    def test_security_boundary_mirror_preflight_malformed_text_never_executes(self, capsys):
+        """Malformed command text must never spawn a subprocess or shell out, even
+        though it fails to parse (INV-5)."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("subprocess.Popen") as mock_popen,
+            patch("os.system") as mock_system,
+            patch("os.popen") as mock_os_popen,
+        ):
+            with patch.object(
+                sys,
+                "argv",
+                ["mempalace", "preflight", "mirror", "--command", self.UNTERMINATED_QUOTE_CMD],
+            ):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+
+        assert exc.value.code == 2
+        mock_run.assert_not_called()
+        mock_popen.assert_not_called()
+        mock_system.assert_not_called()
+        mock_os_popen.assert_not_called()
+
+
 class TestMirrorDocs:
     """Assert that mirror-safety guidance is present in both README.md and docs/BACKUP_RESTORE.md.
 
@@ -2349,7 +2423,181 @@ class TestVersionCheckCLIHook:
         assert prompt_called == [], "run_first_run_prompt must not be called in non-TTY"
 
 
+# =============================================================================
+# status --summary tests
+# =============================================================================
+
+
+def test_status_summary_cli_prints_only_bounded_metrics(tmp_path, capsys):
+    """status --summary prints only drawer/wing/room-pair/storage/version metrics (AC-1)."""
+    palace = str(tmp_path / "palace")
+    store = open_store(palace, create=True)
+    store.add(
+        ids=["cs1", "cs2"],
+        documents=["cli summary drawer one", "cli summary drawer two"],
+        metadatas=[
+            {"wing": "cli_wing", "room": "general"},
+            {"wing": "cli_wing", "room": "notes"},
+        ],
+    )
+
+    with patch.object(sys, "argv", ["mempalace", "--palace", palace, "status", "--summary"]):
+        main()
+    captured = capsys.readouterr().out
+
+    assert "Drawers: 2" in captured, f"Expected 'Drawers: 2' in output:\n{captured}"
+    assert "Wings: 1" in captured, f"Expected 'Wings: 1' in output:\n{captured}"
+    assert "Room pairs: 2" in captured, f"Expected 'Room pairs: 2' in output:\n{captured}"
+    assert "Storage:" in captured
+    assert "Versions:" in captured
+    assert "WING:" not in captured
+    assert "ROOM:" not in captured
+    assert "cli_wing" not in captured
+
+
+def test_status_summary_missing_palace_does_not_create_or_embed(tmp_path, capsys, monkeypatch):
+    """status --summary on a missing palace reports absence without creating the path or embedding (AC-4)."""
+    from mempalace_code.storage import LanceStore
+
+    palace = str(tmp_path / "nonexistent_palace")
+
+    def _embedder_raises(self):
+        raise RuntimeError("embedder must not be called for missing-palace status --summary")
+
+    monkeypatch.setattr(LanceStore, "_get_embedder", _embedder_raises)
+
+    with patch.object(sys, "argv", ["mempalace", "--palace", palace, "status", "--summary"]):
+        main()
+    captured = capsys.readouterr().out
+
+    assert "No palace found" in captured, f"Expected 'No palace found' in output:\n{captured}"
+    assert not os.path.exists(palace), "status --summary must not create the palace directory"
+
+
+def test_status_summary_help_and_agent_docs(capsys):
+    """CLI help and agent-facing docs recommend status --summary without claiming MCP status is bounded (AC-6)."""
+    root = Path(__file__).parent.parent
+
+    with patch.object(sys, "argv", ["mempalace", "status", "--help"]):
+        with pytest.raises(SystemExit):
+            main()
+    help_out = capsys.readouterr().out
+    assert "--summary" in help_out, f"status --help must document --summary:\n{help_out}"
+
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert "status --summary" in readme, "README.md must document status --summary"
+
+    agent_install = (root / "docs" / "AGENT_INSTALL.md").read_text(encoding="utf-8")
+    assert "status --summary" in agent_install, (
+        "docs/AGENT_INSTALL.md must recommend status --summary for shell-based readiness checks"
+    )
+
+    llm_rules = (root / "docs" / "LLM_USAGE_RULES.md").read_text(encoding="utf-8")
+    assert "status --summary" in llm_rules, (
+        "docs/LLM_USAGE_RULES.md must mention status --summary for bounded CLI discovery"
+    )
+    # The existing MCP status caution must remain — this feature does not change MCP status.
+    assert "not an operating protocol" in llm_rules, (
+        "docs/LLM_USAGE_RULES.md must retain the caution that mempalace_status is unbounded"
+    )
+
+
 # ─── CLI read command tests ───────────────────────────────────────────────────
+
+
+class TestSearchCommandTaxonomyValidation:
+    """search_command: explicit --wing/--room filters are validated against the taxonomy."""
+
+    def _seed(self, palace_path):
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["sc1"],
+            documents=["def authenticate(user): validate credentials"],
+            metadatas=[
+                {
+                    "wing": "proj",
+                    "room": "backend",
+                    "source_file": "/project/src/auth.py",
+                    "chunk_index": 0,
+                    "added_by": "miner",
+                    "filed_at": "2026-01-01T00:00:00",
+                }
+            ],
+        )
+        return palace_path
+
+    def test_search_unknown_taxonomy_exit_2(self, tmp_path, capsys, monkeypatch):
+        """AC-2: an unknown --wing exits with status 2 and an actionable message."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed(palace_path)
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "search",
+                "anything",
+                "--wing",
+                "does-not-exist",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Unknown wing" in captured.err
+        assert "does-not-exist" in captured.err
+        assert "Next:" in captured.err
+
+    def test_search_taxonomy_filter_validation_suggestions_are_advisory(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """AC-5: a close punctuation variant is suggested but never silently substituted."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed(palace_path)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", palace_path, "search", "anything", "--wing", "pro-j"],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert "Did you mean" in captured.err
+        assert "proj" in captured.err
+        assert "pro-j" in captured.err  # the supplied value is not rewritten
+
+    def test_search_valid_empty_search_scope_exit_0(self, tmp_path, capsys, monkeypatch):
+        """AC-1: a valid wing scope with zero query hits stays a successful, exit-0 result."""
+        from mempalace_code.storage import LanceStore
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed(palace_path)
+
+        def _empty_query(self, *args, **kwargs):
+            return {"documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+        monkeypatch.setattr(LanceStore, "query", _empty_query)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", palace_path, "search", "anything", "--wing", "proj"],
+        ):
+            main()  # valid wing scope; must not raise or exit nonzero
+
+        captured = capsys.readouterr()
+        assert "No results found" in captured.out
+        assert captured.err == ""
 
 
 class TestReadCommand:
@@ -2494,6 +2742,38 @@ class TestReadCommand:
         assert "Invalid range" in captured.err
         assert "Next:" in captured.err
         assert "--start" in captured.err
+
+    def test_read_command_read_unknown_wing_exit_2(self, tmp_path, capsys, monkeypatch):
+        """AC-1/AC-2: an unknown --wing exits with status 2, distinct from not_found (AC-3)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace_path = str(tmp_path / "palace")
+        self._seed_readable(palace_path)
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                palace_path,
+                "read",
+                "/project/src/auth.py",
+                "--start",
+                "1",
+                "--end",
+                "2",
+                "--wing",
+                "does-not-exist",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "Unknown wing" in captured.err
+        assert "does-not-exist" in captured.err
+        assert "Next:" in captured.err
 
 
 # ─── CLI read command: source path discovery tests ────────────────────────────

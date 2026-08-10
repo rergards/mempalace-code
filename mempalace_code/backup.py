@@ -15,6 +15,7 @@ The ``mempalace_backup/`` prefix prevents tarbomb extraction.
 import io
 import json
 import logging
+import ntpath
 import os
 import shutil
 import sys
@@ -33,6 +34,49 @@ _KIND_PREFIXES: Dict[str, str] = {
     "pre_optimize": "pre_optimize_",
     "pre_watch": "pre_watch_",
 }
+
+# Managed archive prefix — the only tree that restore_backup extracts from.
+_MANAGED_MEMBER_PREFIX = "mempalace_backup/"
+
+
+class BackupArchiveError(Exception):
+    """Raised when a backup archive contains an unsafe or malformed managed member.
+
+    Attributes:
+        code: stable machine-testable error code ("unsafe_archive_member" or
+            "malformed_metadata").
+        member_name: the offending tar member name.
+    """
+
+    def __init__(self, code: str, member_name: str):
+        self.code = code
+        self.member_name = member_name
+        super().__init__(f"{code}: {member_name}")
+
+
+def _validate_archive_members(members: List[tarfile.TarInfo]) -> None:
+    """Reject managed archive members with unsafe paths or non-file/non-dir types.
+
+    Every member under the ``mempalace_backup/`` prefix must be a regular file or a
+    directory, and its relative path must not contain empty, ``..``, drive-letter
+    (e.g. ``C:``), or otherwise absolute-looking components. The drive-letter check
+    uses ``ntpath`` unconditionally (not the host ``os.path``) so a POSIX host still
+    rejects a component that would escape the staging directory on Windows via
+    ``os.path.join``'s drive-relative behavior. Raises before any staged extraction
+    happens so a malicious archive can never leave partial or unsafe state on disk.
+    """
+    for member in members:
+        name = member.name
+        if not name.startswith(_MANAGED_MEMBER_PREFIX):
+            continue
+        if not (member.isfile() or member.isdir()):
+            raise BackupArchiveError("unsafe_archive_member", name)
+        rel = name[len(_MANAGED_MEMBER_PREFIX) :]
+        if not rel:
+            continue
+        parts = rel.replace("\\", "/").split("/")
+        if any(p in ("", "..") or ntpath.splitdrive(p)[0] for p in parts):
+            raise BackupArchiveError("unsafe_archive_member", name)
 
 
 def estimate_backup_source_bytes(palace_path: str, kg_path: Optional[str] = None) -> int:
@@ -280,6 +324,10 @@ def restore_backup(
     ------
     FileExistsError
         If the palace already contains data and *force* is ``False``.
+    BackupArchiveError
+        If the archive contains an unsafe or malformed managed member (traversal,
+        absolute path, or non-file/non-directory type), or if
+        ``mempalace_backup/metadata.json`` is present but not valid JSON.
     """
     from .knowledge_graph import DEFAULT_KG_PATH
 
@@ -287,27 +335,34 @@ def restore_backup(
         kg_path = DEFAULT_KG_PATH
 
     lance_dir = os.path.join(palace_path, "lance")
-
-    if os.path.isdir(lance_dir) and os.listdir(lance_dir):
-        if not force:
-            raise FileExistsError(
-                f"Palace at {palace_path!r} already contains data (lance/ is non-empty). "
-                "Use --force to overwrite."
-            )
-        shutil.rmtree(lance_dir)
-
     metadata: dict = {}
 
     with tarfile.open(archive_path, "r:gz") as tar:
-        member_names = {m.name for m in tar.getmembers()}
+        members = tar.getmembers()
+        _validate_archive_members(members)
+
+        member_names = {m.name for m in members}
 
         if "mempalace_backup/metadata.json" in member_names:
             f = tar.extractfile(tar.getmember("mempalace_backup/metadata.json"))
             if f is not None:
-                metadata = json.loads(f.read().decode())
+                try:
+                    metadata = json.loads(f.read().decode())
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    raise BackupArchiveError(
+                        "malformed_metadata", "mempalace_backup/metadata.json"
+                    ) from exc
+
+        if os.path.isdir(lance_dir) and os.listdir(lance_dir):
+            if not force:
+                raise FileExistsError(
+                    f"Palace at {palace_path!r} already contains data (lance/ is non-empty). "
+                    "Use --force to overwrite."
+                )
+            shutil.rmtree(lance_dir)
 
         with tempfile.TemporaryDirectory(prefix="mempalace_restore_") as tmpdir:
-            for member in tar.getmembers():
+            for member in members:
                 name = member.name
 
                 if not name.startswith("mempalace_backup/"):
@@ -318,7 +373,7 @@ def restore_backup(
                     continue
 
                 parts = rel.replace("\\", "/").split("/")
-                if any(p in ("", "..") for p in parts):
+                if any(p in ("", "..") or ntpath.splitdrive(p)[0] for p in parts):
                     continue
 
                 dest = os.path.join(tmpdir, *parts)

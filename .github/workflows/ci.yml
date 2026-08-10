@@ -19,17 +19,24 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: |
             pyproject.toml
             uv.lock
       - run: pip install -e ".[dev,treesitter]"
       - run: python3 -m pytest tests/ -v -m "not needs_network"
+      - name: Demo performance budgets (hard CI gate)
+        if: matrix.python-version == '3.13'
+        run: python benchmarks/demo_perf_budgets.py --check --ci
 
   chroma-compat:
     runs-on: ubuntu-latest
@@ -58,6 +65,8 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
             uv.lock
+      - name: Architecture boundary guard
+        run: python scripts/architecture_guard.py --root .
       - run: pip install ruff
       - run: ruff check mempalace_code/ tests/ scripts/
       - run: ruff format --check mempalace_code/ tests/ scripts/
@@ -65,6 +74,35 @@ jobs:
         run: python scripts/public_safety_scan.py --tracked --staged
       - name: Quality scorecard (shape + determinism + public-safety)
         run: python scripts/quality_scorecard.py --check
+      - name: Documentation drift guard
+        run: python scripts/docs_drift_guard.py
+      - name: Upstream comparison guard (static, network-free)
+        run: python scripts/upstream_comparison_guard.py
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+      - run: pip install build twine
+      - name: Release metadata preflight
+        run: python scripts/release_preflight.py
+      - name: Build wheel and source distribution
+        run: python -m build
+      - name: Validate distribution metadata
+        run: twine check dist/*
+      - name: Fresh wheel install smoke
+        run: |
+          python -m venv /tmp/mempalace-package-smoke
+          /tmp/mempalace-package-smoke/bin/pip install --no-cache-dir dist/*.whl
+          /tmp/mempalace-package-smoke/bin/python -c "import mempalace_code; print(mempalace_code.__version__)"
+          /tmp/mempalace-package-smoke/bin/mempalace-code --help
 
   typecheck:
     runs-on: ubuntu-latest

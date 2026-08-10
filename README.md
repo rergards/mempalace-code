@@ -27,9 +27,9 @@ No cloud service, no API keys, no subscription. After the one-time embedding mod
 <td align="center"><strong>Temporal Knowledge Graph</strong><br><sub>Facts that change over time<br>with validity windows</sub></td>
 </tr>
 <tr>
-<td align="center"><strong>595x Token Savings</strong><br><sub>measured peak · median 80x<br><a href="docs/BENCH_TOKEN_DELTA.md">scales with project size</a></sub></td>
+<td align="center"><strong>33.8x Token Savings</strong><br><sub>measured peak · median 14.5x<br><a href="docs/BENCH_TOKEN_DELTA.md">scales with project size</a></sub></td>
 <td align="center"><strong>Cross-Project Tunnels</strong><br><sub>Search <code>auth</code> in one project<br>find it everywhere</sub></td>
-<td align="center"><strong>2200+ Tests · $0 Cost</strong><br><sub>Every feature acceptance-gated<br>offline after model setup</sub></td>
+<td align="center"><strong>2,900+ Tests · $0 Cost</strong><br><sub>Local test suite<br>offline after model setup</sub></td>
 </tr>
 </table>
 
@@ -40,7 +40,7 @@ No cloud service, no API keys, no subscription. After the one-time embedding mod
 ## Quick Start
 
 ```bash
-uv tool install mempalace-code        # recommended (fast, Rust-based)
+uv tool install mempalace-code        # recommended isolated install
 # or
 pipx install mempalace-code           # alternative
 # or
@@ -57,7 +57,7 @@ coexist with vanilla MemPalace in the same Python environment. Source checkouts
 keep a small `mempalace.mcp_server` shim only so older repo-local MCP configs
 that run with `PYTHONPATH=/path/to/mempalace-code` continue to start.
 
-Then ask your AI to read [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) — it will handle setup, MCP wiring, prompt injection, and verification automatically.
+Use [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) for a human-in-the-loop setup sequence. It covers installation, MCP wiring, instruction injection, and verification, and asks before choosing install scope, storage path, or model download.
 
 <details>
 <summary>Or do it manually</summary>
@@ -75,7 +75,7 @@ codex mcp add mempalace-code -- python -m mempalace_code.mcp_server   # connect 
 mempalace-code watch ~/projects/           # re-mines on every commit, zero noise
 ```
 
-This makes all 29 tools available to your AI. To expose a reduced subset, add a `--profile` flag (e.g. `-- python -m mempalace_code.mcp_server --profile=minimal`). For proactive search and storage (without you asking), you'll also need to add usage rules to your `CLAUDE.md` (or equivalent agent-instruction file) — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or let [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7 inject them for you.
+This registers all 29 tools with the configured MCP client. To expose a reduced subset, add a `--profile` flag (for example, `-- python -m mempalace_code.mcp_server --profile=minimal`). For proactive search and storage (without you asking), add usage rules to your `CLAUDE.md` or equivalent agent-instruction file — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or follow [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7. Actual tool use remains subject to the client's tool policy and the agent instructions.
 
 </details>
 
@@ -132,7 +132,7 @@ For local models without MCP support (Llama, Mistral, etc.), use `mempalace-code
 
 You write code. You make decisions. You debug things. Between sessions, all that context vanishes.
 
-mempalace-code **indexes it once** into a local vector store, then your AI finds it in milliseconds — using [595x fewer tokens](docs/BENCH_TOKEN_DELTA.md) than grep + read at measured peak (median 80x on a 19k-chunk project, and it keeps scaling). Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
+mempalace-code **indexes it once** into a local vector store, then an MCP-capable AI can retrieve it in milliseconds — using [33.8x fewer tokens](docs/BENCH_TOKEN_DELTA.md) than grep + read at measured peak (median 14.5x on the canonical fixture). Think of it as `git log` for everything that *isn't* in the code: the *why*, the discussions, the dead ends, the decisions.
 
 **What gets indexed or stored:**
 - Code files — structural chunks for Python, TypeScript/JS/TSX/JSX, Go, Rust, Java, Kotlin, C#, F#, VB.NET, XAML, Swift, PHP, Scala, Dart, Lua, Ruby, Terraform/HCL, Markdown, Kubernetes manifests, Helm charts/templates, and Ansible playbooks/roles/inventory; adaptive chunks for C/C++, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, and config files
@@ -146,7 +146,7 @@ Generated helper files such as `entities.json` are skipped during project
 mining by default, because they are created by init/entity detection and should
 not become source-code drawers unless explicitly force-included.
 
-**How you use it:** After setup, your AI calls mempalace tools automatically. You don't type search commands.
+**How you use it:** An MCP-capable agent can call mempalace tools during a session. Proactive retrieval and filing require the usage rules in [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) and a client policy that permits the calls; the CLI remains available for direct use.
 
 ---
 
@@ -263,6 +263,12 @@ mempalace-code watch ~/projects/ schedule             # print launchd/cron snipp
 ```
 
 `watch` accepts either an **initialized project directory** (has `mempalace.yaml`) or a **parent directory** containing immediate initialized project subdirectories. Pointing it at a project root that has project files but no `mempalace.yaml` exits with the correct `mempalace-code init <dir>` command.
+
+Startup validates source roots before creating a pre-watch backup, so dangling or
+unreadable symlinks fail with an actionable diagnostic instead of entering a restart
+loop. A watcher run also reuses one warmed store and embedding-model lifecycle across
+remine cycles; regression tests bound post-warm-up RSS, file descriptors, archive
+retention, disk growth, and SIGINT shutdown.
 
 **Install as persistent daemon (macOS):**
 
@@ -393,6 +399,13 @@ The MCP server registration name defaults to `mempalace-code`. The MCP tool
 identifiers remain `mempalace_*` for compatibility with existing agents and
 usage rules.
 
+**Protocol compatibility:** the server speaks both the stable **2026-07-28**
+protocol revision (via `server/discover` and per-request metadata) and the
+legacy `initialize`-based handshake, negotiated automatically per request —
+existing `python -m mempalace_code.mcp_server` registrations (and the
+source-checkout `mempalace.mcp_server` shim) keep working unchanged; there is
+nothing to reconfigure.
+
 By default all 29 tools are exposed. Use startup flags to reduce the tool surface
 (GitHub issue #6 — static profiles lower prompt cost while preserving stable
 named-tool trigger patterns in usage rules):
@@ -426,6 +439,17 @@ Selector rules for `--tools`, `--include`, `--exclude`:
 - `--include` adds to the profile base set; `--exclude` removes last (wins over everything).
 - Invalid profile name, unknown selector, or empty result → process exits with nonzero status and a stderr message.
 
+An explicit `wing`/`room` filter passed to CLI `search`/`read` or the MCP
+search/read/architecture tools is validated against the palace taxonomy
+before retrieval runs (when the palace has a readable, non-empty taxonomy
+to validate against). A valid scope with zero matches is still a normal
+success (`results: []`, CLI exit status 0); an unknown wing, room, or
+wing/room pair returns a structured `{error, filter, value, suggestions}`
+validation error instead (CLI exit status 2), with up to 3 advisory
+suggestions that are never auto-applied. See
+[`docs/HOW_SEARCH_WORKS.md`](docs/HOW_SEARCH_WORKS.md#taxonomy-filter-validation)
+for the full contract, including when validation is skipped.
+
 <details>
 <summary><strong>Palace — Read</strong></summary>
 
@@ -438,6 +462,7 @@ Selector rules for `--tools`, `--include`, `--exclude`:
 | `mempalace_search` | Semantic search with optional wing/room filters; Markdown hits include heading path and section metadata |
 | `mempalace_code_search` | Filter by language, symbol name/type, file glob; optional `rerank="hybrid"` |
 | `mempalace_file_context` | All indexed chunks for a source file, ordered by chunk_index |
+| `mempalace_read` | Surgical read of stored source lines in a range for a file; use after a search/file_context hit to avoid reading the whole file |
 | `mempalace_check_duplicate` | Similarity check before filing (0.9 threshold) |
 
 </details>
@@ -585,6 +610,11 @@ mempalace-code restore backup.tar.gz --force           # overwrite existing
 ```
 
 Backups are written to `<palace_parent>/backups/` by default. For a palace at `~/.mempalace/palace`, that is `~/.mempalace/backups/`.
+
+An explicit global `--palace` selection is a complete backup/restore boundary. Its
+archive includes that palace's local knowledge graph when present, omits the graph when
+absent, and never falls back to the default-global graph. A true no-op incremental mine
+also skips pre-optimize backup creation and storage optimization.
 
 **Backup kinds:** Each archive has a kind that controls its filename prefix and per-kind retention:
 
@@ -825,20 +855,24 @@ Setting `MEMPALACE_VERSION_CHECK=0` in a CI pipeline guarantees no network calls
 
 ## This Fork vs Upstream
 
-This is a code-first fork of [milla-jovovich/mempalace](https://github.com/milla-jovovich/mempalace). We inherited the good parts — the palace metaphor, the MCP integration, the LongMemEval harness — and rebuilt what was broken. Every claim here is backed by code, tests, and documented benchmarks.
+This is a code-first fork of the upstream `mempalace` project. The canonical upstream repository is [MemPalace/mempalace](https://github.com/MemPalace/mempalace); the older `milla-jovovich/mempalace` URL redirects there.
 
-| Upstream | This fork |
-|---|---|
-| ChromaDB — [silently deletes data on version bump](https://github.com/milla-jovovich/mempalace/issues/469) | LanceDB — crash-safe Arrow storage, no version-cliff |
-| "No internet after install" — [false](https://github.com/milla-jovovich/mempalace/issues/524) | `mempalace-code init` downloads the model explicitly once; cached mining/search use local-only model resolution first |
-| "100% R@5" — [unverifiable](https://github.com/milla-jovovich/mempalace/issues/27) | Number removed. Methodology caveats documented |
-| ~30% test coverage | 2200+ tests, every feature acceptance-gated |
-| No backup, no recovery | `backup` / `restore` / `export` / `import` |
-| No incremental mining | Content-hash incremental: only changed files re-chunked |
-| No code-search | `code_search` — filter by language, symbol, glob |
-| Line-count chunking | Language-aware mining: tree-sitter AST for supported grammars, regex structural chunking, YAML-aware Kubernetes/Helm/Ansible splits, prose sections, and adaptive chunks for configs/data |
+Snapshot reviewed on 2026-07-25 against upstream `develop` at commit `aa89bd82272f55381206c83b6f306e79351824eb`, using upstream's own README. Nothing below is a performance, quality, or adoption comparison — no upstream build or benchmark was run.
 
-Full audit: [`docs/UPSTREAM_HARDENING.md`](docs/UPSTREAM_HARDENING.md).
+| Area | Upstream, as advertised at that commit | This fork |
+|---|---|---|
+| Focus | General-purpose AI memory | Code-first: repository mining, `code_search`, symbol/type/project-graph tools |
+| Default storage | ChromaDB | LanceDB |
+| Other backends offered | `sqlite_exact`, Milvus, Qdrant, pgvector | ChromaDB only, as a deprecated optional `.[chroma]` extra; no server-backed backends |
+| Embedding model | `all-MiniLM-L6-v2`, plus an optional `embeddinggemma` multilingual model | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration flow |
+| Retrieval | Hybrid retrieval | Vector search, plus a local deterministic `code_search(rerank="hybrid")` |
+| Reranking | Optional LLM reranking | None — no LLM reranker; this direction is explicitly rejected |
+
+This fork has not adopted upstream's multilingual embedding, broad hybrid-retrieval, or multi-server-backend paths. LLM reranking is explicitly rejected: it would put an API key, a per-query network call, and non-deterministic results into a tool that stays local after the one-time model download.
+
+Reviewed comparison with source links, evidence limits, and the reasoning behind each decision: [`docs/UPSTREAM_COMPARISON.md`](docs/UPSTREAM_COMPARISON.md).
+
+Historical community criticism of upstream from April 2026, and how this fork responded at the time, is archived in [`docs/UPSTREAM_HARDENING.md`](docs/UPSTREAM_HARDENING.md). Those findings describe April 2026 and are not claims about upstream today.
 
 ---
 
@@ -846,12 +880,13 @@ Full audit: [`docs/UPSTREAM_HARDENING.md`](docs/UPSTREAM_HARDENING.md).
 
 ### Token savings vs grep + read ([full methodology](docs/BENCH_TOKEN_DELTA.md))
 
-| Project size | Median | Mean | P95 | Peak |
-|-------------|--------|------|-----|------|
-| Small (555 chunks) | **13x** | 19x | 42x | 59x |
-| Large (19k chunks) | **80x** | 129x | 279x | **595x** |
+Measured on the canonical fixture (378 tracked files, 2,024 mined chunks, 20 queries):
 
-Token savings **scale with project size** — grep noise grows linearly (more files contain the keyword), while mempalace-code search stays constant (top-5 semantically relevant chunks regardless of corpus size). These numbers are from a 19k-chunk project; larger codebases would push the ratios higher.
+| Median | Mean | P95 | Peak |
+|--------|------|-----|------|
+| **14.5x** | 15.8x | 27.8x | **33.8x** |
+
+These are read from the committed [`benchmarks/token_delta_fixture_facts.json`](benchmarks/token_delta_fixture_facts.json); `scripts/docs_drift_guard.py` fails CI if the Median or Peak columns drift from that file (Mean and P95 are reported from the same run but are not individually guard-checked). Treat the figures as benchmark results for this fixture's query set and corpus size; re-run the benchmark before applying them to a different corpus.
 
 ### Retrieval quality
 
@@ -861,6 +896,8 @@ Token savings **scale with project size** — grep noise grows linearly (more fi
 | Code retrieval R@10 | **100%** |
 | .NET retrieval R@5 (CleanArchitecture pinned corpus, vector) | **90.0%** |
 | .NET retrieval R@5 (same corpus, `rerank="hybrid"`) | **100%** |
+
+These are read from the committed [`benchmarks/retrieval_quality_facts.json`](benchmarks/retrieval_quality_facts.json); `scripts/docs_drift_guard.py` fails CI if these values drift from that file.
 
 Upstream LongMemEval result (96.6% R@5 on conversations) retained with [methodology caveats](benchmarks/BENCHMARKS.md).
 
@@ -887,6 +924,7 @@ curl -fsSL https://raw.githubusercontent.com/rergards/mempalace-code/main/script
 pip install "mempalace-code[treesitter]"  # AST parsing
 pip install "mempalace-code[chroma]"      # ChromaDB legacy backend (deprecated, capped below 1.x)
 pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
+pip install "mempalace-code[watch]"       # optional watcher (auto-mine on file changes)
 pip install "mempalace-code[dev]"         # pytest + ruff + pyright
 ```
 
@@ -901,6 +939,9 @@ pip install "mempalace-code[dev]"         # pytest + ruff + pyright
 # Setup
 mempalace-code init <dir>                              # initialize rooms
 mempalace-code init <dir> --detect-entities            # optional prose entity bootstrap
+mempalace-code onboarding <dir>                        # guided interactive setup (people, projects, taxonomy)
+mempalace-code split <dir>                             # split concatenated transcript mega-files before mining
+mempalace-code install-alias                           # create optional 'mempalace' alias
 
 # Mining
 mempalace-code mine <dir>                              # mine code project
@@ -921,6 +962,11 @@ mempalace-code watch <parent-dir> status               # disk-budget + launchd s
 mempalace-code search "query"                          # search everything
 mempalace-code search "query" --wing myapp             # scoped to wing
 mempalace-code search "query" --room auth              # scoped to room
+mempalace-code read <file> --start N --end N           # print stored source lines for a file/range
+mempalace-code compress                                # lossy structured summarization/abbreviation of drawers via AAAK Dialect
+
+# Diary
+mempalace-code diary write --agent <name> --entry "<text>"  # write a diary entry
 
 # Backup & Recovery
 mempalace-code backup create                           # create backup (default: <palace_parent>/backups/)
@@ -936,11 +982,21 @@ mempalace-code repair --rollback                       # roll back to last worki
 # Context
 mempalace-code wake-up                                 # L0 + L1 context
 mempalace-code wake-up --wing myapp                    # project-scoped
-mempalace-code status                                  # palace overview
+mempalace-code status                                  # detailed overview; grows with wing/room count
+mempalace-code status --summary                        # bounded agent-facing status (drawer/wing/room-pair counts + storage)
+mempalace-code health --json                           # compact integrity report
 
 # Model
 mempalace-code fetch-model                             # cache or verify model for offline use
+
+# Advanced / Ops
+mempalace-code migrate-storage <src> <dst>             # migrate a ChromaDB palace to LanceDB
+mempalace-code preflight mirror --command "<cmd>"      # inspect an rsync command for state-dir risks
+mempalace-code version-check                           # show version-check status (opt-in PyPI checks)
+mempalace-code update status                            # inspect upgrade eligibility (supported installs)
 ```
+
+Plain `status` prints a full wing/room breakdown, so its output grows with palace size. Do not use it as a routine agent bootstrap or machine-readable health check; use `status --summary` for bounded shell-based CLI discovery, task-specific MCP retrieval, or `mempalace-code health --json` for a compact CLI integrity report.
 
 </details>
 
@@ -976,7 +1032,7 @@ mempalace/
 ├── benchmarks/             ← reproducible benchmark runners
 ├── hooks/                  ← Claude Code auto-save hooks (legacy, optional)
 ├── examples/               ← usage examples
-└── tests/                  ← 2200+ tests
+└── tests/                  ← 2,900+ tests
 ```
 
 </details>
@@ -1012,6 +1068,7 @@ prior watcher state. See [the update runbook](docs/UPDATES.md) for recovery.
 ## Contributing
 
 PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Maintainers should follow [docs/RELEASING.md](docs/RELEASING.md) before tagging or publishing.
 
 ```bash
 python -m pytest tests/ -x -q    # full suite, all local, no network
@@ -1023,7 +1080,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.12.1-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.13.0-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

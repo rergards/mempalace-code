@@ -208,7 +208,9 @@ def tool_explain_subsystem(
         n_results=n_results * 2,
     )
 
-    # Propagate errors from code_search (e.g. invalid language)
+    # Propagate errors from code_search unchanged (e.g. invalid language, or a
+    # structured unknown-taxonomy error) — validation happens inside code_search
+    # before the semantic query runs, so an invalid wing stops here, before KG expansion.
     if "error" in raw:
         return raw
 
@@ -514,7 +516,11 @@ TOOL_SPECS = {
                 },
                 "wing": {
                     "type": "string",
-                    "description": "Restrict entry point search to this wing/project (optional)",
+                    "description": (
+                        "Restrict entry point search to this wing/project (optional) — "
+                        "validated against the palace taxonomy; unknown values return a "
+                        "structured error with advisory suggestions"
+                    ),
                 },
                 "language": {
                     "type": "string",

@@ -33,7 +33,7 @@ Optional extras:
 
 ```bash
 # Full suite (stop on first failure)
-python -m pytest tests/ -x -q
+python -m pytest tests/ -x -q -m "not needs_network"
 
 # Per-module
 python -m pytest tests/test_storage.py -v
@@ -46,19 +46,19 @@ python -m pytest tests/test_convo_miner.py -v
 
 ```bash
 # Check
-ruff check mempalace_code/ tests/
+ruff check mempalace_code/ tests/ scripts/
 
 # Format check
-ruff format --check mempalace_code/ tests/
+ruff format --check mempalace_code/ tests/ scripts/
 
 # Type check (gating in CI — must exit 0)
 python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
 
 # Auto-fix lint
-ruff check --fix mempalace_code/ tests/
+ruff check --fix mempalace_code/ tests/ scripts/
 
 # Auto-fix format
-ruff format mempalace_code/ tests/
+ruff format mempalace_code/ tests/ scripts/
 ```
 
 Line length: 100. Target: py311. Quote style: double.

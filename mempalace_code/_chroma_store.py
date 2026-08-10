@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-import chromadb  # top-level import: fails fast with ImportError if [chroma] extra not installed
+import chromadb  # type: ignore[import-untyped]  # reason: top-level import; fails fast with ImportError if [chroma] extra not installed
 
 from .storage import DrawerStore
 

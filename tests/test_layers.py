@@ -136,6 +136,10 @@ class TestLayerStatusNoEmbedder:
         assert "L1_essential" in status
         assert "L2_on_demand" in status
         assert "L3_deep_search" in status
+        assert status["L3_deep_search"]["description"] == (
+            "Full semantic search via the palace drawer store"
+        )
+        assert "ChromaDB" not in status["L3_deep_search"]["description"]
 
 
 # ---------------------------------------------------------------------------

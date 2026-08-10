@@ -894,7 +894,7 @@ class TestReadOnlyStore:
            returns valid taxonomy (simulates pre-migration schema).
     """
 
-    def test_ac25_missing_palace_no_directory_created(self, tmp_path):
+    def test_ac25_read_only_missing_palace_no_directory_created(self, tmp_path):
         """AC-25: read_only=True on a missing palace returns _table=None and skips mkdir."""
         missing = tmp_path / "never_created"
         assert not missing.exists()

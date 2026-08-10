@@ -1,9 +1,19 @@
 # Upstream Hardening — What the Fork Keeps, Negates, and Ignores
 
-> Historical audit note: this document preserves the April 2026 upstream-hardening
-> analysis. Status lines have been updated where release blockers were resolved,
-> but old backlog IDs and command names may still appear inside task descriptions
-> for traceability. Current install and CLI instructions live in
+> **ARCHIVED — April 2026 snapshot. Not a description of upstream today.**
+>
+> This document records the April 2026 upstream-hardening analysis and the fork's
+> response to it at that time. The upstream project has changed since, and the
+> issues cited below reflect their April 2026 state, not their current state.
+> Do not quote anything here as a current fact about upstream.
+>
+> The current, reviewed comparison — with a pinned upstream commit, source links,
+> and explicit evidence limits — is
+> [`docs/UPSTREAM_COMPARISON.md`](UPSTREAM_COMPARISON.md). Start there.
+
+> Historical audit note: status lines have been updated where release blockers were
+> resolved, but old backlog IDs and command names may still appear inside task
+> descriptions for traceability. Current install and CLI instructions live in
 > [`README.md`](../README.md) and [`docs/AGENT_INSTALL.md`](AGENT_INSTALL.md).
 
 The upstream project `milla-jovovich/mempalace` went viral in early April 2026 and was immediately the subject of several large community audits. Three issues document the core findings:

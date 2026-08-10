@@ -21,41 +21,46 @@ Diagnose and fix palace storage issues.
 ### Step 1: Run Health Check
 
 ```bash
-mempalace health --json
+mempalace-code health --json
 ```
 
 Parse the JSON output. Check for:
 - `ok: true/false` — overall health
-- `drawer_count` — number of drawers
-- `wing_count` — number of wings
+- `total_rows` — number of stored drawers
 - `errors` — list of issues found
+- `warnings` — non-fatal storage findings
 
 ### Step 2: Diagnose Issues
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `ok: false`, fragment errors | LanceDB corruption | `mempalace repair --rollback` |
-| drawer_count = 0 but files exist | Table unreadable | `mempalace repair --rollback` |
+| `ok: false`, fragment errors | LanceDB corruption | Preview `mempalace-code repair --rollback --dry-run`, then request approval |
+| `total_rows = 0` but files exist | Table unreadable | Preview `mempalace-code repair --rollback --dry-run`, then request approval |
 | Search returns empty | Embedding mismatch or corruption | Re-mine or restore backup |
 | Wing missing | Partial delete or corruption | Restore from backup |
 
 ### Step 3: Check Backups
 
 ```bash
-mempalace backup list
+mempalace-code backup list
 ```
 
 If corruption detected and backups exist:
 
 ```bash
 # Dry run first
-mempalace repair --dry-run
+mempalace-code repair --rollback --dry-run
+```
 
-# If safe, rollback
-mempalace repair --rollback
+Report the exact rollback candidate or backup path. Do not mutate storage until
+the user explicitly authorizes one exact action.
+
+```bash
+# After explicit approval: rollback
+mempalace-code repair --rollback
 
 # Or restore from backup
-mempalace restore <backup.tar.gz>
+mempalace-code restore <backup.tar.gz>
 ```
 
 ### Step 4: Verify Recovery
@@ -63,8 +68,8 @@ mempalace restore <backup.tar.gz>
 After repair/restore:
 
 ```bash
-mempalace health
-mempalace search "test query" --limit 3
+mempalace-code health
+mempalace-code search "test query" --results 3
 ```
 
 ## Output Format
@@ -74,7 +79,6 @@ mempalace search "test query" --limit 3
 
 Status: HEALTHY / DEGRADED / CORRUPT
 Drawers: N
-Wings: N
 Last backup: YYYY-MM-DD HH:MM
 
 Issues found:

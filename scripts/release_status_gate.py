@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """release_status_gate.py — Verify all public publication surfaces before calling a release shipped.
 
-Stdlib-only — no project imports, no third-party dependencies.
+Stdlib-only — no project imports, no third-party dependencies. Loads the sibling
+scripts/release_install_metadata_smoke.py script by path for the install smoke
+surface (not a project import — a sibling stdlib-only script).
 
 Usage:
     python scripts/release_status_gate.py --version X.Y.Z [options]
@@ -13,7 +15,8 @@ Checks (in order):
   3. Publish to PyPI workflow (GitHub Actions)
   4. GitHub Release metadata (non-draft, non-prerelease, matching tag, latest)
   5. PyPI JSON (version, wheel and sdist files)
-  6. Install smoke (pip install --no-cache-dir in a disposable venv)
+  6. Install smoke (installed package metadata, module __version__, and CLI
+     version-check --status must all agree with the requested version)
 
 Exits 0 only when all required public surfaces agree.
 """
@@ -21,11 +24,11 @@ Exits 0 only when all required public surfaces agree.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import subprocess
 import sys
-import tempfile
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,7 +77,7 @@ _TOKEN_RE = re.compile(
     r"\b(?:[g]hp_|[g]ithub_pat_|[p]ypi-)[A-Za-z0-9_\-]{4,}\S*",
     re.IGNORECASE,
 )
-_PATH_RE = re.compile(r"(/(?:Users|home|root)/[^\s:,\"']*|/var/folders/[^\s:,\"']*)")
+_PATH_RE = re.compile(r"(/(?:Users|home|root|tmp)/[^\s:,\"']*|/var/folders/[^\s:,\"']*)")
 _PRIVATE_REMOTE_RE = re.compile(r"git@[a-zA-Z0-9._-]+:[^\s\"']+")
 
 
@@ -343,49 +346,74 @@ def check_pypi(
     return SurfaceResult(SURFACE_PYPI, STATUS_OK, f"PyPI {package}=={version} has wheel and sdist")
 
 
+_INSTALL_METADATA_SMOKE_MODULE = None
+
+
+def _load_install_metadata_smoke():
+    """Load the sibling release_install_metadata_smoke.py script by path (not a project import)."""
+    global _INSTALL_METADATA_SMOKE_MODULE
+    if _INSTALL_METADATA_SMOKE_MODULE is None:
+        module_name = "release_install_metadata_smoke"
+        smoke_path = Path(__file__).resolve().parent / f"{module_name}.py"
+        spec = importlib.util.spec_from_file_location(module_name, smoke_path)
+        module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]  # reason: sibling script path always returns a spec
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)  # type: ignore[union-attr]  # reason: sibling script path has a loader
+        _INSTALL_METADATA_SMOKE_MODULE = module
+    return _INSTALL_METADATA_SMOKE_MODULE
+
+
 def check_install_smoke(
     version: str,
     package: str,
-    run_subprocess: Callable[[list[str]], tuple[int, str, str]],
+    run_subprocess: Callable[..., tuple[int, str, str]],
 ) -> SurfaceResult:
-    """Run no-cache install smoke in a disposable venv."""
+    """Run the install metadata consistency smoke in a disposable venv.
+
+    Delegates to release_install_metadata_smoke.run_venv_smoke: package
+    metadata, the imported module's __version__, and `version-check --status`
+    must all report the requested version.
+    """
+    install_spec = f"{package}=={version}"
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            venv_dir = Path(tmpdir) / "venv"
-            rc, _, err = run_subprocess([sys.executable, "-m", "venv", str(venv_dir)])
-            if rc != 0:
-                return SurfaceResult(
-                    SURFACE_SMOKE,
-                    STATUS_ERROR,
-                    f"venv creation failed: {sanitize(err.strip())}",
-                )
-            pip = str(venv_dir / "bin" / "pip")
-            rc, out, err = run_subprocess(
-                [pip, "install", "--no-cache-dir", f"{package}=={version}"]
-            )
-            if rc != 0:
-                detail = sanitize((err or out).strip())
-                return SurfaceResult(SURFACE_SMOKE, STATUS_FAIL, f"install smoke failed: {detail}")
-            console = str(venv_dir / "bin" / "mempalace-code")
-            rc, out, err = run_subprocess([console, "update", "--help"])
-            if rc != 0:
-                detail = sanitize((err or out).strip())
-                return SurfaceResult(
-                    SURFACE_SMOKE,
-                    STATUS_FAIL,
-                    f"install smoke missing update command surface: {detail}",
-                )
-            return SurfaceResult(
-                SURFACE_SMOKE,
-                STATUS_OK,
-                f"no-cache install of {package}=={version} and update command smoke succeeded",
-            )
+        smoke = _load_install_metadata_smoke()
+        result = smoke.run_venv_smoke(install_spec, package, run_subprocess)
     except OSError as exc:
         return SurfaceResult(
             SURFACE_SMOKE,
             STATUS_ERROR,
             f"install smoke setup failed: {sanitize(str(exc))}",
         )
+
+    surface_detail = "; ".join(
+        f"{s.name}={s.status}: {sanitize(s.detail)}" for s in result.surfaces
+    )
+
+    if not result.ok:
+        status = (
+            STATUS_ERROR
+            if any(s.status == smoke.STATUS_ERROR for s in result.surfaces)
+            else STATUS_FAIL
+        )
+        detail = f"install metadata smoke failed for {install_spec}"
+        if surface_detail:
+            detail += f": {surface_detail}"
+        return SurfaceResult(SURFACE_SMOKE, status, detail)
+
+    if result.expected_version != version:
+        return SurfaceResult(
+            SURFACE_SMOKE,
+            STATUS_FAIL,
+            f"install metadata smoke surfaces agreed on {result.expected_version!r} "
+            f"but requested version is {version!r}",
+        )
+
+    return SurfaceResult(
+        SURFACE_SMOKE,
+        STATUS_OK,
+        f"package metadata, module __version__, and version-check --status all report "
+        f"{package}=={version}",
+    )
 
 
 # ── Gate orchestration ─────────────────────────────────────────────────────────
@@ -402,7 +430,7 @@ def run_gate(
     run_git: Callable[[list[str]], tuple[int, str, str]],
     run_gh: Callable[[list[str]], tuple[int, str, str]],
     http_get: Callable[[str], tuple[int, bytes, str]],
-    run_subprocess: Callable[[list[str]], tuple[int, str, str]],
+    run_subprocess: Callable[..., tuple[int, str, str]],
 ) -> GateResult:
     surfaces: list[SurfaceResult] = []
 
@@ -484,10 +512,14 @@ def _default_http_get(url: str) -> tuple[int, bytes, str]:
 
 def _default_run_subprocess(
     args: list[str],
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
     timeout_seconds: int = DEFAULT_INSTALL_SMOKE_TIMEOUT_SECONDS,
 ) -> tuple[int, str, str]:
     try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout_seconds)
+        r = subprocess.run(
+            args, capture_output=True, text=True, timeout=timeout_seconds, env=env, cwd=cwd
+        )
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout if isinstance(exc.stdout, str) else ""
         stderr = exc.stderr if isinstance(exc.stderr, str) else ""
@@ -600,8 +632,8 @@ Exits 0 only when all required surfaces agree (or all agree excluding skipped sm
         run_git=_default_run_git,
         run_gh=_default_run_gh,
         http_get=_default_http_get,
-        run_subprocess=lambda cmd: _default_run_subprocess(
-            cmd, timeout_seconds=args.smoke_timeout_seconds
+        run_subprocess=lambda cmd, env=None, cwd=None: _default_run_subprocess(
+            cmd, env=env, cwd=cwd, timeout_seconds=args.smoke_timeout_seconds
         ),
     )
 

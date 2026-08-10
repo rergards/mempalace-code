@@ -1,12 +1,18 @@
 {
   "include": [
+    "mempalace_code/config.py",
     "mempalace_code/disk_budget.py",
     "mempalace_code/mcp_tool_profiles.py",
+    "mempalace_code/mining/scanner.py",
+    "mempalace_code/reader.py",
     "mempalace_code/version.py"
   ],
   "strict": [
+    "mempalace_code/config.py",
     "mempalace_code/disk_budget.py",
     "mempalace_code/mcp_tool_profiles.py",
+    "mempalace_code/mining/scanner.py",
+    "mempalace_code/reader.py",
     "mempalace_code/version.py"
   ],
   "pythonVersion": "3.11",

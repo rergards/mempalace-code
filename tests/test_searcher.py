@@ -8,7 +8,8 @@ import pytest
 
 from mempalace_code.language_catalog import sorted_searchable_languages
 from mempalace_code.searcher import SearchError, code_search, search, search_memories
-from mempalace_code.storage import open_store
+from mempalace_code.storage import LanceStore, open_store
+from mempalace_code.taxonomy_filters import TaxonomyValidationError
 
 
 class TestSearchMemories:
@@ -186,6 +187,107 @@ class TestCodeSearch:
         result = code_search(palace_path, "authenticate JWT", n_results=1)
 
         assert result["results"][0]["source_file"] == "/project/src/auth.py"
+
+
+class TestTaxonomyFilterValidation:
+    """Explicit wing/room filters are validated against the palace taxonomy before retrieval."""
+
+    def test_search_valid_empty_scope_stays_successful(
+        self, palace_path, seeded_collection, monkeypatch
+    ):
+        """A valid wing with genuinely zero matches is a success, not a validation error."""
+
+        def _empty_query(self, *args, **kwargs):
+            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+        monkeypatch.setattr(LanceStore, "query", _empty_query)
+
+        result = search_memories("anything", palace_path, wing="project")
+
+        assert "error" not in result
+        assert result["results"] == []
+        assert result["filters"] == {"wing": "project", "room": None}
+
+    def test_search_memories_unknown_taxonomy_wing_returns_structured_error(
+        self, palace_path, seeded_collection
+    ):
+        result = search_memories("anything", palace_path, wing="does-not-exist")
+        assert result["error"] == "unknown_wing"
+        assert result["filter"] == "wing"
+        assert result["value"] == "does-not-exist"
+        assert "results" not in result
+
+    def test_search_memories_unknown_taxonomy_room_returns_structured_error(
+        self, palace_path, seeded_collection
+    ):
+        result = search_memories("anything", palace_path, room="does-not-exist")
+        assert result["error"] == "unknown_room"
+        assert result["filter"] == "room"
+
+    def test_search_memories_taxonomy_filter_validation_wing_room_pair(
+        self, palace_path, seeded_collection
+    ):
+        """AC-4: "planning" only exists under wing "notes", not "project"."""
+        result = search_memories("anything", palace_path, wing="project", room="planning")
+        assert result["error"] == "unknown_wing_room"
+        assert result["filter"] == "wing_room"
+        assert result["value"] == {"wing": "project", "room": "planning"}
+
+    def test_code_search_unknown_taxonomy_wing_returns_structured_error(
+        self, palace_path, code_seeded_collection
+    ):
+        result = code_search(palace_path, "anything", wing="does-not-exist")
+        assert result["error"] == "unknown_wing"
+        assert result["filter"] == "wing"
+
+    def test_taxonomy_filter_validation_preserves_supplied_value(
+        self, palace_path, seeded_collection
+    ):
+        """AC-5: a close punctuation variant of "project" ranks as a suggestion, not a rewrite."""
+        result = search_memories("anything", palace_path, wing="pro-ject")
+        assert result["error"] == "unknown_wing"
+        assert result["value"] == "pro-ject"
+        assert "project" in result["suggestions"]
+
+    def test_search_memories_no_embedder_on_invalid_taxonomy(
+        self, palace_path, seeded_collection, monkeypatch
+    ):
+        """AC-6: an unknown wing must not trigger embedder initialization."""
+
+        def _no_embedder(self):
+            raise RuntimeError("_get_embedder must not be called for an invalid taxonomy filter")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _no_embedder)
+
+        result = search_memories("anything", palace_path, wing="does-not-exist")
+        assert result["error"] == "unknown_wing"
+
+    def test_code_search_no_embedder_on_invalid_taxonomy(
+        self, palace_path, code_seeded_collection, monkeypatch
+    ):
+        def _no_embedder(self):
+            raise RuntimeError("_get_embedder must not be called for an invalid taxonomy filter")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", _no_embedder)
+
+        result = code_search(palace_path, "anything", wing="does-not-exist")
+        assert result["error"] == "unknown_wing"
+
+    def test_search_print_variant_raises_taxonomy_validation_error(
+        self, palace_path, seeded_collection
+    ):
+        with pytest.raises(TaxonomyValidationError) as exc_info:
+            search("anything", palace_path, wing="does-not-exist")
+        assert exc_info.value.payload["error"] == "unknown_wing"
+        assert exc_info.value.payload["value"] == "does-not-exist"
+
+    def test_search_print_variant_valid_wing_still_searches(
+        self, palace_path, seeded_collection, capsys
+    ):
+        """A valid wing does not raise — the print search path runs normally."""
+        search("authentication", palace_path, wing="project")
+        out = capsys.readouterr().out
+        assert "authenticate" in out.lower() or "Results for" in out
 
 
 class TestReactLanguageSupport:
