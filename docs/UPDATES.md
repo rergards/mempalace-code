@@ -69,7 +69,20 @@ mempalace-code update scheduler status
 
 The user service runs the guarded `update apply --yes --scheduled` command. The timer is persistent,
 uses systemd-user only, and remains disabled unless `install --yes` has completed. The scheduler
-remains disabled until `install --yes` runs. Disable it with:
+unit sets a controlled `PATH` for the oneshot process. For `uv tool` and `pipx` installs, the
+admitted absolute manager directory is prepended to `/usr/local/bin:/usr/bin:/bin` so the updater can
+rediscover the same package manager under the minimal systemd-user manager environment. The generated
+unit does not copy an interactive shell `PATH` or embed host-private fallback directories.
+
+When a scheduled run proves from PyPI that the installed stable wheel is already current and no newer
+compatible stable wheel is available, it exits successfully with the `up-to-date` stage before
+watcher coordination, update locks, package installation, update logs, state writes, backup preflight,
+palace validation, or palace file access. Manual `update apply --yes` with no eligible target still
+returns a visible nonzero preflight refusal. Failed provenance, unsupported installers, unsafe watcher
+discovery, missing extras, disk preflight failures, backup failures, and lock ownership also remain
+nonzero for scheduled runs.
+
+The scheduler remains disabled until `install --yes` runs. Disable it with:
 
 ```bash
 mempalace-code update scheduler remove --yes

@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 21508,
+    "package_code_lines": 21628,
     "package_files": 80,
-    "package_total_lines": 26439,
+    "package_total_lines": 26567,
     "test_files": 81,
-    "test_total_lines": 54289
+    "test_total_lines": 54769
   },
   "demo_gates": {
     "architecture_guard": {
@@ -46,12 +46,12 @@
       "path": "mempalace_code/watcher.py"
     },
     {
-      "lines": 1074,
-      "path": "mempalace_code/dialect.py"
+      "lines": 1127,
+      "path": "mempalace_code/updater.py"
     },
     {
-      "lines": 999,
-      "path": "mempalace_code/updater.py"
+      "lines": 1074,
+      "path": "mempalace_code/dialect.py"
     },
     {
       "lines": 904,
@@ -258,13 +258,13 @@
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 150,
+    "type_pyright_total": 151,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
     "test_files": 81,
-    "test_functions": 2885
+    "test_functions": 2894
   },
   "verification_commands": [
     {

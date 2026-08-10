@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import subprocess
+import sys
 from argparse import Namespace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,7 +18,10 @@ from packaging.version import Version
 from mempalace_code.cli_commands.update import cmd_update
 from mempalace_code.operation_lock import OperationLock
 from mempalace_code.updater import (
+    DEFAULT_SERVICE_UNIT,
+    DEFAULT_TIMER_UNIT,
     DEFAULT_WATCHER_UNIT,
+    SYSTEMD_BASELINE_PATH,
     Installation,
     SystemdUserService,
     UpdateManager,
@@ -72,43 +78,44 @@ def _installation(extras: frozenset[str] = frozenset({"watch", "spellcheck"})) -
     )
 
 
+def _wheel(
+    version: str, *, digest: str, yanked: bool = False, **overrides: object
+) -> dict[str, object]:
+    return {
+        "packagetype": "bdist_wheel",
+        "filename": f"mempalace_code-{version}-py3-none-any.whl",
+        "url": f"https://files.pythonhosted.org/mempalace-{version}.whl",
+        "digests": {"sha256": digest * 64},
+        "upload_time_iso_8601": "2026-07-11T00:00:00Z",
+        "yanked": yanked,
+        **overrides,
+    }
+
+
 def _pypi():
     return {
         "releases": {
-            ELIGIBLE_VERSION: [
-                {
-                    "packagetype": "bdist_wheel",
-                    "filename": f"mempalace_code-{ELIGIBLE_VERSION}-py3-none-any.whl",
-                    "url": f"https://files.pythonhosted.org/mempalace-{ELIGIBLE_VERSION}.whl",
-                    "digests": {"sha256": "a" * 64},
-                    "upload_time_iso_8601": "2026-07-11T00:00:00Z",
-                    "yanked": False,
-                }
-            ],
+            ELIGIBLE_VERSION: [_wheel(ELIGIBLE_VERSION, digest="a")],
             # Keep rejected releases installable so target selection proves the
             # prerelease and major-version policy instead of missing wheel metadata.
-            PRERELEASE_VERSION: [
-                {
-                    "packagetype": "bdist_wheel",
-                    "filename": f"mempalace_code-{PRERELEASE_VERSION}-py3-none-any.whl",
-                    "url": f"https://files.pythonhosted.org/mempalace-{PRERELEASE_VERSION}.whl",
-                    "digests": {"sha256": "b" * 64},
-                    "upload_time_iso_8601": "2026-07-12T00:00:00Z",
-                    "yanked": False,
-                }
-            ],
-            INCOMPATIBLE_MAJOR_VERSION: [
-                {
-                    "packagetype": "bdist_wheel",
-                    "filename": f"mempalace_code-{INCOMPATIBLE_MAJOR_VERSION}-py3-none-any.whl",
-                    "url": f"https://files.pythonhosted.org/mempalace-{INCOMPATIBLE_MAJOR_VERSION}.whl",
-                    "digests": {"sha256": "c" * 64},
-                    "upload_time_iso_8601": "2026-07-12T00:00:00Z",
-                    "yanked": False,
-                }
-            ],
+            PRERELEASE_VERSION: [_wheel(PRERELEASE_VERSION, digest="b")],
+            INCOMPATIBLE_MAJOR_VERSION: [_wheel(INCOMPATIBLE_MAJOR_VERSION, digest="c")],
         }
     }
+
+
+def _current_pypi():
+    return {
+        "releases": {
+            CURRENT_VERSION: [_wheel(CURRENT_VERSION, digest="d")],
+            PRERELEASE_VERSION: [_wheel(PRERELEASE_VERSION, digest="e")],
+            INCOMPATIBLE_MAJOR_VERSION: [_wheel(INCOMPATIBLE_MAJOR_VERSION, digest="f")],
+        }
+    }
+
+
+def _yanked_current_pypi():
+    return {"releases": {CURRENT_VERSION: [_wheel(CURRENT_VERSION, digest="g", yanked=True)]}}
 
 
 def _manager(
@@ -116,6 +123,10 @@ def _manager(
     *,
     service: FakeService | None = None,
     palace_validator: Callable[[str], tuple[bool, str]] | None = None,
+    fetcher: Callable[[], dict[str, Any]] | None = None,
+    installation: Installation | None = None,
+    backup_preflight: Callable[[], tuple[bool, str]] | None = None,
+    minimum_free_bytes: int = 0,
     extras: frozenset[str] | None = None,
 ):
     commands: list[list[str]] = []
@@ -131,16 +142,15 @@ def _manager(
     manager = UpdateManager(
         state_root=tmp_path / "state",
         palace_path=str(tmp_path / "palace"),
-        installation=_installation(
-            extras if extras is not None else frozenset({"watch", "spellcheck"})
-        ),
+        installation=installation
+        or _installation(extras if extras is not None else frozenset({"watch", "spellcheck"})),
         runner=default_runner,
-        fetcher=_pypi,
+        fetcher=fetcher or _pypi,
         lock=OperationLock(tmp_path / "state" / "operation.lock"),
         service=service or FakeService(),
         palace_validator=palace_validator or (lambda _path: (True, "healthy")),
-        backup_preflight=lambda: (True, "backup policy checked"),
-        minimum_free_bytes=0,
+        backup_preflight=backup_preflight or (lambda: (True, "backup policy checked")),
+        minimum_free_bytes=minimum_free_bytes,
     )
     return manager, commands
 
@@ -428,6 +438,476 @@ class TestRollback:
 
 
 class TestScheduling:
+    @pytest.mark.parametrize(
+        "unsafe_character",
+        [":", "\x00", "\n", "\r", "\t", "\x1f", "\x7f"],
+        ids=["colon", "nul", "newline", "carriage-return", "tab", "unit-separator", "del"],
+    )
+    def test_scheduler_render_rejects_unsafe_absolute_manager_directory(
+        self, tmp_path, unsafe_character
+    ):
+        installation = Installation(
+            kind="uv-tool",
+            python="/opt/mempalace/bin/python",
+            cli_command=("/opt/mempalace/bin/python", "-m", "mempalace_code"),
+            manager_command=(f"/opt/manager{unsafe_character}dir/uv",),
+            extras=frozenset({"watch"}),
+        )
+        manager, _ = _manager(tmp_path, installation=installation, fetcher=_current_pypi)
+
+        with pytest.raises(ValueError, match="colon or ASCII control character"):
+            manager.render_scheduler_units()
+
+    def test_scheduler_install_rejects_unsafe_manager_path_before_writes_or_systemctl(
+        self, tmp_path
+    ):
+        commands: list[list[str]] = []
+        installation = Installation(
+            kind="pipx",
+            python="/opt/mempalace/bin/python",
+            cli_command=("/opt/mempalace/bin/python", "-m", "mempalace_code"),
+            manager_command=("/opt/unsafe:manager/pipx",),
+            extras=frozenset({"watch"}),
+        )
+        manager = UpdateManager(
+            state_root=tmp_path / "state",
+            palace_path=str(tmp_path / "palace"),
+            installation=installation,
+            runner=lambda command: (commands.append(command), (0, "ok", ""))[1],
+            service=FakeService(active=False),
+        )
+
+        with patch.object(Path, "home", return_value=tmp_path / "home"):
+            result = manager.install_scheduler()
+
+        assert isinstance(result, UpdateResult)
+        assert result.ok is False
+        assert result.stage == "scheduler-preflight"
+        assert result.exit_code != 0
+        assert "colon or ASCII control character" in result.message
+        assert commands == []
+        assert not (tmp_path / "home").exists()
+
+    def test_scheduler_units_include_manager_path_for_uv_and_pipx_with_systemd_escaping(
+        self, tmp_path
+    ):
+        inherited_path = "/interactive/bin:/from/shell"
+        for kind, executable in (("uv-tool", "uv"), ("pipx", "pipx")):
+            manager_dir = tmp_path / f'{executable} bin % "quoted" \\ slash'
+            installation = Installation(
+                kind=kind,
+                python=str(tmp_path / kind / "bin" / "python"),
+                cli_command=(str(tmp_path / kind / "bin" / "python"), "-m", "mempalace_code"),
+                manager_command=(str(manager_dir / executable),),
+                extras=frozenset({"watch"}),
+            )
+            manager = UpdateManager(
+                state_root=tmp_path / kind / "state",
+                palace_path=str(tmp_path / kind / "palace"),
+                installation=installation,
+                fetcher=_current_pypi,
+                runner=lambda _command: (0, "ok", ""),
+                lock=OperationLock(tmp_path / kind / "state" / "operation.lock"),
+                service=FakeService(active=False),
+                palace_validator=lambda _path: (True, "healthy"),
+                backup_preflight=lambda: (True, "backup policy checked"),
+                minimum_free_bytes=0,
+            )
+
+            with patch.dict(os.environ, {"PATH": inherited_path}):
+                rendered = manager.render_scheduler_units()
+
+            service = rendered[DEFAULT_SERVICE_UNIT]
+            expected_path = ":".join([str(manager_dir), *SYSTEMD_BASELINE_PATH])
+            escaped_path = (
+                expected_path.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+            )
+            assert service.split("\n") == [
+                "[Unit]",
+                "Description=MemPalace guarded automatic update",
+                "",
+                "[Service]",
+                "Type=oneshot",
+                f'Environment="PATH={escaped_path}"',
+                "ExecStart="
+                + " ".join(
+                    shlex.quote(part)
+                    for part in [
+                        sys.executable,
+                        "-m",
+                        "mempalace_code",
+                        "update",
+                        "apply",
+                        "--yes",
+                        "--scheduled",
+                    ]
+                ),
+                "",
+            ]
+            assert inherited_path not in service
+            assert rendered[DEFAULT_TIMER_UNIT].split("\n")[-2] == "WantedBy=timers.target"
+
+    def test_scheduled_up_to_date_returns_success_without_mutation(self, tmp_path):
+        service = FakeService(active=True)
+
+        def forbidden_runner(command: list[str]):
+            raise AssertionError(f"unexpected command: {command}")
+
+        def forbidden_backup() -> tuple[bool, str]:
+            raise AssertionError("backup preflight must not run")
+
+        def forbidden_validator(_path: str) -> tuple[bool, str]:
+            raise AssertionError("palace validation must not run")
+
+        manager = UpdateManager(
+            state_root=tmp_path / "state",
+            palace_path=str(tmp_path / "palace"),
+            installation=_installation(),
+            runner=forbidden_runner,
+            fetcher=_current_pypi,
+            lock=OperationLock(tmp_path / "state" / "operation.lock"),
+            service=service,
+            palace_validator=forbidden_validator,
+            backup_preflight=forbidden_backup,
+            minimum_free_bytes=0,
+        )
+
+        result = manager.apply(scheduled=True)
+
+        assert result.ok is True
+        assert result.stage == "up-to-date"
+        assert result.exit_code == 0
+        assert result.log_path is None
+        assert result.data["current_version"] == CURRENT_VERSION
+        assert result.data["target_version"] is None
+        assert result.data["provenance"]["already_current"] is True  # type: ignore[index]  # reason: result data is stable JSON-like test data
+        assert service.calls == []
+        assert not manager.state_path.exists()
+        assert not manager.updates_dir.exists()
+        assert not Path(manager.palace_path).exists()
+        assert not manager.lock.owners_path.exists()
+
+    @pytest.mark.parametrize(
+        ("field", "value", "expected_detail"),
+        [
+            ("filename", "", "filename"),
+            ("filename", "unexpected.whl", "filename"),
+            ("url", "", "HTTPS"),
+            ("url", "http://files.pythonhosted.org/current.whl", "HTTPS"),
+            ("digests", {"sha256": "d" * 63}, "sha256"),
+            ("upload_time_iso_8601", "", "upload time"),
+        ],
+        ids=[
+            "empty-filename",
+            "unexpected-filename",
+            "empty-url",
+            "http-url",
+            "sha256",
+            "upload-time",
+        ],
+    )
+    def test_scheduled_current_noop_rejects_incomplete_live_wheel_provenance(
+        self, tmp_path, field, value, expected_detail
+    ):
+        data = _current_pypi()
+        data["releases"][CURRENT_VERSION][0][field] = value
+
+        class ForbiddenService:
+            unit = DEFAULT_WATCHER_UNIT
+
+            def discover(self) -> WatcherDiscovery:
+                raise AssertionError("watcher must not be queried")
+
+            def is_active(self) -> tuple[bool, str]:
+                raise AssertionError("watcher must not be queried")
+
+            def stop(self) -> tuple[bool, str]:
+                raise AssertionError("watcher must not be stopped")
+
+            def start(self) -> tuple[bool, str]:
+                raise AssertionError("watcher must not be started")
+
+        manager = UpdateManager(
+            state_root=tmp_path / "state",
+            palace_path=str(tmp_path / "palace"),
+            installation=_installation(),
+            runner=lambda command: (_ for _ in ()).throw(
+                AssertionError(f"unexpected command: {command}")
+            ),
+            fetcher=lambda: data,
+            lock=OperationLock(tmp_path / "state" / "operation.lock"),
+            service=ForbiddenService(),
+            palace_validator=lambda _path: (_ for _ in ()).throw(
+                AssertionError("palace validation must not run")
+            ),
+            backup_preflight=lambda: (_ for _ in ()).throw(
+                AssertionError("backup preflight must not run")
+            ),
+            minimum_free_bytes=sys.maxsize,
+        )
+
+        result = manager.apply(scheduled=True)
+
+        assert result.ok is False
+        assert result.stage == "preflight"
+        assert result.exit_code != 0
+        assert expected_detail in result.message
+        assert not manager.state_path.exists()
+        assert not manager.updates_dir.exists()
+        assert not Path(manager.palace_path).exists()
+        assert not manager.lock.owners_path.exists()
+
+    def test_cached_current_provenance_cannot_authorize_scheduled_noop(self, tmp_path):
+        manager, _ = _manager(
+            tmp_path,
+            fetcher=lambda: (_ for _ in ()).throw(RuntimeError("network offline")),
+            service=FakeService(active=False),
+        )
+        manager.state_path.parent.mkdir(parents=True)
+        manager.state_path.write_text(
+            json.dumps(
+                {"provenance": {"already_current": True, "current_version": CURRENT_VERSION}}
+            ),
+            encoding="utf-8",
+        )
+
+        cached = manager._cached_provenance()
+        result = manager.apply(scheduled=True)
+
+        assert cached.already_current is False
+        assert manager._scheduled_up_to_date(_installation(), cached) is False
+        assert result.ok is False
+        assert result.stage == "preflight"
+        assert result.exit_code != 0
+        assert "PyPI provenance unavailable" in result.message
+
+    def test_scheduled_failures_remain_nonzero_except_exact_current_stable_noop(self, tmp_path):
+        manual, _ = _manager(tmp_path / "manual", fetcher=_current_pypi)
+        manual_result = manual.apply()
+        assert manual_result.ok is False
+        assert manual_result.stage == "preflight"
+        assert manual_result.exit_code == 2
+        assert "up-to-date" in manual_result.message
+
+        network, _ = _manager(
+            tmp_path / "network",
+            fetcher=lambda: (_ for _ in ()).throw(RuntimeError("network offline")),
+        )
+        network_result = network.apply(scheduled=True)
+        assert network_result.ok is False
+        assert network_result.stage == "preflight"
+        assert network_result.exit_code == 2
+        assert "PyPI provenance unavailable" in network_result.message
+
+        unsupported, _ = _manager(
+            tmp_path / "unsupported",
+            fetcher=_current_pypi,
+            installation=Installation.unsupported("unsupported installer"),
+        )
+        unsupported_result = unsupported.apply(scheduled=True)
+        assert unsupported_result.ok is False
+        assert unsupported_result.stage == "preflight"
+        assert unsupported_result.exit_code == 2
+        assert "unsupported installer" in unsupported_result.message
+
+        class UnsafeService(FakeService):
+            def discover(self) -> WatcherDiscovery:
+                return WatcherDiscovery(
+                    unit=self.unit, active=True, safe=False, detail="unsafe watcher"
+                )
+
+        unsafe, _ = _manager(tmp_path / "unsafe", service=UnsafeService(), fetcher=_pypi)
+        unsafe_result = unsafe.apply(scheduled=True)
+        assert unsafe_result.ok is False
+        assert unsafe_result.stage == "preflight"
+        assert unsafe_result.exit_code == 2
+        assert "unsafe watcher" in unsafe_result.message
+
+        missing_extra, commands = _manager(
+            tmp_path / "missing-extra",
+            service=FakeService(active=True),
+            fetcher=_pypi,
+            extras=frozenset(),
+        )
+        missing_extra_result = missing_extra.apply(scheduled=True)
+        assert missing_extra_result.ok is False
+        assert missing_extra_result.stage == "preflight"
+        assert missing_extra_result.exit_code == 2
+        assert "required watch extra" in missing_extra_result.message
+        assert not any("install" in command for command in commands)
+
+        disk, _ = _manager(
+            tmp_path / "disk",
+            fetcher=_pypi,
+            minimum_free_bytes=sys.maxsize,
+        )
+        disk_result = disk.apply(scheduled=True)
+        assert disk_result.ok is False
+        assert disk_result.stage == "preflight"
+        assert disk_result.exit_code == 2
+        assert "disk preflight failed" in disk_result.message
+
+        backup, _ = _manager(
+            tmp_path / "backup",
+            fetcher=_pypi,
+            backup_preflight=lambda: (False, "backup unavailable"),
+        )
+        backup_result = backup.apply(scheduled=True)
+        assert backup_result.ok is False
+        assert backup_result.stage == "preflight"
+        assert backup_result.exit_code == 2
+        assert "backup preflight failed: backup unavailable" in backup_result.message
+
+        locked, locked_commands = _manager(tmp_path / "locked", fetcher=_pypi)
+        with locked.lock.acquire_exclusive("scheduled-update"):
+            locked_result = locked.apply(scheduled=True)
+        assert locked_result.ok is False
+        assert locked_result.stage == "lock"
+        assert locked_result.exit_code == 3
+        assert "already owns" in locked_result.message
+        assert not any(
+            command[:3] == ["systemctl", "--user", "stop"] for command in locked_commands
+        )
+
+    def test_generated_service_command_uses_minimal_systemd_environment_and_fails_closed(
+        self, tmp_path
+    ):
+        tool_root = tmp_path / "uv-tools"
+        prefix = tool_root / "mempalace-code"
+        manager_dir = tmp_path / "managed-bin"
+        manager_dir.mkdir()
+        uv = manager_dir / "uv"
+        uv.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        uv.chmod(0o700)
+        installation = Installation(
+            kind="uv-tool",
+            python=str(prefix / "bin" / "python"),
+            cli_command=(str(prefix / "bin" / "python"), "-m", "mempalace_code"),
+            manager_command=(str(uv),),
+            extras=frozenset({"watch"}),
+        )
+        rendered = UpdateManager(
+            state_root=tmp_path / "render-state",
+            palace_path=str(tmp_path / "render-palace"),
+            installation=installation,
+            runner=lambda _command: (0, "ok", ""),
+            service=FakeService(active=False),
+        ).render_scheduler_units()
+        service_path = f"{manager_dir}:{':'.join(SYSTEMD_BASELINE_PATH)}"
+        assert f'Environment="PATH={service_path}"' in rendered[DEFAULT_SERVICE_UNIT]
+
+        def which_from_path(name: str, *, env_path: str = service_path) -> str | None:
+            for entry in env_path.split(":"):
+                candidate = Path(entry) / name
+                if candidate.exists():
+                    return str(candidate)
+            return None
+
+        minimal_env = {"PATH": service_path, "UV_TOOL_DIR": str(tool_root)}
+        with patch("mempalace_code.updater._has_editable_metadata", return_value=False):
+            manager = UpdateManager(
+                state_root=tmp_path / "service-state",
+                palace_path=str(tmp_path / "service-palace"),
+                installation_detector=lambda: detect_installation(
+                    python=str(prefix / "bin" / "python"),
+                    prefix=prefix,
+                    base_prefix=tmp_path / "system-python",
+                    environ=minimal_env,
+                    which=which_from_path,
+                    extras=frozenset({"watch"}),
+                ),
+                runner=lambda _command: (0, "ok", ""),
+                fetcher=_current_pypi,
+                lock=OperationLock(tmp_path / "service-state" / "operation.lock"),
+                service=FakeService(active=False),
+                palace_validator=lambda _path: (True, "healthy"),
+                backup_preflight=lambda: (True, "backup policy checked"),
+                minimum_free_bytes=0,
+            )
+            result = manager.apply(scheduled=True)
+
+        assert result.ok is True
+        assert result.stage == "up-to-date"
+
+        missing_env = {"PATH": ":".join(SYSTEMD_BASELINE_PATH), "UV_TOOL_DIR": str(tool_root)}
+        with patch("mempalace_code.updater._has_editable_metadata", return_value=False):
+            missing_manager = UpdateManager(
+                state_root=tmp_path / "missing-state",
+                palace_path=str(tmp_path / "missing-palace"),
+                installation_detector=lambda: detect_installation(
+                    python=str(prefix / "bin" / "python"),
+                    prefix=prefix,
+                    base_prefix=tmp_path / "system-python",
+                    environ=missing_env,
+                    which=lambda _name: None,
+                    extras=frozenset({"watch"}),
+                ),
+                runner=lambda _command: (0, "ok", ""),
+                fetcher=_current_pypi,
+                lock=OperationLock(tmp_path / "missing-state" / "operation.lock"),
+                service=FakeService(active=False),
+                palace_validator=lambda _path: (True, "healthy"),
+                backup_preflight=lambda: (True, "backup policy checked"),
+                minimum_free_bytes=0,
+            )
+            missing_result = missing_manager.apply(scheduled=True)
+
+        assert missing_result.ok is False
+        assert missing_result.stage == "preflight"
+        assert "uv executable is unavailable" in missing_result.message
+
+        unexpected, _ = _manager(tmp_path / "unexpected-provenance", fetcher=_yanked_current_pypi)
+        unexpected_result = unexpected.apply(scheduled=True)
+        assert unexpected_result.ok is False
+        assert unexpected_result.stage == "preflight"
+        assert "not proven current" in unexpected_result.message
+
+    def test_live_systemd_user_scheduled_current_noop_control_run(self, tmp_path):
+        if os.environ.get("MEMPALACE_TEST_LIVE_SYSTEMD_USER") != "1":
+            pytest.skip("live systemd-user smoke is opt-in")
+        if sys.platform != "linux":
+            pytest.skip("live systemd-user smoke requires Linux")
+
+        show_environment = subprocess.run(
+            ["systemctl", "--user", "show-environment"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if show_environment.returncode != 0:
+            pytest.skip("systemd-user manager is unavailable")
+
+        unit = f"mempalace-update-noop-smoke-{os.getpid()}"
+        systemd_run = subprocess.run(
+            [
+                "systemd-run",
+                "--user",
+                "--wait",
+                "--collect",
+                f"--unit={unit}",
+                f"--working-directory={Path.cwd()}",
+                sys.executable,
+                "-m",
+                "pytest",
+                "tests/test_updater.py::TestScheduling::"
+                "test_scheduled_up_to_date_returns_success_without_mutation",
+                "-q",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert systemd_run.returncode == 0, systemd_run.stdout + systemd_run.stderr
+
+        manager, _ = _manager(tmp_path, fetcher=_current_pypi, service=FakeService(active=False))
+        noop = manager.apply(scheduled=True)
+
+        assert noop.ok is True
+        assert noop.stage == "up-to-date"
+        assert noop.exit_code == 0
+
     def test_scheduler_is_disabled_by_default_and_refuses_overlap(self, tmp_path):
         service = FakeService(active=True)
         manager, commands = _manager(tmp_path, service=service)

@@ -21,6 +21,7 @@ from importlib import metadata
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Callable, Protocol
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from packaging.version import InvalidVersion, Version
@@ -35,8 +36,11 @@ DEFAULT_TIMER_UNIT = "mempalace-update.timer"
 DEFAULT_SERVICE_UNIT = "mempalace-update.service"
 MIN_FREE_BYTES = 100 * 1024 * 1024
 DEFAULT_COMMAND_TIMEOUT = 15 * 60
+SYSTEMD_BASELINE_PATH = ("/usr/local/bin", "/usr/bin", "/bin")
 _CUSTOM_WATCHER_UNIT = re.compile(r"^mempalace-watch-[A-Za-z0-9][A-Za-z0-9_.@-]*\.service$")
 _PYTHON_EXECUTABLE = re.compile(r"^python(?:3(?:\.\d+)?t?)?$")
+_ASCII_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+_SHA256_HEX = re.compile(r"^[0-9a-fA-F]{64}$")
 
 CommandRunner = Callable[[list[str]], tuple[int, str, str]]
 PypiFetcher = Callable[[], dict[str, Any]]
@@ -128,6 +132,8 @@ class ReleaseProvenance:
     wheel_url: str | None = None
     sha256: str | None = None
     upload_time: str | None = None
+    already_current: bool = False
+    current_release: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -140,6 +146,8 @@ class ReleaseProvenance:
             "wheel_url": self.wheel_url,
             "sha256": self.sha256,
             "upload_time": self.upload_time,
+            "already_current": self.already_current,
+            "current_release": self.current_release,
         }
 
 
@@ -438,6 +446,63 @@ def _default_fetcher() -> dict[str, Any]:
         return json.loads(response.read().decode("utf-8"))
 
 
+def _available_wheels(files: object) -> list[dict[str, Any]]:
+    if not isinstance(files, list):
+        return []
+    return [
+        entry
+        for entry in files
+        if isinstance(entry, dict)
+        and entry.get("packagetype") == "bdist_wheel"
+        and not entry.get("yanked", False)
+    ]
+
+
+def _systemd_quoted_value(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+    return f'"{escaped}"'
+
+
+def _current_wheel_provenance(
+    current: Version, wheel: dict[str, Any]
+) -> tuple[bool, str, str | None, str | None, str | None, str | None]:
+    """Validate the live wheel facts required to authorize a scheduled current-version no-op."""
+    filename = wheel.get("filename")
+    expected_filename = f"{PACKAGE_NAME.replace('-', '_')}-{current}-py3-none-any.whl"
+    if filename != expected_filename:
+        return (
+            False,
+            f"current wheel filename must be {expected_filename}",
+            None,
+            None,
+            None,
+            None,
+        )
+    url = wheel.get("url")
+    if (
+        not isinstance(url, str)
+        or not url.strip()
+        or urlparse(url).scheme != "https"
+        or not urlparse(url).netloc
+    ):
+        return False, "current wheel URL must be nonempty HTTPS", filename, None, None, None
+    digests = wheel.get("digests")
+    sha256 = digests.get("sha256") if isinstance(digests, dict) else None
+    if not isinstance(sha256, str) or not _SHA256_HEX.fullmatch(sha256):
+        return (
+            False,
+            "current wheel sha256 must be exactly 64 hexadecimal characters",
+            filename,
+            url,
+            None,
+            None,
+        )
+    upload_time = wheel.get("upload_time_iso_8601") or wheel.get("upload_time")
+    if not isinstance(upload_time, str) or not upload_time.strip():
+        return False, "current wheel upload time must be nonempty", filename, url, sha256, None
+    return True, "installed stable wheel is up-to-date", filename, url, sha256, upload_time
+
+
 def _default_palace_validator(palace_path: str) -> tuple[bool, str]:
     palace = Path(palace_path).expanduser()
     if not palace.exists():
@@ -550,6 +615,25 @@ class UpdateManager:
         """Run the explicit, compensating update transaction for a supported installation."""
         installation = self._get_installation()
         provenance = self._resolve_provenance()
+        if scheduled and provenance.current_release:
+            if self._scheduled_up_to_date(installation, provenance):
+                return UpdateResult(
+                    True,
+                    "up-to-date",
+                    f"{PACKAGE_NAME} {provenance.current_version} is up-to-date",
+                    0,
+                    data={
+                        "current_version": provenance.current_version,
+                        "target_version": provenance.target_version,
+                        "provenance": provenance.as_dict(),
+                    },
+                )
+            return UpdateResult(
+                False,
+                "preflight",
+                installation.reason if not installation.supported else provenance.reason,
+                2,
+            )
         watcher = self._watcher_status()
         active = watcher.active
         preflight_error = self._preflight_error(
@@ -688,6 +772,8 @@ class UpdateManager:
 
     def render_scheduler_units(self) -> dict[str, str]:
         """Render deterministic systemd-user service and timer units without writing them."""
+        installation = self._get_installation()
+        environment_path = self._scheduler_path(installation)
         command = " ".join(
             shlex.quote(part)
             for part in [
@@ -707,6 +793,7 @@ class UpdateManager:
                 "",
                 "[Service]",
                 "Type=oneshot",
+                f"Environment={_systemd_quoted_value(f'PATH={environment_path}')}",
                 f"ExecStart={command}",
                 "",
             ]
@@ -733,10 +820,14 @@ class UpdateManager:
         installation = self._get_installation()
         if not installation.supported:
             return UpdateResult(False, "scheduler-preflight", installation.reason, 2)
+        try:
+            units = self.render_scheduler_units()
+        except ValueError as exc:
+            return UpdateResult(False, "scheduler-preflight", str(exc), 2)
         unit_dir = Path.home() / ".config" / "systemd" / "user"
         try:
             unit_dir.mkdir(parents=True, exist_ok=True)
-            for name, content in self.render_scheduler_units().items():
+            for name, content in units.items():
                 self._atomic_write_text(unit_dir / name, content)
             for command in (
                 ["systemctl", "--user", "daemon-reload"],
@@ -778,27 +869,45 @@ class UpdateManager:
         if not isinstance(releases, dict):
             return ReleaseProvenance(str(current), None, False, "PyPI response has no release list")
         candidates: list[tuple[Version, str, dict[str, Any]]] = []
+        current_wheels: list[dict[str, Any]] = []
         for raw_version, files in releases.items():
             try:
                 candidate = Version(str(raw_version))
             except InvalidVersion:
                 continue
+            wheels = [
+                wheel for wheel in _available_wheels(files) if candidate.major == current.major
+            ]
+            if candidate == current and not candidate.is_prerelease and wheels:
+                current_wheels.extend(wheels)
             if candidate <= current or candidate.is_prerelease or candidate.major != current.major:
                 continue
-            if not isinstance(files, list):
-                continue
-            wheels = [
-                file
-                for file in files
-                if isinstance(file, dict)
-                and file.get("packagetype") == "bdist_wheel"
-                and not file.get("yanked", False)
-            ]
             if wheels:
                 candidates.append((candidate, str(raw_version), wheels[0]))
         if not candidates:
+            if current_wheels:
+                valid, reason, filename, url, sha256, upload_time = _current_wheel_provenance(
+                    current, current_wheels[0]
+                )
+                return ReleaseProvenance(
+                    str(current),
+                    None,
+                    False,
+                    reason,
+                    project_url=PYPI_PROJECT_URL,
+                    wheel_filename=filename,
+                    wheel_url=url,
+                    sha256=sha256,
+                    upload_time=upload_time,
+                    already_current=valid,
+                    current_release=True,
+                )
             return ReleaseProvenance(
-                str(current), None, False, "no newer stable compatible-major wheel is published"
+                str(current),
+                None,
+                False,
+                "no newer stable compatible-major wheel is published and installed version is not "
+                "proven current",
             )
         candidate, raw_version, wheel = max(candidates, key=lambda item: item[0])
         raw_digests = wheel.get("digests")
@@ -997,3 +1106,22 @@ class UpdateManager:
             temp_path = Path(handle.name)
         os.chmod(temp_path, 0o600)
         os.replace(temp_path, path)
+
+    @staticmethod
+    def _scheduler_path(installation: Installation) -> str:
+        paths: list[str] = []
+        if installation.kind in {"uv-tool", "pipx"} and installation.manager_command:
+            manager = Path(installation.manager_command[0])
+            if manager.is_absolute():
+                manager_dir = str(manager.parent)
+                if ":" in manager_dir or _ASCII_CONTROL.search(manager_dir):
+                    raise ValueError(
+                        "scheduler manager directory contains a colon or ASCII control character"
+                    )
+                paths.append(manager_dir)
+        paths.extend(SYSTEMD_BASELINE_PATH)
+        return ":".join(dict.fromkeys(paths))
+
+    @staticmethod
+    def _scheduled_up_to_date(installation: Installation, provenance: ReleaseProvenance) -> bool:
+        return installation.supported and provenance.already_current

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## v1.13.1 — 2026-08-10
+
+Patch release for systemd-user scheduled auto-updates.
+
+### Fixed
+
+- Generated systemd-user units now use the admitted absolute `uv` or `pipx`
+  manager path under minimal systemd environments. A scheduled run whose exact
+  current stable wheel is already installed exits 0 as a no-effect `up-to-date`
+  no-op; verified bounds cover its lack of update-log, state-write, palace-file,
+  and disk effects. Malformed provenance and unsafe `PATH` characters fail
+  closed. Manual apply and actionable scheduled failures remain nonzero.
+
 ## v1.13.0 — 2026-08-10
 
 Minor release for MCP protocol compatibility, bounded agent discovery, safer
