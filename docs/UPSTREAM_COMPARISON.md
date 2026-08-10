@@ -13,47 +13,51 @@ enforced by `scripts/upstream_comparison_guard.py`.
 
 | Field | Value |
 |---|---|
-| Reviewed date | `2026-07-25` |
+| Reviewed date | `2026-08-10` |
 | Canonical upstream repository | <https://github.com/MemPalace/mempalace> |
 | Branch reviewed | `develop` |
-| Commit reviewed | `aa89bd82272f55381206c83b6f306e79351824eb` |
-| Upstream paths tracked for drift | `README.md` |
+| Commit reviewed | `8516db7fbc7f0840bf67132c5bf95c6e446d6acc` |
+| Upstream paths tracked for drift | `README.md`, `CHANGELOG.md`, RFCs 003–005 |
 | Fork commit at review time | this repository, `main` |
 
 The older upstream URL `milla-jovovich/mempalace` redirects to
 <https://github.com/MemPalace/mempalace>. Links written against the old path still
 resolve, but the repository above is the canonical one.
 
-Everything attributed to upstream below is taken from upstream's own `README.md` at the
-reviewed commit, or from the linked public issues. No upstream code was executed,
-benchmarked, or otherwise measured for this comparison.
+Everything attributed to upstream below is taken from upstream's `README.md`,
+`CHANGELOG.md`, RFCs 003–005, package metadata, or the linked public issues at the
+reviewed commit. Upstream code was inspected where needed to confirm the documented
+surface. It was not executed, benchmarked, or otherwise measured for this comparison.
 
 ## Source Links
 
 Upstream repository and reviewed tree:
 
 - <https://github.com/MemPalace/mempalace>
-- <https://github.com/MemPalace/mempalace/tree/aa89bd82272f55381206c83b6f306e79351824eb>
-- <https://github.com/MemPalace/mempalace/blob/aa89bd82272f55381206c83b6f306e79351824eb/README.md>
+- <https://github.com/MemPalace/mempalace/tree/8516db7fbc7f0840bf67132c5bf95c6e446d6acc>
+- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/README.md>
+- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/CHANGELOG.md>
+- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/docs/rfcs/003-agent-logstream-coordination.md>
+- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/docs/rfcs/004-replicated-palace.md>
+- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/docs/rfcs/005-agent-identity-routing.md>
 
 Public upstream issues consulted, with their state at the reviewed date:
 
 | Link | State at review | What it shows |
 |---|---|---|
-| <https://github.com/MemPalace/mempalace/issues/1663> | open, unassigned, labelled P2 | A request to make the embedding model configurable for multilingual use; the multilingual path is still a user-facing request, not a settled configuration story |
+| <https://github.com/MemPalace/mempalace/issues/1663> | open, unassigned, labelled P2 | The broader configurable-model request remains open even though new onboarding now recommends and selects EmbeddingGemma |
 | <https://github.com/MemPalace/mempalace/issues/1858> | open | A reported Apple Silicon migration / re-embedding failure |
-| <https://github.com/MemPalace/mempalace/issues/2045> | open, labelled P1 | One of several open storage/concurrency/corruption reports surfaced by storage-scoped issue search |
+| <https://github.com/MemPalace/mempalace/issues/2045> | closed on 2026-08-02, labelled P1 | The reported `sqlite_exact` co-writer corruption class was closed after process-lifetime single-writer ownership landed |
 | <https://github.com/MemPalace/mempalace/issues/875> | closed | Historical hybrid-retrieval / reranking user critique |
 | <https://github.com/MemPalace/mempalace/issues/367> | closed | Historical hybrid-retrieval / reranking user critique |
 | <https://github.com/MemPalace/mempalace/issues/29> | closed | Historical hybrid-retrieval / reranking user critique |
 
 The closed issues (#875, #367, #29) are historical user critiques: they show that
 hybrid-retrieval and reranking behaviour was disputed by users at some point in the
-past, not that it is disputed today. The open issues (#1663, #1858, #2045) are current
-at the reviewed date. Taken together, these links set the evidence limits for this
+past, not that it is disputed today. Issues #1663 and #1858 remain open at the reviewed
+date; #2045 is now closed. Taken together, these links set the evidence limits for this
 comparison — they bound what can be claimed from public issue history — and do not by
-themselves establish a present defect in upstream or any claim about upstream's
-popularity.
+themselves establish a present defect in upstream or any claim about upstream's popularity.
 
 ## Capability Comparison
 
@@ -62,14 +66,18 @@ popularity.
 | Product focus | General-purpose AI memory | Code-first memory: repository mining, `code_search`, symbol/type/project-graph tools |
 | Default storage backend | ChromaDB | LanceDB |
 | Other storage backends offered | `sqlite_exact`, Milvus, Qdrant, pgvector | ChromaDB only, as a deprecated optional `.[chroma]` extra; no server-backed backends |
-| Embedding model | `all-MiniLM-L6-v2`, with an optional `embeddinggemma` multilingual model | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration flow |
+| Embedding model | New onboarding recommends and selects `embeddinggemma-300m`; existing installs without an explicit selection remain on `all-MiniLM-L6-v2` | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration flow |
 | Retrieval | Hybrid retrieval | Vector search, plus a local deterministic `code_search(rerank="hybrid")` that blends vector score with lexical/symbol signals |
 | Reranking | Optional LLM reranking | None. No LLM reranker exists in this fork; this direction is explicitly rejected |
-| Network dependency | Depends on the selected backend and optional model/rerank configuration | Offline after the one-time embedding model download; no API keys |
+| MCP surface | 44 tools, including logstream events and artifact handoffs | 29 tools over stdio, with startup profiles reducing the exposed set |
+| Coordination and replication | Agent logstream, artifact handoffs, live-hub write routing, and preview read-replica/mesh flows | No logstream, palace replication, mesh, or live-hub transport |
+| Distribution | Python package plus a published multi-arch Docker image | Python package and pipx installation; no published Docker image |
+| Writer ownership | Process-lifetime single-writer ownership for local backends; read-only coexistence | Single-process local storage model with explicit watcher/miner/maintenance ownership guards |
+| Network dependency | Core local flows require no API key; server backends, peer replication, and optional LLM reranking add network surfaces when selected | Offline after the one-time embedding model download; no API keys |
 
-Reading of the table: upstream offers a broader configuration surface (more backends,
-an optional multilingual model, an optional LLM reranker). This fork offers a narrower
-one on purpose. Neither column is a claim about correctness or speed.
+Reading of the table: upstream offers a broader configuration and distributed-operation
+surface. This fork keeps a narrower local code-memory boundary. Neither column is a
+claim about correctness or speed.
 
 ## Capability Identifiers
 
@@ -80,7 +88,7 @@ this document cannot drift apart silently.
 
 Upstream, advertised at the reviewed commit:
 
-- `optional-embeddinggemma-multilingual-model`
+- `embeddinggemma-default-for-new-onboarding`
 - `hybrid-retrieval`
 - `optional-llm-reranking`
 - `backend-chromadb`
@@ -88,6 +96,12 @@ Upstream, advertised at the reviewed commit:
 - `backend-milvus`
 - `backend-qdrant`
 - `backend-pgvector`
+- `mcp-tools-44`
+- `agent-logstream-artifact-handoffs`
+- `live-palace-hub-write-routing`
+- `read-replica-mesh-preview`
+- `multiarch-docker-image`
+- `process-lifetime-single-writer`
 
 This fork, current:
 
@@ -98,6 +112,11 @@ This fork, current:
 - `no-llm-reranker`
 - `no-supported-multilingual-configuration-migration`
 - `no-server-vector-backends`
+- `mcp-tools-29`
+- `stdio-mcp-only`
+- `no-agent-logstream`
+- `no-palace-replication`
+- `no-published-docker-image`
 
 ## Fork Stance
 
@@ -110,9 +129,10 @@ is re-reviewed.
 flow. Any model change is gated by the no-regression rule in `CLAUDE.md`: a candidate
 must match or beat MiniLM on LongMemEval R@5 for text retrieval and must not regress code
 retrieval. Adding a second, larger model also adds a second download, a second cache, and
-a re-embedding migration for existing palaces. Upstream's own configurable-model request
-(issue #1663) is open and unassigned at the reviewed date, so there is no settled upstream
-design to copy.
+a re-embedding migration for existing palaces. Upstream now ships an onboarding path for
+EmbeddingGemma while its broader configurable-model request (#1663) and the reported Apple
+Silicon migration failure (#1858) remain open. The fork requires its own text and code
+retrieval evidence plus a supported migration before changing this contract.
 
 **Broad hybrid retrieval — not adopted.** The fork does not add a general hybrid
 retrieval layer across all search paths. It does ship one narrow, local, deterministic
@@ -132,12 +152,25 @@ with palaces created before the LanceDB default, and it is capped below ChromaDB
 while GHSA-f4j7-r4q5-qw2c affects the available 1.x line. Milvus, Qdrant, and pgvector
 would each add a server to operate, which contradicts the fork's no-server premise.
 
+**Agent logstream, live-hub routing, and palace replication — not adopted.** Upstream
+3.7.0 adds coordination events, artifact handoffs, a live service routing seam, and
+preview read-replica/mesh flows. This fork has no corresponding daemon, network transport,
+replication protocol, or cross-agent event log. Adopting that surface would add distributed
+identity, authentication, consistency, migration, and operations contracts beyond the
+fork's local code-memory scope.
+
+**Published Docker image — not adopted.** Upstream publishes an amd64/arm64 image and
+documents mounted `/data` persistence. This fork's supported installation paths remain
+Python environments and pipx. A container distribution would add another release artifact,
+runtime compatibility matrix, cache/mount contract, and ongoing image-security workload.
+
 ## Evidence Limits
 
 State these limits before quoting anything from this document.
 
-- **Documentation-only.** Upstream capabilities are read from upstream's `README.md` at
-  the reviewed commit. Advertised behaviour was not verified against upstream code.
+- **Repository review only.** Upstream claims are read from the pinned README, changelog,
+  RFCs, package metadata, and relevant implementation surfaces. Runtime behaviour was not
+  executed or independently validated.
 - **Nothing was measured.** No upstream build, benchmark, or retrieval run was performed.
   This document contains no performance comparison and supports none.
 - **No popularity or adoption claims.** Stars, downloads, issue volume, and contributor

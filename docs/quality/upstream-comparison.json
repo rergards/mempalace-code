@@ -1,13 +1,17 @@
 {
   "schema_version": 1,
-  "reviewed_date": "2026-07-25",
+  "reviewed_date": "2026-08-10",
   "canonical_repository": "https://github.com/MemPalace/mempalace",
   "branch": "develop",
-  "commit": "aa89bd82272f55381206c83b6f306e79351824eb",
+  "commit": "8516db7fbc7f0840bf67132c5bf95c6e446d6acc",
   "canonical_document": "docs/UPSTREAM_COMPARISON.md",
   "readme_path": "README.md",
   "tracked_source_paths": [
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "docs/rfcs/003-agent-logstream-coordination.md",
+    "docs/rfcs/004-replicated-palace.md",
+    "docs/rfcs/005-agent-identity-routing.md"
   ],
   "readme_markers": [
     "## This Fork vs Upstream",
@@ -25,14 +29,20 @@
   ],
   "capabilities": {
     "upstream_advertised": [
-      "optional-embeddinggemma-multilingual-model",
+      "embeddinggemma-default-for-new-onboarding",
       "hybrid-retrieval",
       "optional-llm-reranking",
       "backend-chromadb",
       "backend-sqlite-exact",
       "backend-milvus",
       "backend-qdrant",
-      "backend-pgvector"
+      "backend-pgvector",
+      "mcp-tools-44",
+      "agent-logstream-artifact-handoffs",
+      "live-palace-hub-write-routing",
+      "read-replica-mesh-preview",
+      "multiarch-docker-image",
+      "process-lifetime-single-writer"
     ],
     "fork_current": [
       "code-first-mining",
@@ -41,7 +51,12 @@
       "local-deterministic-code-search-hybrid-rerank",
       "no-llm-reranker",
       "no-supported-multilingual-configuration-migration",
-      "no-server-vector-backends"
+      "no-server-vector-backends",
+      "mcp-tools-29",
+      "stdio-mcp-only",
+      "no-agent-logstream",
+      "no-palace-replication",
+      "no-published-docker-image"
     ]
   }
 }
