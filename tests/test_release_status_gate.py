@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -219,12 +221,109 @@ def _pypi_error(msg: str = "Connection refused") -> Callable[[str], tuple[int, b
     return http_get
 
 
+_AGENT_PLUGIN_FIXTURE_ROOT: Path | None = None
+
+
+def _write_agent_plugin_fixture(plugin_root: Path) -> None:
+    (plugin_root / "skills" / "mempalace").mkdir(parents=True)
+    (plugin_root / "schemas" / "1.0.0").mkdir(parents=True)
+    (plugin_root / "plugin.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+                "name": "mempalace-code",
+                "version": VERSION,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (plugin_root / "mcp.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+                "mcpServers": {
+                    "mempalace-code": {
+                        "type": "stdio",
+                        "command": "mempalace-code-mcp",
+                        "args": ["--profile=minimal"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (plugin_root / "skills" / "mempalace" / "SKILL.md").write_text(
+        "---\nname: mempalace\ndescription: Minimal memory.\n---\n", encoding="utf-8"
+    )
+    (plugin_root / "schemas" / "1.0.0" / "plugin.schema.json").write_text(
+        json.dumps({"$id": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"}),
+        encoding="utf-8",
+    )
+    (plugin_root / "schemas" / "1.0.0" / "mcp.schema.json").write_text(
+        json.dumps({"$id": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"}),
+        encoding="utf-8",
+    )
+    (plugin_root / "schemas" / "SCHEMA-NOTICE.md").write_text(
+        "Apache License 2.0\n", encoding="utf-8"
+    )
+
+
+def _agent_plugin_fixture_root() -> Path:
+    if _AGENT_PLUGIN_FIXTURE_ROOT is None:
+        raise RuntimeError(
+            "_agent_plugin_fixture_root() called outside a test — the "
+            "_agent_plugin_fixture_root_cache autouse fixture must be active"
+        )
+    return _AGENT_PLUGIN_FIXTURE_ROOT
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _agent_plugin_fixture_root_cache(tmp_path_factory: pytest.TempPathFactory):
+    """Populate the module-cached fixture root under pytest-owned tmp_path_factory storage.
+
+    Replaces a raw tempfile.mkdtemp() that was never cleaned up: pytest prunes
+    tmp_path_factory's base temp directory across sessions, so this stays isolated
+    per test run without leaking directories on disk.
+    """
+    global _AGENT_PLUGIN_FIXTURE_ROOT
+    root = tmp_path_factory.mktemp("agent-plugin-fixture") / "agent_plugin"
+    _write_agent_plugin_fixture(root)
+    _AGENT_PLUGIN_FIXTURE_ROOT = root
+    try:
+        yield
+    finally:
+        _AGENT_PLUGIN_FIXTURE_ROOT = None
+
+
+def _agent_plugin_mcp_responses() -> str:
+    tools = [
+        {"name": name}
+        for name in (
+            "mempalace_status",
+            "mempalace_search",
+            "mempalace_check_duplicate",
+            "mempalace_add_drawer",
+        )
+    ]
+    responses = [
+        {"jsonrpc": "2.0", "id": 1, "result": {"serverInfo": {"name": "mempalace-code"}}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": tools}},
+    ]
+    return "\n".join(json.dumps(r) for r in responses) + "\n"
+
+
 def _smoke_ok(version: str = VERSION) -> Callable[..., tuple[int, str, str]]:
-    def run_subprocess(args: list[str], env=None, cwd=None) -> tuple[int, str, str]:
+    def run_subprocess(
+        args: list[str], env=None, cwd=None, input_text=None, timeout_seconds=None
+    ) -> tuple[int, str, str]:
         if "-m" in args and "venv" in args:
             return 0, "", ""
         if "install" in args and "--no-cache-dir" in args:
             return 0, "", ""
+        if "agent-plugin" in args and "path" in args:
+            return 0, json.dumps({"path": str(_agent_plugin_fixture_root())}), ""
+        if args and args[0] == "mempalace-code-mcp":
+            return 0, _agent_plugin_mcp_responses(), ""
         if "-c" in args:
             return 0, f"METADATA={version}\nMODULE={version}\n", ""
         if "version-check" in args:
@@ -237,7 +336,9 @@ def _smoke_ok(version: str = VERSION) -> Callable[..., tuple[int, str, str]]:
 def _smoke_fail(
     msg: str = "Could not find a version",
 ) -> Callable[..., tuple[int, str, str]]:
-    def run_subprocess(args: list[str], env=None, cwd=None) -> tuple[int, str, str]:
+    def run_subprocess(
+        args: list[str], env=None, cwd=None, input_text=None, timeout_seconds=None
+    ) -> tuple[int, str, str]:
         if "-m" in args and "venv" in args:
             return 0, "", ""
         return 1, "", msg
@@ -246,7 +347,9 @@ def _smoke_fail(
 
 
 def _smoke_venv_fail() -> Callable[..., tuple[int, str, str]]:
-    def run_subprocess(args: list[str], env=None, cwd=None) -> tuple[int, str, str]:
+    def run_subprocess(
+        args: list[str], env=None, cwd=None, input_text=None, timeout_seconds=None
+    ) -> tuple[int, str, str]:
         if "-m" in args and "venv" in args:
             return 1, "", "venv creation error"
         return 0, "ok", ""
@@ -257,11 +360,17 @@ def _smoke_venv_fail() -> Callable[..., tuple[int, str, str]]:
 def _smoke_mismatch(
     metadata_version: str = VERSION, module_version: str = "9.9.9"
 ) -> Callable[..., tuple[int, str, str]]:
-    def run_subprocess(args: list[str], env=None, cwd=None) -> tuple[int, str, str]:
+    def run_subprocess(
+        args: list[str], env=None, cwd=None, input_text=None, timeout_seconds=None
+    ) -> tuple[int, str, str]:
         if "-m" in args and "venv" in args:
             return 0, "", ""
         if "install" in args and "--no-cache-dir" in args:
             return 0, "", ""
+        if "agent-plugin" in args and "path" in args:
+            return 0, json.dumps({"path": str(_agent_plugin_fixture_root())}), ""
+        if args and args[0] == "mempalace-code-mcp":
+            return 0, _agent_plugin_mcp_responses(), ""
         if "-c" in args:
             return 0, f"METADATA={metadata_version}\nMODULE={module_version}\n", ""
         if "version-check" in args:

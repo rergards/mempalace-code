@@ -83,6 +83,7 @@ def test_cli_commands_package_importable():
         "mempalace_code.cli_commands",
         "mempalace_code.cli_commands.common",
         "mempalace_code.cli_commands.alias",
+        "mempalace_code.cli_commands.agent_plugin",
         "mempalace_code.cli_commands.model",
         "mempalace_code.cli_commands.ingest",
         "mempalace_code.cli_commands.query",
@@ -128,6 +129,13 @@ def test_alias_module_exports():
     assert callable(alias.install_legacy_alias)
     assert callable(alias.main_alias)
     assert callable(alias.cmd_install_alias)
+
+
+def test_agent_plugin_module_exports():
+    """agent_plugin.py must export cmd_agent_plugin."""
+    from mempalace_code.cli_commands import agent_plugin
+
+    assert callable(agent_plugin.cmd_agent_plugin)
 
 
 def test_model_module_exports():
@@ -322,6 +330,7 @@ def test_dispatch_keys_cover_all_expected_commands():
     A missing or misnamed handler would cause a KeyError at dispatch time.
     """
     from mempalace_code.cli_commands import (
+        agent_plugin,
         alias,
         backup_restore,
         diary,
@@ -351,6 +360,7 @@ def test_dispatch_keys_cover_all_expected_commands():
         "diary": diary.cmd_diary,
         "fetch-model": model.cmd_fetch_model,
         "install-alias": alias.cmd_install_alias,
+        "agent-plugin": agent_plugin.cmd_agent_plugin,
         "backup": backup_restore.cmd_backup,
         "restore": backup_restore.cmd_restore,
         "export": export_import.cmd_export,

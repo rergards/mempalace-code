@@ -22,26 +22,42 @@ def _load_module(name: str, path: Path):
 
 rag = _load_module("release_artifact_gate", ROOT / "scripts" / "release_artifact_gate.py")
 
+_REQUIRED_AGENT_PLUGIN_MEMBERS = list(rag.AGENT_PLUGIN_REQUIRED_MEMBERS)
+
 
 # ── Fixture helpers ────────────────────────────────────────────────────────────
 
 
-def _make_wheel(dist_dir: Path, members: list[str]) -> Path:
+def _plugin_json_content(version: str = "1.0.0") -> str:
+    return __import__("json").dumps({"version": version})
+
+
+def _make_wheel(
+    dist_dir: Path, members: list[str], *, plugin_json_version: str | None = "1.0.0"
+) -> Path:
     """Create a minimal .whl (zip) archive with the given member names."""
     wheel_path = dist_dir / "mempalace_code-1.0.0-py3-none-any.whl"
     with zipfile.ZipFile(wheel_path, "w") as zf:
         for member in members:
-            zf.writestr(member, "placeholder content")
+            if member == rag.PLUGIN_JSON_MEMBER and plugin_json_version is not None:
+                zf.writestr(member, _plugin_json_content(plugin_json_version))
+            else:
+                zf.writestr(member, "placeholder content")
     return wheel_path
 
 
-def _make_sdist(dist_dir: Path, members: list[str]) -> Path:
+def _make_sdist(
+    dist_dir: Path, members: list[str], *, plugin_json_version: str | None = "1.0.0"
+) -> Path:
     """Create a minimal .tar.gz archive with the given member names (sdist-style)."""
     sdist_path = dist_dir / "mempalace_code-1.0.0.tar.gz"
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
         for member in members:
-            content = b"placeholder content"
+            if member == rag.PLUGIN_JSON_MEMBER and plugin_json_version is not None:
+                content = _plugin_json_content(plugin_json_version).encode("utf-8")
+            else:
+                content = b"placeholder content"
             info = tarfile.TarInfo(name=f"mempalace_code-1.0.0/{member}")
             info.size = len(content)
             tf.addfile(info, io.BytesIO(content))
@@ -61,11 +77,14 @@ def test_clean_wheel_passes_member_check(tmp_path):
             "mempalace_code/__init__.py",
             "mempalace_code-1.0.0.dist-info/METADATA",
             "mempalace_code-1.0.0.dist-info/RECORD",
+            *_REQUIRED_AGENT_PLUGIN_MEMBERS,
         ],
     )
     result = rag.inspect_dist(dist_dir, require_wheel=True, run_twine=False)
     wheel_row = next(r for r in result["rows"] if r["check"] == "wheel-members")
+    plugin_row = next(r for r in result["rows"] if r["check"] == "wheel-agent-plugin-members")
     assert wheel_row["status"] == "pass"
+    assert plugin_row["status"] == "pass"
     assert result["wheel_found"] is not None
 
 
@@ -78,23 +97,142 @@ def test_clean_sdist_passes_member_check(tmp_path):
             "mempalace_code/__init__.py",
             "pyproject.toml",
             "README.md",
+            *_REQUIRED_AGENT_PLUGIN_MEMBERS,
         ],
     )
     result = rag.inspect_dist(dist_dir, require_sdist=True, run_twine=False)
     sdist_row = next(r for r in result["rows"] if r["check"] == "sdist-members")
+    plugin_row = next(r for r in result["rows"] if r["check"] == "sdist-agent-plugin-members")
     assert sdist_row["status"] == "pass"
+    assert plugin_row["status"] == "pass"
     assert result["sdist_found"] is not None
 
 
 def test_clean_wheel_and_sdist_both_pass(tmp_path):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    _make_wheel(dist_dir, ["mempalace_code/__init__.py"])
-    _make_sdist(dist_dir, ["mempalace_code/__init__.py"])
+    _make_wheel(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
+    _make_sdist(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
     result = rag.inspect_dist(dist_dir, require_wheel=True, require_sdist=True, run_twine=False)
     assert result["ok"] is True
     assert result["wheel_found"] is not None
     assert result["sdist_found"] is not None
+
+
+def test_agent_plugin_required_members_are_checked(tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    _make_wheel(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
+    _make_sdist(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
+
+    result = rag.inspect_dist(dist_dir, require_wheel=True, require_sdist=True, run_twine=False)
+
+    wheel_row = next(r for r in result["rows"] if r["check"] == "wheel-agent-plugin-members")
+    sdist_row = next(r for r in result["rows"] if r["check"] == "sdist-agent-plugin-members")
+    assert wheel_row["status"] == "pass"
+    assert sdist_row["status"] == "pass"
+    assert result["ok"] is True
+
+
+def test_missing_agent_plugin_member_fails_artifact_gate(tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    missing = "mempalace_code/agent_plugin/mcp.json"
+    incomplete = [m for m in _REQUIRED_AGENT_PLUGIN_MEMBERS if m != missing]
+    _make_wheel(dist_dir, ["mempalace_code/__init__.py", *incomplete])
+    _make_sdist(dist_dir, ["mempalace_code/__init__.py", *incomplete])
+
+    result = rag.inspect_dist(dist_dir, require_wheel=True, require_sdist=True, run_twine=False)
+
+    wheel_row = next(r for r in result["rows"] if r["check"] == "wheel-agent-plugin-members")
+    sdist_row = next(r for r in result["rows"] if r["check"] == "sdist-agent-plugin-members")
+    assert wheel_row["status"] == "fail"
+    assert sdist_row["status"] == "fail"
+    assert missing in wheel_row["detail"]
+    assert missing in sdist_row["detail"]
+    assert result["ok"] is False
+
+
+# ── plugin.json version binding ────────────────────────────────────────────────
+
+
+def test_wheel_plugin_json_version_matches_filename_passes(tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    _make_wheel(
+        dist_dir,
+        ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS],
+        plugin_json_version="1.0.0",
+    )
+    result = rag.inspect_dist(dist_dir, require_wheel=True, run_twine=False)
+    version_row = next(r for r in result["rows"] if r["check"] == "wheel-agent-plugin-version")
+    assert version_row["status"] == "pass"
+    assert result["ok"] is True
+
+
+def test_wheel_plugin_json_stale_version_fails(tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    _make_wheel(
+        dist_dir,
+        ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS],
+        plugin_json_version="0.9.0",
+    )
+    result = rag.inspect_dist(dist_dir, require_wheel=True, run_twine=False)
+    version_row = next(r for r in result["rows"] if r["check"] == "wheel-agent-plugin-version")
+    assert version_row["status"] == "fail"
+    assert "0.9.0" in version_row["detail"]
+    assert "1.0.0" in version_row["detail"]
+    assert result["ok"] is False
+
+
+def test_sdist_plugin_json_version_matches_filename_passes(tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    _make_sdist(
+        dist_dir,
+        ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS],
+        plugin_json_version="1.0.0",
+    )
+    result = rag.inspect_dist(dist_dir, require_sdist=True, run_twine=False)
+    version_row = next(r for r in result["rows"] if r["check"] == "sdist-agent-plugin-version")
+    assert version_row["status"] == "pass"
+    assert result["ok"] is True
+
+
+def test_sdist_plugin_json_stale_version_fails(tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    _make_sdist(
+        dist_dir,
+        ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS],
+        plugin_json_version="0.9.0",
+    )
+    result = rag.inspect_dist(dist_dir, require_sdist=True, run_twine=False)
+    version_row = next(r for r in result["rows"] if r["check"] == "sdist-agent-plugin-version")
+    assert version_row["status"] == "fail"
+    assert "0.9.0" in version_row["detail"]
+    assert "1.0.0" in version_row["detail"]
+    assert result["ok"] is False
+
+
+def test_wheel_plugin_json_missing_version_field_fails(tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    wheel_path = dist_dir / "mempalace_code-1.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel_path, "w") as zf:
+        zf.writestr("mempalace_code/__init__.py", "placeholder content")
+        for member in _REQUIRED_AGENT_PLUGIN_MEMBERS:
+            if member == rag.PLUGIN_JSON_MEMBER:
+                zf.writestr(member, "{}")
+            else:
+                zf.writestr(member, "placeholder content")
+
+    result = rag.inspect_dist(dist_dir, require_wheel=True, run_twine=False)
+    version_row = next(r for r in result["rows"] if r["check"] == "wheel-agent-plugin-version")
+    assert version_row["status"] == "fail"
+    assert "version" in version_row["detail"]
+    assert result["ok"] is False
 
 
 # ── Forbidden member rejection ─────────────────────────────────────────────────
@@ -213,7 +351,7 @@ def test_missing_wheel_fails_when_required(tmp_path):
 def test_missing_sdist_fails_when_required(tmp_path):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    _make_wheel(dist_dir, ["mempalace_code/__init__.py"])
+    _make_wheel(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
     result = rag.inspect_dist(dist_dir, require_sdist=True, run_twine=False)
     sdist_row = next(r for r in result["rows"] if r["check"] == "sdist-present")
     assert sdist_row["status"] == "fail"
@@ -250,8 +388,8 @@ def test_twine_check_failure_sets_ok_false(tmp_path, monkeypatch):
 def test_twine_check_pass_sets_ok_true(tmp_path, monkeypatch):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    _make_wheel(dist_dir, ["mempalace_code/__init__.py"])
-    _make_sdist(dist_dir, ["mempalace_code/__init__.py"])
+    _make_wheel(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
+    _make_sdist(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
 
     monkeypatch.setattr(rag, "_run_twine_check", lambda _d: (True, "PASSED"))
     result = rag.inspect_dist(dist_dir, require_wheel=True, require_sdist=True, run_twine=True)
@@ -271,8 +409,8 @@ def test_main_missing_dist_dir_exits_1(tmp_path):
 def test_main_clean_artifacts_exits_0(tmp_path, monkeypatch):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    _make_wheel(dist_dir, ["mempalace_code/__init__.py"])
-    _make_sdist(dist_dir, ["mempalace_code/__init__.py"])
+    _make_wheel(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
+    _make_sdist(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
     monkeypatch.setattr(rag, "_run_twine_check", lambda _d: (True, "PASSED"))
 
     rc = rag.main(
@@ -299,7 +437,7 @@ def test_main_forbidden_member_exits_1(tmp_path, monkeypatch):
 def test_main_json_output(tmp_path, capsys, monkeypatch):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    _make_wheel(dist_dir, ["mempalace_code/__init__.py"])
+    _make_wheel(dist_dir, ["mempalace_code/__init__.py", *_REQUIRED_AGENT_PLUGIN_MEMBERS])
     monkeypatch.setattr(rag, "_run_twine_check", lambda _d: (True, "PASSED"))
 
     rc = rag.main(["--dist", str(dist_dir), "--json"])

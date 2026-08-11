@@ -29,7 +29,7 @@ No cloud service, no API keys, no subscription. After the one-time embedding mod
 <tr>
 <td align="center"><strong>33.8x Token Savings</strong><br><sub>measured peak · median 14.5x<br><a href="docs/BENCH_TOKEN_DELTA.md">scales with project size</a></sub></td>
 <td align="center"><strong>Cross-Project Tunnels</strong><br><sub>Search <code>auth</code> in one project<br>find it everywhere</sub></td>
-<td align="center"><strong>2,900+ Tests · $0 Cost</strong><br><sub>Local test suite<br>offline after model setup</sub></td>
+<td align="center"><strong>3,000+ Tests · $0 Cost</strong><br><sub>Local test suite<br>offline after model setup</sub></td>
 </tr>
 </table>
 
@@ -58,6 +58,21 @@ keep a small `mempalace.mcp_server` shim only so older repo-local MCP configs
 that run with `PYTHONPATH=/path/to/mempalace-code` continue to start.
 
 Use [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) for a human-in-the-loop setup sequence. It covers installation, MCP wiring, instruction injection, and verification, and asks before choosing install scope, storage path, or model download.
+
+Compatible [Agent Plugins 1.0](https://agent-plugins.org/) clients can load the
+installed portable package instead of copying MCP and usage-rule snippets by hand:
+
+```bash
+mempalace-code agent-plugin path
+```
+
+The printed directory contains `plugin.json`, `mcp.json`, and
+`skills/mempalace/SKILL.md`. Its MCP config runs the installed
+`mempalace-code-mcp --profile=minimal` launcher, exposing only
+`mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`, and
+`mempalace_add_drawer` by default. Use direct MCP registration, or edit a copy
+of `mcp.json`, when a client needs richer profiles such as `--profile=kg`,
+`--profile=code`, `--profile=notes`, or `--profile=full`.
 
 <details>
 <summary>Or do it manually</summary>
@@ -107,8 +122,10 @@ as a complement, not a replacement. A good trial order is:
 3. **Code mining last** — start with one high-value subproject, then expand if
    agents actually use the results.
 
-Cost caveat: the MCP server defaults to all 29 tools. Use `--profile=minimal` or
-`--tools=search,add_drawer` at startup to reduce the prompt/tool-surface cost.
+Cost caveat: a direct MCP registration without selectors defaults to all 29 tools;
+the portable Agent Plugin defaults to the four-tool `minimal` profile. Use
+`--profile=minimal` or `--tools=search,add_drawer` with direct registration to
+reduce the prompt/tool-surface cost.
 Proactive use also depends on adding the usage-rules block to agent instructions.
 Prefer project-scoped MCP for trials, and keep it only if searches, KG lookups,
 or drawer writes show up in real sessions.
@@ -119,6 +136,7 @@ mempalace-code works with any [MCP](https://modelcontextprotocol.io/)-compatible
 
 - **Claude Code** (CLI, desktop, web) — `claude mcp add mempalace-code -- python -m mempalace_code.mcp_server`
 - **Codex CLI** — `codex mcp add mempalace-code -- python -m mempalace_code.mcp_server`
+- **Agent Plugins 1.0 clients** — load the directory printed by `mempalace-code agent-plugin path`
 - **Claude Desktop** — add to `claude_desktop_config.json`
 - **Cursor** — add as MCP server in settings
 - **Windsurf** — add as MCP server in settings
@@ -391,6 +409,17 @@ mempalace-code organizes memories into a navigable structure — the same mental
 
 ### MCP Server — 29 Tools {#mcp-tool-profiles}
 
+Agent Plugins-compatible clients can discover the portable package with:
+
+```bash
+mempalace-code agent-plugin path
+```
+
+That package declares the installed stdio launcher
+`mempalace-code-mcp --profile=minimal`. This is the portable default for
+low tool-schema cost. Direct MCP registrations below remain supported for the
+full surface or richer startup profiles.
+
 ```bash
 claude mcp add mempalace-code -- python -m mempalace_code.mcp_server
 ```
@@ -406,9 +435,10 @@ existing `python -m mempalace_code.mcp_server` registrations (and the
 source-checkout `mempalace.mcp_server` shim) keep working unchanged; there is
 nothing to reconfigure.
 
-By default all 29 tools are exposed. Use startup flags to reduce the tool surface
-(GitHub issue #6 — static profiles lower prompt cost while preserving stable
-named-tool trigger patterns in usage rules):
+Direct registration without a selector exposes all 29 tools. The portable Agent
+Plugin above selects `minimal` and exposes four. Use startup flags to reduce the
+direct tool surface (GitHub issue #6 — static profiles lower prompt cost while
+preserving stable named-tool trigger patterns in usage rules):
 
 ```bash
 # Named profiles — select a pre-defined subset at server startup
@@ -994,6 +1024,7 @@ mempalace-code migrate-storage <src> <dst>             # migrate a ChromaDB pala
 mempalace-code preflight mirror --command "<cmd>"      # inspect an rsync command for state-dir risks
 mempalace-code version-check                           # show version-check status (opt-in PyPI checks)
 mempalace-code update status                            # inspect upgrade eligibility (supported installs)
+mempalace-code agent-plugin path                       # locate the installed Agent Plugins package directory
 ```
 
 Plain `status` prints a full wing/room breakdown, so its output grows with palace size. Do not use it as a routine agent bootstrap or machine-readable health check; use `status --summary` for bounded shell-based CLI discovery, task-specific MCP retrieval, or `mempalace-code health --json` for a compact CLI integrity report.
@@ -1032,7 +1063,7 @@ mempalace/
 ├── benchmarks/             ← reproducible benchmark runners
 ├── hooks/                  ← Claude Code auto-save hooks (legacy, optional)
 ├── examples/               ← usage examples
-└── tests/                  ← 2,900+ tests
+└── tests/                  ← 3,000+ tests
 ```
 
 </details>
@@ -1080,7 +1111,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.13.1-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.13.2-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

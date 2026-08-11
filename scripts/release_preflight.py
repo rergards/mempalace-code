@@ -46,6 +46,80 @@ def _run(command: list[str], root: Path) -> tuple[int, str]:
     return completed.returncode, output
 
 
+def check_tag_identity(
+    root: Path,
+    version: str,
+    run: Callable[[list[str], Path], tuple[int, str]] = _run,
+) -> dict[str, str]:
+    """Fail when refs/tags/v{version} already exists but points away from HEAD.
+
+    A same-version tag that resolves to a different commit means a published,
+    immutable release is being silently reused for different content. An absent
+    tag (not yet released) and a matching tag (re-running preflight against the
+    tagged commit, e.g. in publish.yml) are both valid and pass.
+    """
+    expected_tag = f"v{version}"
+    rc, tag_commit = run(
+        ["git", "rev-parse", "--verify", "-q", f"refs/tags/{expected_tag}^{{commit}}"], root
+    )
+    # `git rev-parse --verify -q` documents exit code 1 for "ref does not resolve to
+    # an object" — that is the only code meaning absence. Any other nonzero code
+    # (e.g. 128 for a missing/corrupt repository, or a permission failure) means the
+    # lookup itself is untrustworthy, so fail closed instead of assuming no tag.
+    if rc == 1:
+        return {
+            "name": "tag_identity",
+            "status": "ok",
+            "detail": f"no existing tag {expected_tag}",
+        }
+    if rc != 0:
+        return {
+            "name": "tag_identity",
+            "status": "fail",
+            "detail": (
+                f"could not resolve tag {expected_tag} (git rev-parse exited {rc}): "
+                f"{tag_commit or 'no output'}"
+            ),
+        }
+    tag_commit = tag_commit.strip()
+    if not tag_commit:
+        return {
+            "name": "tag_identity",
+            "status": "fail",
+            "detail": f"git rev-parse for tag {expected_tag} succeeded but returned no commit",
+        }
+
+    rc, head_commit = run(["git", "rev-parse", "HEAD"], root)
+    if rc != 0:
+        return {
+            "name": "tag_identity",
+            "status": "fail",
+            "detail": head_commit or "git rev-parse HEAD failed",
+        }
+    head_commit = head_commit.strip()
+    if not head_commit:
+        return {
+            "name": "tag_identity",
+            "status": "fail",
+            "detail": "git rev-parse HEAD succeeded but returned no commit",
+        }
+
+    if tag_commit != head_commit:
+        return {
+            "name": "tag_identity",
+            "status": "fail",
+            "detail": (
+                f"tag {expected_tag} already points to {tag_commit}, not HEAD "
+                f"({head_commit}); bump project.version before reusing a published tag"
+            ),
+        }
+    return {
+        "name": "tag_identity",
+        "status": "ok",
+        "detail": f"tag {expected_tag} matches HEAD ({head_commit})",
+    }
+
+
 def evaluate(
     root: Path,
     *,
@@ -65,6 +139,8 @@ def evaluate(
             "detail": tag_error or f"package version is v{version}",
         }
     )
+
+    checks.append(check_tag_identity(root, version, run))
 
     commands = [
         ("docs_drift", [sys.executable, "scripts/docs_drift_guard.py"]),

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mempalace-code",
+  "version": "1.13.2",
+  "description": "Local-first semantic memory for coding agents, packaged with a minimal-profile MCP server and LLM skill.",
+  "author": {
+    "name": "mempalace-code contributors",
+    "url": "https://github.com/rergards/mempalace-code"
+  },
+  "homepage": "https://github.com/rergards/mempalace-code",
+  "repository": "https://github.com/rergards/mempalace-code",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agent-plugins",
+    "mcp",
+    "memory",
+    "local-first",
+    "semantic-search"
+  ]
+}

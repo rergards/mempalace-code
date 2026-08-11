@@ -15,6 +15,7 @@ module's logic directly.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 from pathlib import Path
@@ -198,6 +199,134 @@ def test_probe_cwd_not_repo_root(tmp_path):
     neutral_cwd = str(tmp_path / "neutral")
     os.makedirs(neutral_cwd, exist_ok=True)
     assert neutral_cwd != repo_root_str, "neutral probe cwd must differ from the checkout root"
+
+
+# ── Agent Plugin probe ───────────────────────────────────────────────────────
+
+
+def _write_agent_plugin_fixture(plugin_root: Path) -> None:
+    (plugin_root / "skills" / "mempalace").mkdir(parents=True)
+    (plugin_root / "schemas" / "1.0.0").mkdir(parents=True)
+    (plugin_root / "plugin.json").write_text(
+        """
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mempalace-code",
+  "version": "1.2.3"
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    (plugin_root / "mcp.json").write_text(
+        """
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "mempalace-code": {
+      "type": "stdio",
+      "command": "mempalace-code-mcp",
+      "args": ["--profile=minimal"]
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    (plugin_root / "skills" / "mempalace" / "SKILL.md").write_text(
+        "---\nname: mempalace\ndescription: Minimal memory.\n---\n",
+        encoding="utf-8",
+    )
+    (plugin_root / "schemas" / "1.0.0" / "plugin.schema.json").write_text(
+        '{"$id":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"}',
+        encoding="utf-8",
+    )
+    (plugin_root / "schemas" / "1.0.0" / "mcp.schema.json").write_text(
+        '{"$id":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"}',
+        encoding="utf-8",
+    )
+    (plugin_root / "schemas" / "SCHEMA-NOTICE.md").write_text(
+        "Apache License 2.0\n",
+        encoding="utf-8",
+    )
+
+
+def _mcp_responses() -> str:
+    tools = [
+        {"name": "mempalace_status"},
+        {"name": "mempalace_search"},
+        {"name": "mempalace_check_duplicate"},
+        {"name": "mempalace_add_drawer"},
+    ]
+    responses = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"serverInfo": {"name": "mempalace-code", "version": "1.0.0"}},
+        },
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": tools}},
+    ]
+    return "\n".join(json.dumps(response) for response in responses) + "\n"
+
+
+def test_install_smoke_probes_agent_plugin_from_neutral_cwd(tmp_path):
+    plugin_root = tmp_path / "venv" / "site-packages" / "mempalace_code" / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
+    neutral_cwd = str(tmp_path / "neutral")
+    script_dir = tmp_path / "venv" / "bin"
+    os.makedirs(neutral_cwd)
+    os.makedirs(script_dir)
+    calls: list[tuple[list[str], dict]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        if cmd == ["/fake/bin/mempalace-code", "agent-plugin", "path", "--json"]:
+            return 0, json.dumps({"path": str(plugin_root)}), ""
+        if cmd == ["mempalace-code-mcp", "--profile=minimal"]:
+            assert kwargs["input_text"].count("tools/list") == 1
+            return 0, _mcp_responses(), ""
+        return 1, "", "unexpected command"
+
+    env = smoke._env_with_script_dir(script_dir, {"PATH": "/usr/bin"})
+    result = smoke.probe_agent_plugin_package(
+        "/fake/bin/mempalace-code",
+        neutral_cwd,
+        fake_run,
+        env=env,
+        source_root=str(tmp_path / "checkout"),
+    )
+
+    assert result.status == smoke.STATUS_OK
+    assert calls[0][1]["cwd"] == neutral_cwd
+    assert calls[1][1]["cwd"] == neutral_cwd
+    assert calls[1][0] == ["mempalace-code-mcp", "--profile=minimal"]
+    assert calls[1][1]["env"]["PATH"].split(os.pathsep)[0] == str(script_dir)
+
+
+def test_install_smoke_reports_agent_plugin_mcp_failure(tmp_path):
+    plugin_root = tmp_path / "venv" / "site-packages" / "mempalace_code" / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
+    neutral_cwd = str(tmp_path / "neutral")
+    os.makedirs(neutral_cwd)
+
+    def fake_run(cmd, **kwargs):
+        if cmd == ["/fake/bin/mempalace-code", "agent-plugin", "path", "--json"]:
+            return 0, json.dumps({"path": str(plugin_root)}), ""
+        if cmd == ["mempalace-code-mcp", "--profile=minimal"]:
+            return 1, "", "mcp failed with ghp_" + "X" * 30
+        return 1, "", "unexpected command"
+
+    result = smoke.probe_agent_plugin_package(
+        "/fake/bin/mempalace-code",
+        neutral_cwd,
+        fake_run,
+        env={"PATH": "/fake/bin"},
+        source_root=str(tmp_path / "checkout"),
+    )
+
+    assert result.status == smoke.STATUS_ERROR
+    assert "declared MCP command failed" in result.detail
+    assert "ghp_" not in result.detail
+    assert "REDACTED" in result.detail
 
 
 # ── sanitize() ────────────────────────────────────────────────────────────────

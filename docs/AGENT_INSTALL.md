@@ -23,7 +23,8 @@ feature checklist, not an install step.
 | Conversation/log ingest | `mempalace-code mine <dir> --mode convos` ingests Claude Code JSONL, Codex CLI JSONL, Gemini CLI JSONL, Claude.ai JSON, ChatGPT JSON, Slack JSON, and plain text transcripts |
 | Multi-project sync | `mempalace-code mine-all <parent>` assigns one wing per initialized project; `--new-only` skips already-known wings |
 | Auto-watch | `mempalace-code watch <initialized-project>` watches one project directly; `mempalace-code watch <parent>` watches all initialized projects in a parent directory; re-mines on commit by default; `--on-save` is available but noisier |
-| MCP tools | 29 tools (default `full` profile): semantic search, code search, file context/read, manual drawers, KG, architecture retrieval, graph tunnels, diary, re-mine; named profiles (`minimal`, `kg`, `code`, `notes`) reduce the exposed subset at startup |
+| MCP tools | 29 tools (direct-registration default `full` profile): semantic search, code search, file context/read, manual drawers, KG, architecture retrieval, graph tunnels, diary, re-mine; named profiles (`minimal`, `kg`, `code`, `notes`) reduce the exposed subset at startup |
+| Agent Plugin package | Installed Agent Plugins 1.0 root discoverable with `mempalace-code agent-plugin path`; portable `mcp.json` uses `mempalace-code-mcp --profile=minimal` plus bundled `skills/mempalace/SKILL.md` |
 | KG / architecture | Temporal facts plus .NET/Python architecture extraction; .NET project/type graph tools require pre-mined symbols |
 | Local-model fallback | `mempalace-code wake-up` emits memory layers for agents without MCP support |
 | Safety/ops | Local embeddings, no API key, backup/restore/export/import, health/repair/cleanup, scan excludes, disk-budget guards |
@@ -46,7 +47,7 @@ Evaluation output contract:
    curated docs for compressed narrative and reasoning.
 5. Recommend adoption order: KG first, docs/drawers second, one scoped code project last.
 6. Recommend MCP scope: `project` for trial/tool-surface control, `global` for mature cross-project use, or skip.
-7. Name the cost: 29 MCP tools (default `full` profile) plus the injected usage rules add a prompt/tool-surface floor. Mention that `--profile=minimal` reduces this to 4 tools.
+7. Name the cost: direct registration without selectors exposes 29 MCP tools; the portable Agent Plugin defaults to 4. The injected usage rules also add a prompt floor. Recommend the smallest profile that covers the workflow.
 8. Give decision: install now, try scoped, wait for a named feature, or skip; include exact first commands. If recommending a trial, suggest `--profile=minimal` or `--profile=code` to limit tool surface.
 
 ---
@@ -201,13 +202,14 @@ Ask all five questions before acting. Record answers; they parameterize Sections
 ### Q5 — MCP tool profile
 
 **ASK HUMAN:** "Which tool profile should the mempalace-code MCP server use? Reply with one of:
-- `full` — all 29 tools (default; no surface reduction)
+- `full` — all 29 tools (direct-server default; no surface reduction)
 - `minimal` — 4 tools: search + store only
 - `kg` — 8 tools: minimal + temporal knowledge graph
 - `code` — 10 tools: code archaeology (no drawer-write/diary)
 - `notes` — 12 tools: knowledge management + diary (no code-search)
 
-If unsure, reply `full` to start with everything and narrow later."
+If unsure, reply `minimal` for a bounded memory-only trial. Choose `code` for code
+archaeology or `full` only when the workflow needs the broader surfaces."
 
 **Parse response:**
 - `full` → Set `MCP_PROFILE=full`.
@@ -466,6 +468,10 @@ Wire the mempalace-code MCP server so your AI assistant can call it during conve
 Use `mempalace-code` as the MCP server registration name. The exposed MCP tool
 identifiers stay `mempalace_*` for compatibility with existing agents and usage rules.
 
+Compatible Agent Plugins 1.0 clients should use Step 5.0 first. Direct Claude,
+Codex, or generic MCP registration remains the supported fallback, and it is the
+path for richer profiles selected in Q5.
+
 **Important:** The MCP server is `python -m mempalace_code.mcp_server`, not a CLI subcommand. The Python interpreter used must be the one that has `mempalace_code` importable:
 - **pipx install:** `$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace-code/bin/python`
 - **uv / pip-in-venv:** the venv Python (e.g. `~/.mempalace/venv/bin/python` or `.venv/bin/python`)
@@ -496,6 +502,35 @@ need to change to pick this up.
 MPALACE_PYTHON=$(pipx environment --value PIPX_LOCAL_VENVS)/mempalace-code/bin/python
 "$MPALACE_PYTHON" -c "import mempalace_code; print('ok')"
 ```
+
+---
+
+### Step 5.0: Portable Agent Plugin Path
+
+**Condition:** The target client supports Agent Plugins 1.0 package loading.
+
+**Check:**
+```bash
+mempalace-code agent-plugin path --json
+```
+
+**Pass →** Give the printed directory to the compatible client. That directory
+contains `plugin.json`, `mcp.json`, `skills/mempalace/SKILL.md`, and vendored
+schemas. Its `mcp.json` declares stdio transport with the installed
+`mempalace-code-mcp --profile=minimal` launcher, so the portable default exposes
+only `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`, and
+`mempalace_add_drawer`.
+
+If the human selected `minimal` in Q5 and the client accepts the Agent Plugin
+directory, set MCP wiring complete and continue to Section 6.
+
+If the human selected `kg`, `code`, `notes`, or `full`, use Step 5.1 or Step 5.2
+for direct MCP registration with `--profile=kg`, `--profile=code`,
+`--profile=notes`, or `--profile=full`. A client may also load a copied plugin
+directory with edited `mcp.json` args, but do not modify the installed package.
+
+**Fail →** Use direct MCP registration below. Report the `agent-plugin path`
+stderr as the compatibility diagnostic; do not guess a package path.
 
 ---
 

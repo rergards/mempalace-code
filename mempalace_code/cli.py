@@ -26,6 +26,7 @@ Commands:
     mempalace-code repair [--rollback] [--dry-run]  Repair palace (rollback or full rebuild)
     mempalace-code backup [--out FILE]         Snapshot palace to a .tar.gz archive
     mempalace-code restore FILE [--force] [--kg-path PATH]  Restore palace from a .tar.gz archive
+    mempalace-code agent-plugin path          Print the installed Agent Plugin directory
     mempalace-code update status                Inspect explicit upgrade eligibility and provenance
     mempalace-code update apply --yes           Apply an opt-in supported-install upgrade
     mempalace-code diary write --agent <name> --entry "<text>"  Write a diary entry
@@ -42,6 +43,7 @@ Examples:
 import argparse
 import sys
 
+from .cli_commands.agent_plugin import cmd_agent_plugin
 from .cli_commands.alias import cmd_install_alias, install_legacy_alias, main_alias
 from .cli_commands.backup_restore import cmd_backup, cmd_restore
 from .cli_commands.diary import cmd_diary
@@ -441,6 +443,22 @@ def main():
         help="Directory where the alias should be created (default: next to mempalace-code)",
     )
 
+    # agent-plugin
+    p_agent_plugin = sub.add_parser(
+        "agent-plugin",
+        help="Agent Plugin package helpers",
+    )
+    agent_plugin_sub = p_agent_plugin.add_subparsers(dest="agent_plugin_command")
+    p_agent_plugin_path = agent_plugin_sub.add_parser(
+        "path",
+        help="Print the installed Agent Plugin directory",
+    )
+    p_agent_plugin_path.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a JSON object with the plugin path",
+    )
+
     # fetch-model
     p_fetch = sub.add_parser("fetch-model", help="Cache or verify the embedding model (~80 MB)")
     p_fetch.add_argument(
@@ -753,6 +771,9 @@ def main():
     if args.command == "preflight":
         args._preflight_parser = p_preflight
 
+    if args.command == "agent-plugin":
+        args._agent_plugin_parser = p_agent_plugin
+
     if args.command == "update":
         args._update_parser = p_update
         args._scheduler_parser = p_update_scheduler
@@ -780,6 +801,7 @@ def main():
         "diary": cmd_diary,
         "fetch-model": cmd_fetch_model,
         "install-alias": cmd_install_alias,
+        "agent-plugin": cmd_agent_plugin,
         "backup": cmd_backup,
         "restore": cmd_restore,
         "export": cmd_export,
@@ -791,7 +813,7 @@ def main():
 
     # --- opt-in version-check hook ---
     # version-check command handles itself; all others may get a first-run prompt.
-    if args.command not in ("version-check", "update"):
+    if args.command not in ("version-check", "update", "agent-plugin"):
         from .version import __version__ as _current_version
         from .version_check import (
             load_state,
@@ -811,7 +833,7 @@ def main():
     dispatch[args.command](args)
 
     # Automatic check runs after the command succeeds; skipped on SystemExit.
-    if args.command not in ("version-check", "update") and _vc_config.enabled:  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
+    if args.command not in ("version-check", "update", "agent-plugin") and _vc_config.enabled:  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
         run_automatic_check(  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
             _current_version,  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
             _vc_config,

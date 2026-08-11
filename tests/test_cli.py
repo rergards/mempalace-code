@@ -2423,6 +2423,71 @@ class TestVersionCheckCLIHook:
         assert prompt_called == [], "run_first_run_prompt must not be called in non-TTY"
 
 
+class TestAgentPluginCommand:
+    def _run(self, argv):
+        with patch.object(sys, "argv", argv):
+            main()
+
+    def test_agent_plugin_path_prints_installed_root(self, capsys, monkeypatch):
+        monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+        from mempalace_code.agent_plugins import get_agent_plugin_root
+
+        expected = str(get_agent_plugin_root())
+
+        self._run(["mempalace", "agent-plugin", "path"])
+
+        captured = capsys.readouterr()
+        assert captured.out == expected + "\n"
+        assert captured.err == ""
+
+    def test_agent_plugin_path_json_output(self, capsys, monkeypatch):
+        monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+        from mempalace_code.agent_plugins import get_agent_plugin_root
+
+        expected = str(get_agent_plugin_root())
+
+        self._run(["mempalace", "agent-plugin", "path", "--json"])
+
+        captured = capsys.readouterr()
+        assert json.loads(captured.out) == {"path": expected}
+        assert captured.err == ""
+
+    def test_agent_plugin_path_reports_missing_plugin(self, capsys, monkeypatch):
+        monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+
+        with patch(
+            "mempalace_code.cli_commands.agent_plugin.get_agent_plugin_root",
+            side_effect=RuntimeError("installed Agent Plugin directory is missing"),
+        ):
+            with pytest.raises(SystemExit) as exc:
+                self._run(["mempalace", "agent-plugin", "path"])
+
+        captured = capsys.readouterr()
+        assert exc.value.code == 1
+        assert captured.out == ""
+        assert "Error: installed Agent Plugin directory is missing" in captured.err
+
+    def test_agent_plugin_path_skips_version_check_prompt_and_auto_check(self, capsys, monkeypatch):
+        monkeypatch.setenv("MEMPALACE_VERSION_CHECK", "1")
+        monkeypatch.setenv("MEMPALACE_VERSION_CHECK_INTERVAL_HOURS", "1")
+
+        with (
+            patch(
+                "mempalace_code.version_check.run_first_run_prompt",
+                side_effect=AssertionError("prompt must not run"),
+            ),
+            patch(
+                "mempalace_code.version_check.run_automatic_check",
+                side_effect=AssertionError("automatic check must not run"),
+            ),
+        ):
+            self._run(["mempalace", "agent-plugin", "path"])
+
+        captured = capsys.readouterr()
+        assert "agent_plugin" in captured.out or "agent-plugin" in captured.out
+        assert captured.err == ""
+
+
 # =============================================================================
 # status --summary tests
 # =============================================================================

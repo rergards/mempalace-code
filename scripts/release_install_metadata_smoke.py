@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 DEFAULT_PACKAGE = "mempalace-code"
 MODULE_NAME = "mempalace_code"
 CONSOLE_SCRIPT = "mempalace-code"
+AGENT_PLUGIN_MCP_SCRIPT = "mempalace-code-mcp"
 DEFAULT_TIMEOUT_SECONDS = 300
 
 INSTALLER_VENV = "venv"
@@ -55,14 +56,32 @@ SURFACE_INSTALL = "install"
 SURFACE_METADATA = "package_metadata"
 SURFACE_MODULE = "module_version"
 SURFACE_CLI = "cli_version_check"
+SURFACE_AGENT_PLUGIN = "agent_plugin"
 
-REQUIRED_SURFACES = [SURFACE_METADATA, SURFACE_MODULE, SURFACE_CLI]
+REQUIRED_SURFACES = [SURFACE_METADATA, SURFACE_MODULE, SURFACE_CLI, SURFACE_AGENT_PLUGIN]
 
 STATUS_OK = "ok"
 STATUS_FAIL = "fail"
 STATUS_ERROR = "error"
 
 _CURRENT_VERSION_RE = re.compile(r"^\s*Current version:\s*(\S+)\s*$", re.MULTILINE)
+_PLUGIN_SCHEMA_ID = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+_MCP_SCHEMA_ID = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+_MINIMAL_TOOLS = (
+    "mempalace_status",
+    "mempalace_search",
+    "mempalace_check_duplicate",
+    "mempalace_add_drawer",
+)
+_REQUIRED_AGENT_PLUGIN_FILES = (
+    "plugin.json",
+    "mcp.json",
+    "skills/mempalace/SKILL.md",
+    "schemas/1.0.0/plugin.schema.json",
+    "schemas/1.0.0/mcp.schema.json",
+    "schemas/SCHEMA-NOTICE.md",
+)
+_SOURCE_ROOT = Path(__file__).resolve().parent.parent
 
 _PROBE_SCRIPT = (
     "import importlib.metadata\n"
@@ -73,6 +92,7 @@ _PROBE_SCRIPT = (
     "try:\n"
     "    import mempalace_code\n"
     "    print('MODULE=' + mempalace_code.__version__)\n"
+    "    print('MODULE-FILE=' + str(mempalace_code.__file__))\n"
     "except Exception as exc:\n"
     "    print('MODULE-ERROR=' + str(exc))\n"
 )
@@ -148,6 +168,199 @@ def build_reinstall_commands(package: str, install_spec: str) -> list[str]:
     ]
 
 
+def _path_is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _env_with_script_dir(script_dir: Path, base: dict[str, str] | None = None) -> dict[str, str]:
+    env = dict(base or os.environ)
+    current_path = env.get("PATH", "")
+    env["PATH"] = (
+        str(script_dir) if not current_path else str(script_dir) + os.pathsep + current_path
+    )
+    return env
+
+
+def _read_json(path: Path) -> tuple[dict | None, str | None]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, sanitize(str(exc))
+    if not isinstance(value, dict):
+        return None, f"{path.name} is not a JSON object"
+    return value, None
+
+
+_SENSITIVE_KEY_PARTS = ("token", "secret", "password", "credential", "private_key", "api_key")
+
+# Secret-like literal patterns. Mirrors scripts/public_safety_scan.py's
+# _token_rules() so both scanners agree on what a leaked credential looks like;
+# duplicated (not imported) because this script is documented stdlib-only with
+# no project imports.
+_SECRET_TOKEN_PATTERNS = (
+    re.compile(r"\b[g]hp_[A-Za-z0-9]{20,}"),
+    re.compile(r"[g]ithub_pat_"),
+    re.compile(r"\b[p]ypi-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\b[s]k-[A-Za-z0-9]{16,}"),
+    re.compile(r"\b[s]k-ant-[A-Za-z0-9_-]{16,}"),
+)
+
+# Credential-bearing URLs: embedded userinfo (scheme://user:pass@host) or a
+# credential-shaped query parameter (?token=..., &api_key=..., etc).
+_CREDENTIAL_URL_USERINFO_RE = re.compile(r"://[^/@\s]+:[^/@\s]+@")
+_CREDENTIAL_QUERY_PARAM_RE = re.compile(
+    r"[?&](?:token|api[_-]?key|secret|password|access[_-]?token|auth[_-]?token)=[^&\s]+",
+    re.IGNORECASE,
+)
+
+
+def _is_sensitive_string_value(value: str) -> bool:
+    if any(pattern.search(value) for pattern in _SECRET_TOKEN_PATTERNS):
+        return True
+    return bool(
+        _CREDENTIAL_URL_USERINFO_RE.search(value) or _CREDENTIAL_QUERY_PARAM_RE.search(value)
+    )
+
+
+def _contains_sensitive_content(value: object) -> bool:
+    """Recursively scan for sensitive key names, secret-like string values, and
+    credential-bearing URLs — not just key names."""
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if any(part in str(key).lower() for part in _SENSITIVE_KEY_PARTS):
+                return True
+            if _contains_sensitive_content(nested):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(_contains_sensitive_content(item) for item in value)
+    if isinstance(value, str):
+        return _is_sensitive_string_value(value)
+    return False
+
+
+def _validate_agent_plugin_files(
+    plugin_root: Path, source_root: Path
+) -> tuple[dict | None, str | None, str | None]:
+    """Validate the installed Agent Plugin files.
+
+    Returns (mcp_json, plugin_json version, error). ``version`` is only populated
+    on success, so callers can fold plugin.json's declared version into the
+    surface-agreement check alongside importlib.metadata/module/CLI versions —
+    this is what makes a stale wheel/sdist plugin.json fail the smoke instead of
+    only failing the separate schema/shape checks.
+    """
+    if not plugin_root.is_dir():
+        return None, None, "agent-plugin path is not a directory"
+    if _path_is_relative_to(plugin_root, source_root / MODULE_NAME):
+        return None, None, "agent-plugin path resolves inside the checkout source tree"
+
+    missing = [rel for rel in _REQUIRED_AGENT_PLUGIN_FILES if not (plugin_root / rel).is_file()]
+    if missing:
+        return None, None, f"missing Agent Plugin files: {missing}"
+
+    plugin_json, error = _read_json(plugin_root / "plugin.json")
+    if error:
+        return None, None, f"plugin.json invalid: {error}"
+    mcp_json, error = _read_json(plugin_root / "mcp.json")
+    if error:
+        return None, None, f"mcp.json invalid: {error}"
+    plugin_schema, error = _read_json(plugin_root / "schemas/1.0.0/plugin.schema.json")
+    if error:
+        return None, None, f"plugin schema invalid: {error}"
+    mcp_schema, error = _read_json(plugin_root / "schemas/1.0.0/mcp.schema.json")
+    if error:
+        return None, None, f"MCP schema invalid: {error}"
+
+    assert plugin_json is not None
+    assert mcp_json is not None
+    assert plugin_schema is not None
+    assert mcp_schema is not None
+
+    if plugin_json.get("$schema") != _PLUGIN_SCHEMA_ID:
+        return None, None, "plugin.json uses the wrong Agent Plugins schema ID"
+    if mcp_json.get("$schema") != _MCP_SCHEMA_ID:
+        return None, None, "mcp.json uses the wrong Agent Plugins MCP schema ID"
+    if plugin_schema.get("$id") != _PLUGIN_SCHEMA_ID:
+        return None, None, "vendored plugin schema has the wrong $id"
+    if mcp_schema.get("$id") != _MCP_SCHEMA_ID:
+        return None, None, "vendored MCP schema has the wrong $id"
+    if _contains_sensitive_content(plugin_json) or _contains_sensitive_content(mcp_json):
+        return None, None, "Agent Plugin metadata contains sensitive keys, values, or URLs"
+
+    plugin_version = plugin_json.get("version")
+    if not isinstance(plugin_version, str) or not plugin_version:
+        return None, None, "plugin.json has no string 'version' field"
+
+    servers = mcp_json.get("mcpServers")
+    if not isinstance(servers, dict) or "mempalace-code" not in servers:
+        return None, None, "mcp.json does not declare the mempalace-code MCP server"
+    server = servers["mempalace-code"]
+    if not isinstance(server, dict):
+        return None, None, "mempalace-code MCP server config is not an object"
+    if server.get("type") != "stdio":
+        return None, None, "mempalace-code MCP server is not stdio"
+    if server.get("command") != AGENT_PLUGIN_MCP_SCRIPT:
+        return None, None, "mcp.json does not use the installed mempalace-code-mcp launcher"
+    if server.get("args") != ["--profile=minimal"]:
+        return None, None, "mcp.json does not select the minimal MCP profile"
+    if "env" in server or "cwd" in server:
+        return None, None, "mcp.json should not declare env or cwd for the portable default"
+
+    return mcp_json, plugin_version, None
+
+
+def _probe_declared_mcp_command(
+    mcp_json: dict,
+    probe_cwd: str,
+    run_subprocess: RunSubprocess,
+    env: dict[str, str],
+) -> str | None:
+    server = mcp_json["mcpServers"]["mempalace-code"]
+    cmd = [server["command"], *server.get("args", [])]
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+    ]
+    stdin_data = "\n".join(json.dumps(request) for request in requests) + "\n"
+    rc, out, err = run_subprocess(cmd, env=env, cwd=probe_cwd, input_text=stdin_data)
+    if rc != 0:
+        detail = sanitize((err or out).strip()) or f"declared MCP command exited {rc}"
+        return f"declared MCP command failed: {detail}"
+
+    responses: list[dict] = []
+    for line in out.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            value = json.loads(stripped)
+        except json.JSONDecodeError:
+            return "declared MCP command printed non-JSON stdout"
+        if isinstance(value, dict):
+            responses.append(value)
+
+    if len(responses) != 2:
+        return f"declared MCP command returned {len(responses)} response lines"
+    init_result = responses[0].get("result")
+    if (
+        not isinstance(init_result, dict)
+        or init_result.get("serverInfo", {}).get("name") != "mempalace-code"
+    ):
+        return "declared MCP command did not complete initialize"
+    tools_result = responses[1].get("result")
+    if not isinstance(tools_result, dict) or not isinstance(tools_result.get("tools"), list):
+        return "declared MCP command did not return tools/list"
+    tool_names = tuple(tool.get("name") for tool in tools_result["tools"] if isinstance(tool, dict))
+    if tool_names != _MINIMAL_TOOLS:
+        return f"declared MCP command listed unexpected tools: {tool_names}"
+    return None
+
+
 # ── Pipx discovery ────────────────────────────────────────────────────────────
 
 
@@ -179,6 +392,7 @@ def probe_metadata_and_module(
     probe_cwd: str,
     run_subprocess: RunSubprocess,
     env: dict[str, str] | None = None,
+    source_root: str | None = None,
 ) -> tuple[SurfaceResult, SurfaceResult]:
     """Probe importlib.metadata and the imported module's __version__ in one subprocess."""
     rc, out, err = run_subprocess([python_bin, "-c", _PROBE_SCRIPT], env=env, cwd=probe_cwd)
@@ -195,6 +409,7 @@ def probe_metadata_and_module(
     module_version: str | None = None
     metadata_error: str | None = None
     module_error: str | None = None
+    module_file: str | None = None
     for line in out.splitlines():
         if line.startswith("METADATA="):
             metadata_version = line[len("METADATA=") :].strip()
@@ -202,6 +417,8 @@ def probe_metadata_and_module(
             metadata_error = line[len("METADATA-ERROR=") :].strip()
         elif line.startswith("MODULE="):
             module_version = line[len("MODULE=") :].strip()
+        elif line.startswith("MODULE-FILE="):
+            module_file = line[len("MODULE-FILE=") :].strip()
         elif line.startswith("MODULE-ERROR="):
             module_error = line[len("MODULE-ERROR=") :].strip()
 
@@ -217,6 +434,17 @@ def probe_metadata_and_module(
         metadata_result = SurfaceResult(SURFACE_METADATA, STATUS_ERROR, detail)
 
     if module_version:
+        if (
+            source_root
+            and module_file
+            and _path_is_relative_to(Path(module_file), Path(source_root) / MODULE_NAME)
+        ):
+            module_result = SurfaceResult(
+                SURFACE_MODULE,
+                STATUS_FAIL,
+                "mempalace_code imported from checkout source tree",
+            )
+            return metadata_result, module_result
         module_result = SurfaceResult(
             SURFACE_MODULE,
             STATUS_OK,
@@ -260,6 +488,55 @@ def probe_cli_version_check(
     version = matches[0]
     return SurfaceResult(
         SURFACE_CLI, STATUS_OK, f"version-check --status reports {version}", version
+    )
+
+
+def probe_agent_plugin_package(
+    console_bin: str,
+    probe_cwd: str,
+    run_subprocess: RunSubprocess,
+    env: dict[str, str],
+    source_root: str | None = None,
+) -> SurfaceResult:
+    """Probe the installed Agent Plugin path, manifests, and declared MCP command."""
+    rc, out, err = run_subprocess(
+        [console_bin, "agent-plugin", "path", "--json"], env=env, cwd=probe_cwd
+    )
+    if rc != 0:
+        detail = sanitize((err or out).strip()) or f"agent-plugin path exited {rc}"
+        return SurfaceResult(
+            SURFACE_AGENT_PLUGIN, STATUS_ERROR, f"agent-plugin path failed: {detail}"
+        )
+
+    try:
+        payload = json.loads(out)
+    except json.JSONDecodeError as exc:
+        return SurfaceResult(
+            SURFACE_AGENT_PLUGIN,
+            STATUS_FAIL,
+            f"agent-plugin path output is not JSON: {sanitize(str(exc))}",
+        )
+    path_value = payload.get("path") if isinstance(payload, dict) else None
+    if not isinstance(path_value, str) or not path_value:
+        return SurfaceResult(SURFACE_AGENT_PLUGIN, STATUS_FAIL, "agent-plugin path JSON lacks path")
+
+    mcp_json, plugin_version, error = _validate_agent_plugin_files(
+        Path(path_value), Path(source_root) if source_root else _SOURCE_ROOT
+    )
+    if error:
+        return SurfaceResult(SURFACE_AGENT_PLUGIN, STATUS_FAIL, error)
+    assert mcp_json is not None
+    assert plugin_version is not None
+
+    error = _probe_declared_mcp_command(mcp_json, probe_cwd, run_subprocess, env)
+    if error:
+        return SurfaceResult(SURFACE_AGENT_PLUGIN, STATUS_ERROR, error)
+
+    return SurfaceResult(
+        SURFACE_AGENT_PLUGIN,
+        STATUS_OK,
+        "agent-plugin path, manifests, and declared minimal MCP command passed",
+        plugin_version,
     )
 
 
@@ -332,7 +609,9 @@ def run_venv_smoke(
 
         pip = str(venv_dir / "bin" / "pip")
         python_bin = str(venv_dir / "bin" / "python")
-        console_bin = str(venv_dir / "bin" / CONSOLE_SCRIPT)
+        script_dir = venv_dir / "bin"
+        console_bin = str(script_dir / CONSOLE_SCRIPT)
+        probe_env = _env_with_script_dir(script_dir)
 
         rc, out, err = run_subprocess([pip, "install", "--no-cache-dir", install_spec])
         if rc != 0:
@@ -341,11 +620,20 @@ def run_venv_smoke(
             return SmokeResult(False, None, INSTALLER_VENV, install_spec, surfaces, [])
 
         metadata_result, module_result = probe_metadata_and_module(
-            python_bin, str(probe_cwd), run_subprocess
+            python_bin, str(probe_cwd), run_subprocess, env=probe_env, source_root=str(_SOURCE_ROOT)
         )
-        cli_result = probe_cli_version_check(console_bin, str(probe_cwd), run_subprocess)
+        cli_result = probe_cli_version_check(
+            console_bin, str(probe_cwd), run_subprocess, env=probe_env
+        )
+        agent_plugin_result = probe_agent_plugin_package(
+            console_bin,
+            str(probe_cwd),
+            run_subprocess,
+            env=probe_env,
+            source_root=str(_SOURCE_ROOT),
+        )
 
-        surfaces = [metadata_result, module_result, cli_result]
+        surfaces = [metadata_result, module_result, cli_result, agent_plugin_result]
         return evaluate_smoke(surfaces, package, install_spec, INSTALLER_VENV)
 
 
@@ -371,6 +659,7 @@ def run_pipx_smoke(
         env = dict(os.environ)
         env["PIPX_HOME"] = str(pipx_home)
         env["PIPX_BIN_DIR"] = str(pipx_bin)
+        env = _env_with_script_dir(pipx_bin, env)
 
         pipx_exe = find_pipx_executable()
         if pipx_exe is None:
@@ -395,11 +684,22 @@ def run_pipx_smoke(
         venv_python = str(pipx_home / "venvs" / package / "bin" / "python")
 
         metadata_result, module_result = probe_metadata_and_module(
-            venv_python, str(probe_cwd), run_subprocess, env=env
+            venv_python,
+            str(probe_cwd),
+            run_subprocess,
+            env=env,
+            source_root=str(_SOURCE_ROOT),
         )
         cli_result = probe_cli_version_check(console_bin, str(probe_cwd), run_subprocess, env=env)
+        agent_plugin_result = probe_agent_plugin_package(
+            console_bin,
+            str(probe_cwd),
+            run_subprocess,
+            env=env,
+            source_root=str(_SOURCE_ROOT),
+        )
 
-        surfaces = [metadata_result, module_result, cli_result]
+        surfaces = [metadata_result, module_result, cli_result, agent_plugin_result]
         return evaluate_smoke(surfaces, package, install_spec, INSTALLER_PIPX)
 
 
@@ -433,11 +733,18 @@ def _default_run_subprocess(
     args: list[str],
     env: dict[str, str] | None = None,
     cwd: str | None = None,
+    input_text: str | None = None,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> tuple[int, str, str]:
     try:
         r = subprocess.run(
-            args, capture_output=True, text=True, timeout=timeout_seconds, env=env, cwd=cwd
+            args,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=env,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout if isinstance(exc.stdout, str) else ""
@@ -492,9 +799,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     def run_subprocess(
-        cmd: list[str], env: dict[str, str] | None = None, cwd: str | None = None
+        cmd: list[str],
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        input_text: str | None = None,
     ) -> tuple[int, str, str]:
-        return _default_run_subprocess(cmd, env=env, cwd=cwd, timeout_seconds=args.timeout_seconds)
+        return _default_run_subprocess(
+            cmd,
+            env=env,
+            cwd=cwd,
+            input_text=input_text,
+            timeout_seconds=args.timeout_seconds,
+        )
 
     if args.installer == INSTALLER_PIPX:
         result = run_pipx_smoke(args.install_spec, args.package, run_subprocess)

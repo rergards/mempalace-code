@@ -1232,7 +1232,7 @@ wheels = [
 
 [[package]]
 name = "mempalace-code"
-version = "1.13.1"
+version = "1.13.2"
 source = { editable = "." }
 dependencies = [
     { name = "lancedb" },
@@ -1248,6 +1248,7 @@ chroma = [
 ]
 dev = [
     { name = "build" },
+    { name = "jsonschema" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -1271,6 +1272,7 @@ watch = [
 [package.dev-dependencies]
 dev = [
     { name = "build" },
+    { name = "jsonschema" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -1283,6 +1285,7 @@ requires-dist = [
     { name = "autocorrect", marker = "extra == 'spellcheck'", specifier = ">=2.0" },
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "chromadb", marker = "extra == 'chroma'", specifier = ">=0.5.0,<1" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.18" },
     { name = "lancedb", specifier = ">=0.20" },
     { name = "mcp", specifier = ">=2,<3" },
     { name = "packaging", specifier = ">=21.0" },
@@ -1305,6 +1308,7 @@ provides-extras = ["dev", "spellcheck", "chroma", "watch", "treesitter"]
 [package.metadata.requires-dev]
 dev = [
     { name = "build", specifier = ">=1.0" },
+    { name = "jsonschema", specifier = ">=4.18" },
     { name = "pyright", specifier = ">=1.1.350" },
     { name = "pytest", specifier = ">=7.0" },
     { name = "ruff", specifier = ">=0.4.0" },

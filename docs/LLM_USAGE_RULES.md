@@ -1,6 +1,6 @@
 # mempalace-code — LLM Usage Rules
 
-Usage rules for any MCP-capable LLM agent (Claude Code, Codex, Cursor, Gemini CLI, Windsurf, Continue.dev, Zed, Aider, …) using mempalace-code. **Installing the MCP server makes the tools available, but the assistant needs these rules to know *when* and *how* to use them.** Without them, proactive retrieval and filing may not happen.
+Usage rules for any MCP-capable LLM agent (Claude Code, Codex, Cursor, Gemini CLI, Windsurf, Continue.dev, Zed, Aider, …) using mempalace-code. **Installing the MCP server makes the tools available, but the assistant needs instructions to know *when* and *how* to use them.** The portable Agent Plugins 1.0 package bundles a concise skill for its four-tool `minimal` profile. Direct MCP registrations and richer profiles should load the matching rules from this file. Without instructions, proactive retrieval and filing may not happen.
 
 > `mempalace_status` is an inventory response, not an operating protocol. Its current response includes one entry per wing and room, so do not invoke it automatically at session start. These rules define the protocol.
 
@@ -10,6 +10,7 @@ Pick the path that matches your agent (alphabetical — no preference):
 
 | Agent | Where to paste |
 |-------|----------------|
+| Agent Plugins 1.0 client | Load the directory printed by `mempalace-code agent-plugin path`; its bundled skill covers the portable `minimal` profile |
 | Aider | `CONVENTIONS.md` or `.aider.conf.yml` read-rules |
 | Claude Code (global) | Append below to `~/.claude/CLAUDE.md` |
 | Claude Code (per-project) | Append below to `<project>/CLAUDE.md` (checked into git) |

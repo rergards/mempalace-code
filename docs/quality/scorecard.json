@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 21628,
-    "package_files": 80,
-    "package_total_lines": 26567,
-    "test_files": 81,
-    "test_total_lines": 54769
+    "package_code_lines": 21728,
+    "package_files": 83,
+    "package_total_lines": 26697,
+    "test_files": 82,
+    "test_total_lines": 55702
   },
   "demo_gates": {
     "architecture_guard": {
@@ -62,7 +62,7 @@
       "path": "mempalace_code/entity_detector.py"
     },
     {
-      "lines": 823,
+      "lines": 845,
       "path": "mempalace_code/cli.py"
     },
     {
@@ -263,8 +263,8 @@
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 81,
-    "test_functions": 2894
+    "test_files": 82,
+    "test_functions": 2933
   },
   "verification_commands": [
     {

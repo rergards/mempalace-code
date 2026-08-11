@@ -13,9 +13,16 @@ each external mutation requires the operator's explicit approval.
   checks.
 - The published package contains both a wheel and an sdist, and a fresh virtual
   environment can install the wheel.
+- The wheel and sdist contain the Agent Plugin package root with `plugin.json`,
+  `mcp.json`, `skills/mempalace/SKILL.md`, vendored Agent Plugins 1.0.0
+  schemas, and the schema notice.
 - A fresh install's `importlib.metadata.version("mempalace-code")`,
   `mempalace_code.__version__`, and `mempalace-code version-check --status`
-  all report the same version — see `scripts/release_install_metadata_smoke.py`.
+  all report the same version. The same install smoke runs
+  `mempalace-code agent-plugin path`, validates the manifests from the
+  installed package, and launches the declared
+  `mempalace-code-mcp --profile=minimal` command to list the portable minimal
+  tools - see `scripts/release_install_metadata_smoke.py`.
 - The PyPI publication is followed by a non-draft GitHub Release and a
   six-surface publication check.
 
@@ -33,6 +40,7 @@ python scripts/public_safety_scan.py --tracked --staged
 python scripts/quality_scorecard.py --check
 python scripts/release_preflight.py --tag vX.Y.Z --require-clean
 python scripts/release_install_metadata_smoke.py --install-spec . --json
+python scripts/release_readiness_gate.py --check --json
 python -m pytest tests/ -x -q -m "not needs_network"
 python -m pytest tests/test_mcp_protocol_compat.py -q
 python -m pytest tests/test_cli_golden_scenarios.py -q
@@ -45,9 +53,13 @@ python -m pyright -p pyrightconfig.strict.json
 `release_install_metadata_smoke.py` installs the current checkout into a
 disposable venv (non-editable) and proves `importlib.metadata.version`,
 `mempalace_code.__version__`, and `mempalace-code version-check --status`
-agree on one version before the release commit lands. Pass `--installer pipx`
-for a disposable pipx-style tool-environment run if the operator's real
-install method is pipx or `uv tool`.
+agree on one version before the release commit lands. It also resolves
+`mempalace-code agent-plugin path` from a neutral directory, rejects checkout
+shadowing, validates the Agent Plugin manifests against the installed vendored
+schema IDs, and starts the manifest-declared
+`mempalace-code-mcp --profile=minimal` launcher. Pass `--installer pipx` for a
+disposable pipx-style tool-environment run if the operator's real install method
+is pipx or `uv tool`.
 
 The tag preflight is intentionally local and non-mutating. It checks tag/version
 agreement, the documentation contract, the committed-tree public-safety scan,
@@ -123,10 +135,10 @@ all report `X.Y.Z`. Record any remaining blocker instead of claiming a
 completed release.
 
 The install smoke checks version-metadata agreement, not individual CLI
-subcommand surfaces — it replaced an earlier smoke that only ran
-`mempalace-code update --help`. That coverage is superseded, not carried
-forward: `main` CI's own test/import coverage is what backstops subcommand
-imports.
+subcommand surfaces except for the Agent Plugin locator and declared MCP
+launcher. It replaced an earlier smoke that only ran `mempalace-code update
+--help`. That coverage is superseded, not carried forward: `main` CI's own
+test/import coverage is what backstops other subcommand imports.
 
 If a stale pipx, `uv tool`, or venv install reports a version that disagrees
 with the published release, see the reinstall commands in
@@ -142,6 +154,9 @@ with the published release, see the reinstall commands in
       format, and type checks pass.
 - [ ] Version, changelog, README badge, MCP/profile counts, and Python minimum
       agree.
+- [ ] Agent Plugin package data is present in wheel and sdist, and
+      `mempalace-code-mcp --profile=minimal` lists the minimal tools from a
+      fresh install.
 - [ ] GitHub About matches the canonical description above; topics, social
       preview, issue templates, and license remain appropriate for public use.
 - [ ] Tag workflow succeeded, GitHub Release is non-draft/non-prerelease, PyPI

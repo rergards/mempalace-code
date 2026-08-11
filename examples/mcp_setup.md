@@ -2,6 +2,21 @@
 
 ## Setup
 
+Agent Plugins 1.0 compatible clients can load the portable package installed
+with mempalace-code:
+
+```bash
+mempalace-code agent-plugin path
+```
+
+The printed directory contains `plugin.json`, `mcp.json`, and the
+`skills/mempalace/SKILL.md` instruction bundle. The portable MCP config uses
+`mempalace-code-mcp --profile=minimal`, exposing only
+`mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`, and
+`mempalace_add_drawer`. Use direct MCP registration below when a client needs
+`--profile=kg`, `--profile=code`, `--profile=notes`, `--profile=full`, or
+custom `--tools` / `--include` / `--exclude` selectors.
+
 Run the MCP server (full 29-tool default):
 
 ```bash

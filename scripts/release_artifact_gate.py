@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import tarfile
@@ -35,9 +36,23 @@ FORBIDDEN_MEMBER_PREFIXES: tuple[str, ...] = (
     ".pytest_cache/",
 )
 
+AGENT_PLUGIN_REQUIRED_MEMBERS: tuple[str, ...] = (
+    "mempalace_code/agent_plugin/plugin.json",
+    "mempalace_code/agent_plugin/mcp.json",
+    "mempalace_code/agent_plugin/skills/mempalace/SKILL.md",
+    "mempalace_code/agent_plugin/schemas/1.0.0/plugin.schema.json",
+    "mempalace_code/agent_plugin/schemas/1.0.0/mcp.schema.json",
+    "mempalace_code/agent_plugin/schemas/SCHEMA-NOTICE.md",
+)
+
 # sdist archives wrap all members under a "<name>-<version>/" prefix.
 # Strip that prefix before matching.
 SDIST_STRIP_PREFIX = True
+
+PLUGIN_JSON_MEMBER = "mempalace_code/agent_plugin/plugin.json"
+
+# Wheel filenames follow the binary distribution spec: {name}-{version}(-{build})?-...
+_WHEEL_VERSION_RE = re.compile(r"^[A-Za-z0-9_.]+-([^-]+)-")
 
 
 def _strip_sdist_prefix(member: str) -> str:
@@ -63,6 +78,15 @@ def _check_wheel_members(wheel_path: Path) -> list[str]:
     return bad
 
 
+def _wheel_member_names(wheel_path: Path) -> tuple[set[str], str | None]:
+    """Return normalized wheel member names, or a read diagnostic."""
+    try:
+        with zipfile.ZipFile(wheel_path) as zf:
+            return set(zf.namelist()), None
+    except (zipfile.BadZipFile, OSError) as exc:
+        return set(), f"wheel-read-error:{exc}"
+
+
 def _check_sdist_members(sdist_path: Path) -> list[str]:
     """Return forbidden member names found in the sdist archive."""
     bad: list[str] = []
@@ -77,6 +101,71 @@ def _check_sdist_members(sdist_path: Path) -> list[str]:
     except (tarfile.TarError, OSError) as exc:
         bad.append(f"sdist-read-error:{exc}")
     return bad
+
+
+def _sdist_member_names(sdist_path: Path) -> tuple[set[str], str | None]:
+    """Return sdist member names after stripping the root prefix, or a read diagnostic."""
+    try:
+        with tarfile.open(sdist_path, "r:gz") as tf:
+            return {_strip_sdist_prefix(member.name) for member in tf.getmembers()}, None
+    except (tarfile.TarError, OSError) as exc:
+        return set(), f"sdist-read-error:{exc}"
+
+
+def _missing_agent_plugin_members(member_names: set[str]) -> list[str]:
+    """Return required Agent Plugin package members that are absent."""
+    return [member for member in AGENT_PLUGIN_REQUIRED_MEMBERS if member not in member_names]
+
+
+def _wheel_version_from_filename(wheel_path: Path) -> str | None:
+    """Extract the version segment from a wheel filename, per the binary dist spec."""
+    match = _WHEEL_VERSION_RE.match(wheel_path.name)
+    return match.group(1) if match else None
+
+
+def _sdist_version_from_filename(sdist_path: Path) -> str | None:
+    """Extract the version segment from an sdist filename ({name}-{version}.tar.gz)."""
+    stem = sdist_path.name
+    if not stem.endswith(".tar.gz"):
+        return None
+    stem = stem[: -len(".tar.gz")]
+    if "-" not in stem:
+        return None
+    return stem.rsplit("-", 1)[1]
+
+
+def _read_wheel_plugin_json_version(wheel_path: Path) -> tuple[str | None, str | None]:
+    """Return (version, error) from plugin.json inside a wheel archive."""
+    try:
+        with zipfile.ZipFile(wheel_path) as zf:
+            data = json.loads(zf.read(PLUGIN_JSON_MEMBER))
+    except KeyError:
+        return None, f"{PLUGIN_JSON_MEMBER} not present in wheel"
+    except (zipfile.BadZipFile, OSError, json.JSONDecodeError) as exc:
+        return None, f"could not read {PLUGIN_JSON_MEMBER} from wheel: {exc}"
+    version = data.get("version")
+    if version is None:
+        return None, f"{PLUGIN_JSON_MEMBER} has no 'version' field"
+    return str(version), None
+
+
+def _read_sdist_plugin_json_version(sdist_path: Path) -> tuple[str | None, str | None]:
+    """Return (version, error) from plugin.json inside an sdist archive."""
+    try:
+        with tarfile.open(sdist_path, "r:gz") as tf:
+            for member in tf.getmembers():
+                if _strip_sdist_prefix(member.name) == PLUGIN_JSON_MEMBER:
+                    fh = tf.extractfile(member)
+                    if fh is None:
+                        return None, f"{PLUGIN_JSON_MEMBER} is not a regular file in sdist"
+                    data = json.loads(fh.read())
+                    version = data.get("version")
+                    if version is None:
+                        return None, f"{PLUGIN_JSON_MEMBER} has no 'version' field"
+                    return str(version), None
+        return None, f"{PLUGIN_JSON_MEMBER} not present in sdist"
+    except (tarfile.TarError, OSError, json.JSONDecodeError) as exc:
+        return None, f"could not read {PLUGIN_JSON_MEMBER} from sdist: {exc}"
 
 
 def _run_twine_check(dist_dir: Path) -> tuple[bool, str]:
@@ -170,6 +259,71 @@ def inspect_dist(
             rows.append(
                 {"check": "wheel-members", "status": "pass", "detail": str(wheel_path.name)}
             )
+        member_names, read_error = _wheel_member_names(wheel_path)
+        missing = _missing_agent_plugin_members(member_names)
+        if read_error:
+            rows.append(
+                {"check": "wheel-agent-plugin-members", "status": "fail", "detail": read_error}
+            )
+            ok = False
+        elif missing:
+            rows.append(
+                {
+                    "check": "wheel-agent-plugin-members",
+                    "status": "fail",
+                    "detail": f"missing required Agent Plugin members: {missing}",
+                }
+            )
+            ok = False
+        else:
+            rows.append(
+                {
+                    "check": "wheel-agent-plugin-members",
+                    "status": "pass",
+                    "detail": "all required Agent Plugin members present",
+                }
+            )
+        if not missing and not read_error:
+            filename_version = _wheel_version_from_filename(wheel_path)
+            plugin_version, version_error = _read_wheel_plugin_json_version(wheel_path)
+            if version_error:
+                rows.append(
+                    {
+                        "check": "wheel-agent-plugin-version",
+                        "status": "fail",
+                        "detail": version_error,
+                    }
+                )
+                ok = False
+            elif filename_version is None:
+                rows.append(
+                    {
+                        "check": "wheel-agent-plugin-version",
+                        "status": "fail",
+                        "detail": f"could not parse version from wheel filename: {wheel_path.name}",
+                    }
+                )
+                ok = False
+            elif plugin_version != filename_version:
+                rows.append(
+                    {
+                        "check": "wheel-agent-plugin-version",
+                        "status": "fail",
+                        "detail": (
+                            f"plugin.json version {plugin_version!r} does not match "
+                            f"wheel version {filename_version!r}"
+                        ),
+                    }
+                )
+                ok = False
+            else:
+                rows.append(
+                    {
+                        "check": "wheel-agent-plugin-version",
+                        "status": "pass",
+                        "detail": f"plugin.json version matches wheel version {filename_version}",
+                    }
+                )
 
     if sdist_path:
         bad = _check_sdist_members(sdist_path)
@@ -186,6 +340,71 @@ def inspect_dist(
             rows.append(
                 {"check": "sdist-members", "status": "pass", "detail": str(sdist_path.name)}
             )
+        member_names, read_error = _sdist_member_names(sdist_path)
+        missing = _missing_agent_plugin_members(member_names)
+        if read_error:
+            rows.append(
+                {"check": "sdist-agent-plugin-members", "status": "fail", "detail": read_error}
+            )
+            ok = False
+        elif missing:
+            rows.append(
+                {
+                    "check": "sdist-agent-plugin-members",
+                    "status": "fail",
+                    "detail": f"missing required Agent Plugin members: {missing}",
+                }
+            )
+            ok = False
+        else:
+            rows.append(
+                {
+                    "check": "sdist-agent-plugin-members",
+                    "status": "pass",
+                    "detail": "all required Agent Plugin members present",
+                }
+            )
+        if not missing and not read_error:
+            filename_version = _sdist_version_from_filename(sdist_path)
+            plugin_version, version_error = _read_sdist_plugin_json_version(sdist_path)
+            if version_error:
+                rows.append(
+                    {
+                        "check": "sdist-agent-plugin-version",
+                        "status": "fail",
+                        "detail": version_error,
+                    }
+                )
+                ok = False
+            elif filename_version is None:
+                rows.append(
+                    {
+                        "check": "sdist-agent-plugin-version",
+                        "status": "fail",
+                        "detail": f"could not parse version from sdist filename: {sdist_path.name}",
+                    }
+                )
+                ok = False
+            elif plugin_version != filename_version:
+                rows.append(
+                    {
+                        "check": "sdist-agent-plugin-version",
+                        "status": "fail",
+                        "detail": (
+                            f"plugin.json version {plugin_version!r} does not match "
+                            f"sdist version {filename_version!r}"
+                        ),
+                    }
+                )
+                ok = False
+            else:
+                rows.append(
+                    {
+                        "check": "sdist-agent-plugin-version",
+                        "status": "pass",
+                        "detail": f"plugin.json version matches sdist version {filename_version}",
+                    }
+                )
 
     # Twine check.
     if run_twine and (wheel_path or sdist_path):

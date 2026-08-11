@@ -47,22 +47,90 @@ def _cli_output(version: str) -> str:
     return f"  Version checks:  enabled\n  Current version: {version}\n  PyPI URL: https://pypi.org/pypi/mempalace-code/json\n"
 
 
+def _write_agent_plugin_fixture(plugin_root: Path, *, version: str = VERSION) -> None:
+    (plugin_root / "skills" / "mempalace").mkdir(parents=True)
+    (plugin_root / "schemas" / "1.0.0").mkdir(parents=True)
+    (plugin_root / "plugin.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+                "name": "mempalace-code",
+                "version": version,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (plugin_root / "mcp.json").write_text(
+        json.dumps(
+            {
+                "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+                "mcpServers": {
+                    "mempalace-code": {
+                        "type": "stdio",
+                        "command": "mempalace-code-mcp",
+                        "args": ["--profile=minimal"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (plugin_root / "skills" / "mempalace" / "SKILL.md").write_text(
+        "---\nname: mempalace\ndescription: Minimal memory.\n---\n", encoding="utf-8"
+    )
+    (plugin_root / "schemas" / "1.0.0" / "plugin.schema.json").write_text(
+        json.dumps({"$id": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"}),
+        encoding="utf-8",
+    )
+    (plugin_root / "schemas" / "1.0.0" / "mcp.schema.json").write_text(
+        json.dumps({"$id": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"}),
+        encoding="utf-8",
+    )
+    (plugin_root / "schemas" / "SCHEMA-NOTICE.md").write_text(
+        "Apache License 2.0\n", encoding="utf-8"
+    )
+
+
+def _agent_plugin_mcp_responses() -> str:
+    tools = [
+        {"name": name}
+        for name in (
+            "mempalace_status",
+            "mempalace_search",
+            "mempalace_check_duplicate",
+            "mempalace_add_drawer",
+        )
+    ]
+    responses = [
+        {"jsonrpc": "2.0", "id": 1, "result": {"serverInfo": {"name": "mempalace-code"}}},
+        {"jsonrpc": "2.0", "id": 2, "result": {"tools": tools}},
+    ]
+    return "\n".join(json.dumps(r) for r in responses) + "\n"
+
+
 def _venv_ok_subprocess(
     metadata_version: str = VERSION,
     module_version: str | None = None,
     cli_version: str | None = None,
     calls: list | None = None,
+    plugin_root: Path | None = None,
 ):
     module_version = module_version if module_version is not None else metadata_version
     cli_version = cli_version if cli_version is not None else metadata_version
 
-    def run_subprocess(args, env=None, cwd=None):
+    def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
         if calls is not None:
             calls.append({"args": args, "env": env, "cwd": cwd})
         if "-m" in args and "venv" in args:
             return 0, "", ""
         if "install" in args and "--no-cache-dir" in args:
             return 0, "", ""
+        if "agent-plugin" in args and "path" in args:
+            if plugin_root is None:
+                return 1, "", "agent-plugin path unavailable"
+            return 0, json.dumps({"path": str(plugin_root)}), ""
+        if args and args[0] == "mempalace-code-mcp":
+            return 0, _agent_plugin_mcp_responses(), ""
         if "-c" in args:
             return (
                 0,
@@ -79,9 +147,11 @@ def _venv_ok_subprocess(
 # ── AC-1 / VER-2: venv smoke success ────────────────────────────────────────────
 
 
-def test_venv_smoke_reports_matching_metadata_module_and_cli_versions():
+def test_venv_smoke_reports_matching_metadata_module_and_cli_versions(tmp_path):
     calls: list = []
-    run_subprocess = _venv_ok_subprocess(calls=calls)
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
+    run_subprocess = _venv_ok_subprocess(calls=calls, plugin_root=plugin_root)
 
     result = smoke.run_venv_smoke(".", PACKAGE, run_subprocess)
 
@@ -114,8 +184,10 @@ def test_venv_smoke_reports_matching_metadata_module_and_cli_versions():
     assert VERSION in human
 
 
-def test_venv_smoke_json_output_has_required_top_level_keys():
-    run_subprocess = _venv_ok_subprocess()
+def test_venv_smoke_json_output_has_required_top_level_keys(tmp_path):
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
+    run_subprocess = _venv_ok_subprocess(plugin_root=plugin_root)
     result = smoke.run_venv_smoke("mempalace-code==" + VERSION, PACKAGE, run_subprocess)
     data = result.to_dict()
 
@@ -141,16 +213,22 @@ def test_venv_smoke_json_output_has_required_top_level_keys():
 # ── AC-2 / VER-3: pipx-style disposable tool environment coverage ─────────────
 
 
-def test_pipx_smoke_uses_disposable_tool_environment(monkeypatch):
+def test_pipx_smoke_uses_disposable_tool_environment(monkeypatch, tmp_path):
     calls: list = []
     FAKE_PIPX = "/fake/bin/pipx"
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
 
     monkeypatch.setattr(smoke, "find_pipx_executable", lambda: FAKE_PIPX)
 
-    def run_subprocess(args, env=None, cwd=None):
+    def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
         calls.append({"args": args, "env": env, "cwd": cwd})
         if any(a.endswith("pipx") for a in args) and "install" in args:
             return 0, "", ""
+        if "agent-plugin" in args and "path" in args:
+            return 0, json.dumps({"path": str(plugin_root)}), ""
+        if args and args[0] == "mempalace-code-mcp":
+            return 0, _agent_plugin_mcp_responses(), ""
         if "-c" in args:
             return 0, _probe_output(VERSION), ""
         if "version-check" in args:
@@ -202,15 +280,21 @@ def test_pipx_smoke_install_failure_is_diagnostic_not_ok():
 # ── AC-3 / VER-4: mismatch diagnostics, reinstall command, sanitization ───────
 
 
-def test_mismatch_failure_names_surfaces_and_reinstall_command_without_private_paths():
+def test_mismatch_failure_names_surfaces_and_reinstall_command_without_private_paths(tmp_path):
     fake_path = "/Users/testuser/secret-project"
     fake_token = "ghp_" + "A" * 30
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
 
-    def run_subprocess(args, env=None, cwd=None):
+    def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
         if "-m" in args and "venv" in args:
             return 0, "", ""
         if "install" in args and "--no-cache-dir" in args:
             return 0, "", ""
+        if "agent-plugin" in args and "path" in args:
+            return 0, json.dumps({"path": str(plugin_root)}), ""
+        if args and args[0] == "mempalace-code-mcp":
+            return 0, _agent_plugin_mcp_responses(), ""
         if "-c" in args:
             # Metadata and module disagree.
             return 0, f"METADATA=1.2.3\nMODULE=1.2.2\nnoise at {fake_path} token {fake_token}\n", ""
@@ -245,9 +329,14 @@ def test_mismatch_failure_names_surfaces_and_reinstall_command_without_private_p
     assert "[REDACTED-PATH]" not in full_text or fake_path not in full_text
 
 
-def test_mismatch_between_module_and_cli_is_detected():
+def test_mismatch_between_module_and_cli_is_detected(tmp_path):
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
     run_subprocess = _venv_ok_subprocess(
-        metadata_version="2.0.0", module_version="2.0.0", cli_version="1.9.9"
+        metadata_version="2.0.0",
+        module_version="2.0.0",
+        cli_version="1.9.9",
+        plugin_root=plugin_root,
     )
 
     result = smoke.run_venv_smoke(".", PACKAGE, run_subprocess)
@@ -257,6 +346,21 @@ def test_mismatch_between_module_and_cli_is_detected():
     assert smoke.SURFACE_CLI in diag_text
     assert "1.9.9" in diag_text
     assert "2.0.0" in diag_text
+
+
+def test_stale_agent_plugin_version_is_detected(tmp_path):
+    """A plugin.json left over from an old wheel/sdist build must fail the smoke."""
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root, version="0.9.0")
+    run_subprocess = _venv_ok_subprocess(plugin_root=plugin_root)
+
+    result = smoke.run_venv_smoke(".", PACKAGE, run_subprocess)
+
+    assert result.ok is False
+    diag_text = "\n".join(result.diagnostics)
+    assert smoke.SURFACE_AGENT_PLUGIN in diag_text
+    assert "0.9.0" in diag_text
+    assert VERSION in diag_text
 
 
 # ── Probe failures ──────────────────────────────────────────────────────────────
@@ -354,6 +458,46 @@ def test_sanitize_redacts_tokens_paths_and_remotes():
     assert smoke.sanitize(fake_linux_tmp) == "[REDACTED-PATH]"
 
 
+# ── Agent Plugin sensitive-content scan ──────────────────────────────────────────
+
+
+def test_sensitive_key_name_is_detected():
+    assert smoke._contains_sensitive_content({"api_key": "whatever"}) is True
+
+
+def test_sensitive_token_literal_in_value_is_detected():
+    # Concatenated (not a contiguous literal) so this file itself never contains
+    # a token-shaped substring for the repo's own public-safety scanner to flag.
+    fake_token = "ghp_" + "B" * 30
+    assert smoke._contains_sensitive_content({"note": fake_token}) is True
+
+
+def test_sensitive_pypi_token_literal_in_nested_list_is_detected():
+    fake_token = "pypi-" + "C" * 25
+    assert smoke._contains_sensitive_content({"extra": ["fine", fake_token]}) is True
+
+
+def test_credential_bearing_url_userinfo_is_detected():
+    url = "https://" + "user" + ":" + "hunter2" + "@example.com/mcp"
+    assert smoke._contains_sensitive_content({"homepage": url}) is True
+
+
+def test_credential_bearing_url_query_param_is_detected():
+    url = "https://example.com/api?" + "token" + "=" + "abc123def456"
+    assert smoke._contains_sensitive_content({"repository": url}) is True
+
+
+def test_plain_manifest_values_are_not_flagged():
+    plugin_like = {
+        "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        "name": "mempalace-code",
+        "version": "1.13.1",
+        "homepage": "https://github.com/rergards/mempalace-code",
+        "keywords": ["agent-plugins", "mcp", "memory"],
+    }
+    assert smoke._contains_sensitive_content(plugin_like) is False
+
+
 # ── Reinstall command builder ────────────────────────────────────────────────────
 
 
@@ -385,11 +529,15 @@ def test_cli_help_exits_cleanly():
     assert "--json" in r.stdout
 
 
-def test_main_json_flag_round_trips_through_mocked_subprocess(monkeypatch):
-    run_subprocess = _venv_ok_subprocess()
+def test_main_json_flag_round_trips_through_mocked_subprocess(monkeypatch, tmp_path):
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
+    run_subprocess = _venv_ok_subprocess(plugin_root=plugin_root)
 
-    def fake_default(args, env=None, cwd=None, timeout_seconds=smoke.DEFAULT_TIMEOUT_SECONDS):
-        return run_subprocess(args, env=env, cwd=cwd)
+    def fake_default(
+        args, env=None, cwd=None, input_text=None, timeout_seconds=smoke.DEFAULT_TIMEOUT_SECONDS
+    ):
+        return run_subprocess(args, env=env, cwd=cwd, input_text=input_text)
 
     monkeypatch.setattr(smoke, "_default_run_subprocess", fake_default)
 

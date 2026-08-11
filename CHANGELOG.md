@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## v1.13.2 — 2026-08-11
+
+Patch release for portable Agent Plugins packaging and collision-safe release
+identity checks.
+
+### Added
+
+- The installed distribution now includes a portable Agent Plugins 1.0 package,
+  an agent-oriented skill, vendored offline schemas, and the stable
+  `mempalace-code-mcp` launcher. Its portable `mcp.json` defaults to the four-tool
+  `minimal` profile; direct MCP registration supports the `kg`, `code`, `notes`,
+  and `full` profiles when a workflow needs a broader surface. Locate the installed
+  package with `mempalace-code agent-plugin path`.
+
+### Fixed
+
+- Release preflight now rejects reuse of a version whose existing `v{version}`
+  tag resolves to another commit. Missing tags and matching tagged builds remain
+  valid, while unexpected Git lookup failures and empty identities fail closed.
+
 ## v1.13.1 — 2026-08-10
 
 Patch release for systemd-user scheduled auto-updates.

@@ -1,6 +1,6 @@
 [project]
 name = "mempalace-code"
-version = "1.13.1"
+version = "1.13.2"
 description = "Developer memory tool — mine codebases and conversations into a LanceDB-backed searchable palace. No API key required."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,9 +46,10 @@ Upstream = "https://github.com/milla-jovovich/mempalace"
 [project.scripts]
 mempalace-code = "mempalace_code:main"
 mempalace-code-alias = "mempalace_code.cli:main_alias"
+mempalace-code-mcp = "mempalace_code.mcp_launcher:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff>=0.4.0", "watchfiles>=1.0", "build>=1.0", "twine>=5.0"]
+dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff>=0.4.0", "watchfiles>=1.0", "build>=1.0", "twine>=5.0", "jsonschema>=4.18"]
 spellcheck = ["autocorrect>=2.0"]
 # ChromaDB is a deprecated legacy backend. Keep below 1.x while
 # GHSA-f4j7-r4q5-qw2c affects the current 1.x line.
@@ -63,7 +64,7 @@ treesitter = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff>=0.4.0", "watchfiles>=1.0", "build>=1.0", "twine>=5.0"]
+dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff>=0.4.0", "watchfiles>=1.0", "build>=1.0", "twine>=5.0", "jsonschema>=4.18"]
 
 [build-system]
 requires = ["hatchling"]
