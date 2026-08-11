@@ -1,90 +1,70 @@
 # Upstream Comparison — Reviewed Snapshot
 
-This is the canonical comparison between `rergards/mempalace-code` (this fork) and the
-upstream `mempalace` project. It records what upstream advertised at a specific commit,
-what this fork does today, and which upstream directions the fork has deliberately not
-adopted. It is a factual snapshot, not an evaluation of which project is better.
+This is the canonical comparison between `rergards/mempalace-code` (this fork)
+and the upstream `mempalace` project. It records the public upstream surfaces
+reviewed at one commit, this fork's current documented surfaces, and decisions
+about scope. It is a factual snapshot, not an evaluation of either project.
 
-The machine-readable form of this snapshot is
-[`docs/quality/upstream-comparison.json`](quality/upstream-comparison.json), which is
-enforced by `scripts/upstream_comparison_guard.py`.
+The machine-readable form is
+[`docs/quality/upstream-comparison.json`](quality/upstream-comparison.json). The
+stdlib-only `scripts/upstream_comparison_guard.py` keeps the manifest, this
+document, and the README pointer consistent.
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
-| Reviewed date | `2026-08-10` |
+| Reviewed date | `2026-08-11` |
 | Canonical upstream repository | <https://github.com/MemPalace/mempalace> |
 | Branch reviewed | `develop` |
-| Commit reviewed | `8516db7fbc7f0840bf67132c5bf95c6e446d6acc` |
-| Upstream paths tracked for drift | `README.md`, `CHANGELOG.md`, RFCs 003–005 |
+| Commit reviewed | `b2104238d4491654f17118d12cf876ac5e41a0cf` |
+| Upstream release described by its changelog | `3.7.0` |
+| Upstream paths tracked for drift | `README.md`, `CHANGELOG.md`, `pyproject.toml`, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `.mcp.json`, RFCs 003–005 |
 | Fork commit at review time | this repository, `main` |
 
-The older upstream URL `milla-jovovich/mempalace` redirects to
-<https://github.com/MemPalace/mempalace>. Links written against the old path still
-resolve, but the repository above is the canonical one.
-
-Everything attributed to upstream below is taken from upstream's `README.md`,
-`CHANGELOG.md`, RFCs 003–005, package metadata, or the linked public issues at the
-reviewed commit. Upstream code was inspected where needed to confirm the documented
-surface. It was not executed, benchmarked, or otherwise measured for this comparison.
+All upstream statements below are limited to the pinned public sources. Upstream
+code was read only where the advertised source named a surface; it was not run,
+benchmarked, or independently compatibility-tested.
 
 ## Source Links
 
-Upstream repository and reviewed tree:
+Pinned primary upstream sources:
 
-- <https://github.com/MemPalace/mempalace>
-- <https://github.com/MemPalace/mempalace/tree/8516db7fbc7f0840bf67132c5bf95c6e446d6acc>
-- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/README.md>
-- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/CHANGELOG.md>
-- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/docs/rfcs/003-agent-logstream-coordination.md>
-- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/docs/rfcs/004-replicated-palace.md>
-- <https://github.com/MemPalace/mempalace/blob/8516db7fbc7f0840bf67132c5bf95c6e446d6acc/docs/rfcs/005-agent-identity-routing.md>
-
-Public upstream issues consulted, with their state at the reviewed date:
-
-| Link | State at review | What it shows |
-|---|---|---|
-| <https://github.com/MemPalace/mempalace/issues/1663> | open, unassigned, labelled P2 | The broader configurable-model request remains open even though new onboarding now recommends and selects EmbeddingGemma |
-| <https://github.com/MemPalace/mempalace/issues/1858> | open | A reported Apple Silicon migration / re-embedding failure |
-| <https://github.com/MemPalace/mempalace/issues/2045> | closed on 2026-08-02, labelled P1 | The reported `sqlite_exact` co-writer corruption class was closed after process-lifetime single-writer ownership landed |
-| <https://github.com/MemPalace/mempalace/issues/875> | closed | Historical hybrid-retrieval / reranking user critique |
-| <https://github.com/MemPalace/mempalace/issues/367> | closed | Historical hybrid-retrieval / reranking user critique |
-| <https://github.com/MemPalace/mempalace/issues/29> | closed | Historical hybrid-retrieval / reranking user critique |
-
-The closed issues (#875, #367, #29) are historical user critiques: they show that
-hybrid-retrieval and reranking behaviour was disputed by users at some point in the
-past, not that it is disputed today. Issues #1663 and #1858 remain open at the reviewed
-date; #2045 is now closed. Taken together, these links set the evidence limits for this
-comparison — they bound what can be claimed from public issue history — and do not by
-themselves establish a present defect in upstream or any claim about upstream's popularity.
+- <https://github.com/MemPalace/mempalace/tree/b2104238d4491654f17118d12cf876ac5e41a0cf>
+- <https://github.com/MemPalace/mempalace/blob/b2104238d4491654f17118d12cf876ac5e41a0cf/README.md>
+- <https://github.com/MemPalace/mempalace/blob/b2104238d4491654f17118d12cf876ac5e41a0cf/CHANGELOG.md>
+- <https://github.com/MemPalace/mempalace/blob/b2104238d4491654f17118d12cf876ac5e41a0cf/pyproject.toml>
+- <https://github.com/MemPalace/mempalace/blob/b2104238d4491654f17118d12cf876ac5e41a0cf/.codex-plugin/plugin.json>
+- <https://github.com/MemPalace/mempalace/blob/b2104238d4491654f17118d12cf876ac5e41a0cf/.agents/plugins/marketplace.json>
+- <https://github.com/MemPalace/mempalace/blob/b2104238d4491654f17118d12cf876ac5e41a0cf/.mcp.json>
+- <https://github.com/MemPalace/mempalace/blob/b2104238d4491654f17118d12cf876ac5e41a0cf/docs/rfcs/003-agent-logstream-coordination.md>
+- <https://github.com/MemPalace/mempalace/blob/b2104238d4491654f17118d12cf876ac5e41a0cf/docs/rfcs/004-replicated-palace.md>
+- <https://github.com/MemPalace/mempalace/blob/b2104238d4491654f17118d12cf876ac5e41a0cf/docs/rfcs/005-agent-identity-routing.md>
 
 ## Capability Comparison
 
 | Area | Upstream, as advertised at the reviewed commit | This fork today |
 |---|---|---|
 | Product focus | General-purpose AI memory | Code-first memory: repository mining, `code_search`, symbol/type/project-graph tools |
-| Default storage backend | ChromaDB | LanceDB |
-| Other storage backends offered | `sqlite_exact`, Milvus, Qdrant, pgvector | ChromaDB only, as a deprecated optional `.[chroma]` extra; no server-backed backends |
-| Embedding model | New onboarding recommends and selects `embeddinggemma-300m`; existing installs without an explicit selection remain on `all-MiniLM-L6-v2` | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration flow |
-| Retrieval | Hybrid retrieval | Vector search, plus a local deterministic `code_search(rerank="hybrid")` that blends vector score with lexical/symbol signals |
-| Reranking | Optional LLM reranking | None. No LLM reranker exists in this fork; this direction is explicitly rejected |
-| MCP surface | 44 tools, including logstream events and artifact handoffs | 29 tools over stdio, with startup profiles reducing the exposed set |
-| Coordination and replication | Agent logstream, artifact handoffs, live-hub write routing, and preview read-replica/mesh flows | No logstream, palace replication, mesh, or live-hub transport |
-| Distribution | Python package plus a published multi-arch Docker image | Python package and pipx installation; no published Docker image |
-| Writer ownership | Process-lifetime single-writer ownership for local backends; read-only coexistence | Single-process local storage model with explicit watcher/miner/maintenance ownership guards |
-| Network dependency | Core local flows require no API key; server backends, peer replication, and optional LLM reranking add network surfaces when selected | Offline after the one-time embedding model download; no API keys |
+| Storage and retrieval | ChromaDB default; `sqlite_exact`, Milvus, Qdrant, and pgvector are offered; hybrid retrieval and optional LLM reranking are described | LanceDB default; deprecated optional ChromaDB compatibility extra; local deterministic `code_search(rerank="hybrid")`; no LLM reranker or server-vector backends |
+| Embeddings | New onboarding offers multilingual `embeddinggemma-300m`; opt-in `openai-compat` targets an OpenAI-compatible `/v1/embeddings` endpoint | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration path, and no remote embedding-provider integration |
+| Search filtering | `mempalace_search` and CLI search advertise `since` / `before` date windows | No matching documented date-window search surface |
+| Agent integration | Changelog 3.7.0 advertises a core Hermes `MemoryProvider` and `mine --source <adapter>` source-adapter resolution | No Hermes provider or source-adapter ingestion surface |
+| MCP count and plugin wording | README says 44 MCP tools. The separate Codex plugin manifest says 36 MCP tools, auto-save hooks, and guided setup; the two advertised count wordings are recorded separately rather than reconciled here | Direct stdio MCP registration defaults to the full 29-tool profile |
+| Plugin metadata | Codex manifest identifies `mempalace` version 3.7.0, points at `.mcp.json`, and describes a Codex-oriented interface; marketplace metadata advertises a local plugin source | Standards-conformant Agent Plugins 1.0 portable package with `plugin.json`, `mcp.json`, vendored schemas, and a skill |
+| Portable default | No Agent Plugins 1.0 package was reviewed in the pinned upstream sources | The portable Agent Plugins package defaults to exactly four tools: status, search, duplicate check, and add drawer |
+| Coordination and replication | 3.7.0 advertises logstream events, artifact handoffs, and an RFC 004 logstream multi-master sync foundation; RFC 004 separates shipped early steps from later planned palace op-log work | No logstream, palace replication, mesh, or live-hub transport |
+| Distribution | Python package and advertised multi-arch Docker image | Python package and pipx installation; no published Docker image |
+| Writer ownership | Changelog describes shared write routing and process-lifetime single-writer recovery | Local watcher/miner/maintenance ownership guards |
 
-Reading of the table: upstream offers a broader configuration and distributed-operation
-surface. This fork keeps a narrower local code-memory boundary. Neither column is a
-claim about correctness or speed.
+The table reports source wording and documented surfaces. It does not establish
+runtime interoperability, performance, or completeness beyond those sources.
 
 ## Capability Identifiers
 
-These are the identifiers recorded in
-[`docs/quality/upstream-comparison.json`](quality/upstream-comparison.json). The guard
-requires that every identifier in the manifest also appears here, so the manifest and
-this document cannot drift apart silently.
+The following identifiers are recorded in
+[`docs/quality/upstream-comparison.json`](quality/upstream-comparison.json).
+Every listed identifier must appear here.
 
 Upstream, advertised at the reviewed commit:
 
@@ -97,7 +77,14 @@ Upstream, advertised at the reviewed commit:
 - `backend-qdrant`
 - `backend-pgvector`
 - `mcp-tools-44`
+- `codex-plugin-manifest-tools-36`
+- `codex-plugin-metadata`
+- `openai-compatible-embeddings`
+- `search-date-window`
+- `hermes-memory-provider-core`
+- `source-adapters-mine`
 - `agent-logstream-artifact-handoffs`
+- `logstream-multi-master-sync-foundation`
 - `live-palace-hub-write-routing`
 - `read-replica-mesh-preview`
 - `multiarch-docker-image`
@@ -114,107 +101,69 @@ This fork, current:
 - `no-server-vector-backends`
 - `mcp-tools-29`
 - `stdio-mcp-only`
+- `agent-plugins-1-0-portable-package`
+- `agent-plugin-minimal-profile-four-tools`
+- `direct-mcp-full-profile-29-tools`
 - `no-agent-logstream`
 - `no-palace-replication`
 - `no-published-docker-image`
 
 ## Fork Stance
 
-The fork has reviewed upstream's current directions and adopted none of them. The
-decisions below are the current position, and each is revisited whenever this document
-is re-reviewed.
+**Embeddings.** The supported default remains `all-MiniLM-L6-v2`. The fork has
+no supported multilingual model configuration or migration flow. A model change
+requires the text and code retrieval evidence and migration support defined in
+`CLAUDE.md`.
 
-**Multilingual embeddings — not adopted.** The supported default remains
-`all-MiniLM-L6-v2`; this fork has no supported multilingual configuration and migration
-flow. Any model change is gated by the no-regression rule in `CLAUDE.md`: a candidate
-must match or beat MiniLM on LongMemEval R@5 for text retrieval and must not regress code
-retrieval. Adding a second, larger model also adds a second download, a second cache, and
-a re-embedding migration for existing palaces. Upstream now ships an onboarding path for
-EmbeddingGemma while its broader configurable-model request (#1663) and the reported Apple
-Silicon migration failure (#1858) remain open. The fork requires its own text and code
-retrieval evidence plus a supported migration before changing this contract.
+**Retrieval and reranking.** The fork retains one local deterministic hybrid
+path, `code_search(rerank="hybrid")`. It does not add a general remote or LLM
+reranking layer.
 
-**Broad hybrid retrieval — not adopted.** The fork does not add a general hybrid
-retrieval layer across all search paths. It does ship one narrow, local, deterministic
-hybrid path: `code_search(rerank="hybrid")`, which reorders vector results using lexical
-and symbol signals computed on the machine, with no model call and no network access.
-That is the scope the fork is willing to maintain.
+**Agent and distributed surfaces.** Hermes integration, source adapters,
+logstream, live-hub routing, and replication are outside the current local
+code-memory scope. The upstream RFC 004 source explicitly distinguishes its
+shipped logstream foundation from later planned replication work; this fork
+makes no compatibility claim for either.
 
-**LLM reranking — explicitly rejected.** An LLM reranker would introduce an API key, a
-per-query network call, per-query cost, and non-deterministic results into a tool whose
-stated contract is that indexing and search stay local after the one-time model
-download. This is a rejection on product grounds, and it is not conditional on any
-future upstream evidence.
-
-**Additional storage backends — not adopted.** The fork stays LanceDB-default and
-single-process. ChromaDB remains only as a deprecated optional extra for compatibility
-with palaces created before the LanceDB default, and it is capped below ChromaDB 1.x
-while GHSA-f4j7-r4q5-qw2c affects the available 1.x line. Milvus, Qdrant, and pgvector
-would each add a server to operate, which contradicts the fork's no-server premise.
-
-**Agent logstream, live-hub routing, and palace replication — not adopted.** Upstream
-3.7.0 adds coordination events, artifact handoffs, a live service routing seam, and
-preview read-replica/mesh flows. This fork has no corresponding daemon, network transport,
-replication protocol, or cross-agent event log. Adopting that surface would add distributed
-identity, authentication, consistency, migration, and operations contracts beyond the
-fork's local code-memory scope.
-
-**Published Docker image — not adopted.** Upstream publishes an amd64/arm64 image and
-documents mounted `/data` persistence. This fork's supported installation paths remain
-Python environments and pipx. A container distribution would add another release artifact,
-runtime compatibility matrix, cache/mount contract, and ongoing image-security workload.
+**MCP and packages.** A direct MCP registration without selectors exposes the
+full 29-tool default. The separate Agent Plugins 1.0 portable package defaults
+to the four-tool `minimal` profile. The profiles are an intentional prompt/tool
+surface choice, not an upstream compatibility claim.
 
 ## Evidence Limits
 
-State these limits before quoting anything from this document.
-
-- **Repository review only.** Upstream claims are read from the pinned README, changelog,
-  RFCs, package metadata, and relevant implementation surfaces. Runtime behaviour was not
-  executed or independently validated.
-- **Nothing was measured.** No upstream build, benchmark, or retrieval run was performed.
-  This document contains no performance comparison and supports none.
-- **No popularity or adoption claims.** Stars, downloads, issue volume, and contributor
-  counts are not evidence used here and must not be inferred from it.
-- **Issue links are point-in-time.** Issue state, labels, and assignment can change after
-  the reviewed date. Each row above states the state observed at review time only.
-- **Open issues are not defect proof.** An open issue shows that a topic is contested; it
-  does not establish that upstream is broken, nor that this fork is unaffected by the same
-  class of problem.
-- **One branch, one commit.** Only `develop` at the pinned commit was reviewed. Upstream's
-  default branch, tags, and releases may differ.
-- **Historical criticism is separate.** The April 2026 upstream audit material lives in
-  [`UPSTREAM_HARDENING.md`](UPSTREAM_HARDENING.md) and describes upstream as it was in
-  April 2026. It is not evidence about upstream today.
+- **Repository review only.** Claims come from the pinned README, changelog,
+  package metadata, plugin/MCP files, and RFCs. No upstream behavior was run.
+- **Nothing was measured.** This document contains no benchmark, quality,
+  performance, adoption, or compatibility measurement.
+- **Plugin counts are source-local wording.** The README's 44-tool claim and
+  the Codex plugin manifest's 36-tool wording are both preserved as observed;
+  this review does not infer a single reconciled count.
+- **One branch, one commit.** Only `develop` at the pinned commit was reviewed.
+  Upstream default-branch, tag, release, and future state can differ.
+- **Historical criticism is separate.**
+  [`UPSTREAM_HARDENING.md`](UPSTREAM_HARDENING.md) describes April 2026
+  material and is not evidence about upstream at this reviewed commit.
 
 ## Automation Policy
 
-`scripts/upstream_comparison_guard.py` enforces this snapshot. It is stdlib-only and has
-two modes.
+`scripts/upstream_comparison_guard.py` has two modes.
 
-**Static mode (default).** Validates the manifest shape, the 40-hex commit, the ISO
-review date, the maximum review age (default 30 days), the README pointer and required
-markers, the required section markers in this document, and consistency between the
-manifest and this document's stated repository, branch, commit, review date, and
-capability identifiers. Static mode performs no network access.
+**Static mode (default).** It validates manifest shape, pin format, review age,
+README/document pointers, and capability identifiers using only the checkout.
+It is deterministic and network-free. CI lint and the default
+`scripts/release_preflight.py` use this mode.
 
-Static mode runs in:
+**Live mode (`--check-live`, explicit).** It performs one read-only GitHub API
+request for the pinned branch head and fails closed on drift, fetch failure, or
+an unusable response. It never rewrites source or GitHub state. The canonical
+pre-tag command is:
 
-- CI lint, on every push and pull request to `main`
-- the local release preflight, `scripts/release_preflight.py`
+```bash
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream
+```
 
-Because both of those surfaces must stay network-free, neither performs the live check.
-
-**Live mode (`--check-live`, explicit).** Performs one read-only GitHub API request for
-the head commit of the manifest's branch and fails if it differs from the pinned commit,
-or if the reply is not a usable JSON object containing a 40-hex sha. It never writes a
-file and never performs a GitHub mutation.
-
-Live mode runs in:
-
-- `.github/workflows/upstream-drift.yml`, daily and on `workflow_dispatch`
-- `.github/workflows/publish.yml`, before publication, so an upstream source change blocks
-  a release until this document is re-reviewed
-
-When the guard fails, the remedy is the same in every case: re-review upstream at its
-current head, update this document and the manifest together, and record the new reviewed
-date. The guard never updates either file on its own.
+That opt-in preflight path delegates to this guard's `--check-live` mode before
+an immutable tag is made. `.github/workflows/publish.yml` retains its direct
+live guard as defense in depth after a tag exists. On any failure, re-review
+upstream at its current head and update this document and the manifest together.

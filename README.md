@@ -887,7 +887,7 @@ Setting `MEMPALACE_VERSION_CHECK=0` in a CI pipeline guarantees no network calls
 
 This is a code-first fork of the upstream `mempalace` project. The canonical upstream repository is [MemPalace/mempalace](https://github.com/MemPalace/mempalace); the older `milla-jovovich/mempalace` URL redirects there.
 
-Snapshot reviewed on 2026-07-25 against upstream `develop` at commit `aa89bd82272f55381206c83b6f306e79351824eb`, using upstream's own README. Nothing below is a performance, quality, or adoption comparison — no upstream build or benchmark was run.
+Snapshot reviewed on 2026-08-11 against upstream `develop` at commit `b2104238d4491654f17118d12cf876ac5e41a0cf`, using pinned upstream public sources. Nothing below is a performance, quality, or adoption comparison — no upstream build or benchmark was run.
 
 | Area | Upstream, as advertised at that commit | This fork |
 |---|---|---|
@@ -1111,7 +1111,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.13.2-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.13.3-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

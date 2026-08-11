@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -45,6 +46,93 @@ def test_evaluate_accepts_matching_tag_and_passing_local_gates(tmp_path: Path):
         "clean_tree",
     ]
     assert all(check["status"] == "ok" for check in checks)
+
+
+def test_evaluate_default_keeps_upstream_comparison_static_and_network_free(tmp_path: Path):
+    root = _root(tmp_path)
+    commands: list[list[str]] = []
+
+    def run(command, _root):
+        commands.append(command)
+        if command[:2] == ["git", "rev-parse"] and "--verify" in command:
+            return 1, "absent"
+        return 0, "passed"
+
+    _, checks = preflight.evaluate(root, tag=None, require_clean=False, run=run)
+
+    assert all(check["status"] == "ok" for check in checks)
+    assert ["scripts/upstream_comparison_guard.py", "--check-live"] not in commands
+    assert [
+        preflight.sys.executable,
+        "scripts/upstream_comparison_guard.py",
+    ] in commands
+
+
+def test_evaluate_opt_in_runs_shared_live_upstream_guard_and_surfaces_failure(tmp_path: Path):
+    root = _root(tmp_path)
+    commands: list[list[str]] = []
+
+    def run(command, _root):
+        commands.append(command)
+        if command[:2] == ["git", "rev-parse"] and "--verify" in command:
+            return 1, "absent"
+        if command[-1:] == ["--check-live"]:
+            return 1, "upstream-drift: reviewed pin is stale"
+        return 0, "passed"
+
+    _, checks = preflight.evaluate(
+        root, tag=None, require_clean=False, check_live_upstream=True, run=run
+    )
+
+    assert commands[-1] == [
+        preflight.sys.executable,
+        "scripts/upstream_comparison_guard.py",
+        "--check-live",
+    ]
+    assert checks[-1] == {
+        "name": "live_upstream_comparison",
+        "status": "fail",
+        "detail": "upstream-drift: reviewed pin is stale",
+    }
+
+
+def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
+    root = _root(tmp_path)
+    observed: dict[str, object] = {}
+
+    def evaluate(root, *, tag, require_clean, check_live_upstream):
+        observed.update(
+            root=root,
+            tag=tag,
+            require_clean=require_clean,
+            check_live_upstream=check_live_upstream,
+        )
+        return "1.2.3", [{"name": "live_upstream_comparison", "status": "ok", "detail": "passed"}]
+
+    monkeypatch.setattr(preflight, "evaluate", evaluate)
+
+    assert (
+        preflight.main(
+            [
+                "--root",
+                str(root),
+                "--tag",
+                "v1.2.3",
+                "--require-clean",
+                "--check-live-upstream",
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+    assert observed == {
+        "root": root.resolve(),
+        "tag": "v1.2.3",
+        "require_clean": True,
+        "check_live_upstream": True,
+    }
+    assert json.loads(capsys.readouterr().out)["ok"] is True
 
 
 def test_evaluate_rejects_tag_that_does_not_match_package_version(tmp_path: Path):

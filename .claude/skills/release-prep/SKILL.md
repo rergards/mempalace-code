@@ -178,7 +178,19 @@ git commit -m "chore: prepare release vX.Y.Z"
 
 Do **not** tag or push. That is `/release`'s job.
 
-### Step 10: Hand off
+### Step 10: Run the live pre-tag check
+
+Immediately before `/release` creates the tag, run the canonical command:
+
+```bash
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream
+```
+
+The default preflight remains static and network-free. This explicit opt-in
+command adds the read-only live upstream comparison before the immutable tag is
+created.
+
+### Step 11: Hand off
 
 Report:
 

@@ -50,6 +50,14 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 python -m pyright -p pyrightconfig.strict.json
 ```
 
+Immediately before creating the immutable tag, run the opt-in live pre-tag
+check. It is the canonical pre-tag command and fails closed when upstream
+`develop` moved or its read-only head lookup cannot be trusted:
+
+```bash
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream
+```
+
 `release_install_metadata_smoke.py` installs the current checkout into a
 disposable venv (non-editable) and proves `importlib.metadata.version`,
 `mempalace_code.__version__`, and `mempalace-code version-check --status`
@@ -61,9 +69,12 @@ schema IDs, and starts the manifest-declared
 disposable pipx-style tool-environment run if the operator's real install method
 is pipx or `uv tool`.
 
-The tag preflight is intentionally local and non-mutating. It checks tag/version
-agreement, the documentation contract, the committed-tree public-safety scan,
-and optionally a clean worktree.
+The default tag preflight is deterministic, local, and non-mutating. It checks
+tag/version agreement, the documentation contract, the committed-tree
+public-safety scan, and optionally a clean worktree. The explicit
+`--check-live-upstream` mode reuses the read-only shared upstream comparison
+guard; it adds one live branch-head lookup and never rewrites source or Git
+state.
 
 The MCP protocol compatibility suite (`tests/test_mcp_protocol_compat.py`) is
 part of this boundary: it proves the stable **2026-07-28** revision
@@ -114,7 +125,9 @@ git push publish vX.Y.Z
 The tag-only publish workflow verifies that the tag names the package version
 and targets current `main`, reruns the local release preflight, builds wheel and
 sdist, validates them with `twine check`, waits for the protected `release`
-environment before PyPI trusted publishing, then creates the GitHub Release.
+environment before PyPI trusted publishing, then creates the GitHub Release. It
+also retains a direct live upstream comparison as defense in depth; that
+post-tag check does not replace the canonical pre-tag command above.
 Do not trigger PyPI publishing by a workflow dispatch or a release event.
 
 ## 4. Verify the public release

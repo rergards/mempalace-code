@@ -54,6 +54,16 @@ VERIFICATION_COMMAND_SURFACES: dict[str, tuple[str, ...]] = {
     "docs/quality/README.md": ("scorecard", "public_safety"),
 }
 
+CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND = (
+    "python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream"
+)
+LIVE_RELEASE_PREFLIGHT_COMMAND_SURFACES: tuple[str, ...] = (
+    "docs/RELEASING.md",
+    ".claude/skills/release/SKILL.md",
+    ".claude/skills/release-prep/SKILL.md",
+    "docs/UPSTREAM_COMPARISON.md",
+)
+
 # Public surfaces that repeat measured token-delta benchmark facts. Each surface is
 # only required to carry the subset of facts relevant to it — the marketing-safe
 # comparison snippet doesn't need retrieval precision, for example.
@@ -536,6 +546,8 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
             root, ".claude/skills/verify/INSTRUCTIONS.md"
         ),
         ".claude/skills/release/SKILL.md": _text(root, ".claude/skills/release/SKILL.md"),
+        ".claude/skills/release-prep/SKILL.md": _text(root, ".claude/skills/release-prep/SKILL.md"),
+        "docs/UPSTREAM_COMPARISON.md": _text(root, "docs/UPSTREAM_COMPARISON.md"),
     }
 
     readme = docs["README.md"]
@@ -726,6 +738,14 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
                     f"{relative_path}: canonical verification command drift ({name}): "
                     f"missing {command!r}"
                 )
+
+    for relative_path in LIVE_RELEASE_PREFLIGHT_COMMAND_SURFACES:
+        _require(
+            errors,
+            docs[relative_path],
+            CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND,
+            relative_path,
+        )
 
     # --- Benchmark fixture facts (AC-2, AC-5) --------------------------------
     for relative_path, required_fields in BENCHMARK_FACT_SURFACES.items():

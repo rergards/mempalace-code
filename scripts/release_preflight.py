@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Run deterministic local release checks before creating or publishing a tag.
+"""Run release checks before creating or publishing a tag.
 
-This guard validates only the checked-out tree. It never tags, pushes, creates a
-release, or contacts package registries.
+Default checks validate only the checked-out tree and stay deterministic and
+network-free. ``--check-live-upstream`` explicitly adds the shared read-only
+upstream head comparison. This guard never tags, pushes, creates a release, or
+contacts package registries.
 """
 
 from __future__ import annotations
@@ -125,9 +127,15 @@ def evaluate(
     *,
     tag: str | None,
     require_clean: bool,
+    check_live_upstream: bool = False,
     run: Callable[[list[str], Path], tuple[int, str]] = _run,
 ) -> tuple[str, list[dict[str, str]]]:
-    """Return package version and one result object per local release invariant."""
+    """Return package version and one result object per local release invariant.
+
+    The default stays deterministic and network-free.  ``check_live_upstream`` is
+    the explicit pre-tag opt-in that delegates the one bounded read-only lookup
+    to the shared upstream comparison guard.
+    """
     version = package_version(root)
     checks: list[dict[str, str]] = []
 
@@ -145,10 +153,15 @@ def evaluate(
     commands = [
         ("docs_drift", [sys.executable, "scripts/docs_drift_guard.py"]),
         ("public_safety", [sys.executable, "scripts/public_safety_scan.py", "--committed"]),
-        # Static mode only — the local preflight must stay network-free. The live
-        # upstream head comparison runs in publish.yml and upstream-drift.yml.
         ("upstream_comparison", [sys.executable, "scripts/upstream_comparison_guard.py"]),
     ]
+    if check_live_upstream:
+        commands.append(
+            (
+                "live_upstream_comparison",
+                [sys.executable, "scripts/upstream_comparison_guard.py", "--check-live"],
+            )
+        )
     for name, command in commands:
         rc, output = run(command, root)
         checks.append(
@@ -184,12 +197,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--require-clean", action="store_true", help="Fail when git worktree is dirty."
     )
+    parser.add_argument(
+        "--check-live-upstream",
+        action="store_true",
+        help=(
+            "Opt in to the read-only live upstream branch-head comparison; "
+            "fails closed on drift or an untrusted response."
+        ),
+    )
     parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON.")
     args = parser.parse_args(argv)
 
     try:
         version, checks = evaluate(
-            args.root.resolve(), tag=args.tag, require_clean=args.require_clean
+            args.root.resolve(),
+            tag=args.tag,
+            require_clean=args.require_clean,
+            check_live_upstream=args.check_live_upstream,
         )
     except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
         print(f"release-preflight: ERROR — {exc}", file=sys.stderr)

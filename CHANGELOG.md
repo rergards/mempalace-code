@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## v1.13.3 — 2026-08-12
+
+Recovery release for the upstream-drift failure that stopped v1.13.2 before
+build and publication.
+
+### Fixed
+
+- The canonical pre-tag release preflight now has an explicit live-upstream
+  mode. It fails closed before an immutable tag is created when upstream
+  `develop` moved or its read-only head lookup cannot be trusted; the default
+  preflight remains deterministic and network-free.
+- Documentation drift checks now keep the exact live pre-tag command aligned
+  across the release guide, release and release-prep skills, and the upstream
+  comparison.
+
+### Changed
+
+- Refreshed the evidence-bounded upstream comparison against upstream 3.7.0 at
+  commit `b2104238d4491654f17118d12cf876ac5e41a0cf`, including current embedding,
+  date-search, provider, source-adapter, logstream, and Codex-plugin claims.
+- Synchronized package, lockfile, README badge, Agent Plugins manifest, and
+  generated quality scorecards on version 1.13.3.
+
 ## v1.13.2 — 2026-08-11
 
 Patch release for portable Agent Plugins packaging and collision-safe release

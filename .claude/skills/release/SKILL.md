@@ -21,14 +21,15 @@ version metadata.
 Run the local release preflight before any release claim. This checks
 that HEAD itself — the exact tree that will be published — contains no private
 local paths, secret-like tokens, or local-only artifact paths, and verifies the
-public documentation contract. Use this after merge and before pushing a release tag:
+public documentation contract. Use this after merge and immediately before creating a
+release tag:
 
 ```bash
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream
 ```
 
-A non-zero exit means tag metadata, public documentation, public-safety, or
-worktree state is not release-ready. Fix the violation, commit the fix, and
+A non-zero exit means tag metadata, public documentation, public-safety,
+worktree state, or the read-only live upstream comparison is not release-ready. Fix the violation, commit the fix, and
 re-run before proceeding. Do not bypass this check.
 
 Run `/verify`. If dependency bounds, lockfiles, workflows, storage, miner, or

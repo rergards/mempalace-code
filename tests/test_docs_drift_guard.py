@@ -41,6 +41,10 @@ _VERIFICATION_COMMANDS_SOURCE = """_VERIFICATION_COMMANDS = (
 )
 """
 
+_CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND = (
+    "python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream"
+)
+
 
 def _make_repo(tmp_path: Path) -> Path:
     """Build a fully synchronized synthetic repo satisfying every guard check."""
@@ -183,7 +187,8 @@ python -m pyright
         tmp_path / "docs" / "RELEASING.md",
         guard.ABOUT_TEMPLATE.format(tool_count=2)
         + "\n\nPublish to PyPI workflow. Tests workflow.\n"
-        "scripts/release_preflight.py\nscripts/release_status_gate.py\n",
+        + _CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND
+        + "\nscripts/release_preflight.py\nscripts/release_status_gate.py\n",
     )
     _write(
         tmp_path / "docs" / "DEPENDENCY_UPGRADE_GATE.md",
@@ -276,7 +281,15 @@ python -m pyright
         tmp_path / ".claude" / "skills" / "release" / "SKILL.md",
         "ruff check pkg/ tests/ scripts/\n"
         "ruff format --check pkg/ tests/ scripts/\n"
-        "python -m pyright\n",
+        "python -m pyright\n" + _CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND + "\n",
+    )
+    _write(
+        tmp_path / ".claude" / "skills" / "release-prep" / "SKILL.md",
+        _CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND + "\n",
+    )
+    _write(
+        tmp_path / "docs" / "UPSTREAM_COMPARISON.md",
+        _CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND + "\n",
     )
     _write(tmp_path / "scripts" / "quality_scorecard.py", _VERIFICATION_COMMANDS_SOURCE)
     _write(tmp_path / "scripts" / "release_preflight.py", "# fixture stub\n")
@@ -575,6 +588,29 @@ def test_canonical_verification_command_docs_match_scorecard_commands(tmp_path: 
     _, errors = guard.evaluate(root2)
     assert any(
         "CLAUDE.md" in error and "canonical verification command drift (lint)" in error
+        for error in errors
+    ), errors
+
+
+def test_live_release_preflight_command_is_synchronised_across_release_surfaces(
+    tmp_path: Path,
+):
+    root = _make_repo(tmp_path)
+    _, errors = guard.evaluate(root)
+    assert errors == []
+
+    stale_root = _make_repo(tmp_path / "stale-live-release-preflight")
+    stale_path = stale_root / ".claude" / "skills" / "release-prep" / "SKILL.md"
+    stale_path.write_text(
+        "python scripts/release_preflight.py --tag vX.Y.Z --require-clean\n",
+        encoding="utf-8",
+    )
+
+    _, errors = guard.evaluate(stale_root)
+
+    assert any(
+        error.startswith(".claude/skills/release-prep/SKILL.md:")
+        and _CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND in error
         for error in errors
     ), errors
 
