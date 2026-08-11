@@ -818,6 +818,51 @@ def test_gate_cli_help_exits_cleanly():
     assert "--smoke-timeout-seconds" in r.stdout
 
 
+def test_main_smoke_adapter_forwards_mcp_input_and_configured_timeout(monkeypatch):
+    expected_command = ["mempalace-code-mcp", "--profile=minimal"]
+    expected_env = {"PATH": "/fake/bin"}
+    expected_cwd = "/neutral/probe"
+    expected_input = (
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}) + "\n"
+    )
+    calls = []
+
+    def fake_default_run_subprocess(cmd, env=None, cwd=None, input_text=None, timeout_seconds=None):
+        calls.append(
+            {
+                "cmd": cmd,
+                "env": env,
+                "cwd": cwd,
+                "input_text": input_text,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        return 0, "", ""
+
+    def fake_run_gate(**kwargs):
+        kwargs["run_subprocess"](
+            expected_command,
+            env=expected_env,
+            cwd=expected_cwd,
+            input_text=expected_input,
+        )
+        return rsg.GateResult(version=VERSION, ok=True, partial=False)
+
+    monkeypatch.setattr(rsg, "_default_run_subprocess", fake_default_run_subprocess)
+    monkeypatch.setattr(rsg, "run_gate", fake_run_gate)
+
+    assert rsg.main(["--version", VERSION, "--smoke-timeout-seconds", "37", "--json"]) == 0
+    assert calls == [
+        {
+            "cmd": expected_command,
+            "env": expected_env,
+            "cwd": expected_cwd,
+            "input_text": expected_input,
+            "timeout_seconds": 37,
+        }
+    ]
+
+
 # ── Regression: stale-success masking ────────────────────────────────────────
 
 

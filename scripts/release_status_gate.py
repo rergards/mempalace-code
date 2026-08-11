@@ -514,11 +514,18 @@ def _default_run_subprocess(
     args: list[str],
     env: dict[str, str] | None = None,
     cwd: str | None = None,
+    input_text: str | None = None,
     timeout_seconds: int = DEFAULT_INSTALL_SMOKE_TIMEOUT_SECONDS,
 ) -> tuple[int, str, str]:
     try:
         r = subprocess.run(
-            args, capture_output=True, text=True, timeout=timeout_seconds, env=env, cwd=cwd
+            args,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=env,
+            cwd=cwd,
         )
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout if isinstance(exc.stdout, str) else ""
@@ -632,8 +639,12 @@ Exits 0 only when all required surfaces agree (or all agree excluding skipped sm
         run_git=_default_run_git,
         run_gh=_default_run_gh,
         http_get=_default_http_get,
-        run_subprocess=lambda cmd, env=None, cwd=None: _default_run_subprocess(
-            cmd, env=env, cwd=cwd, timeout_seconds=args.smoke_timeout_seconds
+        run_subprocess=lambda cmd, env=None, cwd=None, input_text=None: _default_run_subprocess(
+            cmd,
+            env=env,
+            cwd=cwd,
+            input_text=input_text,
+            timeout_seconds=args.smoke_timeout_seconds,
         ),
     )
 

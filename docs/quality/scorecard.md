@@ -12,7 +12,7 @@ Schema version: 3
 | Package total lines | 26697 |
 | Package code lines | 21728 |
 | Test files (`tests/`) | 82 |
-| Test total lines | 55875 |
+| Test total lines | 55920 |
 
 ## Largest Modules (top 10)
 
@@ -114,7 +114,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | Test files | 82 |
-| Test functions | 2940 |
+| Test functions | 2941 |
 
 ## Available Suites
 

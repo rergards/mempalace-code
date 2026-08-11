@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v1.13.4 — 2026-08-12
+
+Hotfix for the final public release-status verification path.
+
+### Fixed
+
+- The six-surface release status gate now preserves the complete shared
+  install-smoke subprocess contract, including JSON-RPC stdin for the installed
+  Agent Plugin MCP probe and the configured timeout. A CLI-boundary regression
+  prevents future adapter drift.
+
+### Changed
+
+- Synchronized package, lockfile, README badge, and Agent Plugin manifest on
+  version 1.13.4 after the immutable v1.13.3 publication.
+
 ## v1.13.3 — 2026-08-12
 
 Recovery release for the upstream-drift failure that stopped v1.13.2 before
