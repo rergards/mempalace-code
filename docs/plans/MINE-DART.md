@@ -1,5 +1,7 @@
 ---
 slug: MINE-DART
+status: completed
+authority: non_authoritative
 goal: "Add Dart (.dart) language support to the code miner with regex-based symbol extraction for classes, mixins, extensions, enums, typedefs, factory constructors, and top-level functions"
 risk: low
 risk_note: "Additive change only, follows the Scala/Swift/PHP regex-tier template. No tree-sitter grammar required; no edits to existing language code paths."

@@ -11,6 +11,7 @@ purity, so every behavioral assertion in this file goes through a real
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -401,3 +402,406 @@ def test_sdk_meta_key_constants_match_mirrored_literals():
     assert mcp_types.PROTOCOL_VERSION_META_KEY == protocol_compat._PROTOCOL_VERSION_META_KEY
     assert mcp_types.CLIENT_INFO_META_KEY == protocol_compat._CLIENT_INFO_META_KEY
     assert mcp_types.CLIENT_CAPABILITIES_META_KEY == protocol_compat._CLIENT_CAPABILITIES_META_KEY
+
+
+# ── MCP-DEGRADED-CLIENT-ERROR-CONTAINMENT ────────────────────────────────────
+
+
+def _run_mcp_raw(raw_lines, palace_path, fresh_home, server_args=None, timeout=60):
+    """Like _run_mcp_stdio but accepts pre-formatted string lines (for malformed-input tests).
+
+    All stdout lines must still be valid JSON; a non-JSON line fails the test.
+    """
+    stdin_data = "\n".join(raw_lines) + "\n" if raw_lines else ""
+
+    env = os.environ.copy()
+    env["MEMPALACE_PALACE_PATH"] = palace_path
+    env["HOME"] = fresh_home
+    env["USERPROFILE"] = fresh_home
+    env["HF_HUB_OFFLINE"] = "1"
+    env["TRANSFORMERS_OFFLINE"] = "1"
+    env.pop("HF_HOME", None)
+    env.pop("HUGGINGFACE_HUB_CACHE", None)
+    env.pop("TRANSFORMERS_CACHE", None)
+
+    cmd = [sys.executable, "-m", "mempalace_code.mcp_server", *(server_args or [])]
+    result = subprocess.run(
+        cmd,
+        input=stdin_data,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=str(_REPO_ROOT),
+        env=env,
+    )
+
+    responses = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            responses.append(json.loads(line))
+        except json.JSONDecodeError:
+            pytest.fail(
+                f"Non-JSON line on stdout (purity violation): {line!r}\n"
+                f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+            )
+    return responses, result
+
+
+def test_required_schema_tools_no_traceback_on_empty_args(palace_path, fresh_home):
+    """All 20 required-schema tools called with empty args return -32602, no traceback (AC-1, AC-4)."""
+    open_store(palace_path, create=True)
+
+    required_tools = [
+        (name, spec["input_schema"].get("required", []))
+        for name, spec in TOOLS.items()
+        if spec["input_schema"].get("required")
+    ]
+    assert len(required_tools) == 20, (
+        f"Expected 20 required-schema tools, got {len(required_tools)}; "
+        "update this guard if the registry changes"
+    )
+
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+    ]
+    tool_req_id_to_name = {}
+    for i, (name, _) in enumerate(required_tools, start=2):
+        requests.append(
+            {
+                "jsonrpc": "2.0",
+                "id": i,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": {}},
+            }
+        )
+        tool_req_id_to_name[i] = name
+
+    responses, result = _run_mcp_stdio(requests, palace_path, fresh_home)
+
+    # initialize (id=1) + 20 tool responses; notifications/initialized emits no response
+    assert len(responses) == 1 + len(required_tools), (
+        f"Expected {1 + len(required_tools)} responses, got {len(responses)}\n"
+        f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+    )
+
+    assert "result" in responses[0], f"initialize must succeed: {responses[0]}"
+
+    for resp in responses[1:]:
+        name = tool_req_id_to_name.get(resp["id"], f"id={resp['id']}")
+        assert "error" in resp, f"Tool {name} with empty args: expected error, got result: {resp}"
+        assert resp["error"]["code"] == -32602, (
+            f"Tool {name}: expected -32602 (Invalid params), got {resp['error']['code']}: "
+            f"{resp['error']['message']}"
+        )
+
+    assert "Traceback" not in result.stderr, (
+        f"Python traceback leaked to stderr for required-schema tools:\n{result.stderr}"
+    )
+    assert "TypeError" not in result.stderr, (
+        f"TypeError leaked to stderr for required-schema tools:\n{result.stderr}"
+    )
+
+
+def test_malformed_then_valid_continuity(palace_path, fresh_home):
+    """Malformed JSON produces a -32700 parse error; subsequent valid requests still succeed (AC-2)."""
+    open_store(palace_path, create=True)
+
+    raw_lines = [
+        "this is not json{{",
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
+    ]
+    responses, result = _run_mcp_raw(raw_lines, palace_path, fresh_home)
+
+    # parse error + initialize + tools/list
+    assert len(responses) == 3, (
+        f"Expected 3 responses, got {len(responses)}\n"
+        f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+    )
+
+    # First response: JSON-RPC parse error with null id (spec §5.1)
+    assert responses[0]["id"] is None
+    assert "error" in responses[0]
+    assert responses[0]["error"]["code"] == -32700
+
+    # Server remained available for subsequent valid requests
+    assert responses[1]["id"] == 1
+    assert "result" in responses[1]
+    assert responses[1]["result"]["serverInfo"]["name"] == "mempalace-code"
+
+    assert responses[2]["id"] == 2
+    assert "result" in responses[2]
+    assert "tools" in responses[2]["result"]
+
+    assert "Traceback" not in result.stderr, (
+        f"Traceback leaked to stderr after malformed input:\n{result.stderr}"
+    )
+
+
+def test_duplicate_initialize_deterministic(palace_path, fresh_home):
+    """Sending initialize twice returns two identical deterministic success responses (AC-3)."""
+    open_store(palace_path, create=True)
+
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}},
+    ]
+    responses, result = _run_mcp_stdio(requests, palace_path, fresh_home)
+
+    assert len(responses) == 2, f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+    for resp in responses:
+        assert "result" in resp, f"Expected result, got: {resp}"
+        assert resp["result"]["serverInfo"]["name"] == "mempalace-code"
+
+    # Both responses carry identical result payloads (deterministic — no mutable state change)
+    assert responses[0]["result"] == responses[1]["result"], (
+        "Duplicate initialize must return identical results"
+    )
+
+
+def test_clean_eof_exit(palace_path, fresh_home):
+    """Server exits cleanly (code 0) on immediate EOF with no output (AC-3)."""
+    open_store(palace_path, create=True)
+
+    responses, result = _run_mcp_stdio([], palace_path, fresh_home)
+
+    assert result.returncode == 0, (
+        f"Expected exit 0, got {result.returncode}\nstderr: {result.stderr}"
+    )
+    assert responses == [], "No output expected on empty input"
+
+
+def test_profile_disabled_tool_returns_bounded_error_no_traceback(palace_path, fresh_home):
+    """Calling a tool disabled by --profile returns -32601 with no traceback (AC-3, AC-4)."""
+    open_store(palace_path, create=True)
+
+    requests = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "mempalace_delete_wing", "arguments": {"wing": "x"}},
+        },
+    ]
+    responses, result = _run_mcp_stdio(
+        requests, palace_path, fresh_home, server_args=["--profile", "minimal"]
+    )
+
+    assert len(responses) == 1, f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+    assert responses[0]["error"]["code"] == -32601
+    assert "not enabled" in responses[0]["error"]["message"]
+    assert "Traceback" not in result.stderr
+
+
+# ── MCP-DEGRADED-CLIENT-ERROR-CONTAINMENT — schema guard boundary ──────────
+#
+# Shared parameter table: (tool_name, arguments, expected_code, msg_fragment)
+# Each row proves a distinct class of client-induced bad input at the dispatch
+# layer, where dispatch.py must return a bounded -32602 without invoking the
+# handler or leaking any Python traceback.
+_SCHEMA_GUARD_CASES = [
+    # ── existing: integer / number coercion failures ──────────────────────────
+    pytest.param(
+        "mempalace_search",
+        {"query": "hello", "limit": "not-a-number"},
+        -32602,
+        "type mismatch",
+        id="invalid_integer_coercion",
+    ),
+    pytest.param(
+        "mempalace_check_duplicate",
+        {"content": "x", "threshold": [1, 2, 3]},
+        -32602,
+        "type mismatch",
+        id="invalid_number_coercion",
+    ),
+    pytest.param(
+        "mempalace_status",
+        {"ghost_arg": "surprise"},
+        -32602,
+        "undeclared",
+        id="undeclared_argument",
+    ),
+    # ── string property receives wrong type ───────────────────────────────────
+    pytest.param(
+        "mempalace_search",
+        {"query": 42},
+        -32602,
+        "type mismatch",
+        id="string_receives_integer",
+    ),
+    pytest.param(
+        "mempalace_search",
+        {"query": None},
+        -32602,
+        "type mismatch",
+        id="string_receives_null",
+    ),
+    # ── boolean property receives wrong type ──────────────────────────────────
+    pytest.param(
+        "mempalace_mine",
+        {"directory": "/tmp", "full": "true"},
+        -32602,
+        "type mismatch",
+        id="boolean_receives_string",
+    ),
+    pytest.param(
+        "mempalace_mine",
+        {"directory": "/tmp", "full": None},
+        -32602,
+        "type mismatch",
+        id="boolean_receives_null",
+    ),
+    # ── integer/number must reject bool (bool is int subclass in Python) ──────
+    pytest.param(
+        "mempalace_search",
+        {"query": "hello", "limit": True},
+        -32602,
+        "type mismatch",
+        id="integer_receives_bool",
+    ),
+    pytest.param(
+        "mempalace_check_duplicate",
+        {"content": "x", "threshold": True},
+        -32602,
+        "type mismatch",
+        id="number_receives_bool",
+    ),
+    # ── integer must reject fractional floats (1.5 → silent truncation to 1) ──
+    pytest.param(
+        "mempalace_search",
+        {"query": "hello", "limit": 1.5},
+        -32602,
+        "type mismatch",
+        id="integer_receives_fractional_float",
+    ),
+]
+
+# ── valid boundary representatives: type guard must not narrow correct inputs ──
+#
+# Each entry is (tool_name, arguments). Dispatch must NOT return -32602 — the
+# value has the right type (or a coercible equivalent already supported). The
+# handler may fail with -32000 if no palace is available; that is irrelevant.
+_SCHEMA_GUARD_VALID_CASES = [
+    pytest.param("mempalace_search", {"query": "hello"}, id="string_valid"),
+    pytest.param("mempalace_mine", {"directory": "/tmp", "full": False}, id="boolean_valid_false"),
+    pytest.param("mempalace_mine", {"directory": "/tmp", "full": True}, id="boolean_valid_true"),
+    pytest.param("mempalace_search", {"query": "hello", "limit": 10}, id="integer_valid_native"),
+    # String that int() can parse — preserved coercion from the original guard.
+    pytest.param(
+        "mempalace_search", {"query": "hello", "limit": "10"}, id="integer_valid_string_coerce"
+    ),
+    pytest.param(
+        "mempalace_check_duplicate", {"content": "x", "threshold": 0.8}, id="number_valid_float"
+    ),
+    pytest.param(
+        "mempalace_check_duplicate", {"content": "x", "threshold": 1}, id="number_valid_int"
+    ),
+    # Whole-number float is a valid integer boundary (1.0 → 1, no truncation).
+    pytest.param(
+        "mempalace_search", {"query": "hello", "limit": 1.0}, id="integer_valid_whole_float"
+    ),
+]
+
+
+@pytest.mark.parametrize("tool_name,arguments,expected_code,msg_fragment", _SCHEMA_GUARD_CASES)
+def test_schema_guard_via_handle_request(tool_name, arguments, expected_code, msg_fragment):
+    """handle_request() intercepts invalid coercions and undeclared args before handler invocation."""
+    from mempalace_code.mcp.dispatch import handle_request
+
+    request = {
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    }
+    resp = handle_request(request)
+    assert "error" in resp, f"Expected error response, got: {resp}"
+    assert resp["error"]["code"] == expected_code
+    assert msg_fragment in resp["error"]["message"]
+
+
+@pytest.mark.parametrize("tool_name,arguments,expected_code,msg_fragment", _SCHEMA_GUARD_CASES)
+def test_schema_guard_via_stdio(
+    palace_path, fresh_home, tool_name, arguments, expected_code, msg_fragment
+):
+    """Same schema guard boundary verified over the real stdio wire (stdout purity, no traceback)."""
+    open_store(palace_path, create=True)
+
+    requests = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments},
+        }
+    ]
+    responses, result = _run_mcp_stdio(requests, palace_path, fresh_home)
+
+    assert len(responses) == 1, f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+    assert "error" in responses[0], f"Expected error response, got: {responses[0]}"
+    assert responses[0]["error"]["code"] == expected_code
+    assert msg_fragment in responses[0]["error"]["message"]
+    assert "Traceback" not in result.stderr
+    assert "TypeError" not in result.stderr
+    assert "ValueError" not in result.stderr
+
+
+@pytest.mark.parametrize("tool_name,arguments", _SCHEMA_GUARD_VALID_CASES)
+def test_schema_guard_valid_boundaries_via_handle_request(tool_name, arguments):
+    """Correct primitive types pass dispatch type checks — no -32602 on valid input."""
+    from mempalace_code.mcp.dispatch import handle_request
+
+    request = {
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    }
+    resp = handle_request(request)
+    if "error" in resp:
+        assert resp["error"]["code"] != -32602, (
+            f"Valid args for {tool_name} {arguments!r} must not trigger type-mismatch guard; "
+            f"got: {resp['error']}"
+        )
+
+
+def test_unexpected_handler_failure_is_sanitized_and_logged(caplog):
+    """An unexpected exception inside a handler returns -32000, leaks no detail to the client,
+    and is observable in the mempalace_mcp logger (logger.exception path)."""
+    from mempalace_code.mcp.dispatch import handle_request
+
+    def _boom():
+        raise RuntimeError("internal chaos — must not reach client")
+
+    boom_registry = {
+        "boom_tool": {
+            "description": "always raises",
+            "input_schema": {"type": "object", "properties": {}, "required": []},
+            "handler": _boom,
+        }
+    }
+
+    request = {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {"name": "boom_tool", "arguments": {}},
+    }
+
+    with caplog.at_level(logging.ERROR, logger="mempalace_mcp"):
+        resp = handle_request(request, active_registry=boom_registry)
+
+    assert resp["error"]["code"] == -32000, f"Expected -32000, got: {resp}"
+    serialised = json.dumps(resp)
+    assert "chaos" not in serialised, "Handler exception detail must not reach the client"
+    assert "Traceback" not in serialised
+
+    logged_messages = " ".join(r.getMessage() for r in caplog.records)
+    assert "boom_tool" in logged_messages, (
+        "logger.exception must record the tool name so operators can diagnose the failure"
+    )

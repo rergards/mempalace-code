@@ -1,5 +1,7 @@
 ---
 slug: STORAGE-SAFE-OPTIMIZE
+status: completed
+authority: non_authoritative
 goal: "Harden safe_optimize to fail-closed on backup error and add coverage for config paths"
 risk: low
 risk_note: "Additive test changes + small behavioural fix in safe_optimize (opt-in path only); no schema, API, or default-behaviour changes. Only affects users who set backup_before_optimize=True."

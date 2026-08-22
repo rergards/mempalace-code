@@ -1,5 +1,7 @@
 ---
 slug: MINE-K8S
+status: completed
+authority: non_authoritative
 goal: "Add Kubernetes manifest smart parsing — detect K8s YAML, split multi-doc manifests, and surface kind/name as symbol metadata"
 risk: low
 risk_note: "Additive only. No existing code paths change; K8s detection is a new branch in detect_language() and chunk_file(). YAML files without apiVersion+kind fall back to chunk_adaptive_lines as before."

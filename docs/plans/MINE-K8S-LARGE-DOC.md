@@ -1,5 +1,7 @@
 ---
 slug: MINE-K8S-LARGE-DOC
+status: completed
+authority: non_authoritative
 goal: "Preserve Kubernetes kind/name symbol metadata across every sub-chunk of an oversized manifest document."
 risk: low
 risk_note: "The change is limited to Kubernetes chunk metadata propagation and one focused miner test."

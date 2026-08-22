@@ -58,12 +58,13 @@ Fields:
 |------------------|-----------------|-------------|
 | `targets`        | object          | Map of package name → exact target version. Must include every package in each named changed group and changed extra. Unknown package names are rejected. |
 | `changed_groups` | array of strings | Groups whose bounds changed: `"runtime"` or `"dev"`. |
-| `changed_extras` | array of strings | Optional extra names (e.g. `"chroma"`, `"spellcheck"`) whose bounds changed. |
+| `changed_extras` | array of strings | Optional extra names (e.g. `"chroma-migration"`, `"spellcheck"`) whose bounds changed. |
 
 ## ChromaDB 1.x Hold Policy
 
-ChromaDB is a deprecated legacy backend. It is capped at `<1` because
-`GHSA-f4j7-r4q5-qw2c` affects the currently available 1.x line.
+ChromaDB is retained only as isolated ChromaDB-to-LanceDB migration input. It is
+capped at `<1` because `GHSA-f4j7-r4q5-qw2c` affects the currently available
+1.x line.
 
 The current safe ceiling is `chromadb>=0.5.0,<1`.
 
@@ -264,3 +265,28 @@ wiring is covered by unit tests (workflow shape, trigger presence, artifact
 upload, issue notification steps). Its **hosted** schedule execution and live
 OSV/PyPI network behavior are not proven by unit tests — they require a real
 GitHub Actions run triggered via `schedule` or `workflow_dispatch`.
+
+### Release Admission Freshness
+
+Release admission uses `scripts/release_admission_checks.py` to inspect the
+latest completed **Dependency Audit** workflow run through read-only GitHub
+Actions metadata. The latest completed `schedule` or `workflow_dispatch` run
+must have conclusion `success` and must be no older than 192 hours.
+
+The window is the weekly audit cadence (168 hours) plus 24 hours of slack. A
+window equal to the cadence would flip to stale on every scheduler delay and
+turn a healthy repository into a blocked release; a genuinely skipped week is
+still older than the window and still fails closed. The cadence, the slack, and
+the resulting window live in `DEPENDENCY_AUDIT_CADENCE_HOURS` and
+`DEFAULT_AUDIT_MAX_AGE_HOURS`, and `scripts/docs_drift_guard.py` fails when this
+paragraph disagrees with them.
+
+Runs are ordered by parsed timestamp rather than by GitHub's response order.
+Missing runs, failed runs, cancelled runs, skipped runs, stale timestamps,
+timestamps in the future (an untrustworthy clock), expired evidence, unparseable
+responses, and GitHub API or permission errors all fail closed. The bounded
+remediation is `gh workflow run 'Dependency Audit' --repo rergards/mempalace-code`
+— the repository is named explicitly so a shell defaulted to a fork cannot
+dispatch the wrong one — wait for a successful fresh run, then rerun release
+preflight or status. Release admission does not edit dependency files, issues,
+rulesets, tags, or releases.

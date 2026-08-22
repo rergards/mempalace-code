@@ -1,5 +1,7 @@
 ---
 slug: MCP-FILE-CONTEXT
+status: completed
+authority: non_authoritative
 goal: "Add mempalace_file_context MCP tool — return all indexed chunks for a source file, ordered by chunk_index"
 risk: low
 risk_note: "Pure additive change — new handler + TOOLS entry + tests; no existing code or schema altered"

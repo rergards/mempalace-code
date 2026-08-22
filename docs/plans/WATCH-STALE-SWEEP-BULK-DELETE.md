@@ -1,5 +1,7 @@
 ---
 slug: WATCH-STALE-SWEEP-BULK-DELETE
+status: completed
+authority: non_authoritative
 goal: "Bulk-delete stale watch initial-mine drawers instead of issuing one Lance delete per stale source file"
 risk: medium
 risk_note: "Touches the incremental stale deletion path and Lance delete predicates; scope is narrow, but source/wing isolation must be preserved for destructive storage operations."

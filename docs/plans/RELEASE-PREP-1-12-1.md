@@ -1,5 +1,7 @@
 ---
 slug: RELEASE-PREP-1-12-1
+status: completed
+authority: non_authoritative
 goal: "Prepare a synchronized v1.12.1 patch-release tree for named systemd-user watcher coordination."
 risk: medium
 risk_note: "Release metadata must stay synchronized while updater fixtures continue to prove exact named-unit coordination, safe refusal, and rollback from the new baseline."
@@ -103,7 +105,7 @@ task_contract:
       statement: "The release bump must not change dependency constraints or third-party lock resolutions."
       applies_to: ["pyproject.toml", "uv.lock"]
     - id: INV-5
-      statement: "Release automation and publication remain unchanged and outside provider-owned implementation."
+      statement: "Release automation and publication remain unchanged and outside this task's implementation scope."
       applies_to: ["pyproject.toml", "uv.lock", "README.md", "tests/test_updater.py"]
   risks:
     - id: RISK-1

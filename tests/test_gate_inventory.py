@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import tomllib
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).parent.parent
 
@@ -75,12 +78,73 @@ def test_required_quality_gates_present():
         "typecheck",
         "typecheck_strict_slice",
         "public_safety",
+        "gitleaks_baseline",
+        "gitleaks_changed_range",
         "scorecard",
         "architecture_guard",
     }
     present = {g["id"] for g in gi.CANONICAL_GATES}
     missing = required_ids - present
     assert not missing, f"missing required quality gates: {sorted(missing)}"
+
+
+def test_workflow_security_gates_are_canonical_and_wired_into_ci():
+    expected = {
+        "workflow_lint": gi.ACTIONLINT_COMMAND,
+        "workflow_audit": gi.ZIZMOR_COMMAND,
+        "workflow_security": gi.WORKFLOW_SECURITY_GATE_COMMAND,
+    }
+    gates = gi.gates_by_id()
+    ci_text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    for gate_id, command in expected.items():
+        gate = gates[gate_id]
+        assert gate["category"] == "quality"
+        assert gate["surfaces"] == [".github/workflows/ci.yml"]
+        assert gate["command"] == command
+        assert command in ci_text, f"gate '{gate_id}' is not wired into the CI lint job"
+
+    # Excessive permissions and credential-persisting checkouts are medium-severity
+    # zizmor audits, so the blocking tier must not drift back up to high.
+    assert "--min-severity=medium" in gi.ZIZMOR_COMMAND
+    # A workflow is only as safe as the actions it calls, so repository-local
+    # composite actions stay inside the audited scope.
+    assert ".github/workflows/" in gi.ZIZMOR_COMMAND
+    assert ".github/actions/" in gi.ZIZMOR_COMMAND
+
+
+def _pinned_version(deps: list, name: str) -> str | None:
+    """Return the exactly-pinned version of ``name`` in a dependency list."""
+    for dep in deps:
+        if isinstance(dep, str) and dep.startswith(f"{name}=="):
+            return dep.split("==", 1)[1]
+    return None
+
+
+def _locked_version(lock: dict, name: str) -> str | None:
+    for package in lock.get("package", []):
+        if isinstance(package, dict) and package.get("name") == name:
+            version = package.get("version")
+            return version if isinstance(version, str) else None
+    return None
+
+
+def test_workflow_security_tools_are_pinned_consistently_across_dependency_surfaces():
+    """The scanner pins must agree between both dev surfaces and uv.lock.
+
+    Versions are read, never restated, so a routine bump needs no test edit.
+    """
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        pyproject = tomllib.load(fh)
+    with (ROOT / "uv.lock").open("rb") as fh:
+        lock = tomllib.load(fh)
+
+    for name in ("actionlint-py", "zizmor"):
+        optional = _pinned_version(pyproject["project"]["optional-dependencies"]["dev"], name)
+        group = _pinned_version(pyproject["dependency-groups"]["dev"], name)
+        assert optional is not None, f"{name} must be exactly pinned in optional-dependencies.dev"
+        assert group == optional, f"{name} pins differ across pyproject dev surfaces"
+        assert _locked_version(lock, name) == optional, f"uv.lock {name} drifted from pyproject"
 
 
 def test_required_release_artifact_gates_present():
@@ -90,6 +154,7 @@ def test_required_release_artifact_gates_present():
         "release_readiness",
         "install_smoke",
         "public_safety_committed",
+        "gitleaks_full_history",
     }
     present = {g["id"] for g in gi.CANONICAL_GATES}
     missing = required_ids - present
@@ -110,11 +175,68 @@ def test_verify_surface_ids_cover_core_quality_gates():
         "typecheck",
         "typecheck_strict_slice",
         "public_safety",
+        "gitleaks_baseline",
+        "gitleaks_changed_range",
         "scorecard",
         "architecture_guard",
     }
     missing = expected_in_verify - set(gi.VERIFY_SURFACE_IDS)
     assert not missing, f"missing from verify surface: {sorted(missing)}"
+
+
+def test_gitleaks_gates_are_canonical_and_wired_into_ci():
+    gates = gi.gates_by_id()
+    ci_text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    publish_text = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    history_text = (ROOT / ".github" / "workflows" / "gitleaks-history.yml").read_text(
+        encoding="utf-8"
+    )
+
+    # The CLI version is read from the checksum-locked tool module, never restated
+    # here, so a Dependabot bump of tools/gitleaks/go.mod needs no test edit.
+    assert gi.gitleaks_cli_version(ROOT).startswith("v8.")
+    assert gates["gitleaks_baseline"]["command"] == gi.GITLEAKS_BASELINE_COMMAND
+    assert gates["gitleaks_changed_range"]["command"] == gi.GITLEAKS_CHANGED_RANGE_COMMAND
+    assert gates["gitleaks_full_history"]["command"] == gi.GITLEAKS_FULL_HISTORY_COMMAND
+    assert gates["gitleaks_fixture_smoke"]["command"] == gi.GITLEAKS_FIXTURE_SMOKE_COMMAND
+    assert gates["gitleaks_install"]["command"] == gi.GITLEAKS_INSTALL_COMMAND
+    assert gates["gitleaks_baseline"]["category"] == "quality"
+    assert gates["gitleaks_changed_range"]["category"] == "quality"
+    assert gates["gitleaks_fixture_smoke"]["category"] == "quality"
+    assert gates["gitleaks_full_history"]["category"] == "release"
+    assert gates["gitleaks_install"]["category"] == "install"
+
+    assert gi.GITLEAKS_INSTALL_COMMAND in ci_text
+    assert gi.GITLEAKS_BASELINE_COMMAND in ci_text
+    assert "python scripts/gitleaks_scan.py changed-range" in ci_text
+    assert "--base-ref" in ci_text
+    assert "--head-ref" in ci_text
+    assert gi.GITLEAKS_INSTALL_COMMAND in publish_text
+    assert gi.GITLEAKS_INSTALL_COMMAND in history_text
+    assert gi.GITLEAKS_FULL_HISTORY_COMMAND in publish_text
+    assert gi.GITLEAKS_FULL_HISTORY_COMMAND in history_text
+    for text in (ci_text, publish_text, history_text):
+        assert gi.GITLEAKS_FIXTURE_SMOKE_COMMAND in text
+        # A mutable `go install ...@tag` must never come back into a workflow.
+        assert f"{gi.GITLEAKS_GO_MODULE}@" not in text
+        assert "gitleaks/v8@" not in text
+
+
+def test_gitleaks_cli_version_is_read_from_the_locked_tool_module(tmp_path):
+    module_dir = tmp_path / "tools" / "gitleaks"
+    module_dir.mkdir(parents=True)
+    (module_dir / "go.mod").write_text(
+        f"module example.com/tools\n\ngo 1.24.11\n\nrequire {gi.GITLEAKS_GO_MODULE} v8.99.0\n",
+        encoding="utf-8",
+    )
+    assert gi.gitleaks_cli_version(tmp_path) == "v8.99.0"
+
+    (module_dir / "go.mod").write_text("module example.com/tools\n\ngo 1.24.11\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="does not require"):
+        gi.gitleaks_cli_version(tmp_path)
+
+    with pytest.raises(ValueError, match="unreadable"):
+        gi.gitleaks_cli_version(tmp_path / "absent")
 
 
 # ── Command uniqueness ─────────────────────────────────────────────────────────
@@ -166,6 +288,92 @@ _LINT_GATE = {
     "category": "quality",
     "surfaces": ["verify.md"],
 }
+
+
+def _ruff_dep_string(deps: list[str]) -> str:
+    matches = [dep for dep in deps if dep.startswith("ruff")]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def _write_ruff_contract_tree(root: Path) -> None:
+    root.mkdir()
+    (root / ".github" / "workflows").mkdir(parents=True)
+    (root / ".pre-commit-config.yaml").write_text(
+        "\n".join(
+            [
+                "repos:",
+                f"  - repo: {gi.RUFF_PRE_COMMIT_REPO}",
+                "    rev: v0.15.16",
+                "    hooks:",
+                "      - id: ruff",
+                "        args: [--fix]",
+                f"        files: {gi.CANONICAL_RUFF_PRECOMMIT_FILES}",
+                "      - id: ruff-format",
+                f"        files: {gi.CANONICAL_RUFF_PRECOMMIT_FILES}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (root / "pyproject.toml").write_text(
+        "\n".join(
+            [
+                "[project]",
+                'name = "mempalace-code"',
+                "",
+                "[project.optional-dependencies]",
+                'dev = ["ruff==0.15.16"]',
+                "",
+                "[dependency-groups]",
+                'dev = ["ruff==0.15.16"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (root / "uv.lock").write_text(
+        "\n".join(
+            [
+                "[[package]]",
+                'name = "mempalace-code"',
+                'version = "1.13.5"',
+                "",
+                "[package.metadata]",
+                'requires-dist = [{ name = "ruff", marker = "extra == \'dev\'", specifier = "==0.15.16" }]',
+                "",
+                "[package.metadata.requires-dev]",
+                'dev = [{ name = "ruff", specifier = "==0.15.16" }]',
+                "",
+                "[[package]]",
+                'name = "ruff"',
+                'version = "0.15.16"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (root / ".github" / "workflows" / "ci.yml").write_text(
+        "\n".join(
+            [
+                "name: Tests",
+                "jobs:",
+                "  lint:",
+                "    runs-on: ubuntu-latest",
+                "    steps:",
+                "      - uses: actions/checkout@v5",
+                f"      - run: {gi.RUFF_CI_DEV_INSTALL_COMMAND}",
+                "      - run: ruff check mempalace_code/ tests/ scripts/",
+                "      - run: ruff format --check mempalace_code/ tests/ scripts/",
+                "  package:",
+                "    runs-on: ubuntu-latest",
+                "    steps:",
+                "      - run: python -m build",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_check_parity_surface_missing(tmp_path):
@@ -227,6 +435,133 @@ def test_check_parity_stale_command_detected(tmp_path):
     gates = [_LINT_GATE]
     errors = gi.check_parity(root, gates=gates)
     assert any("DRIFT" in e for e in errors)
+
+
+def test_ruff_precommit_hooks_match_canonical_source_scope():
+    rev, hook_files = gi._precommit_ruff_contract(ROOT)
+    assert rev == "v0.15.16"
+    assert set(gi.RUFF_HOOK_IDS).issubset(hook_files)
+
+    included = [
+        "mempalace_code/storage.py",
+        "tests/test_gate_inventory.py",
+        "scripts/gate_inventory.py",
+    ]
+    excluded = [
+        "mempalace/storage.py",
+        "docs/example.py",
+        "scripts/gate_inventory.txt",
+        ".github/workflows/ci.yml",
+    ]
+
+    for hook_id in gi.RUFF_HOOK_IDS:
+        pattern = hook_files[hook_id]
+        assert pattern == gi.CANONICAL_RUFF_PRECOMMIT_FILES
+        compiled = re.compile(pattern)
+        assert [path for path in included if compiled.search(path)] == included
+        assert not [path for path in excluded if compiled.search(path)]
+
+
+def test_ruff_version_contract_matches_pyproject_ci_precommit_and_lock():
+    with (ROOT / "pyproject.toml").open("rb") as fh:
+        pyproject = tomllib.load(fh)
+    version = "0.15.16"
+    assert (
+        _ruff_dep_string(pyproject["project"]["optional-dependencies"]["dev"]) == f"ruff=={version}"
+    )
+    assert _ruff_dep_string(pyproject["dependency-groups"]["dev"]) == f"ruff=={version}"
+
+    with (ROOT / "uv.lock").open("rb") as fh:
+        lock = tomllib.load(fh)
+    ruff_package = gi._lock_package(lock, "ruff")
+    assert ruff_package is not None
+    assert ruff_package["version"] == version
+    project_package = gi._lock_package(lock, "mempalace-code")
+    assert project_package is not None
+    metadata = project_package["metadata"]
+    assert gi._lock_dep_specifier(metadata["requires-dist"], "ruff") == f"=={version}"
+    assert gi._lock_dep_specifier(metadata["requires-dev"]["dev"], "ruff") == f"=={version}"
+
+    rev, _hook_files = gi._precommit_ruff_contract(ROOT)
+    assert rev == f"v{version}"
+    lint_job = gi._ci_lint_job_text(ROOT)
+    assert lint_job is not None
+    assert gi.RUFF_CI_DEV_INSTALL_COMMAND in lint_job
+    assert "ruff check mempalace_code/ tests/ scripts/" in lint_job
+    assert "ruff format --check mempalace_code/ tests/ scripts/" in lint_job
+    assert gi.check_ruff_contract(ROOT) == []
+
+
+def test_ruff_contract_reports_scope_version_and_ci_boundary_drift(tmp_path):
+    root = tmp_path / "repo"
+    _write_ruff_contract_tree(root)
+    assert gi.check_ruff_contract(root) == []
+
+    (root / ".pre-commit-config.yaml").write_text(
+        "\n".join(
+            [
+                "repos:",
+                f"  - repo: {gi.RUFF_PRE_COMMIT_REPO}",
+                "    rev: v0.9.0",
+                "    hooks:",
+                "      - id: ruff",
+                "        files: ^(mempalace|tests)/.*\\.py$",
+                "      - id: ruff-format",
+                "        files: ^(mempalace|tests)/.*\\.py$",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (root / "uv.lock").write_text(
+        "\n".join(
+            [
+                "[[package]]",
+                'name = "mempalace-code"',
+                'version = "1.13.5"',
+                "",
+                "[package.metadata]",
+                'requires-dist = [{ name = "ruff", marker = "extra == \'dev\'", specifier = "==0.9.0" }]',
+                "",
+                "[package.metadata.requires-dev]",
+                'dev = [{ name = "ruff", specifier = "==0.9.0" }]',
+                "",
+                "[[package]]",
+                'name = "ruff"',
+                'version = "0.9.0"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (root / ".github" / "workflows" / "ci.yml").write_text(
+        "\n".join(
+            [
+                "name: Tests",
+                "jobs:",
+                "  lint:",
+                "    runs-on: ubuntu-latest",
+                "    steps:",
+                "      - uses: actions/checkout@v5",
+                "      - run: pip install ruff",
+                "      - run: pre-commit run --all-files",
+                "  package:",
+                "    runs-on: ubuntu-latest",
+                "    steps:",
+                "      - run: python -m build",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    errors = gi.check_ruff_contract(root)
+    joined = "\n".join(errors)
+    assert "RUFF-HOOK-SCOPE-DRIFT" in joined
+    assert "RUFF-HOOK-REV-DRIFT" in joined
+    assert "RUFF-LOCK-VERSION-DRIFT" in joined
+    assert "RUFF-CI-INSTALL-DRIFT" in joined
+    assert "RUFF-CI-DIRECT-GATE-DRIFT" in joined
 
 
 # ── CLI main() ─────────────────────────────────────────────────────────────────

@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+from ..source_io import is_regular_source_path, read_regular_text
+
 # File extensions that trigger KG triple extraction during mining.
 _KG_EXTRACT_EXTENSIONS = frozenset(
     {".csproj", ".fsproj", ".vbproj", ".sln", ".xaml", ".cs", ".fs", ".fsi", ".vb", ".py"}
@@ -179,7 +181,7 @@ def _csharp_type_rels(filepath: Path) -> list:
     Returns a list of (subject, predicate, object) tuples.
     """
     try:
-        text = filepath.read_text(encoding="utf-8", errors="ignore")
+        text = read_regular_text(filepath, encoding="utf-8", errors="ignore")
     except OSError:
         return []
     # Strip block comments, then line comments to suppress false-positive declarations.
@@ -236,7 +238,7 @@ def _fsharp_type_rels(filepath: Path) -> list:
     ``type`` or ``module`` declaration, or EOF).
     """
     try:
-        text = filepath.read_text(encoding="utf-8", errors="ignore")
+        text = read_regular_text(filepath, encoding="utf-8", errors="ignore")
     except OSError:
         return []
     triples = []
@@ -299,7 +301,7 @@ def _vbnet_type_rels(filepath: Path) -> list:
     and ``Implements`` lines within the block (until the matching ``End`` statement).
     """
     try:
-        text = filepath.read_text(encoding="utf-8", errors="ignore")
+        text = read_regular_text(filepath, encoding="utf-8", errors="ignore")
     except OSError:
         return []
     triples = []
@@ -374,7 +376,7 @@ def _python_type_rels(filepath: Path) -> list:
     Multiline class declarations are out of scope; single-line covers >95% of real Python.
     """
     try:
-        text = filepath.read_text(encoding="utf-8", errors="ignore")
+        text = read_regular_text(filepath, encoding="utf-8", errors="ignore")
     except OSError:
         return []
     # Strip # line comments to avoid matching class declarations inside comments.
@@ -470,7 +472,7 @@ def parse_dotnet_project_file(filepath: Path) -> list:
     triples = []
 
     try:
-        content = filepath.read_text(encoding="utf-8", errors="replace")
+        content = read_regular_text(filepath, encoding="utf-8", errors="replace")
         root = ET.fromstring(content)
     except (ET.ParseError, OSError):
         return triples
@@ -524,7 +526,7 @@ def parse_sln_file(filepath: Path) -> list:
     triples = []
 
     try:
-        content = filepath.read_text(encoding="utf-8", errors="replace")
+        content = read_regular_text(filepath, encoding="utf-8", errors="replace")
     except OSError:
         return triples
 
@@ -573,7 +575,7 @@ def parse_xaml_file(filepath: Path) -> list:
     triples = []
 
     try:
-        content = filepath.read_text(encoding="utf-8", errors="replace")
+        content = read_regular_text(filepath, encoding="utf-8", errors="replace")
     except OSError:
         return triples
 
@@ -601,7 +603,7 @@ def parse_xaml_file(filepath: Path) -> list:
 
     # 1. Code-behind link (only when an adjacent .xaml.cs file exists on disk)
     code_behind = filepath.parent / (filepath.name + ".cs")
-    if code_behind.exists():
+    if is_regular_source_path(code_behind):
         triples.append((view_name, "has_code_behind", code_behind.name))
 
     # 2. ViewModel from element DataContext:

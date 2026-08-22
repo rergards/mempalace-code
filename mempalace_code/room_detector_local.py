@@ -10,11 +10,15 @@ No internet. No API key. Your files stay on your machine.
 """
 
 import os
+import stat
 import sys
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
 import yaml
+
+from .source_io import RegularSourceError, is_regular_source_path
 
 # Common room patterns — detected from folder names and filenames
 # Format: {folder_keyword: room_name}
@@ -213,6 +217,8 @@ def detect_rooms_from_files(project_dir: str) -> list:
     for root, dirs, filenames in os.walk(project_path):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for filename in filenames:
+            if not is_regular_source_path(Path(root) / filename):
+                continue
             name_lower = filename.lower().replace("-", "_").replace(" ", "_")
             for keyword, room in FOLDER_ROOM_MAP.items():
                 if keyword in name_lower:
@@ -291,6 +297,69 @@ def get_user_approval(rooms: list) -> list:
     return rooms
 
 
+def validate_regular_destination(destination: Path) -> int | None:
+    """Return an existing regular file's mode, or None when it is absent."""
+    try:
+        destination_stat = os.lstat(destination)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise RegularSourceError(destination, exc.strerror or str(exc)) from exc
+    if stat.S_ISREG(destination_stat.st_mode):
+        return stat.S_IMODE(destination_stat.st_mode)
+    raise RegularSourceError(destination)
+
+
+def validate_init_destinations(project_dir: str | Path, write_entities: bool) -> dict[str, Path]:
+    """Validate every enabled init output before scanning the project."""
+    project_path = Path(project_dir).expanduser().resolve()
+    validate_regular_destination(project_path / "mempalace.yaml")
+    destinations = {}
+    if write_entities:
+        entities_path = project_path / "entities.json"
+        validate_regular_destination(entities_path)
+        destinations["entities.json"] = entities_path
+    return destinations
+
+
+def write_regular_destination(destination: Path, content: str) -> None:
+    """Atomically write text without following an irregular destination."""
+    temp_path: Path | None = None
+    try:
+        existing_mode = validate_regular_destination(destination)
+        if existing_mode is None:
+            umask = os.umask(0)
+            try:
+                existing_mode = 0o666 & ~umask
+            finally:
+                os.umask(umask)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=destination.parent,
+            delete=False,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+        ) as handle:
+            temp_path = Path(handle.name)
+            os.fchmod(handle.fileno(), existing_mode)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, destination)
+        temp_path = None
+    except RegularSourceError:
+        raise
+    except OSError as exc:
+        raise RegularSourceError(destination, exc.strerror or str(exc)) from exc
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def save_config(project_dir: str, project_name: str, rooms: list, dotnet_structure: bool = False):
     config = {
         "wing": project_name,
@@ -306,8 +375,9 @@ def save_config(project_dir: str, project_name: str, rooms: list, dotnet_structu
     if dotnet_structure:
         config["dotnet_structure"] = True
     config_path = Path(project_dir).expanduser().resolve() / "mempalace.yaml"
-    with open(config_path, "w") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    write_regular_destination(
+        config_path, yaml.dump(config, default_flow_style=False, sort_keys=False)
+    )
 
     print(f"\n  Config saved: {config_path}")
     print("\n  Next step:")
@@ -336,9 +406,9 @@ def detect_rooms_local(project_dir: str, yes: bool = False, interactive: bool = 
 
     # .NET repo: detect from .csproj/.fsproj/.vbproj files first
     csproj_files = (
-        list(project_path.glob("**/*.csproj"))
-        + list(project_path.glob("**/*.fsproj"))
-        + list(project_path.glob("**/*.vbproj"))
+        [path for path in project_path.glob("**/*.csproj") if is_regular_source_path(path)]
+        + [path for path in project_path.glob("**/*.fsproj") if is_regular_source_path(path)]
+        + [path for path in project_path.glob("**/*.vbproj") if is_regular_source_path(path)]
     )
     if csproj_files:
         rooms = _rooms_from_csproj(csproj_files)

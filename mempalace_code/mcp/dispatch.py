@@ -10,6 +10,7 @@ legacy and behaves exactly as before this module gained protocol_compat
 
 import json
 import logging
+import math
 import sys
 from typing import Optional
 
@@ -24,6 +25,47 @@ _NOISE_KEYS = frozenset({"wait_for_previous"})
 # Active tool registry — None means use the full TOOLS dict (default / backward compat).
 # Set by main() after parsing startup flags; tests can pass active_registry directly.
 _active_registry: Optional[dict] = None
+
+
+def _coerce_arg(key, value, declared_type):
+    """Return (coerced, None) on success or (None, error_fragment) on type mismatch.
+
+    Covers the four primitive JSON Schema types used in the live schema inventory
+    (string, boolean, integer, number). Unknown types pass through unchanged.
+    """
+
+    def _fail(expected):
+        got = "null" if value is None else type(value).__name__
+        return None, f"{key} (expected {expected}, got {got})"
+
+    if declared_type == "string":
+        return (value, None) if isinstance(value, str) else _fail("string")
+    if declared_type == "boolean":
+        return (value, None) if isinstance(value, bool) else _fail("boolean")
+    if declared_type == "integer":
+        # bool is a subclass of int in Python; reject it before the int check.
+        if isinstance(value, bool) or value is None:
+            return _fail("integer")
+        if isinstance(value, int):
+            return value, None
+        if isinstance(value, float):
+            if not (math.isfinite(value) and value.is_integer()):
+                return _fail("integer")
+            return int(value), None
+        try:
+            return int(value), None
+        except (TypeError, ValueError):
+            return _fail("integer")
+    if declared_type == "number":
+        if isinstance(value, bool) or value is None:
+            return _fail("number")
+        if isinstance(value, (int, float)):
+            return value, None
+        try:
+            return float(value), None
+        except (TypeError, ValueError):
+            return _fail("number")
+    return value, None
 
 
 def handle_request(request, active_registry=None):
@@ -129,16 +171,53 @@ def handle_request(request, active_registry=None):
         for key in _NOISE_KEYS:
             if key in tool_args and key not in schema_props:
                 del tool_args[key]
-        # Coerce argument types based on input_schema.
-        # MCP JSON transport may deliver integers as floats or strings;
-        # ChromaDB and Python slicing require native int.
+        # Reject arguments not declared in the tool's input_schema properties.
+        # Undeclared args would reach the handler as unexpected kwargs and produce
+        # client-induced TypeErrors; intercept them here as a bounded -32602.
+        undeclared = [k for k in tool_args if k not in schema_props]
+        if undeclared:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32602,
+                    "message": f"Invalid params: undeclared argument(s): {', '.join(sorted(undeclared))}",
+                },
+            }
+        # Validate and coerce argument types against the tool's input_schema.
+        # Covers all four primitive types (string, boolean, integer, number); rejects
+        # bool masquerading as integer/number, and null for any typed property.
+        coerce_errors: list[str] = []
         for key, value in list(tool_args.items()):
-            prop_schema = schema_props.get(key, {})
-            declared_type = prop_schema.get("type")
-            if declared_type == "integer" and not isinstance(value, int):
-                tool_args[key] = int(value)
-            elif declared_type == "number" and not isinstance(value, (int, float)):
-                tool_args[key] = float(value)
+            declared_type = schema_props.get(key, {}).get("type")
+            if declared_type:
+                coerced, err = _coerce_arg(key, value, declared_type)
+                if err:
+                    coerce_errors.append(err)
+                else:
+                    tool_args[key] = coerced
+        if coerce_errors:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32602,
+                    "message": f"Invalid params: type mismatch for argument(s): {', '.join(coerce_errors)}",
+                },
+            }
+        # Validate required arguments before calling handler so client omissions
+        # return a bounded -32602 without a Python traceback.
+        required_args = registry[tool_name]["input_schema"].get("required", [])
+        missing = [arg for arg in required_args if arg not in tool_args]
+        if missing:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32602,
+                    "message": f"Invalid params: missing required argument(s): {', '.join(missing)}",
+                },
+            }
         try:
             result = registry[tool_name]["handler"](**tool_args)
             if modern:
@@ -265,5 +344,15 @@ def main(argv=None):
                 sys.stdout.flush()
         except KeyboardInterrupt:
             break
+        except json.JSONDecodeError as e:
+            # Per JSON-RPC 2.0 spec, id is null when the request could not be parsed.
+            err = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32700, "message": f"Parse error: {e}"},
+            }
+            sys.stdout.write(json.dumps(err, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+            logger.debug("Parse error (malformed JSON input): %s", e)
         except Exception as e:
             logger.error(f"Server error: {e}")

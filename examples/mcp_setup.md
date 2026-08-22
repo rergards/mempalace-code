@@ -6,10 +6,11 @@ Agent Plugins 1.0 compatible clients can load the portable package installed
 with mempalace-code:
 
 ```bash
-mempalace-code agent-plugin path
+MEMPALACE_BIN="$(command -v mempalace-code)"
+"$MEMPALACE_BIN" agent-plugin path --json
 ```
 
-The printed directory contains `plugin.json`, `mcp.json`, and the
+Read the JSON `path` field and use that directory. It contains `plugin.json`, `mcp.json`, and the
 `skills/mempalace/SKILL.md` instruction bundle. The portable MCP config uses
 `mempalace-code-mcp --profile=minimal`, exposing only
 `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`, and
@@ -17,16 +18,18 @@ The printed directory contains `plugin.json`, `mcp.json`, and the
 `--profile=kg`, `--profile=code`, `--profile=notes`, `--profile=full`, or
 custom `--tools` / `--include` / `--exclude` selectors.
 
-Run the MCP server (full 29-tool default):
+Resolve and run the installed MCP launcher (full 29-tool default):
 
 ```bash
-python -m mempalace_code.mcp_server
+MEMPALACE_MCP="$(dirname "$MEMPALACE_BIN")/mempalace-code-mcp"
+test -x "$MEMPALACE_BIN" && test -x "$MEMPALACE_MCP"
+"$MEMPALACE_MCP"
 ```
 
 Or add it to Claude Code:
 
 ```bash
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP"
 ```
 
 ## Protocol Compatibility
@@ -45,24 +48,29 @@ Pass `--profile` to reduce the exposed tool surface at startup (GitHub issue #6)
 
 ```bash
 # Named profiles
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=kg
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=code
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=notes
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=minimal
+claude mcp add --scope project mempalace-code -- "$MEMPALACE_MCP" --profile=kg
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=code
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=notes
 
 # Explicit tool list — replaces the profile base set
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --tools=search,add_drawer,diary_*
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --tools=search,add_drawer,diary_*
 
 # Add or remove tools from a profile
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal --include=kg_query
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=full --exclude=delete_wing,delete_drawer
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=minimal --include=kg_query
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=full --exclude=delete_wing,delete_drawer
 ```
 
 Codex CLI variant:
 
 ```bash
-codex mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal
+codex mcp add mempalace-code -- "$MEMPALACE_MCP" --profile=minimal
 ```
+
+Claude `user` scope writes `~/.claude.json`; Claude `project` scope writes `<project>/.mcp.json`.
+Codex CLI registration writes `~/.codex/config.toml`; trusted projects may instead own an explicit
+project `.codex/config.toml`. Do not translate Claude scope names or file owners across clients.
+Paths remain separate quoted argv values.
 
 | Profile | Tools | Best for |
 |---------|-------|----------|
@@ -82,8 +90,10 @@ The server exposes the full mempalace-code MCP toolset by default. Common entry 
 
 See `README.md → MCP Server section` for the complete tool list.
 
-## Usage in Claude Code
+## Instruction Boundary
 
-Once configured, Claude Code can call the tools during conversations. Add the canonical
-rules from `docs/LLM_USAGE_RULES.md` to `CLAUDE.md` so it knows when to use them;
-paste the matching profile block when a named profile is active.
+Once configured, Claude Code can call the tools during conversations, subject to its tool policy.
+If the target client supports Agent Plugins 1.0, discover the supported instruction bundle with
+`mempalace-code agent-plugin path --json` and follow `docs/AGENT_INSTALL.md` Section 7. Otherwise
+stop after MCP wiring. `docs/LLM_USAGE_RULES.md` remains read-only reference material; mutation
+of `CLAUDE.md` or any other instruction file is unsupported.

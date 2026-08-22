@@ -17,6 +17,21 @@ import pytest
 _RUNPY_WARNING = "RuntimeWarning: 'mempalace_code.cli' found in sys.modules"
 
 
+def test_install_alias_cli_bounds_filesystem_errors(monkeypatch, capsys):
+    from mempalace_code.cli_commands import alias
+
+    def fail_install(*, target_dir=None):
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(alias, "install_legacy_alias", fail_install)
+
+    with pytest.raises(SystemExit) as exc_info:
+        alias.cmd_install_alias(types.SimpleNamespace(target_dir="/unwritable"))
+
+    assert exc_info.value.code == 1
+    assert capsys.readouterr().err == "  Error: permission denied\n"
+
+
 def test_no_runpy_warning_on_help():
     """AC-1: python -m mempalace_code.cli --help prints help and emits no runpy RuntimeWarning."""
     result = subprocess.run(

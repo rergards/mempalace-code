@@ -1,5 +1,7 @@
 ---
 slug: MCP-KG-SOURCE-FILE-PROVENANCE
+status: completed
+authority: non_authoritative
 goal: "Expose stored KG source_file provenance in MCP query, timeline, and relationship graph outputs."
 risk: low
 risk_note: "Additive result metadata only; storage schema, writers, temporal filtering, and tool inputs stay unchanged."

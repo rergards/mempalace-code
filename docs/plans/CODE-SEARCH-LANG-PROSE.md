@@ -1,5 +1,7 @@
 ---
 slug: CODE-SEARCH-LANG-PROSE
+status: completed
+authority: non_authoritative
 goal: "Add markdown, text, csv to SUPPORTED_LANGUAGES so code_search language= filter accepts prose and data drawers"
 risk: low
 risk_note: "Purely additive change to a whitelist; no existing behaviour changes"

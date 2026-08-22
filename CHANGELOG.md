@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+## v1.13.5 — 2026-08-21
+
+Patch release for ingest source safety, ChromaDB runtime retirement, explicit
+update and install opt-ins, alias target containment, and stricter MCP argument
+validation.
+
+### Added
+
+- Non-regular/FIFO ingest source guard (`INGEST-NONREGULAR-SOURCE-GUARD`): sources that are not regular files are rejected before any miner state is mutated.
+
+### Changed
+
+- ChromaDB runtime retired: configurations selecting the retired backend must run `mempalace-code migrate-storage SRC DST --verify` before upgrading. Migration-only extras `.[chroma-migration]` and the deprecated `.[chroma]` compatibility alias remain available; default LanceDB users require no action (`STORE-RETIRE-CHROMA-RUNTIME`).
+- `mine-all`, `watch <dir>`, and `watch <dir> schedule` now ignore symlinked project and initialization markers, including `.git`. Replace the symlink with a supported in-project marker — a real `.git` directory or a regular marker file — then rerun the original command (`WATCH-ROOT-PROJECT-MARKER-CLASSIFICATION-REUSE`).
+- Update and install flows surface safe opt-in choices explicitly to agents and users (`AGENT-INSTALL-UPDATE-OPT-IN-FLOW`).
+- Alias target directory is now contained to the explicitly configured path (`INSTALL-ALIAS-TARGET-CONTAINMENT`).
+- Agent instruction rules are installed as a delimited managed block, so reinstalls update the block in place instead of appending a second copy.
+- Synchronized package, lockfile, README badge, Agent Plugin manifest, and generated quality scorecards on version 1.13.5.
+
+### Fixed
+
+- `mempalace-code init` now rejects symlink, FIFO, socket, and directory destinations for `mempalace.yaml` and enabled `entities.json` output before scanning, then writes regular outputs atomically without changing existing file modes or following a destination swapped after validation (`INIT-CONFIG-IRREGULAR-DESTINATION-GUARD`).
+- Split outputs now refuse FIFOs, symlinks, hardlinks, and other unsafe synthesized targets without hanging or following them; partial failure retains the source, reports created outputs, and exits nonzero (`UPSTREAM-POST-3-7-1-DRIFT-REVIEW`).
+- `install-alias` now binds the legacy `mempalace` command to the actually invoked `mempalace-code` launcher, including pipx/uv symlink launchers and the dedicated `mempalace-code-alias` entry point, even when ambient `PATH` contains another same-named executable.
+- MCP tool calls reject non-object and undeclared arguments with JSON-RPC `-32602`, and a malformed request no longer ends the session — the next valid request is still served.
+- Degraded CLI and onboarding paths handle malformed or absent input safely.
+- The upgrade notice now prints a usable command for ordinary pip installs: a version-pinned `-m pip install --upgrade` bound to the interpreter that is running the check, shown only when the install is classified as plain pip. Managed `uv tool`, `pipx`, and bootstrap-venv installs keep their `mempalace-code update` commands and are never told to pip-upgrade behind their manager's back.
+
 ## v1.13.4 — 2026-08-12
 
 Hotfix for the final public release-status verification path.

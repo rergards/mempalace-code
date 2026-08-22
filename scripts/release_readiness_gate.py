@@ -20,9 +20,16 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 
 PACKAGE_NAME = "mempalace-code"
 DEFAULT_TIMEOUT = 120
+DEFAULT_REPO = "rergards/mempalace-code"
+DEFAULT_REMOTE = "publish"
+DEFAULT_BRANCH = "main"
+
+_ADMISSION_CHECKS_MODULE = None
 
 # ── Loader helpers ─────────────────────────────────────────────────────────────
 
@@ -38,6 +45,15 @@ def _load_sibling(name: str, script_name: str):
     return mod
 
 
+def _load_admission_checks():
+    global _ADMISSION_CHECKS_MODULE
+    if _ADMISSION_CHECKS_MODULE is None:
+        _ADMISSION_CHECKS_MODULE = _load_sibling(
+            "release_admission_checks", "release_admission_checks.py"
+        )
+    return _ADMISSION_CHECKS_MODULE
+
+
 # ── Gate row ──────────────────────────────────────────────────────────────────
 
 
@@ -48,6 +64,119 @@ def _make_row(gate_id: str, command: str, status: str, detail: str) -> dict:
         "status": status,
         "detail": detail,
     }
+
+
+def _admission_row_to_gate_row(row, command: str) -> dict:
+    status = "pass" if row.status == "ok" else row.status
+    result = _make_row(row.name, command, status, row.detail)
+    if row.remediation:
+        result["remediation"] = row.remediation
+    return result
+
+
+READ_ONLY_LOOKUP_TIMEOUT = 60
+
+
+def _bounded(command: list[str]) -> tuple[int, str, str]:
+    """Run one read-only lookup with a bounded runtime; a timeout is a failure."""
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=READ_ONLY_LOOKUP_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        return 124, "", f"{command[0]} timed out after {READ_ONLY_LOOKUP_TIMEOUT}s"
+    except OSError as exc:
+        return 127, "", f"could not run {command[0]}: {exc}"
+    return result.returncode, result.stdout, result.stderr
+
+
+def _default_run_git(args: list[str]) -> tuple[int, str, str]:
+    return _bounded(["git", *args])
+
+
+def _default_run_gh(args: list[str]) -> tuple[int, str, str]:
+    return _bounded(["gh", *args])
+
+
+def _default_http_get(url: str) -> tuple[int, bytes, str]:
+    try:
+        with urlopen(url, timeout=30) as response:  # noqa: S310  # reason: public PyPI endpoint
+            return response.status, response.read(), ""
+    except URLError as exc:
+        return 0, b"", str(exc)
+
+
+def _run_public_admission_checks(
+    *,
+    version: str,
+    repo: str,
+    remote: str,
+    branch: str,
+    package: str,
+    candidate_sha: str | None,
+    required_check_name: str,
+    audit_max_age_hours: int,
+    run_git,
+    run_gh,
+    http_get,
+) -> list[dict]:
+    admission = _load_admission_checks()
+    rows = [
+        _admission_row_to_gate_row(
+            admission.check_aggregate_required_check(
+                candidate_sha,
+                repo,
+                run_gh,
+                check_name=required_check_name,
+            ),
+            "gh api repos/<repo>/commits/<sha>/check-runs",
+        )
+    ]
+    rows.append(
+        _admission_row_to_gate_row(
+            admission.check_main_branch_rules(
+                repo,
+                branch,
+                run_gh,
+                check_name=required_check_name,
+            ),
+            "gh api repos/<repo>/rules/branches/<branch>",
+        )
+    )
+    rows.append(
+        _admission_row_to_gate_row(
+            admission.check_tag_ruleset(repo, run_gh),
+            "gh api repos/<repo>/rulesets",
+        )
+    )
+    rows.append(
+        _admission_row_to_gate_row(
+            admission.check_public_orphan_tags(
+                version,
+                repo,
+                remote,
+                package,
+                run_git,
+                run_gh,
+                http_get,
+                # Pre-publication: v{version} does not exist publicly yet, so its
+                # absence is the expected state rather than an orphan finding.
+                require_expected_tag=False,
+            ),
+            "git ls-remote --tags --refs <remote> refs/tags/v*",
+        )
+    )
+    rows.append(
+        _admission_row_to_gate_row(
+            admission.check_dependency_audit_freshness(
+                repo,
+                run_gh,
+                max_age_hours=audit_max_age_hours,
+            ),
+            "gh run list --repo <repo> --workflow 'Dependency Audit'",
+        )
+    )
+    return rows
 
 
 # ── Inventory check ───────────────────────────────────────────────────────────
@@ -120,7 +249,7 @@ def _run_artifact_inspection(dist_dir: Path) -> list[dict]:
 
 
 def _run_install_smoke(dist_dir: Path) -> list[dict]:
-    """Run venv and pipx install smokes against the built wheel in dist_dir."""
+    """Run supported install smokes against the built wheel in dist_dir."""
     smoke = _load_sibling("_release_install_smoke_readiness", "release_install_metadata_smoke.py")
 
     wheels = sorted(dist_dir.glob("*.whl"))
@@ -128,27 +257,36 @@ def _run_install_smoke(dist_dir: Path) -> list[dict]:
         error_detail = "no wheel found in dist dir after build"
         return [
             _make_row(
-                "install_smoke_venv",
-                "python scripts/release_install_metadata_smoke.py --installer venv --install-spec <wheel> --json",
+                f"install_smoke_{installer.replace('-', '_')}",
+                f"python scripts/release_install_metadata_smoke.py --installer {installer} --install-spec <wheel> --json",
                 "error",
                 error_detail,
-            ),
-            _make_row(
-                "install_smoke_pipx",
-                "python scripts/release_install_metadata_smoke.py --installer pipx --install-spec <wheel> --json",
-                "error",
-                error_detail,
-            ),
+            )
+            for installer in ("venv", "pipx", "uv-tool", "bootstrap-venv")
         ]
 
     wheel_path = wheels[0]
     rows = []
 
-    for installer_name, run_fn in [
+    installers = [
         ("venv", smoke.run_venv_smoke),
         ("pipx", smoke.run_pipx_smoke),
-    ]:
-        gate_id = f"install_smoke_{installer_name}"
+        ("bootstrap-venv", smoke.run_bootstrap_venv_smoke),
+    ]
+    if smoke.find_uv_executable() is None:
+        rows.append(
+            _make_row(
+                "install_smoke_uv_tool",
+                "python scripts/release_install_metadata_smoke.py --installer uv-tool --install-spec <wheel> --json",
+                "skip",
+                "uv executable unavailable; optional uv-tool smoke skipped",
+            )
+        )
+    else:
+        installers.append(("uv-tool", smoke.run_uv_tool_smoke))
+
+    for installer_name, run_fn in installers:
+        gate_id = f"install_smoke_{installer_name.replace('-', '_')}"
         command = (
             f"python scripts/release_install_metadata_smoke.py"
             f" --installer {installer_name} --install-spec {wheel_path.name} --json"
@@ -180,6 +318,18 @@ def run_readiness(
     *,
     artifact_only: bool = False,
     skip_smoke: bool = False,
+    public_admission: bool = False,
+    version: str = "",
+    repo: str = DEFAULT_REPO,
+    remote: str = DEFAULT_REMOTE,
+    branch: str = DEFAULT_BRANCH,
+    package: str = PACKAGE_NAME,
+    candidate_sha: str | None = None,
+    required_check_name: str | None = None,
+    audit_max_age_hours: int | None = None,
+    run_git=_default_run_git,
+    run_gh=_default_run_gh,
+    http_get=_default_http_get,
 ) -> dict:
     """Run the full release-readiness check and return a structured result dict."""
     all_rows: list[dict] = []
@@ -189,6 +339,25 @@ def run_readiness(
         inventory_rows = _run_inventory_check(root)
         all_rows.extend(inventory_rows)
         if any(r["status"] == "fail" for r in inventory_rows):
+            ok = False
+
+    if public_admission:
+        admission = _load_admission_checks()
+        admission_rows = _run_public_admission_checks(
+            version=version or "unknown",
+            repo=repo,
+            remote=remote,
+            branch=branch,
+            package=package,
+            candidate_sha=candidate_sha,
+            required_check_name=required_check_name or admission.AGGREGATE_REQUIRED_CHECK,
+            audit_max_age_hours=audit_max_age_hours or admission.DEFAULT_AUDIT_MAX_AGE_HOURS,
+            run_git=run_git,
+            run_gh=run_gh,
+            http_get=http_get,
+        )
+        all_rows.extend(admission_rows)
+        if any(r["status"] not in ("pass", "skip") for r in admission_rows):
             ok = False
 
     with tempfile.TemporaryDirectory(prefix="mempalace-readiness-") as tmpdir:
@@ -247,6 +416,36 @@ def main(argv: list[str] | None = None) -> int:
         help="Skip install smoke check.",
     )
     parser.add_argument(
+        "--public-admission",
+        action="store_true",
+        help="Add read-only public release admission rows for candidate SHA, refs, tags, and audit freshness.",
+    )
+    parser.add_argument("--version", help="Release version used for public orphan-tag checks.")
+    parser.add_argument(
+        "--repo", default=DEFAULT_REPO, help=f"GitHub repo (default: {DEFAULT_REPO})."
+    )
+    parser.add_argument(
+        "--remote", default=DEFAULT_REMOTE, help=f"Public git remote (default: {DEFAULT_REMOTE})."
+    )
+    parser.add_argument(
+        "--branch", default=DEFAULT_BRANCH, help=f"Public branch (default: {DEFAULT_BRANCH})."
+    )
+    parser.add_argument(
+        "--package", default=PACKAGE_NAME, help=f"PyPI package (default: {PACKAGE_NAME})."
+    )
+    parser.add_argument("--candidate-sha", help="Operator-reviewed 40-hex candidate SHA.")
+    parser.add_argument(
+        "--required-check-name",
+        default=None,
+        help="Aggregate required check name. Defaults to release-required.",
+    )
+    parser.add_argument(
+        "--audit-max-age-hours",
+        type=int,
+        default=None,
+        help="Maximum age for the latest successful dependency-audit run.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Output results as JSON.",
@@ -262,6 +461,15 @@ def main(argv: list[str] | None = None) -> int:
         root,
         artifact_only=args.artifact_only,
         skip_smoke=args.skip_smoke,
+        public_admission=args.public_admission,
+        version=args.version or "",
+        repo=args.repo,
+        remote=args.remote,
+        branch=args.branch,
+        package=args.package,
+        candidate_sha=args.candidate_sha,
+        required_check_name=args.required_check_name,
+        audit_max_age_hours=args.audit_max_age_hours,
     )
 
     if args.json:

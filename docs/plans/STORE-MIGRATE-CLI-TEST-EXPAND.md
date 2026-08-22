@@ -1,5 +1,7 @@
 ---
 slug: STORE-MIGRATE-CLI-TEST-EXPAND
+status: completed
+authority: non_authoritative
 goal: "Add targeted migrate-storage CLI tests for --verify, --embed-model, and RuntimeError exits."
 risk: low
 risk_note: "Test-only CLI coverage in an existing pytest class; no production behavior changes."

@@ -1,5 +1,7 @@
 ---
 slug: PY-MULTI-IMPORT
+status: completed
+authority: non_authoritative
 goal: "Extract every module from comma-separated Python import lines into KG depends_on triples"
 risk: low
 risk_note: "Small parser refinement inside existing Python KG extraction; no storage schema, mining flow, or non-Python extractor changes."

@@ -23,16 +23,19 @@ Covers:
   - iter_all() include_vectors                       AC-19
   - iter_all() where filter                          AC-20
   - _detect_backend() lance dir                      AC-21
-  - _detect_backend() chroma file                    AC-22
+  - _detect_backend() chroma file requires migration AC-22
   - _detect_backend() empty dir                      AC-23
   - open_store() invalid backend ValueError          AC-24
 """
+
+import builtins
 
 import pytest
 
 from mempalace_code.storage import (
     _META_DEFAULTS,
     _META_KEYS,
+    ChromaRuntimeRetiredError,
     LanceStore,
     _detect_backend,
     open_store,
@@ -858,9 +861,17 @@ class TestDetectBackend:
         assert _detect_backend(str(tmp_path)) == "lance"
 
     def test_chroma_file(self, tmp_path):
-        """AC-22: _detect_backend() returns 'chroma' when 'chroma.sqlite3' exists."""
+        """AC-22: Chroma-only palaces are classified as migration-required."""
         (tmp_path / "chroma.sqlite3").touch()
-        assert _detect_backend(str(tmp_path)) == "chroma"
+        assert _detect_backend(str(tmp_path)) == "chroma_migration_required"
+
+    def test_lance_dir_wins_over_chroma_marker(self, tmp_path):
+        """AC-22: LanceDB takes precedence over a stale Chroma marker."""
+        (tmp_path / "lance").mkdir()
+        marker = tmp_path / "chroma.sqlite3"
+        marker.touch()
+        assert _detect_backend(str(tmp_path)) == "lance"
+        assert marker.exists()
 
     def test_empty_dir(self, tmp_path):
         """AC-23: _detect_backend() returns 'lance' (default) for an empty directory."""
@@ -875,6 +886,53 @@ class TestOpenStoreFactory:
         """AC-24: open_store() with backend='invalid' raises ValueError."""
         with pytest.raises(ValueError, match="Unknown storage backend"):
             open_store(str(tmp_path), backend="invalid")
+
+    def test_explicit_chroma_backend_is_retired_before_creating_path(self, tmp_path):
+        """REG: explicit Chroma runtime requests fail closed before filesystem mutation."""
+        missing = tmp_path / "missing-chroma-runtime"
+
+        with pytest.raises(ChromaRuntimeRetiredError) as exc_info:
+            open_store(str(missing), backend="chroma")
+
+        msg = str(exc_info.value)
+        assert "mempalace-code migrate-storage SRC DST --verify" in msg
+        assert "source backup by default" in msg
+        assert "mempalace-code[chroma-migration]" in msg
+        assert not missing.exists()
+
+    def test_chroma_only_auto_detect_fails_without_mutating_marker(self, tmp_path):
+        """REG: Chroma-only palaces cannot be auto-opened as runtime storage."""
+        marker = tmp_path / "chroma.sqlite3"
+        marker.touch()
+
+        with pytest.raises(ChromaRuntimeRetiredError) as exc_info:
+            open_store(str(tmp_path), create=True)
+
+        assert "migrate-storage SRC DST --verify" in str(exc_info.value)
+        assert marker.exists()
+        assert not (tmp_path / "lance").exists()
+
+    def test_mixed_lance_and_chroma_marker_prefers_lance_without_chromadb_import(
+        self, tmp_path, monkeypatch
+    ):
+        """REG: a stale Chroma marker does not block a LanceDB palace."""
+        (tmp_path / "lance").mkdir()
+        marker = tmp_path / "chroma.sqlite3"
+        marker.touch()
+        original_import = builtins.__import__
+
+        def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "chromadb" or name.startswith("chromadb."):
+                raise AssertionError("mixed LanceDB open must not import chromadb")
+            return original_import(name, globals, locals, fromlist, level)
+
+        monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+        store = open_store(str(tmp_path), create=False)
+
+        assert isinstance(store, LanceStore)
+        assert store.count() == 0
+        assert marker.exists()
 
 
 # ─── TestReadOnlyStore ────────────────────────────────────────────────────────

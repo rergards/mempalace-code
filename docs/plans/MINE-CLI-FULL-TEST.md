@@ -1,5 +1,7 @@
 ---
 slug: MINE-CLI-FULL-TEST
+status: completed
+authority: non_authoritative
 goal: "Add two tests to test_cli.py verifying that --full wires incremental=False and default wires incremental=True"
 risk: low
 risk_note: "Read-only test addition; mocks the mine() function so no storage or file system side effects"

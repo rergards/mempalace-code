@@ -1,5 +1,7 @@
 ---
 slug: MINE-WATCH-GITIGNORE-CACHE
+status: completed
+authority: non_authoritative
 goal: "Invalidate matcher_cache entries when .gitignore files change during --watch, so newly-ignored files stop triggering re-mines"
 risk: low
 risk_note: "Additive-only change; cache miss just reloads from disk. No new deps. Non-gitignore events are unaffected."

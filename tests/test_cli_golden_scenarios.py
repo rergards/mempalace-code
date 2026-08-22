@@ -36,6 +36,7 @@ import json
 import os
 import queue
 import signal
+import socket
 import subprocess
 import sys
 import textwrap
@@ -509,6 +510,42 @@ def _assert_no_repo_artifacts(root: Path) -> None:
     assert not leaked, f"scenario artifacts leaked into repo root {root}: {leaked}"
 
 
+def test_install_alias_explicit_target_containment_from_neutral_directory(tmp_path, fake_pkg_root):
+    env = _make_env(tmp_path, fake_pkg_root)
+    neutral_cwd = tmp_path / "neutral-cwd"
+    source_bin = tmp_path / "source-bin"
+    target_bin = tmp_path / "target-bin"
+    user_bin = tmp_path / "user-bin"
+    for bin_dir in (neutral_cwd, source_bin, target_bin, user_bin):
+        bin_dir.mkdir()
+
+    canonical = source_bin / "mempalace-code"
+    canonical.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    canonical.chmod(0o755)
+    preexisting_path_alias = user_bin / "mempalace"
+    preexisting_path_alias.symlink_to(canonical)
+    target_alias = target_bin / "mempalace"
+    expected_target = Path(_INSTALLED_CLI).resolve() if _INSTALLED_CLI else canonical.resolve()
+    user_bin_entries_before = sorted(entry.name for entry in user_bin.iterdir())
+    preexisting_alias_target_before = os.readlink(preexisting_path_alias)
+    env["PATH"] = os.pathsep.join([str(user_bin), str(source_bin)])
+
+    step = _run_cli(
+        "install-alias:explicit-target-containment",
+        ["install-alias", "--target-dir", str(target_bin)],
+        env,
+        neutral_cwd,
+    )
+
+    _assert_ok(step, str(target_alias), "mempalace-code")
+    assert target_alias.is_symlink()
+    assert target_alias.resolve() == expected_target
+    assert preexisting_path_alias.is_symlink()
+    assert preexisting_path_alias.resolve() == canonical.resolve()
+    assert os.readlink(preexisting_path_alias) == preexisting_alias_target_before
+    assert sorted(entry.name for entry in user_bin.iterdir()) == user_bin_entries_before
+
+
 # ── AC-1 / AC-4: full happy-path workflow ───────────────────────────────────────
 
 
@@ -752,6 +789,96 @@ def test_cli_golden_failure_contracts(tmp_path, fake_pkg_root):
     assert "Next:" in missing_palace_step.stderr
 
 
+def test_cli_non_regular_source_guard(tmp_path, fake_pkg_root):
+    """Project and conversation mining skip same-extension non-regular sources."""
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("os.mkfifo is not available on this platform")
+
+    env = _make_env(tmp_path, fake_pkg_root)
+    project = _write_fixture_project(tmp_path / "project")
+    palace_project = tmp_path / "palace_project"
+    palace_convos = tmp_path / "palace_convos"
+
+    blocked_project = project / "blocked.py"
+    os.mkfifo(blocked_project)
+    project_socket: socket.socket | None = None
+    try:
+        if hasattr(socket, "AF_UNIX"):
+            project_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            project_socket.bind(str(project / "blocked_socket.py"))
+    except OSError:
+        if project_socket is not None:
+            project_socket.close()
+        project_socket = None
+
+    try:
+        init_step = _run_cli(
+            "init:non-regular-source-guard",
+            ["init", str(project), "--skip-model-download"],
+            env,
+            tmp_path,
+        )
+        _assert_ok(init_step, "Config saved:")
+
+        mine_step = _run_cli(
+            "mine:non-regular-source-guard",
+            ["--palace", str(palace_project), "mine", str(project)],
+            env,
+            tmp_path,
+        )
+        _assert_ok(mine_step, "Drawers filed:")
+        assert "app.py" in mine_step.stdout
+        assert "blocked.py" not in mine_step.stdout
+        assert str(blocked_project) in mine_step.stderr
+        assert "not a regular file" in mine_step.stderr
+    finally:
+        if project_socket is not None:
+            project_socket.close()
+
+    convos = tmp_path / "convos"
+    convos.mkdir()
+    (convos / "chat.txt").write_text(
+        "\n".join(
+            [
+                "> User asks about the non-regular source guard",
+                "Assistant answers with enough regular transcript content for indexing.",
+                "",
+                "> User asks about reliability",
+                "Assistant explains filesystem checks and bounded diagnostics.",
+                "",
+                "> User asks about regression coverage",
+                "Assistant confirms the regular conversation file is mined.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    blocked_convo = convos / "blocked.txt"
+    os.mkfifo(blocked_convo)
+
+    convo_step = _run_cli(
+        "mine-convos:non-regular-source-guard",
+        [
+            "--palace",
+            str(palace_convos),
+            "mine",
+            str(convos),
+            "--mode",
+            "convos",
+            "--wing",
+            "convos",
+            "--no-spellcheck",
+        ],
+        env,
+        tmp_path,
+    )
+    _assert_ok(convo_step, "Drawers filed:")
+    assert "chat.txt" in convo_step.stdout
+    assert "blocked.txt" not in convo_step.stdout
+    assert str(blocked_convo) in convo_step.stderr
+    assert "not a regular file" in convo_step.stderr
+
+
 # ── AC-3: forced-offline environment ────────────────────────────────────────────
 
 
@@ -804,3 +931,179 @@ def test_cli_golden_fixture_shape(tmp_path):
 
     total_bytes = sum(p.stat().st_size for p in files.values())
     assert total_bytes < 20_000, f"fixture project too large for default CI: {total_bytes} bytes"
+
+
+# ── CLI-DEGRADED-INPUT-RECOVERY: neutral-directory subprocess coverage ───────────
+
+
+def test_degraded_version_flag(tmp_path, fake_pkg_root):
+    """--version exits 0 with the package version string and no traceback."""
+    env = _make_env(tmp_path, fake_pkg_root)
+    step = _run_cli("version", ["--version"], env, tmp_path)
+    _assert_clean(step)
+    assert step.returncode == 0, (
+        f"--version exited {step.returncode}\nstdout={step.stdout!r}\nstderr={step.stderr!r}"
+    )
+    # The version string must appear somewhere in the combined output.
+    combined = step.stdout + step.stderr
+    assert any(c.isdigit() for c in combined), (
+        f"--version produced no numeric version string\nstdout={step.stdout!r}"
+    )
+
+
+def test_degraded_help_subcommand(tmp_path, fake_pkg_root):
+    """'help' subcommand exits 0 and emits usage text."""
+    env = _make_env(tmp_path, fake_pkg_root)
+    step = _run_cli("help", ["help"], env, tmp_path)
+    _assert_clean(step)
+    assert step.returncode == 0, (
+        f"help exited {step.returncode}\nstdout={step.stdout!r}\nstderr={step.stderr!r}"
+    )
+    assert "usage" in step.stdout.lower(), f"help did not emit usage text\nstdout={step.stdout!r}"
+
+
+def test_degraded_palace_after_subcommand(tmp_path, fake_pkg_root):
+    """--palace VALUE after the subcommand is equivalent to --palace VALUE before it."""
+    env = _make_env(tmp_path, fake_pkg_root)
+    palace = tmp_path / "palace"
+
+    step_before = _run_cli(
+        "status:palace-before",
+        ["--palace", str(palace), "status"],
+        env,
+        tmp_path,
+    )
+    _assert_clean(step_before)
+    assert step_before.returncode == 0, (
+        f"--palace before subcommand failed\nstderr={step_before.stderr!r}"
+    )
+
+    step_after = _run_cli(
+        "status:palace-after",
+        ["status", "--palace", str(palace)],
+        env,
+        tmp_path,
+    )
+    _assert_clean(step_after)
+    assert step_after.returncode == 0, (
+        f"--palace after subcommand failed\nstderr={step_after.stderr!r}"
+    )
+    assert step_before.stdout == step_after.stdout, (
+        "output differs between --palace before and after the subcommand"
+    )
+
+
+def test_degraded_search_results_below_one_rejected(tmp_path, fake_pkg_root):
+    """search --results 0 and --results -1 are rejected at the CLI boundary without storage access."""
+    env = _make_env(tmp_path, fake_pkg_root)
+    palace = tmp_path / "no_palace_here"
+
+    for bad_value in ("0", "-1"):
+        step = _run_cli(
+            f"search:results={bad_value}",
+            ["--palace", str(palace), "search", "query", "--results", bad_value],
+            env,
+            tmp_path,
+        )
+        _assert_clean(step)
+        assert step.returncode == 2, (
+            f"search --results {bad_value} should exit 2, got {step.returncode}\n"
+            f"stdout={step.stdout!r}\nstderr={step.stderr!r}"
+        )
+        combined = step.stderr + step.stdout
+        assert "repair" not in combined.lower(), (
+            f"search --results {bad_value} leaked repair guidance; should fail before storage access\n"
+            f"stderr={step.stderr!r}"
+        )
+        assert not palace.exists(), (
+            f"search --results {bad_value} created the palace directory before validation"
+        )
+
+
+def test_degraded_palace_conflicting_values(tmp_path, fake_pkg_root):
+    """Conflicting --palace values exit 2 with an error mentioning both paths; no palace created."""
+    env = _make_env(tmp_path, fake_pkg_root)
+    palace_a = tmp_path / "palace_a"
+    palace_b = tmp_path / "palace_b"
+
+    step = _run_cli(
+        "palace-conflict",
+        ["--palace", str(palace_a), "status", "--palace", str(palace_b)],
+        env,
+        tmp_path,
+    )
+    _assert_clean(step)
+    assert step.returncode == 2, (
+        f"conflicting --palace should exit 2, got {step.returncode}\n"
+        f"stdout={step.stdout!r}\nstderr={step.stderr!r}"
+    )
+    assert str(palace_a) in step.stderr, (
+        f"first palace path not named in error\nstderr={step.stderr!r}"
+    )
+    assert str(palace_b) in step.stderr, (
+        f"second palace path not named in error\nstderr={step.stderr!r}"
+    )
+    assert not palace_a.exists(), "palace_a must not be created on conflict"
+    assert not palace_b.exists(), "palace_b must not be created on conflict"
+
+
+def test_degraded_palace_identical_duplicate_accepted(tmp_path, fake_pkg_root):
+    """Identical --palace value given twice (before and after subcommand) is accepted."""
+    env = _make_env(tmp_path, fake_pkg_root)
+    palace = tmp_path / "palace"
+
+    step = _run_cli(
+        "palace-duplicate-identical",
+        ["--palace", str(palace), "status", "--palace", str(palace)],
+        env,
+        tmp_path,
+    )
+    _assert_clean(step)
+    assert step.returncode == 0, (
+        f"identical duplicate --palace should exit 0, got {step.returncode}\n"
+        f"stdout={step.stdout!r}\nstderr={step.stderr!r}"
+    )
+
+
+def test_degraded_palace_option_token_as_value(tmp_path, fake_pkg_root):
+    """--palace followed by another option token exits 2; the option is never used as a path."""
+    env = _make_env(tmp_path, fake_pkg_root)
+    summary_flag_palace = tmp_path / "--summary"
+
+    step = _run_cli(
+        "palace-option-token-as-value",
+        ["status", "--palace", "--summary"],
+        env,
+        tmp_path,
+    )
+    _assert_clean(step)
+    assert step.returncode == 2, (
+        f"--palace --summary should exit 2, got {step.returncode}\n"
+        f"stdout={step.stdout!r}\nstderr={step.stderr!r}"
+    )
+    assert not summary_flag_palace.exists(), (
+        "--summary must not be treated as a palace path and must not be created"
+    )
+
+
+def test_degraded_import_missing_file(tmp_path, fake_pkg_root):
+    """import of a nonexistent file exits without traceback and names the path + one recovery action."""
+    env = _make_env(tmp_path, fake_pkg_root)
+    missing = tmp_path / "not_here.jsonl"
+    palace = tmp_path / "palace"
+
+    step = _run_cli(
+        "import:missing-file",
+        ["--palace", str(palace), "import", str(missing)],
+        env,
+        tmp_path,
+    )
+    _assert_clean(step)
+    assert step.returncode != 0, (
+        f"import with missing file should exit non-zero, got 0\nstdout={step.stdout!r}"
+    )
+    assert str(missing) in step.stderr, f"missing file path not mentioned\nstderr={step.stderr!r}"
+    assert "Next:" in step.stderr or "export" in step.stderr.lower(), (
+        f"no recovery action mentioned\nstderr={step.stderr!r}"
+    )
+    assert not palace.exists(), "import with missing file must not create the palace directory"

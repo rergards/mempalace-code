@@ -1,5 +1,7 @@
 ---
 slug: STORE-MIGRATION-TEST-DYNAMIC-COLS
+status: completed
+authority: non_authoritative
 goal: "Replace hardcoded new_string_cols list in test_migration_existing_rows_get_empty_defaults with a derivation from _META_FIELD_SPEC"
 risk: low
 risk_note: "Single-line test change; no production code touched; _META_FIELD_SPEC already imported in the test module"

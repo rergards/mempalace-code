@@ -1,5 +1,7 @@
 ---
 slug: STORE-WHERE-ARROW-IN
+status: completed
+authority: non_authoritative
 goal: "Add $in support to _where_to_arrow_mask so iter_all() correctly filters rows by list membership"
 risk: low
 risk_note: "Additive elif branch in a pure static method; no storage or protocol changes. pc.is_in is a stable pyarrow.compute function."

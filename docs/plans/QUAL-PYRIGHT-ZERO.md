@@ -1,5 +1,7 @@
 ---
 slug: QUAL-PYRIGHT-ZERO
+status: completed
+authority: non_authoritative
 goal: "Make Pyright exit 0 locally and run as a failing CI gate for the configured package and tests."
 risk: high
 risk_note: "The cleanup crosses many source and test files and promotes CI from advisory to gating; most edits should be type-boundary narrowing, but runtime behavior can regress if annotations replace real guards."

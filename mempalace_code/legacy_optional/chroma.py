@@ -1,11 +1,8 @@
 """
-legacy_optional/chroma.py — Centralized ChromaDB legacy-backend loading.
+legacy_optional/chroma.py — Centralized ChromaDB migration-bridge loading.
 
-Keeps the optional ``[chroma]`` extra import in one place, outside the
-protected ``storage`` layer. ``mempalace_code.storage`` reaches this module
-through ``importlib.import_module()`` rather than a static import — the
-architecture guard (``scripts/architecture_guard.py``) treats ``storage`` as a
-protected layer that must not statically import ``legacy_optional``.
+Keeps the optional ``[chroma-migration]`` extra import in one place, outside the
+ordinary runtime path. ``mempalace_code.storage`` must not reach this module.
 """
 
 from __future__ import annotations
@@ -15,20 +12,23 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from mempalace_code._chroma_store import ChromaStore
 
+CHROMA_MIGRATION_INSTALL_HINT = (
+    "chromadb is required only for ChromaDB-to-LanceDB migration. "
+    "Install the migration bridge with: pip install 'mempalace-code[chroma-migration]'"
+)
+
 
 def get_chroma_store_class() -> type[ChromaStore]:
-    """Return the ``ChromaStore`` class.
+    """Return the private migration ``ChromaStore`` adapter.
 
     Raises:
-        ImportError: if the ``[chroma]`` extra is not installed. The original
+        ImportError: if the migration extra is not installed. The original
             ``ImportError`` is preserved as ``__cause__``.
     """
     try:
         from mempalace_code._chroma_store import ChromaStore
     except ImportError as exc:
-        raise ImportError(
-            "ChromaStore requires the [chroma] extra: pip install 'mempalace-code[chroma]'"
-        ) from exc
+        raise ImportError(CHROMA_MIGRATION_INSTALL_HINT) from exc
     return ChromaStore
 
 
@@ -38,7 +38,7 @@ def open_chroma_store(
     """Instantiate a ``ChromaStore``.
 
     Raises:
-        ImportError: if the ``[chroma]`` extra is not installed. The original
+        ImportError: if the migration extra is not installed. The original
             ``ImportError`` is preserved as ``__cause__``.
     """
     chroma_store_cls = get_chroma_store_class()

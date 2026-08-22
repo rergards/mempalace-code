@@ -1,5 +1,7 @@
 ---
 slug: STORE-HF-CACHED-SEARCH-SUBPROCESS-GUARD
+status: completed
+authority: non_authoritative
 goal: "Add a non-network subprocess regression guard for cached HuggingFace model fetch and search paths"
 risk: low
 risk_note: "Test-only guard around existing local-first model loading; main risk is fragile subprocess fixture isolation."

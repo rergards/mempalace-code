@@ -17,8 +17,11 @@ Usage:
 
 import os
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+from .source_io import is_regular_source_path, read_regular_text, regular_source_diagnostic
 
 # ==================== SIGNAL PATTERNS ====================
 
@@ -660,8 +663,9 @@ def detect_entities(file_paths: list, max_files: int = 10) -> dict:
         if files_read >= max_files:
             break
         try:
-            with open(filepath, encoding="utf-8", errors="replace") as f:
-                content = f.read(MAX_BYTES_PER_FILE)
+            content = read_regular_text(
+                filepath, encoding="utf-8", errors="replace", max_bytes=MAX_BYTES_PER_FILE
+            )
             all_text.append(content)
             all_lines.extend(content.splitlines())
             files_read += 1
@@ -848,8 +852,14 @@ def scan_for_detection(project_dir: str, max_files: int = 10) -> list:
             filepath = Path(root) / filename
             ext = filepath.suffix.lower()
             if ext in PROSE_EXTENSIONS:
+                if not is_regular_source_path(filepath):
+                    print(regular_source_diagnostic(filepath), file=sys.stderr)
+                    continue
                 prose_files.append(filepath)
             elif ext in READABLE_EXTENSIONS:
+                if not is_regular_source_path(filepath):
+                    print(regular_source_diagnostic(filepath), file=sys.stderr)
+                    continue
                 all_files.append(filepath)
 
     # Prefer prose files — fall back to all readable if too few prose files

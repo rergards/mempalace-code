@@ -1,5 +1,7 @@
 ---
 slug: BACKUP-AUTOMATED-RETENTION-DEFAULTS
+status: completed
+authority: non_authoritative
 goal: "Bound managed scheduled backup retention by default while preserving keep-all escape hatches"
 risk: medium
 risk_note: "Changes default pruning behavior for managed scheduled archives, with explicit keep-all and manual backup boundaries preserved."

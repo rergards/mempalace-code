@@ -1,5 +1,7 @@
 ---
 slug: MINE-KOTLIN-GENERIC-RECEIVER-NESTED
+status: completed
+authority: non_authoritative
 goal: "Fix Kotlin fun regex to support depth-2 generic nesting in type-param bounds and receiver types"
 risk: low
 risk_note: "Single regex change in extract-only path; no storage or chunking logic touched; all 23 existing Kotlin tests must remain green"

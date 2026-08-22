@@ -63,6 +63,8 @@ from .cli_commands.query import cmd_compress, cmd_read, cmd_search, cmd_wakeup
 from .cli_commands.update import cmd_update
 from .cli_commands.version_check import cmd_version_check
 from .cli_commands.watch import cmd_watch
+from .storage import ChromaRuntimeRetiredError
+from .version import __version__
 
 # Re-export for backward compatibility (tests and downstream direct imports).
 __all__ = [
@@ -71,6 +73,77 @@ __all__ = [
     "install_legacy_alias",
     "fetch_model",
 ]
+
+
+def _positive_int(value: str) -> int:
+    """Argparse type that rejects integers below 1 at parse time."""
+    try:
+        v = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a valid integer")
+    if v < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {v}")
+    return v
+
+
+def _hoist_palace_before_subcommand(argv: list) -> list:
+    """Return argv with --palace VALUE moved before the first subcommand token.
+
+    Argparse only recognises root-level options before the subcommand name.
+    This lets users write either form without ambiguity:
+        mempalace-code --palace /p status        (already works)
+        mempalace-code status --palace /p        (normalised here)
+
+    Repeated identical values normalise idempotently (both space and ``=``
+    forms).  Conflicting values produce a concise argparse-style error on
+    stderr and exit 2 before any dispatch or palace mutation.  A bare
+    ``--palace`` with no following value is left in *rest* so argparse can
+    report a normal bounded parser error (exit 2).  A ``--palace`` whose
+    immediate successor starts with ``-`` is a missing-value error (exit 2)
+    and the successor is never treated as a path.  Tokens at or after the
+    POSIX ``--`` end-of-options sentinel are preserved verbatim and never
+    scanned for ``--palace``; the ``=`` form is always safe for paths that
+    contain hyphens or spaces.
+    """
+    seen_values: list[str] = []
+    rest: list[str] = []
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token == "--":
+            # End-of-options sentinel: preserve this and all remaining tokens verbatim.
+            rest.extend(argv[i:])
+            break
+        elif token == "--palace" and i + 1 < len(argv) and not argv[i + 1].startswith("-"):
+            val = argv[i + 1]
+            if val not in seen_values:
+                seen_values.append(val)
+            i += 2
+        elif token == "--palace" and i + 1 < len(argv):
+            # Next token is an option flag, not a path value — bounded missing-value error.
+            sys.stderr.write("error: argument --palace: expected one argument\n")
+            raise SystemExit(2)
+        elif token.startswith("--palace="):
+            val = token[len("--palace=") :]
+            if val not in seen_values:
+                seen_values.append(val)
+            i += 1
+        else:
+            rest.append(token)
+            i += 1
+
+    if not seen_values:
+        return argv
+
+    if len(seen_values) > 1:
+        sys.stderr.write(
+            "error: --palace: conflicting values given: "
+            + ", ".join(repr(v) for v in seen_values)
+            + "\n"
+        )
+        raise SystemExit(2)
+
+    return ["--palace", seen_values[0]] + rest
 
 
 def main():
@@ -83,6 +156,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         "--palace",
         default=None,
@@ -90,6 +164,9 @@ def main():
     )
 
     sub = parser.add_subparsers(dest="command")
+
+    # help
+    sub.add_parser("help", help="Show this help message and exit")
 
     # init
     p_init = sub.add_parser("init", help="Detect rooms from your folder structure")
@@ -256,7 +333,9 @@ def main():
             "an unknown room exits with status 2 and advisory suggestions"
         ),
     )
-    p_search.add_argument("--results", type=int, default=5, help="Number of results")
+    p_search.add_argument(
+        "--results", type=_positive_int, default=5, help="Number of results (minimum 1)"
+    )
 
     # read
     p_read = sub.add_parser(
@@ -340,7 +419,15 @@ def main():
     # migrate-storage
     p_migrate = sub.add_parser(
         "migrate-storage",
-        help="Migrate a ChromaDB palace to LanceDB (requires mempalace-code[chroma])",
+        help=(
+            "Migrate a legacy ChromaDB palace to LanceDB "
+            "(requires mempalace-code[chroma-migration])"
+        ),
+        description=(
+            "Migrate a legacy ChromaDB palace to LanceDB.\n"
+            "Requires: mempalace-code[chroma-migration]"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_migrate.add_argument("src_palace", help="Source ChromaDB palace path")
     p_migrate.add_argument("dst_palace", help="Destination LanceDB palace path")
@@ -751,9 +838,13 @@ def main():
             "--json", action="store_true", help="Emit machine-readable JSON"
         )
 
-    args = parser.parse_args()
+    args = parser.parse_args(_hoist_palace_before_subcommand(sys.argv[1:]))
 
     if not args.command:
+        parser.print_help()
+        return
+
+    if args.command == "help":
         parser.print_help()
         return
 
@@ -830,7 +921,11 @@ def main():
             run_first_run_prompt(_vc_state)
             _vc_config = resolve_config()
 
-    dispatch[args.command](args)
+    try:
+        dispatch[args.command](args)
+    except ChromaRuntimeRetiredError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
 
     # Automatic check runs after the command succeeds; skipped on SystemExit.
     if args.command not in ("version-check", "update", "agent-plugin") and _vc_config.enabled:  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled

@@ -1,25 +1,19 @@
 """
-storage.py — Pluggable storage backend for MemPalace
-=====================================================
+storage.py — LanceDB storage backend for MemPalace
+==================================================
 
-Provides a unified interface for drawer storage, abstracting away
-the underlying vector database. Ships with LanceDB (default, crash-safe)
-and ChromaDB (legacy, optional) backends.
+Provides a unified interface for drawer storage backed by LanceDB
+(default, crash-safe).
 
 Usage:
     from mempalace_code.storage import open_store
 
     store = open_store("/path/to/palace")          # auto-detect or create LanceDB
     store = open_store("/path/to/palace", "lance")  # explicit backend
-    store = open_store("/path/to/palace", "chroma") # legacy ChromaDB (requires [chroma] extra)
 
 The store object exposes a collection-like API that all MemPalace code
-uses instead of calling ChromaDB/LanceDB directly.
-
-ChromaStore is defined in ``mempalace_code._chroma_store`` and only importable
-when the ``[chroma]`` extra is installed. For backwards compatibility,
-``from mempalace_code.storage import ChromaStore`` also works when chromadb is
-present (raises ImportError with a helpful message when it is not).
+uses instead of calling LanceDB directly. Legacy ChromaDB palaces are read only
+through the isolated migrate-storage bridge.
 """
 
 from __future__ import annotations
@@ -73,6 +67,34 @@ class _LanceDBConnectionProtocol(Protocol):
 
 class LanceStoreDependencyError(RuntimeError):
     """Raised when a required Lance cleanup dependency is not available."""
+
+
+CHROMA_MIGRATION_COMMAND = "mempalace-code migrate-storage SRC DST --verify"
+CHROMA_MIGRATION_EXTRA = "mempalace-code[chroma-migration]"
+CHROMA_MIGRATION_INSTALL_HINT = (
+    "Install the migration bridge with: pip install 'mempalace-code[chroma-migration]'"
+)
+CHROMA_RUNTIME_RETIRED_MESSAGE = (
+    "ChromaDB runtime storage has been retired. "
+    f"Migrate legacy palaces with `{CHROMA_MIGRATION_COMMAND}`; "
+    "the command creates a source backup by default. "
+    f"{CHROMA_MIGRATION_INSTALL_HINT}."
+)
+_BACKEND_CHROMA_MIGRATION_REQUIRED = "chroma_migration_required"
+
+
+class ChromaRuntimeRetiredError(RuntimeError):
+    """Raised when legacy ChromaDB storage is requested as a runtime backend."""
+
+
+class ChromaStore:  # pragma: no cover - behavior is exercised through tests.
+    """Retired public Chroma runtime symbol.
+
+    The private migration adapter remains in ``mempalace_code._chroma_store``.
+    """
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise ChromaRuntimeRetiredError(CHROMA_RUNTIME_RETIRED_MESSAGE)
 
 
 # ─── Abstract interface ────────────────────────────────────────────────────────
@@ -1556,16 +1578,6 @@ class LanceStore(DrawerStore):
         return " AND ".join(parts) if parts else "1=1"
 
 
-# ─── Backwards-compat lazy re-export of ChromaStore ──────────────────────────
-
-
-def __getattr__(name: str):
-    if name == "ChromaStore":
-        chroma_gateway = importlib.import_module("mempalace_code.legacy_optional.chroma")
-        return chroma_gateway.get_chroma_store_class()
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 # ─── Store factory ─────────────────────────────────────────────────────────────
 
 
@@ -1575,7 +1587,7 @@ def _detect_backend(palace_path: str) -> str:
     if (p / "lance").exists():
         return "lance"
     if (p / "chroma.sqlite3").exists():
-        return "chroma"
+        return _BACKEND_CHROMA_MIGRATION_REQUIRED
     # New palace — default to LanceDB
     return "lance"
 
@@ -1589,33 +1601,28 @@ def open_store(
     read_only: bool = False,
 ) -> DrawerStore:
     """
-    Open a drawer store. Auto-detects backend if not specified.
+    Open a LanceDB drawer store. Auto-detects LanceDB palaces if not specified.
 
     Args:
         palace_path: Path to the palace data directory.
-        backend: "lance" or "chroma". None = auto-detect.
-        collection_name: Collection name (ChromaDB only).
-        create: Create table/collection if it doesn't exist.
-        embed_model: Embedding model name (LanceDB only). None = default.
+        backend: "lance" or None. "chroma" is retired and raises before mutation.
+        collection_name: Legacy migrate-storage compatibility parameter; ignored for LanceDB.
+        create: Create the LanceDB table if it doesn't exist.
+        embed_model: Embedding model name. None = default.
         read_only: When True, skip directory creation, schema migration, and embedder
-            initialization for read-only metadata access (LanceDB only).
+            initialization for read-only metadata access.
     """
-    if not read_only:
-        os.makedirs(palace_path, exist_ok=True)
+    if backend == "chroma":
+        raise ChromaRuntimeRetiredError(CHROMA_RUNTIME_RETIRED_MESSAGE)
+    if backend not in (None, "lance"):
+        raise ValueError(f"Unknown storage backend: {backend!r}. Use 'lance'.")
 
     if backend is None:
         backend = _detect_backend(palace_path)
+    if backend == _BACKEND_CHROMA_MIGRATION_REQUIRED:
+        raise ChromaRuntimeRetiredError(CHROMA_RUNTIME_RETIRED_MESSAGE)
 
-    if backend == "lance":
-        return LanceStore(palace_path, create=create, embed_model=embed_model, read_only=read_only)
-    elif backend == "chroma":
-        if read_only:
-            logger.warning(
-                "read_only=True is not supported for the ChromaDB backend; opening as writable"
-            )
-        chroma_gateway = importlib.import_module("mempalace_code.legacy_optional.chroma")
-        return chroma_gateway.open_chroma_store(
-            palace_path, collection_name=collection_name, create=create
-        )
-    else:
-        raise ValueError(f"Unknown storage backend: {backend!r}. Use 'lance' or 'chroma'.")
+    if not read_only:
+        os.makedirs(palace_path, exist_ok=True)
+
+    return LanceStore(palace_path, create=create, embed_model=embed_model, read_only=read_only)

@@ -144,7 +144,7 @@ class MempalaceConfig:
 
     @property
     def collection_name(self) -> str:
-        """ChromaDB collection name."""
+        """Legacy ChromaDB collection name used by migrate-storage compatibility."""
         return self._file_config.get("collection_name", DEFAULT_COLLECTION_NAME)
 
     @property

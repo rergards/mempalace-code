@@ -1,5 +1,7 @@
 ---
 slug: CLEAN-ENTITY-DETECT
+status: completed
+authority: non_authoritative
 goal: "Make mempalace init skip heuristic entity detection unless explicitly enabled"
 risk: low
 risk_note: "Small CLI/config behavior change around an optional pre-mining scan, with focused tests for defaults, opt-in, and invalid config fallback."

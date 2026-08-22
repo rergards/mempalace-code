@@ -1,5 +1,7 @@
 ---
 slug: MINE-JAVA-SMART
+status: completed
+authority: non_authoritative
 goal: "Add regex-based smart chunking and symbol extraction for Java to miner.py"
 risk: low
 risk_note: "Additive change only — new patterns and a dispatch entry; no existing language paths touched"

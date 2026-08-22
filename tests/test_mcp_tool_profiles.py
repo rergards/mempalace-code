@@ -345,3 +345,73 @@ class TestUsageRulesConsistency:
                 f"Profile {profile_name!r} block in LLM_USAGE_RULES.md references "
                 f"tools not enabled by that profile: {sorted(hidden)}"
             )
+
+    def test_capability_guidance_matches_runtime_and_recovery_protocol(self, rules_path):
+        text = rules_path.read_text(encoding="utf-8")
+        match = re.search(
+            r"<!-- mempalace-rules:start -->(.*?)<!-- mempalace-rules:end -->",
+            text,
+            re.DOTALL,
+        )
+        assert match, "canonical managed usage-rules block is missing"
+        managed_rules = " ".join(match.group(1).lower().split())
+
+        required = {
+            "mempalace_search",
+            "mempalace_delete_drawer",
+            "mempalace_add_drawer",
+        }
+        correction_capability = {
+            profile: required <= resolve_active_tools(_ALL, profile=profile)
+            for profile in ("minimal", "code", "notes", "full")
+        }
+
+        assert correction_capability == {
+            "minimal": False,
+            "code": False,
+            "notes": False,
+            "full": True,
+        }
+        assert "only when all three methods are exposed" in managed_rules
+        assert "if deletion or the replacement write is absent, stop" in managed_rules
+        assert "richer direct mcp registration or an owner-controlled host action" in managed_rules
+        assert "do not add a competing drawer" in managed_rules
+
+        discovery = {
+            "mempalace_get_taxonomy",
+            "mempalace_list_wings",
+            "mempalace_list_rooms",
+        }
+        available = {
+            profile: discovery & resolve_active_tools(_ALL, profile=profile)
+            for profile in ("minimal", "code", "notes", "full")
+        }
+
+        assert available["minimal"] == set()
+        assert available["code"] == set()
+        assert available["notes"] == discovery
+        assert available["full"] == discovery
+        assert "for `unknown_wing`, call `mempalace_list_wings` when exposed" in managed_rules
+        assert (
+            "for `unknown_room` or `unknown_wing_room_pair`, call "
+            "`mempalace_get_taxonomy` when exposed" in managed_rules
+        )
+        assert "otherwise use `mempalace_list_rooms` only when" in managed_rules
+        assert (
+            "an empty `mempalace_list_rooms` result validates neither a wing nor a room"
+            in managed_rules
+        )
+        assert "retain the original filter" in managed_rules
+        assert "never silently drop a wing or room filter" in managed_rules
+        assert managed_rules.count("refresh `tools/list` at most once") >= 2
+        assert "never invent or repeat an unavailable method" in managed_rules
+        assert "substitute a nearby method" in managed_rules
+        assert "remove a filter or broaden scope" in managed_rules
+        assert "contradictory host instructions do not expand" in managed_rules
+        assert (
+            "ask the owner to choose the registration or host route before mutation"
+            in managed_rules
+        )
+        assert "reconcile observable poststate before any retry" in managed_rules
+        assert "do not rerun the successful mutation" in managed_rules
+        assert "do not reorder delete/add correction steps" in managed_rules

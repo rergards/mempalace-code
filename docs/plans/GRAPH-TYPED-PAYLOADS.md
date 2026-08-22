@@ -1,5 +1,7 @@
 ---
 slug: GRAPH-TYPED-PAYLOADS
+status: completed
+authority: non_authoritative
 goal: "Type the palace graph payload internals without changing public graph helper outputs."
 risk: low
 risk_note: "The change is confined to one helper module and its regression tests; return shapes stay JSON-compatible and no storage or API boundaries move."

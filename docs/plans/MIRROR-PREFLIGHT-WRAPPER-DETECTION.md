@@ -1,5 +1,7 @@
 ---
 slug: MIRROR-PREFLIGHT-WRAPPER-DETECTION
+status: completed
+authority: non_authoritative
 goal: "Detect wrapper-prefixed destructive MemPalace rsync mirrors in preflight mirror"
 risk: medium
 risk_note: "Changes data-loss guard classification logic; risk is contained by a narrow wrapper allowlist and CLI regression coverage for direct and wrapped command shapes."

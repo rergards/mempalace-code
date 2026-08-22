@@ -1,5 +1,7 @@
 ---
 slug: CODE-TREESITTER-PYTHON-DETACH-TEST
+status: completed
+authority: non_authoritative
 goal: "Add a Python AST chunking regression test proving blank-line-separated comments are not attached to the following def"
 risk: low
 risk_note: "Test-only change covering existing behavior in _chunk_python_treesitter; no production code changes planned"

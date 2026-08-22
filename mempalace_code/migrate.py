@@ -4,7 +4,7 @@ migrate.py — ChromaDB → LanceDB palace migration
 
 Provides migrate_chroma_to_lance() to copy all drawers from a
 ChromaDB palace to a LanceDB palace. Used by the 'mempalace migrate-storage'
-CLI subcommand.
+CLI subcommand. This is the only supported ChromaDB bridge.
 """
 
 from __future__ import annotations
@@ -51,9 +51,13 @@ def migrate_chroma_to_lance(
     from .storage import LanceStore
 
     try:
-        from ._chroma_store import ChromaStore
-    except ImportError:
-        raise RuntimeError("chromadb not installed — run: pip install mempalace-code[chroma]")
+        from .legacy_optional.chroma import get_chroma_store_class
+
+        ChromaStore = get_chroma_store_class()
+    except ImportError as exc:
+        from .legacy_optional.chroma import CHROMA_MIGRATION_INSTALL_HINT
+
+        raise RuntimeError(CHROMA_MIGRATION_INSTALL_HINT) from exc
 
     # Open source ChromaDB palace.
     src_store = ChromaStore(src_path, create=False)

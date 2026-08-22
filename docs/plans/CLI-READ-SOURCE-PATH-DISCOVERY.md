@@ -1,5 +1,7 @@
 ---
 slug: CLI-READ-SOURCE-PATH-DISCOVERY
+status: completed
+authority: non_authoritative
 goal: "Make CLI search output copyable for read and let read resolve unique visible source paths."
 risk: medium
 risk_note: "Small CLI/shared-reader surface, but source_file resolution changes failure modes and MCP read inherits reader.py behavior."

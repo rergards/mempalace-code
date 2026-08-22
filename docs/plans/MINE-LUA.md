@@ -1,5 +1,7 @@
 ---
 slug: MINE-LUA
+status: completed
+authority: non_authoritative
 goal: "Add first-class Lua mining, chunking, symbol metadata, and code_search support"
 risk: medium
 risk_note: "Touches shared miner/catalog/search contracts and adds regex boundaries where false positives are possible."

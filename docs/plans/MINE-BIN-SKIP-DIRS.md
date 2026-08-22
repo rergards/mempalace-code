@@ -1,5 +1,7 @@
 ---
 slug: MINE-BIN-SKIP-DIRS
+status: completed
+authority: non_authoritative
 goal: "Skip bin/ only for .NET projects by detecting .csproj/.sln markers in scan_project()"
 risk: low
 risk_note: "Narrowly scoped — touches one constant and one function; covered by existing+new tests"

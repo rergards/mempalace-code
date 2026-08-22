@@ -1,0 +1,722 @@
+"""Workflow-shape tests for exact-SHA release admission wiring.
+
+These parse the workflow YAML and compare it against the admission contract
+constants in scripts/release_admission_checks.py, so the workflows and the
+library cannot drift apart. Text greps are used only where the assertion really
+is about literal shell text (for example, that a step invokes a specific flag).
+"""
+
+from __future__ import annotations
+
+import copy
+import importlib.util
+import re
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).parent.parent
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "publish.yml"
+
+
+def _load_admission():
+    name = "release_admission_checks"
+    path = ROOT / "scripts" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+ADMISSION = _load_admission()
+
+
+def _workflow(path: Path) -> dict:
+    # PyYAML parses the bare `on:` key as the boolean True; that is fine here
+    # because every trigger assertion looks the key up explicitly.
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _publish_build_job() -> dict:
+    return _workflow(PUBLISH_WORKFLOW)["jobs"]["build"]
+
+
+def _github_release_job() -> dict:
+    return _workflow(PUBLISH_WORKFLOW)["jobs"]["github-release"]
+
+
+# ── ci.yml: the stable aggregate check ────────────────────────────────────────
+
+
+def test_aggregate_check_job_exists_with_the_contract_name():
+    jobs = _workflow(CI_WORKFLOW)["jobs"]
+    assert ADMISSION.AGGREGATE_REQUIRED_CHECK in jobs
+    job = jobs[ADMISSION.AGGREGATE_REQUIRED_CHECK]
+    # The check-run name is what a branch ruleset requires, so it must equal the
+    # contract constant and not merely the job id.
+    assert job["name"] == ADMISSION.AGGREGATE_REQUIRED_CHECK
+
+
+def test_aggregate_check_depends_on_exactly_the_release_critical_jobs():
+    job = _workflow(CI_WORKFLOW)["jobs"][ADMISSION.AGGREGATE_REQUIRED_CHECK]
+    assert sorted(job["needs"]) == sorted(ADMISSION.RELEASE_CRITICAL_CI_JOBS)
+
+
+def test_release_critical_jobs_all_exist_in_ci():
+    jobs = _workflow(CI_WORKFLOW)["jobs"]
+    missing = [name for name in ADMISSION.RELEASE_CRITICAL_CI_JOBS if name not in jobs]
+    assert missing == []
+
+
+def test_no_ci_job_escapes_the_release_critical_classification():
+    """Every ci.yml job is release-critical, the aggregate check, or exempt with a reason.
+
+    The `needs:` comparison above only sees jobs someone already wired in. This
+    is the direction that catches a new security-relevant job added to ci.yml
+    while `needs:` is left alone — otherwise release-required stays green while
+    silently ignoring the new gate.
+    """
+    jobs = set(_workflow(CI_WORKFLOW)["jobs"])
+    unclassified = jobs - {ADMISSION.AGGREGATE_REQUIRED_CHECK}
+    unclassified -= set(ADMISSION.RELEASE_CRITICAL_CI_JOBS)
+    unclassified -= set(ADMISSION.AGGREGATE_EXEMPT_CI_JOBS)
+    assert unclassified == set(), (
+        f"ci.yml jobs {sorted(unclassified)} are neither release-critical nor exempt: add them "
+        "to RELEASE_CRITICAL_CI_JOBS and the aggregate needs:, or to AGGREGATE_EXEMPT_CI_JOBS "
+        "with a reason"
+    )
+
+
+def test_every_exempt_ci_job_exists_and_carries_a_reason():
+    jobs = _workflow(CI_WORKFLOW)["jobs"]
+    for name, reason in ADMISSION.AGGREGATE_EXEMPT_CI_JOBS.items():
+        assert name in jobs, f"exempt job {name!r} no longer exists in ci.yml"
+        assert name not in ADMISSION.RELEASE_CRITICAL_CI_JOBS, name
+        assert reason.strip(), f"exempt job {name!r} has no recorded reason"
+
+
+# ── The exemption set cannot absorb a canonical gate ──────────────────────────
+#
+# A reviewed-exemption design has exactly one soft direction: move a real gate
+# out of RELEASE_CRITICAL_CI_JOBS into AGGREGATE_EXEMPT_CI_JOBS with a
+# plausible-sounding reason. The doc marker check would still pass (the name is
+# already in the doc) and the total-classification test above would still pass
+# (the job is still classified). RELEASE_CRITICAL_MINIMUM_CI_JOBS is a duplicate
+# of the required set, so it only makes a demotion a two-place edit; the binding
+# check is the third test below, which derives the floor's contents from ci.yml
+# and so still fails when both tuples are edited together.
+
+
+def test_the_release_critical_floor_is_a_subset_of_the_required_jobs():
+    demoted = set(ADMISSION.RELEASE_CRITICAL_MINIMUM_CI_JOBS) - set(
+        ADMISSION.RELEASE_CRITICAL_CI_JOBS
+    )
+    assert demoted == set(), (
+        f"jobs {sorted(demoted)} were dropped from RELEASE_CRITICAL_CI_JOBS but are pinned as "
+        "the release-critical minimum; a release gate cannot stop being required"
+    )
+
+
+def test_no_floor_job_can_be_moved_into_the_exemption_set():
+    exempted = set(ADMISSION.AGGREGATE_EXEMPT_CI_JOBS) & set(
+        ADMISSION.RELEASE_CRITICAL_MINIMUM_CI_JOBS
+    )
+    assert exempted == set(), (
+        f"jobs {sorted(exempted)} are exempt from release-required but are pinned as the "
+        "release-critical minimum"
+    )
+
+
+def test_the_floor_covers_every_ci_gate_except_the_one_reasoned_exemption():
+    """Derived from ci.yml, so shrinking both constants together still fails.
+
+    `model-tests` is the only job that may sit outside the floor: it is
+    dispatch-only, so requiring it would make release-required permanently red.
+    Any other job outside the floor is a gate that stopped gating.
+    """
+    jobs = set(_workflow(CI_WORKFLOW)["jobs"])
+    outside = jobs - {ADMISSION.AGGREGATE_REQUIRED_CHECK}
+    outside -= set(ADMISSION.RELEASE_CRITICAL_MINIMUM_CI_JOBS)
+    assert outside == {"model-tests"}, (
+        f"ci.yml jobs {sorted(outside)} sit outside the release-critical minimum; model-tests is "
+        "the only reasoned exemption"
+    )
+    assert set(ADMISSION.AGGREGATE_EXEMPT_CI_JOBS) == {"model-tests"}
+
+
+def test_aggregate_check_runs_even_when_an_upstream_job_fails_or_skips():
+    job = _workflow(CI_WORKFLOW)["jobs"][ADMISSION.AGGREGATE_REQUIRED_CHECK]
+    # Without `if: always()` a failed or skipped dependency skips this job too,
+    # and a skipped required check does not block.
+    assert str(job["if"]).strip() == "always()"
+
+
+def test_aggregate_check_uses_a_runner_provided_interpreter_and_bash():
+    job = _workflow(CI_WORKFLOW)["jobs"][ADMISSION.AGGREGATE_REQUIRED_CHECK]
+    step = job["steps"][0]
+    # No setup-python step runs here, so the script must call the interpreter that
+    # the runner image guarantees.
+    assert "python3 -" in step["run"]
+    assert "\npython -" not in f"\n{step['run']}"
+    assert step["shell"] == "bash"
+
+
+def test_aggregate_check_expects_the_contract_job_list_at_runtime():
+    job = _workflow(CI_WORKFLOW)["jobs"][ADMISSION.AGGREGATE_REQUIRED_CHECK]
+    env = job["steps"][0]["env"]
+    assert sorted(str(env["EXPECTED_JOBS"]).split()) == sorted(ADMISSION.RELEASE_CRITICAL_CI_JOBS)
+    assert env["NEEDS_JSON"] == "${{ toJson(needs) }}"
+
+
+def _run_aggregate_script(needs: dict) -> tuple[int, str]:
+    """Execute the embedded aggregate-check script exactly as the workflow does."""
+    import json
+    import subprocess
+
+    job = _workflow(CI_WORKFLOW)["jobs"][ADMISSION.AGGREGATE_REQUIRED_CHECK]
+    step = job["steps"][0]
+    body = step["run"]
+    script = body.split("<<'PY'\n", 1)[1].rsplit("PY", 1)[0]
+    completed = subprocess.run(
+        [sys.executable, "-"],
+        input=script,
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "NEEDS_JSON": json.dumps(needs),
+            "EXPECTED_JOBS": str(step["env"]["EXPECTED_JOBS"]),
+        },
+    )
+    return completed.returncode, completed.stdout + completed.stderr
+
+
+def _all_successful() -> dict:
+    return {name: {"result": "success"} for name in ADMISSION.RELEASE_CRITICAL_CI_JOBS}
+
+
+def test_aggregate_script_passes_when_every_release_critical_job_succeeded():
+    code, output = _run_aggregate_script(_all_successful())
+    assert code == 0, output
+
+
+@pytest.mark.parametrize("result", ["failure", "cancelled", "skipped", "", "neutral"])
+def test_aggregate_script_fails_for_every_non_success_result(result):
+    needs = _all_successful()
+    needs["lint"] = {"result": result}
+    code, output = _run_aggregate_script(needs)
+    assert code == 1, output
+    assert "lint" in output
+
+
+def test_aggregate_script_fails_when_a_release_critical_job_is_missing():
+    needs = _all_successful()
+    del needs["typecheck"]
+    code, output = _run_aggregate_script(needs)
+    assert code == 1
+    assert "typecheck: missing from needs" in output
+
+
+def test_aggregate_script_fails_when_needs_carries_an_unlisted_job():
+    needs = _all_successful()
+    needs["some-new-job"] = {"result": "success"}
+    code, output = _run_aggregate_script(needs)
+    assert code == 1
+    assert "some-new-job" in output
+
+
+def test_aggregate_script_fails_on_a_completely_empty_needs_context():
+    code, output = _run_aggregate_script({})
+    assert code == 1
+    assert "missing from needs" in output
+
+
+# ci.yml gates these release-critical jobs on the triggering event, so they are
+# skipped in a manually dispatched Tests run.
+DISPATCH_SKIPPED_RELEASE_CRITICAL_JOBS = ("dependency-upgrade-gate", "gitleaks-changed-range")
+
+
+def test_dispatch_skipped_jobs_are_release_critical_and_event_gated_in_ci():
+    jobs = _workflow(CI_WORKFLOW)["jobs"]
+    for name in DISPATCH_SKIPPED_RELEASE_CRITICAL_JOBS:
+        assert name in ADMISSION.RELEASE_CRITICAL_CI_JOBS, name
+        condition = str(jobs[name].get("if", ""))
+        # Event-gated: the job cannot run for every trigger, which is what makes
+        # the dispatch replay below a real workflow shape rather than a guess.
+        assert "github.event_name" in condition, f"{name} is no longer event-gated: {condition!r}"
+        assert "workflow_dispatch" not in condition or "!=" in condition, condition
+
+
+def test_aggregate_script_fails_for_a_workflow_dispatch_shaped_needs_context():
+    """A manually dispatched Tests run must never yield a green release-required.
+
+    `dependency-upgrade-gate` and `gitleaks-changed-range` are skipped on
+    `workflow_dispatch`, and skipped fails closed — that is correct: a green
+    aggregate check must never be manufacturable on a SHA whose Gitleaks and
+    dependency gates never ran. It is also why the remediation re-runs the run
+    that already exists instead of dispatching a new one, which would publish
+    exactly this failure onto the candidate SHA.
+    """
+    needs = _all_successful()
+    for name in DISPATCH_SKIPPED_RELEASE_CRITICAL_JOBS:
+        needs[name] = {"result": "skipped"}
+
+    code, output = _run_aggregate_script(needs)
+
+    assert code == 1, output
+    for name in DISPATCH_SKIPPED_RELEASE_CRITICAL_JOBS:
+        assert f"{name}: skipped" in output, output
+
+
+# ── ci.yml: the release-candidate branch is real release evidence ─────────────
+
+# The candidate branch shape the release docs push before `main` ever moves. It is
+# in the push trigger so the candidate SHA can carry its own Tests and
+# `release-required` results; a SHA promoted to `main` afterwards is then already
+# green, which is what keeps the flow working if `main` later gains required checks.
+RELEASE_CANDIDATE_BRANCH_PATTERN = "release/v*"
+
+# All-zeros is what GitHub reports as `github.event.before` when a push *creates* a
+# branch — exactly how the candidate branch appears. Both range-based gates have to
+# resolve a real base for it or they fail closed and the candidate can never go green.
+ALL_ZEROS_SHA = "0" * 40
+BRANCH_CREATION_FALLBACK_BASE = "origin/main"
+
+
+def _ci_triggers() -> dict:
+    workflow = _workflow(CI_WORKFLOW)
+    return workflow[True] if True in workflow else workflow["on"]
+
+
+def test_ci_push_trigger_covers_main_and_the_release_candidate_branch():
+    triggers = _ci_triggers()
+    assert triggers["push"]["branches"] == ["main", RELEASE_CANDIDATE_BRANCH_PATTERN]
+    # Reviews still happen against `main`; the candidate branch never opens a PR.
+    assert triggers["pull_request"]["branches"] == ["main"]
+
+
+def test_ci_push_trigger_stays_narrow():
+    """A catch-all branch pattern would make any pushed branch release evidence."""
+    for pattern in _ci_triggers()["push"]["branches"]:
+        assert pattern in {"main", RELEASE_CANDIDATE_BRANCH_PATTERN}, pattern
+
+
+# `if:` guards that still admit a `push` event to a non-default branch. A guard
+# outside this set has to be re-reviewed before it can gate a release-critical job.
+PUSH_ADMITTING_CONDITIONS = {
+    "",
+    "always()",
+    "github.event_name == 'pull_request' || github.event_name == 'push'",
+    "github.event_name != 'workflow_dispatch'",
+}
+
+
+def test_a_release_candidate_push_runs_the_complete_release_required_job_graph():
+    """Every release-critical job must run for a push to `release/v*`, not just `main`.
+
+    A job that quietly skipped there would be reported as `skipped` in the
+    aggregate's `needs` context, which fails closed — the candidate could never be
+    admitted. This is the shape assertion that the extended trigger actually buys a
+    complete job graph rather than a partial one.
+    """
+    jobs = _workflow(CI_WORKFLOW)["jobs"]
+    for name in ADMISSION.RELEASE_CRITICAL_CI_JOBS:
+        condition = str(jobs[name].get("if", "")).strip()
+        assert condition in PUSH_ADMITTING_CONDITIONS, f"{name}: unreviewed guard {condition!r}"
+        # A `github.ref` test is the specific way a job would run on `main` but not
+        # on the candidate branch, so the two SHAs would not get the same graph.
+        assert "github.ref" not in condition, f"{name} is branch-gated: {condition!r}"
+
+    aggregate = jobs[ADMISSION.AGGREGATE_REQUIRED_CHECK]
+    assert str(aggregate.get("if", "")).strip() == "always()"
+    assert sorted(aggregate["needs"]) == sorted(ADMISSION.RELEASE_CRITICAL_CI_JOBS)
+
+
+def _ci_step_run(job: str, name_fragment: str) -> str:
+    steps = _workflow(CI_WORKFLOW)["jobs"][job]["steps"]
+    step = next(s for s in steps if name_fragment in str(s.get("name", "")))
+    return str(step["run"])
+
+
+@pytest.mark.parametrize(
+    ("job", "step"),
+    [
+        ("gitleaks-changed-range", "Derive exact Gitleaks commit range"),
+        ("dependency-upgrade-gate", "Dependency upgrade gate"),
+    ],
+)
+def test_range_gates_resolve_a_real_base_when_a_push_creates_the_branch(job, step):
+    run = _ci_step_run(job, step)
+    assert ALL_ZEROS_SHA in run, f"{job} does not handle the branch-creation sentinel"
+    assert BRANCH_CREATION_FALLBACK_BASE in run, f"{job} has no resolvable fallback base"
+
+
+def test_the_branch_creation_fallback_never_narrows_the_scanned_range():
+    """`origin/main..HEAD` is the same commit set as `merge-base(main, HEAD)..HEAD`.
+
+    Falling back to the default branch is therefore honest: it covers every commit
+    the candidate branch adds. Pinning it here stops a future edit from swapping in
+    `HEAD^`, which would scan only the newest commit of a multi-commit branch.
+    """
+    for job, step in (
+        ("gitleaks-changed-range", "Derive exact Gitleaks commit range"),
+        ("dependency-upgrade-gate", "Dependency upgrade gate"),
+    ):
+        run = _ci_step_run(job, step)
+        assert "HEAD^" not in run, f"{job} narrows the range to a single commit"
+        assert "HEAD~" not in run, f"{job} narrows the range to a fixed commit count"
+
+
+@pytest.mark.parametrize("job", ["gitleaks-changed-range", "dependency-upgrade-gate"])
+def test_the_range_gates_fetch_deeply_enough_to_resolve_the_fallback_base(job: str):
+    """The fallback base is a ref, so it has to exist in the runner's clone.
+
+    A shallow checkout of a freshly pushed `release/v*` branch has no
+    `refs/remotes/origin/main`, and the fallback would fail to resolve exactly
+    on the push it was written for. `fetch-depth: 0` is what makes it resolvable.
+    """
+    steps = _workflow(CI_WORKFLOW)["jobs"][job]["steps"]
+    checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@"))
+    assert checkout["with"]["fetch-depth"] == 0, (
+        f"{job}: shallow checkout breaks {BRANCH_CREATION_FALLBACK_BASE}"
+    )
+
+
+# ── publish.yml: admission before artifact build ──────────────────────────────
+
+
+def test_publish_stays_tag_triggered_only():
+    workflow = _workflow(PUBLISH_WORKFLOW)
+    triggers = workflow[True] if True in workflow else workflow["on"]
+    assert set(triggers) == {"push"}
+    assert triggers["push"] == {"tags": ["v*"]}
+
+
+def test_publish_workflow_default_permissions_stay_read_only():
+    workflow = _workflow(PUBLISH_WORKFLOW)
+    assert workflow["permissions"] == {"contents": "read"}
+
+
+def test_every_release_action_stays_pinned_to_an_immutable_commit_sha():
+    workflow = _workflow(PUBLISH_WORKFLOW)
+    uses = [
+        str(step["uses"])
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if "uses" in step
+    ]
+
+    external = [value for value in uses if not value.startswith("./")]
+    local = [value for value in uses if value.startswith("./")]
+    assert external
+    assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", value) for value in external), external
+    assert local == ["./.github/actions/gitleaks-gate"]
+
+
+def test_trusted_pypi_publish_is_the_only_attestation_generation_path():
+    workflow = _workflow(PUBLISH_WORKFLOW)
+    uses = [
+        str(step["uses"])
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if "uses" in step
+    ]
+    pypi_publish = [value for value in uses if value.startswith("pypa/gh-action-pypi-publish@")]
+    text = PUBLISH_WORKFLOW.read_text(encoding="utf-8").lower()
+
+    assert len(pypi_publish) == 1
+    assert workflow["jobs"]["publish"]["environment"] == "release"
+    assert workflow["jobs"]["publish"]["permissions"] == {"id-token": "write"}
+    assert "actions/attest" not in text
+    assert "attest-build-provenance" not in text
+    assert "sigstore" not in text
+    assert "cosign" not in text
+    assert "sbom" not in text
+    assert "twine upload" not in text
+
+
+def test_publish_build_job_holds_only_read_scopes_needed_for_admission():
+    # administration:read cannot be granted to GITHUB_TOKEN, so the build job must
+    # not depend on it; checks/actions read are the exact admission scopes.
+    assert _publish_build_job()["permissions"] == {
+        "contents": "read",
+        "checks": "read",
+        "actions": "read",
+    }
+
+
+def test_github_release_job_is_the_only_retry_target_and_cannot_publish_to_pypi():
+    job = _github_release_job()
+    text = "\n".join(str(step) for step in job["steps"])
+
+    assert job["needs"] == "publish"
+    assert job["permissions"] == {
+        "contents": "write",
+        "checks": "read",
+        "actions": "read",
+    }
+    assert "pypa/gh-action-pypi-publish" not in text
+    assert "twine upload" not in text
+    assert "workflow_dispatch" not in PUBLISH_WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_github_release_rerun_downloads_the_exact_original_run_artifact():
+    downloads = [
+        step
+        for step in _github_release_job()["steps"]
+        if str(step.get("uses", "")).startswith("actions/download-artifact@")
+    ]
+
+    assert len(downloads) == 1
+    assert downloads[0]["with"] == {
+        "name": "dist",
+        "path": "dist/",
+        "run-id": "${{ github.run_id }}",
+        "repository": "${{ github.repository }}",
+        "github-token": "${{ github.token }}",
+    }
+
+
+def test_github_release_rerun_rechecks_exact_repository_tag_sha_and_admission():
+    step = next(
+        item
+        for item in _github_release_job()["steps"]
+        if item.get("name") == "Re-verify exact SHA release admission"
+    )
+    run = step["run"]
+
+    assert 'test "$GITHUB_REPOSITORY" = "rergards/mempalace-code"' in run
+    assert 'test "$GITHUB_EVENT_NAME" = "push"' in run
+    assert 'git rev-parse --verify "refs/tags/${TAG_NAME}^{commit}"' in run
+    assert 'test "$TAG_SHA" = "$GITHUB_SHA"' in run
+    assert 'test "$TAG_SHA" = "$MAIN_SHA"' in run
+    assert '--expect-sha "$TAG_SHA"' in run
+    assert "--check-required-check" in run
+    assert "--check-dependency-audit" in run
+    assert "--check-branch-rules" in run
+    assert "--check-tag-ruleset" not in run
+
+
+def test_github_release_rerun_rechecks_artifact_pypi_and_provenance_identity():
+    steps = _github_release_job()["steps"]
+    names = [step.get("name") for step in steps]
+    assert "Inspect original-run distributions" in names
+    match = next(
+        step
+        for step in steps
+        if step.get("name") == "Match original-run distributions to PyPI and provenance"
+    )["run"]
+
+    assert "fetch_pypi_distributions" in match
+    assert "set(public_by_name)" in match
+    assert "hashlib.sha256" in match
+    assert "_publisher_identity_matches" in match
+    assert '"pypi-attestations"' in match
+    assert '"--repository"' in match
+
+
+def test_github_release_reconciliation_is_idempotent_and_fails_closed_on_asset_drift():
+    run = next(
+        step["run"]
+        for step in _github_release_job()["steps"]
+        if step.get("name") == "Create or reconcile the public GitHub Release"
+    )
+
+    assert re.search(r'"release",\s+"create"', run)
+    assert '"--verify-tag"' in run
+    assert re.search(r'"release",\s+"upload"', run)
+    assert "existing release has duplicate or unexpected assets" in run
+    assert "release asset digest differs" in run
+    assert "final release asset filename set differs" in run
+    assert "--clobber" not in run
+    assert '"release", "delete"' not in run
+
+
+def test_admission_step_runs_before_any_artifact_is_built_or_uploaded():
+    steps = _publish_build_job()["steps"]
+    names = [str(step.get("name", step.get("uses", ""))) for step in steps]
+    admission_index = names.index("Verify exact SHA release admission")
+    build_index = names.index("Build distributions")
+    dist_upload_index = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("actions/upload-artifact")
+        and step.get("with", {}).get("name") == "dist"
+    )
+    assert admission_index < build_index < dist_upload_index
+
+
+def test_admission_step_binds_the_exact_tag_commit_and_public_candidate_ref():
+    steps = _publish_build_job()["steps"]
+    step = next(s for s in steps if s.get("name") == "Verify exact SHA release admission")
+    run = step["run"]
+
+    assert step["shell"] == "bash"
+    assert "set -euo pipefail" in run
+    # Fully qualified tag ref: a same-named branch must not be resolvable here.
+    assert 'git rev-parse --verify "refs/tags/${TAG_NAME}^{commit}"' in run
+    assert 'git rev-parse "origin/main^{commit}"' in run
+    assert '--expect-sha "$TAG_SHA"' in run
+    assert "--candidate-ref origin/main" in run
+    assert '--repo "$GITHUB_REPOSITORY"' in run
+    assert "--require-clean" in run
+    # The tag name arrives through env, never interpolated into the shell body.
+    assert step["env"]["TAG_NAME"] == "${{ github.ref_name }}"
+    assert "${{ github.ref_name }}" not in run
+
+
+def test_admission_step_requires_check_audit_and_branch_rules_but_not_the_ruleset_api():
+    steps = _publish_build_job()["steps"]
+    run = next(s for s in steps if s.get("name") == "Verify exact SHA release admission")["run"]
+
+    assert "--check-required-check" in run
+    assert "--check-dependency-audit" in run
+    assert "--check-branch-rules" in run
+    # Needs administration:read, which a workflow token cannot have; the operator
+    # gates on it through the readiness/status gate instead.
+    assert "--check-tag-ruleset" not in run
+
+
+def test_publish_keeps_gitleaks_full_history_admission_before_admission_step():
+    steps = _publish_build_job()["steps"]
+    names = [str(step.get("name", step.get("uses", ""))) for step in steps]
+    assert any("gitleaks-gate" in name for name in names)
+    assert any("full-history" in str(step.get("run", "")) for step in steps)
+
+
+ARTIFACT_GATE_STEP_NAME = "Inspect built distributions"
+ARTIFACT_GATE_COMMAND = (
+    "python scripts/release_artifact_gate.py --dist dist --require-wheel --require-sdist"
+)
+BUILD_COMMAND = "python -m build"
+
+
+def _gate_index(job: dict) -> int:
+    """Locate the gate step by name, so every assertion below is about that step."""
+    matches = [
+        i for i, step in enumerate(job["steps"]) if step.get("name") == ARTIFACT_GATE_STEP_NAME
+    ]
+    assert len(matches) == 1, f"expected exactly one {ARTIFACT_GATE_STEP_NAME!r} step"
+    return matches[0]
+
+
+def _artifact_gate_violations(job: dict, *, upload_must_follow: bool) -> list[str]:
+    """Return the ways a job's artifact-gate wiring departs from the contract.
+
+    Written as a predicate rather than inline asserts so the mutation test below
+    can prove it rejects the shapes it is supposed to reject.
+    """
+    steps = job.get("steps", [])
+    matched = [i for i, step in enumerate(steps) if step.get("name") == ARTIFACT_GATE_STEP_NAME]
+    if len(matched) != 1:
+        return [f"expected one {ARTIFACT_GATE_STEP_NAME!r} step, found {len(matched)}"]
+    index = matched[0]
+    step = steps[index]
+
+    violations: list[str] = []
+    # Equality, not containment: a trailing `|| true` or a dropped --require flag
+    # keeps a substring match satisfied while changing what the gate asserts.
+    if str(step.get("run", "")).strip() != ARTIFACT_GATE_COMMAND:
+        violations.append(f"gate runs {str(step.get('run', '')).strip()!r}")
+    if "continue-on-error" in step:
+        violations.append("gate step is continue-on-error")
+    if "continue-on-error" in job:
+        violations.append("owning job is continue-on-error")
+
+    builds = [i for i, s in enumerate(steps) if str(s.get("run", "")).strip() == BUILD_COMMAND]
+    if len(builds) != 1:
+        violations.append(f"expected one {BUILD_COMMAND!r} step, found {len(builds)}")
+    elif builds[0] > index:
+        violations.append("gate runs before the build")
+
+    if upload_must_follow:
+        uploads = [
+            i
+            for i, s in enumerate(steps)
+            if str(s.get("uses", "")).startswith("actions/upload-artifact")
+            and s.get("with", {}).get("name") == "dist"
+        ]
+        if len(uploads) != 1:
+            violations.append(f"expected one dist upload, found {len(uploads)}")
+        elif uploads[0] != index + 1:
+            violations.append("a step runs between inspection and upload")
+    return violations
+
+
+@pytest.mark.parametrize(
+    ("workflow", "job", "upload_must_follow"),
+    [(CI_WORKFLOW, "package", False), (PUBLISH_WORKFLOW, "build", True)],
+    ids=["ci-package", "publish-build"],
+)
+def test_artifact_gate_wiring_matches_the_contract(
+    workflow: Path, job: str, upload_must_follow: bool
+):
+    """The gate runs the exact command, after the build, and cannot be soft-failed.
+
+    In publish the upload must follow it immediately: any step in between could
+    rewrite or add a file, and the artifact that leaves the job would be one no
+    gate ever read.
+    """
+    parsed = _workflow(workflow)["jobs"][job]
+    assert _artifact_gate_violations(parsed, upload_must_follow=upload_must_follow) == []
+
+
+def _soft_fail_the_gate(job: dict) -> None:
+    job["steps"][_gate_index(job)]["continue-on-error"] = True
+
+
+def _soft_fail_the_job(job: dict) -> None:
+    job["continue-on-error"] = True
+
+
+def _widen_the_gate_command(job: dict) -> None:
+    job["steps"][_gate_index(job)]["run"] += " || true"
+
+
+def _drop_a_required_flag(job: dict) -> None:
+    step = job["steps"][_gate_index(job)]
+    step["run"] = step["run"].replace(" --require-sdist", "")
+
+
+def _repack_after_the_gate(job: dict) -> None:
+    job["steps"].insert(_gate_index(job) + 1, {"name": "Repack", "run": "touch dist/extra.whl"})
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (_soft_fail_the_gate, "gate step is continue-on-error"),
+        (_soft_fail_the_job, "owning job is continue-on-error"),
+        (_widen_the_gate_command, "gate runs"),
+        (_drop_a_required_flag, "gate runs"),
+        (_repack_after_the_gate, "a step runs between inspection and upload"),
+    ],
+    ids=["soft-fail-step", "soft-fail-job", "or-true", "dropped-flag", "repack-after-gate"],
+)
+def test_the_gate_contract_rejects_each_way_it_could_be_weakened(mutate, expected: str):
+    """A contract that passes on the shapes it forbids is not a contract."""
+    job = copy.deepcopy(_publish_build_job())
+    mutate(job)
+    violations = _artifact_gate_violations(job, upload_must_follow=True)
+    assert any(expected in violation for violation in violations), violations
+
+
+@pytest.mark.parametrize("workflow", [CI_WORKFLOW, PUBLISH_WORKFLOW])
+def test_no_job_runs_a_standalone_twine_check(workflow: Path):
+    # The artifact gate invokes twine itself. A second bare invocation reads as
+    # independent coverage while asserting strictly less than the gate around it.
+    for job in _workflow(workflow)["jobs"].values():
+        for step in job.get("steps", []):
+            assert "twine check" not in str(step.get("run", ""))
+
+
+def test_publish_never_gains_a_manual_or_release_trigger():
+    text = PUBLISH_WORKFLOW.read_text(encoding="utf-8")
+    assert "workflow_dispatch" not in text
+    assert "\n  release:" not in text

@@ -1,5 +1,7 @@
 ---
 slug: MINE-SCALA
+status: completed
+authority: non_authoritative
 goal: "Add Scala (.scala, .sc) language support to the code miner with regex-based symbol extraction for classes, case classes, objects, traits, enums, and functions"
 risk: low
 risk_note: "Follows the established Swift/PHP/Kotlin pattern — additions only, no changes to existing language code. No tree-sitter grammar is required."

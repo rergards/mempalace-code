@@ -759,6 +759,76 @@ class TestRenderWatchScheduleRootGuard:
             render_watch_schedule(str(tmp_path), "linux")
 
 
+class TestWatchRootProjectMarkerClassification:
+    @pytest.mark.parametrize("marker", ["pyproject.toml", "Guard.sln"])
+    def test_regular_project_file_marker_keeps_actionable_schedule_error(self, tmp_path, marker):
+        (tmp_path / marker).write_text("", encoding="utf-8")
+
+        with pytest.raises(ValueError, match=f"mempalace-code init {tmp_path}"):
+            render_watch_schedule(str(tmp_path), "linux")
+
+    @pytest.mark.parametrize("git_shape", ["directory", "file"])
+    def test_supported_git_shape_keeps_actionable_watch_error(self, tmp_path, capsys, git_shape):
+        git_marker = tmp_path / ".git"
+        if git_shape == "directory":
+            git_marker.mkdir()
+        else:
+            git_marker.write_text("gitdir: ../git-data\n", encoding="utf-8")
+
+        with pytest.raises(SystemExit) as exc_info:
+            watch_all(str(tmp_path), str(tmp_path / "palace"))
+
+        assert exc_info.value.code == 1
+        assert f"mempalace-code init {tmp_path}" in capsys.readouterr().err
+
+    def test_irregular_project_marker_fails_closed_as_parent(self, tmp_path, capsys):
+        target = tmp_path / "git-data"
+        target.mkdir()
+        try:
+            (tmp_path / ".git").symlink_to(target, target_is_directory=True)
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"symlink creation unavailable: {exc}")
+
+        with pytest.raises(SystemExit) as exc_info:
+            watch_all(str(tmp_path), str(tmp_path / "palace"))
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert "No initialized projects found" in combined
+        assert "is a project directory" not in combined
+
+    def test_irregular_init_marker_does_not_hide_initialized_child(self, tmp_path):
+        target = tmp_path / "config-target.yaml"
+        target.write_text("wing: wrong-root\n", encoding="utf-8")
+        try:
+            (tmp_path / "mempalace.yaml").symlink_to(target)
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"symlink creation unavailable: {exc}")
+
+        child = tmp_path / "child"
+        child.mkdir()
+        (child / "pyproject.toml").write_text("", encoding="utf-8")
+        (child / "mempalace.yaml").write_text("wing: child-wing\n", encoding="utf-8")
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+            return {}
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", return_value=iter([])),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            watch_all(str(tmp_path), str(tmp_path / "palace"), on_commit=False)
+
+        assert [call["project_dir"] for call in mine_calls] == [str(child)]
+        assert mine_calls[0]["wing_override"] == "child_wing"
+        assert render_watch_schedule(str(tmp_path), "linux").startswith("@reboot ")
+
+
 # ---------------------------------------------------------------------------
 # watch_all() on-save high-churn pruning and warning (AC-5)
 # ---------------------------------------------------------------------------

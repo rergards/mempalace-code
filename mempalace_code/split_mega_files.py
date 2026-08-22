@@ -23,18 +23,34 @@ By: Ben, 2026-03-30
 """
 
 import argparse
+import errno
 import json
 import os
 import re
+import stat
+import sys
 from pathlib import Path
 
+from .source_io import (
+    RegularSourceError,
+    is_regular_source_path,
+    read_regular_text,
+    regular_source_diagnostic,
+    stat_regular_source,
+)
+
 HOME = Path.home()
+
+_HAS_O_NONBLOCK = bool(getattr(os, "O_NONBLOCK", 0))
+_HAS_O_NOFOLLOW = bool(getattr(os, "O_NOFOLLOW", 0))
+_O_BINARY = getattr(os, "O_BINARY", 0)
+_OUTPUT_MODE = 0o644
+_OUTPUT_TARGET_REASON = "not a regular output target"
+_OUTPUT_REPLACE_REASON = "cannot safely replace an existing output target on this platform"
 LUMI_DIR = Path(os.environ.get("MEMPALACE_SOURCE_DIR", str(HOME / "Desktop/transcripts")))
 
-# People we know about (for name detection in content)
-# Loaded from ~/.mempalace/known_names.json if it exists, otherwise generic fallback.
+# People explicitly configured for name detection in content.
 _KNOWN_NAMES_PATH = HOME / ".mempalace" / "known_names.json"
-_FALLBACK_KNOWN_PEOPLE = ["Alice", "Ben", "Riley", "Max", "Sam", "Devon", "Jordan"]
 _KNOWN_NAMES_CACHE = None
 
 
@@ -50,7 +66,7 @@ def _load_known_names_config(force_reload: bool = False):
 
     if _KNOWN_NAMES_PATH.exists():
         try:
-            _KNOWN_NAMES_CACHE = json.loads(_KNOWN_NAMES_PATH.read_text())
+            _KNOWN_NAMES_CACHE = json.loads(read_regular_text(_KNOWN_NAMES_PATH))
             return _KNOWN_NAMES_CACHE
         except (json.JSONDecodeError, OSError):
             pass
@@ -60,13 +76,13 @@ def _load_known_names_config(force_reload: bool = False):
 
 
 def _load_known_people() -> list:
-    """Load known names from config file, falling back to a generic list."""
+    """Load explicitly configured known names."""
     data = _load_known_names_config()
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
         return data.get("names", [])
-    return list(_FALLBACK_KNOWN_PEOPLE)
+    return []
 
 
 KNOWN_PEOPLE = _load_known_people()
@@ -96,6 +112,21 @@ def find_session_boundaries(lines):
         if "Claude Code v" in line and is_true_session_start(lines, i):
             boundaries.append(i)
     return boundaries
+
+
+def _read_session_lines(path: Path) -> list[str]:
+    return read_regular_text(path, errors="replace").splitlines(keepends=True)
+
+
+def discover_text_sources(src_dir: Path) -> list[Path]:
+    """Return regular .txt sources for split scanning."""
+    files = []
+    for path in sorted(src_dir.glob("*.txt")):
+        if not is_regular_source_path(path):
+            print(regular_source_diagnostic(path), file=sys.stderr)
+            continue
+        files.append(path)
+    return files
 
 
 def extract_timestamp(lines):
@@ -141,7 +172,7 @@ def extract_people(lines):
 
     # Speaker tags: "Alice:", "Ben:", etc.
     for person in KNOWN_PEOPLE:
-        if re.search(rf"\b{person}\b", text, re.IGNORECASE):
+        if re.search(rf"(?<!\w){re.escape(person)}(?!\w)", text, re.IGNORECASE):
             found.add(person)
 
     # Working directory username hint — map to known people if configured
@@ -176,13 +207,105 @@ def extract_subject(lines):
     return "session"
 
 
-def split_file(filepath, output_dir, dry_run=False):
+def _reject_non_regular_output_entry(out_path: Path) -> None:
+    """Refuse a synthesized output name that already exists as a non-regular entry.
+
+    ``os.lstat`` is deliberate: ``Path.exists`` follows links and answers False for a
+    dangling symlink, so an existence probe would let the write create the link target
+    outside the requested output directory.
+    """
+    try:
+        st = os.lstat(out_path)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+        raise RegularSourceError(out_path, _OUTPUT_TARGET_REASON)
+
+
+def _open_regular_output_descriptor(out_path: Path) -> int:
+    """Open a validated regular-file descriptor for a generated split chunk.
+
+    O_NOFOLLOW refuses a symlink at the synthesized name and O_NONBLOCK keeps a
+    reader-less FIFO from blocking the open forever; ``fstat`` re-validates the
+    descriptor that will actually be written.
+    """
+    _reject_non_regular_output_entry(out_path)
+
+    flags = os.O_WRONLY | os.O_CREAT | _O_BINARY
+    if _HAS_O_NOFOLLOW:
+        flags |= os.O_NOFOLLOW
+    if _HAS_O_NONBLOCK:
+        flags |= os.O_NONBLOCK
+    protected_reopen = _HAS_O_NOFOLLOW and _HAS_O_NONBLOCK
+    if not protected_reopen:
+        # O_CREAT|O_EXCL refuses every raced-in object without following or opening it.
+        # Existing regular outputs are deliberately fail-closed on this fallback path.
+        flags |= os.O_EXCL
+
+    try:
+        fd = os.open(out_path, flags, _OUTPUT_MODE)
+    except OSError as exc:
+        if _output_entry_is_unsafe(out_path):
+            raise RegularSourceError(out_path, _OUTPUT_TARGET_REASON) from exc
+        if not protected_reopen and exc.errno == errno.EEXIST:
+            raise RegularSourceError(out_path, _OUTPUT_REPLACE_REASON) from exc
+        raise
+
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+            raise RegularSourceError(out_path, _OUTPUT_TARGET_REASON)
+        os.ftruncate(fd, 0)
+        _clear_nonblocking(fd)
+    except Exception:
+        os.close(fd)
+        raise
+
+    return fd
+
+
+def _output_entry_is_unsafe(out_path: Path) -> bool:
+    """Report whether a failed open was caused by a hostile entry rather than plain I/O."""
+    try:
+        st = os.lstat(out_path)
+    except OSError:
+        return False
+    return not stat.S_ISREG(st.st_mode) or st.st_nlink != 1
+
+
+def _clear_nonblocking(fd: int) -> None:
+    """Drop O_NONBLOCK once the descriptor is known to be a regular file."""
+    if not _HAS_O_NONBLOCK:
+        return
+
+    import fcntl
+
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
+
+
+def _write_regular_output(out_path: Path, text: str) -> None:
+    """Write a generated chunk through a descriptor validated as a regular file."""
+    payload = memoryview(text.encode("utf-8"))
+    fd = _open_regular_output_descriptor(out_path)
+    try:
+        offset = 0
+        while offset < len(payload):
+            written = os.write(fd, payload[offset:])
+            if written == 0:
+                raise OSError("regular output write made no progress")
+            offset += written
+    finally:
+        os.close(fd)
+
+
+def split_file(filepath, output_dir, dry_run=False, *, _progress=None):
     """
     Split a single mega-file into per-session files.
     Returns list of output paths written (or would be written if dry_run).
     """
     path = Path(filepath)
-    lines = path.read_text(errors="replace").splitlines(keepends=True)
+    lines = _read_session_lines(path)
 
     boundaries = find_session_boundaries(lines)
     if len(boundaries) < 2:
@@ -192,7 +315,7 @@ def split_file(filepath, output_dir, dry_run=False):
     boundaries.append(len(lines))
 
     out_dir = Path(output_dir) if output_dir else path.parent
-    written = []
+    written = _progress if _progress is not None else []
 
     for i, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
         chunk = lines[start:end]
@@ -219,7 +342,7 @@ def split_file(filepath, output_dir, dry_run=False):
         if dry_run:
             print(f"  [{i + 1}/{len(boundaries) - 1}] {name}  ({len(chunk)} lines)")
         else:
-            out_path.write_text("".join(chunk))
+            _write_regular_output(out_path, "".join(chunk))
             print(f"  ✓ {name}  ({len(chunk)} lines)")
 
         written.append(out_path)
@@ -263,11 +386,15 @@ def main():
     if args.file:
         files = [Path(args.file)]
     else:
-        files = sorted(src_dir.glob("*.txt"))
+        files = discover_text_sources(src_dir)
 
     mega_files = []
     for f in files:
-        lines = f.read_text(errors="replace").splitlines(keepends=True)
+        try:
+            lines = _read_session_lines(f)
+        except OSError as exc:
+            print(f"{f}: {exc}", file=sys.stderr)
+            continue
         boundaries = find_session_boundaries(lines)
         if len(boundaries) >= args.min_sessions:
             mega_files.append((f, len(boundaries)))
@@ -285,9 +412,25 @@ def main():
     print(f"{'─' * 60}\n")
 
     total_written = 0
+    failed_files = 0
     for f, n_sessions in mega_files:
-        print(f"  {f.name}  ({n_sessions} sessions, {f.stat().st_size // 1024}KB)")
-        written = split_file(f, output_dir, dry_run=args.dry_run)
+        try:
+            size_kb = stat_regular_source(f).st_size // 1024
+        except OSError as exc:
+            print(f"{f}: {exc}", file=sys.stderr)
+            failed_files += 1
+            continue
+        print(f"  {f.name}  ({n_sessions} sessions, {size_kb}KB)")
+        progress = []
+        try:
+            written = split_file(f, output_dir, dry_run=args.dry_run, _progress=progress)
+        except OSError as exc:
+            # A refused output target must not cost the operator the source mega-file.
+            total_written += len(progress)
+            failed_files += 1
+            print(f"{f}: {exc}", file=sys.stderr)
+            print(f"  → Split aborted; original left in place as {f.name}\n")
+            continue
         total_written += len(written)
 
         if not args.dry_run and written:
@@ -300,9 +443,16 @@ def main():
     print(f"{'─' * 60}")
     if args.dry_run:
         print(f"  DRY RUN — would create {total_written} files from {len(mega_files)} mega-files")
+    elif failed_files:
+        print(
+            f"  Done with errors — created {total_written} files; "
+            f"failed {failed_files} of {len(mega_files)} mega-files"
+        )
     else:
         print(f"  Done — created {total_written} files from {len(mega_files)} mega-files")
     print()
+    if failed_files:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

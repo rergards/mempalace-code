@@ -1,5 +1,7 @@
 ---
 slug: CI-CACHING-TEST-ENV-BRANCH
+status: completed
+authority: non_authoritative
 goal: "Add focused non-network coverage for HF_HOME selection in offline test helpers"
 risk: low
 risk_note: "Test-only change in one module; no production code, downloads, or fixture-wide behavior changes"

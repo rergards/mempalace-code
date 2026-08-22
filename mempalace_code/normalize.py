@@ -21,6 +21,8 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from .source_io import read_regular_text
+
 # --- Claude Code noise patterns ---
 # Each pattern must consume the entire line to avoid stripping inline prose.
 _NOISE_LINE_RE = re.compile(
@@ -49,8 +51,7 @@ def normalize(filepath: str, spellcheck: bool = True) -> str:
     Plain text files pass through unchanged.
     """
     try:
-        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        content = read_regular_text(filepath, encoding="utf-8", errors="replace")
     except OSError as e:
         raise IOError(f"Could not read {filepath}: {e}")
 

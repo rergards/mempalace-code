@@ -7,18 +7,24 @@ Usage:
     python scripts/release_install_metadata_smoke.py --install-spec . --json
     python scripts/release_install_metadata_smoke.py --install-spec mempalace-code==1.2.3
     python scripts/release_install_metadata_smoke.py --installer pipx --install-spec mempalace-code==1.2.3
+    python scripts/release_install_metadata_smoke.py --installer uv-tool --install-spec mempalace-code==1.2.3
+    python scripts/release_install_metadata_smoke.py --installer bootstrap-venv --install-spec mempalace-code==1.2.3
 
 Installs mempalace-code into a disposable environment (a fresh venv by default,
-or a disposable pipx-style tool environment with --installer pipx) and compares
-three version surfaces:
+or a disposable pipx/uv-tool/bootstrap-venv environment) and compares installed
+version and provenance surfaces:
   1. importlib.metadata.version("mempalace-code")  (installed package metadata)
   2. mempalace_code.__version__                     (imported module)
   3. `mempalace-code version-check --status`         (installed console script)
+  4. `mempalace-code install-alias` provenance       (legacy alias target)
+  5. ordinary package import, CLI help, and LanceDB read-only open while
+     chromadb imports are blocked
 
-Probes run from a neutral temporary working directory outside the source tree
-so a source checkout's pyproject.toml cannot shadow the installed package.
+Probes run from neutral temporary working directories outside the source tree
+so a source checkout's pyproject.toml or ambient PATH entry cannot shadow the
+installed package.
 
-Exits 0 only when all three surfaces report the same version.
+Exits 0 only when every required surface passes and all versioned surfaces agree.
 """
 
 from __future__ import annotations
@@ -45,20 +51,37 @@ if TYPE_CHECKING:
 DEFAULT_PACKAGE = "mempalace-code"
 MODULE_NAME = "mempalace_code"
 CONSOLE_SCRIPT = "mempalace-code"
+ALIAS_INSTALLER_SCRIPT = "mempalace-code-alias"
 AGENT_PLUGIN_MCP_SCRIPT = "mempalace-code-mcp"
 DEFAULT_TIMEOUT_SECONDS = 300
 
 INSTALLER_VENV = "venv"
 INSTALLER_PIPX = "pipx"
-INSTALLERS = (INSTALLER_VENV, INSTALLER_PIPX)
+INSTALLER_UV_TOOL = "uv-tool"
+INSTALLER_BOOTSTRAP_VENV = "bootstrap-venv"
+INSTALLERS = (
+    INSTALLER_VENV,
+    INSTALLER_PIPX,
+    INSTALLER_UV_TOOL,
+    INSTALLER_BOOTSTRAP_VENV,
+)
 
 SURFACE_INSTALL = "install"
 SURFACE_METADATA = "package_metadata"
 SURFACE_MODULE = "module_version"
 SURFACE_CLI = "cli_version_check"
+SURFACE_ALIAS_PROVENANCE = "alias_provenance"
 SURFACE_AGENT_PLUGIN = "agent_plugin"
+SURFACE_RUNTIME_NO_CHROMADB = "ordinary_runtime_no_chromadb"
 
-REQUIRED_SURFACES = [SURFACE_METADATA, SURFACE_MODULE, SURFACE_CLI, SURFACE_AGENT_PLUGIN]
+REQUIRED_SURFACES = [
+    SURFACE_METADATA,
+    SURFACE_MODULE,
+    SURFACE_CLI,
+    SURFACE_ALIAS_PROVENANCE,
+    SURFACE_AGENT_PLUGIN,
+    SURFACE_RUNTIME_NO_CHROMADB,
+]
 
 STATUS_OK = "ok"
 STATUS_FAIL = "fail"
@@ -95,6 +118,27 @@ _PROBE_SCRIPT = (
     "    print('MODULE-FILE=' + str(mempalace_code.__file__))\n"
     "except Exception as exc:\n"
     "    print('MODULE-ERROR=' + str(exc))\n"
+)
+
+_RUNTIME_NO_CHROMADB_PROBE_SCRIPT = (
+    "import builtins\n"
+    "import sys\n"
+    "import tempfile\n"
+    "_orig_import = builtins.__import__\n"
+    "def _guard(name, globals=None, locals=None, fromlist=(), level=0):\n"
+    "    if name == 'chromadb' or name.startswith('chromadb.'):\n"
+    "        raise RuntimeError('chromadb import blocked during ordinary runtime probe')\n"
+    "    return _orig_import(name, globals, locals, fromlist, level)\n"
+    "builtins.__import__ = _guard\n"
+    "import mempalace_code\n"
+    "from mempalace_code.storage import open_store\n"
+    "with tempfile.TemporaryDirectory(prefix='mempalace-runtime-probe-') as palace:\n"
+    "    store = open_store(palace, backend='lance', create=False, read_only=True)\n"
+    "    assert store.count() == 0\n"
+    "from mempalace_code import cli\n"
+    "sys.argv = ['mempalace-code']\n"
+    "cli.main()\n"
+    "print('RUNTIME-NO-CHROMADB=ok')\n"
 )
 
 # ── Sanitization (mirrors scripts/release_status_gate.py) ─────────────────────
@@ -384,6 +428,24 @@ def find_pipx_executable() -> str | None:
     return None
 
 
+def find_uv_executable() -> str | None:
+    """Discover uv as an external executable: PATH first, then Homebrew fallbacks."""
+    path_uv = shutil.which("uv")
+    if path_uv:
+        return path_uv
+    for homebrew_path in ("/opt/homebrew/bin/uv", "/usr/local/bin/uv"):
+        if os.path.isfile(homebrew_path) and os.access(homebrew_path, os.X_OK):
+            return homebrew_path
+    return None
+
+
+def find_uv_tool_python(tool_dir: Path) -> Path | None:
+    """Find the interpreter in a disposable UV_TOOL_DIR containing one installed tool."""
+    candidates = sorted(tool_dir.glob("*/bin/python"))
+    candidates.extend(sorted(tool_dir.glob("*/Scripts/python.exe")))
+    return candidates[0] if len(candidates) == 1 else None
+
+
 # ── Probes ─────────────────────────────────────────────────────────────────────
 
 
@@ -491,6 +553,192 @@ def probe_cli_version_check(
     )
 
 
+def _samefile_or_resolves_to(left: Path, right: Path) -> bool:
+    try:
+        return left.samefile(right)
+    except OSError:
+        return left.resolve(strict=False) == right.resolve(strict=False)
+
+
+def _write_conflicting_console_script(path: Path) -> None:
+    path.write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'ambient mempalace-code should not run'\nexit 42\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def probe_alias_provenance(
+    console_bin: str,
+    probe_cwd: str,
+    run_subprocess: RunSubprocess,
+    env: dict[str, str] | None = None,
+) -> SurfaceResult:
+    """Create the legacy alias under PATH shadowing and verify its target and version."""
+    console_path = Path(console_bin)
+    with tempfile.TemporaryDirectory(prefix="mempalace-alias-provenance-") as tmpdir:
+        tmp_root = Path(tmpdir)
+        conflict_bin = tmp_root / "conflict-bin"
+        launcher_bin = tmp_root / "launcher-bin"
+        conflict_bin.mkdir()
+        launcher_bin.mkdir()
+
+        _write_conflicting_console_script(conflict_bin / CONSOLE_SCRIPT)
+        launcher = launcher_bin / CONSOLE_SCRIPT
+        launcher.symlink_to(console_path.absolute())
+
+        probe_env = dict(env or os.environ)
+        probe_env["PATH"] = os.pathsep.join((str(conflict_bin), str(launcher_bin)))
+
+        rc, out, err = run_subprocess(
+            [str(launcher), "install-alias"],
+            env=probe_env,
+            cwd=probe_cwd,
+        )
+        if rc != 0:
+            detail = sanitize((err or out).strip()) or f"install-alias exited {rc}"
+            return SurfaceResult(
+                SURFACE_ALIAS_PROVENANCE,
+                STATUS_ERROR,
+                f"install-alias under PATH shadowing failed: {detail}",
+            )
+
+        alias_path = launcher_bin / "mempalace"
+        if not alias_path.exists() and not alias_path.is_symlink():
+            return SurfaceResult(
+                SURFACE_ALIAS_PROVENANCE,
+                STATUS_FAIL,
+                "install-alias did not create the legacy mempalace alias",
+            )
+
+        if not _samefile_or_resolves_to(alias_path, launcher):
+            target_detail = (
+                os.readlink(alias_path) if alias_path.is_symlink() else "non-symlink alias entry"
+            )
+            return SurfaceResult(
+                SURFACE_ALIAS_PROVENANCE,
+                STATUS_FAIL,
+                "legacy alias does not target the invoked mempalace-code under PATH shadowing: "
+                + sanitize(target_detail),
+            )
+
+        rc, out, err = run_subprocess(
+            [str(alias_path), "version-check", "--status"],
+            env=probe_env,
+            cwd=probe_cwd,
+        )
+        if rc != 0:
+            detail = sanitize((err or out).strip()) or f"alias version-check exited {rc}"
+            return SurfaceResult(
+                SURFACE_ALIAS_PROVENANCE,
+                STATUS_ERROR,
+                f"alias version-check --status failed: {detail}",
+            )
+
+        matches = _CURRENT_VERSION_RE.findall(out)
+        if not matches:
+            return SurfaceResult(
+                SURFACE_ALIAS_PROVENANCE,
+                STATUS_FAIL,
+                "alias version-check --status output has no 'Current version:' line",
+            )
+        if len(set(matches)) > 1:
+            return SurfaceResult(
+                SURFACE_ALIAS_PROVENANCE,
+                STATUS_FAIL,
+                "alias version-check --status printed conflicting 'Current version:' lines: "
+                + str(sorted(set(matches))),
+            )
+        version = matches[0]
+
+        installer_bin = tmp_root / "alias-installer-bin"
+        installer_bin.mkdir()
+        installer_canonical = installer_bin / CONSOLE_SCRIPT
+        installer_canonical.symlink_to(console_path.absolute())
+        installer_launcher = installer_bin / ALIAS_INSTALLER_SCRIPT
+        installer_launcher.symlink_to(console_path.with_name(ALIAS_INSTALLER_SCRIPT).absolute())
+        installer_env = dict(probe_env)
+        installer_env["PATH"] = os.pathsep.join((str(conflict_bin), str(installer_bin)))
+
+        rc, out, err = run_subprocess(
+            [str(installer_launcher)],
+            env=installer_env,
+            cwd=probe_cwd,
+        )
+        if rc != 0:
+            detail = sanitize((err or out).strip()) or f"{ALIAS_INSTALLER_SCRIPT} exited {rc}"
+            return SurfaceResult(
+                SURFACE_ALIAS_PROVENANCE,
+                STATUS_ERROR,
+                f"dedicated alias installer under PATH shadowing failed: {detail}",
+            )
+
+        installer_alias = installer_bin / "mempalace"
+        if not installer_alias.exists() and not installer_alias.is_symlink():
+            return SurfaceResult(
+                SURFACE_ALIAS_PROVENANCE,
+                STATUS_FAIL,
+                "dedicated alias installer did not create the legacy mempalace alias",
+            )
+        if not _samefile_or_resolves_to(installer_alias, installer_canonical):
+            target_detail = (
+                os.readlink(installer_alias)
+                if installer_alias.is_symlink()
+                else "non-symlink alias entry"
+            )
+            return SurfaceResult(
+                SURFACE_ALIAS_PROVENANCE,
+                STATUS_FAIL,
+                "dedicated alias installer did not bind to its sibling mempalace-code: "
+                + sanitize(target_detail),
+            )
+
+        return SurfaceResult(
+            SURFACE_ALIAS_PROVENANCE,
+            STATUS_OK,
+            f"legacy alias and dedicated installer target invoked mempalace-code and report {version}",
+            version,
+        )
+
+
+def probe_ordinary_runtime_no_chromadb(
+    python_bin: str,
+    probe_cwd: str,
+    run_subprocess: RunSubprocess,
+    env: dict[str, str] | None = None,
+) -> SurfaceResult:
+    """Probe ordinary runtime paths while failing on any chromadb import."""
+    rc, out, err = run_subprocess(
+        [python_bin, "-c", _RUNTIME_NO_CHROMADB_PROBE_SCRIPT],
+        env=env,
+        cwd=probe_cwd,
+    )
+    if rc != 0:
+        detail = sanitize((err or out).strip()) or f"ordinary runtime probe exited {rc}"
+        return SurfaceResult(
+            SURFACE_RUNTIME_NO_CHROMADB,
+            STATUS_ERROR,
+            f"ordinary runtime no-chromadb probe failed: {detail}",
+        )
+    if "RUNTIME-NO-CHROMADB=ok" not in out:
+        return SurfaceResult(
+            SURFACE_RUNTIME_NO_CHROMADB,
+            STATUS_FAIL,
+            "ordinary runtime no-chromadb probe did not report success",
+        )
+    if "migrate-storage" not in out:
+        return SurfaceResult(
+            SURFACE_RUNTIME_NO_CHROMADB,
+            STATUS_FAIL,
+            "CLI help did not include migrate-storage during ordinary runtime probe",
+        )
+    return SurfaceResult(
+        SURFACE_RUNTIME_NO_CHROMADB,
+        STATUS_OK,
+        "package import, CLI help, and LanceDB read-only open avoided chromadb",
+    )
+
+
 def probe_agent_plugin_package(
     console_bin: str,
     probe_cwd: str,
@@ -592,7 +840,7 @@ def run_venv_smoke(
     package: str,
     run_subprocess: RunSubprocess,
 ) -> SmokeResult:
-    """Install into a fresh disposable venv (non-editable) and probe all three surfaces."""
+    """Install into a fresh disposable venv (non-editable) and probe all surfaces."""
     with tempfile.TemporaryDirectory(prefix="mempalace-install-smoke-") as tmpdir:
         tmp_root = Path(tmpdir)
         venv_dir = tmp_root / "venv"
@@ -625,6 +873,9 @@ def run_venv_smoke(
         cli_result = probe_cli_version_check(
             console_bin, str(probe_cwd), run_subprocess, env=probe_env
         )
+        alias_result = probe_alias_provenance(
+            console_bin, str(probe_cwd), run_subprocess, env=probe_env
+        )
         agent_plugin_result = probe_agent_plugin_package(
             console_bin,
             str(probe_cwd),
@@ -632,9 +883,92 @@ def run_venv_smoke(
             env=probe_env,
             source_root=str(_SOURCE_ROOT),
         )
+        runtime_result = probe_ordinary_runtime_no_chromadb(
+            python_bin, str(probe_cwd), run_subprocess, env=probe_env
+        )
 
-        surfaces = [metadata_result, module_result, cli_result, agent_plugin_result]
+        surfaces = [
+            metadata_result,
+            module_result,
+            cli_result,
+            alias_result,
+            agent_plugin_result,
+            runtime_result,
+        ]
         return evaluate_smoke(surfaces, package, install_spec, INSTALLER_VENV)
+
+
+def run_bootstrap_venv_smoke(
+    install_spec: str,
+    package: str,
+    run_subprocess: RunSubprocess,
+) -> SmokeResult:
+    """Exercise the documented ~/.mempalace/venv topology under a disposable HOME."""
+    with tempfile.TemporaryDirectory(prefix="mempalace-bootstrap-smoke-") as tmpdir:
+        tmp_root = Path(tmpdir)
+        fake_home = tmp_root / "home"
+        fake_home.mkdir()
+        venv_dir = fake_home / ".mempalace" / "venv"
+        probe_cwd = tmp_root / "probe-cwd"
+        probe_cwd.mkdir()
+
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+
+        rc, _out, err = run_subprocess([sys.executable, "-m", "venv", str(venv_dir)], env=env)
+        if rc != 0:
+            detail = sanitize(err.strip()) or f"venv creation exited {rc}"
+            surfaces = [
+                SurfaceResult(SURFACE_INSTALL, STATUS_ERROR, f"venv creation failed: {detail}")
+            ]
+            return SmokeResult(False, None, INSTALLER_BOOTSTRAP_VENV, install_spec, surfaces, [])
+
+        script_dir = venv_dir / "bin"
+        pip = str(script_dir / "pip")
+        python_bin = str(script_dir / "python")
+        console_bin = str(script_dir / CONSOLE_SCRIPT)
+        probe_env = _env_with_script_dir(script_dir, env)
+
+        rc, out, err = run_subprocess(
+            [pip, "install", "--no-cache-dir", install_spec], env=probe_env
+        )
+        if rc != 0:
+            detail = sanitize((err or out).strip()) or f"pip install exited {rc}"
+            surfaces = [SurfaceResult(SURFACE_INSTALL, STATUS_FAIL, f"install failed: {detail}")]
+            return SmokeResult(False, None, INSTALLER_BOOTSTRAP_VENV, install_spec, surfaces, [])
+
+        metadata_result, module_result = probe_metadata_and_module(
+            python_bin,
+            str(probe_cwd),
+            run_subprocess,
+            env=probe_env,
+            source_root=str(_SOURCE_ROOT),
+        )
+        cli_result = probe_cli_version_check(
+            console_bin, str(probe_cwd), run_subprocess, env=probe_env
+        )
+        alias_result = probe_alias_provenance(
+            console_bin, str(probe_cwd), run_subprocess, env=probe_env
+        )
+        agent_plugin_result = probe_agent_plugin_package(
+            console_bin,
+            str(probe_cwd),
+            run_subprocess,
+            env=probe_env,
+            source_root=str(_SOURCE_ROOT),
+        )
+        runtime_result = probe_ordinary_runtime_no_chromadb(
+            python_bin, str(probe_cwd), run_subprocess, env=probe_env
+        )
+        surfaces = [
+            metadata_result,
+            module_result,
+            cli_result,
+            alias_result,
+            agent_plugin_result,
+            runtime_result,
+        ]
+        return evaluate_smoke(surfaces, package, install_spec, INSTALLER_BOOTSTRAP_VENV)
 
 
 def run_pipx_smoke(
@@ -642,7 +976,7 @@ def run_pipx_smoke(
     package: str,
     run_subprocess: RunSubprocess,
 ) -> SmokeResult:
-    """Install via pipx into disposable PIPX_HOME/PIPX_BIN_DIR and probe all three surfaces.
+    """Install via pipx into disposable PIPX_HOME/PIPX_BIN_DIR and probe all surfaces.
 
     Uses temp PIPX_HOME/PIPX_BIN_DIR so the operator's real pipx tool install is
     never touched.
@@ -691,6 +1025,7 @@ def run_pipx_smoke(
             source_root=str(_SOURCE_ROOT),
         )
         cli_result = probe_cli_version_check(console_bin, str(probe_cwd), run_subprocess, env=env)
+        alias_result = probe_alias_provenance(console_bin, str(probe_cwd), run_subprocess, env=env)
         agent_plugin_result = probe_agent_plugin_package(
             console_bin,
             str(probe_cwd),
@@ -698,9 +1033,95 @@ def run_pipx_smoke(
             env=env,
             source_root=str(_SOURCE_ROOT),
         )
+        runtime_result = probe_ordinary_runtime_no_chromadb(
+            venv_python, str(probe_cwd), run_subprocess, env=env
+        )
 
-        surfaces = [metadata_result, module_result, cli_result, agent_plugin_result]
+        surfaces = [
+            metadata_result,
+            module_result,
+            cli_result,
+            alias_result,
+            agent_plugin_result,
+            runtime_result,
+        ]
         return evaluate_smoke(surfaces, package, install_spec, INSTALLER_PIPX)
+
+
+def run_uv_tool_smoke(
+    install_spec: str,
+    package: str,
+    run_subprocess: RunSubprocess,
+) -> SmokeResult:
+    """Install via uv tool into disposable tool, bin, and cache directories."""
+    with tempfile.TemporaryDirectory(prefix="mempalace-uv-tool-smoke-") as tmpdir:
+        tmp_root = Path(tmpdir)
+        tool_dir = tmp_root / "tools"
+        bin_dir = tmp_root / "bin"
+        cache_dir = tmp_root / "cache"
+        probe_cwd = tmp_root / "probe-cwd"
+        for path in (tool_dir, bin_dir, cache_dir, probe_cwd):
+            path.mkdir()
+
+        env = dict(os.environ)
+        env["UV_TOOL_DIR"] = str(tool_dir)
+        env["UV_TOOL_BIN_DIR"] = str(bin_dir)
+        env["UV_CACHE_DIR"] = str(cache_dir)
+        env = _env_with_script_dir(bin_dir, env)
+
+        uv_exe = find_uv_executable()
+        if uv_exe is None:
+            surfaces = [SurfaceResult(SURFACE_INSTALL, STATUS_ERROR, "uv not found on PATH")]
+            return SmokeResult(False, None, INSTALLER_UV_TOOL, install_spec, surfaces, [])
+
+        rc, out, err = run_subprocess([uv_exe, "tool", "install", "--force", install_spec], env=env)
+        if rc != 0:
+            detail = sanitize((err or out).strip()) or f"uv tool install exited {rc}"
+            surfaces = [
+                SurfaceResult(SURFACE_INSTALL, STATUS_FAIL, f"uv tool install failed: {detail}")
+            ]
+            return SmokeResult(False, None, INSTALLER_UV_TOOL, install_spec, surfaces, [])
+
+        python_path = find_uv_tool_python(tool_dir)
+        if python_path is None:
+            surfaces = [
+                SurfaceResult(
+                    SURFACE_INSTALL,
+                    STATUS_ERROR,
+                    "uv tool interpreter not found uniquely in disposable UV_TOOL_DIR",
+                )
+            ]
+            return SmokeResult(False, None, INSTALLER_UV_TOOL, install_spec, surfaces, [])
+
+        console_bin = str(bin_dir / CONSOLE_SCRIPT)
+        metadata_result, module_result = probe_metadata_and_module(
+            str(python_path),
+            str(probe_cwd),
+            run_subprocess,
+            env=env,
+            source_root=str(_SOURCE_ROOT),
+        )
+        cli_result = probe_cli_version_check(console_bin, str(probe_cwd), run_subprocess, env=env)
+        alias_result = probe_alias_provenance(console_bin, str(probe_cwd), run_subprocess, env=env)
+        agent_plugin_result = probe_agent_plugin_package(
+            console_bin,
+            str(probe_cwd),
+            run_subprocess,
+            env=env,
+            source_root=str(_SOURCE_ROOT),
+        )
+        runtime_result = probe_ordinary_runtime_no_chromadb(
+            str(python_path), str(probe_cwd), run_subprocess, env=env
+        )
+        surfaces = [
+            metadata_result,
+            module_result,
+            cli_result,
+            alias_result,
+            agent_plugin_result,
+            runtime_result,
+        ]
+        return evaluate_smoke(surfaces, package, install_spec, INSTALLER_UV_TOOL)
 
 
 # ── Output formatting ──────────────────────────────────────────────────────────
@@ -812,10 +1233,13 @@ def main(argv: list[str] | None = None) -> int:
             timeout_seconds=args.timeout_seconds,
         )
 
-    if args.installer == INSTALLER_PIPX:
-        result = run_pipx_smoke(args.install_spec, args.package, run_subprocess)
-    else:
-        result = run_venv_smoke(args.install_spec, args.package, run_subprocess)
+    runners = {
+        INSTALLER_VENV: run_venv_smoke,
+        INSTALLER_PIPX: run_pipx_smoke,
+        INSTALLER_UV_TOOL: run_uv_tool_smoke,
+        INSTALLER_BOOTSTRAP_VENV: run_bootstrap_venv_smoke,
+    }
+    result = runners[args.installer](args.install_spec, args.package, run_subprocess)
 
     if args.json_output:
         print(json.dumps(result.to_dict(), indent=2))

@@ -1,5 +1,7 @@
 ---
 slug: ARCH-REF-COVERAGE
+status: completed
+authority: non_authoritative
 goal: "Add find_references coverage for incoming depends_on and references_project categories"
 risk: low
 risk_note: "Test-only change covering existing category_map behavior in the MCP architecture tools."

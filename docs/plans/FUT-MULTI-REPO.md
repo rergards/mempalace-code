@@ -1,5 +1,7 @@
 ---
 slug: FUT-MULTI-REPO
+status: completed
+authority: non_authoritative
 goal: "Finish multi-project palace sync so initialized repos mine into one palace with unique wings and incremental re-mining"
 risk: medium
 risk_note: "Touches existing mine-all and watch_all behavior, but keeps storage schema and single-project mine() unchanged; risk is limited to multi-project CLI/watch routing and mitigated by targeted tests."

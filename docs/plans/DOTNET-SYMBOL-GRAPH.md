@@ -1,5 +1,7 @@
 ---
 slug: DOTNET-SYMBOL-GRAPH
+status: completed
+authority: non_authoritative
 goal: "Detect interface-implementation and inheritance relationships from C#/F#/VB.NET source files during mining and store them as KG triples queryable via mempalace_kg_query"
 risk: medium
 risk_note: "Regex-based extraction on C# source is inherently heuristic — relies on I-prefix convention to distinguish interfaces from base classes, and cannot resolve using-aliased or fully-qualified type names. Proven viable by existing CSHARP_BOUNDARY/extract_symbol() pattern."

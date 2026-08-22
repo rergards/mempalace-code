@@ -28,6 +28,40 @@ PYPI_URL = "https://pypi.org/pypi/mempalace-code/json"
 DEFAULT_INTERVAL_HOURS = 168
 STATE_FILE_NAME = "version_check.json"
 
+PIP_FALLBACK_PREFIX = "  Plain pip install? `update` refuses those; upgrade with:"
+
+
+def pip_fallback_command(latest: str, executable: Optional[str] = None) -> str:
+    """Return the bounded ordinary-pip upgrade command for an unmanaged install.
+
+    `mempalace-code update` owns `uv tool`, `pipx`, and the documented bootstrap
+    venv, and refuses everything else (see docs/UPDATES.md). Ordinary pip users
+    otherwise get pointed at a command that will not serve them, so give them an
+    explicit, pinned command bound to the interpreter actually running this
+    process rather than whichever `pip` happens to be on PATH.
+    """
+    exe = executable if executable is not None else sys.executable
+    return f'"{exe}" -m pip install --upgrade "mempalace-code=={latest}"'
+
+
+def should_offer_pip_fallback() -> bool:
+    """Offer the pip fallback only to installs it is actually safe advice for.
+
+    A uv-tool, pipx, or bootstrap env must not be pip-upgraded behind its
+    manager's back; a system interpreter is often externally managed; an editable
+    checkout has no PyPI version to move to; and an unclassifiable environment is
+    exactly the one we must not name a command for. ``updater`` owns that
+    judgement, and it is imported lazily so a check that prints nothing extra does
+    not pay for it.
+    """
+    try:
+        from .updater import is_plain_pip_install
+
+        return is_plain_pip_install()
+    except Exception:
+        # Failing to classify is not a licence to point at the wrong interpreter.
+        return False
+
 
 @dataclass
 class VersionCheckConfig:
@@ -285,11 +319,15 @@ def run_automatic_check(
     save_state(state, config_dir)
 
     if compare_versions(current_version, latest) < 0:
-        _stderr(
+        message = (
             f"\n[mempalace-code] New version available: {latest} "
             f"(you have {current_version})\n"
-            f"  Upgrade: pip install --upgrade mempalace-code\n"
+            f"  Run:  mempalace-code update status\n"
+            f"  Then: mempalace-code update apply --yes\n"
         )
+        if should_offer_pip_fallback():
+            message += f"{PIP_FALLBACK_PREFIX}\n        {pip_fallback_command(latest)}\n"
+        _stderr(message)
 
 
 def run_check_now(
@@ -318,7 +356,11 @@ def run_check_now(
     cmp = compare_versions(current_version, latest)
     if cmp < 0:
         _stdout(f"\n  A newer version is available: {latest}")
-        _stdout("  Upgrade: pip install --upgrade mempalace-code")
+        _stdout("  Run:  mempalace-code update status")
+        _stdout("  Then: mempalace-code update apply --yes")
+        if should_offer_pip_fallback():
+            _stdout(PIP_FALLBACK_PREFIX)
+            _stdout(f"        {pip_fallback_command(latest)}")
     elif cmp > 0:
         _stdout("\n  You are running a version ahead of PyPI.")
     else:

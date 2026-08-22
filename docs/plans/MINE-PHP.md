@@ -1,5 +1,7 @@
 ---
 slug: MINE-PHP
+status: completed
+authority: non_authoritative
 goal: "Add PHP (.php) language support to the code miner with regex-based symbol extraction for classes, interfaces, traits, enums, functions, and namespaces"
 risk: low
 risk_note: "Follows established pattern — identical to how Swift, Kotlin, C#, Java were added. No existing code changes, only additions."

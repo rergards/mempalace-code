@@ -1,8 +1,8 @@
 """
 test_migrate.py — Tests for mempalace/migrate.py (ChromaDB → LanceDB migration).
 
-Requires chromadb (mempalace-code[chroma] extra). The entire module is skipped when
-chromadb is not installed so CI without the chroma extra stays green.
+Requires chromadb (mempalace-code[chroma-migration] extra). The entire module is
+skipped when chromadb is not installed so CI without the migration extra stays green.
 """
 
 import os
@@ -16,6 +16,28 @@ from mempalace_code.migrate import VerificationError, migrate_chroma_to_lance  #
 from mempalace_code.storage import LanceStore  # noqa: E402
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def test_chroma_adapter_disables_anonymized_telemetry(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeClient:
+        def get_or_create_collection(self, _name):
+            return object()
+
+    def fake_persistent_client(*, path, settings):
+        captured["path"] = path
+        captured["settings"] = settings
+        return FakeClient()
+
+    monkeypatch.setattr(
+        "mempalace_code._chroma_store.chromadb.PersistentClient", fake_persistent_client
+    )
+
+    ChromaStore(str(tmp_path), create=True)
+
+    assert captured["path"] == str(tmp_path)
+    assert captured["settings"].anonymized_telemetry is False
 
 
 def _seed_chroma(path: str, n_per_wing: int, wings: list[str]) -> int:
@@ -36,7 +58,7 @@ def _seed_chroma(path: str, n_per_wing: int, wings: list[str]) -> int:
 
 
 def test_migrate_chroma_to_lance_happy_path(tmp_path):
-    """Migrate 50 drawers across 2 wings; both stores should end up with 50 rows."""
+    """Migrate 50 drawers across 2 wings and preserve the Chroma source."""
     src = str(tmp_path / "src")
     dst = str(tmp_path / "dst")
 
@@ -53,6 +75,13 @@ def test_migrate_chroma_to_lance_happy_path(tmp_path):
     by_wing = dst_store.count_by("wing")
     assert by_wing.get("wing_a", 0) == 25
     assert by_wing.get("wing_b", 0) == 25
+
+    src_store = ChromaStore(src, create=False)
+    assert src_store.count() == 50
+    src_rows = src_store.get(ids=["wing_a_0"], include=["documents", "metadatas"])
+    assert src_rows["ids"] == ["wing_a_0"]
+    assert "Content for wing_a drawer 0" in src_rows["documents"][0]
+    assert src_rows["metadatas"][0]["wing"] == "wing_a"
 
 
 # ─── AC-2: Refuse non-empty destination ───────────────────────────────────────

@@ -1,5 +1,7 @@
 ---
 slug: CLI-EXPORT-STDOUT-CLEAN
+status: completed
+authority: non_authoritative
 goal: "Keep `mempalace-code export --out -` stdout pure JSONL"
 risk: low
 risk_note: "CLI output routing only; no storage format, persistence, or import semantics change."

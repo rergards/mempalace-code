@@ -1,9 +1,11 @@
 ---
 name: ship
-description: Verify, fix, push loop — local verify then push to remote
+description: Verify and report ship readiness; fix, commit, or push only with fresh exact authority
 disable-model-invocation: false
 ---
 
-Autonomous loop: local verify -> fix -> push.
+Report-first workflow. Invocation authorizes read-only verification and a
+readiness report. It does not authorize fixes, staging, commit, amend, push, or
+publication.
 
 Read `.claude/skills/ship/INSTRUCTIONS.md` for the full procedure.

@@ -15,31 +15,92 @@ jobs:
   build:
     if: github.repository == 'rergards/mempalace-code'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Read-only release admission: `checks: read` reads the release-required
+      # check-run for the exact candidate SHA, `actions: read` reads the
+      # Dependency Audit run history. Neither grants any write capability.
+      checks: read
+      actions: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: tools/gitleaks/go.mod
+          # The scanner binary is built here, so a restored build cache would be
+          # an input to a security gate. go.sum already makes the source
+          # verifiable; the cache would not be.
+          cache: false
+      # Installs the Gitleaks version pinned by tools/gitleaks/go.mod and locked by
+      # tools/gitleaks/go.sum. Dependabot's gomod ecosystem owns that upgrade.
+      - uses: ./.github/actions/gitleaks-gate
+      - name: Validate Gitleaks baseline metadata
+        run: python scripts/gitleaks_scan.py validate-baseline
+      - name: Gitleaks synthetic fixture smoke
+        run: >
+          python scripts/gitleaks_scan.py fixture-smoke
+          --artifact-dir "${{ runner.temp }}/gitleaks/fixture-smoke"
+      # Runs here, before the shallow `git fetch origin main --depth=1` below turns
+      # this checkout into a shallow one. Release admission for history scanning is
+      # this explicit step, not release_preflight.py, which cannot see full history
+      # by the time it runs.
+      - name: Gitleaks full-history scan
+        run: >
+          python scripts/gitleaks_scan.py full-history
+          --artifact-dir "${{ runner.temp }}/gitleaks/full-history"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: gitleaks-full-history
+          path: ${{ runner.temp }}/gitleaks/full-history/
+          retention-days: 7
       - run: pip install build twine
-      - name: Verify tag targets current main and matches package version
+      # Admission runs before any artifact is built or uploaded, so a rejected
+      # candidate never produces a distribution. The v* tag ruleset predicate is
+      # deliberately absent: reading a repository ruleset needs
+      # administration:read, which GITHUB_TOKEN cannot be granted. Tag-ruleset
+      # verification is the operator-run readiness/status gate's job.
+      - name: Verify exact SHA release admission
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
           git fetch origin main --depth=1
-          MAIN_SHA=$(git rev-parse origin/main)
-          TAG_SHA=$(git rev-list -n 1 "$GITHUB_REF_NAME")
+          MAIN_SHA=$(git rev-parse "origin/main^{commit}")
+          TAG_SHA=$(git rev-parse --verify "refs/tags/${TAG_NAME}^{commit}")
           if [ "$TAG_SHA" != "$MAIN_SHA" ]; then
             echo "Release tag must target current main: tag=$TAG_SHA main=$MAIN_SHA" >&2
             exit 1
           fi
-          python scripts/release_preflight.py --tag "$GITHUB_REF_NAME" --require-clean
+          python scripts/release_preflight.py \
+            --tag "$TAG_NAME" \
+            --require-clean \
+            --expect-sha "$TAG_SHA" \
+            --candidate-ref origin/main \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch main \
+            --check-required-check \
+            --check-dependency-audit \
+            --check-branch-rules
       - name: Upstream comparison guard (live head, read-only)
         run: python scripts/upstream_comparison_guard.py --check-live
       - name: Build distributions
         run: python -m build
-      - name: Validate distribution metadata
-        run: twine check dist/*
-      - uses: actions/upload-artifact@v7
+      # The last read of the archives before they leave this job. It invokes
+      # twine itself, so a separate metadata-validation step would only re-run a
+      # subset of what this already asserts.
+      - name: Inspect built distributions
+        run: python scripts/release_artifact_gate.py --dist dist --require-wheel --require-sdist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dist
           path: dist/
@@ -53,11 +114,11 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
   github-release:
     if: github.repository == 'rergards/mempalace-code'
@@ -65,8 +126,203 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      checks: read
+      actions: read
     steps:
-      - name: Create public GitHub Release after PyPI publish
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      # A job-only rerun must consume the artifact from this exact workflow run;
+      # it never rebuilds or enters the trusted PyPI publisher again.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: dist
+          path: dist/
+          run-id: ${{ github.run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+      - run: pip install twine pypi-attestations==0.0.30
+      - name: Re-verify exact SHA release admission
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "rergards/mempalace-code"
+          test "$GITHUB_EVENT_NAME" = "push"
+          git fetch origin main
+          MAIN_SHA=$(git rev-parse "origin/main^{commit}")
+          TAG_SHA=$(git rev-parse --verify "refs/tags/${TAG_NAME}^{commit}")
+          test "$TAG_SHA" = "$GITHUB_SHA"
+          test "$TAG_SHA" = "$MAIN_SHA"
+          python scripts/release_preflight.py \
+            --tag "$TAG_NAME" \
+            --require-clean \
+            --expect-sha "$TAG_SHA" \
+            --candidate-ref origin/main \
+            --repo "$GITHUB_REPOSITORY" \
+            --branch main \
+            --check-required-check \
+            --check-dependency-audit \
+            --check-branch-rules
+      - name: Inspect original-run distributions
+        run: python scripts/release_artifact_gate.py --dist dist --require-wheel --require-sdist
+      - name: Match original-run distributions to PyPI and provenance
+        env:
+          PACKAGE_NAME: mempalace-code
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+          from urllib.parse import quote
+
+          from scripts import release_status_gate as gate
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = tag.removeprefix("v")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          package = os.environ["PACKAGE_NAME"]
+          dist = Path("dist")
+          local = sorted((*dist.glob("*.whl"), *dist.glob("*.tar.gz")))
+          if len(local) != 2:
+              raise SystemExit(f"expected one wheel and one sdist, found {[p.name for p in local]}")
+
+          public, surface = gate.fetch_pypi_distributions(version, package, gate._default_http_get)
+          if surface.status != gate.STATUS_OK or public is None:
+              raise SystemExit(surface.detail)
+          public_by_name = {item.filename: item for item in public}
+          if set(public_by_name) != {path.name for path in local}:
+              raise SystemExit("original-run and exact-version PyPI filename sets differ")
+
+          manifest = {}
+          for path in local:
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              if digest != public_by_name[path.name].sha256:
+                  raise SystemExit(f"PyPI digest differs for {path.name}")
+              provenance_url = gate.PYPI_PROVENANCE_URL.format(
+                  package=quote(package, safe=""),
+                  version=quote(version, safe=""),
+                  filename=quote(path.name, safe=""),
+              )
+              status, body, error = gate._default_http_get(provenance_url)
+              if status != 200 or not gate._publisher_identity_matches(body, repo):
+                  raise SystemExit(f"unexpected provenance for {path.name}: {error or status}")
+              verified = subprocess.run(
+                  [
+                      "pypi-attestations",
+                      "verify",
+                      "pypi",
+                      str(path),
+                      "--repository",
+                      f"https://github.com/{repo}",
+                  ],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              if verified.returncode != 0:
+                  raise SystemExit(f"official provenance verifier rejected {path.name}")
+              manifest[path.name] = digest
+
+          manifest_path = Path(os.environ["RUNNER_TEMP"]) / "release-assets.json"
+          manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")
+          PY
+      - name: Create or reconcile the public GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          manifest = json.loads(
+              (Path(os.environ["RUNNER_TEMP"]) / "release-assets.json").read_text(encoding="utf-8")
+          )
+          expected = set(manifest)
+
+          def gh(*args, check=True):
+              result = subprocess.run(
+                  ["gh", *args, "--repo", repo],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              if check and result.returncode != 0:
+                  raise SystemExit(result.stderr.strip() or result.stdout.strip())
+              return result
+
+          def release_view():
+              result = gh(
+                  "release",
+                  "view",
+                  tag,
+                  "--json",
+                  "tagName,isDraft,isPrerelease,assets",
+                  check=False,
+              )
+              if result.returncode != 0:
+                  return None, result
+              data = json.loads(result.stdout)
+              if data.get("tagName") != tag or data.get("isDraft") or data.get("isPrerelease"):
+                  raise SystemExit("existing release tag or publication metadata is unsafe")
+              names = [asset.get("name") for asset in data.get("assets", [])]
+              if len(names) != len(set(names)) or not set(names).issubset(expected):
+                  raise SystemExit("existing release has duplicate or unexpected assets")
+              return data, result
+
+          def verify_downloaded(names):
+              with tempfile.TemporaryDirectory(prefix="release-assets-") as temporary:
+                  root = Path(temporary)
+                  for name in sorted(names):
+                      gh("release", "download", tag, "--pattern", name, "--dir", str(root))
+                      path = root / name
+                      if not path.is_file():
+                          raise SystemExit(f"release asset download missing: {name}")
+                      if hashlib.sha256(path.read_bytes()).hexdigest() != manifest[name]:
+                          raise SystemExit(f"release asset digest differs: {name}")
+
+          release, result = release_view()
+          if release is None:
+              if "release not found" not in (result.stderr + result.stdout).lower():
+                  raise SystemExit(result.stderr.strip() or "release lookup failed")
+              gh(
+                  "release",
+                  "create",
+                  tag,
+                  *(str(Path("dist") / name) for name in sorted(expected)),
+                  "--verify-tag",
+                  "--generate-notes",
+              )
+          else:
+              present = {asset["name"] for asset in release.get("assets", [])}
+              verify_downloaded(present)
+              missing = expected - present
+              if missing:
+                  gh(
+                      "release",
+                      "upload",
+                      tag,
+                      *(str(Path("dist") / name) for name in sorted(missing)),
+                  )
+
+          final, _ = release_view()
+          if final is None:
+              raise SystemExit("release is missing after reconciliation")
+          final_names = [asset.get("name") for asset in final.get("assets", [])]
+          if len(final_names) != len(expected) or set(final_names) != expected:
+              raise SystemExit("final release asset filename set differs from the verified original run")
+          verify_downloaded(expected)
+          PY

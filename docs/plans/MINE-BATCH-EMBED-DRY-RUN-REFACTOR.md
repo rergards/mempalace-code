@@ -1,5 +1,7 @@
 ---
 slug: MINE-BATCH-EMBED-DRY-RUN-REFACTOR
+status: completed
+authority: non_authoritative
 goal: "Eliminate dry-run code duplication in process_file() by delegating to _collect_specs_for_file(mined_files=set())"
 risk: low
 risk_note: "Single-function change in process_file(); _collect_specs_for_file() signature unchanged; collection=None safe when mined_files=set() bypasses the file_already_mined() call"

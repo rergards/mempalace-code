@@ -1,5 +1,7 @@
 ---
 slug: MINE-SCAN-RULES-LIVE-RELOAD
+status: completed
+authority: non_authoritative
 goal: "Reload scan_skip_* rules at watcher batch boundaries so config edits affect the next project event without restart"
 risk: low
 risk_note: "Watcher-only change that swaps immutable scan-rule snapshots; no storage or mining semantics change."

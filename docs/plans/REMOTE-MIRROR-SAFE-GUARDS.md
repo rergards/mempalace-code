@@ -1,5 +1,7 @@
 ---
 slug: REMOTE-MIRROR-SAFE-GUARDS
+status: completed
+authority: non_authoritative
 goal: "Add remote mirror safety guidance and a CLI preflight for destructive MemPalace state syncs"
 risk: medium
 risk_note: "Adds a new operator-facing CLI guard around data-loss-prone rsync command shapes while documenting backup/mirror boundaries."

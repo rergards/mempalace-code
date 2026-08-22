@@ -1,5 +1,7 @@
 ---
 slug: MINE-CSHARP-EXPR-BODY
+status: completed
+authority: non_authoritative
 goal: "Detect C# expression-bodied properties as chunk boundaries and property symbols"
 risk: low
 risk_note: "Additive regex expansion in existing C# miner patterns with focused symbol and chunking regression tests."

@@ -1,5 +1,7 @@
 ---
 slug: STORE-WATCHER-BACKUP-BOUNDED-DEFAULTS
+status: completed
+authority: non_authoritative
 goal: "Bound implicit watcher pre-optimize backup retention while preserving explicit keep-all semantics"
 risk: medium
 risk_note: "Changes default retention behavior for automated pre-optimize archives, but leaves manual backups and explicit retention settings unchanged."

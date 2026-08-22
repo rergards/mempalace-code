@@ -1,5 +1,7 @@
 ---
 slug: MCP-ARCH-TOOLS
+status: completed
+authority: non_authoritative
 goal: "Add 4 architecture-oriented MCP tools (find_implementations, find_references, show_project_graph, show_type_dependencies) that query mined .NET type relationships and project dependencies from the KG"
 risk: low
 risk_note: "All 4 tools compose existing KG query primitives (query_entity, query_relationship) — no schema changes, no storage changes, no new dependencies. Type relationships and project dependencies are already mined and stored. Only risk is the recursive graph walk in show_type_dependencies hitting cycles, mitigated by visited-set + max_depth. Note: KG entity identity uses short (unqualified) type names — same-named types from different namespaces/projects coalesce into one entity node (per DOTNET-SYMBOL-GRAPH). Tools surface all matches; callers must disambiguate if needed."

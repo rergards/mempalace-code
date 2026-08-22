@@ -1,5 +1,7 @@
 ---
 slug: MINE-MULTI-INCLUDE-IGNORED-TEST
+status: completed
+authority: non_authoritative
 goal: "Add a TestMineAllCommand test proving mine-all splits comma-separated --include-ignored values before forwarding them to mine()"
 risk: low
 risk_note: "Test-only change in existing CLI test class; no production behavior changes"

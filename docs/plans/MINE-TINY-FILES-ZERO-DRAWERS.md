@@ -1,5 +1,7 @@
 ---
 slug: MINE-TINY-FILES-ZERO-DRAWERS
+status: completed
+authority: non_authoritative
 goal: "Make tiny non-empty source files mine as explicit tiny-file results instead of inflating skipped-file counts."
 risk: low
 risk_note: "Limited to miner summary classification and a regression smoke; no storage format, auth, or migration behavior changes."

@@ -1,0 +1,525 @@
+{
+  "schema_version": 1,
+  "status": "success",
+  "slug": "v1.13.5-release",
+  "pyproject_hash": "sha256:367c900bb33bc00cab36220fa2ba03ca08fb64c0ce957d6e5e1f2d39fe51fb95",
+  "lockfile_hash": "sha256:32298a0becf47179a5ebb76979dc16d897456f2d11d93d4ceb1178e86d943577",
+  "dependencies": [
+    {
+      "name": "lancedb",
+      "normalized_name": "lancedb",
+      "group": "runtime",
+      "specifier": ">=0.20",
+      "current_version": "0.33.0",
+      "target_version": "0.33.0"
+    },
+    {
+      "name": "sentence-transformers",
+      "normalized_name": "sentence-transformers",
+      "group": "runtime",
+      "specifier": ">=2.2",
+      "current_version": "5.5.1",
+      "target_version": "5.5.1"
+    },
+    {
+      "name": "pyyaml",
+      "normalized_name": "pyyaml",
+      "group": "runtime",
+      "specifier": ">=6.0",
+      "current_version": "6.0.3",
+      "target_version": "6.0.3"
+    },
+    {
+      "name": "packaging",
+      "normalized_name": "packaging",
+      "group": "runtime",
+      "specifier": ">=21.0",
+      "current_version": "26.2",
+      "target_version": "26.2"
+    },
+    {
+      "name": "mcp",
+      "normalized_name": "mcp",
+      "group": "runtime",
+      "specifier": ">=2,<3",
+      "current_version": "2.0.0",
+      "target_version": "2.0.0"
+    },
+    {
+      "name": "pytest",
+      "normalized_name": "pytest",
+      "group": "dev",
+      "specifier": ">=7.0",
+      "current_version": "9.0.3",
+      "target_version": "9.0.3"
+    },
+    {
+      "name": "pyright",
+      "normalized_name": "pyright",
+      "group": "dev",
+      "specifier": ">=1.1.350",
+      "current_version": "1.1.410",
+      "target_version": "1.1.410"
+    },
+    {
+      "name": "ruff",
+      "normalized_name": "ruff",
+      "group": "dev",
+      "specifier": "==0.15.16",
+      "current_version": "0.15.16",
+      "target_version": "0.15.16"
+    },
+    {
+      "name": "watchfiles",
+      "normalized_name": "watchfiles",
+      "group": "dev",
+      "specifier": ">=1.0",
+      "current_version": "1.2.0",
+      "target_version": "1.2.0"
+    },
+    {
+      "name": "build",
+      "normalized_name": "build",
+      "group": "dev",
+      "specifier": ">=1.0",
+      "current_version": "1.4.2",
+      "target_version": "1.4.2"
+    },
+    {
+      "name": "twine",
+      "normalized_name": "twine",
+      "group": "dev",
+      "specifier": ">=5.0",
+      "current_version": "7.0.0",
+      "target_version": "7.0.0"
+    },
+    {
+      "name": "jsonschema",
+      "normalized_name": "jsonschema",
+      "group": "dev",
+      "specifier": ">=4.18",
+      "current_version": "4.26.0",
+      "target_version": "4.26.0"
+    },
+    {
+      "name": "actionlint-py",
+      "normalized_name": "actionlint-py",
+      "group": "dev",
+      "specifier": "==1.7.12.24",
+      "current_version": "1.7.12.24",
+      "target_version": "1.7.12.24"
+    },
+    {
+      "name": "zizmor",
+      "normalized_name": "zizmor",
+      "group": "dev",
+      "specifier": "==1.29.0",
+      "current_version": "1.29.0",
+      "target_version": "1.29.0"
+    },
+    {
+      "name": "pypi-attestations",
+      "normalized_name": "pypi-attestations",
+      "group": "dev",
+      "specifier": "==0.0.30",
+      "current_version": "0.0.30",
+      "target_version": "0.0.30"
+    },
+    {
+      "name": "chromadb",
+      "normalized_name": "chromadb",
+      "group": "extra:chroma",
+      "specifier": ">=0.5.0,<1",
+      "current_version": "0.6.3",
+      "target_version": "0.6.3"
+    },
+    {
+      "name": "chromadb",
+      "normalized_name": "chromadb",
+      "group": "extra:chroma-migration",
+      "specifier": ">=0.5.0,<1",
+      "current_version": "0.6.3",
+      "target_version": "0.6.3"
+    },
+    {
+      "name": "autocorrect",
+      "normalized_name": "autocorrect",
+      "group": "extra:spellcheck",
+      "specifier": ">=2.0",
+      "current_version": "2.6.1",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter",
+      "normalized_name": "tree-sitter",
+      "group": "extra:treesitter",
+      "specifier": ">=0.22,<0.26",
+      "current_version": "0.25.2",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter-python",
+      "normalized_name": "tree-sitter-python",
+      "group": "extra:treesitter",
+      "specifier": ">=0.23,<0.26",
+      "current_version": "0.25.0",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter-typescript",
+      "normalized_name": "tree-sitter-typescript",
+      "group": "extra:treesitter",
+      "specifier": ">=0.23,<0.26",
+      "current_version": "0.23.2",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter-go",
+      "normalized_name": "tree-sitter-go",
+      "group": "extra:treesitter",
+      "specifier": ">=0.23,<0.26",
+      "current_version": "0.25.0",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter-rust",
+      "normalized_name": "tree-sitter-rust",
+      "group": "extra:treesitter",
+      "specifier": ">=0.23,<0.26",
+      "current_version": "0.24.2",
+      "target_version": null
+    },
+    {
+      "name": "watchfiles",
+      "normalized_name": "watchfiles",
+      "group": "extra:watch",
+      "specifier": ">=1.0",
+      "current_version": "1.2.0",
+      "target_version": "1.2.0"
+    }
+  ],
+  "advisory_results": [
+    {
+      "name": "lancedb",
+      "version": "0.33.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "lancedb",
+      "version": "0.33.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "sentence-transformers",
+      "version": "5.5.1",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "sentence-transformers",
+      "version": "5.5.1",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyyaml",
+      "version": "6.0.3",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyyaml",
+      "version": "6.0.3",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "packaging",
+      "version": "26.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "packaging",
+      "version": "26.2",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "mcp",
+      "version": "2.0.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "mcp",
+      "version": "2.0.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pytest",
+      "version": "9.0.3",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pytest",
+      "version": "9.0.3",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyright",
+      "version": "1.1.410",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyright",
+      "version": "1.1.410",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "ruff",
+      "version": "0.15.16",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "ruff",
+      "version": "0.15.16",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "watchfiles",
+      "version": "1.2.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "watchfiles",
+      "version": "1.2.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "build",
+      "version": "1.4.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "build",
+      "version": "1.4.2",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "twine",
+      "version": "7.0.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "twine",
+      "version": "7.0.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "actionlint-py",
+      "version": "1.7.12.24",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "actionlint-py",
+      "version": "1.7.12.24",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "zizmor",
+      "version": "1.29.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "zizmor",
+      "version": "1.29.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pypi-attestations",
+      "version": "0.0.30",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pypi-attestations",
+      "version": "0.0.30",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "chromadb",
+      "version": "0.6.3",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "chromadb",
+      "version": "0.6.3",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "chromadb",
+      "version": "0.6.3",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "chromadb",
+      "version": "0.6.3",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "autocorrect",
+      "version": "2.6.1",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter",
+      "version": "0.25.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-python",
+      "version": "0.25.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-typescript",
+      "version": "0.23.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-go",
+      "version": "0.25.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-rust",
+      "version": "0.24.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "watchfiles",
+      "version": "1.2.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "watchfiles",
+      "version": "1.2.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    }
+  ],
+  "resolver_audits": [
+    {
+      "extras": [],
+      "status": "success",
+      "summary": "resolver audit for (default): success"
+    },
+    {
+      "extras": [
+        "dev"
+      ],
+      "status": "success",
+      "summary": "resolver audit for dev: success"
+    },
+    {
+      "extras": [
+        "chroma"
+      ],
+      "status": "success",
+      "summary": "resolver audit for chroma: success"
+    },
+    {
+      "extras": [
+        "chroma-migration"
+      ],
+      "status": "success",
+      "summary": "resolver audit for chroma-migration: success"
+    }
+  ]
+}

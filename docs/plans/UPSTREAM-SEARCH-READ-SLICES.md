@@ -1,5 +1,7 @@
 ---
 slug: UPSTREAM-SEARCH-READ-SLICES
+status: completed
+authority: non_authoritative
 goal: "Expose mined line ranges and add a precise read path for search hits."
 risk: medium
 risk_note: "Additive Lance metadata plus CLI/MCP behavior changes touch mining, search, and read surfaces."

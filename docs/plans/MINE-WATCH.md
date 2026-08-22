@@ -1,5 +1,7 @@
 ---
 slug: MINE-WATCH
+status: completed
+authority: non_authoritative
 goal: "Add --watch flag to `mempalace mine` that uses OS-native file events to auto re-mine changed files"
 risk: low
 risk_note: "New module wrapping existing mine() — main integration risk is matching scan_project() filtering semantics and preserving KG behavior on re-mines. Mitigated by delegating to mine() wholesale rather than reimplementing."

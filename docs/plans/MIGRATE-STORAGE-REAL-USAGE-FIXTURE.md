@@ -1,5 +1,7 @@
 ---
 slug: MIGRATE-STORAGE-REAL-USAGE-FIXTURE
+status: completed
+authority: non_authoritative
 goal: "Add a disposable Chroma-to-Lance migrate-storage smoke runner and release-check documentation."
 risk: low
 risk_note: "Adds a gated smoke utility, focused tests, and docs without changing migration or storage runtime behavior."

@@ -1,5 +1,7 @@
 ---
 slug: PYPROJECT-CHROMA-VERSION
+status: completed
+authority: non_authoritative
 goal: "Raise chromadb ceiling from <0.7 to <2 so .[chroma] installs succeed with chromadb 1.x"
 risk: low
 risk_note: "ChromaStore uses only high-level chromadb APIs (PersistentClient, collection CRUD) that have been stable across 0.5.x → 1.x; backend is deprecated so blast radius is small"

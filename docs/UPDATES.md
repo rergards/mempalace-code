@@ -17,6 +17,28 @@ environments are refused before package or service mutation. The first scheduler
 Linux systemd-user units. It does not create machine-wide units or support cron, launchd, or Windows
 Task Scheduler.
 
+### Ordinary pip installs
+
+If you installed with plain `pip`, `mempalace-code update` refuses your installation by design — it
+will not mutate an environment it does not own. Upgrade yourself instead, naming the interpreter
+that actually runs mempalace-code and an explicit version:
+
+```bash
+"/absolute/path/to/python" -m pip install --upgrade "mempalace-code==X.Y.Z"
+```
+
+Run `mempalace-code version-check --check-now` to get that line filled in: it prints the absolute path
+the interpreter running mempalace-code and the newest version on PyPI, so you never have to work out
+which `python` on `PATH` owns the install. Nothing is installed for you: no scheduler, no watcher
+coordination, no rollback. Move to `uv tool` or `pipx` if you want the managed flow.
+
+The hint is only printed for an ordinary pip install. A `uv tool`, `pipx`, or bootstrap-venv install
+is the managed updater's to move; a system interpreter is usually externally managed and must be
+left to the OS package manager; an editable checkout has no released version to move to; and an
+environment mempalace-code cannot identify gets no command at all rather than one aimed at the wrong
+interpreter. In every one of those cases you see the `update status` / `update apply --yes`
+guidance and nothing more.
+
 ## Preflight and provenance
 
 Inspect state before changing anything:
@@ -33,7 +55,7 @@ Prereleases, yanked files, wheels missing from PyPI metadata, and failed provena
 produce an update target.
 
 The updater detects the installed optional topology. It retains `watch`, `treesitter`, `spellcheck`,
-and legacy `chroma` extras where present. An active configured watcher without the `watch` extra is a
+and `chroma-migration` bridge extras where present. An active configured watcher without the `watch` extra is a
 preflight failure. The update transaction also checks free disk capacity and the local backup policy;
 it does not alter palace data or create a replacement palace backup.
 

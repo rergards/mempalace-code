@@ -1,5 +1,7 @@
 ---
 slug: AUTOPILOT-DEMO-CODE-INTELLIGENCE-PACKET-ACCEPTANCE-FIX
+status: completed
+authority: non_authoritative
 goal: "Close the code-intelligence packet owner-acceptance gaps with durable public-safe evidence, focused lint cleanup, and explicit manual-gate wording."
 risk: medium
 risk_note: "The task touches generated public artifacts, a generator script, task evidence, and public-safety boundaries; scope is constrained to the existing packet and focused checks."

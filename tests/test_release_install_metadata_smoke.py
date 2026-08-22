@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -45,6 +46,43 @@ def _probe_output(version: str) -> str:
 
 def _cli_output(version: str) -> str:
     return f"  Version checks:  enabled\n  Current version: {version}\n  PyPI URL: https://pypi.org/pypi/mempalace-code/json\n"
+
+
+def _alias_probe_response(
+    args: list,
+    version: str = VERSION,
+    target_path: Path | None = None,
+) -> tuple[int, str, str] | None:
+    if args and Path(args[0]).name == "mempalace-code-alias":
+        alias_dir = Path(args[0]).parent
+        alias_path = alias_dir / "mempalace"
+        if alias_path.exists() or alias_path.is_symlink():
+            alias_path.unlink()
+        alias_path.symlink_to(target_path or alias_dir / "mempalace-code")
+        return 0, "Alias ready\n", ""
+    if "install-alias" in args:
+        alias_dir = (
+            Path(args[args.index("--target-dir") + 1])
+            if "--target-dir" in args
+            else Path(args[0]).parent
+        )
+        alias_dir.mkdir(parents=True, exist_ok=True)
+        alias_path = alias_dir / "mempalace"
+        if alias_path.exists() or alias_path.is_symlink():
+            alias_path.unlink()
+        alias_path.symlink_to(target_path or Path(args[0]))
+        return 0, "Alias ready\n", ""
+    if args and Path(str(args[0])).name == "mempalace" and "version-check" in args:
+        return 0, _cli_output(version), ""
+    return None
+
+
+def _runtime_probe_output() -> str:
+    return "usage: mempalace-code\nmigrate-storage\nRUNTIME-NO-CHROMADB=ok\n"
+
+
+def _is_runtime_probe(args: list) -> bool:
+    return "-c" in args and any("RUNTIME-NO-CHROMADB" in str(arg) for arg in args)
 
 
 def _write_agent_plugin_fixture(plugin_root: Path, *, version: str = VERSION) -> None:
@@ -121,6 +159,9 @@ def _venv_ok_subprocess(
     def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
         if calls is not None:
             calls.append({"args": args, "env": env, "cwd": cwd})
+        alias_response = _alias_probe_response(args, version=cli_version)
+        if alias_response is not None:
+            return alias_response
         if "-m" in args and "venv" in args:
             return 0, "", ""
         if "install" in args and "--no-cache-dir" in args:
@@ -132,6 +173,8 @@ def _venv_ok_subprocess(
         if args and args[0] == "mempalace-code-mcp":
             return 0, _agent_plugin_mcp_responses(), ""
         if "-c" in args:
+            if _is_runtime_probe(args):
+                return 0, _runtime_probe_output(), ""
             return (
                 0,
                 f"METADATA={metadata_version}\nMODULE={module_version}\n",
@@ -142,6 +185,108 @@ def _venv_ok_subprocess(
         return 0, "", ""
 
     return run_subprocess
+
+
+# ── Alias provenance ───────────────────────────────────────────────────────────
+
+
+def test_alias_probe_uses_absolute_console_script_despite_conflicting_path(tmp_path):
+    script_dir = tmp_path / "venv" / "bin"
+    script_dir.mkdir(parents=True)
+    console_bin = script_dir / "mempalace-code"
+    console_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    console_bin.chmod(0o755)
+    probe_cwd = tmp_path / "probe-cwd"
+    probe_cwd.mkdir()
+    calls: list = []
+    launcher_seen = False
+
+    def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
+        nonlocal launcher_seen
+        calls.append({"args": args, "env": env, "cwd": cwd})
+        if "install-alias" in args:
+            assert env is not None
+            conflict_path = Path(env["PATH"].split(os.pathsep)[0]) / "mempalace-code"
+            launcher = Path(args[0])
+            launcher_seen = conflict_path.exists() and launcher.is_symlink()
+            assert launcher.samefile(console_bin)
+            assert "--target-dir" not in args
+        alias_response = _alias_probe_response(args)
+        if alias_response is not None:
+            return alias_response
+        return 1, "", f"unexpected command: {args}"
+
+    result = smoke.probe_alias_provenance(
+        str(console_bin), str(probe_cwd), run_subprocess, env={"PATH": str(script_dir)}
+    )
+
+    assert result.status == smoke.STATUS_OK
+    assert result.version == VERSION
+    install_call = next(c for c in calls if "install-alias" in c["args"])
+    installer_call = next(c for c in calls if Path(c["args"][0]).name == "mempalace-code-alias")
+    assert Path(install_call["args"][0]).name == "mempalace-code"
+    assert Path(install_call["args"][0]).is_absolute()
+    path_parts = install_call["env"]["PATH"].split(os.pathsep)
+    assert path_parts[0] != str(script_dir)
+    assert launcher_seen is True
+    assert path_parts[1] == str(Path(install_call["args"][0]).parent)
+    assert "--target-dir" not in installer_call["args"]
+    assert installer_call["env"]["PATH"].split(os.pathsep)[0] == path_parts[0]
+
+
+def test_alias_probe_rejects_ambient_executable_version_match_without_samefile_target(tmp_path):
+    script_dir = tmp_path / "venv" / "bin"
+    script_dir.mkdir(parents=True)
+    console_bin = script_dir / "mempalace-code"
+    console_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    console_bin.chmod(0o755)
+    probe_cwd = tmp_path / "probe-cwd"
+    probe_cwd.mkdir()
+
+    def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
+        if "install-alias" in args:
+            assert env is not None
+            ambient = Path(env["PATH"].split(os.pathsep)[0]) / "mempalace-code"
+            return _alias_probe_response(args, target_path=ambient)
+        if args and Path(str(args[0])).name == "mempalace" and "version-check" in args:
+            return 0, _cli_output(VERSION), ""
+        return 1, "", f"unexpected command: {args}"
+
+    result = smoke.probe_alias_provenance(
+        str(console_bin), str(probe_cwd), run_subprocess, env={"PATH": str(script_dir)}
+    )
+
+    assert result.status == smoke.STATUS_FAIL
+    assert result.version is None
+    assert "does not target the invoked mempalace-code" in result.detail
+
+
+def test_alias_probe_rejects_dedicated_installer_bound_to_ambient_target(tmp_path):
+    script_dir = tmp_path / "venv" / "bin"
+    script_dir.mkdir(parents=True)
+    console_bin = script_dir / "mempalace-code"
+    console_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    console_bin.chmod(0o755)
+    probe_cwd = tmp_path / "probe-cwd"
+    probe_cwd.mkdir()
+
+    def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
+        if args and Path(args[0]).name == "mempalace-code-alias":
+            assert env is not None
+            ambient = Path(env["PATH"].split(os.pathsep)[0]) / "mempalace-code"
+            return _alias_probe_response(args, target_path=ambient)
+        alias_response = _alias_probe_response(args)
+        if alias_response is not None:
+            return alias_response
+        return 1, "", f"unexpected command: {args}"
+
+    result = smoke.probe_alias_provenance(
+        str(console_bin), str(probe_cwd), run_subprocess, env={"PATH": str(script_dir)}
+    )
+
+    assert result.status == smoke.STATUS_FAIL
+    assert result.version is None
+    assert "dedicated alias installer did not bind to its sibling" in result.detail
 
 
 # ── AC-1 / VER-2: venv smoke success ────────────────────────────────────────────
@@ -164,7 +309,11 @@ def test_venv_smoke_reports_matching_metadata_module_and_cli_versions(tmp_path):
     assert surface_names == set(smoke.REQUIRED_SURFACES)
     for s in result.surfaces:
         assert s.status == smoke.STATUS_OK, f"{s.name} expected ok, got {s.status}: {s.detail}"
-        assert s.version == VERSION
+        if s.name == smoke.SURFACE_RUNTIME_NO_CHROMADB:
+            # Behavioral surface: no version extracted; only status matters.
+            assert s.version is None
+        else:
+            assert s.version == VERSION
 
     # Probes run from a cwd outside the source tree (RISK-1: no source shadowing).
     probe_calls = [c for c in calls if "-c" in c["args"] or "version-check" in c["args"]]
@@ -223,6 +372,9 @@ def test_pipx_smoke_uses_disposable_tool_environment(monkeypatch, tmp_path):
 
     def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
         calls.append({"args": args, "env": env, "cwd": cwd})
+        alias_response = _alias_probe_response(args)
+        if alias_response is not None:
+            return alias_response
         if any(a.endswith("pipx") for a in args) and "install" in args:
             return 0, "", ""
         if "agent-plugin" in args and "path" in args:
@@ -230,6 +382,8 @@ def test_pipx_smoke_uses_disposable_tool_environment(monkeypatch, tmp_path):
         if args and args[0] == "mempalace-code-mcp":
             return 0, _agent_plugin_mcp_responses(), ""
         if "-c" in args:
+            if _is_runtime_probe(args):
+                return 0, _runtime_probe_output(), ""
             return 0, _probe_output(VERSION), ""
         if "version-check" in args:
             return 0, _cli_output(VERSION), ""
@@ -287,6 +441,9 @@ def test_mismatch_failure_names_surfaces_and_reinstall_command_without_private_p
     _write_agent_plugin_fixture(plugin_root)
 
     def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
+        alias_response = _alias_probe_response(args, version="1.2.3")
+        if alias_response is not None:
+            return alias_response
         if "-m" in args and "venv" in args:
             return 0, "", ""
         if "install" in args and "--no-cache-dir" in args:
@@ -296,6 +453,8 @@ def test_mismatch_failure_names_surfaces_and_reinstall_command_without_private_p
         if args and args[0] == "mempalace-code-mcp":
             return 0, _agent_plugin_mcp_responses(), ""
         if "-c" in args:
+            if _is_runtime_probe(args):
+                return 0, _runtime_probe_output(), ""
             # Metadata and module disagree.
             return 0, f"METADATA=1.2.3\nMODULE=1.2.2\nnoise at {fake_path} token {fake_token}\n", ""
         if "version-check" in args:
@@ -550,3 +709,156 @@ def test_main_json_flag_round_trips_through_mocked_subprocess(monkeypatch, tmp_p
     assert data["ok"] is True
     assert data["expected_version"] == VERSION
     assert data["installer"] == smoke.INSTALLER_VENV
+
+
+# ── AC-9 / VER-7: uv-tool skip, notification probes, bootstrap-venv layout ────
+
+
+def test_uv_tool_smoke_reports_explicit_error_when_uv_unavailable(monkeypatch):
+    monkeypatch.setattr(smoke, "find_uv_executable", lambda: None)
+
+    result = smoke.run_uv_tool_smoke(".", PACKAGE, lambda *args, **kwargs: (0, "", ""))
+
+    assert result.ok is False
+    assert result.installer == smoke.INSTALLER_UV_TOOL
+    assert result.surfaces[0].status == smoke.STATUS_ERROR
+    assert "uv not found" in result.surfaces[0].detail
+
+
+def test_uv_tool_smoke_uses_disposable_tool_dirs_and_neutral_cwd(monkeypatch, tmp_path):
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
+    calls: list[tuple[list[str], dict[str, str] | None, str | None]] = []
+    monkeypatch.setattr(smoke, "find_uv_executable", lambda: "/test/bin/uv")
+
+    def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
+        calls.append((args, env, cwd))
+        alias_response = _alias_probe_response(args)
+        if alias_response is not None:
+            return alias_response
+        if args[:4] == ["/test/bin/uv", "tool", "install", "--force"]:
+            assert env is not None
+            tool_python = Path(env["UV_TOOL_DIR"]) / PACKAGE / "bin" / "python"
+            tool_python.parent.mkdir(parents=True)
+            tool_python.touch()
+            return 0, "", ""
+        if "agent-plugin" in args and "path" in args:
+            return 0, json.dumps({"path": str(plugin_root)}), ""
+        if args and args[0].endswith("mempalace-code-mcp"):
+            return 0, _agent_plugin_mcp_responses(), ""
+        if "-c" in args:
+            if _is_runtime_probe(args):
+                return 0, _runtime_probe_output(), ""
+            return 0, f"METADATA={VERSION}\nMODULE={VERSION}\n", ""
+        if "version-check" in args:
+            return 0, _cli_output(VERSION), ""
+        return 1, "", f"unexpected command: {args}"
+
+    result = smoke.run_uv_tool_smoke(".", PACKAGE, run_subprocess)
+
+    assert result.ok is True
+    assert result.installer == smoke.INSTALLER_UV_TOOL
+    install_call = next(call for call in calls if call[0][0] == "/test/bin/uv")
+    install_env = install_call[1]
+    assert install_env is not None
+    assert {"UV_TOOL_DIR", "UV_TOOL_BIN_DIR", "UV_CACHE_DIR"} <= install_env.keys()
+    assert all(str(tmp_path) not in install_env[key] for key in ("UV_TOOL_DIR", "UV_TOOL_BIN_DIR"))
+    probe_cwds = [cwd for _args, _env, cwd in calls if cwd is not None]
+    assert probe_cwds
+    assert all(str(ROOT) not in cwd for cwd in probe_cwds)
+
+
+def test_venv_smoke_probes_version_check_status_for_executable_reporting(tmp_path):
+    """The venv smoke uses 'version-check --status' (executable-based) for CLI version.
+
+    This proves the smoke can report CLI version from an isolated install without
+    relying on ambient system python3 to import mempalace_code.
+    """
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
+    calls: list = []
+
+    def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
+        calls.append(args)
+        alias_response = _alias_probe_response(args)
+        if alias_response is not None:
+            return alias_response
+        if "-m" in args and "venv" in args:
+            return 0, "", ""
+        if "install" in args and "--no-cache-dir" in args:
+            return 0, "", ""
+        if "agent-plugin" in args and "path" in args:
+            return 0, json.dumps({"path": str(plugin_root)}), ""
+        if args and args[0] == "mempalace-code-mcp":
+            return 0, _agent_plugin_mcp_responses(), ""
+        if "-c" in args:
+            if _is_runtime_probe(args):
+                return 0, _runtime_probe_output(), ""
+            return 0, f"METADATA={VERSION}\nMODULE={VERSION}\n", ""
+        if "version-check" in args:
+            return 0, _cli_output(VERSION), ""
+        return 0, "", ""
+
+    result = smoke.run_venv_smoke(".", PACKAGE, run_subprocess)
+    assert result.ok is True
+
+    # The smoke must have invoked the CLI with 'version-check' (executable-based)
+    cli_calls = [c for c in calls if "version-check" in c]
+    assert cli_calls, (
+        "venv smoke must probe CLI version via 'version-check' (installed executable), "
+        "not only via python -c import"
+    )
+    cli_surface = next((s for s in result.surfaces if s.name == smoke.SURFACE_CLI), None)
+    assert cli_surface is not None
+    assert cli_surface.version == VERSION
+
+
+def test_bootstrap_venv_layout_probes_from_neutral_directory(tmp_path):
+    """Bootstrap-venv smoke mimics ~/.mempalace/venv topology and probes from neutral cwd.
+
+    The probe cwd must not contain the source checkout path to prevent
+    pyproject.toml shadowing the installed package.
+    """
+    plugin_root = tmp_path / "fake_home" / ".mempalace" / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
+    probe_cwds: list[str] = []
+    create_calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
+        if cwd is not None:
+            probe_cwds.append(cwd)
+        alias_response = _alias_probe_response(args)
+        if alias_response is not None:
+            return alias_response
+        if "-m" in args and "venv" in args:
+            create_calls.append((args, env))
+            return 0, "", ""
+        if "install" in args and "--no-cache-dir" in args:
+            return 0, "", ""
+        if "agent-plugin" in args and "path" in args:
+            return 0, json.dumps({"path": str(plugin_root)}), ""
+        if args and args[0] == "mempalace-code-mcp":
+            return 0, _agent_plugin_mcp_responses(), ""
+        if "-c" in args:
+            if _is_runtime_probe(args):
+                return 0, _runtime_probe_output(), ""
+            return 0, f"METADATA={VERSION}\nMODULE={VERSION}\n", ""
+        if "version-check" in args:
+            return 0, _cli_output(VERSION), ""
+        return 0, "", ""
+
+    result = smoke.run_bootstrap_venv_smoke(".", PACKAGE, run_subprocess)
+    assert result.ok is True
+    assert result.installer == smoke.INSTALLER_BOOTSTRAP_VENV
+    assert len(create_calls) == 1
+    create_args, create_env = create_calls[0]
+    assert create_args[-1].endswith("/home/.mempalace/venv")
+    assert create_env is not None
+    assert create_args[-1].startswith(create_env["HOME"])
+
+    # Every probe cwd that was recorded must not be the source checkout root
+    source_root = str(ROOT)
+    for cwd in probe_cwds:
+        assert source_root not in cwd, (
+            f"probe cwd {cwd!r} must not be inside the source checkout {source_root!r}"
+        )

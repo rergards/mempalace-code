@@ -1,5 +1,7 @@
 ---
 slug: CLI-LAYERS-GRAPH-READONLY-NO-EMBEDDER
+status: completed
+authority: non_authoritative
 goal: "Make layer wake-up/recall and palace graph read-only flows avoid embedding model startup"
 risk: low
 risk_note: "Small read-path changes use existing LanceStore read_only support; main risk is changing missing or empty palace output."

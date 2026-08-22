@@ -6,12 +6,16 @@ wiring, cmd_backup / cmd_restore dispatch, printed output, and sys.exit(1) on
 error.  Library-level behaviour is covered by tests/test_backup.py.
 """
 
+import errno
+import io
 import os
 import sys
+import tarfile
 from unittest.mock import patch
 
 import pytest
 
+import mempalace_code.backup as backup_module
 from mempalace_code.backup import create_backup
 from mempalace_code.cli import main
 from mempalace_code.knowledge_graph import DEFAULT_KG_PATH, KnowledgeGraph
@@ -31,6 +35,24 @@ def _archive_line(stdout: str) -> str:
         if "Archive:" in line:
             return line.split("Archive:", 1)[1].strip()
     raise AssertionError(f"No 'Archive:' line found in output:\n{stdout}")
+
+
+def _path_snapshot(path: str):
+    """Return a byte-sensitive snapshot without following symlinks."""
+    if not os.path.lexists(path):
+        return ("missing",)
+    if os.path.islink(path):
+        return ("symlink", os.readlink(path))
+    if os.path.isfile(path):
+        with open(path, "rb") as file:
+            return ("file", file.read())
+    return (
+        "dir",
+        tuple(
+            (entry.name, _path_snapshot(entry.path))
+            for entry in sorted(os.scandir(path), key=lambda item: item.name)
+        ),
+    )
 
 
 # ── backup CLI ─────────────────────────────────────────────────────────────────
@@ -150,7 +172,7 @@ def test_restore_cli_force_flag(seeded_collection, palace_path, tmp_dir, capsys)
 
 
 def test_restore_cli_error_exit(seeded_collection, palace_path, tmp_dir, capsys):
-    """AC-5: restore without --force on a non-empty palace exits 1 and prints 'Use --force'."""
+    """AC-5: restore collision names the backup-first, destination-aware recovery."""
     archive = _make_archive(palace_path, tmp_dir, capsys)
 
     restore_target = os.path.join(tmp_dir, "restore_palace3")
@@ -162,9 +184,10 @@ def test_restore_cli_error_exit(seeded_collection, palace_path, tmp_dir, capsys)
 
     assert exc.value.code == 1
     captured = capsys.readouterr()
-    assert "Use --force" in captured.err
-    assert "Next:" in captured.err
-    assert "replace the current palace" in captured.err
+    assert (
+        "Next: back up the reported destination state, then use --force only if you intend "
+        "to replace it." in captured.err
+    )
 
 
 def test_restore_cli_missing_archive_exits_1(palace_path, tmp_dir, capsys):
@@ -325,6 +348,8 @@ def test_restore_cli_default_without_palace_keeps_default_kg(
 
     # Use a fresh empty dir as the default palace so the restore is not refused.
     default_restore_target = os.path.join(tmp_dir, "default_palace_ac4")
+    if os.path.lexists(DEFAULT_KG_PATH):
+        os.unlink(DEFAULT_KG_PATH)
 
     with patch("mempalace_code.cli_commands.backup_restore.MempalaceConfig") as mock_cfg:
         mock_cfg.return_value.palace_path = default_restore_target
@@ -339,6 +364,451 @@ def test_restore_cli_default_without_palace_keeps_default_kg(
     triples = restored_kg.query_entity("Max")
     subjects_predicates = {(t["subject"], t["predicate"]) for t in triples}
     assert ("Max", "does") in subjects_predicates
+
+
+class TestRestoreTargetStateCollisionGuard:
+    @pytest.mark.parametrize(
+        "shape", ["kg_only", "palace_file", "palace_symlink", "empty_lance", "lance"]
+    )
+    def test_refuses_existing_palace_shapes_unchanged(
+        self, shape, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, f"collision_{shape}")
+        scoped_kg = os.path.join(target, "knowledge_graph.sqlite3")
+        referent = os.path.join(tmp_dir, "palace_referent")
+
+        if shape == "kg_only":
+            os.makedirs(target)
+            with open(scoped_kg, "wb") as file:
+                file.write(b"KG_ONLY_SENTINEL")
+        elif shape == "palace_file":
+            with open(target, "wb") as file:
+                file.write(b"PALACE_FILE_SENTINEL")
+        elif shape == "palace_symlink":
+            os.makedirs(referent)
+            with open(os.path.join(referent, "outside.txt"), "wb") as file:
+                file.write(b"REFERENT_SENTINEL")
+            os.symlink(referent, target)
+        elif shape == "lance":
+            os.makedirs(os.path.join(target, "lance"))
+            with open(os.path.join(target, "lance", "sentinel.bin"), "wb") as file:
+                file.write(b"LANCE_SENTINEL")
+        else:
+            os.makedirs(os.path.join(target, "lance"))
+
+        before = _path_snapshot(target)
+        referent_before = _path_snapshot(referent)
+        with pytest.raises(SystemExit) as exc:
+            _run(["mempalace-code", "--palace", target, "restore", archive])
+
+        assert exc.value.code == 1
+        assert _path_snapshot(target) == before
+        assert _path_snapshot(referent) == referent_before
+        captured = capsys.readouterr()
+        assert target in captured.err
+        assert "Use --force" in captured.err
+
+    def test_explicit_kg_collision_refuses_before_extraction(
+        self, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, "explicit_kg_target")
+        selected_kg = os.path.join(tmp_dir, "selected.sqlite3")
+        with open(selected_kg, "wb") as file:
+            file.write(b"EXPLICIT_KG_SENTINEL")
+
+        with patch.object(backup_module.tempfile, "TemporaryDirectory") as tempdir:
+            with pytest.raises(SystemExit) as exc:
+                _run(
+                    [
+                        "mempalace-code",
+                        "--palace",
+                        target,
+                        "restore",
+                        archive,
+                        "--kg-path",
+                        selected_kg,
+                    ]
+                )
+
+        assert exc.value.code == 1
+        tempdir.assert_not_called()
+        assert _path_snapshot(target) == ("missing",)
+        assert _path_snapshot(selected_kg) == ("file", b"EXPLICIT_KG_SENTINEL")
+        assert selected_kg in capsys.readouterr().err
+
+    def test_default_kg_collision_refuses_unchanged(
+        self, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys, monkeypatch
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, "default_kg_target")
+        default_kg_path = os.path.join(tmp_dir, "default_kg.sqlite3")
+        monkeypatch.setattr("mempalace_code.knowledge_graph.DEFAULT_KG_PATH", default_kg_path)
+        with open(default_kg_path, "wb") as file:
+            file.write(b"DEFAULT_KG_SENTINEL")
+
+        with patch("mempalace_code.cli_commands.backup_restore.MempalaceConfig") as config:
+            config.return_value.palace_path = target
+            with pytest.raises(SystemExit) as exc:
+                _run(["mempalace-code", "restore", archive])
+
+        assert exc.value.code == 1
+        assert _path_snapshot(target) == ("missing",)
+        assert _path_snapshot(default_kg_path) == ("file", b"DEFAULT_KG_SENTINEL")
+        assert default_kg_path in capsys.readouterr().err
+
+    def test_repeated_restore_is_refused_without_changes(
+        self, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, "repeat_target")
+        _run(["mempalace-code", "--palace", target, "restore", archive])
+        capsys.readouterr()
+        before = _path_snapshot(target)
+
+        with pytest.raises(SystemExit) as exc:
+            _run(["mempalace-code", "--palace", target, "restore", archive])
+
+        assert exc.value.code == 1
+        assert _path_snapshot(target) == before
+        assert "back up the reported destination state" in capsys.readouterr().err
+
+    def test_non_force_preserves_preexisting_legacy_kg_tmp_symlink(
+        self, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, "legacy_tmp_target")
+        selected_kg = os.path.join(tmp_dir, "legacy_tmp_kg.sqlite3")
+        tmp_referent = os.path.join(tmp_dir, "legacy_tmp_referent.sqlite3")
+        with open(tmp_referent, "wb") as file:
+            file.write(b"LEGACY_TMP_SENTINEL")
+        os.symlink(tmp_referent, selected_kg + ".tmp")
+        tmp_referent_before = _path_snapshot(tmp_referent)
+
+        _run(
+            [
+                "mempalace-code",
+                "--palace",
+                target,
+                "restore",
+                archive,
+                "--kg-path",
+                selected_kg,
+            ]
+        )
+
+        assert len(KnowledgeGraph(db_path=selected_kg).query_entity("Max")) == 2
+        assert _path_snapshot(selected_kg + ".tmp") == ("symlink", tmp_referent)
+        assert _path_snapshot(tmp_referent) == tmp_referent_before
+
+    @pytest.mark.parametrize("empty_palace", [False, True])
+    def test_absent_state_and_empty_palace_restore_successfully(
+        self, empty_palace, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, f"clean_target_{empty_palace}")
+        selected_kg = os.path.join(tmp_dir, f"clean_kg_{empty_palace}.sqlite3")
+        if empty_palace:
+            os.makedirs(target)
+
+        _run(
+            [
+                "mempalace-code",
+                "--palace",
+                target,
+                "restore",
+                archive,
+                "--kg-path",
+                selected_kg,
+            ]
+        )
+
+        assert open_store(target, create=False).count() == 4
+        assert len(KnowledgeGraph(db_path=selected_kg).query_entity("Max")) == 2
+        assert "Restored palace to:" in capsys.readouterr().out
+
+    def test_palace_state_raced_in_after_preflight_is_preserved(
+        self, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, "raced_palace")
+        selected_kg = os.path.join(tmp_dir, "raced_palace_kg.sqlite3")
+        real_check = backup_module._restore_destination_collisions
+        calls = 0
+
+        def inject_on_publication(palace, kg_path, allowed=frozenset()):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                os.makedirs(palace)
+                with open(os.path.join(palace, "raced.bin"), "wb") as file:
+                    file.write(b"RACED_PALACE_SENTINEL")
+            return real_check(palace, kg_path, allowed)
+
+        with patch.object(
+            backup_module, "_restore_destination_collisions", side_effect=inject_on_publication
+        ):
+            with pytest.raises(SystemExit) as exc:
+                _run(
+                    [
+                        "mempalace-code",
+                        "--palace",
+                        target,
+                        "restore",
+                        archive,
+                        "--kg-path",
+                        selected_kg,
+                    ]
+                )
+
+        assert exc.value.code == 1
+        assert _path_snapshot(target) == (
+            "dir",
+            (("raced.bin", ("file", b"RACED_PALACE_SENTINEL")),),
+        )
+        assert _path_snapshot(selected_kg) == ("missing",)
+        assert "Use --force" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("shape", ["file", "dangling_symlink"])
+    def test_kg_state_raced_at_atomic_publication_is_preserved(
+        self, shape, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, "raced_kg_palace")
+        selected_kg = os.path.join(tmp_dir, "raced_kg.sqlite3")
+        missing_referent = os.path.join(tmp_dir, "raced_kg_missing_referent.sqlite3")
+        real_link = os.link
+
+        def inject_before_link(src, dst, *args, **kwargs):
+            assert dst == selected_kg
+            if shape == "file":
+                with open(dst, "wb") as file:
+                    file.write(b"RACED_KG_SENTINEL")
+            else:
+                os.symlink(missing_referent, dst)
+            return real_link(src, dst, *args, **kwargs)
+
+        with patch.object(backup_module.os, "link", side_effect=inject_before_link):
+            with pytest.raises(SystemExit) as exc:
+                _run(
+                    [
+                        "mempalace-code",
+                        "--palace",
+                        target,
+                        "restore",
+                        archive,
+                        "--kg-path",
+                        selected_kg,
+                    ]
+                )
+
+        assert exc.value.code == 1
+        assert _path_snapshot(target) == ("missing",)
+        if shape == "file":
+            assert _path_snapshot(selected_kg) == ("file", b"RACED_KG_SENTINEL")
+        else:
+            assert _path_snapshot(selected_kg) == ("symlink", missing_referent)
+        assert not [
+            entry
+            for entry in os.listdir(tmp_dir)
+            if entry.startswith(f".{os.path.basename(selected_kg)}.") and entry.endswith(".tmp")
+        ]
+        assert "back up the reported destination state" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("shape", ["empty", "sentinel"])
+    def test_lance_claim_race_preserves_existing_root(
+        self, shape, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, f"raced_lance_{shape}")
+        selected_kg = os.path.join(tmp_dir, f"raced_lance_{shape}.sqlite3")
+        lance_dir = os.path.join(target, "lance")
+        real_mkdir = os.mkdir
+
+        def inject_before_claim(path, mode=0o777, *, dir_fd=None):
+            if path == lance_dir:
+                real_mkdir(path, mode, dir_fd=dir_fd)
+                if shape == "sentinel":
+                    with open(os.path.join(path, "sentinel.bin"), "wb") as file:
+                        file.write(b"RACED_LANCE_SENTINEL")
+            return real_mkdir(path, mode, dir_fd=dir_fd)
+
+        with patch.object(backup_module.os, "mkdir", side_effect=inject_before_claim):
+            with pytest.raises(SystemExit) as exc:
+                _run(
+                    [
+                        "mempalace-code",
+                        "--palace",
+                        target,
+                        "restore",
+                        archive,
+                        "--kg-path",
+                        selected_kg,
+                    ]
+                )
+
+        assert exc.value.code == 1
+        expected_lance = ("dir", ())
+        if shape == "sentinel":
+            expected_lance = ("dir", (("sentinel.bin", ("file", b"RACED_LANCE_SENTINEL")),))
+        assert _path_snapshot(target) == ("dir", (("lance", expected_lance),))
+        assert _path_snapshot(selected_kg) == ("missing",)
+        assert not [
+            entry
+            for entry in os.listdir(tmp_dir)
+            if entry.startswith(f".{os.path.basename(selected_kg)}.") and entry.endswith(".tmp")
+        ]
+        assert "Use --force" in capsys.readouterr().err
+
+    def test_hardlink_unavailable_rolls_back_owned_lance(
+        self, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, "hardlink_unavailable_palace")
+        selected_kg = os.path.join(tmp_dir, "hardlink_unavailable.sqlite3")
+
+        with patch.object(
+            backup_module.os,
+            "link",
+            side_effect=OSError(errno.EOPNOTSUPP, "hard links unavailable"),
+        ):
+            with pytest.raises(SystemExit) as exc:
+                _run(
+                    [
+                        "mempalace-code",
+                        "--palace",
+                        target,
+                        "restore",
+                        archive,
+                        "--kg-path",
+                        selected_kg,
+                    ]
+                )
+
+        assert exc.value.code == 1
+        assert _path_snapshot(target) == ("missing",)
+        assert _path_snapshot(selected_kg) == ("missing",)
+        assert not [
+            entry
+            for entry in os.listdir(tmp_dir)
+            if entry.startswith(f".{os.path.basename(selected_kg)}.") and entry.endswith(".tmp")
+        ]
+
+
+class TestRestoreForceCollisionGuard:
+    @pytest.mark.parametrize("shape", ["palace_file", "palace_symlink", "lance"])
+    @pytest.mark.parametrize("kg_symlink", [False, True])
+    def test_force_replaces_managed_state_without_following_links(
+        self, shape, kg_symlink, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    ):
+        archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
+        target = os.path.join(tmp_dir, f"force_{shape}")
+        selected_kg = os.path.join(tmp_dir, f"force_{shape}.sqlite3")
+        referent = os.path.join(tmp_dir, f"force_{shape}_referent")
+        kg_referent = os.path.join(tmp_dir, f"force_{shape}_kg_referent.sqlite3")
+        unrelated = None
+
+        if shape == "palace_file":
+            with open(target, "wb") as file:
+                file.write(b"PALACE_FILE_SENTINEL")
+        elif shape == "palace_symlink":
+            os.makedirs(referent)
+            with open(os.path.join(referent, "outside.bin"), "wb") as file:
+                file.write(b"REFERENT_SENTINEL")
+            os.symlink(referent, target)
+        else:
+            os.makedirs(os.path.join(target, "lance"))
+            with open(os.path.join(target, "lance", "old.bin"), "wb") as file:
+                file.write(b"OLD_LANCE_SENTINEL")
+            unrelated = os.path.join(target, "keep.bin")
+            with open(unrelated, "wb") as file:
+                file.write(b"UNRELATED_SENTINEL")
+
+        referent_before = _path_snapshot(referent)
+        existing_kg = kg_referent if kg_symlink else selected_kg
+        with open(existing_kg, "wb") as file:
+            file.write(b"OLD_KG_SENTINEL")
+        if kg_symlink:
+            os.symlink(kg_referent, selected_kg)
+        kg_referent_before = _path_snapshot(kg_referent)
+        tmp_referent = os.path.join(tmp_dir, f"force_{shape}_tmp_referent.sqlite3")
+        with open(tmp_referent, "wb") as file:
+            file.write(b"LEGACY_TMP_SENTINEL")
+        os.symlink(tmp_referent, selected_kg + ".tmp")
+        tmp_referent_before = _path_snapshot(tmp_referent)
+
+        _run(
+            [
+                "mempalace-code",
+                "--palace",
+                target,
+                "restore",
+                archive,
+                "--kg-path",
+                selected_kg,
+                "--force",
+            ]
+        )
+
+        assert not os.path.islink(target)
+        assert open_store(target, create=False).count() == 4
+        assert len(KnowledgeGraph(db_path=selected_kg).query_entity("Max")) == 2
+        assert _path_snapshot(referent) == referent_before
+        assert not os.path.islink(selected_kg)
+        assert _path_snapshot(kg_referent) == kg_referent_before
+        assert _path_snapshot(selected_kg + ".tmp") == ("symlink", tmp_referent)
+        assert _path_snapshot(tmp_referent) == tmp_referent_before
+        if unrelated is not None:
+            assert _path_snapshot(unrelated) == ("file", b"UNRELATED_SENTINEL")
+        assert "Restored palace to:" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("archive_shape", ["unsafe_member", "malformed_metadata"])
+    def test_force_rejects_invalid_archive_before_mutation(self, archive_shape, tmp_dir, capsys):
+        archive = os.path.join(tmp_dir, f"{archive_shape}.tar.gz")
+        with tarfile.open(archive, "w:gz") as tar:
+            if archive_shape == "unsafe_member":
+                unsafe = tarfile.TarInfo("mempalace_backup/lance/link")
+                unsafe.type = tarfile.SYMTYPE
+                unsafe.linkname = "/etc/passwd"
+                tar.addfile(unsafe)
+            else:
+                malformed = b"{not-json"
+                metadata = tarfile.TarInfo("mempalace_backup/metadata.json")
+                metadata.size = len(malformed)
+                tar.addfile(metadata, io.BytesIO(malformed))
+
+        target = os.path.join(tmp_dir, "unsafe_target")
+        os.makedirs(os.path.join(target, "lance"))
+        with open(os.path.join(target, "lance", "sentinel.bin"), "wb") as file:
+            file.write(b"LANCE_SENTINEL")
+        selected_kg = os.path.join(tmp_dir, "unsafe_kg.sqlite3")
+        with open(selected_kg, "wb") as file:
+            file.write(b"KG_SENTINEL")
+        palace_before = _path_snapshot(target)
+        kg_before = _path_snapshot(selected_kg)
+
+        with pytest.raises(SystemExit) as exc:
+            _run(
+                [
+                    "mempalace-code",
+                    "--palace",
+                    target,
+                    "restore",
+                    archive,
+                    "--kg-path",
+                    selected_kg,
+                    "--force",
+                ]
+            )
+
+        assert exc.value.code == 1
+        assert _path_snapshot(target) == palace_before
+        assert _path_snapshot(selected_kg) == kg_before
+        expected_error = (
+            "unsafe_archive_member" if archive_shape == "unsafe_member" else "malformed_metadata"
+        )
+        assert expected_error in capsys.readouterr().err
 
 
 # ── Disk-budget CLI guard ──────────────────────────────────────────────────────

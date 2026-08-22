@@ -1,5 +1,7 @@
 ---
 slug: WATCH-MACOS-FSEVENTS-RUNAWAY-GUARD
+status: completed
+authority: non_authoritative
 goal: "Prevent broken macOS watch jobs from monitoring broad uninitialized roots and driving sustained FSEvents or Spotlight churn."
 risk: medium
 risk_note: "Intentionally tightens the `watch schedule` rendering contract (previously any directory was accepted) and adds startup output in on-save mode; mining, storage, disk budget, and backup/recovery behavior are untouched."

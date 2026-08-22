@@ -1,5 +1,7 @@
 ---
 slug: "AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET"
+status: completed
+authority: non_authoritative
 goal: "Generate a deterministic public-safe code-intelligence packet from real MemPalace CLI output and one minimal MCP stdio exhibit on a synthetic fixture project."
 priority: P1
 files:

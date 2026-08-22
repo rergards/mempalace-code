@@ -72,6 +72,18 @@ class WatcherDiscovery:
     detail: str
 
 
+# Every reason `detect_installation` can refuse with. They are named because the
+# refusal is not just a message: exactly one of them — an ambiguous venv — can
+# still be an ordinary pip install, and the ordinary-pip upgrade hint keys off it.
+UNSUPPORTED_SYSTEM = "system Python installations are not supported for automatic upgrades"
+UNSUPPORTED_EDITABLE = "editable or source-checkout installations are not supported"
+UNSUPPORTED_PIPX_WITHOUT_PIPX = "pipx environment found but pipx executable is unavailable"
+UNSUPPORTED_UV_WITHOUT_UV = "uv tool environment found but uv executable is unavailable"
+UNSUPPORTED_AMBIGUOUS_VENV = (
+    "ambiguous virtual environment; supported installers are uv tool, pipx, and bootstrap venv"
+)
+
+
 @dataclass(frozen=True)
 class Installation:
     """A detected installation that can be upgraded without crossing ownership boundaries."""
@@ -367,13 +379,9 @@ def detect_installation(
     detected_extras = detect_installed_extras() if extras is None else extras
 
     if env_prefix == system_prefix:
-        return Installation.unsupported(
-            "system Python installations are not supported for automatic upgrades"
-        )
+        return Installation.unsupported(UNSUPPORTED_SYSTEM)
     if _has_editable_metadata():
-        return Installation.unsupported(
-            "editable or source-checkout installations are not supported"
-        )
+        return Installation.unsupported(UNSUPPORTED_EDITABLE)
 
     bootstrap = (Path.home() / ".mempalace" / "venv").resolve()
     if env_prefix == bootstrap:
@@ -400,7 +408,7 @@ def detect_installation(
                 manager_command=(pipx,),
                 extras=detected_extras,
             )
-        return Installation.unsupported("pipx environment found but pipx executable is unavailable")
+        return Installation.unsupported(UNSUPPORTED_PIPX_WITHOUT_PIPX)
 
     xdg_data_home = Path(env.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
     uv_tool_roots = [
@@ -421,13 +429,40 @@ def detect_installation(
                 manager_command=(uv,),
                 extras=detected_extras,
             )
-        return Installation.unsupported(
-            "uv tool environment found but uv executable is unavailable"
-        )
+        return Installation.unsupported(UNSUPPORTED_UV_WITHOUT_UV)
 
-    return Installation.unsupported(
-        "ambiguous virtual environment; supported installers are uv tool, pipx, and bootstrap venv"
-    )
+    return Installation.unsupported(UNSUPPORTED_AMBIGUOUS_VENV)
+
+
+def _recorded_installer() -> str | None:
+    """Read the ``INSTALLER`` marker the installing tool writes beside the dist-info."""
+    try:
+        text = metadata.distribution(PACKAGE_NAME).read_text("INSTALLER")
+    except metadata.PackageNotFoundError:
+        return None
+    return text.strip() if text else None
+
+
+def is_plain_pip_install(installation: Installation | None = None) -> bool:
+    """True only when telling the user to pip-upgrade *this* interpreter is correct.
+
+    `detect_installation` already refuses four environments that a pip upgrade
+    would damage or could not move: a managed uv-tool/pipx/bootstrap env that
+    `update` owns, a system interpreter that is frequently externally managed, an
+    editable source checkout with no PyPI version to move to, and a managed env
+    whose manager binary has gone missing. Each refusal carries its own reason, so
+    the single remaining verdict — an ambiguous virtual environment — is the only
+    one that can still be an ordinary pip install.
+
+    Ambiguous is not sufficient on its own, though: it is also where anything
+    unclassifiable lands. So the marker pip writes at install time has to say
+    ``pip`` as well. Anything else stays silent rather than naming an interpreter
+    we could not identify.
+    """
+    detected = detect_installation() if installation is None else installation
+    if detected.supported or detected.reason != UNSUPPORTED_AMBIGUOUS_VENV:
+        return False
+    return _recorded_installer() == "pip"
 
 
 def _default_runner(command: list[str]) -> tuple[int, str, str]:

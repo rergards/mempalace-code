@@ -1,6 +1,7 @@
 # mempalace-code Hooks — Claude Code Auto-Save (Legacy)
 
-Optional Claude Code hooks that trigger automatic memory saves during conversations. Not required — MCP tools + usage rules (see `docs/AGENT_INSTALL.md` Section 7) achieve the same result for any agent.
+Optional Claude Code hooks that trigger automatic memory saves during conversations. They are
+independent of the Agent Plugin instruction-loading boundary in `docs/AGENT_INSTALL.md` Section 7.
 
 ## What They Do
 
@@ -52,9 +53,13 @@ These hooks are **Claude Code-only** — they rely on Claude Code's `Stop` and `
 |---------|----------|
 | **Code mining** (indexing source files) | `mempalace-code watch` — works with any client, re-mines on commit |
 | **Conversation context** (decisions, discussions) | MCP tools — `mempalace_add_drawer`, `mempalace_diary_write` |
-| **Session continuity** | Add mempalace usage rules to agent instructions (see `docs/AGENT_INSTALL.md` Section 7) |
+| **Session continuity** | Compatible clients load the Agent Plugin discovered by `mempalace-code agent-plugin path --json`; other clients use explicit MCP calls allowed by their client policy |
 
-For Codex specifically, wire the MCP server in `~/.codex/config.toml` (see `docs/AGENT_INSTALL.md` Step 5.2) and add the canonical usage rules from `docs/LLM_USAGE_RULES.md` to `~/.codex/AGENTS.md` or the project `AGENTS.md`.
+For Codex specifically, wire the MCP server in `~/.codex/config.toml` (see
+`docs/AGENT_INSTALL.md` Step 5.2). If the client supports Agent Plugins 1.0, use
+`mempalace-code agent-plugin path --json` and follow Section 7. Otherwise stop after MCP wiring.
+`docs/LLM_USAGE_RULES.md` remains read-only reference material; mutation of `AGENTS.md` or any
+other instruction file is unsupported.
 
 ## Configuration
 

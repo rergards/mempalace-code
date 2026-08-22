@@ -1,5 +1,7 @@
 ---
 slug: FIND-IMPL-INHERITS
+status: completed
+authority: non_authoritative
 goal: "Fix tool_find_implementations to return Python subclasses of ABCs by also matching incoming inherits edges when the interface is itself an ABC/Protocol"
 risk: low
 risk_note: "Single-function change in mcp_server.py; existing implements path unchanged; heuristic is guarded by KG self-check so false positives only possible if non-ABC classes happen to have an implements-ABC triple"

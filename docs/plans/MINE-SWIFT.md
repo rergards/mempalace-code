@@ -1,5 +1,7 @@
 ---
 slug: MINE-SWIFT
+status: completed
+authority: non_authoritative
 goal: "Add Swift (.swift) language support to the code miner with regex-based symbol extraction for classes, structs, enums, protocols, actors, extensions, and functions"
 risk: low
 risk_note: "Follows established pattern — identical to how Kotlin, C#, Java were added. No existing code changes, only additions."

@@ -1,5 +1,7 @@
 ---
 slug: MINE-K8S-YAML-SEPARATOR
+status: completed
+authority: non_authoritative
 goal: "Split Kubernetes manifests only on real YAML document separators, not block scalar content."
 risk: low
 risk_note: "The change is isolated to Kubernetes manifest chunking and focused miner regression tests."

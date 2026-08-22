@@ -1,5 +1,7 @@
 ---
 slug: MINE-HCL-BOUNDARY-MODERN
+status: completed
+authority: non_authoritative
 goal: "Treat Terraform 1.1+ moved/import/check/removed blocks as HCL chunk boundaries"
 risk: low
 risk_note: "Single additive regex expansion with focused tests; existing fallback behavior for non-block HCL/Terraform content should remain unchanged."

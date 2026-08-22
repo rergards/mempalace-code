@@ -1,5 +1,6 @@
 import os
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -29,7 +30,11 @@ from mempalace_code.miner import (
     resolve_wing_for_project,
     scan_project,
 )
-from mempalace_code.mining.projects import InvalidProjectConfigError, load_config
+from mempalace_code.mining.projects import (
+    InvalidProjectConfigError,
+    classify_project_root,
+    load_config,
+)
 from mempalace_code.storage import open_store
 
 
@@ -1821,9 +1826,121 @@ def test_mine_noop_with_injected_collection_does_not_warm_embedder():
             stats = mine(str(project_root), palace_path, collection=mock_store)
 
         assert stats["drawers_filed"] == 0
+        assert stats["files_failed"] == 0
         assert not stats["embedder_warmed"]
+        assert {
+            "files_processed",
+            "files_skipped",
+            "files_tiny",
+            "drawers_filed",
+            "elapsed_secs",
+            "embedder_warmed",
+        } <= stats.keys()
         mock_store.warmup.assert_not_called()
         get_collection.assert_not_called()
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_mine_hash_failure_reported_separately(capsys):
+    """A hash failure stays present for stale sweep and does not inflate tiny/skipped."""
+    from mempalace_code.mining.orchestrator import _file_hash
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        failed = project_root / "failed.py"
+        healthy = project_root / "healthy.py"
+        write_file(failed, MULTI_FUNC_PY)
+        write_file(healthy, MULTI_FUNC_PY)
+        _make_palace_config(project_root)
+        palace_path = str(project_root / "palace")
+        mock_store = _make_mock_store()
+        mock_store.get_source_file_hashes.return_value = {
+            str(failed): "retained-hash",
+            str(healthy): _file_hash(healthy),
+        }
+
+        def hash_with_failure(path):
+            if path == failed:
+                raise OSError("permission denied")
+            return _file_hash(path)
+
+        with (
+            patch(
+                "mempalace_code.mining.orchestrator.scan_project",
+                return_value=[failed, healthy],
+            ),
+            patch(
+                "mempalace_code.mining.orchestrator._file_hash",
+                side_effect=hash_with_failure,
+            ),
+        ):
+            result = mine(
+                str(project_root),
+                palace_path,
+                collection=mock_store,
+                skip_optimize=True,
+            )
+
+        assert result["files_failed"] == 1
+        assert result["files_processed"] == 0
+        assert result["files_skipped"] == 1
+        assert result["files_tiny"] == 0
+        assert result["drawers_filed"] == 0
+        assert "Files failed to read: 1" in capsys.readouterr().out
+        mock_store.warmup.assert_not_called()
+        mock_store.delete_by_source_files.assert_not_called()
+    finally:
+        shutil.rmtree(tmpdir)
+
+
+def test_mine_read_failure_reported_separately(capsys):
+    """A content-read failure preserves retained drawers and lets healthy files finish."""
+    from mempalace_code import source_io
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        project_root = Path(tmpdir).resolve()
+        failed = project_root / "failed.py"
+        healthy = project_root / "healthy.py"
+        write_file(failed, MULTI_FUNC_PY)
+        write_file(healthy, MULTI_FUNC_PY)
+        _make_palace_config(project_root)
+        palace_path = str(project_root / "palace")
+        mock_store = _make_mock_store()
+        mock_store.get_source_file_hashes.return_value = {str(failed): "stale-hash"}
+        read_regular_text = source_io.read_regular_text
+
+        def read_with_failure(path, *args, **kwargs):
+            if path == failed:
+                raise OSError("read boundary failed")
+            return read_regular_text(path, *args, **kwargs)
+
+        with (
+            patch(
+                "mempalace_code.mining.orchestrator.scan_project",
+                return_value=[failed, healthy],
+            ),
+            patch(
+                "mempalace_code.mining.orchestrator.read_regular_text",
+                side_effect=read_with_failure,
+            ),
+        ):
+            result = mine(
+                str(project_root),
+                palace_path,
+                collection=mock_store,
+                skip_optimize=True,
+            )
+
+        assert result["files_failed"] == 1
+        assert result["files_processed"] == 1
+        assert result["files_skipped"] == 0
+        assert result["files_tiny"] == 0
+        assert result["drawers_filed"] > 0
+        assert "Files failed to read: 1" in capsys.readouterr().out
+        mock_store.delete_by_source_file.assert_not_called()
     finally:
         shutil.rmtree(tmpdir)
 
@@ -3247,6 +3364,33 @@ def test_process_file_xaml_roundtrip():
 # =============================================================================
 
 
+class TestProjectMarkerClassification:
+    @pytest.mark.parametrize("marker", ["pyproject.toml", "Guard.sln"])
+    def test_regular_file_markers_classify_project(self, tmp_path, marker):
+        (tmp_path / marker).write_text("", encoding="utf-8")
+
+        assert classify_project_root(tmp_path) == ("project", [marker])
+
+    @pytest.mark.parametrize("git_shape", ["directory", "file"])
+    def test_supported_git_shapes_classify_project(self, tmp_path, git_shape):
+        git_marker = tmp_path / ".git"
+        if git_shape == "directory":
+            git_marker.mkdir()
+        else:
+            git_marker.write_text("gitdir: ../git-data\n", encoding="utf-8")
+
+        assert classify_project_root(tmp_path) == ("project", [".git"])
+
+    def test_regular_init_marker_takes_precedence_and_preserves_project_evidence(self, tmp_path):
+        (tmp_path / "mempalace.yaml").write_text("wing: test\n", encoding="utf-8")
+        (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
+
+        assert classify_project_root(tmp_path) == ("initialized", ["pyproject.toml"])
+
+    def test_missing_root_fails_closed(self, tmp_path):
+        assert classify_project_root(tmp_path / "missing") == ("parent", [])
+
+
 class TestDetectProjects:
     def test_detect_finds_git_dirs(self, tmp_path):
         proj = tmp_path / "myapp"
@@ -3254,8 +3398,59 @@ class TestDetectProjects:
         (proj / ".git").mkdir()
 
         results = detect_projects(str(tmp_path))
-        paths = [r["path"] for r in results]
-        assert str(proj) in paths
+        assert results == [{"path": str(proj), "markers": [".git"], "initialized": False}]
+
+    def test_detect_finds_git_file(self, tmp_path):
+        proj = tmp_path / "submodule"
+        proj.mkdir()
+        (proj / ".git").write_text("gitdir: ../.git/modules/submodule\n", encoding="utf-8")
+
+        results = detect_projects(str(tmp_path))
+
+        assert results == [{"path": str(proj), "markers": [".git"], "initialized": False}]
+
+    def test_detect_finds_linked_git_worktree(self, tmp_path):
+        source = tmp_path / "source"
+        projects = tmp_path / "projects"
+        linked = projects / "linked"
+        projects.mkdir()
+        subprocess.run(["git", "init", str(source)], check=True, capture_output=True, text=True)
+        (source / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(source), "add", "tracked.txt"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(source),
+                "-c",
+                "user.name=Test User",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-m",
+                "initial",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(source), "worktree", "add", str(linked)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        assert (linked / ".git").is_file()
+        assert classify_project_root(linked) == ("project", [".git"])
+        assert detect_projects(str(projects)) == [
+            {"path": str(linked), "markers": [".git"], "initialized": False}
+        ]
 
     def test_detect_finds_pyproject(self, tmp_path):
         proj = tmp_path / "pyapp"

@@ -1,5 +1,7 @@
 ---
 slug: MINE-TINY-FILES-SKIP-ON-REHASH
+status: completed
+authority: non_authoritative
 goal: "Skip unchanged tiny files during incremental mining without losing tiny-file reporting"
 risk: low
 risk_note: "Touching the incremental mine hash path is localized, but it changes skip semantics for zero-drawer files and must preserve existing tiny-file reporting."

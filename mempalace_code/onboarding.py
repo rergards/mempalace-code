@@ -54,10 +54,34 @@ DEFAULT_WINGS = {
     ],
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Safety constants
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MAX_RETRIES = 3
+_YN_VALID = frozenset({"y", "yes", "n", "no"})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Abort signal
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _AbortOnboarding(Exception):
+    """Raised on EOF, Ctrl-C, or retry exhaustion to abort cleanly without traceback."""
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def _safe_input(prompt: str) -> str | None:
+    """Read one line from stdin. Returns stripped value, or None on EOF/interrupt."""
+    try:
+        return input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
 
 
 def _hr():
@@ -70,18 +94,37 @@ def _header(text):
     print(f"{'=' * 58}")
 
 
-def _ask(prompt, default=None):
+def _ask(prompt: str, default: str | None = None) -> str:
+    """Prompt for free-form text. Raises _AbortOnboarding on EOF or interrupt."""
     if default:
-        val = input(f"  {prompt} [{default}]: ").strip()
+        val = _safe_input(f"  {prompt} [{default}]: ")
+        if val is None:
+            raise _AbortOnboarding
         return val if val else default
-    return input(f"  {prompt}: ").strip()
+    val = _safe_input(f"  {prompt}: ")
+    if val is None:
+        raise _AbortOnboarding
+    return val
 
 
-def _yn(prompt, default="y"):
-    val = input(f"  {prompt} [{'Y/n' if default == 'y' else 'y/N'}]: ").strip().lower()
-    if not val:
-        return default == "y"
-    return val.startswith("y")
+def _yn(prompt: str, default: str = "y") -> bool:
+    """
+    Yes/no prompt with bounded retries and safe default.
+
+    Accepted values: y, yes, n, no (case-insensitive) or empty (uses default).
+    Raises _AbortOnboarding on EOF, interrupt, or retry exhaustion.
+    """
+    indicator = "Y/n" if default == "y" else "y/N"
+    for _ in range(_MAX_RETRIES):
+        val = _safe_input(f"  {prompt} [{indicator}]: ")
+        if val is None:
+            raise _AbortOnboarding
+        if val == "":
+            return default == "y"
+        if val.lower() in _YN_VALID:
+            return val.lower() in ("y", "yes")
+        print("  Please enter y or n.")
+    raise _AbortOnboarding
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -105,8 +148,10 @@ def _ask_mode() -> str:
     print("    [3]  Both     — personal and professional mixed")
     print()
 
-    while True:
-        choice = input("  Your choice [1/2/3]: ").strip()
+    for _ in range(_MAX_RETRIES):
+        choice = _safe_input("  Your choice [1/2/3]: ")
+        if choice is None:
+            raise _AbortOnboarding
         if choice == "1":
             return "work"
         elif choice == "2":
@@ -114,6 +159,7 @@ def _ask_mode() -> str:
         elif choice == "3":
             return "combo"
         print("  Please enter 1, 2, or 3.")
+    raise _AbortOnboarding
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -136,15 +182,18 @@ def _ask_people(mode: str) -> tuple[list, dict]:
   Type 'done' when finished.
 """)
         while True:
-            entry = input("  Person: ").strip()
+            entry = _safe_input("  Person: ")
+            if entry is None:
+                raise _AbortOnboarding
             if entry.lower() in ("done", ""):
                 break
             parts = [p.strip() for p in entry.split(",", 1)]
             name = parts[0]
             relationship = parts[1] if len(parts) > 1 else ""
             if name:
-                # Ask about nicknames
-                nick = input(f"  Nickname for {name}? (or enter to skip): ").strip()
+                nick = _safe_input(f"  Nickname for {name}? (or enter to skip): ")
+                if nick is None:
+                    raise _AbortOnboarding
                 if nick:
                     aliases[nick] = name
                 people.append({"name": name, "relationship": relationship, "context": "personal"})
@@ -159,7 +208,9 @@ def _ask_people(mode: str) -> tuple[list, dict]:
   Type 'done' when finished.
 """)
         while True:
-            entry = input("  Person: ").strip()
+            entry = _safe_input("  Person: ")
+            if entry is None:
+                raise _AbortOnboarding
             if entry.lower() in ("done", ""):
                 break
             parts = [p.strip() for p in entry.split(",", 1)]
@@ -189,7 +240,9 @@ def _ask_projects(mode: str) -> list:
 """)
     projects = []
     while True:
-        proj = input("  Project: ").strip()
+        proj = _safe_input("  Project: ")
+        if proj is None:
+            raise _AbortOnboarding
         if proj.lower() in ("done", ""):
             break
         if proj:
@@ -213,7 +266,9 @@ def _ask_wings(mode: str) -> list:
 
   Press enter to keep these, or type your own comma-separated list.
 """)
-    custom = input("  Wings: ").strip()
+    custom = _safe_input("  Wings: ")
+    if custom is None:
+        raise _AbortOnboarding
     if custom:
         return [w.strip() for w in custom.split(",") if w.strip()]
     return defaults
@@ -370,11 +425,29 @@ def run_onboarding(
     directory: str = ".",
     config_dir: Path | None = None,
     auto_detect: bool = True,
-) -> EntityRegistry:
+) -> EntityRegistry | None:
     """
     Run the full onboarding flow.
-    Returns the seeded EntityRegistry.
+    Returns the seeded EntityRegistry, or None if the user aborted.
+
+    All mutations (registry, AAAK files) are staged until all prompts
+    complete successfully. EOF or Ctrl-C at any prompt aborts cleanly
+    without partial writes.
     """
+    try:
+        return _run_onboarding_inner(directory, config_dir, auto_detect)
+    except _AbortOnboarding:
+        print("\n  Onboarding aborted. No changes were saved.")
+        return None
+
+
+def _run_onboarding_inner(
+    directory: str,
+    config_dir: Path | None,
+    auto_detect: bool,
+) -> EntityRegistry:
+    # ── Collect all data from prompts (no writes until completion) ────────────
+
     # Step 1: Mode
     mode = _ask_mode()
 
@@ -388,7 +461,10 @@ def run_onboarding(
     wings = _ask_wings(mode)
 
     # Step 5: Auto-detect additional people from files
-    if auto_detect and _yn("\nScan local files for additional names we might have missed?"):
+    # Privacy-sensitive: defaults to No — explicit Yes required to scan.
+    if auto_detect and _yn(
+        "Scan local files for additional names we might have missed?", default="n"
+    ):
         directory = _ask("Directory to scan", default=directory)
         detected = _auto_detect(directory, people)
         if detected:
@@ -400,24 +476,22 @@ def run_onboarding(
                     f"({', '.join(e['signals'][:1])})"
                 )
             print()
-            if _yn("  Add any of these to your registry?"):
+            if _yn("Add any of these to your registry?", default="n"):
                 for e in detected:
-                    ans = input(f"    {e['name']} — (p)erson, (s)kip? ").strip().lower()
+                    ans = _safe_input(f"    {e['name']} — (p)erson, (s)kip? ")
+                    if ans is None:
+                        raise _AbortOnboarding
                     if ans == "p":
-                        rel = input(f"    Relationship/role for {e['name']}? ").strip()
-                        ctx = (
-                            "personal"
-                            if mode == "personal"
-                            else (
-                                "work"
-                                if mode == "work"
-                                else input("    Context — (p)ersonal or (w)ork? ")
-                                .strip()
-                                .lower()
-                                .replace("w", "work")
-                                .replace("p", "personal")
-                            )
-                        )
+                        rel = _ask(f"Relationship/role for {e['name']}?")
+                        if mode == "personal":
+                            ctx = "personal"
+                        elif mode == "work":
+                            ctx = "work"
+                        else:
+                            ctx_raw = _safe_input("    Context — (p)ersonal or (w)ork? ")
+                            if ctx_raw is None:
+                                raise _AbortOnboarding
+                            ctx = "work" if ctx_raw.lower().startswith("w") else "personal"
                         people.append({"name": e["name"], "relationship": rel, "context": ctx})
 
     # Step 6: Warn about ambiguous names
@@ -433,7 +507,9 @@ def run_onboarding(
                "Have you ever tried" → adverb.
 """)
 
-    # Build and save registry
+    # ── All prompts complete — now write (staged commit) ──────────────────────
+
+    # Build and save registry with rerun reconciliation
     registry = EntityRegistry.load(config_dir)
     registry.seed(mode=mode, people=people, projects=projects, aliases=aliases)
 

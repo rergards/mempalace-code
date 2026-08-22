@@ -2,8 +2,8 @@
 """
 migrate_storage_smoke.py — Disposable release-check smoke for migrate-storage.
 
-Requires the [chroma] extra:
-    pip install 'mempalace-code[chroma]'
+Requires the [chroma-migration] extra:
+    pip install 'mempalace-code[chroma-migration]'
 
 Usage:
     python scripts/migrate_storage_smoke.py --rows 3
@@ -41,12 +41,13 @@ def _det_embed(text: str) -> list[float]:
 
 
 def _check_chroma() -> None:
-    """Exit with install hint if the [chroma] extra is not present."""
+    """Exit with install hint if the [chroma-migration] extra is not present."""
     try:
         import chromadb  # noqa: F401
     except ImportError:
         print(
-            "Error: chromadb is not installed. Install with: pip install 'mempalace-code[chroma]'",
+            "Error: chromadb is required only for ChromaDB-to-LanceDB migration. "
+            "Install the migration bridge with: pip install 'mempalace-code[chroma-migration]'",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -61,7 +62,10 @@ def _seed_chroma_source(path: str, n_rows: int) -> None:
     import chromadb
 
     os.makedirs(path, exist_ok=True)
-    client = chromadb.PersistentClient(path=path)
+    client = chromadb.PersistentClient(
+        path=path,
+        settings=chromadb.Settings(anonymized_telemetry=False),
+    )
     col = client.get_or_create_collection(
         "mempalace_drawers",
         embedding_function=None,  # BYO embeddings — avoids Chroma model download
@@ -142,6 +146,24 @@ def smoke_happy_path(n_rows: int, work_dir: str) -> None:
         sys.exit(1)
     if dst_count != n_rows:
         print(f"[smoke] FAIL: destination={dst_count} expected {n_rows}", file=sys.stderr)
+        sys.exit(1)
+
+    import chromadb
+
+    src_client = chromadb.PersistentClient(
+        path=src,
+        settings=chromadb.Settings(anonymized_telemetry=False),
+    )
+    src_col = src_client.get_collection("mempalace_drawers")
+    src_rows = src_col.get(include=["documents"])
+    src_docs = src_rows.get("documents") or []
+    if src_col.count() != n_rows or not all(str(doc).startswith(MARKER_PREFIX) for doc in src_docs):
+        print("[smoke] FAIL: source Chroma palace changed during migration", file=sys.stderr)
+        sys.exit(1)
+
+    backups = [name for name in os.listdir(backup_dir) if name.endswith(".tar.gz")]
+    if len(backups) != 1:
+        print(f"[smoke] FAIL: expected one source backup, found {backups!r}", file=sys.stderr)
         sys.exit(1)
 
     print("[smoke] searching migrated palace for unique marker ...")

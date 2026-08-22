@@ -21,6 +21,7 @@ from .config import MempalaceConfig
 from .mining.batching import get_batch_size
 from .mining.orchestrator import add_drawers_batch
 from .normalize import normalize
+from .source_io import is_regular_source_path, regular_source_diagnostic
 from .storage import open_store, optimize_store
 from .version import __version__
 
@@ -245,6 +246,9 @@ def scan_convos(convo_dir: str) -> list:
                 continue
             filepath = Path(root) / filename
             if filepath.suffix.lower() in CONVO_EXTENSIONS:
+                if not is_regular_source_path(filepath):
+                    print(regular_source_diagnostic(filepath), file=sys.stderr)
+                    continue
                 files.append(filepath)
     return files
 

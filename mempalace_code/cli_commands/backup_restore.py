@@ -158,8 +158,8 @@ def cmd_restore(args):
     except FileExistsError as exc:
         print(f"  Error: {exc}", file=sys.stderr)
         print(
-            "  Next: use --force only if you intend to replace the current palace at "
-            f"{palace_path}.",
+            "  Next: back up the reported destination state, then use --force only if "
+            "you intend to replace it.",
             file=sys.stderr,
         )
         sys.exit(1)

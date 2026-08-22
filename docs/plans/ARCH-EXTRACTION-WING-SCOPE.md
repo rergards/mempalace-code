@@ -1,5 +1,7 @@
 ---
 slug: ARCH-EXTRACTION-WING-SCOPE
+status: completed
+authority: non_authoritative
 goal: "Scope architecture KG invalidation to the project currently being mined so sequential single-wing mines preserve other wings' arch facts."
 risk: low
 risk_note: "Keeps the existing KG schema and architecture extraction flow; risk is limited to source-file invalidation predicates and sentinel provenance."

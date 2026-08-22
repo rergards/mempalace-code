@@ -1,5 +1,7 @@
 ---
 slug: CODE-TREESITTER-RUST-CONST-STATIC
+status: completed
+authority: non_authoritative
 goal: "Add const_item and static_item to _chunk_rust_treesitter DEFINITION_TYPES so module-level constants and statics become chunk boundaries"
 risk: low
 risk_note: "Two-element frozenset addition with mirrored Go precedent; no logic changes needed"

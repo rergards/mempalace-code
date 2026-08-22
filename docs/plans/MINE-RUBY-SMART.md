@@ -1,5 +1,7 @@
 ---
 slug: MINE-RUBY-SMART
+status: completed
+authority: non_authoritative
 goal: "Add smart Ruby symbol extraction for ordinary .rb source"
 risk: low
 risk_note: "Scoped regex/catalog change in one extractor table plus focused unit tests; no storage, API, or migration surface."

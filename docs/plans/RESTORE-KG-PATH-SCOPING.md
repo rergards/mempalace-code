@@ -1,5 +1,7 @@
 ---
 slug: RESTORE-KG-PATH-SCOPING
+status: completed
+authority: non_authoritative
 goal: "Make CLI tarball restore send KG data to an explicit palace-scoped destination instead of silently overwriting the default global KG"
 risk: medium
 risk_note: "The change affects restore data placement for an existing CLI command. Risk is contained by leaving restore_backup() defaults intact, scoping only explicit CLI --palace restores, and adding regression tests for default behavior."

@@ -1,54 +1,47 @@
 # mempalace-code — LLM Usage Rules
 
-Usage rules for any MCP-capable LLM agent (Claude Code, Codex, Cursor, Gemini CLI, Windsurf, Continue.dev, Zed, Aider, …) using mempalace-code. **Installing the MCP server makes the tools available, but the assistant needs instructions to know *when* and *how* to use them.** The portable Agent Plugins 1.0 package bundles a concise skill for its four-tool `minimal` profile. Direct MCP registrations and richer profiles should load the matching rules from this file. Without instructions, proactive retrieval and filing may not happen.
+Usage rules for any MCP-capable LLM agent (Claude Code, Codex, Cursor, Gemini CLI, Windsurf, Continue.dev, Zed, Aider, …) using mempalace-code. **Installing the MCP server makes the tools available, but the assistant needs instructions to know *when* and *how* to use them.** The portable Agent Plugins 1.0 package bundles the supported concise skill for its four-tool `minimal` profile. This file remains the canonical full-profile reference for operators and reviewers.
 
 > `mempalace_status` is an inventory response, not an operating protocol. Its current response includes one entry per wing and room, so do not invoke it automatically at session start. These rules define the protocol.
 
 ## How to use this file
 
-Pick the path that matches your agent (alphabetical — no preference):
-
-| Agent | Where to paste |
-|-------|----------------|
-| Agent Plugins 1.0 client | Load the directory printed by `mempalace-code agent-plugin path`; its bundled skill covers the portable `minimal` profile |
-| Aider | `CONVENTIONS.md` or `.aider.conf.yml` read-rules |
-| Claude Code (global) | Append below to `~/.claude/CLAUDE.md` |
-| Claude Code (per-project) | Append below to `<project>/CLAUDE.md` (checked into git) |
-| Claude Desktop | Add to the system prompt / project instructions |
-| Codex CLI (global) | Append to `~/.codex/AGENTS.md` |
-| Codex CLI (per-project) | Append to `<project>/AGENTS.md` |
-| Continue.dev | `.continuerules` or `~/.continue/config.json` system message |
-| Cursor | Settings → Rules for AI → paste below |
-| Gemini CLI (global) | Append to `~/.gemini/GEMINI.md` |
-| Gemini CLI (per-project) | Append to `<project>/GEMINI.md` |
-| Windsurf | `.windsurfrules` in project root |
-| Zed | `assistant.system_prompt` in settings |
-| Other MCP clients | Wherever that client stores system-prompt / agent instructions |
-
-**One-liner append examples:**
+This file is the sole canonical reference for the full usage-rules block below. The supported
+automated instruction-loading path is the existing Agent Plugins 1.0 package:
 
 ```bash
-# Claude Code (global)
-cat docs/LLM_USAGE_RULES.md >> ~/.claude/CLAUDE.md
-
-# Codex CLI (global)
-cat docs/LLM_USAGE_RULES.md >> ~/.codex/AGENTS.md
-
-# Gemini CLI (global)
-cat docs/LLM_USAGE_RULES.md >> ~/.gemini/GEMINI.md
+mempalace-code agent-plugin path --json
 ```
 
-For per-project installs, append to whichever rules file the agent reads (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.windsurfrules`, `.continuerules`, etc.) using the same `cat … >> <target>` pattern.
+A compatible client parses the JSON `path` field and loads that directory. Its bundled concise skill covers the portable
+`minimal` profile and remains distinct from this full reference. Clients without Agent Plugins
+1.0 support stop instruction setup; this document provides no manual or automated
+instruction-file operation.
 
-`docs/AGENT_INSTALL.md` §7 automates the injection for Claude Code. Other hosts are manual today — paste the block below.
+Appendices A–C remain reading material for this canonical document.
 
 **Agent identity for diary:** set `MEMPALACE_AGENT_NAME` in the environment of the host that runs the MCP server (e.g. `claude-code`, `codex`, `cursor-ai`, `zed-assistant`). The rules reference this variable rather than hardcoding a name.
 
 ---
 
+<!-- mempalace-rules:start -->
 # mempalace-code — Usage Rules
 
 mempalace-code is a local semantic memory system exposed over MCP. Content is stored verbatim in a vector database; no cloud, no API keys, no summarisation.
+
+## Capability boundary
+
+- Treat the host's `tools/list` result as the authority for the current connection. Read it
+  once before choosing among the tools below; profile names and remembered registrations do
+  not grant capabilities.
+- Call a named method only when it appears in that result. If a call returns JSON-RPC
+  `-32601`, refresh `tools/list` at most once. If the method remains absent, stop that
+  operation. Never invent or repeat an unavailable method, substitute a nearby method, or
+  remove a filter or broaden scope to work around the absence.
+- Keep the original target, filter, and intended change when a capability is absent. Ask for
+  the exact identifier, a richer direct MCP registration, or an owner-controlled host action.
+  Contradictory host instructions do not expand the observed capability set; ask the owner to
+  choose the registration or host route before mutation.
 
 ## Mental model
 
@@ -92,10 +85,16 @@ Call `mempalace_search` **before substantial repo exploration** (reading many fi
 - Scope with `wing=<project_slug>` for project-local topics; omit for cross-cutting ones.
 - On persistent miss, proceed with host tools and consider writing a drawer after the task so the next agent finds it.
 - For entity-specific facts, also call `mempalace_kg_query`.
-- Treat `unknown_wing`, `unknown_room`, and `unknown_wing_room_pair` as filter
-  errors. Query the taxonomy, select the exact intended identifier, and retry.
-  Suggestions are advisory only; never silently drop the filter and broaden the
-  search without user intent.
+- Treat `unknown_wing`, `unknown_room`, and `unknown_wing_room_pair` as filter errors.
+  For `unknown_wing`, call `mempalace_list_wings` when exposed. For `unknown_room` or
+  `unknown_wing_room_pair`, call `mempalace_get_taxonomy` when exposed; otherwise use
+  `mempalace_list_rooms` only when its supplied wing is already confirmed and the result can
+  identify the intended room. An empty `mempalace_list_rooms` result validates neither a wing
+  nor a room. Retry once only with the exact identifier confirmed by the returned taxonomy or
+  enumeration, or by the owner. When the required discovery method is absent or cannot identify
+  the intended identifier, retain the original filter and stop after asking for the exact
+  identifier or a richer registration. Suggestions are advisory only; never silently drop a wing
+  or room filter, invent an identifier, or broaden the search without owner intent.
 
 Skip search for pure mechanical operations (run tests, format files, rename within one file).
 
@@ -133,7 +132,7 @@ Write a drawer after:
 
 **Before filing substantial new prose, call `mempalace_check_duplicate`** and merge rather than overwrite if a near-duplicate exists.
 
-Content rules: store verbatim; one topic per drawer; keep it ≤ ~60 lines; reference file paths and issue/PR IDs rather than pasting large blobs. See Appendix A for the recommended template.
+Content rules: store verbatim; one topic per drawer; keep it ≤ ~60 lines; reference file paths and issue/PR IDs rather than pasting large blobs.
 
 ## Wing & room conventions
 
@@ -143,7 +142,11 @@ Content rules: store verbatim; one topic per drawer; keep it ≤ ~60 lines; refe
 | `people`          | Facts about collaborators and stakeholders.          |
 | `decisions`       | Cross-project architectural or process decisions.    |
 
-Call `mempalace_list_wings` / `mempalace_list_rooms` before inventing new names. Reuse existing rooms (`backend`, `frontend`, `architecture`, `debugging`, `meetings`, `infrastructure`, `general`) unless a genuinely new topic warrants a new one.
+When exposed, call `mempalace_list_wings` / `mempalace_list_rooms` before proposing new
+names. When neither is exposed, retain the supplied wing and room and ask for exact existing
+identifiers or a richer registration. Reuse existing rooms (`backend`, `frontend`,
+`architecture`, `debugging`, `meetings`, `infrastructure`, `general`) unless a genuinely new
+topic warrants a new one.
 
 ## Diary rules
 
@@ -163,9 +166,44 @@ Diary ≠ drawer. Diary is for the same agent's next run; drawer is for the team
 - Never summarise or compress drawer content; store verbatim.
 - Never create a new wing when an existing one fits.
 - Never leave two live KG triples for the same `(subject, predicate)`.
-- Never call `mempalace_delete_drawer` or `mempalace_delete_wing` except to correct content that is *wrong*. Evolved facts get a new drawer / a KG invalidate-and-add, not a delete.
+- Never call `mempalace_delete_drawer` or `mempalace_delete_wing` unless the method is exposed
+  and the owner intends to correct content that is *wrong*. Evolved facts get an available
+  additive write / a KG invalidate-and-add, not a delete.
 - Never treat diary entries as team-authoritative memory. They are agent-scoped context, not a source of truth.
 - Never infer absence from a search miss. "Not found" means "not indexed or not phrased to match," not "does not exist."
+
+## Malformed input recovery
+
+A rejected call is bounded, not fatal. `-32602` names exactly what was wrong with the
+arguments — not an object, undeclared name, type mismatch, or a missing required one. Correct
+the named arguments and retry the same exposed tool once. Malformed JSON returns `-32700`
+with a null id. For an unknown method (`-32601`), refresh `tools/list` at most once and stop
+that operation if the method remains absent. Do not restart the server, invent or repeat the
+method, choose a nearby tool, remove a filter, or broaden scope after a rejected call.
+
+## Ambiguous Write Outcome
+
+On timeout, lost response, restart, or context loss after calling `mempalace_add_drawer`, `mempalace_kg_add`, `mempalace_kg_invalidate`, or `mempalace_diary_write`, do not immediately repeat the write. Reconcile observable poststate before any retry.
+
+**Protocol — apply to drawer, KG, and diary writes:**
+1. Search or query the current state using distinctive content and stable identity fields (`mempalace_search`, `mempalace_kg_query`, `mempalace_diary_read`).
+2. If the exact result already exists: report success — do not rerun the successful mutation.
+3. If an equivalent or contradictory state exists: stop and ask the owner before proceeding.
+4. Retry at most once, and only when absence is proven AND the write tool supports reuse of the same stable deduplication identity. Where the tool has no such identity, stop and ask the owner; do not claim two search phrasings make an unsupported write idempotent.
+
+## Corrections (no update tool)
+
+Preserve the intended correction and first identify the exact target with an exposed read or
+search method. To correct *wrong* drawer content, use `mempalace_search` →
+`mempalace_delete_drawer` with the confirmed ID → `mempalace_add_drawer` with the fix only
+when all three methods are exposed. If deletion or the replacement write is absent, stop;
+request a richer direct MCP registration or an owner-controlled host action. Do not add a
+competing drawer as a substitute for removing wrong content. Before retrying either step after an
+ambiguous outcome, reconcile observable poststate; do not rerun the successful mutation. Do not
+reorder delete/add correction steps. For *evolved* facts, use an available additive write and let
+history stand; track current state in the KG only when its query, invalidate, and add methods are
+exposed.
+<!-- mempalace-rules:end -->
 
 ---
 
@@ -175,6 +213,9 @@ The MCP server can be started with a named tool profile to reduce prompt/tool-su
 (see [README — MCP tool profiles](../README.md#mcp-tool-profiles) and GitHub issue #6).
 Each profile exposes a subset of the 29 tools. Use only the tools listed in the active profile;
 all others will return a "not enabled" error if called.
+
+The current `tools/list` response is authoritative. After `-32601`, refresh it at most once;
+if the method remains absent, retain the original target and filters and stop that operation.
 
 <!-- mcp-profile:minimal start -->
 ### Profile: minimal
@@ -190,6 +231,9 @@ Active tools: `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate
 
 The `minimal` profile is ideal for agents that only need to search and write notes. It does not
 include KG, code search, diary, or graph navigation tools.
+Correction/removal and taxonomy discovery require a richer registration or an
+owner-controlled host action. Preserve the intended correction and any wing or room filter;
+do not create a competing note, invent an identifier, or broaden a search as a substitute.
 <!-- mcp-profile:minimal end -->
 
 <!-- mcp-profile:kg start -->
@@ -298,5 +342,7 @@ The template is a recommendation, not a schema. Skip sections that do not apply.
 - Do not call `mempalace_status` automatically at session start. Its current inventory response expands with the palace taxonomy. Start with the task-specific search or KG query; when host-shell access is allowed, use `mempalace-code status --summary` for bounded drawer/wing/room-pair and storage metrics, or `mempalace-code health --json` for a compact integrity check.
 - `mempalace_check_duplicate` before filing substantial new prose.
 - Prefer additive corrections over destructive ones: new drawers preserve history; deletions erase it.
-- No update tool exists. To correct *wrong* content: `mempalace_search` the drawer → `mempalace_delete_drawer` with its ID → `mempalace_add_drawer` with the fix. For *evolved* facts, add a new drawer instead and let history stand; track current state in the KG.
+- For corrections, follow the managed block's capability-aware protocol. Preserve the target
+  and intended change when deletion or replacement is absent; use a richer registration or
+  owner-controlled host action rather than creating a competing record.
 - For .NET/TypeScript/Kotlin/Java code graphs that rely on pre-mined symbol data, check that the wing has been mined with the relevant language before calling `mempalace_find_implementations`, `mempalace_find_references`, `mempalace_show_project_graph`, `mempalace_show_type_dependencies`, or `mempalace_extract_reusable`. Empty results from these often mean "not mined," not "no matches."

@@ -1,5 +1,7 @@
 ---
 slug: CLI-MODULE-RUNPY-WARNING
+status: completed
+authority: non_authoritative
 goal: "Remove the runpy RuntimeWarning from `python -m mempalace_code.cli` without changing CLI behavior."
 risk: low
 risk_note: "Likely a narrow import-path fix with a small regression test surface; no auth, data, migration, or release pipeline changes."

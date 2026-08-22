@@ -1,5 +1,7 @@
 ---
 slug: MINE-XAML-NAME-ATTR
+status: completed
+authority: non_authoritative
 goal: "Also emit has_named_control triples for plain Name= attribute (WPF CLR shorthand), deduplicating when both x:Name and Name appear on the same element"
 risk: low
 risk_note: "Self-contained change to one section of parse_xaml_file(); ET attribute lookup is the same mechanism already in use"
