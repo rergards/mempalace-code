@@ -1,5 +1,7 @@
 ---
 slug: CLI-OPT-IN-VERSION-CHECK
+status: completed
+authority: non_authoritative
 goal: "Add strictly opt-in PyPI new-version checks for the public CLI without default network calls."
 risk: medium
 risk_note: "Touches global CLI startup behavior, user config/state persistence, network error handling, and offline/privacy documentation."

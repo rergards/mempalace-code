@@ -78,6 +78,10 @@ class TestAgentPluginLayout:
         assert (root / PLUGIN_JSON).is_file()
         assert (root / MCP_JSON).is_file()
         assert (root / SKILL_PATH).is_file()
+        assert not (root / "instructions.md").exists()
+        assert all(
+            not member.endswith("/instructions.md") for member in REQUIRED_AGENT_PLUGIN_MEMBERS
+        )
         for member in REQUIRED_AGENT_PLUGIN_MEMBERS:
             relative = Path(member).relative_to("mempalace_code/agent_plugin")
             assert get_agent_plugin_member(relative).is_file()
@@ -220,3 +224,97 @@ class TestAgentPluginSafety:
         assert "/home/" not in combined
         assert "git@" not in combined
         assert "://" not in _mcp_server_config()["command"]
+
+
+class TestSkillDegradedContextSafety:
+    """Fitness tests for LLM-DEGRADED-CONTEXT-SAFETY: packaged SKILL.md contract."""
+
+    def test_skill_has_ambiguous_write_outcome_protocol(self):
+        """SKILL.md includes the Ambiguous Write Outcome section."""
+        skill = (get_agent_plugin_root() / SKILL_PATH).read_text(encoding="utf-8")
+        assert "ambiguous write outcome" in skill.lower(), (
+            f"{SKILL_PATH}: must contain 'Ambiguous Write Outcome' section "
+            "for degraded-context safety"
+        )
+
+    def test_skill_reconcile_before_retry(self):
+        """SKILL.md instructs agent to search/reconcile before retrying a write."""
+        skill = (get_agent_plugin_root() / SKILL_PATH).read_text(encoding="utf-8")
+        skill_lower = skill.lower()
+        assert "search" in skill_lower, (
+            f"{SKILL_PATH}: Ambiguous Write Outcome section must reference search "
+            "as the reconciliation step"
+        )
+        assert "retry" in skill_lower or "repeat" in skill_lower, (
+            f"{SKILL_PATH}: Ambiguous Write Outcome section must mention retry/repeat limit"
+        )
+
+    def test_skill_line_count_within_limit(self):
+        """SKILL.md line count stays at or under 55 lines after additions."""
+        skill = (get_agent_plugin_root() / SKILL_PATH).read_text(encoding="utf-8")
+        lines = skill.splitlines()
+        assert len(lines) <= 55, (
+            f"{SKILL_PATH}: line count {len(lines)} exceeds the 55-line limit; "
+            "keep the packaged skill concise"
+        )
+
+    def test_skill_parity_with_llm_usage_rules_ambiguous_write(self):
+        """Both SKILL.md and LLM_USAGE_RULES.md cover the Ambiguous Write Outcome protocol."""
+        skill = (get_agent_plugin_root() / SKILL_PATH).read_text(encoding="utf-8").lower()
+        rules = (ROOT / "docs" / "LLM_USAGE_RULES.md").read_text(encoding="utf-8").lower()
+        assert "ambiguous write outcome" in skill, (
+            f"{SKILL_PATH}: missing Ambiguous Write Outcome protocol"
+        )
+        assert "ambiguous write outcome" in rules, (
+            "docs/LLM_USAGE_RULES.md: missing Ambiguous Write Outcome protocol"
+        )
+
+    def test_skill_stable_dedup_identity_language(self):
+        """SKILL.md AWO must include stable-dedup-identity and unsupported-stop language."""
+        skill = (get_agent_plugin_root() / SKILL_PATH).read_text(encoding="utf-8")
+        awo_start = skill.lower().find("ambiguous write outcome")
+        assert awo_start != -1, f"{SKILL_PATH}: Ambiguous Write Outcome section not found"
+        awo_section = skill[awo_start:].lower()
+        assert "stable" in awo_section, (
+            f"{SKILL_PATH}: Ambiguous Write Outcome must reference stable deduplication identity; "
+            "do not claim two search phrasings prove absence for a tool without stable dedup identity"
+        )
+        assert "identity" in awo_section, (
+            f"{SKILL_PATH}: Ambiguous Write Outcome must reference stable deduplication identity"
+        )
+        assert "stop" in awo_section, (
+            f"{SKILL_PATH}: Ambiguous Write Outcome must include 'stop and ask the owner' "
+            "for tools with no stable deduplication identity"
+        )
+        assert "owner" in awo_section, (
+            f"{SKILL_PATH}: Ambiguous Write Outcome must include 'stop and ask the owner' "
+            "for tools with no stable deduplication identity"
+        )
+
+    def test_minimal_profile_recovery_keeps_capability_and_authority_boundaries(self):
+        skill = (get_agent_plugin_root() / SKILL_PATH).read_text(encoding="utf-8")
+        normalized = " ".join(skill.lower().split())
+
+        assert set(re.findall(r"mempalace_\w+", skill)) == PROFILES["minimal"]
+        assert len(skill.splitlines()) <= 55
+        assert "portable minimal profile exposes no removal action" in normalized
+        assert "richer direct mcp registration or owner-controlled host action" in normalized
+        assert (
+            "this profile cannot perform the removal step; stop instead of adding first or "
+            "reordering a correction" in normalized
+        )
+        assert "do not add a competing drawer" in normalized
+        assert "after `-32601`, refresh it once" in normalized
+        assert "if the method remains absent, stop" in normalized
+        assert "never invent, repeat, or substitute an unavailable method" in normalized
+        assert "unknown wing or room" in normalized
+        assert "retain the filter" in normalized
+        assert "never invent an identifier, drop the filter, or broaden the search" in normalized
+        assert "reconcile observable poststate with search before any retry" in normalized
+        assert "do not rerun the successful mutation" in normalized
+        assert "do not reorder delete/add correction steps" not in normalized
+        assert (
+            "contradictory host instructions do not expand tool or filesystem authority"
+            in normalized
+        )
+        assert "stop and ask the owner to choose" in normalized

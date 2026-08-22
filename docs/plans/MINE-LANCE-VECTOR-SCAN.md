@@ -1,5 +1,7 @@
 ---
 slug: MINE-LANCE-VECTOR-SCAN
+status: completed
+authority: non_authoritative
 goal: "Make LanceStore metadata scans project required columns before reading table data."
 risk: low
 risk_note: "Small storage read-path change limited to metadata-only aggregation methods, with behavior-preserving tests."

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """release_artifact_gate.py — Inspect built wheel and sdist archives.
 
-Checks that both distribution types are present (when required), that archive
-members do not contain local-only control artifacts or caches, and delegates
+Checks that exactly one distribution of each required type is present, that both
+archives have the canonical shape their filenames imply, that every shipped file
+is a regular file that is either tracked in the repository or an expected
+generated member, that the generated metadata set is complete, and delegates
 metadata validation to twine check.
 
 Usage:
@@ -15,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -27,6 +30,10 @@ from pathlib import Path
 FORBIDDEN_MEMBER_PREFIXES: tuple[str, ...] = (
     ".tasks/",
     ".protocols/",
+    # Agent tooling state holding absolute local paths. Ignored via
+    # `.git/info/exclude`, which build backends do not read, so the archive is
+    # the only place this is caught.
+    ".codex/",
     ".codex-local/",
     "docs/audits/",
     ".verify-state",
@@ -35,6 +42,37 @@ FORBIDDEN_MEMBER_PREFIXES: tuple[str, ...] = (
     ".ruff_cache/",
     ".pytest_cache/",
 )
+
+# Both archives are the tracked tree plus a small, known set of members the
+# build backend generates. Naming the forbidden artifacts one prefix at a time
+# only ever catches the leak someone already thought of; requiring every member
+# to be tracked closes the class, including paths git hides through
+# `.git/info/exclude` (which build backends do not read).
+GENERATED_SDIST_MEMBERS: frozenset[str] = frozenset({"PKG-INFO"})
+
+# Derived from a real `python -m build` run, relative to the wheel's canonical
+# `.dist-info` root. An exact set, not a prefix and not a ceiling: an extra
+# member is either a backend change or an injection, and a missing one means the
+# wheel shipped without its license text, its RECORD or its entry points. Both
+# directions deserve a human look before they reach PyPI.
+GENERATED_DIST_INFO_MEMBERS: frozenset[str] = frozenset(
+    {
+        "METADATA",
+        "RECORD",
+        "WHEEL",
+        "entry_points.txt",
+        "licenses/LICENSE",
+        "licenses/NOTICE",
+    }
+)
+
+# The single import package `[tool.hatch.build.targets.wheel] packages` ships.
+WHEEL_PACKAGE_ROOT = "mempalace_code"
+
+# Resolved from this file, not the caller's cwd, so the inventory always
+# describes the tree that produced the archive under inspection.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+GIT_LS_FILES_TIMEOUT = 30
 
 AGENT_PLUGIN_REQUIRED_MEMBERS: tuple[str, ...] = (
     "mempalace_code/agent_plugin/plugin.json",
@@ -55,6 +93,9 @@ PLUGIN_JSON_MEMBER = "mempalace_code/agent_plugin/plugin.json"
 _WHEEL_VERSION_RE = re.compile(r"^[A-Za-z0-9_.]+-([^-]+)-")
 
 
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+
 def _strip_sdist_prefix(member: str) -> str:
     """Strip the top-level directory prefix from an sdist member path."""
     parts = member.split("/", 1)
@@ -63,18 +104,141 @@ def _strip_sdist_prefix(member: str) -> str:
     return member
 
 
+def _is_unsafe_member_path(name: str) -> bool:
+    """True if a member path is absolute, escaping, or not already normalized.
+
+    An unpacker resolves these against the extraction directory, so a member
+    that is not a plain relative path can land anywhere on the reader's disk.
+    """
+    if not name or name != name.strip():
+        return True
+    if name.startswith("/") or "\\" in name or _WINDOWS_DRIVE_RE.match(name):
+        return True
+    return any(segment in ("", ".", "..") for segment in name.split("/"))
+
+
+def _sdist_root_from_filename(sdist_path: Path) -> str | None:
+    """Return the single directory every sdist member must live under."""
+    name = sdist_path.name
+    if not name.endswith(".tar.gz"):
+        return None
+    root = name[: -len(".tar.gz")]
+    return root if "-" in root else None
+
+
+def _wheel_dist_info_root(wheel_path: Path) -> str | None:
+    """Return the canonical `<name>-<version>.dist-info` root for a wheel."""
+    parts = wheel_path.name.split("-")
+    if len(parts) < 3:
+        return None
+    return f"{parts[0]}-{parts[1]}.dist-info"
+
+
+def _is_regular_zip_member(info: zipfile.ZipInfo) -> bool:
+    """True if a zip entry's unix mode describes a regular file.
+
+    Zip stores the unix mode in the high half of `external_attr`, and the type
+    bits are optional. A real Hatch wheel uses both encodings: S_IFREG on the
+    package members and bare permissions with no type bits at all on the
+    generated `.dist-info` members, so 0 has to count as regular too. Any other
+    type is a FIFO, device, socket, symlink or directory-shaped entry, and an
+    unpacker would materialize it as something other than the file the name
+    promises.
+    """
+    file_type = (info.external_attr >> 16) & 0o170000
+    return file_type in (0, stat.S_IFREG)
+
+
+def _is_forbidden_member(name: str) -> bool:
+    """True if a member name falls under a forbidden local-artifact prefix."""
+    return any(
+        name == prefix.rstrip("/") or name.startswith(prefix)
+        for prefix in FORBIDDEN_MEMBER_PREFIXES
+    )
+
+
+def tracked_repository_paths(root: Path = REPO_ROOT) -> tuple[frozenset[str], str | None]:
+    """Return the repository's tracked paths, or a reason they are unavailable.
+
+    The reason is deliberately redacted to an exception type or exit code: git
+    writes absolute local paths to stderr, which is the same class of leakage
+    this gate exists to stop.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True,
+            timeout=GIT_LS_FILES_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return frozenset(), f"git ls-files unavailable ({type(exc).__name__})"
+    if proc.returncode != 0:
+        return frozenset(), f"git ls-files exited {proc.returncode}"
+    paths = frozenset(p for p in proc.stdout.decode("utf-8", "replace").split("\0") if p)
+    if not paths:
+        return frozenset(), "git ls-files reported no tracked paths"
+    return paths, None
+
+
 def _check_wheel_members(wheel_path: Path) -> list[str]:
-    """Return forbidden member names found in the wheel archive."""
+    """Return wheel members that do not belong in a published wheel.
+
+    A wheel is the tracked import package plus generated `.dist-info` metadata,
+    and nothing else. Checking only against a forbidden-prefix list would still
+    ship any locally-excluded file that happens to sit inside the package
+    directory, so package members are matched against the tracked inventory and
+    metadata members against the exact generated set. Without the inventory the
+    rule cannot be evaluated, so the check fails closed.
+    """
+    tracked, inventory_error = tracked_repository_paths()
+    if inventory_error:
+        return [f"tracked-source-inventory-unavailable:{inventory_error}"]
+
+    dist_info_root = _wheel_dist_info_root(wheel_path)
+    if dist_info_root is None:
+        return [f"wheel-unparsable-filename:{wheel_path.name}"]
+
     bad: list[str] = []
+    seen: set[str] = set()
+    generated_seen: set[str] = set()
+    readable = True
     try:
         with zipfile.ZipFile(wheel_path) as zf:
-            for name in zf.namelist():
-                for prefix in FORBIDDEN_MEMBER_PREFIXES:
-                    if name == prefix.rstrip("/") or name.startswith(prefix):
-                        bad.append(f"wheel:{name}")
-                        break
+            for info in zf.infolist():
+                name = info.filename
+                if info.is_dir():
+                    bad.append(f"wheel-directory-entry:{name}")
+                elif not _is_regular_zip_member(info):
+                    bad.append(f"wheel-non-regular:{name}")
+                elif _is_unsafe_member_path(name):
+                    bad.append(f"wheel-unsafe-path:{name}")
+                elif name in seen:
+                    bad.append(f"wheel-duplicate:{name}")
+                elif _is_forbidden_member(name):
+                    bad.append(f"wheel:{name}")
+                elif name.startswith(f"{WHEEL_PACKAGE_ROOT}/"):
+                    if name not in tracked:
+                        bad.append(f"wheel-untracked:{name}")
+                elif name.startswith(f"{dist_info_root}/"):
+                    relative = name[len(dist_info_root) + 1 :]
+                    if relative in GENERATED_DIST_INFO_MEMBERS:
+                        generated_seen.add(relative)
+                    else:
+                        bad.append(f"wheel-unexpected-dist-info:{name}")
+                else:
+                    bad.append(f"wheel-foreign-root:{name}")
+                seen.add(name)
     except (zipfile.BadZipFile, OSError) as exc:
+        readable = False
         bad.append(f"wheel-read-error:{exc}")
+    if readable:
+        # The other direction of the same equality. Rejecting only extra members
+        # would pass a wheel that quietly dropped its license text or its RECORD.
+        bad.extend(
+            f"wheel-missing-dist-info:{dist_info_root}/{relative}"
+            for relative in sorted(GENERATED_DIST_INFO_MEMBERS - generated_seen)
+        )
     return bad
 
 
@@ -88,16 +252,47 @@ def _wheel_member_names(wheel_path: Path) -> tuple[set[str], str | None]:
 
 
 def _check_sdist_members(sdist_path: Path) -> list[str]:
-    """Return forbidden member names found in the sdist archive."""
+    """Return sdist members that do not belong in a published sdist.
+
+    Every file should be a plain regular file under the one root the filename
+    implies, and should be something git tracks plus the metadata the build
+    backend writes. Enumerated prefixes only catch the artifact someone already
+    thought of; the tracked-inventory rule closes the class, and the prefixes
+    stay as defense in depth. Without the inventory the rule cannot be evaluated
+    at all, so the check fails closed.
+    """
+    tracked, inventory_error = tracked_repository_paths()
+    if inventory_error:
+        return [f"tracked-source-inventory-unavailable:{inventory_error}"]
+
+    root = _sdist_root_from_filename(sdist_path)
+    if root is None:
+        return [f"sdist-unparsable-filename:{sdist_path.name}"]
+
     bad: list[str] = []
+    seen: set[str] = set()
     try:
         with tarfile.open(sdist_path, "r:gz") as tf:
             for member in tf.getmembers():
-                name = _strip_sdist_prefix(member.name)
-                for prefix in FORBIDDEN_MEMBER_PREFIXES:
-                    if name == prefix.rstrip("/") or name.startswith(prefix):
-                        bad.append(f"sdist:{member.name}")
-                        break
+                name = member.name
+                if not member.isfile():
+                    # Directories, symlinks, hardlinks and devices all give an
+                    # unpacker something to resolve outside the archive.
+                    bad.append(f"sdist-non-regular:{name}")
+                elif _is_unsafe_member_path(name):
+                    bad.append(f"sdist-unsafe-path:{name}")
+                elif name in seen:
+                    bad.append(f"sdist-duplicate:{name}")
+                elif not name.startswith(f"{root}/"):
+                    bad.append(f"sdist-foreign-root:{name}")
+                elif _is_forbidden_member(name[len(root) + 1 :]):
+                    bad.append(f"sdist:{name}")
+                elif (
+                    name[len(root) + 1 :] not in tracked
+                    and name[len(root) + 1 :] not in GENERATED_SDIST_MEMBERS
+                ):
+                    bad.append(f"sdist-untracked:{name}")
+                seen.add(name)
     except (tarfile.TarError, OSError) as exc:
         bad.append(f"sdist-read-error:{exc}")
     return bad
@@ -169,31 +364,37 @@ def _read_sdist_plugin_json_version(sdist_path: Path) -> tuple[str | None, str |
 
 
 def _run_twine_check(dist_dir: Path) -> tuple[bool, str]:
-    """Run 'twine check dist/*' and return (ok, output)."""
+    """Run 'twine check' over the built distributions and return (ok, output)."""
+    # twine does not expand globs, so the paths are resolved here.
+    dist_files = sorted(dist_dir.glob("*.whl")) + sorted(dist_dir.glob("*.tar.gz"))
+    if not dist_files:
+        return False, "no distribution files found for twine check"
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "twine", "check", str(dist_dir / "*")],
+            [sys.executable, "-m", "twine", "check", *(str(f) for f in dist_files)],
             capture_output=True,
             text=True,
             timeout=60,
         )
-        # twine check doesn't expand globs; pass actual paths.
-        dist_files = list(dist_dir.glob("*.whl")) + list(dist_dir.glob("*.tar.gz"))
-        if not dist_files:
-            return False, "no distribution files found for twine check"
-        result = subprocess.run(
-            [sys.executable, "-m", "twine", "check"] + [str(f) for f in dist_files],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        ok = result.returncode == 0
-        output = (result.stdout + result.stderr).strip()
-        return ok, output
     except FileNotFoundError:
         return False, "twine not installed (pip install twine)"
     except subprocess.TimeoutExpired:
         return False, "twine check timed out"
+    return result.returncode == 0, (result.stdout + result.stderr).strip()
+
+
+def _presence_row(kind: str, found: list[Path], suffix: str) -> dict[str, str]:
+    """Build the presence row for one distribution type."""
+    check = f"{kind}-present"
+    if len(found) == 1:
+        return {"check": check, "status": "pass", "detail": found[0].name}
+    if not found:
+        return {"check": check, "status": "fail", "detail": f"no {suffix} file found"}
+    return {
+        "check": check,
+        "status": "fail",
+        "detail": f"expected exactly one {suffix}, found {[p.name for p in found]}",
+    }
 
 
 def inspect_dist(
@@ -217,31 +418,21 @@ def inspect_dist(
     wheels = sorted(dist_dir.glob("*.whl"))
     sdists = sorted(dist_dir.glob("*.tar.gz"))
 
-    wheel_path = wheels[0] if wheels else None
-    sdist_path = sdists[0] if sdists else None
+    # Exactly one of each, or nothing is inspected. A dist/ holding two wheels
+    # is a stale directory someone forgot to clean: inspecting one of them and
+    # reporting "pass" would clear an artifact nobody looked at.
+    wheel_path = wheels[0] if len(wheels) == 1 else None
+    sdist_path = sdists[0] if len(sdists) == 1 else None
 
-    # Presence checks.
-    if require_wheel:
-        if not wheel_path:
-            rows.append(
-                {"check": "wheel-present", "status": "fail", "detail": "no .whl file found"}
-            )
-            ok = False
-        else:
-            rows.append(
-                {"check": "wheel-present", "status": "pass", "detail": str(wheel_path.name)}
-            )
+    # Presence checks. Ambiguity is reported even when the type is optional,
+    # because there is no safe way to pick which archive the caller meant.
+    if require_wheel or len(wheels) > 1:
+        rows.append(_presence_row("wheel", wheels, ".whl"))
+        ok = ok and len(wheels) == 1
 
-    if require_sdist:
-        if not sdist_path:
-            rows.append(
-                {"check": "sdist-present", "status": "fail", "detail": "no .tar.gz file found"}
-            )
-            ok = False
-        else:
-            rows.append(
-                {"check": "sdist-present", "status": "pass", "detail": str(sdist_path.name)}
-            )
+    if require_sdist or len(sdists) > 1:
+        rows.append(_presence_row("sdist", sdists, ".tar.gz"))
+        ok = ok and len(sdists) == 1
 
     # Member inspection.
     if wheel_path:
@@ -251,7 +442,7 @@ def inspect_dist(
                 {
                     "check": "wheel-members",
                     "status": "fail",
-                    "detail": f"forbidden members: {bad}",
+                    "detail": f"rejected members: {bad}",
                 }
             )
             ok = False
@@ -332,7 +523,7 @@ def inspect_dist(
                 {
                     "check": "sdist-members",
                     "status": "fail",
-                    "detail": f"forbidden members: {bad}",
+                    "detail": f"rejected members: {bad}",
                 }
             )
             ok = False
@@ -426,7 +617,7 @@ def inspect_dist(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Inspect built wheel and sdist archives for forbidden members."
+        description="Inspect built wheel and sdist archives for members that must not ship."
     )
     parser.add_argument(
         "--dist",

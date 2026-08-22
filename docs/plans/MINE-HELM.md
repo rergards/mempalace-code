@@ -1,5 +1,7 @@
 ---
 slug: MINE-HELM
+status: completed
+authority: non_authoritative
 goal: "Add first-pass Helm chart indexing to the code miner without rendering templates"
 risk: medium
 risk_note: "Touches language detection, chunk routing, symbol metadata, and search filter validation; scope is additive but YAML/Kubernetes precedence must stay intact."

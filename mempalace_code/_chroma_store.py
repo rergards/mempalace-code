@@ -1,30 +1,30 @@
 """
-_chroma_store.py — ChromaDB storage backend (legacy, optional)
-==============================================================
+_chroma_store.py — private ChromaDB migration adapter
+=====================================================
 
-This module is only importable when the [chroma] extra is installed::
+This module is only importable when the Chroma migration extra is installed::
 
-    pip install 'mempalace-code[chroma]'
+    pip install 'mempalace-code[chroma-migration]'
 
 Importing this file without chromadb present raises ``ImportError`` immediately
-(top-level ``import chromadb`` ensures a clean failure surface).
+(top-level ``import chromadb`` ensures a clean migration-dependency boundary).
 
-Internal module — use ``mempalace_code.storage.open_store(..., backend="chroma")`` or
-``from mempalace_code.storage import ChromaStore`` from external code.
+Internal module — used by ``mempalace_code.migrate`` for the one-way
+ChromaDB-to-LanceDB bridge. It is not a supported runtime storage backend.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict
 
-import chromadb  # type: ignore[import-untyped]  # reason: top-level import; fails fast with ImportError if [chroma] extra not installed
+import chromadb  # type: ignore[import-untyped]  # reason: top-level import; fails fast with ImportError if [chroma-migration] extra not installed
 
 from .storage import DrawerStore
 
 
 class ChromaStore(DrawerStore):
     """
-    Legacy ChromaDB-backed storage. Kept for migration and compatibility.
+    Legacy ChromaDB-backed reader used only by migrate-storage.
 
     WARNING: ChromaDB PersistentClient uses HNSW with no WAL.
     An interrupted write can corrupt the entire collection.
@@ -33,7 +33,10 @@ class ChromaStore(DrawerStore):
     def __init__(
         self, palace_path: str, collection_name: str = "mempalace_drawers", create: bool = True
     ):
-        self._client = chromadb.PersistentClient(path=palace_path)
+        self._client = chromadb.PersistentClient(
+            path=palace_path,
+            settings=chromadb.Settings(anonymized_telemetry=False),
+        )
         if create:
             self._col = self._client.get_or_create_collection(collection_name)
         else:
@@ -53,9 +56,7 @@ class ChromaStore(DrawerStore):
         self._col.add(ids=ids, documents=documents, metadatas=metadatas)  # type: ignore[reportArgumentType]  # reason: chromadb stubs use OneOrMany[Metadata]; List[Dict[str,Any]] is runtime-compatible
 
     def upsert(self, ids, documents, metadatas):
-        if self._col is None:
-            raise RuntimeError("ChromaDB collection not initialized")
-        self._col.upsert(ids=ids, documents=documents, metadatas=metadatas)  # type: ignore[reportArgumentType]  # reason: chromadb stubs use OneOrMany[Metadata]; List[Dict[str,Any]] is runtime-compatible
+        raise NotImplementedError("ChromaStore is a migration-only adapter; upsert is retired")
 
     def get(self, ids=None, where=None, include=None, limit=10000, offset=0):
         if self._col is None:
@@ -73,17 +74,7 @@ class ChromaStore(DrawerStore):
         return self._col.get(**kwargs)
 
     def query(self, query_texts, n_results=5, where=None, include=None):
-        if self._col is None:
-            raise RuntimeError("ChromaDB collection not initialized")
-        kwargs: Dict[str, Any] = {
-            "query_texts": query_texts,
-            "n_results": n_results,
-        }
-        if where:
-            kwargs["where"] = where
-        if include:
-            kwargs["include"] = include
-        return self._col.query(**kwargs)
+        raise NotImplementedError("ChromaStore is a migration-only adapter; query is retired")
 
     def delete(self, ids):
         if self._col is None:
@@ -91,45 +82,12 @@ class ChromaStore(DrawerStore):
         self._col.delete(ids=ids)
 
     def delete_wing(self, wing: str) -> int:
-        if self._col is None:
-            return 0
-        results = self.get(where={"wing": wing})
-        ids = results.get("ids", [])
-        if not ids:
-            return 0
-        self._col.delete(ids=ids)
-        return len(ids)
+        raise NotImplementedError("ChromaStore is a migration-only adapter; delete_wing is retired")
 
     def count_by(self, column: str) -> Dict[str, int]:
-        total = self.count()
-        if total == 0:
-            return {}
-
-        # Deprecated backend stop-gap: ChromaDB has no cheap metadata group-by,
-        # so MCP status/taxonomy calls fall back to iterating metadata rows.
-        results = self.get(include=["metadatas"], limit=total)
-        counts: Dict[str, int] = {}
-        for metadata in results.get("metadatas") or []:
-            if not metadata or column not in metadata:
-                continue
-            value = str(metadata[column])
-            counts[value] = counts.get(value, 0) + 1
-        return counts
+        raise NotImplementedError("ChromaStore is a migration-only adapter; count_by is retired")
 
     def count_by_pair(self, col_a: str, col_b: str) -> Dict[str, Dict[str, int]]:
-        total = self.count()
-        if total == 0:
-            return {}
-
-        # Deprecated backend stop-gap: ChromaDB has no cheap metadata group-by,
-        # so MCP status/taxonomy calls fall back to iterating metadata rows.
-        results = self.get(include=["metadatas"], limit=total)
-        counts: Dict[str, Dict[str, int]] = {}
-        for metadata in results.get("metadatas") or []:
-            if not metadata or col_a not in metadata or col_b not in metadata:
-                continue
-            value_a = str(metadata[col_a])
-            value_b = str(metadata[col_b])
-            nested = counts.setdefault(value_a, {})
-            nested[value_b] = nested.get(value_b, 0) + 1
-        return counts
+        raise NotImplementedError(
+            "ChromaStore is a migration-only adapter; count_by_pair is retired"
+        )

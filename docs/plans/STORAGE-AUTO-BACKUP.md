@@ -1,5 +1,7 @@
 ---
 slug: STORAGE-AUTO-BACKUP
+status: completed
+authority: non_authoritative
 goal: "Make pre-optimize auto-backup the default, add `backup list`, and add `backup schedule` snippet-emit for daily/weekly scheduling."
 risk: medium
 risk_note: "Changes a default that affects every mining run (backup_before_optimize False → True). The safe_optimize() fail-closed path is already hardened, so the worst-case failure mode is 'mine reports optimize skipped due to backup error' rather than silent data loss. Scheduled backup only emits a snippet — no system files are modified."

@@ -1,5 +1,7 @@
 ---
 slug: MCP-MINE-TRIGGER
+status: completed
+authority: non_authoritative
 goal: "Expose mempalace_mine MCP tool so agents can trigger project re-mining without CLI access"
 risk: low
 risk_note: "Thin wrapper around existing mine() which already has incremental/full modes and returns stats; no new core logic"

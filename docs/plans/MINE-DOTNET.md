@@ -1,5 +1,7 @@
 ---
 slug: MINE-DOTNET
+status: completed
+authority: non_authoritative
 goal: "Add F#, VB.NET language support and .NET project/solution file parsing with KG dependency triples to the code miner"
 risk: medium
 risk_note: "F#/VB.NET language patterns follow proven MINE-CSHARP recipe (low risk), but KG integration during mining is a new pattern — miner.py has never written to the knowledge graph before. XML parsing of project files and regex parsing of .sln files add surface area beyond simple extension-map additions."

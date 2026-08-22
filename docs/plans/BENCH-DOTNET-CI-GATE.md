@@ -1,5 +1,7 @@
 ---
 slug: BENCH-DOTNET-CI-GATE
+status: completed
+authority: non_authoritative
 goal: "Add a GitHub Actions .NET retrieval benchmark gate that fails when overall R@5 is below the configured threshold and always publishes the JSON report."
 risk: medium
 risk_note: "The implementation is small, but the documented pinned-corpus baseline is R@5=0.600 while the requested gate threshold is 0.800, so enabling the gate before retrieval quality improves will intentionally fail CI."

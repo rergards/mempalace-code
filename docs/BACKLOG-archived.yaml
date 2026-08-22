@@ -1113,9 +1113,9 @@ items:
       done_summary: 'completed in pipeline run (delivered: Reran the token-delta benchmark against the current canonical fixture (378 tracked files, 2,024 mined chunks, median 14.5x/mean 15.8x/peak 33.8x/50% precision@5), refreshed the committed benchmarks/token_delta_fixture_facts.json, and updated README.md, docs/BENCH_TOKEN_DELTA.md, and docs/COMPARISON_GRAPHIFY.md so the docs drift guard confirms public benchmark claims match the newly measured facts., artifacts: README.md, benchmarks/token_delta_fixture_facts.json, docs/BENCH_TOKEN_DELTA.md (+1), verified: VER-1, VER-2, VER-3 (+1), phase_commit=79b8653, final_commit=d823783, 6 files changed, 47 insertions(+), 193 deletions(-))'
     - key: AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS
       summary: Build subprocess-level golden CLI scenarios that prove real user workflows, not only unit internals.
-      resolution: '2026-08-09: completed in pipeline run (delivered: Verified the pre-existing subprocess-level golden CLI scenario suite (init/mine/status/search/read/export/import/backup/restore plus guard paths) and its scorecard/docs updates against all seven planned provider checks; all pass with no code changes needed this turn., artifacts: tests/test_cli_golden_scenarios.py, scripts/quality_scorecard.py, tests/test_quality_scorecard.py (+4), verified: VER-1, VER-2, VER-3 (+4), phase_commit=99ae4fa7, final_commit=1da5e81, 8 files changed, 613 insertions(+), 18 deletions(-), retried 1/1 after provider command indeterminate: reason=mutable_shell_context phase=implement task=AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS run=b92bb7fe-8750-47d9-8c52-df0bf8d06b98 [command_contract budget])'
+      resolution: '2026-08-09: completed in pipeline run (delivered: Verified the pre-existing subprocess-level golden CLI scenario suite (init/mine/status/search/read/export/import/backup/restore plus guard paths) and its scorecard/docs updates against all seven planned provider checks; all pass with no code changes needed this turn., artifacts: tests/test_cli_golden_scenarios.py, scripts/quality_scorecard.py, tests/test_quality_scorecard.py (+4), verified: VER-1, VER-2, VER-3 (+4), phase_commit=99ae4fa7, final_commit=1da5e81, 8 files changed, 613 insertions(+), 18 deletions(-))'
       archived_date: "2026-08-09"
-      done_summary: 'completed in pipeline run (delivered: Verified the pre-existing subprocess-level golden CLI scenario suite (init/mine/status/search/read/export/import/backup/restore plus guard paths) and its scorecard/docs updates against all seven planned provider checks; all pass with no code changes needed this turn., artifacts: tests/test_cli_golden_scenarios.py, scripts/quality_scorecard.py, tests/test_quality_scorecard.py (+4), verified: VER-1, VER-2, VER-3 (+4), phase_commit=99ae4fa7, final_commit=1da5e81, 8 files changed, 613 insertions(+), 18 deletions(-), retried 1/1 after provider command indeterminate: reason=mutable_shell_context phase=implement task=AUTOPILOT-DEMO-CLI-GOLDEN-SCENARIOS run=b92bb7fe-8750-47d9-8c52-df0bf8d06b98 [command_contract budget])'
+      done_summary: 'completed in pipeline run (delivered: Verified the pre-existing subprocess-level golden CLI scenario suite (init/mine/status/search/read/export/import/backup/restore plus guard paths) and its scorecard/docs updates against all seven planned provider checks; all pass with no code changes needed this turn., artifacts: tests/test_cli_golden_scenarios.py, scripts/quality_scorecard.py, tests/test_quality_scorecard.py (+4), verified: VER-1, VER-2, VER-3 (+4), phase_commit=99ae4fa7, final_commit=1da5e81, 8 files changed, 613 insertions(+), 18 deletions(-))'
     - key: AUTOPILOT-DEMO-SECURITY-BOUNDARY-TESTS
       summary: Harden external-input boundaries with focused abuse-case tests for paths, archives, JSONL, YAML, and command preflight parsing.
       resolution: '2026-08-09: completed in pipeline run (delivered: Confirmed this worktree''s HEAD already contains the full planned implementation (BackupArchiveError/unsafe_archive_member, JsonlInputError/malformed_jsonl, InvalidProjectConfigError/invalid_project_config, and all security_boundary_* tests) from an earlier implement/harden pass; re-verified all provider-owned checks pass with no new changes needed., verified: VER-1, VER-2, VER-3 (+5), phase_commit=febd272, final_commit=d2a654e, 7 files changed, 137 insertions(+), 231 deletions(-))'
@@ -1141,3 +1141,258 @@ items:
       resolution: '2026-08-09: completed in pipeline run (delivered: Fix workflow-review-protocol.md wording (''insufficient'') so all 33 guard tests pass; script, tests, .gitignore, and README.md were already complete from prior commits., artifacts: docs/quality/workflow-review-protocol.md, verified: VER-1, VER-2, VER-3 (+2), phase_commit=581ad55, final_commit=ecdeef0, 1 file changed, 1 insertion(+), 1 deletion(-))'
       archived_date: "2026-08-09"
       done_summary: 'completed in pipeline run (delivered: Fix workflow-review-protocol.md wording (''insufficient'') so all 33 guard tests pass; script, tests, .gitignore, and README.md were already complete from prior commits., artifacts: docs/quality/workflow-review-protocol.md, verified: VER-1, VER-2, VER-3 (+2), phase_commit=581ad55, final_commit=ecdeef0, 1 file changed, 1 insertion(+), 1 deletion(-))'
+    - key: RELEASE-STATUS-SMOKE-ADAPTER-CONTRACT
+      summary: Keep the public release-status smoke adapter protocol-complete
+      resolution: '2026-08-12: completed through Autopilot planning plus bounded hybrid provider recovery after git-subcommand and stale CHANGELOG provider-scope blockers; the release-status adapter now forwards MCP stdin and configured timeout through the shared install-smoke contract, with a main-boundary regression; v1.13.4 version surfaces are synchronized; focused and complete non-network suites, 2 network tests, Pyright basic/strict, public safety, docs, scorecard, architecture, performance, live upstream, 14-row artifact/install readiness, Twine, venv/pipx, the live v1.13.3 six-surface gate, watcher resources, and installed MCP stress passed; the 100-request installed MCP run had 114688 bytes RSS growth and zero FD/disk growth'
+      archived_date: "2026-08-15"
+      done_summary: Prepared v1.13.4 with a protocol-complete release-status install-smoke adapter and CLI-boundary regression; all canonical source, public-status, artifact, install, protocol, type, performance, network, documentation, and resource gates passed.
+    - key: RELEASE-LIVE-UPSTREAM-PRETAG-RECOVERY
+      summary: Move live upstream review before immutable release tags
+      resolution: '2026-08-12: completed through Autopilot planning plus bounded hybrid provider recovery after deterministic plan-result verification blockers; added the opt-in live pre-tag upstream gate, refreshed the pinned 3.7.0 comparison, synchronized v1.13.3 release surfaces, and enforced command parity across all release documents; focused and complete non-network suites, 2 network tests, Pyright basic/strict, public safety, scorecard, docs, architecture, performance, live upstream, 14-row artifact/install readiness, Twine, venv/pipx, watcher resource, and installed minimal MCP stress checks passed; watcher late disk growth was -10 bytes with stable 240 FDs, while 100 installed MCP requests had zero RSS, FD, and disk growth'
+      archived_date: "2026-08-15"
+      done_summary: Prepared the collision-safe v1.13.3 recovery release with a reusable live pre-tag upstream gate and refreshed public comparison; all canonical source, artifact, install, protocol, network, type, performance, documentation, and resource checks passed.
+    - key: AGENT-PLUGIN-HOTFIX-RELEASE-INTEGRITY
+      summary: Prepare a collision-safe v1.13.2 Agent Plugin hotfix
+      resolution: '2026-08-11: prepared v1.13.2 with synchronized package, lock, README, and Agent Plugin metadata; added a fail-closed Git tag identity guard with conflicting, matching, missing, error, and empty-output coverage; the final local release matrix, artifact installation, MCP profiles, protocol discovery, and resource checks passed after bounded hybrid recovery from Autopilot command-classifier failures.'
+      archived_date: "2026-08-15"
+      done_summary: Prepared the collision-safe v1.13.2 Agent Plugin hotfix; version surfaces and release identity enforcement are synchronized, with final artifact, installed-behavior, protocol, and resource validation recorded in the release run.
+    - key: PALACE-SCOPE-RESOURCE-BOUNDARY
+      summary: Keep scoped palace operations isolated and resource-bounded
+      resolution: '2026-08-10: completed through reviewed Autopilot implementation plus bounded hybrid recovery; explicit palace KG isolation, no-op preflight, macOS path aliasing, watcher-owned model lifecycle, a real 20-event resource regression, and an installed-wheel golden workflow landed; task-closure snapshot: 2953 non-network tests and 2 network tests passed alongside Pyright basic/strict, public safety, quality/architecture/docs/performance, build/Twine/artifact inspection, pipx installation, and the installed CLI workflow; watcher RSS growth fell from 346.11 MiB to 5.94 MiB, file descriptors stayed at 190, and late combined palace-plus-backup disk growth was 40 bytes'
+      archived_date: "2026-08-15"
+      done_summary: completed through reviewed Autopilot implementation plus bounded hybrid recovery; scoped storage and no-op lifecycle boundaries, canonical path round-tripping, bounded watcher resources, and installed-wheel end-to-end behavior are enforced; watcher RSS growth fell from 346.11 MiB to 5.94 MiB with file descriptors at 190 and late combined disk growth of 40 bytes
+    - key: AUTOPILOT-DEMO-END-TO-END-GATE-CLOSURE
+      summary: Make demo quality claims enforce built artifacts and installed behavior
+      resolution: '2026-08-10: completed through reviewed Autopilot implementation plus bounded hybrid recovery after terminal-result contract rejection; landed commits 99c24c3..c6bc04f; task-closure snapshot at c6bc04f: canonical gates, built wheel/sdist inspection, Twine, disposable venv/pipx install, Pyright basic/strict, public safety, quality/architecture/docs/performance, 2900 non-network tests, 2 slow tests, and 2 network tests passed'
+      archived_date: "2026-08-15"
+      done_summary: completed through reviewed Autopilot implementation plus bounded hybrid recovery after terminal-result contract rejection; landed commits 99c24c3..c6bc04f; the task-closure snapshot at c6bc04f passed canonical quality, artifact, install, and test gates
+    - key: RELEASE-VERSION-COUPLED-UPDATER-FIXTURES
+      summary: Decouple updater release fixtures from the package version
+      resolution: '2026-08-10: derived current, eligible next-patch, prerelease, and incompatible-major updater fixtures from the package version without production changes; task-closure snapshot recorded in release-prep commit 1bab66a: 39 focused updater tests, the complete non-network suite (2952 passed, 3 skipped, 2 deselected), and both network tests passed for v1.13.0'
+      archived_date: "2026-08-15"
+      done_summary: derived release fixtures from the package version; the task-closure snapshot recorded in release-prep commit 1bab66a passed 39 focused updater tests, 2952 non-network tests, and 2 network tests for v1.13.0
+    - key: UPDATE-SCHEDULER-SELF-CONTAINED-NOOP
+      summary: Keep systemd-user auto-updates self-contained and healthy when current
+      resolution: '2026-08-10: Implemented self-contained uv/pipx scheduler PATH rendering, fail-closed unit/provenance validation, and zero-effect scheduled current no-op; focused, full non-network, network, static, performance, and leak checks passed.'
+      archived_date: "2026-08-15"
+      done_summary: Implemented self-contained uv/pipx scheduler PATH rendering, fail-closed unit/provenance validation, and zero-effect scheduled current no-op; focused, full non-network, network, static, performance, and leak checks passed.
+    - key: AGENT-PLUGINS-PORTABLE-PACKAGE
+      summary: Ship a portable Agent Plugins package for MemPalace
+      resolution: '2026-08-11: Shipped a portable Agent Plugins 1.0.0 package with an installed stdio launcher, exact four-tool minimal MCP default, packaged LLM skill, offline schemas and attribution, wheel/sdist and installed-artifact gates, version and secret drift guards, and user-facing documentation; canonical release readiness, committed preflight, 3006 non-network tests, and independent follow-up review passed through bounded hybrid recovery after Autopilot command-classifier and source-proof finalization blockers.'
+      archived_date: "2026-08-15"
+      done_summary: Shipped a portable Agent Plugins 1.0.0 package with an installed stdio launcher, exact four-tool minimal MCP default, packaged LLM skill, offline schemas and attribution, wheel/sdist and installed-artifact gates, version and secret drift guards, and user-facing documentation; canonical release readiness, committed preflight, 3006 non-network tests, and independent follow-up review passed through bounded hybrid recovery after Autopilot command-classifier and source-proof finalization blockers.
+    - key: INGEST-NONREGULAR-SOURCE-GUARD
+      summary: Reject non-regular ingest sources without blocking
+      resolution: '2026-08-14: Implemented a descriptor-validated regular-source boundary across project and conversation ingest, config, entity, KG, and split readers; FIFO, live-writer FIFO, Unix socket, symlink, EAGAIN, descriptor-lifecycle, and real CLI regressions pass alongside the full non-network suite, Ruff, format, and Pyright.'
+      archived_date: "2026-08-15"
+      done_summary: Implemented a descriptor-validated regular-source boundary across project and conversation ingest, config, entity, KG, and split readers; FIFO, live-writer FIFO, Unix socket, symlink, EAGAIN, descriptor-lifecycle, and real CLI regressions pass alongside the full non-network suite, Ruff, format, and Pyright.
+    - key: AGENT-INSTALL-UPDATE-OPT-IN-FLOW
+      summary: Make update choices explicit in the agent install flow
+      resolution: '2026-08-14: Delivered explicit opt-in version notifications and Linux systemd-user scheduled-update choices with safe No defaults, installed-executable verification, guarded update hints, and final state reporting. Extended real wheel install smokes to venv, pipx, uv-tool when available, and disposable bootstrap-venv. Verified release readiness across all four installers, Ruff, format, Pyright basic/strict, docs drift, and autopilot verify --full (3/3; full pytest passed). Implementation commit b822d55a; plan cb8b7796; changelog 44b6ba43. Autopilot finalization proof defect was recovered with audited parked-state cleanup.'
+      archived_date: "2026-08-15"
+      done_summary: Delivered explicit opt-in version notifications and Linux systemd-user scheduled-update choices with safe No defaults, installed-executable verification, guarded update hints, and final state reporting. Extended real wheel install smokes to venv, pipx, uv-tool when available, and disposable bootstrap-venv. Verified release readiness across all four installers, Ruff, format, Pyright basic/strict, docs drift, and autopilot verify --full (3/3; full pytest passed). Implementation commit b822d55a; plan cb8b7796; changelog 44b6ba43. Autopilot finalization proof defect was recovered with audited parked-state cleanup.
+    - key: STORE-RETIRE-CHROMA-RUNTIME
+      summary: Retire ChromaDB runtime while preserving the migration bridge
+      resolution: '2026-08-14: Retired ChromaDB as a runtime backend while preserving the one-way migrate-storage bridge. Ordinary installs and runtime paths are LanceDB-only; explicit or Chroma-only runtime opens fail with an actionable migration command, and mixed Lance/Chroma directories prefer LanceDB. Isolated the migration dependency behind chroma-migration, retained chroma as a deprecated install alias, reduced CI to focused bridge coverage, added installed-artifact no-Chroma runtime checks, disabled anonymized telemetry for legacy clients, updated current docs and drift guards, and preserved user data and historical evidence. Validation: 383 focused tests passed with 4 expected skips in the core environment; 22 migration-extra tests passed; one-row backup/migration/count/search smoke passed; Ruff, format, Pyright basic/strict, architecture and docs guards passed; release readiness passed build, Twine and all four install contours.'
+      archived_date: "2026-08-15"
+      done_summary: 'Retired ChromaDB as a runtime backend while preserving the one-way migrate-storage bridge. Ordinary installs and runtime paths are LanceDB-only; explicit or Chroma-only runtime opens fail with an actionable migration command, and mixed Lance/Chroma directories prefer LanceDB. Isolated the migration dependency behind chroma-migration, retained chroma as a deprecated install alias, reduced CI to focused bridge coverage, added installed-artifact no-Chroma runtime checks, disabled anonymized telemetry for legacy clients, updated current docs and drift guards, and preserved user data and historical evidence. Validation: 383 focused tests passed with 4 expected skips in the core environment; 22 migration-extra tests passed; one-row backup/migration/count/search smoke passed; Ruff, format, Pyright basic/strict, architecture and docs guards passed; release readiness passed build, Twine and all four install contours.'
+    - key: INSTALL-ALIAS-TARGET-CONTAINMENT
+      summary: Honor the explicit install-alias target boundary
+      resolution: '2026-08-15: Fixed explicit install-alias target containment in 92cf78c7 and refreshed generated quality gates in fef0bd9a. Explicit targets now ignore unrelated PATH aliases, preserve correct target idempotence, and refuse collisions without overwrite. Validation: 8 alias tests, 3 wiring tests, and 1 neutral-directory golden test passed; Ruff check and format passed.'
+      archived_date: "2026-08-15"
+      done_summary: 'Fixed explicit install-alias target containment in 92cf78c7 and refreshed generated quality gates in fef0bd9a. Explicit targets now ignore unrelated PATH aliases, preserve correct target idempotence, and refuse collisions without overwrite. Validation: 8 alias tests, 3 wiring tests, and 1 neutral-directory golden test passed; Ruff check and format passed.'
+    - key: CLI-DEGRADED-INPUT-RECOVERY
+      summary: Bound common degraded-actor CLI mistakes
+      resolution: '2026-08-15: Added bounded CLI recovery in the implementation commit immediately preceding this backlog closure: standard --version and help discovery, order-tolerant palace selection with duplicate reconciliation and conflict detection, positive search result validation before storage access, and missing-import containment without traceback. Degraded argv guards cover missing option values and the -- delimiter. Validation: 195 focused CLI and golden subprocess tests passed; Ruff check and format passed.'
+      archived_date: "2026-08-15"
+      done_summary: 'Added bounded CLI recovery in the implementation commit immediately preceding this backlog closure: standard --version and help discovery, order-tolerant palace selection with duplicate reconciliation and conflict detection, positive search result validation before storage access, and missing-import containment without traceback. Degraded argv guards cover missing option values and the -- delimiter. Validation: 195 focused CLI and golden subprocess tests passed; Ruff check and format passed.'
+    - key: MCP-DEGRADED-CLIENT-ERROR-CONTAINMENT
+      summary: Contain malformed MCP client requests without tracebacks
+      resolution: '2026-08-15: Hardened the shared MCP dispatch boundary in the implementation commit immediately preceding this closure. Missing, undeclared, and invalid primitive arguments now return bounded -32602 errors before handler invocation; malformed JSON returns -32700 and the stdio loop continues; profile-disabled and duplicate initialize behavior remain deterministic; genuine internal handler faults stay sanitized to clients and observable in logs. Integer coercion rejects bool, fractional, non-finite, and null values while preserving compatible integer strings and whole floats. Validation: all 300 MCP tests passed; Ruff check and format passed.'
+      archived_date: "2026-08-15"
+      done_summary: 'Hardened the shared MCP dispatch boundary in the implementation commit immediately preceding this closure. Missing, undeclared, and invalid primitive arguments now return bounded -32602 errors before handler invocation; malformed JSON returns -32700 and the stdio loop continues; profile-disabled and duplicate initialize behavior remain deterministic; genuine internal handler faults stay sanitized to clients and observable in logs. Integer coercion rejects bool, fractional, non-finite, and null values while preserving compatible integer strings and whole floats. Validation: all 300 MCP tests passed; Ruff check and format passed.'
+    - key: ONBOARDING-DEGRADED-INPUT-SAFETY
+      summary: Make onboarding safe under EOF and ambiguous input
+      resolution: '2026-08-15: Hardened interactive onboarding in the implementation commit immediately preceding this closure. EOF, Ctrl-C, invalid-mode exhaustion, and ambiguous yes/no input abort without traceback or partial registry/AAAK writes; CLI abort exits non-zero while completed minimal setup exits zero; yes/no parsing is strict and bounded; local scan and candidate addition default No and require explicit consent; repeated setup remains idempotent through the existing replace/update registry semantics. Validation: 202 onboarding, registry, and CLI tests passed; Ruff check and format passed.'
+      archived_date: "2026-08-15"
+      done_summary: 'Hardened interactive onboarding in the implementation commit immediately preceding this closure. EOF, Ctrl-C, invalid-mode exhaustion, and ambiguous yes/no input abort without traceback or partial registry/AAAK writes; CLI abort exits non-zero while completed minimal setup exits zero; yes/no parsing is strict and bounded; local scan and candidate addition default No and require explicit consent; repeated setup remains idempotent through the existing replace/update registry semantics. Validation: 202 onboarding, registry, and CLI tests passed; Ruff check and format passed.'
+    - key: LLM-DEGRADED-CONTEXT-SAFETY
+      summary: Make agent install and write retries converge after context loss
+      resolution: '2026-08-15: Implemented fail-closed managed instruction blocks, explicit yes/skip and global/project prompts, byte-preserving replace semantics, and stable-identity reconcile-before-retry rules. Focused docs/package suite: 71 passed.'
+      archived_date: "2026-08-15"
+      done_summary: 'Implemented fail-closed managed instruction blocks, explicit yes/skip and global/project prompts, byte-preserving replace semantics, and stable-identity reconcile-before-retry rules. Focused docs/package suite: 71 passed.'
+    - key: CLI-HELP-DOCS-DRIFT
+      summary: Document the installed help command in the CLI inventory
+      resolution: '2026-08-15: Added the installed help command to the canonical README inventory. Docs drift guard OK; 55 focused tests passed.'
+      archived_date: "2026-08-15"
+      done_summary: Added the installed help command to the canonical README inventory. Docs drift guard OK; 55 focused tests passed.
+    - key: RELEASE-RESIDUE-PUBLIC-SAFETY
+      summary: Remove committed runner residue descriptors from release shape
+      resolution: '2026-08-15: Removed exactly three committed failed-residue stash descriptors; product sources and plan artifacts preserved. Public safety scan OK across 423 tracked snapshots.'
+      archived_date: "2026-08-15"
+      done_summary: Removed exactly three committed failed-residue stash descriptors; product sources and plan artifacts preserved. Public safety scan OK across 423 tracked snapshots.
+    - key: RELEASE-VERSION-IDENTITY-1-13-5
+      summary: Synchronize release identity to patch version 1.13.5
+      resolution: '2026-08-15: Synchronized canonical release identity to 1.13.5, added truthful local release-preparation notes, built wheel/sdist, and passed uv lock, docs drift, scorecard, 197 focused tests, Twine, and clean release preflight. No tag, push, or publish.'
+      archived_date: "2026-08-15"
+      done_summary: Synchronized canonical release identity to 1.13.5, added truthful local release-preparation notes, built wheel/sdist, and passed uv lock, docs drift, scorecard, 197 focused tests, Twine, and clean release preflight. No tag, push, or publish.
+    - key: TOOLING-PRECOMMIT-SCOPE-CORRECTNESS
+      summary: Make local Ruff hooks enforce the same source scope and version contract as CI
+      resolution: '2026-08-15: completed in pipeline run (delivered: Aligned local Ruff hook scope and versioning with the CI/dev dependency contract and added deterministic gate-inventory drift checks., artifacts: .github/workflows/ci.yml, .pre-commit-config.yaml, docs/quality/scorecard.json (+5), verified: VER-1, VER-2, VER-3 (+4), phase_commit=5b05ac9c, final_commit=319c5bb8, 9 files changed, 469 insertions(+), 31 deletions(-), dependency changes: 3 warning(s))'
+      archived_date: "2026-08-15"
+      done_summary: 'completed in pipeline run (delivered: Aligned local Ruff hook scope and versioning with the CI/dev dependency contract and added deterministic gate-inventory drift checks., artifacts: .github/workflows/ci.yml, .pre-commit-config.yaml, docs/quality/scorecard.json (+5), verified: VER-1, VER-2, VER-3 (+4), phase_commit=5b05ac9c, final_commit=319c5bb8, 9 files changed, 469 insertions(+), 31 deletions(-), dependency changes: 3 warning(s))'
+    - key: SUPPLY-GHA-IMMUTABLE-ACTION-PINS
+      summary: Pin GitHub Actions immutably and automate secure workflow maintenance
+      resolution: '2026-08-15: Implemented by 6998c1ca and 35d33059; independent review passed after required fixes; actionlint, Zizmor medium, workflow gate, public safety, dependency report, and full offline suite (3199 passed) are green.'
+      archived_date: "2026-08-15"
+      done_summary: Implemented by 6998c1ca and 35d33059; independent review passed after required fixes; actionlint, Zizmor medium, workflow gate, public safety, dependency report, and full offline suite (3199 passed) are green.
+    - key: SEC-GITLEAKS-HISTORY-GATE
+      summary: Add maintained secret scanning for changes and Git history
+      resolution: '2026-08-16: Implemented by 1723af3c, 33a37754, f70fd164, and b5b374a7. Independent review found and the recovery passes fixed production-runner, public-safety, shallow-history, clean-worktree, immutable toolchain, suppression-governance, failure-reporting, workflow-order, and hashed dependency gaps. Independent validation: 190 focused tests and full offline suite 3237 passed, 6 skipped, 2 deselected; Ruff, Actionlint, Zizmor medium, workflow security, Go module verification, gate inventory, scorecard, public safety, and backlog validation passed.'
+      archived_date: "2026-08-16"
+      done_summary: 'Implemented by 1723af3c, 33a37754, f70fd164, and b5b374a7. Independent review found and the recovery passes fixed production-runner, public-safety, shallow-history, clean-worktree, immutable toolchain, suppression-governance, failure-reporting, workflow-order, and hashed dependency gaps. Independent validation: 190 focused tests and full offline suite 3237 passed, 6 skipped, 2 deselected; Ruff, Actionlint, Zizmor medium, workflow security, Go module verification, gate inventory, scorecard, public safety, and backlog validation passed.'
+    - key: REL-V1-13-5-PUBLIC-SHAPE-PREP
+      summary: Prepare and sanitize the complete v1.13.5 public release shape
+      resolution: '2026-08-16: Bound install-alias and the dedicated alias installer to the invoked sibling launcher under PATH shadowing; added fail-closed installed provenance across venv, pipx, uv-tool, and bootstrap-venv; bounded filesystem errors; refreshed public docs and scorecards; 3509 offline tests and full release readiness passed; fresh Opus review found no required fix.'
+      archived_date: "2026-08-16"
+      done_summary: Bound install-alias and the dedicated alias installer to the invoked sibling launcher under PATH shadowing; added fail-closed installed provenance across venv, pipx, uv-tool, and bootstrap-venv; bounded filesystem errors; refreshed public docs and scorecards; 3509 offline tests and full release readiness passed; fresh Opus review found no required fix.
+    - key: UPSTREAM-POST-3-7-1-DRIFT-REVIEW
+      summary: Review and reconcile upstream drift after the 3.7.1 snapshot
+      resolution: '2026-08-16: Pinned and verified upstream develop at 639c69a1d6be41a04964ceb72a3d29d6f45629e9; adopted descriptor-validated split-output refusal for FIFO, symlink, hardlink, and fallback platforms; added nonzero partial-failure recovery, machine-verifiable decision/source/test provenance, public docs, and changelog; 3548 offline tests and three fresh Opus reviews passed; committed as 19a08b9b.'
+      archived_date: "2026-08-16"
+      done_summary: Pinned and verified upstream develop at 639c69a1d6be41a04964ceb72a3d29d6f45629e9; adopted descriptor-validated split-output refusal for FIFO, symlink, hardlink, and fallback platforms; added nonzero partial-failure recovery, machine-verifiable decision/source/test provenance, public docs, and changelog; 3548 offline tests and three fresh Opus reviews passed; committed as 19a08b9b.
+    - key: REL-ADMISSION-EXACT-SHA-PROTECTED-REFS
+      summary: Bind release admission to an exact green SHA and protected public refs
+      resolution: '2026-08-16: Exact-SHA preflight, release-required aggregate admission, read-only protected-ref/ruleset reporting, orphan-tag detection, and dependency-audit freshness are landed in main and passed VER-1 through VER-5. Commit 00a2a3fa removed the remaining silent PyYAML skip and refreshed the canonical scorecard. Live GitHub ruleset mutation remains the separate owner action REL-ADMISSION-EXACT-SHA-PROTECTED-REFS-APPLY-RULESETS.'
+      archived_date: "2026-08-16"
+      done_summary: Exact-SHA preflight, release-required aggregate admission, read-only protected-ref/ruleset reporting, orphan-tag detection, and dependency-audit freshness are landed in main and passed VER-1 through VER-5. Commit 00a2a3fa removed the remaining silent PyYAML skip and refreshed the canonical scorecard. Live GitHub ruleset mutation remains the separate owner action REL-ADMISSION-EXACT-SHA-PROTECTED-REFS-APPLY-RULESETS.
+    - key: REL-PYPI-PROVENANCE-VERIFICATION
+      summary: Verify existing PyPI attestations as a post-publication release surface
+      resolution: '2026-08-21: Landed exact-version PyPI provenance verification with pinned official tooling, full artifact coverage, repository/workflow/release-environment binding, bounded sanitized output, fail-closed malformed-response handling, and release-status integration. Validation: 3,564 tests passed; Ruff and formatting passed; focused provenance tests passed; local 1.13.5 install smoke passed; public-safety scan passed after removing the tracked recovery descriptor.'
+      archived_date: "2026-08-21"
+      done_summary: 'Landed exact-version PyPI provenance verification with pinned official tooling, full artifact coverage, repository/workflow/release-environment binding, bounded sanitized output, fail-closed malformed-response handling, and release-status integration. Validation: 3,564 tests passed; Ruff and formatting passed; focused provenance tests passed; local 1.13.5 install smoke passed; public-safety scan passed after removing the tracked recovery descriptor.'
+    - key: DOCS-RUNBOOK-DRUNK-LLM-CONSISTENCY
+      summary: Make release and install runbooks deterministic under lost context
+      resolution: '2026-08-21: Implemented deterministic runbook consistency guards; 99 focused and 3568 full tests passed.'
+      archived_date: "2026-08-21"
+      done_summary: Implemented deterministic runbook consistency guards; 99 focused and 3568 full tests passed.
+    - key: REL-DEPENDENCY-AUDIT-1-13-5
+      summary: Generate a current-hash dependency audit report for v1.13.5
+      resolution: '2026-08-21: Generated and verified the v1.13.5 dependency audit report; resolver, CI, and public-safety gates passed.'
+      archived_date: "2026-08-21"
+      done_summary: Generated and verified the v1.13.5 dependency audit report; resolver, CI, and public-safety gates passed.
+    - key: UPSTREAM-DELTA-REVIEW-3E56979F
+      summary: Review upstream develop delta through 3e56979f before v1.13.5
+      resolution: '2026-08-21: Reviewed upstream through 3e56979f; synchronized comparison artifacts and identified one release-critical split-name gap.'
+      archived_date: "2026-08-21"
+      done_summary: Reviewed upstream through 3e56979f; synchronized comparison artifacts and identified one release-critical split-name gap.
+    - key: SPLIT-NAME-DETECTION-OPT-IN
+      summary: Require explicit known-names configuration for split person detection
+      resolution: '2026-08-21: Removed generic name fallback; configured names remain exact; split/FIFO focus and 3568 full tests passed.'
+      archived_date: "2026-08-21"
+      done_summary: Removed generic name fallback; configured names remain exact; split/FIFO focus and 3568 full tests passed.
+    - key: PROJECT-MARKER-GITFILE-SUPPORT
+      summary: Detect Git worktrees and submodules as projects
+      resolution: '2026-08-21: Added safe .git file detection for worktrees/submodules; public-shape, 207 focused, and 3571 full tests passed.'
+      archived_date: "2026-08-21"
+      done_summary: Added safe .git file detection for worktrees/submodules; public-shape, 207 focused, and 3571 full tests passed.
+    - key: CLI-CHROMA-RETIREMENT-CLEAN-ERROR
+      summary: Render Chroma runtime retirement as a clean CLI error
+      resolution: '2026-08-21: Rendered Chroma retirement as a clean CLI error with the existing migration command; 219 focused and 3574 full tests passed.'
+      archived_date: "2026-08-21"
+      done_summary: Rendered Chroma retirement as a clean CLI error with the existing migration command; 219 focused and 3574 full tests passed.
+    - key: SPLIT-NAME-REGEX-AND-DISPOSITION-SYNC
+      summary: Escape configured split names before regex matching
+      resolution: '2026-08-21: Escaped configured names before regex matching; 34 focused and 3576 full tests passed.'
+      archived_date: "2026-08-21"
+      done_summary: Escaped configured names before regex matching; 34 focused and 3576 full tests passed.
+    - key: UPSTREAM-SPLIT-NAME-DISPOSITION-SYNC
+      summary: Mark split-name opt-in as implemented in upstream comparison
+      resolution: '2026-08-21: Marked split-name opt-in adopted in synchronized upstream artifacts; live guard and 57 focused tests passed.'
+      archived_date: "2026-08-21"
+      done_summary: Marked split-name opt-in adopted in synchronized upstream artifacts; live guard and 57 focused tests passed.
+    - key: MINING-READ-FAILURE-CLASSIFICATION
+      summary: Report unreadable and rejected mining sources truthfully and classify regular-source failures by exception type.
+      resolution: '2026-08-21: completed in pipeline run (delivered: Verified that the base commit already contains the planned mining failure classification and accounting behavior; no additional source changes were required., verified: VER-1, VER-5, phase_commit=a71af700, final_commit=ef55c072, 1 file changed, 164 deletions(-))'
+      archived_date: "2026-08-21"
+      done_summary: 'completed in pipeline run (delivered: Verified that the base commit already contains the planned mining failure classification and accounting behavior; no additional source changes were required., verified: VER-1, VER-5, phase_commit=a71af700, final_commit=ef55c072, 1 file changed, 164 deletions(-))'
+    - key: REL-V1-13-5-CHROMA-BREAKING-NOTE
+      summary: Refresh the v1.13.5 candidate date and make Chroma runtime retirement compatibility explicit.
+      resolution: '2026-08-21: Updated the v1.13.5 candidate date to 2026-08-21 and replaced the existing Chroma retirement bullet with an explicit pre-upgrade migrate-storage --verify instruction, migration-extra availability, and a no-action statement for default LanceDB users. Product commit fb964d1a. Validation: git diff boundary and whitespace checks passed; docs drift passed; tracked public-safety scan passed across 454 snapshots; 99 changelog-shape tests passed. Autopilot planning was blocked by its CHANGELOG-as-backlog scope predicate, and bookkeep succeeded before the known inapplicable source-verify finalization gate recurred.'
+      archived_date: "2026-08-21"
+      done_summary: 'Updated the v1.13.5 candidate date to 2026-08-21 and replaced the existing Chroma retirement bullet with an explicit pre-upgrade migrate-storage --verify instruction, migration-extra availability, and a no-action statement for default LanceDB users. Product commit fb964d1a. Validation: git diff boundary and whitespace checks passed; docs drift passed; tracked public-safety scan passed across 454 snapshots; 99 changelog-shape tests passed. Autopilot planning was blocked by its CHANGELOG-as-backlog scope predicate, and bookkeep succeeded before the known inapplicable source-verify finalization gate recurred.'
+    - key: WATCH-ROOT-PROJECT-MARKER-CLASSIFICATION-REUSE
+      summary: Reuse safe project-marker classification in watcher root detection
+      resolution: '2026-08-21: Centralized safe project-marker classification in mempalace_code/mining/projects.py and reused it from project discovery, watcher startup, and schedule rendering. Linked Git worktree .git files and ordinary .git directories remain supported; FIFO, socket, symlink, directory-shaped non-Git markers, and other irregular marker nodes are ignored without opening or blocking. Removed the superseded watcher classifier and two duplicate tests identified by fresh Claude Opus review. Product commits aca1c5cd, 2b2fdceb, and eaac3e6a. Validation: 327 focused tests passed; full suite 3593 passed with 6 expected skips and 2 deselections; Ruff, format, Pyright basic and strict, quality scorecard, docs drift, and tracked public-safety scan passed. Autopilot implementation was recovered after its quality-scorecard verify-fix and missing-lineage-sidecar failures.'
+      archived_date: "2026-08-21"
+      done_summary: 'Centralized safe project-marker classification in mempalace_code/mining/projects.py and reused it from project discovery, watcher startup, and schedule rendering. Linked Git worktree .git files and ordinary .git directories remain supported; FIFO, socket, symlink, directory-shaped non-Git markers, and other irregular marker nodes are ignored without opening or blocking. Removed the superseded watcher classifier and two duplicate tests identified by fresh Claude Opus review. Product commits aca1c5cd, 2b2fdceb, and eaac3e6a. Validation: 327 focused tests passed; full suite 3593 passed with 6 expected skips and 2 deselections; Ruff, format, Pyright basic and strict, quality scorecard, docs drift, and tracked public-safety scan passed. Autopilot implementation was recovered after its quality-scorecard verify-fix and missing-lineage-sidecar failures.'
+    - key: INIT-CONFIG-IRREGULAR-DESTINATION-GUARD
+      summary: Make init reject irregular mempalace.yaml destinations before work and write regular configs atomically.
+      resolution: '2026-08-21: Fresh Opus APPROVE; Autopilot full verify passed; 217 focused tests, Ruff, format, basic Pyright, strict Pyright, scorecard, and diff checks passed.'
+      archived_date: "2026-08-21"
+      done_summary: Fresh Opus APPROVE; Autopilot full verify passed; 217 focused tests, Ruff, format, basic Pyright, strict Pyright, scorecard, and diff checks passed.
+    - key: INSTALLED-GOLDEN-HARNESS-CONTRACT
+      summary: Make the installed-wheel golden harness exercise the supported alias and watcher contracts
+      resolution: '2026-08-21: Implementation landed in c9592309 using the existing golden harness and existing watch extra. A fresh wheel installed with [watch] passed all 14 installed-mode scenarios; source-mode golden tests, watcher optional-dependency coverage, Pyright basic/strict, docs drift, public safety, release readiness, and the refreshed quality scorecard passed. Repeated Autopilot blocked-result-with-source-commit residue was discarded through supported parked-state cleanup; no plan-only commit entered main.'
+      archived_date: "2026-08-21"
+      done_summary: Implementation landed in c9592309 using the existing golden harness and existing watch extra. A fresh wheel installed with [watch] passed all 14 installed-mode scenarios; source-mode golden tests, watcher optional-dependency coverage, Pyright basic/strict, docs drift, public safety, release readiness, and the refreshed quality scorecard passed. Repeated Autopilot blocked-result-with-source-commit residue was discarded through supported parked-state cleanup; no plan-only commit entered main.
+    - key: WATCH-MARKER-SYMLINK-CHANGELOG-NOTE
+      summary: Document the intentional non-symlink project-marker boundary in v1.13.5
+      resolution: '2026-08-21: Added the v1.13.5 compatibility note in 6b8be915 for mine-all, watch <dir>, and watch <dir> schedule, naming the symlink boundary for all project and initialization markers including .git, plus the supported regular-file or real-.git-directory recovery. Fresh Opus review corrected the command and marker scope; 173 focused changelog/docs/public-safety tests, docs drift, backlog validation, and public safety passed. Autopilot plan/review passed but implementation admission hit the known CHANGELOG path-only backlog guard; supported cleanup preserved the audit row.'
+      archived_date: "2026-08-21"
+      done_summary: Added the v1.13.5 compatibility note in 6b8be915 for mine-all, watch <dir>, and watch <dir> schedule, naming the symlink boundary for all project and initialization markers including .git, plus the supported regular-file or real-.git-directory recovery. Fresh Opus review corrected the command and marker scope; 173 focused changelog/docs/public-safety tests, docs drift, backlog validation, and public safety passed. Autopilot plan/review passed but implementation admission hit the known CHANGELOG path-only backlog guard; supported cleanup preserved the audit row.
+    - key: DOC-INSTALL-DRUNK-PATH
+      summary: Make installation and MCP setup deterministic under lost context
+      resolution: '2026-08-22: Landed deterministic install/MCP/update guidance through e624fbbd with explicit model and update consent, selected-launcher ownership, Claude/Codex scope truth, bounded bootstrap handoff, and removal of the superseded instruction runtime/plan. Validation: 3627 passed, 6 skipped, 2 deselected; Ruff, format, Pyright, docs drift, public safety, scorecard, changed-range Gitleaks, wheel/sdist artifact gate, Twine, and disposable installed-wheel metadata/MCP/plugin/ChromaDB-free smoke all passed. Independent 2026-08-22 reviews split remaining instruction mutation and bootstrap filesystem security into AGENT-INSTRUCTION-ATOMIC-APPLY and INSTALL-BOOTSTRAP-FILESYSTEM-BOUNDARIES.'
+      archived_date: "2026-08-22"
+      done_summary: 'Landed deterministic install/MCP/update guidance through e624fbbd with explicit model and update consent, selected-launcher ownership, Claude/Codex scope truth, bounded bootstrap handoff, and removal of the superseded instruction runtime/plan. Validation: 3627 passed, 6 skipped, 2 deselected; Ruff, format, Pyright, docs drift, public safety, scorecard, changed-range Gitleaks, wheel/sdist artifact gate, Twine, and disposable installed-wheel metadata/MCP/plugin/ChromaDB-free smoke all passed. Independent 2026-08-22 reviews split remaining instruction mutation and bootstrap filesystem security into AGENT-INSTRUCTION-ATOMIC-APPLY and INSTALL-BOOTSTRAP-FILESYSTEM-BOUNDARIES.'
+    - key: REL-PARTIAL-PUBLICATION-RECOVERY
+      summary: Provide an exact-run recovery path for partial PyPI and GitHub publication
+      resolution: '2026-08-22: Landed exact-run, exact-job GitHub Release recovery at 5a8172c2 with fail-closed repository, tag, SHA, artifact, PyPI, provenance, permissions, and asset reconciliation. Full qualification: 3646 passed, 6 skipped, 2 deselected; Ruff, Pyright, actionlint, workflow security, docs drift, scorecard, public safety, changed-range Gitleaks, artifact/Twine checks, and disposable installed-wheel smoke passed.'
+      archived_date: "2026-08-22"
+      done_summary: 'Landed exact-run, exact-job GitHub Release recovery at 5a8172c2 with fail-closed repository, tag, SHA, artifact, PyPI, provenance, permissions, and asset reconciliation. Full qualification: 3646 passed, 6 skipped, 2 deselected; Ruff, Pyright, actionlint, workflow security, docs drift, scorecard, public safety, changed-range Gitleaks, artifact/Twine checks, and disposable installed-wheel smoke passed.'
+    - key: AGENT-INSTRUCTION-ATOMIC-APPLY
+      summary: Remove unsafe agent-instruction mutation or provide one audited atomic owner
+      resolution: '2026-08-22: Landed 74d8df52 and follow-up guard repair 63612ea7. Removed public instruction-file and system-prompt mutation guidance in favor of the installed Agent Plugins 1.0 boundary, one JSON path recovery command, and an unsupported-client stop. Extended the existing docs drift owner for semantic mutation detection, canonical-rule duplication, and Git-tracked public shape; ignored local audit evidence remains outside release validation while staged public Markdown is checked. Qualification passed: 3634 tests, 6 skipped, 2 deselected; 96 focused docs tests; Ruff and format; both Pyright contours; docs drift; 456-snapshot public safety; scorecard; installed metadata smoke; and all 15 release-readiness rows.'
+      archived_date: "2026-08-22"
+      done_summary: 'Landed 74d8df52. Removed public instruction-file and system-prompt mutation guidance in favor of the installed Agent Plugins 1.0 boundary, one JSON path recovery command, and an unsupported-client stop. Extended the existing docs drift owner for semantic mutation detection and canonical-rule duplication. Qualification passed: 3634 tests, 6 skipped, 2 deselected; 96 focused docs tests; Ruff and format; both Pyright contours; docs drift; 456-snapshot public safety; scorecard; installed metadata smoke; and all 15 release-readiness rows.'
+    - key: INSTALL-BOOTSTRAP-FILESYSTEM-BOUNDARIES
+      summary: Harden bootstrap launcher, venv, and immutable-ref boundaries
+      resolution: '2026-08-22: Landed fd179d35. Bootstrap now rejects unsafe venv and launcher paths, pins unattended Git installs to full 40-hex commits, preserves caller traps, binds lock cleanup to an anonymous parent-held original-inode receipt across HUP/INT/TERM and replacement races, and documents exact bounded recovery. Independent lock, Rule 0, and public-release reviews passed. Qualification: 3645 passed, 6 skipped, 2 deselected; Ruff check/format; both Pyright contours; docs drift; scorecard; 465-snapshot public safety; changed-range Gitleaks with zero findings; and all 15 release-readiness rows including four disposable install contours.'
+      archived_date: "2026-08-22"
+      done_summary: 'Landed fd179d35. Bootstrap now rejects unsafe venv and launcher paths, pins unattended Git installs to full 40-hex commits, preserves caller traps, binds lock cleanup to an anonymous parent-held original-inode receipt across HUP/INT/TERM and replacement races, and documents exact bounded recovery. Independent lock, Rule 0, and public-release reviews passed. Qualification: 3645 passed, 6 skipped, 2 deselected; Ruff check/format; both Pyright contours; docs drift; scorecard; 465-snapshot public safety; changed-range Gitleaks with zero findings; and all 15 release-readiness rows including four disposable install contours.'
+    - key: DOC-BACKUP-RESTORE-DRUNK-PATH
+      summary: Replace destructive and invalid backup recovery instructions with verified reversible steps
+      resolution: '2026-08-22: Landed the verified fail-fast backup, rebuild, import, tar restore, force-restore, and partial-rebuild recovery contract in c9142cdc, 77b7c02d, and 795620e5; full qualification passed with 3647 tests plus release artifact/install/security gates.'
+      archived_date: "2026-08-22"
+      done_summary: Landed the verified fail-fast backup, rebuild, import, tar restore, force-restore, and partial-rebuild recovery contract in c9142cdc, 77b7c02d, and 795620e5; full qualification passed with 3647 tests plus release artifact/install/security gates.
+    - key: CLI-IMPORT-DRY-RUN-NO-STATE-CREATION
+      summary: Make import dry-run truly read-only for palace and knowledge-graph state
+      resolution: '2026-08-22: Implemented read-only non-creating import preview with absent/existing-state regressions and public documentation; qualified at 1f439122'
+      archived_date: "2026-08-22"
+      done_summary: Implemented read-only non-creating import preview with absent/existing-state regressions and public documentation; qualified at 1f439122
+    - key: RESTORE-TARGET-STATE-COLLISION-GUARD
+      summary: Refuse non-force restore when palace or KG destination already contains state
+      resolution: '2026-08-22: Completed in commits 02b48e2f, 13feb6f4, and 722c8fa2: non-force restore now refuses initial destination state, exclusively claims Lance, atomically no-clobber publishes KG, fails closed without hard-link support, rolls back only invocation-owned state, preserves symlink referents, and documents the exact concurrency boundary. Verification: 3,677 non-network tests; Ruff, format, basic and strict Pyright, docs drift, scorecard, public safety, gate inventory, Gitleaks baseline, fixture, changed-range, and full-history scans, plus three independent reviews passed.'
+      archived_date: "2026-08-22"
+      done_summary: 'Completed in commits 02b48e2f, 13feb6f4, and 722c8fa2: non-force restore now refuses initial destination state, exclusively claims Lance, atomically no-clobber publishes KG, fails closed without hard-link support, rolls back only invocation-owned state, preserves symlink referents, and documents the exact concurrency boundary. Verification: 3,677 non-network tests; Ruff, format, basic and strict Pyright, docs drift, scorecard, public safety, gate inventory, Gitleaks baseline, fixture, changed-range, and full-history scans, plus three independent reviews passed.'
+    - key: LLM-PROFILE-AWARE-USAGE-RULES
+      summary: Make managed LLM usage rules capability-aware across MCP profiles
+      resolution: '2026-08-22: Made canonical and packaged guidance profile-aware; verified runtime-accurate taxonomy fallbacks, one-refresh method-not-found recovery, poststate reconciliation, bounded authority, exact minimal-tool alignment, and no duplicate install block. Full suite: 3679 passed.'
+      archived_date: "2026-08-22"
+      done_summary: 'Made canonical and packaged guidance profile-aware; verified runtime-accurate taxonomy fallbacks, one-refresh method-not-found recovery, poststate reconciliation, bounded authority, exact minimal-tool alignment, and no duplicate install block. Full suite: 3679 passed.'
+    - key: CLARIFY-LLM-PROFILE-AWARE-USAGE-RULES
+      summary: Clarify scope for LLM-PROFILE-AWARE-USAGE-RULES before planning can proceed
+      resolution: '2026-08-22: Preserved the sole canonical full usage block and distinct packaged minimal skill; revised the parent acceptance criterion and rejected restoration of the duplicate install block.'
+      archived_date: "2026-08-22"
+      done_summary: Preserved the sole canonical full usage block and distinct packaged minimal skill; revised the parent acceptance criterion and rejected restoration of the duplicate install block.
+    - key: AGENT-SKILL-AUTHORITY-BOUNDARIES
+      summary: Make ship, planning, and hardening skills preserve explicit mutation authority
+      resolution: '2026-08-22: Implemented exact state, ownership, remote-target, and single-use mutation-authority contracts in commit 61ef0d5f; 18 focused tests and the 3,684-test non-network suite passed.'
+      archived_date: "2026-08-22"
+      done_summary: Implemented exact state, ownership, remote-target, and single-use mutation-authority contracts in commit 61ef0d5f; 18 focused tests and the 3,684-test non-network suite passed.
+    - key: DOC-PLAN-LIFECYCLE-BOUNDARY
+      summary: Prevent historical implementation plans from being mistaken for live instructions
+      resolution: '2026-08-22: Completed locally in f4743207: all 142 tracked plans now carry explicit lifecycle and authority metadata; docs/plans/README.md and the task-plan contract agree; direct historical retrieval and malformed/stale status cases are covered. Validation: 3,691 non-network tests passed with 6 skips and 2 deselections; Ruff, format, docs drift, scorecard, tracked public-safety scan, build/Twine/install release readiness, and three independent Rule 0, truth, and public-safety reviews passed.'
+      archived_date: "2026-08-22"
+      done_summary: 'Completed locally in f4743207: all 142 tracked plans now carry explicit lifecycle and authority metadata; docs/plans/README.md and the task-plan contract agree; direct historical retrieval and malformed/stale status cases are covered. Validation: 3,691 non-network tests passed with 6 skips and 2 deselections; Ruff, format, docs drift, scorecard, tracked public-safety scan, build/Twine/install release readiness, and three independent Rule 0, truth, and public-safety reviews passed.'

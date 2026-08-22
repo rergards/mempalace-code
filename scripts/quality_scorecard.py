@@ -45,7 +45,7 @@ import sys
 import tokenize
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 PACKAGE_DIR = "mempalace_code"
 TESTS_DIR = "tests"
 # Excluded everywhere: negative fixtures intentionally contain bad suppressions
@@ -110,6 +110,11 @@ _VERIFICATION_COMMANDS = (
     ),
     ("typecheck_strict_slice", "python -m pyright -p pyrightconfig.strict.json"),
     ("public_safety", "python scripts/public_safety_scan.py --tracked --staged"),
+    ("gitleaks_baseline", "python scripts/gitleaks_scan.py validate-baseline"),
+    (
+        "gitleaks_changed_range",
+        "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD",
+    ),
     ("scorecard", "python scripts/quality_scorecard.py --check"),
     ("architecture_guard", "python scripts/architecture_guard.py --root ."),
 )
@@ -389,6 +394,29 @@ def collect_public_safety_coverage() -> dict:
     }
 
 
+def collect_gitleaks_coverage() -> dict:
+    """Metadata about supported Gitleaks modes — no subprocess, no scan execution."""
+    return {
+        "commands": {
+            "baseline": "python scripts/gitleaks_scan.py validate-baseline",
+            "changed_range": (
+                "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD"
+            ),
+            "fixture_smoke": "python scripts/gitleaks_scan.py fixture-smoke",
+            "full_history": "python scripts/gitleaks_scan.py full-history",
+        },
+        "coverage": [
+            "maintained_default_corpus",
+            "entropy_rule",
+            "changed_commit_range",
+            "full_git_history",
+            "reviewed_baseline_metadata",
+            "redacted_json_sarif_summary",
+        ],
+        "modes": ["baseline", "changed_range", "fixture_smoke", "full_history"],
+    }
+
+
 def collect_demo_gates(root: Path) -> dict:
     """Public-demo gate metrics via file-presence and AST reads only — no subprocess."""
     # architecture_guard: stdlib AST import-boundary guard script
@@ -487,6 +515,7 @@ def build_scorecard(root: Path) -> dict:
         "scope": {"package_dir": PACKAGE_DIR, "tests_dir": TESTS_DIR},
         "code_size": collect_code_size(root),
         "demo_gates": collect_demo_gates(root),
+        "gitleaks": collect_gitleaks_coverage(),
         "largest_modules": collect_largest_modules(root),
         "performance_budgets": collect_performance_budgets(root),
         "public_safety": collect_public_safety_coverage(),
@@ -587,6 +616,18 @@ def render_markdown(data: dict) -> str:
     for _mode in pub["modes"]:
         _cmd = pub.get("commands", {}).get(_mode, "")
         lines.append(f"| {_mode} | `{_cmd}` |")
+    lines.append("")
+
+    gleaks = data["gitleaks"]
+    lines.append("## Gitleaks")
+    lines.append("")
+    lines.append("| Mode | Command |")
+    lines.append("|------|---------|")
+    for _mode in gleaks["modes"]:
+        _cmd = gleaks.get("commands", {}).get(_mode, "")
+        lines.append(f"| {_mode} | `{_cmd}` |")
+    lines.append("")
+    lines.append("Coverage: " + ", ".join(f"`{c}`" for c in gleaks["coverage"]))
     lines.append("")
 
     demo = data["demo_gates"]
@@ -762,6 +803,24 @@ def validate(data: dict) -> list[str]:
     if isinstance(ps.get("modes"), list):
         for _mode in ("committed", "staged", "tracked"):
             require(_mode in ps["modes"], f"public_safety.modes must include '{_mode}'")
+
+    gleaks = data.get("gitleaks", {})
+    require(isinstance(gleaks.get("modes"), list), "gitleaks.modes must be a list")
+    if isinstance(gleaks.get("modes"), list):
+        for _mode in ("baseline", "changed_range", "fixture_smoke", "full_history"):
+            require(_mode in gleaks["modes"], f"gitleaks.modes must include '{_mode}'")
+    require(isinstance(gleaks.get("commands"), dict), "gitleaks.commands must be a dict")
+    require(isinstance(gleaks.get("coverage"), list), "gitleaks.coverage must be a list")
+    if isinstance(gleaks.get("coverage"), list):
+        for _coverage in (
+            "maintained_default_corpus",
+            "entropy_rule",
+            "changed_commit_range",
+            "full_git_history",
+            "reviewed_baseline_metadata",
+            "redacted_json_sarif_summary",
+        ):
+            require(_coverage in gleaks["coverage"], f"gitleaks.coverage must include {_coverage}")
 
     gates = data.get("demo_gates", {})
     require(isinstance(gates, dict), "demo_gates must be a dict")

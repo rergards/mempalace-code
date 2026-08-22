@@ -1,5 +1,7 @@
 ---
 slug: WATCH-LANCE-MISSING-FRAGMENT-ROLLBACK
+status: completed
+authority: non_authoritative
 goal: "Make watcher startup preserve a backup, fail closed, and recover from Lance missing-fragment initial-mine writes"
 risk: medium
 risk_note: "Changes watcher startup behavior and managed backup taxonomy, but keeps steady-state watch event handling and storage schema unchanged."

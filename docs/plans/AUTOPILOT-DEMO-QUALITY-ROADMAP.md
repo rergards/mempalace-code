@@ -1,5 +1,7 @@
 ---
 slug: AUTOPILOT-DEMO-QUALITY-ROADMAP
+status: historical
+authority: non_authoritative
 goal: "Turn mempalace-code into a public demo of Autopilot-driven code quality improvements"
 risk: medium
 risk_note: "Quality work can become invisible churn unless each task has a measurable baseline, public-safe artifact, and real verification surface."

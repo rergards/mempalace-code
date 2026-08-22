@@ -1,5 +1,7 @@
 ---
 slug: QUAL-OPTIONAL-ANNOTATIONS
+status: completed
+authority: non_authoritative
 goal: "Normalize default-None annotations so optional contracts are explicit without runtime behavior changes."
 risk: medium
 risk_note: "The edits are mechanical annotations, but many public CLI/MCP/search signatures expose optional filters and omitted-argument defaults."

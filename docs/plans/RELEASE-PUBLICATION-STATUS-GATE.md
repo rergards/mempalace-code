@@ -1,5 +1,7 @@
 ---
 slug: RELEASE-PUBLICATION-STATUS-GATE
+status: completed
+authority: non_authoritative
 goal: "Add an executable release-status gate that must pass every public publication surface before a release is called shipped."
 risk: medium
 risk_note: "Touches release-operator automation, hosted GitHub/PyPI status interpretation, and public release wording; false positives can block releases and false negatives can advertise an incomplete release."

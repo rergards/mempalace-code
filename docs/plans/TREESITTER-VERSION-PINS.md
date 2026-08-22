@@ -1,5 +1,7 @@
 ---
 slug: TREESITTER-VERSION-PINS
+status: completed
+authority: non_authoritative
 goal: "Raise tree-sitter version ceilings in [treesitter] extra to cover 0.24.x–0.25.x, preserving Python 3.9 support via environment markers"
 risk: low
 risk_note: "Pure packaging change; treesitter.py API is stable across target range; regex fallback is always available if install fails"

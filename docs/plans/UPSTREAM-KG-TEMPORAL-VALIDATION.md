@@ -1,5 +1,7 @@
 ---
 slug: UPSTREAM-KG-TEMPORAL-VALIDATION
+status: completed
+authority: non_authoritative
 goal: "Validate KG temporal inputs and preserve full MCP validity windows."
 risk: medium
 risk_note: "Small surface area, but it changes write-time validation and query filtering for temporal KG facts that may already contain mixed date/datetime strings."

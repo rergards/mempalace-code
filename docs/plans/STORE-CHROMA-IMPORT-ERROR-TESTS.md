@@ -1,5 +1,7 @@
 ---
 slug: STORE-CHROMA-IMPORT-ERROR-TESTS
+status: completed
+authority: non_authoritative
 goal: "Add isolated tests for ChromaStore ImportError behavior when the chromadb extra is absent"
 risk: low
 risk_note: "Test-only change for existing lazy import guards; no production behavior changes planned."

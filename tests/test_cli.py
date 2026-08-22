@@ -8,19 +8,39 @@ argparse → dispatch → storage path for the diary write subcommand.
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
 
-from mempalace_code.cli import install_legacy_alias, main
-from mempalace_code.storage import open_store
+from mempalace_code.cli import _hoist_palace_before_subcommand, install_legacy_alias, main
+from mempalace_code.storage import CHROMA_RUNTIME_RETIRED_MESSAGE, LanceStore, open_store
 
 
 def run_mine_cli(argv):
     with patch.object(sys, "argv", argv):
         main()
+
+
+class TestInitModelChoiceContract:
+    @pytest.mark.parametrize("choice", ["no", "offline"])
+    def test_declined_or_offline_init_never_fetches_model(self, tmp_path, monkeypatch, choice):
+        project = tmp_path / f"project-{choice}"
+        project.mkdir()
+        (project / "README.md").write_text("# Project\n", encoding="utf-8")
+        calls: list[str] = []
+
+        monkeypatch.setattr(
+            "mempalace_code.cli_commands.model.fetch_model",
+            lambda model_name, force=False: calls.append(model_name),
+        )
+        run_mine_cli(["mempalace-code", "init", str(project), "--skip-model-download"])
+        run_mine_cli(["mempalace-code", "init", str(project), "--skip-model-download"])
+
+        assert calls == []
+        assert (project / "mempalace.yaml").is_file()
 
 
 class TestLegacyAlias:
@@ -55,6 +75,202 @@ class TestLegacyAlias:
 
         assert existing.is_file()
         assert not existing.is_symlink()
+
+    def test_explicit_target_dir_creates_alias_even_when_correct_alias_exists_elsewhere(
+        self, tmp_path, monkeypatch
+    ):
+        source_bin = tmp_path / "source-bin"
+        target_bin = tmp_path / "target-bin"
+        user_bin = tmp_path / "user-bin"
+        for bin_dir in (source_bin, target_bin, user_bin):
+            bin_dir.mkdir()
+        canonical = source_bin / "mempalace-code"
+        existing_path_alias = user_bin / "mempalace"
+        self._write_executable(canonical)
+        existing_path_alias.symlink_to(canonical)
+        monkeypatch.setenv("PATH", os.pathsep.join([str(user_bin), str(source_bin)]))
+
+        alias = install_legacy_alias(target_dir=target_bin)
+
+        assert alias == target_bin / "mempalace"
+        assert alias.is_symlink()
+        assert alias.resolve() == canonical.resolve()
+        assert existing_path_alias.resolve() == canonical.resolve()
+
+    def test_absolute_invocation_prefers_invoked_executable_when_path_shadows_canonical(
+        self, tmp_path, monkeypatch
+    ):
+        invoked_bin = tmp_path / "invoked-bin"
+        ambient_bin = tmp_path / "ambient-bin"
+        target_bin = tmp_path / "target-bin"
+        for bin_dir in (invoked_bin, ambient_bin, target_bin):
+            bin_dir.mkdir()
+        invoked = invoked_bin / "mempalace-code"
+        ambient = ambient_bin / "mempalace-code"
+        self._write_executable(invoked)
+        self._write_executable(ambient)
+        monkeypatch.setenv("PATH", str(ambient_bin))
+
+        with patch.object(sys, "argv", [str(invoked), "install-alias"]):
+            alias = install_legacy_alias(target_dir=target_bin)
+
+        assert alias == target_bin / "mempalace"
+        assert alias.is_symlink()
+        assert alias.resolve() == invoked.resolve()
+        assert alias.resolve() != ambient.resolve()
+
+    def test_symlinked_invocation_keeps_default_alias_beside_launcher(self, tmp_path, monkeypatch):
+        managed_bin = tmp_path / "managed" / "bin"
+        launcher_bin = tmp_path / "path-bin"
+        managed_bin.mkdir(parents=True)
+        launcher_bin.mkdir()
+        managed = managed_bin / "mempalace-code"
+        launcher = launcher_bin / "mempalace-code"
+        self._write_executable(managed)
+        launcher.symlink_to(managed)
+        monkeypatch.setenv("PATH", str(launcher_bin))
+
+        with patch.object(sys, "argv", [str(launcher), "install-alias"]):
+            alias = install_legacy_alias()
+
+        assert alias == launcher_bin / "mempalace"
+        assert alias.is_symlink()
+        assert alias.readlink() == Path("mempalace-code")
+        assert alias.resolve() == managed.resolve()
+        assert not (managed_bin / "mempalace").exists()
+
+    def test_relative_invocation_prefers_invoked_executable_when_path_is_shadowed(
+        self, tmp_path, monkeypatch
+    ):
+        invoked_bin = tmp_path / "invoked-bin"
+        ambient_bin = tmp_path / "ambient-bin"
+        target_bin = tmp_path / "target-bin"
+        for bin_dir in (invoked_bin, ambient_bin, target_bin):
+            bin_dir.mkdir()
+        invoked = invoked_bin / "mempalace-code"
+        ambient = ambient_bin / "mempalace-code"
+        self._write_executable(invoked)
+        self._write_executable(ambient)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PATH", str(ambient_bin))
+
+        with patch.object(sys, "argv", ["invoked-bin/mempalace-code", "install-alias"]):
+            alias = install_legacy_alias(target_dir=target_bin)
+
+        assert alias.resolve() == invoked.resolve()
+        assert alias.resolve() != ambient.resolve()
+
+    def test_alias_installer_binds_to_sibling_canonical_under_path_shadowing(
+        self, tmp_path, monkeypatch
+    ):
+        launcher_bin = tmp_path / "launcher-bin"
+        ambient_bin = tmp_path / "ambient-bin"
+        launcher_bin.mkdir()
+        ambient_bin.mkdir()
+        canonical = launcher_bin / "mempalace-code"
+        installer = launcher_bin / "mempalace-code-alias"
+        ambient = ambient_bin / "mempalace-code"
+        for executable in (canonical, installer, ambient):
+            self._write_executable(executable)
+        monkeypatch.setenv("PATH", os.pathsep.join((str(ambient_bin), str(launcher_bin))))
+
+        with patch.object(sys, "argv", [str(installer)]):
+            alias = install_legacy_alias()
+
+        assert alias == launcher_bin / "mempalace"
+        assert alias.is_symlink()
+        assert alias.resolve() == canonical.resolve()
+        assert alias.resolve() != ambient.resolve()
+
+    def test_alias_installer_without_sibling_fails_closed(self, tmp_path, monkeypatch):
+        launcher_bin = tmp_path / "launcher-bin"
+        ambient_bin = tmp_path / "ambient-bin"
+        launcher_bin.mkdir()
+        ambient_bin.mkdir()
+        installer = launcher_bin / "mempalace-code-alias"
+        ambient = ambient_bin / "mempalace-code"
+        self._write_executable(installer)
+        self._write_executable(ambient)
+        monkeypatch.setenv("PATH", os.pathsep.join((str(ambient_bin), str(launcher_bin))))
+
+        with patch.object(sys, "argv", [str(installer)]):
+            with pytest.raises(RuntimeError, match="cannot find executable sibling"):
+                install_legacy_alias()
+
+        assert not (launcher_bin / "mempalace").exists()
+        assert not (ambient_bin / "mempalace").exists()
+
+    def test_explicit_target_dir_accepts_existing_correct_target_alias(self, tmp_path, monkeypatch):
+        source_bin = tmp_path / "source-bin"
+        target_bin = tmp_path / "target-bin"
+        user_bin = tmp_path / "user-bin"
+        for bin_dir in (source_bin, target_bin, user_bin):
+            bin_dir.mkdir()
+        canonical = source_bin / "mempalace-code"
+        target_alias = target_bin / "mempalace"
+        existing_path_alias = user_bin / "mempalace"
+        self._write_executable(canonical)
+        target_alias.symlink_to(canonical)
+        existing_path_alias.symlink_to(canonical)
+        monkeypatch.setenv("PATH", os.pathsep.join([str(user_bin), str(source_bin)]))
+
+        alias = install_legacy_alias(target_dir=target_bin)
+
+        assert alias == target_alias
+        assert alias.is_symlink()
+        assert alias.resolve() == canonical.resolve()
+        assert not (source_bin / "mempalace").exists()
+
+    @pytest.mark.parametrize("collision_kind", ["regular-file", "dangling-symlink"])
+    def test_explicit_target_dir_refuses_conflicting_target_entry(
+        self, tmp_path, monkeypatch, collision_kind
+    ):
+        source_bin = tmp_path / "source-bin"
+        target_bin = tmp_path / "target-bin"
+        user_bin = tmp_path / "user-bin"
+        for bin_dir in (source_bin, target_bin, user_bin):
+            bin_dir.mkdir()
+        canonical = source_bin / "mempalace-code"
+        target_alias = target_bin / "mempalace"
+        existing_path_alias = user_bin / "mempalace"
+        self._write_executable(canonical)
+        existing_path_alias.symlink_to(canonical)
+        monkeypatch.setenv("PATH", os.pathsep.join([str(user_bin), str(source_bin)]))
+
+        if collision_kind == "regular-file":
+            target_alias.write_text("not the mempalace-code alias\n", encoding="utf-8")
+            before = target_alias.read_text(encoding="utf-8")
+        else:
+            target_alias.symlink_to(target_bin / "missing-command")
+            before = os.readlink(target_alias)
+
+        with pytest.raises(RuntimeError, match="already exists; not overwriting"):
+            install_legacy_alias(target_dir=target_bin)
+
+        if collision_kind == "regular-file":
+            assert target_alias.read_text(encoding="utf-8") == before
+            assert not target_alias.is_symlink()
+        else:
+            assert target_alias.is_symlink()
+            assert os.readlink(target_alias) == before
+        assert existing_path_alias.resolve() == canonical.resolve()
+
+    def test_default_install_alias_returns_existing_correct_path_alias(self, tmp_path, monkeypatch):
+        source_bin = tmp_path / "source-bin"
+        user_bin = tmp_path / "user-bin"
+        for bin_dir in (source_bin, user_bin):
+            bin_dir.mkdir()
+        canonical = source_bin / "mempalace-code"
+        existing_path_alias = user_bin / "mempalace"
+        self._write_executable(canonical)
+        existing_path_alias.symlink_to(canonical)
+        monkeypatch.setenv("PATH", os.pathsep.join([str(user_bin), str(source_bin)]))
+
+        alias = install_legacy_alias()
+
+        assert alias == existing_path_alias
+        assert alias.resolve() == canonical.resolve()
+        assert not (source_bin / "mempalace").exists()
 
     def test_install_alias_subcommand_dispatches(self, tmp_path, monkeypatch):
         bin_dir = tmp_path / "bin"
@@ -97,12 +313,17 @@ class TestInitEntityDetection:
         )
         assert not (project_dir / "entities.json").exists()
 
-    def test_init_detect_entities_runs_scan(self, tmp_path, monkeypatch):
+    def test_init_detect_entities_overwrites_regular_entities_preserving_mode(
+        self, tmp_path, monkeypatch
+    ):
         monkeypatch.setenv("HOME", str(tmp_path))
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         source_file = project_dir / "notes.md"
         source_file.write_text("Alice discussed Apollo.", encoding="utf-8")
+        entities_path = project_dir / "entities.json"
+        entities_path.write_text('{"people": ["stale"]}', encoding="utf-8")
+        entities_path.chmod(0o640)
 
         detected = {
             "people": [{"name": "Alice"}],
@@ -136,8 +357,9 @@ class TestInitEntityDetection:
         mock_scan.assert_called_once_with(str(project_dir))
         mock_detect.assert_called_once_with([str(source_file)])
         mock_confirm.assert_called_once_with(detected, yes=False)
-        saved = json.loads((project_dir / "entities.json").read_text(encoding="utf-8"))
+        saved = json.loads(entities_path.read_text(encoding="utf-8"))
         assert saved == confirmed
+        assert entities_path.stat().st_mode & 0o777 == 0o640
 
     def test_init_yes_without_detect_entities_skips_scan(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -224,6 +446,118 @@ class TestInitNonInteractiveOnboarding:
         assert isinstance(cfg["rooms"], list)
         assert len(cfg["rooms"]) >= 1
         assert all("name" in r for r in cfg["rooms"]), "every room must have a name"
+
+    def test_init_overwrites_existing_regular_config(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        config_path = project_dir / "mempalace.yaml"
+        config_path.write_text("wing: stale\nrooms: []\n", encoding="utf-8")
+        config_path.chmod(0o600)
+        (project_dir / "src").mkdir()
+
+        self._run_init(["mempalace", "init", str(project_dir), "--skip-model-download"])
+
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert cfg["wing"] == "myproject"
+        assert [room["name"] for room in cfg["rooms"]] == ["src", "general"]
+        assert config_path.stat().st_mode & 0o777 == 0o600
+        assert list(project_dir.glob(".mempalace.yaml.*")) == []
+
+    def test_init_post_validation_symlink_swap_exits_without_traceback(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        from mempalace_code.room_detector_local import validate_regular_destination
+
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        config_path = project_dir / "mempalace.yaml"
+        outside = tmp_path / "outside.yaml"
+        outside.write_text("wing: outside\nrooms: []\n", encoding="utf-8")
+        calls = 0
+
+        def swap_after_prevalidation(destination):
+            nonlocal calls
+            result = validate_regular_destination(destination)
+            if destination == config_path and calls == 0:
+                try:
+                    config_path.symlink_to(outside)
+                except OSError as exc:
+                    pytest.skip(f"symlink creation is not available for this user/platform: {exc}")
+            calls += 1
+            return result
+
+        with patch(
+            "mempalace_code.room_detector_local.validate_regular_destination",
+            side_effect=swap_after_prevalidation,
+        ):
+            with pytest.raises(SystemExit) as exc:
+                self._run_init(["mempalace", "init", str(project_dir), "--skip-model-download"])
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert str(config_path) in captured.err
+        assert f"mempalace-code init {project_dir}" in captured.err
+        assert "Traceback" not in captured.err
+        assert config_path.is_symlink()
+        assert outside.read_text(encoding="utf-8") == "wing: outside\nrooms: []\n"
+
+    def test_init_atomic_write_failure_preserves_config_and_cleans_temp(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        config_path = project_dir / "mempalace.yaml"
+        prior_config = b"wing: prior\nrooms: []\n"
+        config_path.write_bytes(prior_config)
+
+        def replace_then_fail(source, destination):
+            assert source.parent == project_dir
+            assert destination == config_path
+            raise OSError("boom")
+
+        with patch("mempalace_code.room_detector_local.os.replace", side_effect=replace_then_fail):
+            with pytest.raises(SystemExit) as exc:
+                self._run_init(["mempalace", "init", str(project_dir), "--skip-model-download"])
+
+        assert exc.value.code != 0
+        assert config_path.read_bytes() == prior_config
+        assert list(project_dir.glob(".mempalace.yaml.*")) == []
+        captured = capsys.readouterr()
+        assert str(config_path) in captured.err
+        assert f"mempalace-code init {project_dir}" in captured.err
+        assert "Traceback" not in captured.err
+
+    def test_init_retry_after_atomic_write_failure(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "myproject"
+        project_dir.mkdir()
+        config_path = project_dir / "mempalace.yaml"
+        prior_config = b"wing: prior\nrooms: []\n"
+        config_path.write_bytes(prior_config)
+        argv = ["mempalace", "init", str(project_dir), "--skip-model-download"]
+
+        def replace_then_fail(source, destination):
+            assert source.parent == project_dir
+            assert destination == config_path
+            raise OSError("boom")
+
+        with patch("mempalace_code.room_detector_local.os.replace", side_effect=replace_then_fail):
+            with pytest.raises(SystemExit) as exc:
+                self._run_init(argv)
+        assert exc.value.code != 0
+        assert config_path.read_bytes() == prior_config
+
+        self._run_init(argv)
+
+        cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        assert cfg["wing"] == "myproject"
+        assert cfg["rooms"] == [
+            {"name": "general", "description": "All project files", "keywords": []}
+        ]
+        assert list(project_dir.glob(".mempalace.yaml.*")) == []
 
     def test_init_interactive_prompts_for_room_review(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -2180,6 +2514,73 @@ class TestMineAllCommand:
         assert sources_a.isdisjoint(sources_b)
 
 
+class TestChromaRuntimeRetiredCli:
+    def test_chroma_only_palace_is_one_actionable_cli_error(self, tmp_path, capsys):
+        palace = tmp_path / "palace"
+        palace.mkdir()
+        marker = palace / "chroma.sqlite3"
+        marker.touch()
+        source = tmp_path / "drawers.jsonl"
+        source.write_text(
+            '{"content": "legacy import", "wing": "w", "room": "r"}\n',
+            encoding="utf-8",
+        )
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", str(palace), "import", str(source)],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == f"Error: {CHROMA_RUNTIME_RETIRED_MESSAGE}\n"
+        assert "mempalace-code[chroma-migration]" in captured.err
+        assert "mempalace-code migrate-storage SRC DST --verify" in captured.err
+        assert "Traceback" not in captured.err
+        assert marker.exists()
+        assert not (palace / "lance").exists()
+
+    def test_lance_status_remains_successful(self, tmp_path, capsys):
+        palace = str(tmp_path / "palace")
+        store = open_store(palace, create=True)
+        store.add(
+            ids=["lance_status_1"],
+            documents=["healthy Lance status"],
+            metadatas=[{"wing": "healthy", "room": "status"}],
+        )
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", palace, "status", "--summary"],
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        assert "Drawers: 1" in captured.out
+        assert captured.err == ""
+
+    def test_unrelated_runtime_error_still_propagates(self, tmp_path, capsys):
+        with (
+            patch("mempalace_code.cli.cmd_status", side_effect=RuntimeError("unexpected")),
+            patch.object(
+                sys,
+                "argv",
+                ["mempalace-code", "--palace", str(tmp_path), "status"],
+            ),
+            pytest.raises(RuntimeError, match="unexpected"),
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
+
 class TestMigrateStorageCommand:
     """CLI-level tests for migrate-storage argparse wiring and dispatch."""
 
@@ -2210,6 +2611,16 @@ class TestMigrateStorageCommand:
         captured = capsys.readouterr()
         assert "Source drawers: 10" in captured.out
         assert "Destination drawers: 7" in captured.out
+
+    def test_migrate_storage_help_names_migration_bridge_extra(self, capsys):
+        """AC-1: help points users to the migration-only extra."""
+        with pytest.raises(SystemExit) as exc:
+            self._run(["mempalace", "migrate-storage", "--help"])
+
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert "legacy ChromaDB palace to LanceDB" in captured.out
+        assert "mempalace-code[chroma-migration]" in captured.out
 
     def test_migrate_storage_cli_verify_fail(self, tmp_path, capsys):
         """AC-2: VerificationError exits with code 1, stderr includes 'Verification failed:'."""
@@ -3411,3 +3822,479 @@ class TestCompressLiveRemainsWritable:
 
         captured = capsys.readouterr()
         assert "Stored" in captured.out or "compressed" in captured.out.lower()
+
+
+# ── CLI-DEGRADED-INPUT-RECOVERY: parser-level and boundary tests ────────────────
+
+
+class TestVersionAndHelp:
+    def test_version_flag_exits_zero_with_version_string(self, capsys):
+        from mempalace_code.version import __version__
+
+        with pytest.raises(SystemExit) as exc:
+            with patch.object(sys, "argv", ["mempalace-code", "--version"]):
+                main()
+
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert __version__ in captured.out
+
+    def test_help_subcommand_prints_help_exits_zero(self, capsys):
+        with patch.object(sys, "argv", ["mempalace-code", "help"]):
+            main()
+
+        captured = capsys.readouterr()
+        assert "usage:" in captured.out.lower()
+
+    def test_no_command_prints_help_exits_zero(self, capsys):
+        with patch.object(sys, "argv", ["mempalace-code"]):
+            main()
+
+        captured = capsys.readouterr()
+        assert "usage:" in captured.out.lower()
+
+
+class TestPalaceOptionOrderTolerance:
+    def test_palace_before_subcommand_accepted(self, tmp_path, capsys):
+        palace = str(tmp_path / "palace")
+        with patch.object(sys, "argv", ["mempalace-code", "--palace", palace, "status"]):
+            main()
+
+    def test_palace_after_subcommand_accepted(self, tmp_path, capsys):
+        palace = str(tmp_path / "palace")
+        with patch.object(sys, "argv", ["mempalace-code", "status", "--palace", palace]):
+            main()
+
+    def test_palace_after_subcommand_equals_form_accepted(self, tmp_path, capsys):
+        palace = str(tmp_path / "palace")
+        with patch.object(sys, "argv", ["mempalace-code", "status", f"--palace={palace}"]):
+            main()
+
+    def test_palace_after_subcommand_reaches_handler(self, tmp_path, capsys):
+        palace_a = tmp_path / "palace_a"
+        palace_b = tmp_path / "palace_b"
+        store_a = open_store(str(palace_a), create=True)
+        store_a.add(
+            ids=["id1"],
+            documents=["content alpha"],
+            metadatas=[{"wing": "wing_alpha", "room": "r", "source_file": "f.py"}],
+        )
+        store_b = open_store(str(palace_b), create=True)
+        store_b.add(
+            ids=["id2"],
+            documents=["content beta"],
+            metadatas=[{"wing": "wing_beta", "room": "r", "source_file": "f.py"}],
+        )
+
+        with patch.object(sys, "argv", ["mempalace-code", "status", "--palace", str(palace_a)]):
+            main()
+
+        captured = capsys.readouterr()
+        assert "wing_alpha" in captured.out
+        assert "wing_beta" not in captured.out
+
+        capsys.readouterr()
+        with patch.object(sys, "argv", ["mempalace-code", "status", "--palace", str(palace_b)]):
+            main()
+
+        captured = capsys.readouterr()
+        assert "wing_beta" in captured.out
+        assert "wing_alpha" not in captured.out
+
+    # ── Repeated-palace unit tests (CLI-DEGRADED-INPUT-RECOVERY) ──────────────
+
+    @pytest.mark.parametrize(
+        "argv_builder",
+        [
+            lambda p: ["mp", "--palace", p, "status", "--palace", p],
+            lambda p: ["mp", f"--palace={p}", "status", f"--palace={p}"],
+            lambda p: ["mp", "--palace", p, "status", f"--palace={p}"],
+        ],
+        ids=["space+space", "equals+equals", "space+equals"],
+    )
+    def test_palace_duplicate_identical_normalises(self, tmp_path, argv_builder):
+        """Identical --palace values (any form combination) normalise idempotently — exit 0."""
+        palace = str(tmp_path / "palace")
+        with patch.object(sys, "argv", argv_builder(palace)):
+            main()  # must not raise
+
+    def test_palace_conflicting_values(self, tmp_path, capsys):
+        """Conflicting --palace values exit 2, name both paths in stderr, and create no dirs."""
+        palace_a = str(tmp_path / "palace_a")
+        palace_b = str(tmp_path / "palace_b")
+        with patch.object(
+            sys, "argv", ["mp", "--palace", palace_a, "status", "--palace", palace_b]
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 2
+        err = capsys.readouterr().err
+        assert palace_a in err, f"first path missing from error: {err!r}"
+        assert palace_b in err, f"second path missing from error: {err!r}"
+        assert not (tmp_path / "palace_a").exists(), "palace_a must not be created on conflict"
+        assert not (tmp_path / "palace_b").exists(), "palace_b must not be created on conflict"
+
+    def test_palace_missing_value_at_end_is_parser_error(self, tmp_path, capsys):
+        """Bare --palace with no value at argv end must exit 2 via argparse."""
+        with patch.object(sys, "argv", ["mp", "status", "--palace"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 2
+
+    def test_hoist_helper_idempotent_same_value(self, tmp_path):
+        """Unit: identical values in both space and = forms collapse to one palace token."""
+        p = str(tmp_path / "palace")
+        result = _hoist_palace_before_subcommand(["status", "--palace", p, "--palace", p])
+        assert result.count("--palace") == 1
+        assert result[result.index("--palace") + 1] == p
+
+    def test_hoist_helper_conflict_raises_system_exit_2(self, tmp_path):
+        """Unit: conflicting values raise SystemExit(2) from the helper itself."""
+        a = str(tmp_path / "a")
+        b = str(tmp_path / "b")
+        with pytest.raises(SystemExit) as exc:
+            _hoist_palace_before_subcommand(["status", "--palace", a, "--palace", b])
+        assert exc.value.code == 2
+
+    def test_hoist_helper_missing_value_passthrough(self, tmp_path):
+        """Unit: bare --palace at argv end is passed through unchanged for argparse."""
+        result = _hoist_palace_before_subcommand(["status", "--palace"])
+        assert result == ["status", "--palace"]
+
+    def test_hoist_helper_option_token_as_value_exits_2(self):
+        """Unit: --palace followed by an option token is a bounded missing-value error (gap 1)."""
+        with pytest.raises(SystemExit) as exc:
+            _hoist_palace_before_subcommand(["status", "--palace", "--summary"])
+        assert exc.value.code == 2
+
+    def test_hoist_helper_delimiter_stops_hoisting(self, tmp_path):
+        """Unit: -- sentinel stops scanning; --palace after -- is never extracted (gap 2)."""
+        p = str(tmp_path / "palace")
+        result = _hoist_palace_before_subcommand(["status", "--", "--palace", p])
+        assert result == ["status", "--", "--palace", p]
+
+    def test_palace_option_token_as_value_is_parser_error(self, tmp_path, capsys):
+        """Integration: --palace followed by an option token exits 2 without misrouting (gap 1)."""
+        with patch.object(sys, "argv", ["mp", "status", "--palace", "--summary"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 2
+
+
+class TestSearchResultsBoundary:
+    def test_results_zero_rejected_at_cli(self, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            with patch.object(sys, "argv", ["mempalace-code", "search", "query", "--results", "0"]):
+                main()
+
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert "error" in captured.err.lower() or "invalid" in captured.err.lower()
+
+    def test_results_negative_rejected_at_cli(self, tmp_path, capsys):
+        with pytest.raises(SystemExit) as exc:
+            with patch.object(
+                sys, "argv", ["mempalace-code", "search", "query", "--results", "-1"]
+            ):
+                main()
+
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert "error" in captured.err.lower() or "invalid" in captured.err.lower()
+
+    def test_results_one_accepted(self, tmp_path, capsys, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        palace = str(tmp_path / "palace")
+
+        with patch("mempalace_code.searcher.search") as mock_search:
+            with patch.object(
+                sys,
+                "argv",
+                ["mempalace-code", "--palace", palace, "search", "q", "--results", "1"],
+            ):
+                main()
+
+        mock_search.assert_called_once()
+        assert mock_search.call_args.kwargs["n_results"] == 1
+
+
+class TestImportDryRunReadOnly:
+    @staticmethod
+    def _configure_isolated_state(tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        process_tmp = tmp_path / "process-tmp"
+        process_tmp.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        for name in ("TMPDIR", "TMP", "TEMP"):
+            monkeypatch.setenv(name, str(process_tmp))
+        monkeypatch.setattr(tempfile, "tempdir", str(process_tmp))
+
+        kg_path = home / ".mempalace" / "knowledge_graph.sqlite3"
+        monkeypatch.setattr(
+            "mempalace_code.knowledge_graph.DEFAULT_KG_PATH",
+            str(kg_path),
+        )
+        return kg_path, process_tmp
+
+    @staticmethod
+    def _write_records(path, records):
+        path.write_text(
+            "".join(f"{json.dumps(record, sort_keys=True)}\n" for record in records),
+            encoding="utf-8",
+        )
+
+    @staticmethod
+    def _snapshot(*roots):
+        entries = []
+        for index, root in enumerate(map(Path, roots)):
+            if not root.exists():
+                entries.append((index, ".", "missing", b""))
+                continue
+            entries.append((index, ".", "dir" if root.is_dir() else "file", b""))
+            for entry in sorted(root.rglob("*")):
+                relative = entry.relative_to(root).as_posix()
+                if entry.is_symlink():
+                    entries.append((index, relative, "symlink", os.readlink(entry).encode()))
+                elif entry.is_dir():
+                    entries.append((index, relative, "dir", b""))
+                else:
+                    entries.append((index, relative, "file", entry.read_bytes()))
+        return tuple(entries)
+
+    @staticmethod
+    def _records(drawer_id="drawer-1", text="unique import preview text"):
+        return [
+            {"type": "export_header"},
+            {
+                "type": "drawer",
+                "id": drawer_id,
+                "text": text,
+                "wing": "test",
+                "room": "imports",
+            },
+            {
+                "type": "kg_triple",
+                "subject": "Preview Subject",
+                "predicate": "relates_to",
+                "object": "Preview Object",
+            },
+        ]
+
+    def test_absent_state_repeated_preview_and_skip_kg_create_nothing(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        kg_path, process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
+        palace = tmp_path / "absent-palace"
+        jsonl = tmp_path / "import.jsonl"
+        self._write_records(jsonl, self._records())
+
+        def fail_embedder(_store):
+            raise AssertionError("absent-state dry-run must not initialize the embedder")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", fail_embedder)
+        baseline = self._snapshot(tmp_path, process_tmp)
+
+        for _ in range(2):
+            with patch.object(
+                sys,
+                "argv",
+                ["mempalace-code", "--palace", str(palace), "import", str(jsonl), "--dry-run"],
+            ):
+                main()
+
+            out = capsys.readouterr().out
+            assert "Imported drawers:   1" in out
+            assert "Skipped duplicates: 0" in out
+            assert "Imported KG triples:1" in out
+            assert self._snapshot(tmp_path, process_tmp) == baseline
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                str(palace),
+                "import",
+                str(jsonl),
+                "--dry-run",
+                "--skip-kg",
+            ],
+        ):
+            main()
+
+        out = capsys.readouterr().out
+        assert "Imported drawers:   1" in out
+        assert "Skipped duplicates: 0" in out
+        assert "Imported KG triples:0" in out
+        assert self._snapshot(tmp_path, process_tmp) == baseline
+        assert not palace.exists()
+        assert not kg_path.exists()
+
+    @pytest.mark.parametrize("source", ["file", "stdin"])
+    def test_malformed_input_exits_before_store_or_kg_initialization(
+        self, tmp_path, capsys, monkeypatch, source
+    ):
+        import io
+
+        self._configure_isolated_state(tmp_path, monkeypatch)
+        palace = tmp_path / "absent-palace"
+        jsonl = tmp_path / "malformed.jsonl"
+        jsonl.write_text('{"type": "drawer"\n', encoding="utf-8")
+        baseline = self._snapshot(tmp_path)
+        input_arg = str(jsonl)
+        if source == "stdin":
+            input_arg = "-"
+            monkeypatch.setattr(sys, "stdin", io.StringIO('{"type": "drawer"\n'))
+
+        with (
+            patch("mempalace_code.storage.open_store") as store_open,
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph") as kg_open,
+            patch("mempalace_code.knowledge_graph.LazyKnowledgeGraph") as lazy_kg_open,
+            pytest.raises(SystemExit) as exc,
+            patch.object(
+                sys,
+                "argv",
+                ["mempalace-code", "--palace", str(palace), "import", input_arg, "--dry-run"],
+            ),
+        ):
+            main()
+
+        assert exc.value.code != 0
+        assert "malformed JSONL input" in capsys.readouterr().err
+        store_open.assert_not_called()
+        kg_open.assert_not_called()
+        lazy_kg_open.assert_not_called()
+        assert self._snapshot(tmp_path) == baseline
+
+    def test_existing_state_preview_keeps_counts_health_and_bytes_stable(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        kg_path, _process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
+        palace = tmp_path / "palace"
+        duplicate_text = "existing drawer text for deterministic duplicate detection"
+        store = open_store(str(palace), create=True)
+        assert isinstance(store, LanceStore)
+        store.add(
+            ids=["existing-drawer"],
+            documents=[duplicate_text],
+            metadatas=[{"wing": "test", "room": "imports"}],
+        )
+
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        kg = KnowledgeGraph()
+        kg.add_triple("Existing Subject", "relates_to", "Existing Object")
+
+        jsonl = tmp_path / "import.jsonl"
+        records = self._records("duplicate-drawer", duplicate_text)
+        records.insert(
+            2,
+            {
+                "type": "drawer",
+                "id": "new-drawer",
+                "text": "entirely separate vocabulary for the new preview drawer",
+                "wing": "test",
+                "room": "imports",
+            },
+        )
+        self._write_records(jsonl, records)
+        health_before = store.health_check()
+        kg_stats_before = kg.stats()
+        # Lance may retain empty process-scoped scratch directories until process
+        # exit. The user-facing dry-run contract covers persistent palace and KG state.
+        baseline = self._snapshot(palace, kg_path)
+
+        for _ in range(2):
+            with patch.object(
+                sys,
+                "argv",
+                ["mempalace-code", "--palace", str(palace), "import", str(jsonl), "--dry-run"],
+            ):
+                main()
+
+            out = capsys.readouterr().out
+            assert "Imported drawers:   1" in out
+            assert "Skipped duplicates: 1" in out
+            assert "Imported KG triples:1" in out
+            assert self._snapshot(palace, kg_path) == baseline
+            assert store.health_check() == health_before
+            assert kg.stats() == kg_stats_before
+            assert kg_path.is_file()
+
+    def test_live_import_still_creates_and_writes_palace_and_kg(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        kg_path, _process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
+        palace = tmp_path / "live-palace"
+        jsonl = tmp_path / "live-import.jsonl"
+        text = "live import drawer content"
+        self._write_records(jsonl, self._records("live-drawer", text))
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", str(palace), "import", str(jsonl)],
+        ):
+            main()
+
+        out = capsys.readouterr().out
+        assert "Imported drawers:   1" in out
+        assert "Skipped duplicates: 0" in out
+        assert "Imported KG triples:1" in out
+        assert palace.is_dir()
+        assert kg_path.is_file()
+
+        stored = open_store(str(palace), create=False, read_only=True).get(
+            ids=["live-drawer"], include=["documents"]
+        )
+        assert stored["ids"] == ["live-drawer"]
+        assert stored["documents"] == [text]
+
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        assert KnowledgeGraph().stats()["triples"] == 1
+
+
+class TestImportMissingFile:
+    def test_missing_jsonl_file_exits_without_traceback(self, tmp_path, capsys):
+        missing = str(tmp_path / "nonexistent.jsonl")
+
+        with pytest.raises(SystemExit) as exc:
+            with patch.object(sys, "argv", ["mempalace-code", "import", missing]):
+                main()
+
+        assert exc.value.code != 0
+        captured = capsys.readouterr()
+        assert "Traceback" not in captured.out + captured.err
+        assert missing in captured.err
+
+    def test_missing_jsonl_file_shows_recovery_action(self, tmp_path, capsys):
+        missing = str(tmp_path / "nonexistent.jsonl")
+
+        with pytest.raises(SystemExit) as exc:
+            with patch.object(sys, "argv", ["mempalace-code", "import", missing]):
+                main()
+
+        assert exc.value.code != 0
+        captured = capsys.readouterr()
+        assert "Next:" in captured.err or "export" in captured.err.lower()
+
+    def test_valid_file_reaches_storage_not_missing_file_error(self, tmp_path, capsys):
+        """A valid JSONL file passes the missing-file guard and proceeds to storage."""
+        good_jsonl = tmp_path / "good.jsonl"
+        good_jsonl.write_text(
+            '{"content": "hello", "wing": "w", "room": "r", "chunker_strategy": "manual_v1"}\n',
+            encoding="utf-8",
+        )
+        palace = str(tmp_path / "palace")
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", palace, "import", str(good_jsonl)],
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        assert "import file not found" not in captured.err

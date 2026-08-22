@@ -2,7 +2,12 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    # `release/v*` is the public release-candidate branch shape. The candidate is
+    # pushed there and proven green *before* it fast-forwards onto `main`, so this
+    # trigger is what lets a candidate SHA have its own Tests and `release-required`
+    # results. It stays narrow on purpose: no other branch pattern is release
+    # evidence, and `workflow_dispatch` never is (it skips release-critical jobs).
+    branches: [main, "release/v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -16,6 +21,17 @@ on:
           - "false"
           - "true"
 
+# Least privilege for every job below: none of them write repository state.
+permissions:
+  contents: read
+
+# Every cache site below carries `# zizmor: ignore[cache-poisoning]`. The
+# `release/v*` trigger makes zizmor classify this workflow as release-publishing
+# from the branch name alone, but nothing here publishes anything: the shipped
+# distributions are built only by the tag-triggered publish.yml, which restores no
+# cache at all. These caches feed test/lint jobs whose exposure is exactly what it
+# was when pushes to `main` were the release evidence. The suppression is per site,
+# with no repository-wide audit config.
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -24,11 +40,13 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
+          cache: pip # zizmor: ignore[cache-poisoning]
           cache-dependency-path: |
             pyproject.toml
             uv.lock
@@ -38,38 +56,54 @@ jobs:
         if: matrix.python-version == '3.13'
         run: python benchmarks/demo_perf_budgets.py --check --ci
 
-  chroma-compat:
+  chroma-migration-bridge:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
-          cache: pip
+          cache: pip # zizmor: ignore[cache-poisoning]
           cache-dependency-path: |
             pyproject.toml
             uv.lock
-      - run: pip install -e ".[dev,chroma]"
-      - name: ChromaStore compatibility tests
-        run: python -m pytest tests/test_chroma_compat.py -v
-      - run: python -m pytest tests/ -v -m "not needs_network"
+      - run: pip install -e ".[dev,chroma-migration]"
+      - name: ChromaDB-to-LanceDB migration bridge tests
+        run: python -m pytest tests/test_migrate.py tests/test_migrate_storage_smoke.py -v
+      - name: Installed migration bridge smoke
+        run: python scripts/migrate_storage_smoke.py --rows 1
 
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
-          cache: pip
+          cache: pip # zizmor: ignore[cache-poisoning]
           cache-dependency-path: |
             pyproject.toml
             uv.lock
       - name: Architecture boundary guard
         run: python scripts/architecture_guard.py --root .
-      - run: pip install ruff
+      - run: pip install -e ".[dev]"
       - run: ruff check mempalace_code/ tests/ scripts/
       - run: ruff format --check mempalace_code/ tests/ scripts/
+      - name: GitHub Actions syntax lint
+        run: actionlint .github/workflows/*.yml
+      - name: GitHub Actions security audit
+        # Network-free audit. Blocks at medium severity and above, which covers
+        # unpinned action references, expression injection, excessive job
+        # permissions, and credential-persisting checkouts. Repository-local
+        # composite actions are audited too, since a workflow is only as safe as
+        # the actions it calls. No audit is disabled repository-wide.
+        run: zizmor --offline --min-severity=medium .github/workflows/ .github/actions/
+      - name: Immutable Action pins and publish permission boundary
+        run: python scripts/workflow_security_gate.py --root . --format json
       - name: Public-safety scan (tracked + staged)
         run: python scripts/public_safety_scan.py --tracked --staged
       - name: Quality scorecard (shape + determinism + public-safety)
@@ -79,14 +113,81 @@ jobs:
       - name: Upstream comparison guard (static, network-free)
         run: python scripts/upstream_comparison_guard.py
 
+  gitleaks-changed-range:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: tools/gitleaks/go.mod
+          # The scanner binary is built here, so a restored build cache would be
+          # an input to a security gate. go.sum already makes the source
+          # verifiable; the cache would not be.
+          cache: false
+      # Installs the Gitleaks version pinned by tools/gitleaks/go.mod and locked by
+      # tools/gitleaks/go.sum. Dependabot's gomod ecosystem owns that upgrade.
+      - uses: ./.github/actions/gitleaks-gate
+      - name: Validate Gitleaks baseline metadata
+        run: python scripts/gitleaks_scan.py validate-baseline
+      # Proves the rule corpus still detects every required secret class against the
+      # real binary, so a clean range scan is evidence rather than a silent no-op.
+      - name: Gitleaks synthetic fixture smoke
+        run: >
+          python scripts/gitleaks_scan.py fixture-smoke
+          --artifact-dir "${{ runner.temp }}/gitleaks/fixture-smoke"
+      - name: Derive exact Gitleaks commit range
+        id: gitleaks-range
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "base=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            base="${{ github.event.before }}"
+            # A push that *creates* a branch reports an all-zeros `before`, which the
+            # scanner rejects outright. The release candidate branch is created by
+            # exactly that shape, so fall back to `origin/main`: `origin/main..HEAD`
+            # is the same commit set as `merge-base..HEAD`, so the scan still covers
+            # every commit the branch adds and never narrows the range.
+            if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+              base=origin/main
+            fi
+            echo "base=$base" >> "$GITHUB_OUTPUT"
+            echo "head=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+      # Artifacts land in RUNNER_TEMP, never in the checkout, so the worktree stays
+      # clean for --require-clean and no scan output can ever be committed.
+      - name: Gitleaks changed-range scan
+        run: >
+          python scripts/gitleaks_scan.py changed-range
+          --base-ref "${{ steps.gitleaks-range.outputs.base }}"
+          --head-ref "${{ steps.gitleaks-range.outputs.head }}"
+          --artifact-dir "${{ runner.temp }}/gitleaks/changed-range"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: gitleaks-changed-range
+          path: ${{ runner.temp }}/gitleaks/changed-range/
+          retention-days: 7
+
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
-          cache: pip
+          cache: pip # zizmor: ignore[cache-poisoning]
           cache-dependency-path: |
             pyproject.toml
             uv.lock
@@ -95,8 +196,10 @@ jobs:
         run: python scripts/release_preflight.py
       - name: Build wheel and source distribution
         run: python -m build
-      - name: Validate distribution metadata
-        run: twine check dist/*
+      # Invokes twine itself, so a separate metadata-validation step would only
+      # re-run a subset of what this already asserts about the archives.
+      - name: Inspect built distributions
+        run: python scripts/release_artifact_gate.py --dist dist --require-wheel --require-sdist
       - name: Fresh wheel install smoke
         run: |
           python -m venv /tmp/mempalace-package-smoke
@@ -107,15 +210,17 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
-          cache: pip
+          cache: pip # zizmor: ignore[cache-poisoning]
           cache-dependency-path: |
             pyproject.toml
             uv.lock
-      - run: pip install -e ".[dev,chroma,spellcheck,treesitter]"
+      - run: pip install -e ".[dev,spellcheck,treesitter]"
       - name: Pyright typecheck
         run: python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
       - name: Pyright strict slice
@@ -125,20 +230,91 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v6
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
-          cache: pip
+          cache: pip # zizmor: ignore[cache-poisoning]
           cache-dependency-path: |
             pyproject.toml
             uv.lock
       - name: Dependency upgrade gate
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          python scripts/dependency_upgrade_gate.py ci-check \
-            --base-ref "${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}"
+          base="$BASE_SHA"
+          # Same branch-creation case as the Gitleaks range: an all-zeros `before`
+          # is unresolvable, and this gate fails closed on it by demanding a fresh
+          # upgrade report that a release candidate has no reason to carry.
+          # `origin/main` is the candidate's parent, so it is the honest base.
+          if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base=origin/main
+          fi
+          python scripts/dependency_upgrade_gate.py ci-check --base-ref "$base"
+
+  # Stable aggregate release-admission check. Its name is the branch-ruleset
+  # required-check context, so it must never be renamed without updating
+  # RELEASE_CRITICAL_CI_JOBS / AGGREGATE_REQUIRED_CHECK in
+  # scripts/release_admission_checks.py and docs/release-admission-rulesets.md.
+  # `if: always()` is required: without it a skipped or failed upstream job would
+  # skip this job too, and a skipped required check never blocks a merge.
+  release-required:
+    name: release-required
+    runs-on: ubuntu-latest
+    needs:
+      - chroma-migration-bridge
+      - dependency-upgrade-gate
+      - gitleaks-changed-range
+      - lint
+      - package
+      - test
+      - typecheck
+    if: always()
+    steps:
+      - name: Require every release-critical CI job
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+          EXPECTED_JOBS: >-
+            chroma-migration-bridge dependency-upgrade-gate gitleaks-changed-range
+            lint package test typecheck
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          expected = sorted(os.environ["EXPECTED_JOBS"].split())
+
+          problems = []
+          # A job absent from `needs` is as blocking as a failed one: it means the
+          # dependency list drifted away from the release-critical job set.
+          for name in expected:
+              data = needs.get(name)
+              if not isinstance(data, dict):
+                  problems.append(f"{name}: missing from needs")
+                  continue
+              result = data.get("result")
+              # success is the only admissible result; skipped, cancelled, failure,
+              # and any unknown future value all fail closed.
+              if result != "success":
+                  problems.append(f"{name}: {result or 'unknown'}")
+          for name in sorted(needs):
+              if name not in expected:
+                  problems.append(f"{name}: not in the release-critical job list")
+
+          if problems:
+              print("release-required: FAIL")
+              for problem in problems:
+                  print(f"  {problem}")
+              sys.exit(1)
+          print(f"release-required: all {len(expected)} release-critical jobs succeeded")
+          PY
 
   model-tests:
     runs-on: ubuntu-latest
@@ -147,20 +323,22 @@ jobs:
       HF_HOME: ${{ github.workspace }}/.cache/huggingface
       MEMPALACE_TEST_HF_HOME: ${{ github.workspace }}/.cache/huggingface
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
-          cache: pip
+          cache: pip # zizmor: ignore[cache-poisoning]
           cache-dependency-path: |
             pyproject.toml
             uv.lock
       - name: Restore HuggingFace model cache
         id: hf-cache
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ github.workspace }}/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2
-          key: hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          key: hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-${{ hashFiles('pyproject.toml', 'uv.lock') }} # zizmor: ignore[cache-poisoning]
           restore-keys: |
             hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-
       - run: pip install -e ".[dev,treesitter]"

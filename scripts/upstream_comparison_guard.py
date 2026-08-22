@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sys
@@ -32,12 +33,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 MANIFEST_PATH = "docs/quality/upstream-comparison.json"
-SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSION = 2
 DEFAULT_MAX_AGE_DAYS = 30
 GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_REPOSITORY_ROOT = "https://github.com/"
 USER_AGENT = "mempalace-code-upstream-comparison-guard"
 LIVE_TIMEOUT_SECONDS = 20
+DEFAULT_RECOVERY_COMMAND = "python scripts/upstream_comparison_guard.py --check-live --json"
 
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -47,7 +49,11 @@ REQUIRED_STRING_FIELDS = (
     "canonical_repository",
     "branch",
     "commit",
+    "previous_commit",
     "reviewed_date",
+    "previous_reviewed_date",
+    "compare_ref",
+    "recovery_command",
     "canonical_document",
     "readme_path",
 )
@@ -56,7 +62,49 @@ REQUIRED_LIST_FIELDS = (
     "readme_markers",
     "comparison_markers",
 )
+REQUIRED_MAPPING_FIELDS = (
+    "source_refs",
+    "capability_sources",
+)
 CAPABILITY_GROUPS = ("upstream_advertised", "fork_current")
+
+# Closed set of adaptation stances. The comparison document must use the same
+# strings, so a decision renamed in one place and not the other fails static
+# validation instead of silently drifting.
+DECISION_CATEGORIES = (
+    "adopted",
+    "equivalent-local",
+    "migration-only",
+    "deferred",
+    "irrelevant",
+)
+# A decision may cite a tracked upstream file, or this literal for a change whose
+# only public evidence is the pinned commit range itself (repository metadata,
+# website-only files). A release-critical decision must cite a tracked file.
+COMPARE_SOURCE_TOKEN = "compare"
+DECISION_REQUIRED_FIELDS = (
+    "id",
+    "upstream_change",
+    "source_refs",
+    "release_critical",
+    "decision",
+    "rationale",
+    "local_predicates",
+)
+# Stances that must carry a named local regression predicate: the fork claims a
+# guard exists, so the guard has to be nameable and present in the checkout.
+PREDICATE_REQUIRED_DECISIONS = ("adopted", "equivalent-local")
+
+# ChromaDB stays migration-bridge-only. The required identifier says so; the
+# forbidden ones are the runtime-backend claims this fork retired.
+REQUIRED_FORK_CAPABILITIES = ("backend-chromadb-migration-bridge-only",)
+FORBIDDEN_FORK_CAPABILITIES = (
+    "backend-chromadb",
+    "backend-chromadb-default",
+    "backend-chromadb-optional",
+    "backend-chromadb-optional-deprecated",
+    "backend-chromadb-runtime",
+)
 
 
 class LiveCheckError(RuntimeError):
@@ -106,6 +154,11 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
         elif not all(isinstance(item, str) and item.strip() for item in value):
             errors.append(f"manifest-shape: {field} must contain only non-empty strings")
 
+    for field in REQUIRED_MAPPING_FIELDS:
+        value = manifest.get(field)
+        if not isinstance(value, dict) or not value:
+            errors.append(f"manifest-shape: {field} must be a non-empty object")
+
     capabilities = manifest.get("capabilities")
     if not isinstance(capabilities, dict):
         errors.append("manifest-shape: capabilities must be an object")
@@ -122,9 +175,18 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
                         "is not a lowercase-hyphen identifier"
                     )
 
+    for field in ("commit", "previous_commit"):
+        value = manifest.get(field)
+        if isinstance(value, str) and not COMMIT_RE.fullmatch(value):
+            errors.append(f"manifest-commit: {field} must be a full 40-character lowercase hex sha")
+
     commit = manifest.get("commit")
-    if isinstance(commit, str) and not COMMIT_RE.fullmatch(commit):
-        errors.append("manifest-commit: commit must be a full 40-character lowercase hex sha")
+    previous_commit = manifest.get("previous_commit")
+    if isinstance(commit, str) and commit == previous_commit:
+        errors.append(
+            "manifest-commit: previous_commit must differ from commit; a refreshed review "
+            "records the pin it replaced"
+        )
 
     repository = manifest.get("canonical_repository")
     if isinstance(repository, str) and repository.strip():
@@ -133,7 +195,244 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
         except ValueError as exc:
             errors.append(str(exc))
 
+    errors.extend(_validate_recovery_command(manifest))
+    errors.extend(_validate_compare_ref(manifest))
+    errors.extend(_validate_source_refs(manifest))
+    errors.extend(_validate_capability_sources(manifest))
+    errors.extend(_validate_chroma_stance(manifest))
+    errors.extend(_validate_delta_decisions(manifest))
+
     return errors
+
+
+def _validate_recovery_command(manifest: dict[str, Any]) -> list[str]:
+    """The published recovery command must actually rerun this guard against upstream."""
+    command = manifest.get("recovery_command")
+    if not isinstance(command, str) or not command.strip():
+        return []
+    if "scripts/upstream_comparison_guard.py" not in command or "--check-live" not in command:
+        return [
+            "manifest-recovery: recovery_command must rerun "
+            "scripts/upstream_comparison_guard.py with --check-live, found "
+            f"{command!r}"
+        ]
+    return []
+
+
+def _validate_compare_ref(manifest: dict[str, Any]) -> list[str]:
+    """compare_ref must be the pinned previous_commit...commit range on the same repository."""
+    compare_ref = manifest.get("compare_ref")
+    repository = manifest.get("canonical_repository")
+    previous_commit = manifest.get("previous_commit")
+    commit = manifest.get("commit")
+    fields = (compare_ref, repository, previous_commit, commit)
+    if not all(isinstance(value, str) for value in fields):
+        return []
+    expected = f"{repository}/compare/{previous_commit}...{commit}"
+    if compare_ref != expected:
+        return [f"manifest-compare: compare_ref must be {expected!r}, found {compare_ref!r}"]
+    return []
+
+
+def _validate_source_refs(manifest: dict[str, Any]) -> list[str]:
+    """Every tracked upstream path needs exactly one link pinned at the reviewed commit."""
+    source_refs = manifest.get("source_refs")
+    tracked = manifest.get("tracked_source_paths")
+    repository = manifest.get("canonical_repository")
+    commit = manifest.get("commit")
+    if not isinstance(source_refs, dict) or not isinstance(tracked, list):
+        return []
+    if not isinstance(repository, str) or not isinstance(commit, str):
+        return []
+
+    errors: list[str] = []
+    tracked_paths = [item for item in tracked if isinstance(item, str)]
+    for path in tracked_paths:
+        if path not in source_refs:
+            errors.append(f"source-ref: tracked source path {path!r} has no entry in source_refs")
+            continue
+        expected = f"{repository}/blob/{commit}/{path}"
+        if source_refs[path] != expected:
+            errors.append(
+                f"source-ref: source_refs[{path!r}] must be pinned at the reviewed commit "
+                f"({expected!r}), found {source_refs[path]!r}"
+            )
+    for path in source_refs:
+        if path not in tracked_paths:
+            errors.append(
+                f"source-ref: source_refs entry {path!r} is not listed in tracked_source_paths"
+            )
+    return errors
+
+
+def _validate_capability_sources(manifest: dict[str, Any]) -> list[str]:
+    """Every advertised upstream capability must cite tracked public sources."""
+    capability_sources = manifest.get("capability_sources")
+    capabilities = manifest.get("capabilities")
+    tracked = manifest.get("tracked_source_paths")
+    if not isinstance(capability_sources, dict) or not isinstance(capabilities, dict):
+        return []
+    advertised = capabilities.get("upstream_advertised")
+    if not isinstance(advertised, list) or not isinstance(tracked, list):
+        return []
+
+    errors: list[str] = []
+    tracked_paths = {item for item in tracked if isinstance(item, str)}
+    for identifier in advertised:
+        if not isinstance(identifier, str):
+            continue
+        refs = capability_sources.get(identifier)
+        if not isinstance(refs, list) or not refs:
+            errors.append(
+                f"capability-source: capability {identifier!r} has no tracked upstream source; "
+                "every advertised capability statement must name where it was read"
+            )
+            continue
+        for ref in refs:
+            if ref not in tracked_paths:
+                errors.append(
+                    f"capability-source: capability {identifier!r} cites {ref!r}, "
+                    "which is not a tracked_source_paths entry"
+                )
+    for identifier in capability_sources:
+        if identifier not in advertised:
+            errors.append(
+                f"capability-source: capability_sources entry {identifier!r} is not listed in "
+                "capabilities.upstream_advertised"
+            )
+    return errors
+
+
+def _validate_chroma_stance(manifest: dict[str, Any]) -> list[str]:
+    """The fork may record ChromaDB only as a migration bridge, never as a runtime backend."""
+    capabilities = manifest.get("capabilities")
+    if not isinstance(capabilities, dict):
+        return []
+    fork_current = capabilities.get("fork_current")
+    if not isinstance(fork_current, list):
+        return []
+
+    errors: list[str] = []
+    present = {item for item in fork_current if isinstance(item, str)}
+    for required in REQUIRED_FORK_CAPABILITIES:
+        if required not in present:
+            errors.append(
+                f"chroma-stance: capabilities.fork_current must record {required!r}; "
+                "ChromaDB support is migration input only"
+            )
+    for forbidden in FORBIDDEN_FORK_CAPABILITIES:
+        if forbidden in present:
+            errors.append(
+                f"chroma-stance: capabilities.fork_current must not claim {forbidden!r}; "
+                "this fork has no ChromaDB runtime backend"
+            )
+    return errors
+
+
+def _validate_delta_decisions(manifest: dict[str, Any]) -> list[str]:
+    """Each changed upstream item needs one closed-set stance and, when claimed, a predicate."""
+    decisions = manifest.get("delta_decisions")
+    if not isinstance(decisions, list) or not decisions:
+        return ["manifest-shape: delta_decisions must be a non-empty list"]
+
+    tracked = manifest.get("tracked_source_paths")
+    tracked_paths: set[str] = set()
+    if isinstance(tracked, list):
+        tracked_paths = {item for item in tracked if isinstance(item, str)}
+
+    errors: list[str] = []
+    seen: set[str] = set()
+    for index, decision in enumerate(decisions):
+        label = f"delta_decisions[{index}]"
+        if not isinstance(decision, dict):
+            errors.append(f"delta-decision: {label} must be an object")
+            continue
+        missing = [field for field in DECISION_REQUIRED_FIELDS if field not in decision]
+        if missing:
+            errors.append(f"delta-decision: {label} is missing required fields {sorted(missing)}")
+            continue
+
+        identifier = decision["id"]
+        if not isinstance(identifier, str) or not IDENTIFIER_RE.fullmatch(identifier):
+            errors.append(
+                f"delta-decision: {label} id {identifier!r} is not a lowercase-hyphen identifier"
+            )
+            continue
+        label = f"delta decision {identifier!r}"
+        if identifier in seen:
+            errors.append(f"delta-decision: {label} is declared more than once")
+            continue
+        seen.add(identifier)
+        errors.extend(_validate_decision_body(decision, label, tracked_paths))
+    return errors
+
+
+def _validate_decision_body(
+    decision: dict[str, Any], label: str, tracked_paths: set[str]
+) -> list[str]:
+    errors: list[str] = []
+
+    for field in ("upstream_change", "rationale"):
+        value = decision[field]
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"delta-decision: {label} {field} must be a non-empty string")
+
+    category = decision["decision"]
+    if category not in DECISION_CATEGORIES:
+        errors.append(
+            f"delta-decision: {label} decision {category!r} is not one of "
+            f"{list(DECISION_CATEGORIES)}"
+        )
+
+    release_critical = decision["release_critical"]
+    if not isinstance(release_critical, bool):
+        errors.append(f"delta-decision: {label} release_critical must be a boolean")
+        release_critical = False
+
+    source_refs = decision["source_refs"]
+    if not isinstance(source_refs, list) or not source_refs:
+        errors.append(f"delta-decision: {label} source_refs must be a non-empty list")
+    else:
+        allowed = tracked_paths | {COMPARE_SOURCE_TOKEN}
+        unknown = [ref for ref in source_refs if ref not in allowed]
+        if unknown:
+            errors.append(
+                f"delta-decision: {label} cites untracked sources {unknown}; use a "
+                f"tracked_source_paths entry or {COMPARE_SOURCE_TOKEN!r}"
+            )
+        if release_critical and not any(ref in tracked_paths for ref in source_refs):
+            errors.append(
+                f"delta-decision: {label} is release-critical and must cite at least one "
+                "tracked public upstream source"
+            )
+
+    predicates = decision["local_predicates"]
+    if not isinstance(predicates, list) or not all(
+        isinstance(item, str) and item.strip() for item in predicates
+    ):
+        errors.append(
+            f"delta-decision: {label} local_predicates must be a list of non-empty strings"
+        )
+    elif category in PREDICATE_REQUIRED_DECISIONS and not predicates:
+        errors.append(
+            f"delta-decision: {label} claims decision {category!r} and must name at least one "
+            "local regression predicate"
+        )
+    return errors
+
+
+def predicate_path(predicate: str) -> str | None:
+    """Return the repo-relative file a predicate names, if it names one.
+
+    Predicates are recorded as ``path::name``, a bare path, or a command that
+    contains one; only the path part is checked, because a renamed or deleted
+    guard file is the drift this catches.
+    """
+    for token in predicate.split():
+        candidate = token.split("::", 1)[0]
+        if "/" in candidate:
+            return candidate
+    return None
 
 
 def repository_slug(repository: str) -> tuple[str, str]:
@@ -150,16 +449,14 @@ def repository_slug(repository: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
-def parse_reviewed_date(value: str) -> date:
+def parse_reviewed_date(value: str, field: str = "reviewed_date") -> date:
     """Parse a strict ISO calendar date, rejecting any other accepted ISO form."""
     if not ISO_DATE_RE.fullmatch(value):
-        raise ValueError("manifest-date: reviewed_date must be an ISO date formatted YYYY-MM-DD")
+        raise ValueError(f"manifest-date: {field} must be an ISO date formatted YYYY-MM-DD")
     try:
         return date.fromisoformat(value)
     except ValueError as exc:
-        raise ValueError(
-            f"manifest-date: reviewed_date is not a real calendar date ({exc})"
-        ) from exc
+        raise ValueError(f"manifest-date: {field} is not a real calendar date ({exc})") from exc
 
 
 def _read_text(root: Path, relative_path: str, error_class: str) -> tuple[str | None, str | None]:
@@ -192,14 +489,28 @@ def evaluate(
     repository = str(manifest["canonical_repository"])
     branch = str(manifest["branch"])
     commit = str(manifest["commit"])
+    previous_commit = str(manifest["previous_commit"])
     reviewed_date_text = str(manifest["reviewed_date"])
+    previous_reviewed_date_text = str(manifest["previous_reviewed_date"])
+    compare_ref = str(manifest["compare_ref"])
+    recovery_command = str(manifest["recovery_command"])
     canonical_document = str(manifest["canonical_document"])
     readme_path = str(manifest["readme_path"])
 
     try:
         reviewed_date = parse_reviewed_date(reviewed_date_text)
+        previous_reviewed_date = parse_reviewed_date(
+            previous_reviewed_date_text, field="previous_reviewed_date"
+        )
     except ValueError as exc:
         return {}, [str(exc)]
+
+    if previous_reviewed_date > reviewed_date:
+        errors.append(
+            f"manifest-date: previous_reviewed_date {previous_reviewed_date_text} is after "
+            f"reviewed_date {reviewed_date_text}; the refreshed review must not predate the pin "
+            "it replaces"
+        )
 
     current_day = today or datetime.now(UTC).date()
     age_days = (current_day - reviewed_date).days
@@ -243,7 +554,11 @@ def evaluate(
             ("canonical_repository", repository),
             ("branch", branch),
             ("commit", commit),
+            ("previous_commit", previous_commit),
             ("reviewed_date", reviewed_date_text),
+            ("previous_reviewed_date", previous_reviewed_date_text),
+            ("compare_ref", compare_ref),
+            ("recovery_command", recovery_command),
         ):
             if expected not in document:
                 errors.append(
@@ -258,21 +573,133 @@ def evaluate(
                         f"ref-consistency: {canonical_document} does not list the manifest "
                         f"capability identifier {identifier!r} from capabilities.{group}"
                     )
+        for path, ref in sorted(manifest["source_refs"].items()):
+            if ref not in document:
+                errors.append(
+                    f"source-ref: {canonical_document} does not publish the pinned source link "
+                    f"for {path!r}; readers cannot check the claim without it"
+                )
+        for decision in manifest["delta_decisions"]:
+            identifier = str(decision["id"])
+            decision_lines = _document_decision_lines(document, identifier)
+            if not decision_lines:
+                errors.append(
+                    f"delta-decision: {canonical_document} does not record delta decision "
+                    f"{identifier!r}"
+                )
+            category = str(decision["decision"])
+            if decision_lines and not any(
+                _line_binds_decision(line, identifier, category) for line in decision_lines
+            ):
+                errors.append(
+                    f"delta-decision: {canonical_document} does not bind {identifier!r} to "
+                    f"the manifest decision category {category!r} on the same line"
+                )
+
+    errors.extend(_missing_predicate_errors(root, manifest["delta_decisions"]))
 
     facts: dict[str, Any] = {
         "canonical_repository": repository,
         "branch": branch,
         "commit": commit,
+        "previous_commit": previous_commit,
+        "compare_ref": compare_ref,
         "reviewed_date": reviewed_date_text,
+        "previous_reviewed_date": previous_reviewed_date_text,
         "review_age_days": age_days,
         "max_age_days": max_age_days,
         "canonical_document": canonical_document,
+        "recovery_command": recovery_command,
         "tracked_source_paths": list(manifest["tracked_source_paths"]),
         "capabilities": {
             group: list(manifest["capabilities"][group]) for group in CAPABILITY_GROUPS
         },
+        "delta_decisions": {
+            str(decision["id"]): str(decision["decision"])
+            for decision in manifest["delta_decisions"]
+        },
+        "release_critical_decisions": sorted(
+            str(decision["id"])
+            for decision in manifest["delta_decisions"]
+            if decision["release_critical"]
+        ),
     }
     return facts, errors
+
+
+def _document_decision_lines(document: str, identifier: str) -> list[str]:
+    """Return canonical table or bullet rows owned by one decision identifier."""
+    marker = f"`{identifier}`"
+    lines: list[str] = []
+    for raw_line in document.splitlines():
+        line = raw_line.strip()
+        if line.startswith("|"):
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if cells and cells[0] == marker:
+                lines.append(line)
+        elif line.startswith(f"- {marker} "):
+            lines.append(line)
+    return lines
+
+
+def _line_binds_decision(line: str, identifier: str, category: str) -> bool:
+    """Require the category in the owned table cell or canonical fixture bullet."""
+    expected = f"`{category}`"
+    if line.startswith("|"):
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        return len(cells) >= 3 and cells[0] == f"`{identifier}`" and cells[2] == expected
+    return line == f"- `{identifier}` — {expected}"
+
+
+def _missing_predicate_errors(root: Path, decisions: list[Any]) -> list[str]:
+    """A named local guard must exist in this checkout, or the stance is unproven."""
+    errors: list[str] = []
+    for decision in decisions:
+        identifier = str(decision["id"])
+        for predicate in decision["local_predicates"]:
+            relative = predicate_path(str(predicate))
+            if relative is None:
+                errors.append(
+                    f"local-predicate: delta decision {identifier!r} predicate {predicate!r} "
+                    "does not name a repository-relative path"
+                )
+                continue
+            if not (root / relative).is_file():
+                errors.append(
+                    f"local-predicate: delta decision {identifier!r} names {relative!r}, "
+                    "which is not a file in this checkout"
+                )
+                continue
+            test_name = predicate_test_name(str(predicate))
+            if test_name is not None and not python_file_defines(root / relative, test_name):
+                errors.append(
+                    f"local-predicate: delta decision {identifier!r} names test "
+                    f"{test_name!r}, which is not defined in {relative!r}"
+                )
+    return errors
+
+
+def predicate_test_name(predicate: str) -> str | None:
+    """Return the final pytest node component from a path::node predicate."""
+    for token in predicate.split():
+        if "::" not in token:
+            continue
+        parts = token.split("::")
+        if "/" in parts[0] and parts[-1]:
+            return parts[-1].split("[", 1)[0]
+    return None
+
+
+def python_file_defines(path: Path, function_name: str) -> bool:
+    """Verify a Python predicate names a concrete function or method definition."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, UnicodeError, SyntaxError):
+        return False
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name
+        for node in ast.walk(tree)
+    )
 
 
 def _default_fetch(url: str) -> str:
@@ -327,6 +754,7 @@ def check_live(
     pinned = str(manifest.get("commit", ""))
     branch = str(manifest.get("branch", ""))
     repository = str(manifest.get("canonical_repository", ""))
+    recovery = str(manifest.get("recovery_command") or DEFAULT_RECOVERY_COMMAND)
     try:
         head = fetch_head_commit(manifest, fetch=fetch)
     except (LiveCheckError, ValueError) as exc:
@@ -336,8 +764,9 @@ def check_live(
     if head != pinned:
         return facts, [
             f"upstream-drift: {repository} branch {branch} now heads at {head}, "
-            f"but the reviewed snapshot is pinned to {pinned}; re-review upstream and "
-            "refresh the manifest and comparison document together"
+            f"but the reviewed snapshot is pinned to {pinned}; re-review upstream at "
+            f"{repository}/compare/{pinned}...{head} and refresh the manifest and "
+            f"comparison document together, then confirm with: {recovery}"
         ]
     return facts, []
 
@@ -398,12 +827,18 @@ def main(argv: list[str] | None = None) -> int:
         print("upstream-comparison-guard: FAIL", file=sys.stderr)
         for error in errors:
             print(f"  - {error}", file=sys.stderr)
+        recovery = facts.get("recovery_command", DEFAULT_RECOVERY_COMMAND)
+        print(f"  recovery: {recovery}", file=sys.stderr)
     else:
         live_note = f" live_head={live_facts['live_head']}" if live_facts else ""
+        decisions = facts["delta_decisions"]
         print(
             "upstream-comparison-guard: OK "
             f"branch={facts['branch']} commit={facts['commit']} "
-            f"reviewed={facts['reviewed_date']} age_days={facts['review_age_days']}{live_note}"
+            f"previous={facts['previous_commit']} "
+            f"reviewed={facts['reviewed_date']} age_days={facts['review_age_days']} "
+            f"delta_decisions={len(decisions)} "
+            f"release_critical={len(facts['release_critical_decisions'])}{live_note}"
         )
     return 0 if not errors else 1
 

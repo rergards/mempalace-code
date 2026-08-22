@@ -1,5 +1,7 @@
 ---
 slug: REPO-STRUCTURE-DEFAULTS
+status: completed
+authority: non_authoritative
 goal: "Auto-derive wing from .sln and rooms from .csproj when dotnet_structure is enabled"
 risk: low
 risk_note: "Additive only — existing configs without dotnet_structure key are unaffected"

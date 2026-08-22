@@ -1,5 +1,7 @@
 ---
 slug: FIX-LANCE-CORRUPT
+status: completed
+authority: non_authoritative
 goal: "Detect LanceDB fragment corruption and recover via version rollback; surface errors instead of silent empty results."
 risk: medium
 risk_note: "Touches storage probe surface, MCP read tools, and CLI. Recovery path uses LanceDB's native table.restore() (documented, non-destructive rollback). Dry-run is the default for the recovery CLI. Pre-existing cmd_repair is preserved as the deep-rebuild fallback."

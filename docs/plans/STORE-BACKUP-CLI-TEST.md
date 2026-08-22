@@ -1,5 +1,7 @@
 ---
 slug: STORE-BACKUP-CLI-TEST
+status: completed
+authority: non_authoritative
 goal: "Add focused CLI dispatch tests for backup and restore commands"
 risk: low
 risk_note: "Test-only plan for existing backup/restore CLI paths; no production behavior changes intended."

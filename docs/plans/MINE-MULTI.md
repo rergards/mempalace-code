@@ -1,5 +1,7 @@
 ---
 slug: MINE-MULTI
+status: completed
+authority: non_authoritative
 goal: "Add `mempalace mine-all <parent-dir>` CLI command that scans immediate subdirectories for project markers, mines each into its own wing, and reports a summary"
 risk: low
 risk_note: "Composes existing mine() function in a loop. No storage schema changes, no new dependencies. Project detection is simple file-existence checks. Wing naming uses subprocess git-remote call with folder-name fallback. All new code is in cli.py and a thin helper in miner.py. Existing mine path is unchanged."

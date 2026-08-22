@@ -1,9 +1,9 @@
 """Tests for optional-dependency boundaries.
 
-Documents how Chroma, watchfiles, and spellcheck optional extras are handled in
-the default install (extras absent) versus with-extras installs. These tests
-prove that the default install type-checks without optional extras and that
-runtime ImportError messages are stable.
+Documents how Chroma migration, watchfiles, and spellcheck optional extras are
+handled in the default install (extras absent) versus with-extras installs.
+These tests prove that the default install type-checks without optional extras
+and that migration/runtime error messages are stable.
 
 Tests in this file are designed for the default install (no optional extras).
 They assert the ImportError contract without importing chromadb, watchfiles,
@@ -21,13 +21,13 @@ ROOT = Path(__file__).parent.parent
 # ── Chroma boundary ────────────────────────────────────────────────────────────
 
 
-def test_chroma_store_not_importable_without_extra():
+def test_chroma_store_not_importable_without_migration_extra():
     """Importing _chroma_store without chromadb installed raises ImportError."""
     # If chromadb is already installed (chroma extra), skip this test.
     if importlib.util.find_spec("chromadb") is not None:
         import pytest
 
-        pytest.skip("chromadb is installed — skipping absent-extra test")
+        pytest.skip("chromadb is installed — skipping absent-migration-extra test")
 
     import importlib.util as ilu
 
@@ -46,12 +46,12 @@ def test_chroma_store_not_importable_without_extra():
         )
 
 
-def test_migrate_chroma_to_lance_raises_without_chroma():
-    """migrate_chroma_to_lance raises RuntimeError with install hint when chroma absent."""
+def test_migrate_chroma_to_lance_raises_without_chroma_migration_extra():
+    """migrate_chroma_to_lance raises RuntimeError with migration-extra hint."""
     if importlib.util.find_spec("chromadb") is not None:
         import pytest
 
-        pytest.skip("chromadb is installed — skipping absent-extra test")
+        pytest.skip("chromadb is installed — skipping absent-migration-extra test")
 
     # migrate.py has no top-level chromadb import; the ImportError is inside the function.
     # This test exercises the function call path to prove the error surface.
@@ -65,17 +65,9 @@ def test_migrate_chroma_to_lance_raises_without_chroma():
             migrate_mod.migrate_chroma_to_lance("/nonexistent-src", "/nonexistent-dst")
             raise AssertionError("Expected RuntimeError when chroma not installed")
         except RuntimeError as exc:
-            assert "chromadb" in str(exc).lower() or "chroma" in str(exc).lower(), (
-                f"RuntimeError should mention chromadb/chroma, got: {exc}"
-            )
-        except FileNotFoundError:
-            # The LanceStore import may fail if the palace path doesn't exist —
-            # that's fine; what matters is that the error doesn't come from a missing chromadb.
-            pass
-        except ImportError:
-            # The ImportError from chromadb itself is also acceptable here
-            # if chromadb is completely absent from the environment.
-            pass
+            msg = str(exc)
+            assert "chromadb is required only for ChromaDB-to-LanceDB migration" in msg
+            assert "mempalace-code[chroma-migration]" in msg
     finally:
         _sys.path = old_path
 
@@ -86,6 +78,17 @@ def test_storage_import_does_not_require_chromadb():
     # Just verifying the import succeeds without requiring chromadb at module level.
     spec = importlib.util.find_spec("mempalace_code.storage")
     assert spec is not None, "mempalace_code.storage should be importable without chromadb"
+
+
+def test_chroma_migration_extra_declared_with_deprecated_compat_alias():
+    """pyproject exposes the preferred migration extra and the old alias resolves the same cap."""
+    import tomllib as _toml
+
+    data = _toml.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extras = data["project"].get("optional-dependencies", {})
+    assert extras["chroma-migration"] == ["chromadb>=0.5.0,<1"]
+    assert extras["chroma"] == extras["chroma-migration"]
+    assert not any("chromadb" in dep for dep in data["project"]["dependencies"])
 
 
 # ── Watchfiles boundary ────────────────────────────────────────────────────────
@@ -184,10 +187,22 @@ def test_pyrightconfig_strict_json_no_optional_modules():
         )
 
 
+def test_default_pyright_excludes_chroma_migration_bridge_modules():
+    """Default Pyright does not require the optional Chroma migration dependency."""
+    import tomllib as _toml
+
+    data = _toml.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    excluded = set(data["tool"]["pyright"].get("exclude", []))
+    assert "mempalace_code/_chroma_store.py" in excluded
+    assert "mempalace_code/legacy_optional/chroma.py" in excluded
+    assert "tests/test_migrate.py" in excluded
+
+
 def test_default_install_modules_do_not_import_chromadb_at_top_level():
     """Core package modules that must work without extras do not top-level import chromadb."""
     protected_modules = [
         "mempalace_code/storage.py",
+        "mempalace_code/cli.py",
         "mempalace_code/searcher.py",
         "mempalace_code/knowledge_graph.py",
     ]
@@ -205,5 +220,5 @@ def test_default_install_modules_do_not_import_chromadb_at_top_level():
             if is_chromadb_import and not line.startswith(" ") and not line.startswith("\t"):
                 raise AssertionError(
                     f"{rel_path}:{i}: top-level import of chromadb found — "
-                    "this module must work without the [chroma] extra"
+                    "this module must work without the [chroma-migration] extra"
                 )

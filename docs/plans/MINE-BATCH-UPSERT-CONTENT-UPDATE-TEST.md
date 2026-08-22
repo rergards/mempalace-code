@@ -1,5 +1,7 @@
 ---
 slug: MINE-BATCH-UPSERT-CONTENT-UPDATE-TEST
+status: completed
+authority: non_authoritative
 goal: "Add test_add_drawers_batch_updates_content verifying that add_drawers_batch overwrites stored content when the same ID is re-upserted with different content"
 risk: low
 risk_note: "Test-only change; no production code modified"

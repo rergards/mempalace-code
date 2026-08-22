@@ -1,5 +1,7 @@
 ---
 slug: MINE-DEVOPS-SCAN-COVERAGE
+status: completed
+authority: non_authoritative
 goal: "Add scan_project integration coverage for remaining DevOps file types"
 risk: low
 risk_note: "Test-only change covering existing language catalog entries and scan_project filtering; no production code planned"

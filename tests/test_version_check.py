@@ -5,17 +5,25 @@ Covers all acceptance criteria in the plan (AC-1 through AC-7).
 All network calls and TTY checks are injectable; no real network access required.
 """
 
+import ast
 import json
+import re
 import time
 import urllib.error
+from pathlib import Path
 
+import pytest
+
+from mempalace_code import updater, version_check
 from mempalace_code.version_check import (
+    PIP_FALLBACK_PREFIX,
     PYPI_URL,
     VersionCheckConfig,
     VersionCheckState,
     _interval_due,
     compare_versions,
     load_state,
+    pip_fallback_command,
     resolve_config,
     run_automatic_check,
     run_check_now,
@@ -253,7 +261,9 @@ def test_check_now_reports_current_latest_and_upgrade_command():
     combined = "\n".join(lines)
     assert "1.0.0" in combined, "current version must appear in output"
     assert "2.0.0" in combined, "latest version must appear in output"
-    assert "pip install --upgrade mempalace-code" in combined, "upgrade command must appear"
+    assert "update status" in combined, "guarded update-status command must appear"
+    assert "update apply --yes" in combined, "guarded update-apply command must appear"
+    assert "pip install --upgrade mempalace-code" not in combined, "raw pip hint must not appear"
     assert PYPI_URL in combined, "PyPI URL must appear in output"
 
 
@@ -553,3 +563,349 @@ def test_mempalace_config_version_check_interval_hours_default(tmp_path):
 
     cfg = MempalaceConfig(config_dir=tmp_path)
     assert cfg.version_check_interval_hours == 168
+
+
+# ---------------------------------------------------------------------------
+# AC-7 / REQ-4: Newer-version hints route through guarded update commands
+# ---------------------------------------------------------------------------
+
+
+def test_newer_version_hints_recommend_guarded_update_commands(tmp_path, monkeypatch):
+    """AC-7: automatic and explicit newer-version hints route through guarded update commands.
+
+    Both run_automatic_check and run_check_now must lead with update status/apply
+    --yes. The ordinary-pip fallback below them must stay bounded: pinned to an
+    exact version and to this interpreter, never a naked
+    'pip install --upgrade mempalace-code' against whatever pip is on PATH.
+    """
+    monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+
+    # Automatic check hint
+    now = time.time()
+    config = VersionCheckConfig(enabled=True, source="state", interval_hours=1)
+    state = VersionCheckState(enabled=True, last_check_ts=None)
+    stderr_lines: list[str] = []
+
+    run_automatic_check(
+        "1.0.0",
+        config,
+        state,
+        config_dir=tmp_path,
+        time_fn=lambda: now,
+        fetch_fn=lambda: "2.0.0",
+        stderr_fn=stderr_lines.append,
+    )
+
+    auto_combined = "\n".join(stderr_lines)
+    assert "update status" in auto_combined, "automatic hint must mention update status"
+    assert "update apply --yes" in auto_combined, "automatic hint must mention update apply --yes"
+    assert "pip install --upgrade mempalace-code\n" not in auto_combined, (
+        "automatic hint must not recommend an unpinned pip upgrade"
+    )
+
+    # Explicit check-now hint
+    stdout_lines: list[str] = []
+    run_check_now(
+        current_version="1.0.0",
+        fetch_fn=lambda: "2.0.0",
+        stdout_fn=stdout_lines.append,
+    )
+
+    now_combined = "\n".join(stdout_lines)
+    assert "update status" in now_combined, "check-now hint must mention update status"
+    assert "update apply --yes" in now_combined, "check-now hint must mention update apply --yes"
+    assert "pip install --upgrade mempalace-code\n" not in now_combined, (
+        "check-now hint must not recommend an unpinned pip upgrade"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Bounded ordinary-pip fallback for installs the updater refuses
+# ---------------------------------------------------------------------------
+
+
+def test_pip_fallback_command_is_pinned_and_bound_to_this_interpreter():
+    """`update` refuses plain pip installs, so those users need a usable command.
+
+    It must pin the exact version and run through the interpreter that is running
+    mempalace-code, not whichever `pip` happens to be first on PATH.
+    """
+    command = pip_fallback_command("2.0.0", executable="/opt/venv/bin/python")
+    assert command == '"/opt/venv/bin/python" -m pip install --upgrade "mempalace-code==2.0.0"'
+
+
+def test_pip_fallback_command_defaults_to_the_running_interpreter():
+    import sys
+
+    assert sys.executable in pip_fallback_command("2.0.0")
+
+
+def test_automatic_hint_offers_the_pip_fallback_below_the_managed_commands(tmp_path, monkeypatch):
+    monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+    monkeypatch.setattr(version_check, "should_offer_pip_fallback", lambda: True)
+    now = time.time()
+    stderr_lines: list[str] = []
+
+    run_automatic_check(
+        "1.0.0",
+        VersionCheckConfig(enabled=True, source="state", interval_hours=1),
+        VersionCheckState(enabled=True, last_check_ts=None),
+        config_dir=tmp_path,
+        time_fn=lambda: now,
+        fetch_fn=lambda: "2.0.0",
+        stderr_fn=stderr_lines.append,
+    )
+
+    combined = "\n".join(stderr_lines)
+    assert PIP_FALLBACK_PREFIX in combined
+    assert '"mempalace-code==2.0.0"' in combined
+    # Managed guidance stays first; the fallback is the last resort.
+    assert combined.index("update apply --yes") < combined.index(PIP_FALLBACK_PREFIX)
+
+
+def test_check_now_offers_the_pip_fallback_below_the_managed_commands(monkeypatch):
+    monkeypatch.setattr(version_check, "should_offer_pip_fallback", lambda: True)
+    stdout_lines: list[str] = []
+
+    run_check_now(
+        current_version="1.0.0",
+        fetch_fn=lambda: "2.0.0",
+        stdout_fn=stdout_lines.append,
+    )
+
+    combined = "\n".join(stdout_lines)
+    assert PIP_FALLBACK_PREFIX in combined
+    assert '"mempalace-code==2.0.0"' in combined
+    assert combined.index("update apply --yes") < combined.index(PIP_FALLBACK_PREFIX)
+
+
+# ---------------------------------------------------------------------------
+# The pip fallback is conditional: only an ordinary pip venv should see it
+# ---------------------------------------------------------------------------
+
+
+def _ambiguous_venv() -> updater.Installation:
+    return updater.Installation.unsupported(updater.UNSUPPORTED_AMBIGUOUS_VENV)
+
+
+def test_only_an_ambiguous_venv_installed_by_pip_is_offered_the_pip_upgrade(monkeypatch):
+    """The whole point of the fallback is the one install `update` cannot serve.
+
+    An ambiguous verdict alone is not enough — it is also where anything
+    unclassifiable lands — so the marker pip writes at install time must agree.
+    """
+    monkeypatch.setattr(updater, "_recorded_installer", lambda: "pip")
+    assert updater.is_plain_pip_install(_ambiguous_venv()) is True
+
+
+@pytest.mark.parametrize(
+    ("label", "installation"),
+    [
+        # `update` owns these three: pip-upgrading them behind the manager's back
+        # is how a tool environment gets a version its manager does not know about.
+        ("uv-tool", updater.Installation("uv-tool", "/x/bin/python", (), ("uv",))),
+        ("pipx", updater.Installation("pipx", "/x/bin/python", (), ("pipx",))),
+        ("bootstrap-venv", updater.Installation("bootstrap-venv", "/x/bin/python", (), ("pip",))),
+        # A system interpreter is frequently externally managed (PEP 668), so the
+        # command would either fail or damage packages the OS owns.
+        ("system", updater.Installation.unsupported(updater.UNSUPPORTED_SYSTEM)),
+        # An editable checkout has no PyPI version to move to.
+        ("editable", updater.Installation.unsupported(updater.UNSUPPORTED_EDITABLE)),
+        # A managed env whose manager binary vanished is still a managed env.
+        ("pipx-no-pipx", updater.Installation.unsupported(updater.UNSUPPORTED_PIPX_WITHOUT_PIPX)),
+        ("uv-tool-no-uv", updater.Installation.unsupported(updater.UNSUPPORTED_UV_WITHOUT_UV)),
+    ],
+)
+def test_no_pip_upgrade_command_for_environments_it_would_not_serve(
+    label, installation, monkeypatch
+):
+    # Even with a `pip` marker present, none of these may be named.
+    monkeypatch.setattr(updater, "_recorded_installer", lambda: "pip")
+    assert updater.is_plain_pip_install(installation) is False, label
+
+
+@pytest.mark.parametrize("installer", [None, "uv", "pipx", "", "Pip"])
+def test_an_unclassifiable_environment_is_never_named(installer, monkeypatch):
+    """Ambiguous plus no pip marker means we do not know which interpreter to name."""
+    monkeypatch.setattr(updater, "_recorded_installer", lambda: installer)
+    assert updater.is_plain_pip_install(_ambiguous_venv()) is False
+
+
+def test_a_classification_failure_suppresses_the_hint_rather_than_guessing(monkeypatch):
+    def explode() -> bool:
+        raise RuntimeError("import failed")
+
+    monkeypatch.setattr(updater, "is_plain_pip_install", explode)
+    assert version_check.should_offer_pip_fallback() is False
+
+
+def test_hints_drop_the_pip_line_entirely_when_the_install_is_managed(tmp_path, monkeypatch):
+    """A pipx user must see the managed commands and nothing else."""
+    monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+    monkeypatch.setattr(version_check, "should_offer_pip_fallback", lambda: False)
+
+    stderr_lines: list[str] = []
+    run_automatic_check(
+        "1.0.0",
+        VersionCheckConfig(enabled=True, source="state", interval_hours=1),
+        VersionCheckState(enabled=True, last_check_ts=None),
+        config_dir=tmp_path,
+        time_fn=time.time,
+        fetch_fn=lambda: "2.0.0",
+        stderr_fn=stderr_lines.append,
+    )
+    auto = "\n".join(stderr_lines)
+
+    stdout_lines: list[str] = []
+    run_check_now(
+        current_version="1.0.0",
+        fetch_fn=lambda: "2.0.0",
+        stdout_fn=stdout_lines.append,
+    )
+    now = "\n".join(stdout_lines)
+
+    for combined in (auto, now):
+        assert "update apply --yes" in combined
+        assert PIP_FALLBACK_PREFIX not in combined
+        assert "-m pip install" not in combined
+
+
+def test_no_pip_fallback_when_already_up_to_date():
+    stdout_lines: list[str] = []
+
+    run_check_now(
+        current_version="2.0.0",
+        fetch_fn=lambda: "2.0.0",
+        stdout_fn=stdout_lines.append,
+    )
+
+    combined = "\n".join(stdout_lines)
+    assert "up to date" in combined
+    assert PIP_FALLBACK_PREFIX not in combined
+
+
+def test_the_documented_pip_upgrade_line_is_the_shape_version_check_prints():
+    """docs/UPDATES.md must show the command a user will actually be handed.
+
+    It is derived here rather than restated, so changing the printed command
+    without updating the doc fails instead of quietly leaving a stale recipe.
+    """
+    doc = (Path(__file__).parent.parent / "docs" / "UPDATES.md").read_text(encoding="utf-8")
+    assert pip_fallback_command("X.Y.Z", "/absolute/path/to/python") in doc
+
+    # The command names an interpreter outright; nothing tells the reader to go
+    # find which `python` on PATH owns the install.
+    assert "command -v python" not in doc
+
+
+# ---------------------------------------------------------------------------
+# Documented flags must exist (REL-V1-13-5-PUBLIC-SHAPE-PREP)
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).parent.parent
+_VERSION_CHECK_FLAG_RE = re.compile(r"version-check\s+(--[a-z][a-z0-9-]*(?:/--[a-z][a-z0-9-]*)*)")
+
+
+def _declared_version_check_flags() -> set[str]:
+    """Derive the real `version-check` option strings from cli.py's argparse tree.
+
+    The parser is built inline inside `main()`, so there is no factory to call;
+    the declaration is read from the AST instead. Deriving beats restating: a
+    renamed flag changes this set, and any doc still naming the old spelling
+    fails below.
+    """
+    tree = ast.parse(
+        (_REPO_ROOT / "mempalace_code" / "cli.py").read_text(encoding="utf-8"),
+        filename="cli.py",
+    )
+
+    parser_var: str | None = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and node.value.func.attr == "add_parser"
+            and node.value.args
+            and isinstance(node.value.args[0], ast.Constant)
+            and node.value.args[0].value == "version-check"
+        ):
+            parser_var = node.targets[0].id
+            break
+    assert parser_var is not None, "cli.py: no add_parser('version-check', ...) assignment"
+
+    # Options may hang off the subparser directly or off any group derived from
+    # it (version-check uses a mutually exclusive group), so collect both.
+    receivers = {parser_var}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and isinstance(node.value.func.value, ast.Name)
+            and node.value.func.value.id in receivers
+            and node.value.func.attr.startswith("add_")
+            and node.value.func.attr.endswith("_group")
+        ):
+            receivers.add(node.targets[0].id)
+
+    flags: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in receivers
+            and node.func.attr == "add_argument"
+        ):
+            for arg in node.args:
+                if (
+                    isinstance(arg, ast.Constant)
+                    and isinstance(arg.value, str)
+                    and arg.value.startswith("--")
+                ):
+                    flags.add(arg.value)
+    assert flags, "cli.py: no version-check options found"
+    return flags
+
+
+def _public_doc_paths() -> list[Path]:
+    paths = [
+        _REPO_ROOT / "README.md",
+        _REPO_ROOT / "CHANGELOG.md",
+        _REPO_ROOT / "mempalace_code" / "README.md",
+    ]
+    paths.extend(sorted((_REPO_ROOT / "docs").rglob("*.md")))
+    return [path for path in paths if path.is_file()]
+
+
+def test_version_check_flags_are_declared_where_the_parser_declares_them():
+    assert _declared_version_check_flags() == {
+        "--enable",
+        "--disable",
+        "--check-now",
+        "--status",
+    }
+
+
+def test_public_docs_only_name_version_check_flags_that_exist():
+    """A doc that hands a reader a nonexistent flag is a broken instruction.
+
+    `--now` shipped in three public places while the parser only ever declared
+    `--check-now`; this derives the truth from argparse so that cannot recur.
+    """
+    declared = _declared_version_check_flags()
+
+    unknown: list[str] = []
+    for path in _public_doc_paths():
+        text = path.read_text(encoding="utf-8")
+        for match in _VERSION_CHECK_FLAG_RE.findall(text):
+            for flag in match.split("/"):
+                if flag not in declared:
+                    unknown.append(f"{path.relative_to(_REPO_ROOT)}: version-check {flag}")
+
+    assert unknown == [], f"documented flags that argparse does not declare: {unknown}"

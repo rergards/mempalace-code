@@ -1,5 +1,7 @@
 ---
 slug: MINE-ANSIBLE
+status: completed
+authority: non_authoritative
 goal: "Add first-pass static Ansible playbook, role, and inventory indexing to the code miner"
 risk: medium
 risk_note: "Touches YAML-family language detection, chunk routing, symbol metadata, and code_search/MCP filter contracts; precedence with Helm and Kubernetes must stay stable."

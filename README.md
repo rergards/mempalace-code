@@ -57,16 +57,16 @@ coexist with vanilla MemPalace in the same Python environment. Source checkouts
 keep a small `mempalace.mcp_server` shim only so older repo-local MCP configs
 that run with `PYTHONPATH=/path/to/mempalace-code` continue to start.
 
-Use [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) for a human-in-the-loop setup sequence. It covers installation, MCP wiring, instruction injection, and verification, and asks before choosing install scope, storage path, or model download.
+Use [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) for a human-in-the-loop setup sequence. It covers installation, MCP wiring, supported Agent Plugin discovery, the unsupported-client stop boundary, and verification, and asks before choosing install scope, storage path, or model download.
 
 Compatible [Agent Plugins 1.0](https://agent-plugins.org/) clients can load the
-installed portable package instead of copying MCP and usage-rule snippets by hand:
+installed portable package. Discover it with:
 
 ```bash
-mempalace-code agent-plugin path
+mempalace-code agent-plugin path --json
 ```
 
-The printed directory contains `plugin.json`, `mcp.json`, and
+Read the JSON `path` field and use that directory. It contains `plugin.json`, `mcp.json`, and
 `skills/mempalace/SKILL.md`. Its MCP config runs the installed
 `mempalace-code-mcp --profile=minimal` launcher, exposing only
 `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`, and
@@ -78,19 +78,28 @@ of `mcp.json`, when a client needs richer profiles such as `--profile=kg`,
 <summary>Or do it manually</summary>
 
 ```bash
-mempalace-code init ~/projects/myapp       # detect rooms, cache embedding model (~80 MB)
-mempalace-code init ~/projects/myapp --detect-entities  # optional people/project detection for notes/convos
-mempalace-code mine ~/projects/myapp       # index your codebase
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server  # connect Claude Code
-codex mcp add mempalace-code -- python -m mempalace_code.mcp_server   # connect Codex CLI
+MEMPALACE_BIN="$(command -v mempalace-code)"
+MEMPALACE_MCP="$(dirname "$MEMPALACE_BIN")/mempalace-code-mcp"
+"$MEMPALACE_BIN" init ~/projects/myapp --skip-model-download
+# After explicit consent to download/cache the ~80 MB embedding model:
+"$MEMPALACE_BIN" fetch-model
+"$MEMPALACE_BIN" mine ~/projects/myapp
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP"  # Claude user scope
+codex mcp add mempalace-code -- "$MEMPALACE_MCP"                # Codex user config
 ```
 
 **Optional: auto-sync on commit** (requires `[watch]` extra — see [Auto-Watch](#auto-watch)):
 ```bash
-mempalace-code watch ~/projects/           # re-mines on every commit, zero noise
+"$MEMPALACE_BIN" watch ~/projects/         # re-mines on every commit, zero noise
 ```
 
-This registers all 29 tools with the configured MCP client. To expose a reduced subset, add a `--profile` flag (for example, `-- python -m mempalace_code.mcp_server --profile=minimal`). For proactive search and storage (without you asking), add usage rules to your `CLAUDE.md` or equivalent agent-instruction file — copy from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md), or follow [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7. Actual tool use remains subject to the client's tool policy and the agent instructions.
+This registers all 29 tools with the configured MCP client. To expose a reduced subset, add a
+`--profile` argv value (for example, `-- "$MEMPALACE_MCP" --profile=minimal`). Compatible Agent
+Plugins 1.0 clients should discover the supported instruction bundle with
+`mempalace-code agent-plugin path --json` and follow
+[`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7. For other clients,
+[`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) is read-only reference material;
+instruction-file mutation is unsupported.
 
 </details>
 
@@ -126,7 +135,11 @@ Cost caveat: a direct MCP registration without selectors defaults to all 29 tool
 the portable Agent Plugin defaults to the four-tool `minimal` profile. Use
 `--profile=minimal` or `--tools=search,add_drawer` with direct registration to
 reduce the prompt/tool-surface cost.
-Proactive use also depends on adding the usage-rules block to agent instructions.
+For proactive use, compatible Agent Plugins 1.0 clients load the package discovered by
+`mempalace-code agent-plugin path --json` as described in
+[`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7. Other clients may use
+[`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) as read-only reference material;
+instruction-file mutation is unsupported.
 Prefer project-scoped MCP for trials, and keep it only if searches, KG lookups,
 or drawer writes show up in real sessions.
 
@@ -134,13 +147,13 @@ or drawer writes show up in real sessions.
 
 mempalace-code works with any [MCP](https://modelcontextprotocol.io/)-compatible client:
 
-- **Claude Code** (CLI, desktop, web) — `claude mcp add mempalace-code -- python -m mempalace_code.mcp_server`
-- **Codex CLI** — `codex mcp add mempalace-code -- python -m mempalace_code.mcp_server`
-- **Agent Plugins 1.0 clients** — load the directory printed by `mempalace-code agent-plugin path`
+- **Claude Code** — `claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP"`
+- **Codex CLI** — `codex mcp add mempalace-code -- "$MEMPALACE_MCP"`
+- **Agent Plugins 1.0 clients** — parse the JSON `path` field from `mempalace-code agent-plugin path --json` and load that directory
 - **Claude Desktop** — add to `claude_desktop_config.json`
 - **Cursor** — add as MCP server in settings
 - **Windsurf** — add as MCP server in settings
-- **Any MCP client** — point it at `python -m mempalace_code.mcp_server` (stdio transport)
+- **Any MCP client** — point it at the resolved installed `mempalace-code-mcp` launcher
 
 For local models without MCP support (Llama, Mistral, etc.), use `mempalace-code wake-up` to pipe context into the system prompt — see [Memory Layers](#memory-layers).
 
@@ -164,7 +177,7 @@ Generated helper files such as `entities.json` are skipped during project
 mining by default, because they are created by init/entity detection and should
 not become source-code drawers unless explicitly force-included.
 
-**How you use it:** An MCP-capable agent can call mempalace tools during a session. Proactive retrieval and filing require the usage rules in [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) and a client policy that permits the calls; the CLI remains available for direct use.
+**How you use it:** An MCP-capable agent can call mempalace tools during a session when its client policy permits the calls. Compatible Agent Plugins 1.0 clients load the supported instruction bundle discovered by `mempalace-code agent-plugin path --json`; see [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7. Other clients treat [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) as read-only reference material because instruction-file mutation is unsupported. The CLI remains available for direct use.
 
 ---
 
@@ -412,7 +425,7 @@ mempalace-code organizes memories into a navigable structure — the same mental
 Agent Plugins-compatible clients can discover the portable package with:
 
 ```bash
-mempalace-code agent-plugin path
+mempalace-code agent-plugin path --json
 ```
 
 That package declares the installed stdio launcher
@@ -421,7 +434,9 @@ low tool-schema cost. Direct MCP registrations below remain supported for the
 full surface or richer startup profiles.
 
 ```bash
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server
+MEMPALACE_BIN="$(command -v mempalace-code)"
+MEMPALACE_MCP="$(dirname "$MEMPALACE_BIN")/mempalace-code-mcp"
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP"
 ```
 
 The MCP server registration name defaults to `mempalace-code`. The MCP tool
@@ -442,17 +457,17 @@ preserving stable named-tool trigger patterns in usage rules):
 
 ```bash
 # Named profiles — select a pre-defined subset at server startup
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=kg
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=code
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=notes
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=minimal
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=kg
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=code
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=notes
 
 # Explicit tool list (replaces profile base set)
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --tools=search,add_drawer,diary_*
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --tools=search,add_drawer,diary_*
 
 # Add or remove tools from a profile
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=minimal --include=kg_query
-claude mcp add mempalace-code -- python -m mempalace_code.mcp_server --profile=full --exclude=delete_wing,delete_drawer
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=minimal --include=kg_query
+claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP" --profile=full --exclude=delete_wing,delete_drawer
 ```
 
 | Profile | Tools | Best for |
@@ -479,6 +494,14 @@ validation error instead (CLI exit status 2), with up to 3 advisory
 suggestions that are never auto-applied. See
 [`docs/HOW_SEARCH_WORKS.md`](docs/HOW_SEARCH_WORKS.md#taxonomy-filter-validation)
 for the full contract, including when validation is skipped.
+
+A malformed MCP call is bounded, not fatal. Arguments that are not an object,
+undeclared argument names, type mismatches, and missing required arguments are
+each rejected with JSON-RPC `-32602` naming exactly what was wrong — correct
+those arguments and retry the same tool. Malformed JSON returns `-32700` with a
+null id, and an unknown tool name returns `-32601`. None of these end the
+session: the server answers and keeps reading, so the next valid request is
+served normally and no restart is needed.
 
 <details>
 <summary><strong>Palace — Read</strong></summary>
@@ -551,7 +574,7 @@ for the full contract, including when validation is skipped.
 
 </details>
 
-MCP tools are discoverable by any MCP-capable client automatically. To teach the AI *when* and *how* to use them, paste the usage rules from [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) into your agent's instructions (CLAUDE.md, AGENTS.md, `.cursorrules`, etc.) — otherwise the tools are available but the assistant will not know the protocol. If you use a named profile, see the matching profile block in `docs/LLM_USAGE_RULES.md` for profile-scoped routing guidance.
+MCP-capable clients discover the registered tools. Compatible Agent Plugins 1.0 clients get the supported instruction bundle from `mempalace-code agent-plugin path --json`; follow [`docs/AGENT_INSTALL.md`](docs/AGENT_INSTALL.md) Section 7. Other clients may consult [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) as read-only reference material, including its profile-scoped routing guidance. Instruction-file and system-prompt mutation are unsupported.
 
 ---
 
@@ -627,24 +650,46 @@ For local models (Llama, Mistral) that don't speak MCP, pipe `wake-up` into the 
 
 ### Backup & Restore
 
+Create and inspect both recovery artifacts before rebuilding. The import preview
+must target the inspected, already-existing palace.
+
 ```bash
-mempalace-code backup create                           # create backup archive (default: <palace_parent>/backups/)
-mempalace-code backup create --out ~/safe/my.tar.gz   # custom path
-mempalace-code backup create --kind scheduled          # create with 'scheduled' kind prefix
-mempalace-code backup                                  # back-compat: same as 'backup create'
-mempalace-code backup --out ~/safe/my.tar.gz           # back-compat: same as 'backup create --out ...'
-mempalace-code backup list                             # list existing backups (with stale/oversized flags)
-mempalace-code backup list --dir ~/old_backups/        # include extra directory in discovery
-mempalace-code restore palace_backup_2026-04-14.tar.gz # restore
-mempalace-code restore backup.tar.gz --force           # overwrite existing
+set -euo pipefail
+
+PALACE="${HOME}/.mempalace/palace"
+EXPORT_JSONL="${HOME}/.mempalace/recovery-manual.jsonl"
+BACKUP_TAR="${HOME}/.mempalace/recovery-full.tar.gz"
+
+: "${PALACE:?set PALACE to the inspected existing palace}"
+: "${EXPORT_JSONL:?set EXPORT_JSONL to a new JSONL path}"
+: "${BACKUP_TAR:?set BACKUP_TAR to a new tar path}"
+test -d "$PALACE/lance"
+test ! -e "$EXPORT_JSONL"
+test ! -e "$BACKUP_TAR"
+
+mempalace-code --palace "$PALACE" export --only-manual --with-kg --out "$EXPORT_JSONL"
+mempalace-code --palace "$PALACE" import "$EXPORT_JSONL" --dry-run
+mempalace-code --palace "$PALACE" backup create --out "$BACKUP_TAR"
+tar -tzf "$BACKUP_TAR"
 ```
 
-Backups are written to `<palace_parent>/backups/` by default. For a palace at `~/.mempalace/palace`, that is `~/.mempalace/backups/`.
+The preview validates the JSONL and opens existing palace state read-only when
+present. It does not write palace or KG state. When the selected palace and KG
+are absent, it does not create them or initialize temporary, embedding-model, or
+cache state. It previews record import without applying records. Without
+`--force`, tar restore refuses state found at the selected palace or KG during
+its checks, claims the exact `lance/` name exclusively, and publishes the KG with
+an atomic no-replace operation. An existing real empty palace directory is the
+only reusable initial state. Unsupported no-replace KG publication fails closed.
+This boundary is not a transaction for concurrent replacement of the palace
+root or its ancestors, or for arbitrary edits elsewhere in the palace. Back up
+every reported destination before an intentional `--force` restore.
 
-An explicit global `--palace` selection is a complete backup/restore boundary. Its
-archive includes that palace's local knowledge graph when present, omits the graph when
-absent, and never falls back to the default-global graph. A true no-op incremental mine
-also skips pre-optimize backup creation and storage optimization.
+KG boundary: JSONL `--with-kg` uses the separate global KG. Explicit `--palace`
+tar operations use `<palace>/knowledge_graph.sqlite3`, omit it from the archive
+when absent, and never fall back to the global KG; `--kg-path` selects another
+restore destination. The complete quarantine, rebuild, restore, force-restore,
+and failure-recovery procedure is in [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md).
 
 **Backup kinds:** Each archive has a kind that controls its filename prefix and per-kind retention:
 
@@ -734,7 +779,7 @@ Skips compaction entirely. Storage will grow with more fragments but avoids any 
 
 **Why backup matters:** Manual drawer additions (via `mempalace_add_drawer`) are not recoverable from source code. If LanceDB storage gets corrupted, only backups preserve this data. Code-mined drawers can be restored by re-running `mempalace-code mine`.
 
-Also available: `mempalace-code export --only-manual` for JSONL export of manually-stored drawers.
+Also available: `mempalace-code export --only-manual --out <backup.jsonl>` for JSONL export of manually-stored drawers.
 
 **Remote mirror risk — backups vs file mirroring:**
 
@@ -822,7 +867,7 @@ mempalace-code health --json       # machine-readable report
 mempalace-code cleanup --older-than-days 7  # reclaim stale Lance versions
 mempalace-code cleanup --unsafe-now         # emergency only; stop MemPalace processes first
 
-mempalace-code repair --dry-run    # show what would be recovered
+mempalace-code repair --rollback --dry-run  # show what rollback would recover
 mempalace-code repair --rollback   # roll back to last working version
 ```
 
@@ -893,7 +938,7 @@ Snapshot reviewed on 2026-08-11 against upstream `develop` at commit `b2104238d4
 |---|---|---|
 | Focus | General-purpose AI memory | Code-first: repository mining, `code_search`, symbol/type/project-graph tools |
 | Default storage | ChromaDB | LanceDB |
-| Other backends offered | `sqlite_exact`, Milvus, Qdrant, pgvector | ChromaDB only, as a deprecated optional `.[chroma]` extra; no server-backed backends |
+| Other backends offered | `sqlite_exact`, Milvus, Qdrant, pgvector | LanceDB-only runtime; one-way ChromaDB-to-LanceDB migration bridge; no server-backed backends |
 | Embedding model | `all-MiniLM-L6-v2`, plus an optional `embeddinggemma` multilingual model | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration flow |
 | Retrieval | Hybrid retrieval | Vector search, plus a local deterministic `code_search(rerank="hybrid")` |
 | Reranking | Optional LLM reranking | None — no LLM reranker; this direction is explicitly rejected |
@@ -942,23 +987,33 @@ pip install mempalace-code
 uv pip install mempalace-code
 ```
 
-**Bootstrap script** (recommended for servers/CI):
+**Bootstrap script** (explicit remote-script option for servers/CI):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rergards/mempalace-code/main/scripts/bootstrap.sh | bash
+[[ "${BOOTSTRAP_REF:-}" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "BOOTSTRAP_REF must be a reviewed 40-hex commit" >&2; exit 2; }
+BOOTSTRAP_FILE="$(mktemp -t mempalace-bootstrap.XXXXXX)" || exit 1
+(
+  trap 'rm -f -- "$BOOTSTRAP_FILE"' EXIT
+  curl -fL "https://raw.githubusercontent.com/rergards/mempalace-code/$BOOTSTRAP_REF/scripts/bootstrap.sh" -o "$BOOTSTRAP_FILE" || exit 1
+  less "$BOOTSTRAP_FILE" || exit 1
+  bash "$BOOTSTRAP_FILE" || exit 1
+) || exit 1
 ```
 
 **Optional extras:**
 
 ```bash
 pip install "mempalace-code[treesitter]"  # AST parsing
-pip install "mempalace-code[chroma]"      # ChromaDB legacy backend (deprecated, capped below 1.x)
+pip install "mempalace-code[chroma-migration]"  # ChromaDB-to-LanceDB migration bridge
+pip install "mempalace-code[chroma]"      # deprecated alias for chroma-migration
 pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[watch]"       # optional watcher (auto-mine on file changes)
 pip install "mempalace-code[dev]"         # pytest + ruff + pyright
 ```
 
-**Requirements:** Python 3.11+. ~80 MB embedding model cached once during `mempalace-code init` or `mempalace-code fetch-model`; repeated cached runs resolve the model locally.
+**Requirements:** Python 3.11+. Use `mempalace-code init <dir> --skip-model-download` for an
+offline-safe init. Run `mempalace-code fetch-model` later only after explicit consent to cache
+the ~80 MB embedding model.
 
 </details>
 
@@ -966,12 +1021,16 @@ pip install "mempalace-code[dev]"         # pytest + ruff + pyright
 <summary><strong>All CLI Commands</strong></summary>
 
 ```bash
+mempalace-code help                                    # show top-level help message and exit
+mempalace-code --version                               # print the installed package version and exit
+
 # Setup
 mempalace-code init <dir>                              # initialize rooms
 mempalace-code init <dir> --detect-entities            # optional prose entity bootstrap
 mempalace-code onboarding <dir>                        # guided interactive setup (people, projects, taxonomy)
 mempalace-code split <dir>                             # split concatenated transcript mega-files before mining
-mempalace-code install-alias                           # create optional 'mempalace' alias
+mempalace-code install-alias                           # create optional 'mempalace' alias next to mempalace-code
+mempalace-code install-alias --target-dir <dir>        # create it in <dir> instead; only <dir> is inspected
 
 # Mining
 mempalace-code mine <dir>                              # mine code project
@@ -1003,7 +1062,7 @@ mempalace-code backup create                           # create backup (default:
 mempalace-code backup list                             # list existing backups
 mempalace-code backup schedule --freq daily            # print daily scheduler snippet
 mempalace-code restore <archive>                       # restore from backup
-mempalace-code export --only-manual                    # JSONL export
+mempalace-code export --only-manual --out backup.jsonl # JSONL export
 mempalace-code import <file>                           # JSONL import
 mempalace-code health                                  # probe for fragment corruption
 mempalace-code cleanup                                 # reclaim stale Lance versions
@@ -1020,11 +1079,12 @@ mempalace-code health --json                           # compact integrity repor
 mempalace-code fetch-model                             # cache or verify model for offline use
 
 # Advanced / Ops
-mempalace-code migrate-storage <src> <dst>             # migrate a ChromaDB palace to LanceDB
+mempalace-code migrate-storage <src> <dst> --verify    # migrate a legacy ChromaDB palace to LanceDB
 mempalace-code preflight mirror --command "<cmd>"      # inspect an rsync command for state-dir risks
 mempalace-code version-check                           # show version-check status (opt-in PyPI checks)
+mempalace-code version-check --check-now               # check PyPI now; prints a pip fallback for unmanaged installs
 mempalace-code update status                            # inspect upgrade eligibility (supported installs)
-mempalace-code agent-plugin path                       # locate the installed Agent Plugins package directory
+mempalace-code agent-plugin path --json                # locate the installed Agent Plugins package directory
 ```
 
 Plain `status` prints a full wing/room breakdown, so its output grows with palace size. Do not use it as a routine agent bootstrap or machine-readable health check; use `status --summary` for bounded shell-based CLI discovery, task-specific MCP retrieval, or `mempalace-code health --json` for a compact CLI integrity report.
@@ -1034,13 +1094,14 @@ Plain `status` prints a full wing/room breakdown, so its output grows with palac
 <details>
 <summary><strong>Saving Conversation Context</strong></summary>
 
-Code mining is automatic via `mempalace-code watch`. For conversation context (decisions, discussions, debugging notes), the AI uses MCP tools directly — works with **any agent** (Claude Code, Codex, Cursor, etc.):
+Code mining is automatic via `mempalace-code watch`. For conversation context (decisions, discussions, debugging notes), an MCP-capable client can expose the storage tools:
 
 1. Wire the MCP server (see [install docs](docs/AGENT_INSTALL.md))
-2. Add usage rules to your agent's instructions (CLAUDE.md, system prompt, etc.)
-3. The agent calls `mempalace_add_drawer` and `mempalace_diary_write` during sessions
+2. For compatible Agent Plugins 1.0 clients, load the package reported by `mempalace-code agent-plugin path --json`; follow [Section 7](docs/AGENT_INSTALL.md#section-7--agent-instruction-loading-agent-plugin-only)
+3. For other clients, stop after MCP wiring. [`docs/LLM_USAGE_RULES.md`](docs/LLM_USAGE_RULES.md) remains read-only reference material; instruction-file and system-prompt mutation are unsupported
+4. Subject to client policy, call `mempalace_add_drawer` and `mempalace_diary_write` during sessions
 
-> **Legacy:** Claude Code also supports optional [auto-save hooks](hooks/README.md) that remind the AI to save at fixed intervals. These are redundant if MCP + usage rules are set up.
+> **Legacy:** Claude Code also supports optional [auto-save hooks](hooks/README.md) that remind the AI to save at fixed intervals. They are independent of the Agent Plugin instruction-loading boundary.
 
 </details>
 
@@ -1086,8 +1147,11 @@ mempalace-code update scheduler install --yes # explicit daily scheduler opt-in 
 
 The first slice supports `uv tool`, `pipx`, and the documented `~/.mempalace/venv` bootstrap
 install. It refuses system Python, distro-managed, editable/source, and ambiguous environments
-before stopping a watcher or changing package state. Stable, compatible-major releases are selected
-from canonical PyPI provenance; prereleases, yanked files, and releases without a wheel are refused.
+before stopping a watcher or changing package state. If you installed with plain `pip`, upgrade
+yourself — `mempalace-code version-check --check-now` prints the exact pinned `python -m pip install`
+command for the interpreter that is running mempalace-code. Stable, compatible-major releases
+are selected from canonical PyPI provenance; prereleases, yanked files, and releases without a
+wheel are refused.
 Detected extras are retained. A configured watcher missing its required `watch` extra is also a
 preflight refusal.
 
@@ -1111,7 +1175,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.13.4-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.13.5-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

@@ -1,5 +1,7 @@
 ---
 slug: CLI-COMMAND-MODULES
+status: completed
+authority: non_authoritative
 goal: "Split CLI command handlers into focused modules while preserving the existing argparse and console-script entry points."
 risk: medium
 risk_note: "Behavior-preserving refactor across many CLI handlers; risk is mostly import cycles, broken monkeypatch seams, and changed argparse/exit behavior."

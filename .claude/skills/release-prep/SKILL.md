@@ -176,7 +176,11 @@ git add pyproject.toml CHANGELOG.md README.md docs/LLM_USAGE_RULES.md
 git commit -m "chore: prepare release vX.Y.Z"
 ```
 
-Do **not** tag or push. That is `/release`'s job.
+Do **not** tag or push. That is `/release`'s job — and note that `/release` never
+pushes this branch or local `main` anywhere. It rebuilds this reviewed tree as a
+candidate commit on top of `publish/main`, publishes that as its own candidate
+branch (`release/vX.Y.Z`, or `release/vX.Y.Z-rc2` on a rebuild), and only
+fast-forwards the already-green candidate onto public `main`.
 
 ### Step 10: Run the live pre-tag check
 
@@ -211,7 +215,10 @@ Docs updated:
 - docs/LLM_USAGE_RULES.md: <if touched>
 - pyproject.toml: <old> → <new>
 
-Next: run /release to cut the tag and push to publish.
+Next: run /release. It builds a candidate on publish/main, pushes it as its own
+candidate branch (release/vX.Y.Z, or release/vX.Y.Z-rc2 on a rebuild), waits for
+that exact SHA to go green, fast-forwards it onto public main, then tags.
+Deleting the candidate branch afterwards needs its own explicit approval.
 ```
 
 ## Gotchas
@@ -219,6 +226,7 @@ Next: run /release to cut the tag and push to publish.
 - **`git describe --tags --abbrev=0` is wrong for this use case.** It returns the most recent local tag regardless of origin. Upstream tags pulled into the fork (e.g. v3.0.0 from an inherited upstream) will poison the result. Always use `git ls-remote --tags publish`.
 - **`pyproject.toml` version and the `publish`-remote latest tag should match** after the last release. If `pyproject.toml` is ahead, the previous release was cut but the tag never pushed — investigate before bumping again.
 - **Do not push to `origin` on release.** Per project feedback: releases go to `publish` only. `/release` handles this; this skill does not push.
+- **Local `main` and public `main` are different histories.** Public `main` carries one squashed commit per release, so it can never be reached by pushing a development branch. Never `--force` and never rewrite public history to "fix" that: `/release` promotes a `release/v*` candidate branch built on `publish/main` instead, and a failed candidate is rebuilt under a new immutable name (`release/vX.Y.Z-rc2`) rather than force-updated.
 - **Dependency changes need an audit trail.** Before release notes claim a package upgrade is safe, verify current and target versions against OSV or an equivalent advisory source and test a clean hosted-CI-equivalent resolver. Public notes may include advisory IDs and version ranges; private resolver paths and local incident details stay out.
 - **Skip the per-task changelog headers.** Some autopilot flows write `## YYYY-MM-DD · TASK-SLUG` entries at the top of CHANGELOG as work lands. Before release, consolidate them into a single release header with grouped bullets. Do not leave both forms.
 

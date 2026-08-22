@@ -1,6 +1,10 @@
 # How to Use mempalace-code Hooks (Auto-Save)
 
-mempalace-code hooks are a legacy Claude Code "Auto-Save" feature. For Codex, Gemini, Cursor, and other agents, use MCP + `docs/LLM_USAGE_RULES.md` instead.
+mempalace-code hooks are a legacy Claude Code "Auto-Save" feature. Compatible Agent Plugins 1.0
+clients use the package discovered by `mempalace-code agent-plugin path --json`; follow
+`docs/AGENT_INSTALL.md` Section 7. Other clients stop after MCP wiring and may consult
+`docs/LLM_USAGE_RULES.md` only as read-only reference material. Instruction-file mutation is
+unsupported.
 
 ### 1. What are these hooks?
 * **Save Hook** (`mempal_save_hook.sh`): Saves new facts and decisions every 15 messages.

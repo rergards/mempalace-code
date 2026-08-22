@@ -1,5 +1,7 @@
 ---
 slug: UPSTREAM-ROOM-MATCH-BOUNDED
+status: completed
+authority: non_authoritative
 goal: "Bound detect_room matching so room keywords do not match inside unrelated words"
 risk: low
 risk_note: "Small internal routing change with direct unit coverage; main risk is preserving intentional separator-delimited partial matches while blocking raw substrings."

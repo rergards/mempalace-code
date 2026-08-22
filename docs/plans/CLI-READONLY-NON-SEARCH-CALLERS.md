@@ -1,5 +1,7 @@
 ---
 slug: CLI-READONLY-NON-SEARCH-CALLERS
+status: completed
+authority: non_authoritative
 goal: "Finish the read-only non-search CLI/MCP no-embedder audit"
 risk: medium
 risk_note: "Several small store-open changes span CLI, backup, and MCP tests; missing-palace and write-path boundaries must stay explicit."

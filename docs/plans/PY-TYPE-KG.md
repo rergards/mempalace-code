@@ -1,5 +1,7 @@
 ---
 slug: PY-TYPE-KG
+status: completed
+authority: non_authoritative
 goal: "Add Python type extraction to miner.py so that mining Python projects populates KG with class inheritance, ABC/Protocol implementation, and import dependency triples"
 risk: low
 risk_note: "Follows well-established pattern from C#/F#/VB.NET extractors; regex-based, no new dependencies; existing KG infra and arch tools unchanged"

@@ -1,5 +1,7 @@
 ---
 slug: CLI-DIARY-WRITE-ID-COLLISION
+status: completed
+authority: non_authoritative
 goal: "Replace timestamp+MD5 diary entry ID with uuid4 in both cli.py and mcp_server.py"
 risk: low
 risk_note: "ID is an opaque internal key; no external system depends on its format. No tests assert on ID pattern."

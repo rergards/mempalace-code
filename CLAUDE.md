@@ -1,5 +1,72 @@
 # mempalace — Project Guide for Claude Code
 
+## 0. Pre-apply simplicity, reuse, and boundary review
+
+This rule runs before any edit, patch, backlog mutation, commit, deploy, or
+delegated executor prompt. Review the planned change before applying it; finding
+the problem after implementation is already a process failure. Write one verdict
+line for every check below. An unwritten check was not run.
+
+- **DRY** — search by behavior before searching by name. Use
+  `mempalace_code_search` or `mempalace_explain_subsystem` first when available,
+  then bounded `rg -l`, signature, and call-site checks. Name the existing owner
+  found. Extend it when it has the same contract, lifecycle, and state store.
+- **KISS** — state the task in one sentence and select the smallest change that
+  closes it. Prefer deletion or extension over addition.
+- **YAGNI** — add no layer, abstraction, option, mode, gate, or generality that
+  the stated task does not require now.
+- **Duplicates** — create or retain no second helper, client, config loader,
+  mutation route, manifest, or documentation paragraph. Consolidate shared
+  production behavior into its existing owning module under `mempalace_code/`;
+  consolidate script-only behavior into the existing owning script. Do not
+  create catch-all `utils`, `helpers`, or `scripts/lib` modules without a proven
+  incompatible owner or lifecycle. Run the owning suite before and after shared
+  code changes.
+- **Garbage** — remove what the change supersedes. Leave no dead code or flags,
+  orphaned files, stale docs, scratch or `tmp/` artifacts, commented-out blocks,
+  or one-shot scripts.
+- **Drunk-user path** — assume a human can lose context, hold stale assumptions,
+  omit or contradict facts, provide malformed input, repeat or reorder steps,
+  and retry after an ambiguous result. Use safe defaults, explicit state and
+  authority checks, bounded idempotent actions, contradiction detection,
+  confirmation proportional to irreversibility, and one concrete recovery
+  command. Test critical paths with lost context, stale state, malformed input,
+  duplicate or reordered actions, and partial execution. Never require retained
+  conversational context to avoid destructive or irreversible behavior.
+- **Drunk-LLM path** — apply the same failure model to prompts, specifications,
+  schemas, APIs, handoffs, approvals, and recovery procedures across
+  human-to-LLM, LLM-to-human, and LLM-to-LLM boundaries. Avoid near-identical
+  names or paths, silent flag meaning changes, ambiguous omitted-argument modes,
+  mutating defaults, and split instructions that disagree. Make state,
+  authority, inputs, outputs, invariants, and recovery machine-verifiable where
+  practical. If an agent can plausibly choose the wrong path, fix the design.
+
+A failed check ends the attempt. Revise the plan, write all seven verdicts again,
+and proceed only when every check passes. Re-run the gate after scope, state,
+authority, or ownership changes.
+
+Reuse-first is mandatory before creating a file, module, helper, script, route,
+manifest, or documentation block. A new implementation requires one concrete
+incompatibility: a different owner, contract, lifecycle, or state store.
+"Cleaner", "safer", "isolated", "easier to reason about", effort, and fear of
+changing the existing owner are not incompatibilities. A near-copy is a defect;
+fixing the existing owner is the task.
+
+Preserve the requested change class and use the existing generator, validator,
+commit, and release path for data, copy, layout, and generated-artifact changes.
+Limit the diff to the owning source, required generated artifacts, and the
+smallest existing regression. The first unrelated tool or gate failure ends that
+attempt: restore or confirm safe state, report the blocker, and request a separate
+owner decision before changing tooling, publishers, runbooks, or architecture.
+Stop when a repair grows beyond roughly three times its initial estimate or
+crosses the stated component boundary.
+
+Add a gate only for a failure that already occurred in this repository, citing
+its date, commit, or backlog item. Data loss and a live user outage are the only
+exceptions. The default number of new gates is zero; prefer backup, atomic
+replace, and post-state verification. Ask the owner before adding any other gate,
+naming the prior failure and what breaks without the gate.
+
 ## Stack
 
 - **Python** 3.11+ (supports 3.11–3.14)
@@ -23,8 +90,9 @@ pip install -e ".[dev]"
 No Docker required. Everything runs locally in a venv or with pipx.
 
 Optional extras:
-- `.[chroma]` — ChromaDB legacy backend (deprecated; use LanceDB; capped below
-  ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line)
+- `.[chroma-migration]` — ChromaDB-to-LanceDB migration bridge; capped below
+  ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line
+- `.[chroma]` — deprecated compatibility alias for the migration bridge
 - `.[spellcheck]` — autocorrect support for room/wing names
 
 ## Running Tests
@@ -88,9 +156,11 @@ Line length: 100. Target: py311. Quote style: double.
 ## Storage Backend
 
 - **LanceDB** is the core backend (installed by default via `lancedb>=0.20`).
-- **ChromaDB** is a legacy optional backend: install with `.[chroma]`. It is
-  deprecated, currently capped below 1.x for GHSA-f4j7-r4q5-qw2c, and will be
-  removed in a future major version.
+- **ChromaDB** is supported only as migration input through
+  `mempalace-code migrate-storage SRC DST --verify`. Install
+  `.[chroma-migration]` for that bridge. The deprecated `.[chroma]` alias is
+  retained for existing scripts, and the dependency stays capped below 1.x while
+  GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
 
 ## Embedding Model Policy
 

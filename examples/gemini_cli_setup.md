@@ -60,15 +60,20 @@ Replace the placeholder with the absolute value of `$MPALACE_PYTHON` printed by
 your shell. An absolute Python path lets the server start from any working
 directory.
 
-## 4. Teach Gemini When to Use Memory
+## 4. Instruction Boundary
 
-MCP wiring exposes the tools. To make Gemini use them proactively, add the canonical usage rules from `docs/LLM_USAGE_RULES.md` to `~/.gemini/GEMINI.md` for global use or `<project>/GEMINI.md` for project use. Reload instruction context with `/memory reload` after editing a file during a session.
+MCP wiring exposes the tools. If the target client supports Agent Plugins 1.0, discover the
+supported instruction bundle with `mempalace-code agent-plugin path --json` and follow
+`docs/AGENT_INSTALL.md` Section 7. Otherwise stop after MCP wiring. The full rules in
+`docs/LLM_USAGE_RULES.md` remain read-only reference material; mutation of `GEMINI.md` or any
+other instruction file is unsupported.
 
 Do not use the scripts in `hooks/` for Gemini. They are Claude Code-only legacy hooks and expect Claude Code hook events.
 
 ## 5. Usage
 
-When Gemini CLI starts, it connects to the configured MCP server and discovers its tools. The usage rules determine when the agent should search or file memory; tool calls remain subject to the active model and tool policy.
+When Gemini CLI starts, it connects to the configured MCP server and discovers its tools. Tool
+calls remain subject to the active model and tool policy.
 
 ### Manual Mining
 If you want the AI to learn from your existing code or docs immediately, run the "mine" command:
@@ -79,5 +84,5 @@ If you want the AI to learn from your existing code or docs immediately, run the
 ### Verification
 In a Gemini CLI session, you can run:
 - `/mcp list`: Verify `mempalace-code` is `CONNECTED`.
-- `/memory show`: Confirm the intended `GEMINI.md` instructions are loaded.
-- Ask Gemini to follow `docs/LLM_USAGE_RULES.md`, then give it a task-specific recall question that requires `mempalace_search`.
+- Ask Gemini to call `mempalace_search` for a task-specific recall question and verify that the
+  tool result is returned.

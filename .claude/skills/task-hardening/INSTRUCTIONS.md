@@ -1,111 +1,87 @@
 # Task Hardening Workflow
 
-Use this skill instead of manually pasting the hardening prompt after implementation.
+Use this skill to review an implemented change. Invocation is report-only: it
+authorizes read-only inspection, triage, chat output, and task-bound ignored
+local evidence. It does not authorize fixes or tracked/remote mutations. Every
+such action needs separate current exact authority.
 
-Before doing anything, classify the task using the 5-axis triage in `.claude/skills/_shared/mode-classification.md`.
-Hardening should classify from the actual diff and touched boundaries, not the original task size marker.
+## 1. Admit Existing State Before Initialization
 
-- `lite`: small low-risk work. No Codex by default.
-- `standard`: non-trivial but bounded work. Codex on round 1 only by default.
-- `strict`: high-risk or cross-boundary work. Codex on round 1 is required; later Codex passes are conditional, not automatic.
+Follow `.claude/skills/_shared/task-state.md` before any state or artifact write:
 
-Treat these as sensitive boundaries for Codex escalation on later rounds: storage operations, embedding model changes, MCP tool contracts, CLI breaking changes, backup/restore paths.
+1. resolve and read the exact task-state path if present;
+2. inspect Git root, Git directory, `HEAD`, branch, status, and current diff;
+3. run `autopilot doctor --json` before `autopilot status`;
+4. inside the owning provider require `phase_write_allowed=true`; for an
+   operator require `safe_to_edit=true`;
+5. initialize only an absent admitted path. Resume valid matching state. Preserve
+   and stop on active-owner, blocked, resumable, stale, malformed, unknown,
+   mismatched, or contradictory state.
 
-## Expected Input
+Never clear or replace existing evidence to start another round. The bounded
+recovery command is `autopilot doctor --json`.
 
-Invoke with:
-- task slug
-- feature name
-- feature scope
-- optional round number
+## 2. Determine and Review the Round
 
-Example:
+Read existing round evidence before deriving a missing round number. Classify
+from the current diff and touched boundaries using
+`.claude/skills/_shared/mode-classification.md`.
 
-```text
-/task-hardening MINE-CSHARP "C# Language Support" "miner"
-```
+- `lite`: Codex is skipped unless requested.
+- `standard`: Codex runs on round 1 by default.
+- `strict`: Codex runs on round 1; later passes require unresolved P1/P2,
+  newly touched sensitive boundaries, or an explicit request.
 
-If the round is not provided, detect the next round automatically.
+Review the diff and validate each finding against an executable path. Score it:
+real defect, production reachability, and regression-testability. A score of at
+least 2/3 is a fix candidate; 1/3 is a backlog candidate; 0/3 is dismissed with
+evidence. Classification and triage do not authorize any mutation.
 
-## Workflow
+## 3. Preserve Evidence Across Failure and Partial Invocation
 
-1. Initialize task state per `.claude/skills/_shared/task-state.md` — write `/tmp/claude-task-state-<SLUG>.json` with task slug, skill name, phase = "started". Update `modified_files`, `decisions`, and `phase` throughout the workflow.
+Write ignored local round/provider evidence only for the invoked task and
+admitted repository. Bind it to run, attempt, provider, model, phase, input and
+output artifact identity, and freshness. Validate any synthesized public summary
+with `python scripts/workflow_summary_guard.py --file <exact-path>` before
+requesting tracked-publication authority.
 
-2. Determine the round number if it was omitted, then classify the task as `lite`, `standard`, or `strict` from the real change surface:
-   - review the current diff and changed files first
-   - apply the 5-axis triage and decision rule from `.claude/skills/_shared/mode-classification.md`
+If a provider fails, preserve its bound evidence and continue only with
+independent read-only review that the mode permits. Provider failure does not
+require a backlog edit, tracked report, staging, or commit.
 
-3. Codex hardening policy:
-   - `lite`: skip by default
-   - `standard`: run on round 1 only by default
-   - `strict`: run on round 1; for round 2+ rerun only if unresolved P1/P2 remain, the previous fixes touched sensitive boundaries again, or the user explicitly asked for another Codex pass
+On retry or partial invocation, read state, prior evidence, Git post-state, and
+provider post-state first. Preserve completed findings, tests, and actions.
+Never replay them. Request authority only for the single remaining exact action.
 
-If Codex should run for this round:
+## 4. Admit Each Mutation Separately
 
-```bash
-./scripts/codex-review.sh --show-output hardening <task-slug> "<feature name>" "<feature scope>" <round>
-```
+Require a fresh single-use authority immediately before each action:
 
-4. **Enter Claude plan mode** (`EnterPlanMode`) before executing the hardening prompt for `standard` and `strict` tasks. Use plan mode to:
-   - review the current diff and changed files
-   - trace touched boundaries and shared code paths
-   - identify regression risks and missing test coverage
-   - prioritize findings by severity before implementing fixes
-   - present the hardening approach for user approval
+- fix authority: exact repository, source/test paths, proposed change, `HEAD`,
+  status, and finding identity;
+- backlog authority: exact backlog path, item, field changes, `HEAD`, and status;
+- staging authority: exact paths and observed index;
+- commit authority: exact index tree, parent SHA, and message;
+- amend authority: exact current `HEAD`, replacement index, command, and message;
+- ordinary-push authority: exact private target identity, visibility, full ref,
+  local SHA, observed remote SHA, and command;
+- publication authority: route through `.claude/skills/release/SKILL.md`.
 
-   Skip plan mode only when: running in `claude -p` (non-interactive), OR the task is `lite`.
+Use `.claude/skills/_shared/commit-checkpoint.md` for admitted Git mutations.
+Authority is consumed when its command starts, including failure or ambiguous
+outcome. It is invalid after any bound value changes and never carries across
+actions, retries, reordered steps, rounds, invocations, repositories, or skills.
 
-5. After exiting plan mode, execute the hardening round:
-   - Review current diff first.
-   - Use Codex output as candidate leads, not as truth.
-   - **Triage every finding before acting** (mandatory for all modes):
-     - Score each finding on three axes:
-       - **(a) Real bug vs style nit?** Does this cause incorrect behavior, data loss, or security exposure? Or is it a naming preference, formatting issue, or theoretical concern?
-       - **(b) Can it happen in production?** Is there a realistic code path that triggers this? Or does it require conditions that the codebase structurally prevents?
-       - **(c) Is there a test that would catch it?** If a regression test exists or could exist, prioritize adding the test. If the finding is untestable, it's likely speculative.
-     - **Simplicity tiebreaker** (for borderline 2/3 scores): Does the proposed fix add disproportionate complexity relative to the risk?
-     - **Triage decision:**
-       - Score >= 2/3 (at least two axes positive): implement fix + add regression test.
-       - Score 1/3: add to `docs/BACKLOG.yaml` with origin context. Do NOT spend implementation effort.
-       - Score 0/3: dismiss with one-line justification in the round report. Do NOT backlog.
-     - Record the triage decision for each finding in the round report. Format: `Finding | Score | Decision (fix/backlog/dismiss) | Reason`.
-   - Implement only the triaged-in fixes (score >= 2/3). Add regression tests for each.
-   - Write the canonical local round report to `docs/audits/<slug>-round-<n>.md`.
+After every attempt, inspect post-state. Request fresh authority only for the
+remaining action. Local report authority never authorizes a tracked report,
+backlog mutation, commit, push, or publication.
 
-6. Backlog and resolve out-of-scope findings:
-   - For every finding dismissed as pre-existing, out of scope, or deferred: either fix it on the spot if it is truly trivial, or add/update a backlog entry with origin context.
-   - Prefer updating an existing backlog item over adding a duplicate.
+## 5. Stop and Report
 
-7. Default stopping rule:
-   - Finish one round.
-   - Stop with a convergence decision and the smallest recommended next focus.
-   - Do not automatically start another round unless the user explicitly asked for looping.
+Finish one round by default. Report findings, scores, evidence, completed
+actions, provider status, convergence, and the single recommended next action.
+Report-only completion is valid. Do not force a backlog update or commit merely
+to close a round.
 
-8. **Update backlog and commit (mandatory — do not wait for the user to ask):**
-    - Update `docs/BACKLOG.yaml` with hardening convergence status.
-    - Follow the shared commit checkpoint procedure in `.claude/skills/_shared/commit-checkpoint.md`:
-      - Read edit log, cross-reference git status, stage explicitly, review diff, commit, post-commit verify.
-    - Expected public files to stage: `docs/BACKLOG.yaml`, any hardening fix files, tests, changelog entries, and sanitized public plan/docs updates when needed.
-    - Expected local-only files to leave unstaged: `docs/audits/<slug>-round-<n>.md`, `.tasks/TASK-<slug>/`, `.protocols/TASK-<slug>/`, raw Codex output, local paths, and private benchmark data.
-    - Commit message format: `chore(<slug>): hardening R<n> — <converged|findings backlogged>`
-
-## Rules
-
-- Canonical round report remains local-only in ignored `docs/audits/`.
-- Codex output remains local-only supporting evidence in ignored `.tasks/TASK-<slug>/`.
-- Publish only sanitized summaries: backlog decisions, release notes, plan deltas, tests, and code changes with relative paths and no private context.
-- **Validate synthesized public summaries before publishing or committing.** Run the workflow summary guard on any synthesized multi-agent review summary before it lands in a tracked file or PR body:
-  ```bash
-  python scripts/workflow_summary_guard.py --file path/to/summary.md
-  # or from stdin:
-  cat pr-body.md | python scripts/workflow_summary_guard.py
-  ```
-  The guard rejects findings that lack concrete evidence, lack an action or deferral branch (with backlog ID and acceptance criteria), or contain private paths or secret-like tokens. Fix rejections before publishing.
-- Prefer no finding over a weak finding.
-- If Codex cannot run because auth is missing, report that briefly and continue the hardening round.
-- Every dismissed or deferred material finding must be either fixed in-round or backlogged. Do not silently drop it.
-- **Single Codex pass default**: In `standard` mode, run Codex once (round 1). A second pass requires concrete justification.
-- **Doom-loop breaker**: If the same test or check fails twice with the same approach, STOP. Report findings + remaining hypotheses to the user rather than trying a third time.
-- The original estimate or task-size label never overrides the actual diff.
-- Step 5 triage is mandatory — every finding must be scored before implementation effort is spent.
-- Step 8 (update backlog + commit) is mandatory — never finish a hardening round without it.
+Stop after the same test or check fails twice with the same approach. Preserve
+the evidence and report remaining hypotheses.

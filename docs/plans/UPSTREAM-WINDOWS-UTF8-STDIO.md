@@ -1,5 +1,7 @@
 ---
 slug: UPSTREAM-WINDOWS-UTF8-STDIO
+status: completed
+authority: non_authoritative
 goal: "Normalize Windows CLI and MCP stdio to UTF-8 without changing non-Windows behavior"
 risk: medium
 risk_note: "Entry-point stdio and MCP JSON serialization affect user-visible output and JSON-RPC framing."

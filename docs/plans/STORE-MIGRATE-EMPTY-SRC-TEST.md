@@ -1,5 +1,7 @@
 ---
 slug: STORE-MIGRATE-EMPTY-SRC-TEST
+status: completed
+authority: non_authoritative
 goal: "Add test_migrate_empty_src to test_migrate.py covering the src_total==0 early-exit path"
 risk: low
 risk_note: "Test-only change; no production code modified"

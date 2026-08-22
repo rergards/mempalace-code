@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -11,6 +12,12 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import MempalaceConfig
+from ..source_io import (
+    RegularSourceError,
+    hash_regular_bytes,
+    read_regular_text,
+    regular_source_diagnostic,
+)
 from ..storage import open_store, optimize_store
 from ..version import __version__
 from .batching import get_batch_size
@@ -34,9 +41,14 @@ from .symbols import extract_symbol
 
 def _file_hash(path: Path) -> str:
     """Return blake2b hex digest (32 chars) of raw file bytes."""
-    h = hashlib.blake2b(digest_size=16)
-    h.update(path.read_bytes())
-    return h.hexdigest()
+    return hash_regular_bytes(path, digest_size=16)
+
+
+def _warn_source_read_error(path: Path, exc: OSError) -> None:
+    detail = (
+        regular_source_diagnostic(path) if isinstance(exc, RegularSourceError) else f"{path}: {exc}"
+    )
+    print(detail, file=sys.stderr)
 
 
 def _bulk_existing_file_hashes(collection, wing: str) -> dict:
@@ -194,7 +206,7 @@ def _collect_specs_for_file(
 ) -> list:
     """Read, chunk, and prepare drawer specs for one file without writing.
 
-    Returns [] if the file is already mined, unreadable, or below MIN_CHUNK.
+    Returns [] if the file is already mined or below MIN_CHUNK.
     Each spec dict has keys: id, content, metadata.
     IDs and filed_at timestamps are set at spec-creation time.
 
@@ -212,10 +224,7 @@ def _collect_specs_for_file(
     elif file_already_mined(collection, source_file):
         return []
 
-    try:
-        raw_content = filepath.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
+    raw_content = read_regular_text(filepath, encoding="utf-8", errors="replace")
 
     content = raw_content.strip()
     if len(content) < MIN_CHUNK:
@@ -440,6 +449,8 @@ def mine(
     existing_hashes: dict = {}
     tiny_hashes: dict = {}
     _hashes_loaded = False  # True when hashes were already fetched for the main loop
+    files_failed = 0
+    _hash_failed_paths: set[str] = set()
 
     if dry_run:
         collection = None
@@ -449,11 +460,17 @@ def mine(
 
     if not dry_run and incremental and limit == 0:
         for _f in files:
-            _precomputed_hashes[str(_f)] = _file_hash(_f)
+            try:
+                _precomputed_hashes[str(_f)] = _file_hash(_f)
+            except OSError as exc:
+                _warn_source_read_error(_f, exc)
+                files_failed += 1
+                _hash_failed_paths.add(str(_f))
+                continue
         existing_hashes = _bulk_existing_file_hashes(collection, wing)
         tiny_hashes = _load_tiny_hashes(palace_path, wing)
         _hashes_loaded = True
-        _walked_set = set(_precomputed_hashes.keys())
+        _walked_set = {str(path) for path in files}
         _any_changed = any(
             not (
                 (existing_hashes.get(sf, "") == h and existing_hashes.get(sf, "") != "")
@@ -470,12 +487,14 @@ def mine(
                 for sf, h in _precomputed_hashes.items()
                 if tiny_hashes.get(sf, "") == h and tiny_hashes.get(sf, "") != ""
             )
-            _skip_count = len(_walked_set) - _tiny_count
+            _skip_count = len(_precomputed_hashes) - _tiny_count
             print(f"\n{'=' * 55}")
             print("  Done. (incremental — no changes detected)")
             print(f"  Files skipped (already filed): {_skip_count}")
             if _tiny_count:
                 print(f"  Files too small to index: {_tiny_count}")
+            if files_failed:
+                print(f"  Files failed to read: {files_failed}")
             print("  Drawers filed: 0")
             print(f"  Time: {mins}m {secs}s")
             print(f"{'=' * 55}\n")
@@ -483,6 +502,7 @@ def mine(
                 "files_processed": 0,
                 "files_skipped": _skip_count,
                 "files_tiny": _tiny_count,
+                "files_failed": files_failed,
                 "drawers_filed": 0,
                 "elapsed_secs": elapsed,
                 "embedder_warmed": False,
@@ -504,6 +524,7 @@ def mine(
     # else: dry-run — existing_hashes and tiny_hashes stay {}
 
     total_drawers = 0
+    files_processed = 0
     files_skipped = 0
     files_tiny = 0
     room_counts = defaultdict(int)
@@ -532,17 +553,23 @@ def mine(
             walked_paths.add(source_file)
 
             if dry_run:
-                drawers = process_file(
-                    filepath=filepath,
-                    project_path=project_path,
-                    collection=collection,
-                    wing=wing,
-                    rooms=rooms,
-                    agent=agent,
-                    dry_run=True,
-                    csproj_room_map=csproj_room_map,
-                )
+                try:
+                    drawers = process_file(
+                        filepath=filepath,
+                        project_path=project_path,
+                        collection=collection,
+                        wing=wing,
+                        rooms=rooms,
+                        agent=agent,
+                        dry_run=True,
+                        csproj_room_map=csproj_room_map,
+                    )
+                except OSError as exc:
+                    _warn_source_read_error(filepath, exc)
+                    files_failed += 1
+                    continue
                 total_drawers += drawers
+                files_processed += 1
                 room = detect_room(
                     filepath, "", rooms, project_path, csproj_room_map=csproj_room_map
                 )
@@ -550,6 +577,9 @@ def mine(
                 continue
 
             assert collection is not None
+            if source_file in _hash_failed_paths:
+                continue
+
             # Print scanning progress every 100 files so large repos aren't silent
             if i % 100 == 0 or i == 1:
                 print(
@@ -558,7 +588,12 @@ def mine(
                     flush=True,
                 )
 
-            current_hash = _precomputed_hashes.get(source_file) or _file_hash(filepath)
+            try:
+                current_hash = _precomputed_hashes.get(source_file) or _file_hash(filepath)
+            except OSError as exc:
+                _warn_source_read_error(filepath, exc)
+                files_failed += 1
+                continue
 
             if incremental:
                 stored_hash = existing_hashes.get(source_file, "")
@@ -573,28 +608,27 @@ def mine(
                     # Report as files_tiny so it remains distinct from drawer-backed skips.
                     files_tiny += 1
                     continue
-                # Hash mismatch or new file — delete old drawers then re-mine
-                if source_file in existing_hashes:
-                    collection.delete_by_source_file(source_file, wing)
-                    if kg is not None and filepath.suffix.lower() in _KG_EXTRACT_EXTENSIONS:
-                        kg.invalidate_by_source_file(source_file)
-            else:
-                # --full mode: unconditionally delete existing drawers and re-mine
+            try:
+                specs = _collect_specs_for_file(
+                    filepath,
+                    project_path,
+                    collection,
+                    wing,
+                    rooms,
+                    agent,
+                    mined_files=set(),
+                    source_hash=current_hash,
+                    csproj_room_map=csproj_room_map,
+                )
+            except OSError as exc:
+                _warn_source_read_error(filepath, exc)
+                files_failed += 1
+                continue
+
+            if not incremental or source_file in existing_hashes:
                 collection.delete_by_source_file(source_file, wing)
                 if kg is not None and filepath.suffix.lower() in _KG_EXTRACT_EXTENSIONS:
                     kg.invalidate_by_source_file(source_file)
-
-            specs = _collect_specs_for_file(
-                filepath,
-                project_path,
-                collection,
-                wing,
-                rooms,
-                agent,
-                mined_files=None,
-                source_hash=current_hash,
-                csproj_room_map=csproj_room_map,
-            )
 
             # KG triple emission for project/config/XAML/source files
             if kg is not None and filepath.suffix.lower() in _KG_EXTRACT_EXTENSIONS:
@@ -619,6 +653,7 @@ def mine(
 
             # File produced chunks — remove any stale tiny-hash entry.
             tiny_hashes.pop(source_file, None)
+            files_processed += 1
             room = specs[0]["metadata"]["room"]
             room_counts[room] += 1
             print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{len(specs)}")
@@ -710,10 +745,12 @@ def mine(
 
     print(f"\n{'=' * 55}")
     print("  Done.")
-    print(f"  Files processed: {len(files) - files_skipped - files_tiny}")
+    print(f"  Files processed: {files_processed}")
     print(f"  Files skipped (already filed): {files_skipped}")
     if files_tiny:
         print(f"  Files too small to index: {files_tiny}")
+    if files_failed:
+        print(f"  Files failed to read: {files_failed}")
     print(f"  Drawers filed: {total_drawers}")
     print(f"  Time: {mins}m {secs}s")
     print("\n  By room:")
@@ -726,9 +763,10 @@ def mine(
         _save_tiny_hashes(palace_path, wing, tiny_hashes)
 
     return {
-        "files_processed": len(files) - files_skipped - files_tiny,
+        "files_processed": files_processed,
         "files_skipped": files_skipped,
         "files_tiny": files_tiny,
+        "files_failed": files_failed,
         "drawers_filed": total_drawers,
         "elapsed_secs": elapsed,
         "embedder_warmed": embedder_warmed,

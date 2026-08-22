@@ -1,5 +1,7 @@
 ---
 slug: LOGIC-EXTRACTION
+status: completed
+authority: non_authoritative
 goal: "Add MCP tool mempalace_extract_reusable that classifies transitive dependencies of a symbol/project as core, platform, or glue and identifies the minimal public interface for extraction"
 risk: low
 risk_note: "Composes existing KG query primitives (query_entity, query_relationship) with a BFS traversal pattern already proven in type_dependency_chain. No schema changes, no new storage, no new dependencies. Classification logic is pure pattern-matching on KG predicate names and entity values. Same architectural pattern as tool_explain_subsystem (thin handler composing existing primitives). Limitation: KG entities are matched by exact short name — same-name types in different namespaces are not coalesced."

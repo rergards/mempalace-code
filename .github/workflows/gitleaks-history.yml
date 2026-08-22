@@ -1,0 +1,56 @@
+name: Gitleaks History
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-history:
+    # Scheduled runs on a fork would scan an unrelated history against this
+    # repository's baseline and burn the fork owner's minutes; the scan is only
+    # meaningful on the upstream repository.
+    if: github.repository == 'rergards/mempalace-code'
+    runs-on: ubuntu-latest
+    # A full-history scan of this repository takes roughly two minutes; the cap
+    # bounds a pathological scan or a hung install instead of holding a runner.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: tools/gitleaks/go.mod
+          # The scanner binary is built here, so a restored build cache would be
+          # an input to a security gate. go.sum already makes the source
+          # verifiable; the cache would not be.
+          cache: false
+      # Installs the Gitleaks version pinned by tools/gitleaks/go.mod and locked by
+      # tools/gitleaks/go.sum. Dependabot's gomod ecosystem owns that upgrade.
+      - uses: ./.github/actions/gitleaks-gate
+      - name: Validate Gitleaks baseline metadata
+        run: python scripts/gitleaks_scan.py validate-baseline
+      - name: Gitleaks synthetic fixture smoke
+        run: >
+          python scripts/gitleaks_scan.py fixture-smoke
+          --artifact-dir "${{ runner.temp }}/gitleaks/fixture-smoke"
+      # Artifacts land in RUNNER_TEMP, never in the checkout, so the worktree stays
+      # clean and no scan output can ever be committed.
+      - name: Gitleaks full-history scan
+        run: >
+          python scripts/gitleaks_scan.py full-history
+          --artifact-dir "${{ runner.temp }}/gitleaks/full-history"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: gitleaks-full-history
+          path: ${{ runner.temp }}/gitleaks/full-history/
+          retention-days: 7

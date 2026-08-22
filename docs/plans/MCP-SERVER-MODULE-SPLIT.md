@@ -1,5 +1,7 @@
 ---
 slug: MCP-SERVER-MODULE-SPLIT
+status: completed
+authority: non_authoritative
 goal: "Split the MCP server monolith into tool-family modules with one stable registry and dispatch entrypoint"
 risk: medium
 risk_note: "Large no-behavior-change refactor of the MCP import graph, mutable test seams, registry assembly, and stdio entrypoint; risk is controlled by preserving the 28-tool registry shape, profile filtering, lazy startup, and compatibility imports"

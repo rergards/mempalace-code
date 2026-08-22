@@ -18,6 +18,7 @@ import logging
 import ntpath
 import os
 import shutil
+import stat
 import sys
 import tarfile
 import tempfile
@@ -77,6 +78,66 @@ def _validate_archive_members(members: List[tarfile.TarInfo]) -> None:
         parts = rel.replace("\\", "/").split("/")
         if any(p in ("", "..") or ntpath.splitdrive(p)[0] for p in parts):
             raise BackupArchiveError("unsafe_archive_member", name)
+
+
+def _restore_destination_collisions(
+    palace_path: str,
+    kg_path: str,
+    allowed_palace_entries: frozenset[str] = frozenset(),
+) -> List[str]:
+    """Return existing restore destinations without following the palace root.
+
+    A real empty palace directory is reusable. Every other palace root shape and
+    every directory entry not created by this restore counts as state. ``lexists``
+    keeps dangling KG symlinks inside the collision boundary.
+    """
+    collisions: List[str] = []
+    try:
+        palace_mode = os.lstat(palace_path).st_mode
+    except FileNotFoundError:
+        pass
+    else:
+        if not stat.S_ISDIR(palace_mode):
+            collisions.append(palace_path)
+        else:
+            try:
+                entries = set(os.listdir(palace_path))
+            except FileNotFoundError:
+                entries = set()
+            if entries - allowed_palace_entries:
+                collisions.append(palace_path)
+
+    if os.path.lexists(kg_path):
+        collisions.append(kg_path)
+    return collisions
+
+
+def _refuse_restore_collisions(
+    palace_path: str,
+    kg_path: str,
+    allowed_palace_entries: frozenset[str] = frozenset(),
+) -> None:
+    collisions = _restore_destination_collisions(palace_path, kg_path, allowed_palace_entries)
+    if collisions:
+        destinations = ", ".join(repr(path) for path in collisions)
+        raise FileExistsError(
+            f"Restore destination already contains state: {destinations}. "
+            "Use --force to overwrite managed state."
+        )
+
+
+def _remove_owned_lance_dir(lance_dir: str, owner: tuple[int, int] | None) -> bool:
+    """Remove ``lance_dir`` only when this restore still owns its claimed root."""
+    if owner is None:
+        return False
+    try:
+        current = os.lstat(lance_dir)
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != owner:
+        return False
+    shutil.rmtree(lance_dir)
+    return True
 
 
 def estimate_backup_source_bytes(palace_path: str, kg_path: Optional[str] = None) -> int:
@@ -308,9 +369,9 @@ def restore_backup(
     palace_path:
         Root directory where the palace should be restored.
     force:
-        When ``True``, an existing non-empty ``lance/`` directory is removed
-        before extraction.  When ``False`` (default) a non-empty palace raises
-        :class:`FileExistsError`.
+        When ``True``, existing managed palace and KG state may be replaced.
+        When ``False`` (default), any existing palace or selected KG state raises
+        :class:`FileExistsError`; a real empty palace directory remains reusable.
     kg_path:
         Destination for the knowledge-graph SQLite file.  Defaults to
         ``knowledge_graph.DEFAULT_KG_PATH``.
@@ -323,7 +384,8 @@ def restore_backup(
     Raises
     ------
     FileExistsError
-        If the palace already contains data and *force* is ``False``.
+        If the palace or selected KG destination contains state and *force* is
+        ``False``.
     BackupArchiveError
         If the archive contains an unsafe or malformed managed member (traversal,
         absolute path, or non-file/non-directory type), or if
@@ -335,6 +397,7 @@ def restore_backup(
         kg_path = DEFAULT_KG_PATH
 
     lance_dir = os.path.join(palace_path, "lance")
+    palace_was_absent = not os.path.lexists(palace_path)
     metadata: dict = {}
 
     with tarfile.open(archive_path, "r:gz") as tar:
@@ -353,13 +416,21 @@ def restore_backup(
                         "malformed_metadata", "mempalace_backup/metadata.json"
                     ) from exc
 
-        if os.path.isdir(lance_dir) and os.listdir(lance_dir):
-            if not force:
-                raise FileExistsError(
-                    f"Palace at {palace_path!r} already contains data (lance/ is non-empty). "
-                    "Use --force to overwrite."
-                )
-            shutil.rmtree(lance_dir)
+        # Validation and metadata parsing complete before any destination mutation.
+        if not force:
+            _refuse_restore_collisions(palace_path, kg_path)
+        else:
+            try:
+                palace_mode = os.lstat(palace_path).st_mode
+            except FileNotFoundError:
+                palace_mode = None
+            if palace_mode is not None and not stat.S_ISDIR(palace_mode):
+                os.unlink(palace_path)
+            elif os.path.lexists(lance_dir):
+                if os.path.islink(lance_dir) or not os.path.isdir(lance_dir):
+                    os.unlink(lance_dir)
+                else:
+                    shutil.rmtree(lance_dir)
 
         with tempfile.TemporaryDirectory(prefix="mempalace_restore_") as tmpdir:
             for member in members:
@@ -388,22 +459,63 @@ def restore_backup(
                             dst.write(src.read())
 
             extracted_lance = os.path.join(tmpdir, "lance")
+            lance_owner: tuple[int, int] | None = None
+
+            def rollback_owned_lance() -> None:
+                if _remove_owned_lance_dir(lance_dir, lance_owner):
+                    if (
+                        palace_was_absent
+                        and os.path.isdir(palace_path)
+                        and not os.listdir(palace_path)
+                    ):
+                        os.rmdir(palace_path)
+
             if os.path.isdir(extracted_lance):
+                if not force:
+                    _refuse_restore_collisions(palace_path, kg_path)
                 os.makedirs(palace_path, exist_ok=True)
-                shutil.copytree(extracted_lance, lance_dir)
+                try:
+                    os.mkdir(lance_dir)
+                except FileExistsError:
+                    if not force:
+                        _refuse_restore_collisions(palace_path, kg_path)
+                    raise
+                claimed_lance = os.lstat(lance_dir)
+                lance_owner = (claimed_lance.st_dev, claimed_lance.st_ino)
+                try:
+                    shutil.copytree(extracted_lance, lance_dir, dirs_exist_ok=True)
+                except Exception:
+                    rollback_owned_lance()
+                    raise
 
             extracted_kg = os.path.join(tmpdir, "knowledge_graph.sqlite3")
             if os.path.isfile(extracted_kg):
-                if os.path.isfile(kg_path):
+                if force and os.path.lexists(kg_path):
                     print(
                         f"  Warning: overwriting existing knowledge graph at {kg_path}",
                         file=sys.stderr,
                     )
                 kg_dir = os.path.dirname(os.path.abspath(kg_path))
                 os.makedirs(kg_dir, exist_ok=True)
-                kg_tmp = kg_path + ".tmp"
-                shutil.copy2(extracted_kg, kg_tmp)
-                os.replace(kg_tmp, kg_path)
+                kg_fd, kg_tmp = tempfile.mkstemp(
+                    dir=kg_dir,
+                    prefix=f".{os.path.basename(kg_path)}.",
+                    suffix=".tmp",
+                )
+                try:
+                    with os.fdopen(kg_fd, "wb") as dst, open(extracted_kg, "rb") as src:
+                        shutil.copyfileobj(src, dst)
+                    if not force:
+                        try:
+                            os.link(kg_tmp, kg_path)
+                        except OSError:
+                            rollback_owned_lance()
+                            raise
+                    else:
+                        os.replace(kg_tmp, kg_path)
+                finally:
+                    if os.path.lexists(kg_tmp):
+                        os.unlink(kg_tmp)
 
     return metadata
 

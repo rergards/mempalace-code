@@ -1,5 +1,7 @@
 ---
 slug: BENCH-RESULTS-MISSING-FILES
+status: completed
+authority: non_authoritative
 goal: "Make benchmark documentation honest about absent historical raw result files."
 risk: low
 risk_note: "Docs-only update that qualifies file-availability claims; no benchmark scripts, result data, or scores change."

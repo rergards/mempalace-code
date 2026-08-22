@@ -1,5 +1,7 @@
 ---
 slug: DOTNET-CS-MULTILINE-BASE
+status: completed
+authority: non_authoritative
 goal: "Add continuation-line joining to _csharp_type_rels so multi-line base-type declarations produce KG triples"
 risk: low
 risk_note: "Pure preprocessing step; existing regex patterns and _split_base_list are unchanged. Worst case: over-joined lines that still don't match the strict type-declaration prefixes."

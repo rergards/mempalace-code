@@ -1,5 +1,7 @@
 ---
 slug: MCP-TOOL-PROFILES
+status: completed
+authority: non_authoritative
 goal: "Add startup-time MCP tool profiles plus explicit include/exclude filtering while keeping full as the default"
 risk: medium
 risk_note: "Changes server startup argument parsing and MCP dispatch visibility; hidden tools must be filtered from both tools/list and direct tools/call without changing existing default schemas"

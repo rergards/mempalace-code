@@ -3,17 +3,21 @@
 import os
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 from ..config import MempalaceConfig
+from ..source_io import RegularSourceError
 from .common import parse_include_ignored
 
 
 def cmd_init(args):
     import json
 
-    from ..room_detector_local import detect_rooms_local
-
-    config = MempalaceConfig()
+    from ..room_detector_local import (
+        detect_rooms_local,
+        validate_init_destinations,
+        write_regular_destination,
+    )
 
     # Validate directory before any side effects — must precede entity scanning
     project_path = Path(args.dir).expanduser().resolve()
@@ -21,7 +25,20 @@ def cmd_init(args):
         print(f"  Error: directory not found: {args.dir}", file=sys.stderr)
         sys.exit(1)
 
+    def exit_destination_error(exc: OSError) -> NoReturn:
+        print(f"  Error: {exc}", file=sys.stderr)
+        print(
+            f"  Next: fix the destination, then rerun: mempalace-code init {project_path}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    config = MempalaceConfig()
     detect_entities_enabled = getattr(args, "detect_entities", False) or config.entity_detection
+    try:
+        destinations = validate_init_destinations(project_path, detect_entities_enabled)
+    except OSError as exc:
+        exit_destination_error(exc)
 
     if detect_entities_enabled:
         from ..entity_detector import confirm_entities, detect_entities, scan_for_detection
@@ -35,18 +52,23 @@ def cmd_init(args):
             if total > 0:
                 confirmed = confirm_entities(detected, yes=getattr(args, "yes", False))
                 if confirmed["people"] or confirmed["projects"]:
-                    entities_path = project_path / "entities.json"
-                    with open(entities_path, "w") as f:
-                        json.dump(confirmed, f, indent=2)
+                    entities_path = destinations["entities.json"]
+                    try:
+                        write_regular_destination(entities_path, json.dumps(confirmed, indent=2))
+                    except OSError as exc:
+                        exit_destination_error(exc)
                     print(f"  Entities saved: {entities_path}")
             else:
                 print("  No entities detected — proceeding with directory-based rooms.")
 
-    detect_rooms_local(
-        project_dir=args.dir,
-        yes=getattr(args, "yes", False),
-        interactive=getattr(args, "interactive", False),
-    )
+    try:
+        detect_rooms_local(
+            project_dir=args.dir,
+            yes=getattr(args, "yes", False),
+            interactive=getattr(args, "interactive", False),
+        )
+    except RegularSourceError as exc:
+        exit_destination_error(exc)
     config.init()
 
     if not getattr(args, "skip_model_download", False):
@@ -66,9 +88,13 @@ def cmd_init(args):
 
 def cmd_onboarding(args):
     """Guided onboarding: seeds people, projects, and wing taxonomy interactively."""
+    import sys
+
     from ..onboarding import run_onboarding
 
-    run_onboarding(directory=args.dir)
+    result = run_onboarding(directory=args.dir)
+    if result is None:
+        sys.exit(1)
 
 
 def _resolve_spellcheck(args, config: MempalaceConfig) -> bool:

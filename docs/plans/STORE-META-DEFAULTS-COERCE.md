@@ -1,5 +1,7 @@
 ---
 slug: STORE-META-DEFAULTS-COERCE
+status: completed
+authority: non_authoritative
 goal: "Replace hardcoded int/float coercions in _meta_defaults() with a loop over _META_FIELD_SPEC type_tags"
 risk: low
 risk_note: "Single-function change; no behavior difference for existing fields; covered by existing AC-15 test"

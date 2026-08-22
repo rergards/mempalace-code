@@ -1,5 +1,7 @@
 ---
 slug: UPSTREAM-ENTITY-REGISTRY-ATOMIC-SAVE
+status: completed
+authority: non_authoritative
 goal: "Make entity registry saves crash-safe with atomic same-directory replacement."
 risk: low
 risk_note: "Small isolated persistence change for one JSON registry file, with injectable failure tests around the replace boundary."

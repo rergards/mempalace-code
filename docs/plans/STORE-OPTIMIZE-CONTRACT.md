@@ -1,5 +1,7 @@
 ---
 slug: STORE-OPTIMIZE-CONTRACT
+status: completed
+authority: non_authoritative
 goal: "Make storage optimization an explicit optional capability with typed caller routing"
 risk: low
 risk_note: "Small API cleanup around existing optimize behavior; no schema, persistence, or default config changes."

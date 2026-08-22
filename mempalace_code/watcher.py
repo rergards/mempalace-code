@@ -764,38 +764,6 @@ def _resolve_git_watch_paths(project_map: dict) -> dict:
     return git_to_project
 
 
-def _classify_watch_root(root: Path) -> str:
-    """Classify *root* to determine how watch_all should use it.
-
-    Returns:
-      'initialized' — root contains a mempalace init marker (mempalace.yaml / mempal.yaml).
-      'project'     — root has project markers but no mempalace init marker.
-      'parent'      — root is a plain directory; scan immediate children instead.
-    """
-    import fnmatch as _fnmatch
-
-    from .mining.projects import INIT_MARKERS, PROJECT_MARKER_GLOBS, PROJECT_MARKERS
-
-    try:
-        contents = set(os.listdir(root))
-    except OSError:
-        return "parent"
-
-    if contents & INIT_MARKERS:
-        return "initialized"
-
-    for marker in PROJECT_MARKERS:
-        if marker in contents:
-            return "project"
-
-    for pattern in PROJECT_MARKER_GLOBS:
-        for item in contents:
-            if _fnmatch.fnmatch(item, pattern):
-                return "project"
-
-    return "parent"
-
-
 @_with_watcher_lease
 def watch_all(
     parent_dir: str,
@@ -836,7 +804,7 @@ def watch_all(
         sys.exit(1)
 
     from .knowledge_graph import KnowledgeGraph
-    from .mining.projects import detect_projects, resolve_wing_for_project
+    from .mining.projects import classify_project_root, detect_projects, resolve_wing_for_project
     from .storage import open_store
 
     parent_path = Path(parent_dir).expanduser().resolve()
@@ -844,7 +812,7 @@ def watch_all(
         print(f"  Error: directory not found: {parent_path}", file=sys.stderr)
         sys.exit(1)
 
-    root_kind = _classify_watch_root(parent_path)
+    root_kind, _ = classify_project_root(parent_path)
 
     if root_kind == "initialized":
         # Supplied directory is itself an initialized project — watch it directly.
@@ -1270,9 +1238,9 @@ def render_watch_schedule(
     # Validate root — refuse uninitialized roots that would crash-loop under KeepAlive.
     # Only validates when the directory already exists; future directories are allowed.
     if watch_root.is_dir():
-        from .mining.projects import detect_projects
+        from .mining.projects import classify_project_root, detect_projects
 
-        root_kind = _classify_watch_root(watch_root)
+        root_kind, _ = classify_project_root(watch_root)
         if root_kind == "project":
             raise ValueError(
                 f"{watch_root} is a project directory but has not been initialized.\n"

@@ -1,5 +1,7 @@
 ---
 slug: ARCH-EXTRACTION-MODE
+status: completed
+authority: non_authoritative
 goal: "Plan a post-mining architecture extraction pass that emits pattern, layer, namespace, and project KG facts."
 risk: medium
 risk_note: "Touches incremental mining and KG lifecycle; predicate-scoped invalidation is needed to avoid stale or expired unrelated facts."

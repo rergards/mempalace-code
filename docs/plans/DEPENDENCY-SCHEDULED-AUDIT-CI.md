@@ -1,5 +1,7 @@
 ---
 slug: DEPENDENCY-SCHEDULED-AUDIT-CI
+status: completed
+authority: non_authoritative
 goal: "Add a scheduled dependency audit workflow for current resolved packages without changing dependency bounds or uv.lock."
 risk: medium
 risk_note: "This is a hosted CI and dependency-security change with networked advisory/resolver checks; false positives can create noisy issues and false negatives can miss vulnerable current packages."

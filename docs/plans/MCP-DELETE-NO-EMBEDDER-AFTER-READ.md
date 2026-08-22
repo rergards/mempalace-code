@@ -1,5 +1,7 @@
 ---
 slug: MCP-DELETE-NO-EMBEDDER-AFTER-READ
+status: completed
+authority: non_authoritative
 goal: "Let MCP delete tools delete existing Lance rows after read-only cache access without starting the embedder"
 risk: medium
 risk_note: "Small storage-open change, but it touches Lance schema-open timing and must preserve add/upsert embedding behavior."

@@ -5,10 +5,12 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).parent.parent
+SHA = "a" * 40
 
 
 def _load_module(name: str, path: Path):
@@ -98,6 +100,97 @@ def _mock_smoke_fail() -> list[dict]:
     ]
 
 
+def _admission_git_ok(args: list[str]) -> tuple[int, str, str]:
+    if args[:3] == ["ls-remote", "--tags", "--refs"]:
+        return 0, f"{SHA}\trefs/tags/v1.2.3\n", ""
+    return 0, "", ""
+
+
+def _admission_http_ok(_url: str) -> tuple[int, bytes, str]:
+    data = {
+        "releases": {
+            "1.2.3": [
+                {"packagetype": "bdist_wheel"},
+                {"packagetype": "sdist"},
+            ]
+        }
+    }
+    return 200, json.dumps(data).encode(), ""
+
+
+def _branch_rules_ok() -> list[dict[str, object]]:
+    """Shape of GET /repos/{repo}/rules/branches/{branch}: effective rules only."""
+    return [
+        {"type": "deletion"},
+        {"type": "non_fast_forward"},
+        {
+            "type": "required_status_checks",
+            "parameters": {"required_status_checks": [{"context": "release-required"}]},
+        },
+    ]
+
+
+def _ruleset_summaries_ok() -> list[dict[str, object]]:
+    """Shape of GET /repos/{repo}/rulesets: summaries carry no rules or conditions."""
+    return [
+        {"id": 11, "name": "public-v-tags-restricted", "target": "tag", "enforcement": "active"}
+    ]
+
+
+def _ruleset_detail_ok() -> dict[str, object]:
+    """Shape of GET /repos/{repo}/rulesets/{id}: rules and conditions are here."""
+    return {
+        "id": 11,
+        "name": "public-v-tags-restricted",
+        "target": "tag",
+        "enforcement": "active",
+        "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
+        "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}],
+        "bypass_actors": [],
+    }
+
+
+def _audit_run(conclusion: str = "success", age_hours: int = 1) -> dict[str, object]:
+    """A dependency-audit run stamped relative to now, never to a fixed date.
+
+    A hardcoded timestamp would age past the freshness window and silently turn
+    this fixture into a time bomb.
+    """
+    stamp = datetime.now(UTC) - timedelta(hours=age_hours)
+    return {
+        "status": "completed",
+        "conclusion": conclusion,
+        "event": "schedule",
+        "updatedAt": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def _admission_gh_ok(args: list[str]) -> tuple[int, str, str]:
+    if args and args[0] == "api" and "check-runs" in args[1]:
+        data = {
+            "check_runs": [
+                {
+                    "name": "release-required",
+                    "head_sha": SHA,
+                    "status": "completed",
+                    "conclusion": "success",
+                }
+            ]
+        }
+        return 0, json.dumps(data), ""
+    if args and args[0] == "api" and "/rules/branches/" in args[1]:
+        return 0, json.dumps(_branch_rules_ok()), ""
+    if args and args[0] == "api" and "/rulesets/" in args[1]:
+        return 0, json.dumps(_ruleset_detail_ok()), ""
+    if args and args[0] == "api" and "/rulesets" in args[1]:
+        return 0, json.dumps(_ruleset_summaries_ok()), ""
+    if "release" in args and "list" in args:
+        return 0, json.dumps([{"tagName": "v1.2.3", "isDraft": False}]), ""
+    if "run" in args and "list" in args and "Dependency Audit" in args:
+        return 0, json.dumps([_audit_run()]), ""
+    return 0, "[]", ""
+
+
 # ── _make_row ─────────────────────────────────────────────────────────────────
 
 
@@ -126,6 +219,82 @@ def test_run_readiness_all_green(tmp_path):
     assert len(result["rows"]) > 0
     statuses = {r["status"] for r in result["rows"]}
     assert "fail" not in statuses
+
+
+def test_run_readiness_public_admission_rows_pass_with_read_only_fixtures(tmp_path):
+    with (
+        patch.object(rrg, "_run_inventory_check", return_value=_mock_inventory_ok()),
+        patch.object(rrg, "_build_artifacts", return_value=_mock_build_ok()),
+        patch.object(rrg, "_run_artifact_inspection", return_value=_mock_artifact_rows_ok()),
+        patch.object(rrg, "_run_install_smoke", return_value=_mock_smoke_ok()),
+    ):
+        result = rrg.run_readiness(
+            tmp_path,
+            public_admission=True,
+            version="1.2.3",
+            candidate_sha=SHA,
+            run_git=_admission_git_ok,
+            run_gh=_admission_gh_ok,
+            http_get=_admission_http_ok,
+        )
+
+    assert result["ok"] is True
+    ids = {row["id"] for row in result["rows"]}
+    assert "aggregate_required_check" in ids
+    assert "public_main_protection" in ids
+    assert "public_v_tag_ruleset" in ids
+    assert "public_orphan_tags" in ids
+    assert "dependency_audit_freshness" in ids
+
+
+def test_run_readiness_public_admission_failures_propagate_with_remediation(tmp_path):
+    def gh_failures(args: list[str]) -> tuple[int, str, str]:
+        if args and args[0] == "api" and "check-runs" in args[1]:
+            data = {
+                "check_runs": [
+                    {
+                        "name": "release-required",
+                        "head_sha": SHA,
+                        "status": "completed",
+                        "conclusion": "cancelled",
+                    }
+                ]
+            }
+            return 0, json.dumps(data), ""
+        if args and args[0] == "api" and "/rules/branches/" in args[1]:
+            return 0, json.dumps([]), ""
+        if args and args[0] == "api" and "/rulesets" in args[1]:
+            return 0, json.dumps([]), ""
+        if "release" in args and "list" in args:
+            return 0, json.dumps([]), ""
+        if "run" in args and "list" in args and "Dependency Audit" in args:
+            return 0, json.dumps([_audit_run(conclusion="failure")]), ""
+        return 0, "[]", ""
+
+    with (
+        patch.object(rrg, "_run_inventory_check", return_value=_mock_inventory_ok()),
+        patch.object(rrg, "_build_artifacts", return_value=_mock_build_ok()),
+        patch.object(rrg, "_run_artifact_inspection", return_value=_mock_artifact_rows_ok()),
+        patch.object(rrg, "_run_install_smoke", return_value=_mock_smoke_ok()),
+    ):
+        result = rrg.run_readiness(
+            tmp_path,
+            public_admission=True,
+            version="1.2.3",
+            candidate_sha=SHA,
+            run_git=_admission_git_ok,
+            run_gh=gh_failures,
+            http_get=_admission_http_ok,
+        )
+
+    assert result["ok"] is False
+    failing = {row["id"]: row for row in result["rows"] if row["status"] != "pass"}
+    assert failing["aggregate_required_check"]["status"] == "fail"
+    assert failing["public_main_protection"]["status"] == "fail"
+    assert failing["public_v_tag_ruleset"]["status"] == "fail"
+    assert failing["public_orphan_tags"]["status"] == "fail"
+    assert failing["dependency_audit_freshness"]["status"] == "fail"
+    assert all(row.get("remediation") for row in failing.values())
 
 
 def test_run_readiness_inventory_failure_propagates(tmp_path):
@@ -302,8 +471,8 @@ def test_main_single_canonical_failure_exits_1(tmp_path):
 # ── Integration boundary: wheel path forwarding ───────────────────────────────
 
 
-def test_install_smoke_forwards_wheel_to_both_apis(tmp_path):
-    """_run_install_smoke passes the .whl path to run_venv_smoke and run_pipx_smoke.
+def test_install_smoke_forwards_wheel_to_all_available_apis(tmp_path):
+    """_run_install_smoke passes the .whl path to every available installer smoke.
 
     This test does not mock the integration boundary: it loads the real smoke module
     and stubs only the slow install steps, so calling a nonexistent smoke.run_smoke
@@ -318,37 +487,80 @@ def test_install_smoke_forwards_wheel_to_both_apis(tmp_path):
         "_test_smoke_fwd", ROOT / "scripts" / "release_install_metadata_smoke.py"
     )
 
-    venv_calls: list[str] = []
-    pipx_calls: list[str] = []
+    calls: dict[str, list[str]] = {
+        "venv": [],
+        "pipx": [],
+        "bootstrap-venv": [],
+        "uv-tool": [],
+    }
 
     def fake_venv(install_spec, package, run_subprocess):
-        venv_calls.append(install_spec)
+        calls["venv"].append(install_spec)
         return smoke_mod.SmokeResult(
             ok=True, expected_version="1.0.0", installer="venv", install_spec=install_spec
         )
 
     def fake_pipx(install_spec, package, run_subprocess):
-        pipx_calls.append(install_spec)
+        calls["pipx"].append(install_spec)
         return smoke_mod.SmokeResult(
             ok=True, expected_version="1.0.0", installer="pipx", install_spec=install_spec
         )
 
+    def fake_bootstrap(install_spec, package, run_subprocess):
+        calls["bootstrap-venv"].append(install_spec)
+        return smoke_mod.SmokeResult(
+            ok=True,
+            expected_version="1.0.0",
+            installer="bootstrap-venv",
+            install_spec=install_spec,
+        )
+
+    def fake_uv(install_spec, package, run_subprocess):
+        calls["uv-tool"].append(install_spec)
+        return smoke_mod.SmokeResult(
+            ok=True, expected_version="1.0.0", installer="uv-tool", install_spec=install_spec
+        )
+
     vars(smoke_mod)["run_venv_smoke"] = fake_venv
     vars(smoke_mod)["run_pipx_smoke"] = fake_pipx
+    vars(smoke_mod)["run_bootstrap_venv_smoke"] = fake_bootstrap
+    vars(smoke_mod)["run_uv_tool_smoke"] = fake_uv
+    vars(smoke_mod)["find_uv_executable"] = lambda: "/test/bin/uv"
 
     with patch.object(rrg, "_load_sibling", return_value=smoke_mod):
         rows = rrg._run_install_smoke(dist_dir)
 
-    assert venv_calls, "run_venv_smoke was not called"
-    assert venv_calls[0].endswith(".whl"), (
-        f"venv install_spec must be a wheel path, got {venv_calls[0]!r}"
+    assert all(paths and paths[0].endswith(".whl") for paths in calls.values())
+    assert {r["id"] for r in rows} == {
+        "install_smoke_venv",
+        "install_smoke_pipx",
+        "install_smoke_bootstrap_venv",
+        "install_smoke_uv_tool",
+    }
+
+
+def test_install_smoke_skips_uv_only_when_executable_unavailable(tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "mempalace_code-1.0.0-py3-none-any.whl").write_bytes(b"fake-wheel")
+    smoke_mod = _load_module(
+        "_test_smoke_uv_skip", ROOT / "scripts" / "release_install_metadata_smoke.py"
     )
-    assert pipx_calls, "run_pipx_smoke was not called"
-    assert pipx_calls[0].endswith(".whl"), (
-        f"pipx install_spec must be a wheel path, got {pipx_calls[0]!r}"
-    )
-    assert any(r["id"] == "install_smoke_venv" for r in rows)
-    assert any(r["id"] == "install_smoke_pipx" for r in rows)
+
+    def fake_ok(install_spec, package, run_subprocess):
+        return smoke_mod.SmokeResult(True, "1.0.0", "test", install_spec)
+
+    vars(smoke_mod)["run_venv_smoke"] = fake_ok
+    vars(smoke_mod)["run_pipx_smoke"] = fake_ok
+    vars(smoke_mod)["run_bootstrap_venv_smoke"] = fake_ok
+    vars(smoke_mod)["find_uv_executable"] = lambda: None
+
+    with patch.object(rrg, "_load_sibling", return_value=smoke_mod):
+        rows = rrg._run_install_smoke(dist_dir)
+
+    uv_row = next(row for row in rows if row["id"] == "install_smoke_uv_tool")
+    assert uv_row["status"] == "skip"
+    assert all(row["status"] == "pass" for row in rows if row is not uv_row)
 
 
 def test_install_smoke_uses_real_api_not_run_smoke():
@@ -367,3 +579,70 @@ def test_install_smoke_uses_real_api_not_run_smoke():
     )
     assert callable(getattr(smoke_mod, "run_venv_smoke", None)), "run_venv_smoke must be callable"
     assert callable(getattr(smoke_mod, "run_pipx_smoke", None)), "run_pipx_smoke must be callable"
+
+
+# ── AC-9 / VER-7: bootstrap-venv forwarding, venv+pipx coverage ───────────────
+
+
+def test_install_smoke_produces_venv_and_pipx_rows_with_distinct_installer_ids(tmp_path):
+    """_run_install_smoke produces separate rows for venv and pipx installers.
+
+    Each row must carry a distinct installer identifier so the readiness gate can
+    report them as independent dimensions, not conflate two executions into one row.
+    """
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    wheel = dist_dir / "mempalace_code-1.0.0-py3-none-any.whl"
+    wheel.write_bytes(b"fake-wheel")
+
+    smoke_mod = _load_module(
+        "_test_smoke_rows", ROOT / "scripts" / "release_install_metadata_smoke.py"
+    )
+
+    def fake_venv(install_spec, package, run_subprocess):
+        return smoke_mod.SmokeResult(True, "1.0.0", smoke_mod.INSTALLER_VENV, install_spec)
+
+    def fake_pipx(install_spec, package, run_subprocess):
+        return smoke_mod.SmokeResult(True, "1.0.0", smoke_mod.INSTALLER_PIPX, install_spec)
+
+    vars(smoke_mod)["run_venv_smoke"] = fake_venv
+    vars(smoke_mod)["run_pipx_smoke"] = fake_pipx
+
+    with patch.object(rrg, "_load_sibling", return_value=smoke_mod):
+        rows = rrg._run_install_smoke(dist_dir)
+
+    installer_ids = {r["id"] for r in rows}
+    assert "install_smoke_venv" in installer_ids, f"Missing venv row; got ids: {installer_ids}"
+    assert "install_smoke_pipx" in installer_ids, f"Missing pipx row; got ids: {installer_ids}"
+    assert len({r["id"] for r in rows}) == len(rows), "Duplicate row ids detected"
+
+
+def test_install_smoke_marks_row_pass_when_smoke_ok_and_fail_when_not(tmp_path):
+    """_run_install_smoke row status reflects smoke result.ok for each installer."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    wheel = dist_dir / "mempalace_code-1.0.0-py3-none-any.whl"
+    wheel.write_bytes(b"fake-wheel")
+
+    smoke_mod = _load_module(
+        "_test_smoke_status", ROOT / "scripts" / "release_install_metadata_smoke.py"
+    )
+
+    def fake_venv(install_spec, package, run_subprocess):
+        return smoke_mod.SmokeResult(True, "1.0.0", smoke_mod.INSTALLER_VENV, install_spec)
+
+    def fake_pipx(install_spec, package, run_subprocess):
+        return smoke_mod.SmokeResult(
+            False, None, smoke_mod.INSTALLER_PIPX, install_spec, diagnostics=["version mismatch"]
+        )
+
+    vars(smoke_mod)["run_venv_smoke"] = fake_venv
+    vars(smoke_mod)["run_pipx_smoke"] = fake_pipx
+
+    with patch.object(rrg, "_load_sibling", return_value=smoke_mod):
+        rows = rrg._run_install_smoke(dist_dir)
+
+    venv_row = next(r for r in rows if r["id"] == "install_smoke_venv")
+    pipx_row = next(r for r in rows if r["id"] == "install_smoke_pipx")
+    assert venv_row["status"] == "pass", f"venv row status wrong: {venv_row}"
+    assert pipx_row["status"] in ("fail", "error"), f"pipx row status wrong: {pipx_row}"

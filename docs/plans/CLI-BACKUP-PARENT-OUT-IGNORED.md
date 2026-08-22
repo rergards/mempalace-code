@@ -1,5 +1,7 @@
 ---
 slug: CLI-BACKUP-PARENT-OUT-IGNORED
+status: completed
+authority: non_authoritative
 goal: "Honor documented backup --out FILE create compatibility form"
 risk: low
 risk_note: "A narrow CLI dispatch fix with one parser path and regression tests; no storage format or data migration changes."

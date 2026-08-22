@@ -2,13 +2,7 @@
 
 ## The Silent Data Loss Problem
 
-The intuitive "fix my palace" workflow is:
-
-```bash
-rm -rf ~/.mempalace/palace && mempalace-code mine ~/projects/my_app
-```
-
-This silently destroys:
+Replacing the active palace before validating recovery artifacts can destroy:
 
 - **Drawers added via `mempalace_add_drawer`** (MCP tool) — architectural decisions, people facts, debugging notes, meeting context
 - **Diary entries** written via `mempalace_diary_write` — agent session journals and continuity entries
@@ -18,53 +12,145 @@ The miner only regenerates code-chunked drawers (`chunker_strategy: regex_struct
 
 ---
 
-## Recommended Workflow: Export Before Nuke
+## Recommended Rebuild Workflow
 
-**Step 1 — Export your manual drawers and KG before nuking:**
+This is the complete rebuild procedure. Keep every command in one shell so the
+same explicit paths are used throughout. Replace `SOURCE` and `KNOWN_QUERY`
+before running anything. `KNOWN_QUERY` must identify content you expect to find
+after rebuilding.
 
 ```bash
-mempalace-code export --only-manual --with-kg --out ~/.mempalace/backup.jsonl
+set -euo pipefail
+
+PALACE="${HOME}/.mempalace/palace"
+SOURCE="${HOME}/projects/my_app"
+KNOWN_QUERY="a known decision or source phrase"
+EXPORT_JSONL="${HOME}/.mempalace/recovery-manual.jsonl"
+BACKUP_TAR="${HOME}/.mempalace/recovery-full.tar.gz"
+QUARANTINE="${PALACE}.quarantine-$(date -u +%Y%m%dT%H%M%SZ)"
+
+: "${PALACE:?set PALACE to the inspected active palace}"
+: "${SOURCE:?set SOURCE to the source directory}"
+: "${KNOWN_QUERY:?set KNOWN_QUERY to expected content}"
+: "${EXPORT_JSONL:?set EXPORT_JSONL to a new JSONL path}"
+: "${BACKUP_TAR:?set BACKUP_TAR to a new tar path}"
+: "${QUARANTINE:?set QUARANTINE to a new sibling path}"
+test -d "$PALACE/lance"
+test -d "$SOURCE"
+PALACE_ID="$(cd "$PALACE" && pwd -P)"
+SOURCE_ID="$(cd "$SOURCE" && pwd -P)"
+: "${PALACE_ID:?failed to resolve PALACE identity}"
+: "${SOURCE_ID:?failed to resolve SOURCE identity}"
+test ! -e "$EXPORT_JSONL"
+test ! -e "$BACKUP_TAR"
+test ! -e "$QUARANTINE"
+
+mempalace-code --palace "$PALACE" export --only-manual --with-kg --out "$EXPORT_JSONL"
+mempalace-code --palace "$PALACE" import "$EXPORT_JSONL" --dry-run
+mempalace-code --palace "$PALACE" backup create --out "$BACKUP_TAR"
+tar -tzf "$BACKUP_TAR"
+
+test "$(cd "$PALACE" && pwd -P)" = "$PALACE_ID"
+test "$(cd "$SOURCE" && pwd -P)" = "$SOURCE_ID"
+test -d "$PALACE/lance"
+test ! -e "$QUARANTINE"
+mv "$PALACE" "$QUARANTINE"
+mempalace-code --palace "$PALACE" mine "$SOURCE"
+mempalace-code --palace "$PALACE" import "$EXPORT_JSONL"
+mempalace-code --palace "$PALACE" health
+mempalace-code --palace "$PALACE" search "$KNOWN_QUERY" --limit 5
 ```
 
-This produces a JSONL file containing:
+The fail-fast setting stops the workflow when any command fails. The JSONL
+import dry run validates input and opens existing palace state read-only when
+present. It does not write palace or KG state. When the selected palace and KG
+are absent, it does not create them or initialize temporary, embedding-model, or
+cache state. Here it previews record import without applying records. Inspect
+the `tar -tzf` listing and confirm it contains `metadata.json` and the expected
+`lance/` content. The JSONL contains:
+
 - All drawers with `chunker_strategy` in `manual_v1` (MCP `add_drawer`) or `diary_v1` (diary entries)
-- All KG triples (no `--only-manual` filtering for KG — it's always fully exported)
+- All triples from the separate global KG at
+  `~/.mempalace/knowledge_graph.sqlite3`; `--only-manual` does not filter KG records
 
-**Step 2 — Nuke and re-mine:**
+That global KG is separate from a palace-local `<palace>/knowledge_graph.sqlite3`.
+
+Import deduplicates against the freshly mined palace. Keep `$QUARANTINE`,
+`$EXPORT_JSONL`, and `$BACKUP_TAR` until the import summary, health result, and
+bounded known-result search are all correct. Only then may you dispose of the
+quarantine.
+
+### Failure recovery
+
+If validation fails, stop the new palace process and recover the
+original palace with the standalone workflow below. Replace the quarantine
+timestamp with the exact path created above.
 
 ```bash
-rm -rf ~/.mempalace/palace
-mempalace-code mine ~/projects/my_app
+set -euo pipefail
+
+PALACE="${HOME}/.mempalace/palace"
+QUARANTINE="${PALACE}.quarantine-REPLACE_WITH_ORIGINAL_TIMESTAMP"
+FAILED_REBUILD="${PALACE}.failed-rebuild-$(date -u +%Y%m%dT%H%M%SZ)"
+
+: "${PALACE:?set PALACE to the failed rebuilt palace}"
+: "${QUARANTINE:?set QUARANTINE to the original quarantine path}"
+: "${FAILED_REBUILD:?set FAILED_REBUILD to a new sibling path}"
+test -d "$QUARANTINE/lance"
+test ! -e "$FAILED_REBUILD"
+if test -e "$PALACE" || test -L "$PALACE"; then
+  mv "$PALACE" "$FAILED_REBUILD"
+fi
+test ! -e "$PALACE"
+test ! -L "$PALACE"
+mv "$QUARANTINE" "$PALACE"
+mempalace-code --palace "$PALACE" health
 ```
 
-**Step 3 — Restore from backup:**
-
-```bash
-mempalace-code import ~/.mempalace/backup.jsonl
-```
-
-Import deduplicates against the freshly-mined palace so you won't get doubles.
+When present, the failed rebuild is preserved at `$FAILED_REBUILD`. The original
+palace is restored for inspection. Do not delete either state during recovery.
 
 ---
 
 ## Restore Procedure
 
 ```bash
-# Restore drawers + KG from a backup
-mempalace-code import backup.jsonl
+set -euo pipefail
 
-# Restore drawers only, skip KG
-mempalace-code import backup.jsonl --skip-kg
+PALACE="${HOME}/.mempalace/palace"
+EXPORT_JSONL="${HOME}/.mempalace/recovery-manual.jsonl"
 
-# Dry run — see what would be imported without writing
-mempalace-code import backup.jsonl --dry-run
+: "${PALACE:?set PALACE to the inspected existing palace}"
+: "${EXPORT_JSONL:?set EXPORT_JSONL to the inspected JSONL path}"
+test -d "$PALACE/lance"
+test -f "$EXPORT_JSONL"
 
-# Override wing for all imported drawers
-mempalace-code import backup.jsonl --wing-override my_project
-
-# Skip dedup check (force-import all records)
-mempalace-code import backup.jsonl --skip-dedup
+mempalace-code --palace "$PALACE" import "$EXPORT_JSONL"
+mempalace-code --palace "$PALACE" health
 ```
+
+Use `--skip-kg` to omit KG triples, `--wing-override NAME` to replace drawer
+wings, or `--skip-dedup` to import every record. Preview the inspected file
+against the inspected existing palace with:
+
+```bash
+set -euo pipefail
+
+PALACE="${HOME}/.mempalace/palace"
+EXPORT_JSONL="${HOME}/.mempalace/recovery-manual.jsonl"
+
+: "${PALACE:?set PALACE to the inspected existing palace}"
+: "${EXPORT_JSONL:?set EXPORT_JSONL to the inspected JSONL path}"
+test -d "$PALACE/lance"
+test -f "$EXPORT_JSONL"
+
+mempalace-code --palace "$PALACE" import "$EXPORT_JSONL" --dry-run
+```
+
+This validates input and opens existing palace state read-only when present. It
+does not write palace or KG state. When the selected palace and KG are absent,
+it does not create them or initialize temporary, embedding-model, or cache
+state. It previews record import without applying records.
 
 ---
 
@@ -150,11 +236,71 @@ The format is human-readable, version-control-friendly, and streamable. You can 
 For full binary snapshots (faster, includes everything, not human-readable):
 
 ```bash
-mempalace-code backup create                    # creates ~/.mempalace/backups/mempalace_backup_YYYYMMDD_HHMMSS.tar.gz
-mempalace-code backup create --out ~/safe.tar.gz
-mempalace-code backup list                      # show existing backups
-mempalace-code restore ~/safe.tar.gz            # restore (prompts before overwrite)
-mempalace-code restore ~/safe.tar.gz --force    # overwrite without prompt
+set -euo pipefail
+
+PALACE="${HOME}/.mempalace/palace"
+BACKUP_TAR="${HOME}/.mempalace/recovery-full.tar.gz"
+RESTORE_TARGET="${HOME}/.mempalace/restored-palace"
+ARCHIVE="${HOME}/.mempalace/archive-to-restore.tar.gz"
+
+: "${PALACE:?set PALACE to the inspected source palace}"
+: "${BACKUP_TAR:?set BACKUP_TAR to a new backup artifact path}"
+: "${RESTORE_TARGET:?set RESTORE_TARGET to a new restore target}"
+: "${ARCHIVE:?set ARCHIVE to the inspected archive being restored}"
+test -d "$PALACE/lance"
+test ! -e "$BACKUP_TAR"
+mempalace-code --palace "$PALACE" backup create --out "$BACKUP_TAR"
+tar -tzf "$BACKUP_TAR"
+test -f "$ARCHIVE"
+tar -tzf "$ARCHIVE"
+test ! -e "$RESTORE_TARGET"
+mempalace-code --palace "$RESTORE_TARGET" restore "$ARCHIVE"
+mempalace-code --palace "$RESTORE_TARGET" health
+```
+
+Without `--force`, the CLI refuses when its checks find state in the selected
+palace or at the selected KG destination. A real empty palace directory remains
+reusable. At publication, restore claims the exact `lance/` name exclusively and
+creates the exact KG destination with an atomic no-replace hard link. If either
+name is raced in, restore preserves it; a KG publication failure also removes
+the Lance root still owned by that invocation. Unsupported hard links fail
+closed. This boundary does not make arbitrary concurrent edits elsewhere under
+the palace transactional and does not protect concurrent replacement of the
+palace root or its ancestors. The safe flow above uses absent destinations so
+retries cannot overwrite managed publication names.
+
+`--force` replaces the target's managed `lance/` data and atomically replaces the
+selected KG after archive validation. It preserves unrelated entries in a real
+palace directory. Symlink objects found at the selected palace, Lance, or KG
+validation boundary are replaced without modifying their referents; concurrent
+replacement of the palace root or its ancestors remains outside this boundary.
+Use `--force` only after inspecting the archive and exact destinations, then
+creating and inspecting a fresh backup of the current target. If `--kg-path`
+selects a KG outside that target, back up that file separately before adding
+`--force`:
+
+```bash
+set -euo pipefail
+
+ARCHIVE="${HOME}/.mempalace/archive-to-restore.tar.gz"
+RESTORE_TARGET="${HOME}/.mempalace/palace"
+CURRENT_BACKUP="${HOME}/.mempalace/pre-force-restore.tar.gz"
+KG_DEST="${RESTORE_TARGET}/knowledge_graph.sqlite3"
+
+: "${ARCHIVE:?set ARCHIVE to the archive being restored}"
+: "${RESTORE_TARGET:?set RESTORE_TARGET to the exact destination}"
+: "${CURRENT_BACKUP:?set CURRENT_BACKUP to a new backup path}"
+: "${KG_DEST:?set KG_DEST to the selected KG destination}"
+test -f "$ARCHIVE"
+test -d "$RESTORE_TARGET/lance"
+test ! -e "$CURRENT_BACKUP"
+printf 'Restore target: %s\n' "$RESTORE_TARGET"
+printf 'KG destination: %s\n' "$KG_DEST"
+tar -tzf "$ARCHIVE"
+mempalace-code --palace "$RESTORE_TARGET" backup create --out "$CURRENT_BACKUP"
+tar -tzf "$CURRENT_BACKUP"
+mempalace-code --palace "$RESTORE_TARGET" restore "$ARCHIVE" --force
+mempalace-code --palace "$RESTORE_TARGET" health
 ```
 
 ### Tarball Restore — KG Destination
@@ -268,12 +414,12 @@ cleanup/restore history leaving stale fragment references), the watcher:
   To diagnose and recover, run:
     mempalace-code --palace /path/palace health
     mempalace-code --palace /path/palace repair --rollback --dry-run
-    mempalace-code --palace /path/palace restore /path/pre_watch_20260101_120000.tar.gz --force
 ```
 
-The `restore --force` command falls back to the `pre_watch` tarball when Lance
-version rollback cannot recover.  Manual review is required before running it (the
-restore command overwrites the palace `lance/` directory).
+The watcher may also print a `restore --force` suggestion for its `pre_watch`
+tarball when Lance version rollback cannot recover. Do not run that suggestion
+directly. Set its palace as `RESTORE_TARGET`, set the tarball as `ARCHIVE`, and
+follow the inspected force-restore procedure in [Tarball Backup](#tarball-backup-full-snapshot).
 
 ### Auto-Backup Before Optimize
 
@@ -373,7 +519,7 @@ mempalace-code cleanup --older-than-days 7  # reclaim stale Lance versions
 If corruption is detected:
 
 ```bash
-mempalace-code repair --dry-run    # show what would be recovered, how many rows lost
+mempalace-code repair --rollback --dry-run  # show what rollback would recover
 mempalace-code repair --rollback   # roll back to last working LanceDB version
 ```
 
@@ -467,14 +613,15 @@ written.
 
 ### Prerequisites
 
-1. Install the `[chroma]` extra:
+1. Install the `[chroma-migration]` extra:
 
    ```bash
-   pip install 'mempalace-code[chroma]'
+   pip install 'mempalace-code[chroma-migration]'
    ```
 
-   The ChromaDB backend is deprecated and currently capped below ChromaDB 1.x
-   while GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
+   The migration bridge reads legacy ChromaDB sources only and is currently
+   capped below ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available
+   1.x line.
 
 2. If the release host is offline, pre-fetch the embedding model before running
    the smoke (the `migrate-storage` CLI re-embeds source rows into LanceDB):
@@ -535,6 +682,8 @@ Expected output markers:
 |-------|--------------------|
 | Source count matches seed | `source=N` in the `PASS` line |
 | Destination count matches | `destination=N` in the `PASS` line |
+| Source backup exists | one `chroma-pre-migrate-*.tar.gz` archive in the smoke backup directory |
+| Source content is preserved | source Chroma row count and marker documents still match the seed |
 | Migrated content is searchable | `search=ok` in the `PASS` line |
 | Guard refuses non-empty dst without `--force` | `guard-ok` + `PASS` lines |
 

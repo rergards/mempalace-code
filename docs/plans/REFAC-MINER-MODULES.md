@@ -1,5 +1,7 @@
 ---
 slug: REFAC-MINER-MODULES
+status: completed
+authority: non_authoritative
 goal: "Split miner.py into focused mining modules while preserving existing imports and mining behavior"
 risk: high
 risk_note: "Large behavior-preserving refactor across a 3995-line module with CLI, watcher, convo, KG, and test import seams"

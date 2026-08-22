@@ -1,5 +1,7 @@
 ---
 slug: MINE-XAML
+status: completed
+authority: non_authoritative
 goal: "Add XAML file parsing with view-name symbol extraction and KG triples linking code-behind, ViewModel, named controls, and resource references"
 risk: medium
 risk_note: "XAML XML parsing follows the proven .csproj pattern, but XAML binding expressions use a mini-language ({Binding}, {StaticResource}) requiring regex extraction from attribute values. XAML namespace handling (x:Class, x:Name) adds surface area. KG integration reuses the MINE-DOTNET pattern — low risk there."

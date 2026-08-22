@@ -200,11 +200,30 @@ updates one already-mined source, accepts one post-debounce retry for native
 watch registration, observes `[project: 1 change(s)]`, then exits cleanly on
 SIGINT with `1 re-mine cycle(s), 1 event(s)`.
 
-Run the installed-wheel regression after building the wheel:
+Run the complete installed-wheel regression from the repository root. The fresh
+temporary environment avoids stale package state, and the watch extra supplies
+the dependency used by the live watcher scenario. Set `MEMPALACE_TEST_HF_HOME`
+to an existing cache populated with the default embedding model:
 
 ```bash
-MEMPALACE_TEST_INSTALLED_CLI=<installed-wheel-venv>/bin/mempalace-code MEMPALACE_TEST_HF_HOME=<shared-model-cache> python -m pytest -q tests/test_cli_golden_scenarios.py::test_cli_golden_workflow_happy_path
+set -euo pipefail
+installed_root="$(mktemp -d)"
+cleanup_installed_root() { rm -rf -- "$installed_root"; }
+trap cleanup_installed_root EXIT
+
+python -m build --outdir "$installed_root/dist"
+set -- "$installed_root"/dist/*.whl
+[ "$#" -eq 1 ] && [ -f "$1" ] || { printf 'expected one built wheel\n' >&2; exit 1; }
+python -m venv "$installed_root/venv"
+"$installed_root/venv/bin/pip" install --no-cache-dir "$1[watch]"
+MEMPALACE_TEST_INSTALLED_CLI="$installed_root/venv/bin/mempalace-code" \
+  MEMPALACE_TEST_HF_HOME="${MEMPALACE_TEST_HF_HOME:?set MEMPALACE_TEST_HF_HOME to a populated cache}" \
+  python -m pytest -q tests/test_cli_golden_scenarios.py
 ```
+
+After a failure, rerun the block unchanged. It creates a new disposable venv,
+rebuilds the wheel, reinstalls the watcher-capable artifact, and exercises every
+installed golden scenario again.
 
 ---
 

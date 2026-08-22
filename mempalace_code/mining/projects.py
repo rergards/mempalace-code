@@ -7,6 +7,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from ..source_io import is_regular_source_path, read_regular_text
 from .kg_extract import parse_sln_file
 
 # Markers that indicate a directory is a software project
@@ -32,6 +33,55 @@ PROJECT_MARKER_GLOBS = ["*.sln", "*.csproj"]
 
 # Files that indicate mempalace has been initialized for this project
 INIT_MARKERS = frozenset(["mempalace.yaml", "mempal.yaml"])
+
+
+def classify_project_root(root: str | os.PathLike[str]) -> tuple[str, list[str]]:
+    """Return the safe root kind and project-marker evidence for *root*.
+
+    Marker contents are never opened.  Symlinks and non-regular nodes are
+    ignored; ``.git`` additionally accepts a real directory.
+    """
+    root_path = Path(root)
+    try:
+        contents = set(os.listdir(root_path))
+    except OSError:
+        return "parent", []
+
+    found_markers: list[str] = []
+    for marker in PROJECT_MARKERS:
+        if marker not in contents:
+            continue
+        marker_path = root_path / marker
+        if marker_path.is_symlink():
+            continue
+        if marker == ".git":
+            if marker_path.is_dir() or is_regular_source_path(marker_path):
+                found_markers.append(marker)
+        elif is_regular_source_path(marker_path):
+            found_markers.append(marker)
+
+    for pattern in PROJECT_MARKER_GLOBS:
+        for item in sorted(contents):
+            marker_path = root_path / item
+            if (
+                fnmatch.fnmatch(item, pattern)
+                and not marker_path.is_symlink()
+                and is_regular_source_path(marker_path)
+            ):
+                found_markers.append(item)
+                break
+
+    initialized = any(
+        marker in contents
+        and not (root_path / marker).is_symlink()
+        and is_regular_source_path(root_path / marker)
+        for marker in INIT_MARKERS
+    )
+    if initialized:
+        return "initialized", sorted(found_markers)
+    if found_markers:
+        return "project", sorted(found_markers)
+    return "parent", []
 
 
 class InvalidProjectConfigError(ValueError):
@@ -60,7 +110,7 @@ def _load_yaml_mapping(config_path: Path) -> dict:
     import yaml
 
     try:
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        data = yaml.safe_load(read_regular_text(config_path, encoding="utf-8"))
     except Exception as exc:
         raise InvalidProjectConfigError(config_path, str(exc)) from exc
     if data is None:
@@ -219,32 +269,15 @@ def detect_projects(parent_dir: str) -> list:
         if not candidate.is_dir():
             continue
 
-        # Collect matching markers
-        found_markers: list = []
-        try:
-            dir_contents = set(os.listdir(candidate))
-        except OSError:
-            continue
-
-        for marker in PROJECT_MARKERS:
-            if marker in dir_contents:
-                found_markers.append(marker)
-
-        for pattern in PROJECT_MARKER_GLOBS:
-            for item in dir_contents:
-                if fnmatch.fnmatch(item, pattern):
-                    found_markers.append(item)
-                    break  # one match per glob pattern is enough
-
+        root_kind, found_markers = classify_project_root(candidate)
         if not found_markers:
             continue
 
-        initialized = bool(dir_contents & INIT_MARKERS)
         results.append(
             {
                 "path": str(candidate),
-                "markers": sorted(found_markers),
-                "initialized": initialized,
+                "markers": found_markers,
+                "initialized": root_kind == "initialized",
             }
         )
 
@@ -341,7 +374,7 @@ def _detect_sln_wing(project_path: Path):
     If multiple .sln files exist, pick the one with the most contained projects;
     ties are broken alphabetically.
     """
-    sln_files = sorted(project_path.glob("*.sln"))
+    sln_files = sorted(path for path in project_path.glob("*.sln") if is_regular_source_path(path))
     if not sln_files:
         return None
     if len(sln_files) == 1:
@@ -359,7 +392,9 @@ def _build_csproj_room_map(project_path: Path) -> "dict[Path, str]":
     """
     proj_files: list = []
     for pattern in ("**/*.csproj", "**/*.fsproj", "**/*.vbproj"):
-        proj_files.extend(project_path.glob(pattern))
+        proj_files.extend(
+            path for path in project_path.glob(pattern) if is_regular_source_path(path)
+        )
 
     room_map: dict = {}
     for pf in proj_files:

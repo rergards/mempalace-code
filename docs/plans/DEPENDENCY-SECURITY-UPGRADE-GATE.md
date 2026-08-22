@@ -1,5 +1,7 @@
 ---
 slug: DEPENDENCY-SECURITY-UPGRADE-GATE
+status: completed
+authority: non_authoritative
 goal: "Add a repo dependency-upgrade audit gate that enumerates targets, blocks vulnerable ranges, and verifies fresh resolver audits before lock refresh."
 risk: medium
 risk_note: "The gate is a maintenance/pipeline change around dependency and lockfile edits; false negatives could admit vulnerable targets, while false positives could block legitimate releases."

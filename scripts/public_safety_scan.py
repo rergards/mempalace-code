@@ -27,6 +27,15 @@ LOCAL_ONLY_PREFIXES = (
 
 GENERIC_TEMP_ROOTS = frozenset({"/tmp", "/var/tmp", "/private/var/tmp"})
 
+PUBLISHABLE_DOC_SUFFIXES = (".md", ".yaml", ".yml")
+
+# Fixtures own the residue vocabulary by construction, so residue rules would
+# fire on the very text that proves they work. The detector's own `.py` sources
+# are already outside the suffix set; only the secret-scanner baseline, whose
+# entries are deliberately shaped like the things it catches, needs naming.
+RESIDUE_EXEMPT_PREFIXES = ("tests/",)
+DETECTOR_FIXTURE_PATHS = frozenset({"security/gitleaks-baseline.yml"})
+
 
 @dataclass(frozen=True)
 class PatternRule:
@@ -56,6 +65,78 @@ def _token_rules() -> list[PatternRule]:
         PatternRule("pypi-token-prefix", re.compile(r"\b[p]ypi-[A-Za-z0-9_-]{20,}")),
         PatternRule("openai-token-prefix", re.compile(r"\b[s]k-[A-Za-z0-9]{16,}")),
         PatternRule("anthropic-token-prefix", re.compile(r"\b[s]k-ant-[A-Za-z0-9_-]{16,}")),
+    ]
+
+
+def is_publishable_doc(rel_path: str) -> bool:
+    """True for tracked Markdown/YAML shipped to public readers.
+
+    Every tracked surface in these formats is read by someone outside this
+    machine — issue templates, workflows, benchmark notes, the package README,
+    and the Agent Plugin skill just as much as `docs/`. Enumerating "public"
+    directories left new ones silently uncovered, so the class is the format,
+    minus the fixtures that own the residue vocabulary by construction.
+    """
+    if not rel_path.endswith(PUBLISHABLE_DOC_SUFFIXES):
+        return False
+    if rel_path.startswith(RESIDUE_EXEMPT_PREFIXES):
+        return False
+    return rel_path not in DETECTOR_FIXTURE_PATHS
+
+
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+# The words that make a UUID *evidence of how work was driven* rather than a
+# value the software itself uses.
+_RUN_EVIDENCE = (
+    r"\b(?:runner|session|run|job|execution|transcript|supervisor"
+    r"|autopilot|worker|conversation|correlation)s?\b"
+)
+_UUID_CONTEXT_WINDOW = 40
+
+
+def residue_rules() -> list[PatternRule]:
+    """Rules for orchestration residue that carries no meaning for public readers.
+
+    Deliberately narrow. The bare word "autopilot" is legitimate published
+    vocabulary (the `AUTOPILOT-DEMO-*` backlog keys, agent-orchestrator prose),
+    and GHSA/CVE ids, MCP protocol revision strings, and 40-hex commit SHAs are
+    all public evidence, so none of them are matched here.
+    """
+    return [
+        # Internal run/session identifiers. Public docs cite commits, not run ids.
+        # A UUID is only residue when the surrounding line calls it runner,
+        # session, or run evidence: the same shape is a legitimate published
+        # value in a protocol example, an MCP id, or a namespace constant.
+        PatternRule(
+            "runner-session-uuid",
+            re.compile(
+                rf"(?i){_RUN_EVIDENCE}[^\n]{{0,{_UUID_CONTEXT_WINDOW}}}?\b{_UUID}\b"
+                rf"|\b{_UUID}\b[^\n]{{0,{_UUID_CONTEXT_WINDOW}}}?{_RUN_EVIDENCE}"
+            ),
+        ),
+        # Supervisor classifier tokens: internal failure vocabulary, not outcomes.
+        PatternRule(
+            "runner-failure-token",
+            re.compile(
+                r"\b(?:interpreter_mode_unsupported|residue_incompatible"
+                r"|executable_unresolved|git_subcommand_unverified"
+                r"|mutable_shell_context)\b"
+            ),
+        ),
+        # Recovery/parked-row bookkeeping describing how work was driven, not what shipped.
+        PatternRule(
+            "runner-recovery-descriptor",
+            re.compile(
+                r"(?i)\b(?:supervised\s+(?:session\s+)?evidence|supervised\s+recovery"
+                r"|parked\s+evidence|parked-row\s+backup|autopilot\s+supervisor"
+                r"|autopilot\s+source-verify)\b"
+            ),
+        ),
+        # Backup filenames for parked rows, e.g. TASK-KEY-20260815T220217Z.json.
+        PatternRule(
+            "parked-row-backup-path",
+            re.compile(r"\b[A-Z][A-Z0-9-]*-\d{8}T\d{6}Z\.json\b"),
+        ),
     ]
 
 
@@ -194,8 +275,12 @@ def scan_git_sources(
     root: Path, *, tracked: bool, staged: bool, committed: bool = False
 ) -> tuple[list[PublicSafetyHit], int]:
     rules = repository_rules(root)
+    doc_rules = rules + residue_rules()
     hits: list[PublicSafetyHit] = []
     scanned = 0
+
+    def rules_for(rel_path: str) -> list[PatternRule]:
+        return doc_rules if is_publishable_doc(rel_path) else rules
 
     if committed:
         for rel_path in committed_paths(root):
@@ -209,7 +294,7 @@ def scan_git_sources(
             if content is None:
                 continue
             scanned += 1
-            hits.extend(scan_bytes(source, content, rules))
+            hits.extend(scan_bytes(source, content, rules_for(rel_path)))
 
     if tracked:
         for rel_path in tracked_paths(root):
@@ -221,7 +306,7 @@ def scan_git_sources(
             if path_hit:
                 hits.append(path_hit)
             scanned += 1
-            hits.extend(scan_bytes(source, content, rules))
+            hits.extend(scan_bytes(source, content, rules_for(rel_path)))
 
     if staged:
         for rel_path in staged_paths(root):
@@ -233,7 +318,7 @@ def scan_git_sources(
             if content is None:
                 continue
             scanned += 1
-            hits.extend(scan_bytes(source, content, rules))
+            hits.extend(scan_bytes(source, content, rules_for(rel_path)))
 
     return sorted(set(hits), key=lambda h: h.summary()), scanned
 

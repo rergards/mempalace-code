@@ -1,5 +1,7 @@
 ---
 slug: CODE-TREESITTER-GO-RUST-DETACH-TEST
+status: completed
+authority: non_authoritative
 goal: "Add negative tests proving detached Go and Rust comments stay out of the following declaration chunk."
 risk: low
 risk_note: "Test-only change in existing AST chunking coverage; production behavior is unchanged unless the tests expose a real regression."

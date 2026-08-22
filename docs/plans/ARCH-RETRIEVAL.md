@@ -1,5 +1,7 @@
 ---
 slug: ARCH-RETRIEVAL
+status: completed
+authority: non_authoritative
 goal: "Add MCP tool mempalace_explain_subsystem that combines semantic code search with KG traversal to answer 'how does this subsystem work?' queries"
 risk: low
 risk_note: "Composes two existing, well-tested primitives (code_search from searcher.py and query_entity from KnowledgeGraph). No schema changes, no new storage, no new dependencies. The only new code is orchestration logic in mcp_server.py. Note: KG entity identity uses short (unqualified) type names — same-named symbols from different namespaces/projects coalesce into one entity node (inherited from MCP-ARCH-TOOLS / DOTNET-SYMBOL-GRAPH). This tool surfaces all matches; callers must disambiguate if needed. A future task can add qualified subjects if disambiguation is needed."

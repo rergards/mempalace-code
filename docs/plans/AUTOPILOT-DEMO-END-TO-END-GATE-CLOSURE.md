@@ -1,5 +1,7 @@
 ---
 slug: AUTOPILOT-DEMO-END-TO-END-GATE-CLOSURE
+status: completed
+authority: non_authoritative
 goal: "Make AUTOPILOT-DEMO quality gates enforce canonical commands, built artifacts, and neutral installed behavior."
 risk: high
 risk_note: "Touches CI, release gates, package artifacts, installed CLI/MCP smokes, public-safety scanning, Pyright policy, and public evidence; false negatives can publish broken artifacts and false positives can block releases."

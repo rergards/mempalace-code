@@ -1,11 +1,15 @@
 {
-  "schema_version": 1,
-  "reviewed_date": "2026-08-11",
+  "schema_version": 2,
+  "reviewed_date": "2026-08-21",
   "canonical_repository": "https://github.com/MemPalace/mempalace",
   "branch": "develop",
-  "commit": "b2104238d4491654f17118d12cf876ac5e41a0cf",
+  "commit": "3e56979fb456c7478a4b57414027873bd78f2d37",
+  "previous_commit": "639c69a1d6be41a04964ceb72a3d29d6f45629e9",
+  "previous_reviewed_date": "2026-08-16",
+  "compare_ref": "https://github.com/MemPalace/mempalace/compare/639c69a1d6be41a04964ceb72a3d29d6f45629e9...3e56979fb456c7478a4b57414027873bd78f2d37",
   "canonical_document": "docs/UPSTREAM_COMPARISON.md",
   "readme_path": "README.md",
+  "recovery_command": "python scripts/upstream_comparison_guard.py --check-live --json",
   "tracked_source_paths": [
     "README.md",
     "CHANGELOG.md",
@@ -13,10 +17,23 @@
     ".codex-plugin/plugin.json",
     ".agents/plugins/marketplace.json",
     ".mcp.json",
+    "mempalace/split_mega_files.py",
     "docs/rfcs/003-agent-logstream-coordination.md",
     "docs/rfcs/004-replicated-palace.md",
     "docs/rfcs/005-agent-identity-routing.md"
   ],
+  "source_refs": {
+    "README.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/README.md",
+    "CHANGELOG.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/CHANGELOG.md",
+    "pyproject.toml": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/pyproject.toml",
+    ".codex-plugin/plugin.json": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/.codex-plugin/plugin.json",
+    ".agents/plugins/marketplace.json": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/.agents/plugins/marketplace.json",
+    ".mcp.json": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/.mcp.json",
+    "mempalace/split_mega_files.py": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/mempalace/split_mega_files.py",
+    "docs/rfcs/003-agent-logstream-coordination.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/docs/rfcs/003-agent-logstream-coordination.md",
+    "docs/rfcs/004-replicated-palace.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/docs/rfcs/004-replicated-palace.md",
+    "docs/rfcs/005-agent-identity-routing.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/docs/rfcs/005-agent-identity-routing.md"
+  },
   "readme_markers": [
     "## This Fork vs Upstream",
     "docs/UPSTREAM_COMPARISON.md",
@@ -25,11 +42,14 @@
   "comparison_markers": [
     "## Snapshot",
     "## Source Links",
+    "## Upstream Delta Since the Previous Pin",
     "## Capability Comparison",
     "## Capability Identifiers",
+    "## Capability Sources",
     "## Fork Stance",
     "## Evidence Limits",
-    "## Automation Policy"
+    "## Automation Policy",
+    "## Drift Recovery"
   ],
   "capabilities": {
     "upstream_advertised": [
@@ -41,6 +61,8 @@
       "backend-milvus",
       "backend-qdrant",
       "backend-pgvector",
+      "chroma-sqlite-metadata-read-paths",
+      "sqlite-exact-indexed-structured-fields",
       "mcp-tools-44",
       "codex-plugin-manifest-tools-36",
       "codex-plugin-metadata",
@@ -53,12 +75,13 @@
       "live-palace-hub-write-routing",
       "read-replica-mesh-preview",
       "multiarch-docker-image",
-      "process-lifetime-single-writer"
+      "process-lifetime-single-writer",
+      "agent-logstream-watch"
     ],
     "fork_current": [
       "code-first-mining",
       "backend-lancedb-default",
-      "backend-chromadb-optional-deprecated",
+      "backend-chromadb-migration-bridge-only",
       "local-deterministic-code-search-hybrid-rerank",
       "no-llm-reranker",
       "no-supported-multilingual-configuration-migration",
@@ -72,5 +95,158 @@
       "no-palace-replication",
       "no-published-docker-image"
     ]
-  }
+  },
+  "capability_sources": {
+    "embeddinggemma-default-for-new-onboarding": ["README.md", "CHANGELOG.md"],
+    "hybrid-retrieval": ["README.md"],
+    "optional-llm-reranking": ["README.md"],
+    "backend-chromadb": ["README.md"],
+    "backend-sqlite-exact": ["README.md"],
+    "backend-milvus": ["README.md"],
+    "backend-qdrant": ["README.md"],
+    "backend-pgvector": ["README.md"],
+    "chroma-sqlite-metadata-read-paths": ["CHANGELOG.md"],
+    "sqlite-exact-indexed-structured-fields": ["CHANGELOG.md"],
+    "mcp-tools-44": ["README.md"],
+    "codex-plugin-manifest-tools-36": [".codex-plugin/plugin.json"],
+    "codex-plugin-metadata": [
+      ".codex-plugin/plugin.json",
+      ".agents/plugins/marketplace.json",
+      ".mcp.json"
+    ],
+    "openai-compatible-embeddings": ["README.md"],
+    "search-date-window": ["CHANGELOG.md"],
+    "hermes-memory-provider-core": ["CHANGELOG.md"],
+    "source-adapters-mine": ["CHANGELOG.md"],
+    "agent-logstream-artifact-handoffs": [
+      "CHANGELOG.md",
+      "docs/rfcs/003-agent-logstream-coordination.md"
+    ],
+    "logstream-multi-master-sync-foundation": [
+      "CHANGELOG.md",
+      "docs/rfcs/004-replicated-palace.md"
+    ],
+    "live-palace-hub-write-routing": [
+      "CHANGELOG.md",
+      "docs/rfcs/003-agent-logstream-coordination.md"
+    ],
+    "read-replica-mesh-preview": ["docs/rfcs/004-replicated-palace.md"],
+    "multiarch-docker-image": ["README.md"],
+    "process-lifetime-single-writer": ["CHANGELOG.md"],
+    "agent-logstream-watch": ["CHANGELOG.md"]
+  },
+  "delta_decisions": [
+    {
+      "id": "split-name-detection-opt-in",
+      "upstream_change": "split_mega_files removes built-in fallback person names, so name extraction requires explicit known_names.json configuration instead of matching common names in unrelated content",
+      "source_refs": ["mempalace/split_mega_files.py"],
+      "release_critical": true,
+      "decision": "adopted",
+      "rationale": "The fork's _load_known_people() in mempalace_code/split_mega_files.py reads optional ~/.mempalace/known_names.json data and returns an empty list when the file is absent or unusable, so extract_people() does not match generic person names by default. tests/test_split_mega_files.py::test_load_known_people_requires_explicit_config pins the no-configuration boundary.",
+      "local_predicates": [
+        "mempalace_code/split_mega_files.py",
+        "tests/test_split_mega_files.py::test_load_known_people_requires_explicit_config"
+      ]
+    },
+    {
+      "id": "non-regular-file-boundary-unchanged",
+      "upstream_change": "the range does not alter upstream FIFO or other irregular-file protections; the fork's descriptor-validation boundary remains in force",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "equivalent-local",
+      "rationale": "The fork continues to open accepted ingest sources and generated split outputs through descriptors, revalidate them with fstat, refuse symlinks, FIFOs, and hard links, retain the source mega-file after refusal, and exit nonzero.",
+      "local_predicates": [
+        "mempalace_code/source_io.py",
+        "tests/test_regular_source_guard.py::test_scan_discovery_rejects_non_regular_sources",
+        "tests/test_split_mega_files.py::test_split_file_refuses_a_fifo_at_a_synthesized_output_name"
+      ]
+    },
+    {
+      "id": "chromadb-repair-and-read-paths",
+      "upstream_change": "Chroma repair corroborates FTS5 content before rebuilding, client-cache bookkeeping stops treating its own writes as external invalidation, and listing and tunnel metadata reads bypass HNSW",
+      "source_refs": ["CHANGELOG.md", "compare"],
+      "release_critical": false,
+      "decision": "migration-only",
+      "rationale": "All three upstream changes operate its Chroma runtime. The fork retains Chroma solely as one-way migration input; LanceDB remains the only runtime backend. Migration smoke and error tests continue to enforce that boundary.",
+      "local_predicates": [
+        "tests/test_migrate_storage_smoke.py",
+        "tests/test_chroma_import_errors.py"
+      ]
+    },
+    {
+      "id": "sqlite-exact-indexed-read-paths",
+      "upstream_change": "sqlite_exact vectorizes ranking, hydrates only selected rows, caches facets, and indexes generated wing, room, and hall columns for structured access",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork has no sqlite_exact runtime backend. Its LanceDB storage and search paths do not import the upstream SQL schema, generated columns, caches, or pagination code.",
+      "local_predicates": []
+    },
+    {
+      "id": "embeddinggemma-coreml-validation",
+      "upstream_change": "embeddinggemma avoids CoreML under automatic selection and validates non-CPU witness vectors for finite, non-zero norm before use",
+      "source_refs": ["CHANGELOG.md", "compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork supports all-MiniLM-L6-v2 as its default and has no supported embeddinggemma model configuration or migration flow. Importing provider policy without the gated text-retrieval evidence would violate the fork's model policy.",
+      "local_predicates": []
+    },
+    {
+      "id": "logstream-watch-cursor-and-signal-lifecycle",
+      "upstream_change": "a background logstream watch adds typed filters, restart-safe event-id checkpoints, bounded idle exit, and interrupt exit status; repeated fixes make malformed, missing, or unreachable checkpoints replay rather than skip events",
+      "source_refs": ["CHANGELOG.md", "compare"],
+      "release_critical": false,
+      "decision": "deferred",
+      "rationale": "The fork has no logstream, event cursor, replication, or agent wake-up surface. Its existing local watcher independently holds a shared operation lease for its lifetime, handles SIGTERM, restores the prior handler, and releases the lease at shutdown; those protections remain unchanged and are not claimed as logstream compatibility.",
+      "local_predicates": [
+        "mempalace_code/watcher.py",
+        "tests/test_watcher.py::TestWatcherOperationLease::test_watcher_releases_shared_lease_after_shutdown"
+      ]
+    },
+    {
+      "id": "mesh-estate-publication",
+      "upstream_change": "the HTTP peer-sync process publishes a redacted atomic mesh-state snapshot for other local transports to read",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork ships no peer mesh or cross-transport estate, so there is no compatible state file to adopt.",
+      "local_predicates": []
+    },
+    {
+      "id": "thin-stdio-hub-proxy",
+      "upstream_change": "a stdio MCP session uses a lightweight proxy path and imports the storage server lazily only when local fallback is required",
+      "source_refs": ["CHANGELOG.md", "compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork ships stdio MCP without the upstream live hub or proxy transport and does not import that execution path.",
+      "local_predicates": []
+    },
+    {
+      "id": "upstream-documentation-and-test-coverage",
+      "upstream_change": "the range adds KG supersede, hook-routing, Termux, API, coordination, and performance-test documentation or coverage without a corresponding fork runtime contract",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "These files document or test upstream-only surfaces and do not change a runtime contract imported by the fork.",
+      "local_predicates": []
+    },
+    {
+      "id": "upstream-benchmark-portability",
+      "upstream_change": "three upstream benchmark runners pin UTF-8 file I/O and use ASCII-safe console separators on Windows",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork does not import or publish those upstream benchmark runners.",
+      "local_predicates": []
+    },
+    {
+      "id": "upstream-release-and-ci-metadata",
+      "upstream_change": "upstream advances package and plugin metadata to 3.8.0, guards the OpenClaw skill version, updates actions, and attaches container provenance and SBOM attestations",
+      "source_refs": ["README.md", "CHANGELOG.md", "pyproject.toml", ".codex-plugin/plugin.json", "compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "These changes govern upstream-only workflows, container publication, and release metadata. The fork does not import those artifacts.",
+      "local_predicates": []
+    }
+  ]
 }

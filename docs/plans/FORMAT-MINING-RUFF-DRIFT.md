@@ -1,5 +1,7 @@
 ---
 slug: FORMAT-MINING-RUFF-DRIFT
+status: completed
+authority: non_authoritative
 goal: "Reformat the two mining modules flagged by Ruff without changing behavior."
 risk: low
 risk_note: "Format-only edits in two isolated Python files; no logic, data, or interface changes."

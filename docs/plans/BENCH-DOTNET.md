@@ -1,5 +1,7 @@
 ---
 slug: BENCH-DOTNET
+status: completed
+authority: non_authoritative
 goal: "Add benchmarks/dotnet_bench.py — a standalone R@5/R@10 code retrieval benchmark for a multi-project C#/.NET repository, with 20 known-answer queries across 4 .NET-specific categories (symbol_lookup, cross_project, interface_impl, project_dependency)"
 risk: low
 risk_note: "Additive only — new script and no changes to existing mempalace modules, tests, or CI. Depends on MINE-CSHARP and MINE-DOTNET being merged (both are done as of the latest commit)."

@@ -1,5 +1,7 @@
 ---
 slug: MINE-JAVA-PKG-PRIVATE-METHODS
+status: completed
+authority: non_authoritative
 goal: "Extract symbol metadata for package-private Java methods without visibility modifiers"
 risk: low
 risk_note: "Single Java extract regex change plus focused unit coverage; chunking, storage, and other language extractors remain untouched"

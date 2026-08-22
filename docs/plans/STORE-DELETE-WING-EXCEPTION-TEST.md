@@ -1,5 +1,7 @@
 ---
 slug: STORE-DELETE-WING-EXCEPTION-TEST
+status: completed
+authority: non_authoritative
 goal: "Add a test that verifies tool_delete_wing returns {success: False, error: ...} when LanceStore.delete_wing raises"
 risk: low
 risk_note: "Test-only change; no production code touched"

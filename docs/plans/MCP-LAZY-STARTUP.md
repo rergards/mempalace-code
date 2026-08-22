@@ -1,5 +1,7 @@
 ---
 slug: MCP-LAZY-STARTUP
+status: completed
+authority: non_authoritative
 goal: "Make MCP initialize/tools-list and metadata read tools start without miner imports, embedding model loads, or store writes"
 risk: medium
 risk_note: "Touches MCP module import boundaries and LanceStore open semantics; write-path cache upgrade needs explicit regression coverage"

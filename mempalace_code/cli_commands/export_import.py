@@ -61,10 +61,20 @@ def cmd_export(args):
 
 def cmd_import(args):
     from ..export import JsonlInputError, import_jsonl, read_jsonl
-    from ..knowledge_graph import KnowledgeGraph
+    from ..knowledge_graph import KnowledgeGraph, LazyKnowledgeGraph
     from ..storage import open_store
 
     palace_path = args.palace or MempalaceConfig().palace_path
+
+    # Reject a missing input file before touching storage.
+    if args.jsonl_file != "-" and not os.path.isfile(args.jsonl_file):
+        print(f"  Error: import file not found: {args.jsonl_file}", file=sys.stderr)
+        print(
+            f"  Next: verify the path, or export first with: "
+            f"mempalace-code export --out {args.jsonl_file}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Validate (and fully buffer) the JSONL input before opening/creating any
     # palace or KG state, so malformed input — including from stdin, which can
@@ -75,8 +85,12 @@ def cmd_import(args):
         print(f"  Error: malformed JSONL input: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    store = open_store(palace_path, create=True)
-    kg = None if args.skip_kg else KnowledgeGraph()
+    if args.dry_run:
+        store = open_store(palace_path, create=False, read_only=True)
+        kg = None if args.skip_kg else LazyKnowledgeGraph()
+    else:
+        store = open_store(palace_path, create=True)
+        kg = None if args.skip_kg else KnowledgeGraph()
 
     print(f"  Importing into: {palace_path}")
     if args.dry_run:

@@ -1,5 +1,7 @@
 ---
 slug: STORE-LANCE-PYRIGHT-NARROWING
+status: completed
+authority: non_authoritative
 goal: "Make LanceStore lazy LanceDB handles explicit and Pyright-clean without changing open/read behavior"
 risk: medium
 risk_note: "Touches shared storage internals and dynamic LanceDB/Arrow APIs; behavior should remain unchanged, but typed helper boundaries must preserve read_only and create=False semantics."

@@ -1,5 +1,7 @@
 ---
 slug: MINE-KOTLIN
+status: completed
+authority: non_authoritative
 goal: "Add regex-based smart chunking and symbol extraction for Kotlin (.kt, .kts) to miner.py"
 risk: low
 risk_note: "Additive change only — new patterns and dispatch entries; no existing language paths modified"

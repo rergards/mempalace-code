@@ -1,130 +1,108 @@
 # Commit Checkpoint — Shared Procedure
 
-Shared commit procedure for all skills that commit.
-Referenced by `/task-plan`, `/task-hardening`, `/ship`, and any future committing skill.
+Owns staging, commit, and amend admission for all skills. Calling a skill,
+reviewing a diff, planning, verification, or approving one Git action does not
+authorize another action.
 
-**Purpose:** Prevent missed files, wrong staging, private artifact leaks, and lost work by cross-referencing the edit log against git state before every commit.
+## Read-Only Admission
 
-## Procedure
+Run admission before requesting mutation authority, in this order:
 
-### Step 1: Collect modified files from all sources
+1. Resolve the exact repository root and Git directory. Stop on an unknown,
+   mismatched, linked-to-an-unexpected-repository, or non-Git target.
+2. Read `HEAD`, branch, `git status --porcelain`, unstaged diff, staged diff,
+   `/tmp/claude-edits.log`, and the admitted task state. State the exact intended
+   paths; preserve unrelated or owner-unknown changes.
+   Reconcile the edit log, task state, and Git path sets explicitly:
 
-Cross-reference three sources to build the complete file list:
+   ```bash
+   if [ -f /tmp/claude-edits.log ]; then
+     sed -n '/Modified:/s/.*Modified: //p' /tmp/claude-edits.log | sort -u
+   fi
+   if [ -n "${AUTOPILOT_TASK_STATE:-}" ]; then
+     state_file="$AUTOPILOT_TASK_STATE"
+   elif [ -n "${task_slug:-}" ]; then
+     state_file="/tmp/claude-task-state-${task_slug}.json"
+   else
+     echo "ERROR: exact task state path or task slug required" >&2
+     exit 1
+   fi
+   if [ -e "$state_file" ]; then
+     if ! python -c 'import json, sys; from pathlib import Path; files = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["modified_files"]; valid = isinstance(files, list) and all(isinstance(item, str) for item in files); sys.exit(1) if not valid else print(*sorted(set(files)), sep="\n")' "$state_file" 2>/dev/null; then
+       echo "ERROR: invalid task state" >&2
+       exit 1
+     fi
+   fi
+   git diff --name-only && git diff --name-only --cached
+   git status --porcelain
+   ```
 
-**Source A — edit log** (hook-populated, most complete):
-```bash
-cat /tmp/claude-edits.log 2>/dev/null | grep "Modified:" | sed 's/.*Modified: //' | sort -u
-```
+   Compare the exact lists. An edit-log path absent from Git state must be
+   investigated before staging; a Git path absent from the edit log must be
+   verified as intentional or treated as owner-unknown. If another agent has
+   an uncommitted edit to an intended path, stop and coordinate; do not
+   overwrite or stage that path.
+3. Resolve the live owner. Inside the owning provider require
+   `phase_write_allowed=true`; for an operator require `safe_to_edit=true`.
+   Active, stale, contradictory, or unknown ownership stops before staging.
+4. For a remote action, bind the literal remote name, URL, full destination ref,
+   and 40-hex local SHA. Normalize the URL to `owner/repository`. For GitHub,
+   require `gh repo view --json nameWithOwner,isPrivate`; `nameWithOwner` must
+   equal the normalized identity and `isPrivate` must match the declared target.
+   Unknown identity, visibility, ref, or SHA stops before authority is requested.
+5. State the exact staged content and exact commit message or amend command.
+   Re-read the index and `HEAD` immediately before requesting authority.
 
-**Source B — task state** (skill-populated, survives log rotation):
-```bash
-cat "${AUTOPILOT_TASK_STATE:-/tmp/claude-task-state-${task_slug:-unknown}.json}" 2>/dev/null | grep -oP '"[^"]+\.(py|md|json|yaml)"' | tr -d '"' | sort -u
-```
+Public targets and release intent leave this checkpoint read-only and route to
+`.claude/skills/release/SKILL.md`. This procedure never substitutes for release
+admission or publication authority.
 
-**Source C — git diff** (ground truth):
-```bash
-git diff --name-only && git diff --name-only --cached
-```
-
-If sources A and B are both empty or missing, source C is sufficient. If any source lists a file the others don't, investigate before proceeding.
-
-### Step 2: Cross-reference with git status
-
-```bash
-git status --porcelain
-```
-
-Compare the two lists. Flag discrepancies:
-
-- **Edited but unstaged** (`M` or `?? ` in git status, present in edit log): these MUST be staged or explicitly excluded with a reason.
-- **Staged but not in edit log** (in git status `M ` or `A ` index column, absent from edit log): warn — this may be another agent's work or a stale change. Verify before committing.
-- **Local task artifacts** (`.tasks/`, `.protocols/`, `docs/audits/`): these MUST stay unstaged unless the user explicitly asks to publish a sanitized artifact. Treat them as local evidence by default.
-
-If any discrepancy is found, list it explicitly before proceeding. Do not silently skip mismatched files.
-
-### Step 3: Run public-safety preflight
-
-Before staging, check whether the intended public diff contains secrets, private paths, local artifact directories, or private project names:
-
-```bash
-rg -n "(/Users/|/srv/[^[:space:]'\"\`]+|[g]ithub_pat_|[g]hp_|[p]ypi-[A-Za-z0-9_-]{20,}|[s]k-[A-Za-z0-9])" -- $(git ls-files)
-git status --short | grep -E "^.. (\\.tasks/|\\.protocols/|docs/audits/)" && echo "ERROR: local artifacts must not be staged"
-```
-
-False positives such as placeholder tokens or policy text are allowed only after explicit review. Do not publish raw review logs, private benchmark results, local absolute paths, private remotes, or customer/project identifiers.
-
-### Step 4: Stage explicitly
-
-Stage ONLY the files that belong to this commit, by name:
-
-```bash
-git add <file1> <file2> ...
-```
-
-**NEVER** use `git add .` or `git add -A`. If the edit log shows files you did not intend to modify, investigate before staging.
-
-### Step 5: Review staged diff
+Before staging any public diff, run the canonical safety scan:
 
 ```bash
-git diff --cached --stat
-git diff --cached --name-only | grep -E "^(\\.tasks/|\\.protocols/|docs/audits/)" && echo "ERROR: local artifact staged"
+python scripts/public_safety_scan.py --tracked --staged
 ```
 
-Verify the staged file count and names match expectations. If a file is unexpectedly large or unexpected, investigate.
+Review any reported false positive explicitly. Never publish raw review logs,
+private benchmark results, local absolute paths, private remotes, or
+customer/project identifiers.
 
-### Step 6: Commit
+## Mutation Admission
 
-```bash
-git commit -m "<message>"
-```
+Request a separate current authority immediately before each mutation:
 
-Use the calling skill's commit message format (e.g., `docs(plan):`, `chore(<slug>):`, `fix:`, etc.).
+- staging authority: exact repository, observed `HEAD`, observed status, and
+  complete path list;
+- commit authority: exact repository, index tree, parent SHA, and message;
+- amend authority: exact repository, current `HEAD`, replacement index tree,
+  complete command, and message;
+- ordinary-push authority: exact repository, remote identity, visibility, full
+  destination ref, local SHA, observed remote SHA, and exact push command.
 
-**Git trailers (optional but encouraged):** When the task involved rejecting alternatives or discovering constraints, append trailers to the commit message body. These help future sessions avoid re-exploring dead ends:
+An authority token is valid for one named mutation attempt only.
+It is consumed when the command starts, including failure or ambiguous outcome. It is invalid
+after any path, index, `HEAD`, owner, remote, ref, SHA, visibility, command,
+message, or observed state changes. Authority never carries across steps,
+retries, reordered commands, invocations, repositories, or skills.
 
-```
-Rejected: <approach> — <reason>
-Constraint: <invariant discovered during this task>
-Scope-risk: <boundary that future changes should be careful about>
-```
+## Execute One Authorized Action
 
-Queryable later via `git log --grep="Rejected:"` or `git log --grep="Constraint:"`.
+For staging, use `git add -- <exact paths>` only. Never use `git add .` or
+`git add -A`. Inspect `git diff --cached --name-only` and the staged patch after
+the attempt.
 
-### Step 7: Post-commit verification
+For commit or amend, execute only the authorized command, then inspect `HEAD`,
+the index, status, and commit contents. If the outcome is ambiguous, do not
+retry. Read post-state, report it, and request fresh authority for the one
+remaining action.
 
-```bash
-git show --name-only --pretty=format: HEAD | grep -E "^(\.tasks/|\.protocols/|docs/audits/)" && echo "ERROR: local artifact committed — revert/amend before pushing" || echo "ok: no local artifacts committed"
-```
+Local evidence such as `.tasks/`, `.protocols/`, `docs/audits/`, task state, and
+provider output stays unstaged unless separate tracked-publication authority
+names the exact sanitized paths. Never clear local evidence as part of commit or
+amend authority.
 
-If local artifacts were committed, amend before pushing. Publish only sanitized summaries in tracked docs such as `docs/plans/`, `docs/refactoring/`, `docs/BACKLOG.yaml`, `CHANGELOG.md`, or release notes.
+## Result
 
-### Step 8: Clear session state
-
-```bash
-: > /tmp/claude-edits.log
-: > "${AUTOPILOT_TASK_STATE:-/tmp/claude-task-state-${task_slug:-unknown}.json}"
-```
-
-This prevents the next commit checkpoint from seeing stale entries from a previous task unit.
-
-## Agent File Coordination
-
-Before editing a file in a multi-agent session, check for another agent's uncommitted changes:
-
-```bash
-grep "Modified:.*<target-file>" /tmp/claude-edits.log 2>/dev/null
-```
-
-If the file appears in the edit log but is not yet committed (present in `git status --porcelain` output), another agent may have uncommitted work on it. In that case:
-- **Warn** in chat: "File `<path>` has uncommitted changes from another agent."
-- **Do not overwrite** — either wait for the other agent to commit, or coordinate with the user.
-- If you must edit the file, note the conflict potential in the task state file.
-
-This is a cheap coordination mechanism that works on a single branch without requiring multi-branch isolation.
-
-## Rules
-
-- Every committing skill MUST follow this procedure instead of writing ad-hoc commit logic.
-- If Step 2 reveals files from another agent's uncommitted work, do NOT stage them. Warn and proceed with only your own files.
-- If the edit log contains files outside the task scope, investigate — they may be side effects from a shared hook or linter auto-fix.
-- The edit log is the primary record. Task state is the secondary record. Git status is the ground truth. All three should agree before committing.
+Report admitted predicates, the exact action attempted, its post-state, and any
+remaining action. Do not automatically stage, commit, amend, push, clear state,
+or repair a mismatch.

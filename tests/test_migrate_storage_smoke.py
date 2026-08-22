@@ -1,8 +1,8 @@
 """
 test_migrate_storage_smoke.py — Tests for scripts/migrate_storage_smoke.py.
 
-Covers: [chroma] extra gate, deterministic embedding helper, count-line parser,
-fixture-generation row count (chroma-gated), and cleanup semantics.
+Covers: [chroma-migration] extra gate, deterministic embedding helper, count-line
+parser, fixture-generation row count (chroma-gated), and cleanup semantics.
 
 These tests do NOT require a committed Chroma database; fixtures are generated
 in temporary directories and removed after each test.
@@ -26,10 +26,10 @@ _smoke_mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]  #
 _spec.loader.exec_module(_smoke_mod)  # type: ignore[union-attr]  # reason: loader is ModuleLoader at runtime but typed as Optional
 
 
-# ── [chroma] gate ─────────────────────────────────────────────────────────────
+# ── [chroma-migration] gate ───────────────────────────────────────────────────
 
 
-def test_missing_chroma_reports_chroma_extra(monkeypatch, capsys):
+def test_missing_chroma_reports_chroma_migration_extra(monkeypatch, capsys):
     """When chromadb is absent, _check_chroma() prints the install hint and exits 1.
 
     The exit must happen before any fixture data is created or the CLI is invoked
@@ -42,7 +42,10 @@ def test_missing_chroma_reports_chroma_extra(monkeypatch, capsys):
 
     assert exc_info.value.code == 1
     captured = capsys.readouterr()
-    assert "[chroma]" in captured.err, f"install hint missing from stderr: {captured.err!r}"
+    assert "mempalace-code[chroma-migration]" in captured.err, (
+        f"install hint missing from stderr: {captured.err!r}"
+    )
+    assert "migration bridge" in captured.err
 
 
 def test_missing_chroma_exits_before_fixture_creation(monkeypatch):
@@ -127,7 +130,7 @@ def test_parse_counts_returns_none_on_empty_string():
 
 @pytest.mark.skipif(
     importlib.util.find_spec("chromadb") is None,
-    reason="requires mempalace-code[chroma]",
+    reason="requires mempalace-code[chroma-migration]",
 )
 def test_seed_chroma_source_creates_n_rows(tmp_path):
     """_seed_chroma_source creates exactly N rows in the ChromaDB collection."""
@@ -136,14 +139,17 @@ def test_seed_chroma_source_creates_n_rows(tmp_path):
     src_path = str(tmp_path / "chroma_src")
     _smoke_mod._seed_chroma_source(src_path, 3)
 
-    client = chromadb.PersistentClient(path=src_path)
+    client = chromadb.PersistentClient(
+        path=src_path,
+        settings=chromadb.Settings(anonymized_telemetry=False),
+    )
     col = client.get_collection("mempalace_drawers")
     assert col.count() == 3
 
 
 @pytest.mark.skipif(
     importlib.util.find_spec("chromadb") is None,
-    reason="requires mempalace-code[chroma]",
+    reason="requires mempalace-code[chroma-migration]",
 )
 def test_seed_chroma_source_single_row(tmp_path):
     """_seed_chroma_source with n_rows=1 creates exactly 1 row (boundary)."""
@@ -152,14 +158,17 @@ def test_seed_chroma_source_single_row(tmp_path):
     src_path = str(tmp_path / "chroma_src_single")
     _smoke_mod._seed_chroma_source(src_path, 1)
 
-    client = chromadb.PersistentClient(path=src_path)
+    client = chromadb.PersistentClient(
+        path=src_path,
+        settings=chromadb.Settings(anonymized_telemetry=False),
+    )
     col = client.get_collection("mempalace_drawers")
     assert col.count() == 1
 
 
 @pytest.mark.skipif(
     importlib.util.find_spec("chromadb") is None,
-    reason="requires mempalace-code[chroma]",
+    reason="requires mempalace-code[chroma-migration]",
 )
 def test_seed_chroma_source_row_contains_marker(tmp_path):
     """Each seeded row document starts with MARKER_PREFIX."""
@@ -168,7 +177,10 @@ def test_seed_chroma_source_row_contains_marker(tmp_path):
     src_path = str(tmp_path / "chroma_src_marker")
     _smoke_mod._seed_chroma_source(src_path, 2)
 
-    client = chromadb.PersistentClient(path=src_path)
+    client = chromadb.PersistentClient(
+        path=src_path,
+        settings=chromadb.Settings(anonymized_telemetry=False),
+    )
     col = client.get_collection("mempalace_drawers")
     result = col.get(include=cast("Any", ["documents"]))
     documents = cast("list[str]", result["documents"] or [])

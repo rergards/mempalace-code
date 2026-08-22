@@ -1,5 +1,7 @@
 ---
 slug: STORE-SEARCH-SOURCE-FILE-FULL-PATH
+status: completed
+authority: non_authoritative
 goal: "Return the full stored source_file path from search_memories, matching code_search."
 risk: low
 risk_note: "Single-field output change in a narrow API path; callers relying on basename-only values may need adjustment."

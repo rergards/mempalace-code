@@ -1,5 +1,7 @@
 ---
 slug: MIRROR-PREFLIGHT-SUDO-COMBINED-OPTS
+status: completed
+authority: non_authoritative
 goal: "Detect sudo combined-option mirror wrapper forms in preflight classification"
 risk: low
 risk_note: "Narrow parser extension only for sudo wrapper tokenization; no subprocess, storage, or network boundaries are touched."

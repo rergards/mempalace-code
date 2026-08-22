@@ -1,5 +1,7 @@
 ---
 slug: CODE-LANGUAGE-CATALOG-FRESH-PR4
+status: completed
+authority: non_authoritative
 goal: "Rebuild a shared language catalog for miner detection, code_search validation, and MCP schema language hints"
 risk: medium
 risk_note: "Refactors shared language metadata used by mining, search validation, and MCP schema output; behavior must stay byte-for-byte compatible for existing labels and detection order."

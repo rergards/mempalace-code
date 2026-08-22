@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal, NamedTuple, TypeAlias, TypedDict
 
 from ..config import MempalaceConfig
 from ..language_catalog import known_filenames, readable_extensions
+from ..source_io import (
+    is_regular_source_path,
+    read_regular_bytes,
+    read_regular_text,
+    regular_source_diagnostic,
+)
 
 KNOWN_FILENAMES: set[str] = known_filenames()
 READABLE_EXTENSIONS: set[str] = readable_extensions()
@@ -83,7 +90,9 @@ class GitignoreMatcher:
             return None
 
         try:
-            lines = gitignore_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            lines = read_regular_text(
+                gitignore_path, encoding="utf-8", errors="replace"
+            ).splitlines()
         except Exception:
             return None
 
@@ -223,7 +232,10 @@ def _is_dotnet_project(project_path: Path) -> bool:
     level deep (the standard layout: Solution.sln at root, Project/Project.csproj
     in a subdirectory).  Uses early-exit to minimise filesystem round-trips.
     """
-    return any(next(project_path.glob(pat), None) is not None for pat in _DOTNET_MARKERS)
+    return any(
+        any(is_regular_source_path(candidate) for candidate in project_path.glob(pat))
+        for pat in _DOTNET_MARKERS
+    )
 
 
 def should_skip_dir(dirname: str) -> bool:
@@ -399,7 +411,7 @@ def _subtree_glob_prefix(pattern: str) -> str | None:
     return "/".join(parts[:star_idx]).strip("/")
 
 
-SymlinkSkipReason: TypeAlias = Literal["dangling", "not-a-file", "unreadable"]
+SymlinkSkipReason: TypeAlias = Literal["dangling", "not-a-file", "unreadable", "not a regular file"]
 
 
 class SymlinkDiagnostic(TypedDict):
@@ -422,13 +434,20 @@ def invalid_source_symlink_reason(path: Path) -> SymlinkSkipReason | None:
     try:
         if not path.exists():
             return "dangling"
-        if not path.is_file():
+        if not is_regular_source_path(path):
             return "not-a-file"
-        with open(path, "rb") as f:
-            f.read(1)
+        read_regular_bytes(path, max_bytes=1)
     except OSError:
         return "unreadable"
     return None
+
+
+def _record_non_regular_source(path: Path, diagnostics: list[SymlinkDiagnostic] | None) -> None:
+    message = regular_source_diagnostic(path)
+    if diagnostics is not None:
+        diagnostics.append({"path": str(path), "reason": "not a regular file"})
+    else:
+        print(message, file=sys.stderr)
 
 
 def is_dir_subtree_excluded(dir_path: Path, project_path: Path, rules: ScanFilterRules) -> bool:
@@ -552,5 +571,8 @@ def scan_project(
                     if symlink_diagnostics is not None:
                         symlink_diagnostics.append({"path": str(filepath), "reason": reason})
                     continue
+            if not is_regular_source_path(filepath):
+                _record_non_regular_source(filepath, symlink_diagnostics)
+                continue
             files.append(filepath)
     return files

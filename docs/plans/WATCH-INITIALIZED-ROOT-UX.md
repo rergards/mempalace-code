@@ -1,5 +1,7 @@
 ---
 slug: WATCH-INITIALIZED-ROOT-UX
+status: completed
+authority: non_authoritative
 goal: "Let `mempalace-code watch` handle an initialized project directory directly while preserving parent-directory watch behavior."
 risk: medium
 risk_note: "Touches watcher startup project selection and user-facing CLI/docs text, but leaves mining, storage, and steady-state watch loops unchanged."

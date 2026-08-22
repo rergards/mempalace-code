@@ -1,5 +1,7 @@
 ---
 slug: CLI-STATUS-READONLY-NO-EMBEDDER
+status: completed
+authority: non_authoritative
 goal: "Make mempalace-code status read LanceDB inventory without starting the embedding model"
 risk: low
 risk_note: "Small CLI read-path change using existing LanceStore read_only support; main risk is drifting missing-palace behavior."

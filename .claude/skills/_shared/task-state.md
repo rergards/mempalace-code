@@ -1,83 +1,81 @@
 # Task State Handoff — Shared Procedure
 
-Shared state persistence for skills running multi-step workflows.
-Referenced by `/task-plan`, `/task-hardening`, and any future multi-step skill.
+Owns local state persistence for `/task-plan` and `/task-hardening`. The state
+file is recovery evidence. Inspection, review, or skill invocation does not
+authorize creating, replacing, truncating, or clearing it.
 
-**Purpose:** Survive context compaction by writing task state to disk. After compaction, the agent reads this file instead of relying on degraded context memory to recall which files were modified, what phase it's in, and what decisions were made.
+## State Admission
 
-## State File
+Use `${AUTOPILOT_TASK_STATE}` when set; otherwise use
+`/tmp/claude-task-state-<SLUG>.json`. Before any state write, perform these steps
+in order:
 
-Location: `/tmp/claude-task-state-<SLUG>.json` (e.g., `/tmp/claude-task-state-MINE-CSHARP.json`)
+1. Resolve the exact state path and inspect whether it exists. If it exists,
+   read and preserve its bytes before evaluating a write.
+2. Inspect the current Git root, Git directory, `HEAD`, branch, and
+   `git status --porcelain`. Stop if the task repository is unknown or differs
+   from the state evidence.
+3. Run `autopilot doctor --json` before `autopilot status`. Preserve both
+   outputs as read-only admission evidence.
+4. Resolve the current actor and owner:
+   - inside the owning Autopilot provider, require matching task/run/attempt and
+     `phase_write_allowed=true` for the exact state path;
+   - for an operator outside that provider, require `safe_to_edit=true` for the
+     exact repository and paths.
+5. Classify the existing state before choosing an action:
+   - absent plus the applicable live predicate above permits one idempotent
+     initialization;
+   - valid matching state is resumed without initialization;
+   - active-owner, blocked, resumable, stale, malformed, unknown, mismatched, or
+     contradictory state is preserved. Stop with the failed predicate and the
+     recovery command `autopilot doctor --json`.
 
-Use the task slug in the filename to avoid collisions when multiple sessions or autopilot instances run in parallel. If `AUTOPILOT_TASK_STATE` env var is set, use that path instead.
+Never overwrite, clear, repair, or replace evidence to make admission pass.
+Unknown ownership and conflicting ownership fail closed.
 
-Structure:
+## State Record
+
+Initialize only an admitted absent path. Bind the record to the values observed
+during admission:
 
 ```json
 {
   "task_slug": "MINE-CSHARP",
   "skill": "/task-hardening",
-  "phase": "triage",
-  "started_at": "2026-04-17T14:30:00Z",
-  "modified_files": [
-    "mempalace_code/miner.py",
-    "mempalace_code/lang_detect.py",
-    "docs/BACKLOG.yaml"
-  ],
-  "decisions": [
-    "F1: missing .cs extension — fix (score 3/3)",
-    "F2: symbol extraction regex — fix (score 2/3)",
-    "F3: benchmark dataset — backlog only (score 1/3)"
-  ],
-  "pending_actions": [
-    "write local-only round report to docs/audits/",
-    "update BACKLOG.yaml",
-    "commit via commit-checkpoint"
-  ]
+  "phase": "started",
+  "repository": "<absolute-git-root>",
+  "head_sha": "<40-hex-sha>",
+  "run_id": "<run-or-operator-session-id>",
+  "attempt": "<attempt-id>",
+  "updated_at": "<UTC timestamp>",
+  "modified_files": [],
+  "decisions": [],
+  "pending_actions": []
 }
 ```
 
-## When to Write
+Every later state update needs current write authority for this exact path and
+must re-read the file plus live owner first. Write atomically. If the observed
+record changed, preserve it and stop; do not merge from conversational memory.
 
-- **At skill start**: initialize with task slug, skill name, phase = "started", empty arrays.
-- **After each file edit**: append the file path to `modified_files`.
-- **After each decision**: append a one-line summary to `decisions`.
-- **At phase transitions**: update `phase` (e.g., "research" -> "triage" -> "implementing" -> "committing").
-- **After commit**: clear the file (`: > /tmp/claude-task-state-<SLUG>.json`).
+## Provider-Failure Evidence
 
-## When to Read
+Record a failed provider attempt only in ignored local evidence. Bind each row
+to `run_id`, `attempt`, `provider`, `model`, `phase`, the input/output artifact
+identity, and a freshness timestamp. A provider failure does not require a
+backlog edit, tracked report, staging, or commit.
 
-- **After context compaction**: if `/start` is invoked mid-task, read the state file to recover task context.
-- **At commit time**: the commit checkpoint (`.claude/skills/_shared/commit-checkpoint.md`) uses `modified_files` as a secondary source alongside the edit log.
-- **On skill resume**: if the user re-invokes a skill after interruption, read the state file to determine where to resume.
+On retry or partial invocation, read the state, failure evidence, Git post-state,
+and provider post-state first. Keep completed evidence and completed actions.
+Request authority only for the single remaining exact action; never replay a
+completed action or inherit authority from the earlier invocation.
 
-## Integration with Commit Checkpoint
+## Commit Checkpoint Integration
 
-The commit checkpoint Step 1 should cross-reference three sources:
-1. `/tmp/claude-edits.log` (hook-populated, most complete)
-2. `/tmp/claude-task-state-<SLUG>.json` -> `modified_files` (skill-populated, survives log rotation)
-3. `git diff --name-only` + `git diff --name-only --cached` (ground truth)
+The commit checkpoint may read `modified_files` as secondary evidence. Git is
+the ground truth. A mismatch stops the checkpoint; it does not authorize a
+state rewrite.
 
-All three should agree. Discrepancies indicate missed files or stale state.
-
-## Results Ledger (optional)
-
-For tasks with experimentation (hardening, debugging, performance tuning), maintain a results log:
-
-Location: `/tmp/claude-task-results-<SLUG>.tsv`
-
-```tsv
-timestamp	action	status	description
-2026-04-17T14:30	try tree-sitter C#	keep	AST-based chunking for .cs files
-2026-04-17T14:35	try regex fallback	discard	misses nested classes
-2026-04-17T14:40	add symbol metadata	keep	extracts class/method/property names
-```
-
-This separates "what worked" (git history) from "what was attempted" (ledger). Useful for post-mortems and preventing re-exploration of dead ends. Not committed — lives in `/tmp/` only.
-
-## Rules
-
-- The state file and results ledger are ephemeral — do NOT commit them. They exist only in `/tmp/`.
-- One task at a time per state file. If starting a new task, overwrite the previous state.
-- Keep entries short — one line per decision, one path per file. This is a recovery aid, not a log.
-- If the state file is missing or corrupt, fall back to the edit log and git status (no hard failure).
+State and result ledgers remain ignored local evidence. Clearing either file is
+a separate mutation requiring current exact-path authority after the consuming
+action has an unambiguous verified outcome.
