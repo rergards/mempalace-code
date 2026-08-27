@@ -307,6 +307,9 @@ jobs:
           lifecycle_uid=""
           lifecycle_home=""
           lifecycle_runtime=""
+          stage_dir=""
+          staged_script=""
+          staged_wheel=""
           cleanup_lifecycle_user() {
             trap - EXIT
             set +e
@@ -342,8 +345,32 @@ jobs:
             fi
             sudo userdel --remove "$lifecycle_user"
             cleanup_rc=$((cleanup_rc | $?))
+            if [ -n "$stage_dir" ]; then
+              stage_rc=0
+              case "$stage_dir" in
+                /var/tmp/mempalace-installed-application.??????) ;;
+                *) stage_rc=1 ;;
+              esac
+              stage_mode="$(sudo stat -c %a "$stage_dir" 2>/dev/null)"
+              if (( stage_rc == 0 )) &&
+                sudo test -d "$stage_dir" &&
+                sudo test ! -L "$stage_dir" &&
+                test "$(sudo stat -c %u "$stage_dir")" = 0 &&
+                { test "$stage_mode" = 700 || test "$stage_mode" = 755 || test "$stage_mode" = 555; }; then
+                sudo rm -f -- "$staged_script" "$staged_wheel"
+                stage_rc=$((stage_rc | $?))
+                sudo rmdir -- "$stage_dir"
+                stage_rc=$((stage_rc | $?))
+              else
+                stage_rc=1
+              fi
+              if sudo test -e "$stage_dir" || sudo test -L "$stage_dir"; then
+                stage_rc=1
+              fi
+              cleanup_rc=$((cleanup_rc | stage_rc))
+            fi
             if (( cleanup_rc != 0 )); then
-              echo "disposable systemd-user cleanup failed" >&2
+              echo "disposable systemd-user or staging cleanup failed" >&2
               exit 1
             fi
           }
@@ -360,7 +387,27 @@ jobs:
           sudo systemctl start "user@${lifecycle_uid}.service"
           test "$(stat -c %u "$lifecycle_runtime")" = "$lifecycle_uid"
           python_bin="$(command -v python)"
-          wheel_path="$GITHUB_WORKSPACE/${wheel[0]}"
+          script_source="$GITHUB_WORKSPACE/scripts/release_install_metadata_smoke.py"
+          wheel_source="$GITHUB_WORKSPACE/${wheel[0]}"
+          test -f "$script_source" && test ! -L "$script_source"
+          test -f "$wheel_source" && test ! -L "$wheel_source"
+          stage_dir="$(sudo mktemp -d /var/tmp/mempalace-installed-application.XXXXXX)"
+          staged_script="$stage_dir/release_install_metadata_smoke.py"
+          staged_wheel="$stage_dir/${wheel[0]##*/}"
+          test "$(sudo stat -c %u "$stage_dir")" = 0
+          test "$(sudo stat -c %a "$stage_dir")" = 700
+          sudo chmod 0755 "$stage_dir"
+          sudo install -o root -g root -m 0444 -- "$script_source" "$staged_script"
+          sudo install -o root -g root -m 0444 -- "$wheel_source" "$staged_wheel"
+          sudo chmod 0555 "$stage_dir"
+          for staged_path in "$staged_script" "$staged_wheel"; do
+            sudo test -f "$staged_path" && sudo test ! -L "$staged_path"
+            test "$(sudo stat -c %u "$staged_path")" = 0
+            test "$(sudo stat -c %a "$staged_path")" = 444
+            sudo -u "$lifecycle_user" test -r "$staged_path"
+          done
+          cmp -s -- "$script_source" "$staged_script"
+          cmp -s -- "$wheel_source" "$staged_wheel"
           sudo -u "$lifecycle_user" env -i \
             HOME="$lifecycle_home" \
             USER="$lifecycle_user" \
@@ -370,9 +417,9 @@ jobs:
             XDG_RUNTIME_DIR="$lifecycle_runtime" \
             DBUS_SESSION_BUS_ADDRESS="unix:path=$lifecycle_runtime/bus" \
             MEMPALACE_RELEASE_SYSTEMD_USER=1 \
-            "$python_bin" scripts/release_install_metadata_smoke.py \
+            "$python_bin" "$staged_script" \
               --all-installers \
-              --install-spec "$wheel_path" \
+              --install-spec "$staged_wheel" \
               --json
       - name: Run full golden CLI suite through the exact installed wheel
         shell: bash

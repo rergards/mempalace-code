@@ -202,9 +202,30 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert 'sudo -u "$lifecycle_user" env -i' in command
     assert 'userdel --remove "$lifecycle_user"' in command
     assert "loginctl" not in command
+    assert (
+        'stage_dir="$(sudo mktemp -d /var/tmp/mempalace-installed-application.XXXXXX)"' in command
+    )
+    assert 'staged_wheel="$stage_dir/${wheel[0]##*/}"' in command
+    assert 'staged_wheel="$stage_dir/candidate.whl"' not in command
+    assert 'sudo install -o root -g root -m 0444 -- "$script_source" "$staged_script"' in command
+    assert 'sudo install -o root -g root -m 0444 -- "$wheel_source" "$staged_wheel"' in command
+    assert 'sudo test -f "$staged_path" && sudo test ! -L "$staged_path"' in command
+    assert 'test "$(sudo stat -c %u "$staged_path")" = 0' in command
+    assert 'test "$(sudo stat -c %a "$staged_path")" = 444' in command
+    assert 'sudo -u "$lifecycle_user" test -r "$staged_path"' in command
+    assert 'cmp -s -- "$script_source" "$staged_script"' in command
+    assert 'cmp -s -- "$wheel_source" "$staged_wheel"' in command
+    assert 'sudo rm -f -- "$staged_script" "$staged_wheel"' in command
+    assert 'sudo rmdir -- "$stage_dir"' in command
+    assert "rm -rf" not in command
+    assert '"$python_bin" "$staged_script"' in command
+    assert '--install-spec "$staged_wheel"' in command
+    assert '"$python_bin" scripts/release_install_metadata_smoke.py' not in command
+    assert '--install-spec "$wheel_path"' not in command
     assert command.index("trap cleanup_lifecycle_user EXIT") < command.index(
         "sudo useradd --create-home"
     )
+    assert command.index("trap cleanup_lifecycle_user EXIT") < command.index("sudo mktemp -d")
     assert command.index("lifecycle_created=1") < command.index("sudo useradd --create-home")
     assert all(client not in command for client in ("codex", "claude", "gemini"))
     assert command.count("--all-installers") == 1
