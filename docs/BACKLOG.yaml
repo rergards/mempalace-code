@@ -68,6 +68,12 @@ items:
     links:
       - type: subtask-of
         key: RELEASE-DIRECT-INSTALLED-APP-GATE
+      - type: is-blocked-by
+        key: REL-INSTALLED-CACHE-BOOTSTRAP
+      - type: is-blocked-by
+        key: REL-CI-PYTEST-BOUNDED-PARAM-ID
+      - type: is-blocked-by
+        key: REL-DEPENDENCY-REPORT-CURRENT-HASH
   - key: REL-INSTALLED-CACHE-BOOTSTRAP
     summary: "Make installed-application self-seed the credential-free MiniLM cache"
     type: bug
