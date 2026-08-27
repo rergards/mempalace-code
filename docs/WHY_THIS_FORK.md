@@ -58,7 +58,7 @@ A code-first fork should not upgrade its embedding model on vibes. This fork shi
 
 `all-MiniLM-L6-v2` was compared against `all-mpnet-base-v2` and `nomic-embed-text-v1.5`. MiniLM stays the default: R@5 = 0.950, fastest, 80 MB model. Any future model upgrade must pass both the code gate **and** the LongMemEval text gate — prose retrieval quality is non-negotiable.
 
-Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized in the project `CLAUDE.md`.
+Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized in the project `AGENTS.md`.
 
 ### 8. Configurable Embedding Model
 

@@ -24,9 +24,11 @@ import re
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 MARKER_PREFIX = "smoke_migrate_marker"
 _EMBED_DIM = 384
+_CLI_EXECUTABLE: str | None = None
 
 
 def _det_embed(text: str) -> list[float]:
@@ -84,11 +86,12 @@ def _seed_chroma_source(path: str, n_rows: int) -> None:
 
 
 def _run_cli(args: list[str]) -> subprocess.CompletedProcess:
-    """Run the mempalace_code CLI as a subprocess with version checks disabled."""
+    """Run the selected installed launcher, or source-mode CLI for ordinary tests."""
     env = os.environ.copy()
     env["MEMPALACE_VERSION_CHECK"] = "0"
+    command = [_CLI_EXECUTABLE] if _CLI_EXECUTABLE else [sys.executable, "-m", "mempalace_code.cli"]
     return subprocess.run(
-        [sys.executable, "-m", "mempalace_code.cli"] + args,
+        command + args,
         capture_output=True,
         text=True,
         env=env,
@@ -265,7 +268,22 @@ All artifacts are removed from a temporary directory on exit.
         action="store_true",
         help="Run the non-empty destination refusal check instead of the happy-path smoke",
     )
+    parser.add_argument(
+        "--cli",
+        help="Absolute candidate mempalace-code launcher; rejects a missing or relative path.",
+    )
     args = parser.parse_args()
+
+    global _CLI_EXECUTABLE
+    if args.cli:
+        candidate = Path(args.cli)
+        if (
+            not candidate.is_absolute()
+            or not candidate.is_file()
+            or not os.access(candidate, os.X_OK)
+        ):
+            parser.error("--cli must name an existing absolute executable")
+        _CLI_EXECUTABLE = str(candidate.resolve())
 
     _check_chroma()
 

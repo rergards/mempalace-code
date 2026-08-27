@@ -11,10 +11,12 @@ import re
 import time
 import urllib.error
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from mempalace_code import updater, version_check
+from mempalace_code.cli_commands import version_check as version_check_command
 from mempalace_code.version_check import (
     PIP_FALLBACK_PREFIX,
     PYPI_URL,
@@ -225,6 +227,89 @@ def test_invalid_env_var_fails_closed(tmp_path, monkeypatch):
     config = resolve_config(config_dir=tmp_path)
     assert config.enabled is False
     assert config.source == "env"
+
+
+class TestCheckNowEnvironmentKillSwitch:
+    """Explicit checks retain process-level no-network precedence."""
+
+    @staticmethod
+    def _args():
+        return SimpleNamespace(enable=False, disable=False, check_now=True)
+
+    @pytest.mark.parametrize(
+        "env_value",
+        ["0", "invalid", "x" * 10_000, "invalid\nvalue"],
+    )
+    def test_environment_disable_blocks_fetch_without_echoing_value(
+        self, env_value, tmp_path, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("MEMPALACE_VERSION_CHECK", env_value)
+        fetch_calls = []
+        monkeypatch.setattr(
+            version_check_command,
+            "fetch_latest_version",
+            lambda: fetch_calls.append(True) or "99.0.0",
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            version_check_command.cmd_version_check(self._args())
+
+        captured = capsys.readouterr()
+        assert exc.value.code == 2
+        assert fetch_calls == []
+        assert captured.out == ""
+        assert captured.err == (
+            "mempalace-code: version check blocked by MEMPALACE_VERSION_CHECK. "
+            "Run 'unset MEMPALACE_VERSION_CHECK' (or set it to 1) before retrying.\n"
+        )
+        assert env_value not in captured.out
+        assert env_value not in captured.err
+        assert "Traceback" not in captured.out + captured.err
+
+    def test_persisted_disable_does_not_block_explicit_check(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
+        save_state(VersionCheckState(enabled=False), config_dir=None)
+        fetch_calls = []
+        monkeypatch.setattr(
+            version_check_command,
+            "fetch_latest_version",
+            lambda: fetch_calls.append(True) or version_check_command.__version__,
+        )
+
+        version_check_command.cmd_version_check(self._args())
+
+        assert fetch_calls == [True]
+
+    def test_enabled_environment_allows_explicit_check(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("MEMPALACE_VERSION_CHECK", "1")
+        fetch_calls = []
+        monkeypatch.setattr(
+            version_check_command,
+            "fetch_latest_version",
+            lambda: fetch_calls.append(True) or version_check_command.__version__,
+        )
+
+        version_check_command.cmd_version_check(self._args())
+
+        assert fetch_calls == [True]
+
+    def test_public_docs_describe_check_now_kill_switch_precedence(self):
+        root = Path(__file__).parents[1]
+        documents = [
+            root / "README.md",
+            root / "docs" / "OFFLINE_USAGE.md",
+            root / "docs" / "AGENT_INSTALL.md",
+            root / "docs" / "UPDATES.md",
+        ]
+
+        for document in documents:
+            content = document.read_text(encoding="utf-8")
+            assert "MEMPALACE_VERSION_CHECK=0" in content, document
+            assert "--check-now" in content, document
+            assert "unset MEMPALACE_VERSION_CHECK" in content, document
 
 
 def test_interval_hours_env_override(tmp_path, monkeypatch):

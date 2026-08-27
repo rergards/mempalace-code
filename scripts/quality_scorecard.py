@@ -110,7 +110,6 @@ _VERIFICATION_COMMANDS = (
     ),
     ("typecheck_strict_slice", "python -m pyright -p pyrightconfig.strict.json"),
     ("public_safety", "python scripts/public_safety_scan.py --tracked --staged"),
-    ("gitleaks_baseline", "python scripts/gitleaks_scan.py validate-baseline"),
     (
         "gitleaks_changed_range",
         "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD",
@@ -398,11 +397,9 @@ def collect_gitleaks_coverage() -> dict:
     """Metadata about supported Gitleaks modes — no subprocess, no scan execution."""
     return {
         "commands": {
-            "baseline": "python scripts/gitleaks_scan.py validate-baseline",
             "changed_range": (
                 "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD"
             ),
-            "fixture_smoke": "python scripts/gitleaks_scan.py fixture-smoke",
             "full_history": "python scripts/gitleaks_scan.py full-history",
         },
         "coverage": [
@@ -410,10 +407,10 @@ def collect_gitleaks_coverage() -> dict:
             "entropy_rule",
             "changed_commit_range",
             "full_git_history",
-            "reviewed_baseline_metadata",
-            "redacted_json_sarif_summary",
+            "native_fingerprint_ignores",
+            "redacted_sarif_report",
         ],
-        "modes": ["baseline", "changed_range", "fixture_smoke", "full_history"],
+        "modes": ["changed_range", "full_history"],
     }
 
 
@@ -807,7 +804,7 @@ def validate(data: dict) -> list[str]:
     gleaks = data.get("gitleaks", {})
     require(isinstance(gleaks.get("modes"), list), "gitleaks.modes must be a list")
     if isinstance(gleaks.get("modes"), list):
-        for _mode in ("baseline", "changed_range", "fixture_smoke", "full_history"):
+        for _mode in ("changed_range", "full_history"):
             require(_mode in gleaks["modes"], f"gitleaks.modes must include '{_mode}'")
     require(isinstance(gleaks.get("commands"), dict), "gitleaks.commands must be a dict")
     require(isinstance(gleaks.get("coverage"), list), "gitleaks.coverage must be a list")
@@ -817,8 +814,8 @@ def validate(data: dict) -> list[str]:
             "entropy_rule",
             "changed_commit_range",
             "full_git_history",
-            "reviewed_baseline_metadata",
-            "redacted_json_sarif_summary",
+            "native_fingerprint_ignores",
+            "redacted_sarif_report",
         ):
             require(_coverage in gleaks["coverage"], f"gitleaks.coverage must include {_coverage}")
 

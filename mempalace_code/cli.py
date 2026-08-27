@@ -716,7 +716,6 @@ def main():
         action="store_true",
         help="Include raw embedding vectors (larger file)",
     )
-    p_export.add_argument("--pretty", action="store_true", help="Pretty-print JSON (larger file)")
 
     # import
     p_import = sub.add_parser("import", help="Import drawers (and KG) from a JSONL export file")

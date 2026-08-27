@@ -9,25 +9,25 @@ Schema version: 4
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 84 |
-| Package total lines | 27627 |
-| Package code lines | 22508 |
-| Test files (`tests/`) | 89 |
-| Test total lines | 69686 |
+| Package total lines | 28933 |
+| Package code lines | 23732 |
+| Test files (`tests/`) | 90 |
+| Test total lines | 76548 |
 
 ## Largest Modules (top 10)
 
 | Module | Lines |
 |--------|------:|
-| `mempalace_code/storage.py` | 1628 |
+| `mempalace_code/storage.py` | 1740 |
+| `mempalace_code/updater.py` | 1477 |
 | `mempalace_code/mining/chunkers.py` | 1466 |
-| `mempalace_code/watcher.py` | 1308 |
-| `mempalace_code/updater.py` | 1162 |
+| `mempalace_code/watcher.py` | 1335 |
 | `mempalace_code/dialect.py` | 1074 |
-| `mempalace_code/cli.py` | 940 |
+| `mempalace_code/backup.py` | 987 |
+| `mempalace_code/cli.py` | 939 |
 | `mempalace_code/mining/symbols.py` | 904 |
 | `mempalace_code/entity_detector.py` | 885 |
-| `mempalace_code/mining/orchestrator.py` | 854 |
-| `mempalace_code/knowledge_graph.py` | 778 |
+| `mempalace_code/mining/orchestrator.py` | 860 |
 
 ## Ruff Ignores
 
@@ -75,19 +75,17 @@ Files under strict type-checking (`pyrightconfig.strict.json`): 6.
 
 | Mode | Command |
 |------|---------|
-| baseline | `python scripts/gitleaks_scan.py validate-baseline` |
 | changed_range | `python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD` |
-| fixture_smoke | `python scripts/gitleaks_scan.py fixture-smoke` |
 | full_history | `python scripts/gitleaks_scan.py full-history` |
 
-Coverage: `maintained_default_corpus`, `entropy_rule`, `changed_commit_range`, `full_git_history`, `reviewed_baseline_metadata`, `redacted_json_sarif_summary`
+Coverage: `maintained_default_corpus`, `entropy_rule`, `changed_commit_range`, `full_git_history`, `native_fingerprint_ignores`, `redacted_sarif_report`
 
 ## Demo Gates
 
 | Gate | Status | Count |
 |------|:------:|------:|
 | architecture_guard | present |  |
-| cli_golden_scenarios | present | 14 |
+| cli_golden_scenarios | present | 20 |
 | dependency_audit | present |  |
 | docs_drift_guard | present |  |
 | mcp_stdio_contracts | present | 5 |
@@ -114,7 +112,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| type/pyright ignores (total) | 153 |
+| type/pyright ignores (total) | 166 |
 | type/pyright unreasoned | 0 |
 | noqa (total) | 42 |
 | noqa blanket | 0 |
@@ -124,8 +122,8 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| Test files | 89 |
-| Test functions | 3457 |
+| Test files | 90 |
+| Test functions | 3615 |
 
 ## Available Suites
 
@@ -151,7 +149,6 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 - **typecheck**: `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"`
 - **typecheck_strict_slice**: `python -m pyright -p pyrightconfig.strict.json`
 - **public_safety**: `python scripts/public_safety_scan.py --tracked --staged`
-- **gitleaks_baseline**: `python scripts/gitleaks_scan.py validate-baseline`
 - **gitleaks_changed_range**: `python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD`
 - **scorecard**: `python scripts/quality_scorecard.py --check`
 - **architecture_guard**: `python scripts/architecture_guard.py --root .`

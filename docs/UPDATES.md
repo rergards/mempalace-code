@@ -29,8 +29,10 @@ that actually runs mempalace-code and an explicit version:
 
 Run `mempalace-code version-check --check-now` to get that line filled in: it prints the absolute path
 the interpreter running mempalace-code and the newest version on PyPI, so you never have to work out
-which `python` on `PATH` owns the install. Nothing is installed for you: no scheduler, no watcher
-coordination, no rollback. Move to `uv tool` or `pipx` if you want the managed flow.
+which `python` on `PATH` owns the install. `MEMPALACE_VERSION_CHECK=0` and invalid values block this
+explicit network request; run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) before retrying.
+Nothing is installed for you: no scheduler, no watcher coordination, no rollback. Move to `uv tool`
+or `pipx` if you want the managed flow.
 
 The hint is only printed for an ordinary pip install. A `uv tool`, `pipx`, or bootstrap-venv install
 is the managed updater's to move; a system interpreter is usually externally managed and must be
@@ -58,6 +60,18 @@ The updater detects the installed optional topology. It retains `watch`, `treesi
 and `chroma-migration` bridge extras where present. An active configured watcher without the `watch` extra is a
 preflight failure. The update transaction also checks free disk capacity and the local backup policy;
 it does not alter palace data or create a replacement palace backup.
+
+## Confirmation refusal contract
+
+The guarded mutations are `update apply`, `update scheduler install`, and
+`update scheduler remove`. If any is invoked without `--yes`, it exits 2 before mutation: no
+package, scheduler, service, log, state, lease, or palace change occurs.
+
+In human mode the command prints a concise confirmation refusal followed by
+`Recovery: <command>`. In JSON mode stdout contains exactly one parseable JSON object and stderr
+contains no human prose. The object contains `ok: false`, `stage: confirmation`, `exit_code: 2`,
+and `recovery_command`; that command matches the refused action and ends in `--yes --json`.
+Review the current target and mutation authority before running the emitted recovery command.
 
 ## Manual update
 

@@ -14,12 +14,12 @@ document, and the README pointer consistent.
 
 | Field | Value |
 |---|---|
-| Reviewed date | `2026-08-21` |
+| Reviewed date | `2026-08-24` |
 | Canonical upstream repository | <https://github.com/MemPalace/mempalace> |
 | Branch reviewed | `develop` |
-| Commit reviewed | `3e56979fb456c7478a4b57414027873bd78f2d37` |
-| Previous reviewed commit | `639c69a1d6be41a04964ceb72a3d29d6f45629e9` |
-| Previous reviewed date | `2026-08-16` |
+| Commit reviewed | `dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0` |
+| Previous reviewed commit | `3e56979fb456c7478a4b57414027873bd78f2d37` |
+| Previous reviewed date | `2026-08-24` |
 | Upstream release described by its changelog | `3.8.0` |
 | Upstream paths tracked for drift | `README.md`, `CHANGELOG.md`, `pyproject.toml`, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `.mcp.json`, `mempalace/split_mega_files.py`, RFCs 003–005 |
 | Fork commit at review time | this repository, `main` |
@@ -32,22 +32,22 @@ benchmarked, or independently compatibility-tested.
 
 Pinned primary upstream sources, all at the reviewed commit:
 
-- <https://github.com/MemPalace/mempalace/tree/3e56979fb456c7478a4b57414027873bd78f2d37>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/README.md>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/CHANGELOG.md>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/pyproject.toml>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/.codex-plugin/plugin.json>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/.agents/plugins/marketplace.json>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/.mcp.json>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/mempalace/split_mega_files.py>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/docs/rfcs/003-agent-logstream-coordination.md>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/docs/rfcs/004-replicated-palace.md>
-- <https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/docs/rfcs/005-agent-identity-routing.md>
+- <https://github.com/MemPalace/mempalace/tree/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/README.md>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/CHANGELOG.md>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/pyproject.toml>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/.codex-plugin/plugin.json>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/.agents/plugins/marketplace.json>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/.mcp.json>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/mempalace/split_mega_files.py>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/docs/rfcs/003-agent-logstream-coordination.md>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/docs/rfcs/004-replicated-palace.md>
+- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/docs/rfcs/005-agent-identity-routing.md>
 
 The full range between the previous pin and this one is published as a single
 compare link:
 
-- <https://github.com/MemPalace/mempalace/compare/639c69a1d6be41a04964ceb72a3d29d6f45629e9...3e56979fb456c7478a4b57414027873bd78f2d37>
+- <https://github.com/MemPalace/mempalace/compare/3e56979fb456c7478a4b57414027873bd78f2d37...dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0>
 
 ## Upstream Delta Since the Previous Pin
 
@@ -62,60 +62,40 @@ only public evidence is the commit range itself cite `compare`.
 
 | Delta decision | Upstream change, as its sources describe it | Stance | Release-critical |
 |---|---|---|---|
-| `split-name-detection-opt-in` | `split_mega_files` removes built-in fallback person names, so name extraction requires explicit `known_names.json` configuration instead of matching common names in unrelated content | `adopted` | yes |
-| `non-regular-file-boundary-unchanged` | The range does not alter upstream's FIFO and irregular-file protections; this fork's stronger descriptor-validation boundary remains in force | `equivalent-local` | no |
-| `chromadb-repair-and-read-paths` | Chroma repair corroborates FTS5 content before rebuilding, client-cache bookkeeping stops treating its own writes as external invalidation, and listing/tunnel metadata reads bypass HNSW | `migration-only` | no |
-| `sqlite-exact-indexed-read-paths` | `sqlite_exact` vectorizes ranking, hydrates only selected rows, caches facets, and indexes generated `wing`/`room`/`hall` columns for structured access | `irrelevant` | no |
-| `embeddinggemma-coreml-validation` | `embeddinggemma` avoids CoreML under automatic selection and validates non-CPU witness vectors for finite, non-zero norm before use | `irrelevant` | no |
-| `logstream-watch-cursor-and-signal-lifecycle` | A background `logstream watch` adds typed filters, restart-safe event-id checkpoints, bounded idle exit, and interrupt exit status; repeated fixes make malformed, missing, or unreachable checkpoints replay rather than skip events | `deferred` | no |
-| `mesh-estate-publication` | The HTTP peer-sync process publishes a redacted atomic mesh-state snapshot for other local transports to read | `irrelevant` | no |
-| `thin-stdio-hub-proxy` | A stdio MCP session uses a lightweight proxy path and imports the storage server lazily only when local fallback is required | `irrelevant` | no |
-| `upstream-documentation-and-test-coverage` | The range adds KG supersede, hook-routing, Termux, API, coordination, and performance-test documentation or coverage without a corresponding fork runtime contract | `irrelevant` | no |
-| `upstream-benchmark-portability` | Three upstream benchmark runners pin UTF-8 file I/O and use ASCII-safe console separators on Windows | `irrelevant` | no |
-| `upstream-release-and-ci-metadata` | Upstream advances package and plugin metadata to 3.8.0, guards the OpenClaw skill version, updates actions, and attaches container provenance/SBOM attestations | `irrelevant` | no |
+| `sync-deletion-corroboration` | `sync --apply` removes a missing-source drawer only when another known regular source file remains reachable in the same directory; unresolved paths are reported and kept | `irrelevant` | no |
+| `sync-fix-changelog-placement` | The deletion-corroboration fix moves from Unreleased into the upstream 3.8.0 bug-fix section | `irrelevant` | no |
+| `shared-brain-logstream-watch-guidance` | The shared-brain guide adds watcher wake filters, separate watcher and inbox cursors, batch replay, NDJSON envelopes, and event-id resume guidance | `deferred` | no |
+| `plugin-manifest-tool-count-correction` | Claude, Codex, and Cursor plugin descriptions correct their advertised MCP tool count from 36 to 44 | `irrelevant` | no |
+| `upstream-release-entrypoint-instructions` | Release checks now expect upstream's `mcp_proxy` entry point and root `.mcp.json` ownership instead of a plugin-local Codex MCP file | `irrelevant` | no |
 
-**`split-name-detection-opt-in` — adopted.** The fork's `_load_known_people()` in
-`mempalace_code/split_mega_files.py` reads the optional
-`~/.mempalace/known_names.json` data and returns an empty list when the file is
-absent or unusable, so `extract_people()` does not match generic person names by
-default. The focused predicate
-`tests/test_split_mega_files.py::test_load_known_people_requires_explicit_config`
-pins the no-configuration boundary.
+**`sync-deletion-corroboration` — irrelevant.** The fork has no `sync_palace`,
+`sync --apply`, `removable_ids`, `unresolved_by_source`, or `_classify_drawer`
+owner under `mempalace_code/`, `tests/`, or `scripts/`. Its explicit
+drawer/wing deletion tools and Lance stale-fragment cleanup act on
+operator-selected targets; they do not infer deletion from source-file
+reachability. No speculative sync or prune implementation is planned.
 
-**`non-regular-file-boundary-unchanged` — equivalent-local.** No commit in the
-range changes FIFO or other irregular-file semantics. The fork continues to
-open accepted ingest sources and generated split outputs through descriptors,
-revalidate them with `fstat`, refuse symlinks/FIFOs/hard links, retain the source
-mega-file after refusal, and exit nonzero.
+**`sync-fix-changelog-placement` — irrelevant.** This is an upstream changelog
+correction for the same upstream-only sync lifecycle. It changes no fork
+runtime, release note, or capability claim.
 
-**`chromadb-repair-and-read-paths` — migration-only.** All three upstream
-changes operate its Chroma runtime. The fork retains Chroma solely as one-way
-migration input; LanceDB remains the only runtime backend. Migration smoke and
-error tests continue to enforce that boundary.
+**`shared-brain-logstream-watch-guidance` — deferred.** The fork has no
+logstream, watcher cursor, inbox cursor, replication, or agent wake-up runtime
+owner. The upstream guidance therefore remains outside the fork's current
+local-first scope; no compatibility or monitoring claim is added.
 
-**`sqlite-exact-indexed-read-paths` — irrelevant.** The fork has no
-`sqlite_exact` runtime backend. Its LanceDB storage and search paths do not
-import the upstream SQL schema, generated columns, caches, or pagination code.
+**`plugin-manifest-tool-count-correction` — irrelevant.** The comparison records
+the upstream plugin wording as 44 tools. The fork has different plugin and
+registration contracts: direct stdio exposes 29 tools and the portable Agent
+Plugin defaults to four, so the upstream description-only correction does not
+map to a fork implementation.
 
-**`embeddinggemma-coreml-validation` — irrelevant.** The fork supports
-`all-MiniLM-L6-v2` as its default and has no supported `embeddinggemma` model
-configuration or migration flow. Importing provider policy without the gated
-text-retrieval evidence would violate the fork's model policy.
-
-**`logstream-watch-cursor-and-signal-lifecycle` — deferred.** The fork has no
-logstream, event cursor, replication, or agent wake-up surface. Its existing
-local watcher independently holds a shared operation lease for its lifetime,
-handles SIGTERM, restores the prior handler, and releases the lease at shutdown;
-those protections remain unchanged and are not claimed as logstream compatibility.
-
-**`mesh-estate-publication` and `thin-stdio-hub-proxy` — irrelevant.** The fork
-ships stdio MCP without the upstream live hub, peer mesh, or cross-transport
-estate. There is no compatible state file or proxy transport to adopt.
-
-**`upstream-documentation-and-test-coverage`, `upstream-benchmark-portability`,
-and `upstream-release-and-ci-metadata` — irrelevant.** These changes govern
-upstream-only documentation, tests, benchmark runners, workflows, container
-publication, and release metadata. The fork does not import those artifacts.
+**`upstream-release-entrypoint-instructions` — irrelevant.** Upstream's
+`mempalace.mcp_proxy:main` and root `.mcp.json` layout do not match this fork's
+release contract. The fork retains `mempalace-code-mcp =
+mempalace_code.mcp_launcher:main` in `pyproject.toml` and its packaged minimal
+profile in `mempalace_code/agent_plugin/mcp.json`; no fork release instruction
+changes in this review.
 
 ## Capability Comparison
 
@@ -126,7 +106,7 @@ publication, and release metadata. The fork does not import those artifacts.
 | Embeddings | New onboarding offers multilingual `embeddinggemma-300m`; opt-in `openai-compat` targets an OpenAI-compatible `/v1/embeddings` endpoint | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration path, and no remote embedding-provider integration |
 | Search filtering | `mempalace_search` and CLI search advertise `since` / `before` date windows | No matching documented date-window search surface |
 | Agent integration | Changelog 3.7.0 advertises a core Hermes `MemoryProvider` and `mine --source <adapter>` source-adapter resolution | No Hermes provider or source-adapter ingestion surface |
-| MCP count and plugin wording | README says 44 MCP tools. The separate Codex plugin manifest says 36 MCP tools, auto-save hooks, and guided setup; the two advertised count wordings are recorded separately rather than reconciled here | Direct stdio MCP registration defaults to the full 29-tool profile |
+| MCP count and plugin wording | README and the Claude, Codex, and Cursor plugin descriptions say 44 MCP tools | Direct stdio MCP registration defaults to the full 29-tool profile |
 | Plugin metadata | Codex manifest identifies `mempalace` version 3.8.0, points at `.mcp.json`, and describes a Codex-oriented interface; marketplace metadata advertises a local plugin source | Standards-conformant Agent Plugins 1.0 portable package with `plugin.json`, `mcp.json`, vendored schemas, and a skill |
 | Portable default | No Agent Plugins 1.0 package was reviewed in the pinned upstream sources | The portable Agent Plugins package defaults to exactly four tools: status, search, duplicate check, and add drawer |
 | Coordination and replication | 3.8.0 adds a stateful background logstream watcher and monitoring protocol on top of logstream events, artifact handoffs, and the RFC 004 multi-master sync foundation | No logstream, palace replication, mesh, or live-hub transport |
@@ -156,7 +136,7 @@ Upstream, advertised at the reviewed commit:
 - `chroma-sqlite-metadata-read-paths`
 - `sqlite-exact-indexed-structured-fields`
 - `mcp-tools-44`
-- `codex-plugin-manifest-tools-36`
+- `plugin-manifests-tools-44`
 - `codex-plugin-metadata`
 - `openai-compatible-embeddings`
 - `search-date-window`
@@ -208,7 +188,7 @@ advertised capability that names no tracked source.
 | `chroma-sqlite-metadata-read-paths` | `CHANGELOG.md` |
 | `sqlite-exact-indexed-structured-fields` | `CHANGELOG.md` |
 | `mcp-tools-44` | `README.md` |
-| `codex-plugin-manifest-tools-36` | `.codex-plugin/plugin.json` |
+| `plugin-manifests-tools-44` | `.codex-plugin/plugin.json` |
 | `codex-plugin-metadata` | `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `.mcp.json` |
 | `openai-compatible-embeddings` | `README.md` |
 | `search-date-window` | `CHANGELOG.md` |
@@ -234,7 +214,7 @@ because an identity routing surface would change the coordination row if it ship
 **Embeddings.** The supported default remains `all-MiniLM-L6-v2`. The fork has
 no supported multilingual model configuration or migration flow. A model change
 requires the text and code retrieval evidence and migration support defined in
-`CLAUDE.md`.
+`AGENTS.md`.
 
 **Retrieval and reranking.** The fork retains one local deterministic hybrid
 path, `code_search(rerank="hybrid")`. It does not add a general remote or LLM
@@ -268,9 +248,9 @@ that named it, leaves the input in place, and makes the CLI exit nonzero.
   records what this fork did and cites a local test or module as evidence.
   Repository-only `irrelevant` rows require no local predicate. None of the rows
   evaluates upstream's own decision or its correctness.
-- **Plugin counts are source-local wording.** The README's 44-tool claim and
-  the Codex plugin manifest's 36-tool wording are both preserved as observed;
-  this review does not infer a single reconciled count.
+- **Plugin counts are source-local wording.** The README and reviewed plugin
+  descriptions now agree on 44 tools. The fork's 29-tool direct profile and
+  four-tool portable default remain independently tested fork claims.
 - **One branch, one commit.** Only `develop` at the pinned commit was reviewed.
   Upstream default-branch, tag, release, and future state can differ.
 - **Historical criticism is separate.**
@@ -287,22 +267,24 @@ decision stances, and the local files those stances name, using only the
 checkout. It is deterministic and network-free. CI lint and the default
 `scripts/release_preflight.py` use this mode.
 
-**Live mode (`--check-live`, explicit).** It performs one read-only GitHub API
-request for the pinned branch head and fails closed on drift, fetch failure, or
-an unusable response. It never rewrites source or GitHub state. The canonical
-pre-tag command is:
+**Live mode (`--check-live`, explicit).** Live drift detection runs only at
+release time. It performs one read-only GitHub API request for the pinned branch
+head and fails closed on drift, fetch failure, or an unusable response. It never
+rewrites source or GitHub state. The canonical pre-tag owner is
+`scripts/release_preflight.py`; invoke it with:
 
 ```bash
 python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream
 ```
 
 That opt-in preflight path delegates to this guard's `--check-live` mode before
-an immutable tag is made. `.github/workflows/publish.yml` retains its direct
-live guard as defense in depth after a tag exists.
+an immutable tag is made. The tag-only publish owner,
+`.github/workflows/publish.yml`, retains its direct live guard as defense in
+depth after a tag exists.
 
 ## Drift Recovery
 
-When the scheduled drift workflow or a release preflight reports
+When the pre-tag release preflight or tag-only publish workflow reports
 `upstream-drift`, the failure names the current upstream head and the compare
 range from the pin. Refresh the review rather than moving the pin alone:
 

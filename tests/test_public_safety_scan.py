@@ -222,8 +222,6 @@ def test_residue_rules_apply_to_docs_but_not_tests_or_sources():
         "scripts/public_safety_scan.py",
         "mempalace_code/cli.py",
         "benchmarks/convomem_bench.py",
-        # The secret-scanner baseline is written in the vocabulary it catches.
-        "security/gitleaks-baseline.yml",
     ]
     for rel_path in publishable:
         assert ps.is_publishable_doc(rel_path), f"{rel_path} should carry residue rules"

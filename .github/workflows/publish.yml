@@ -22,6 +22,7 @@ jobs:
       # check-run for the exact candidate SHA, `actions: read` reads the
       # Dependency Audit run history. Neither grants any write capability.
       checks: read
+      statuses: read
       actions: read
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -41,16 +42,8 @@ jobs:
       # Installs the Gitleaks version pinned by tools/gitleaks/go.mod and locked by
       # tools/gitleaks/go.sum. Dependabot's gomod ecosystem owns that upgrade.
       - uses: ./.github/actions/gitleaks-gate
-      - name: Validate Gitleaks baseline metadata
-        run: python scripts/gitleaks_scan.py validate-baseline
-      - name: Gitleaks synthetic fixture smoke
-        run: >
-          python scripts/gitleaks_scan.py fixture-smoke
-          --artifact-dir "${{ runner.temp }}/gitleaks/fixture-smoke"
-      # Runs here, before the shallow `git fetch origin main --depth=1` below turns
-      # this checkout into a shallow one. Release admission for history scanning is
-      # this explicit step, not release_preflight.py, which cannot see full history
-      # by the time it runs.
+      # Release admission for history scanning is this explicit step; the public
+      # main comparison below uses the credential-free REST transport.
       - name: Gitleaks full-history scan
         run: >
           python scripts/gitleaks_scan.py full-history
@@ -63,34 +56,26 @@ jobs:
           retention-days: 7
       - run: pip install build twine
       # Admission runs before any artifact is built or uploaded, so a rejected
-      # candidate never produces a distribution. The v* tag ruleset predicate is
-      # deliberately absent: reading a repository ruleset needs
-      # administration:read, which GITHUB_TOKEN cannot be granted. Tag-ruleset
-      # verification is the operator-run readiness/status gate's job.
+      # candidate never produces a distribution. Every public rules query uses
+      # the credential-free fixed-target reader.
       - name: Verify exact SHA release admission
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          git fetch origin main --depth=1
-          MAIN_SHA=$(git rev-parse "origin/main^{commit}")
           TAG_SHA=$(git rev-parse --verify "refs/tags/${TAG_NAME}^{commit}")
-          if [ "$TAG_SHA" != "$MAIN_SHA" ]; then
-            echo "Release tag must target current main: tag=$TAG_SHA main=$MAIN_SHA" >&2
-            exit 1
-          fi
           python scripts/release_preflight.py \
             --tag "$TAG_NAME" \
             --require-clean \
             --expect-sha "$TAG_SHA" \
-            --candidate-ref origin/main \
             --repo "$GITHUB_REPOSITORY" \
             --branch main \
+            --check-public-main \
             --check-required-check \
             --check-dependency-audit \
-            --check-branch-rules
+            --check-branch-rules \
+            --check-tag-ruleset
       - name: Upstream comparison guard (live head, read-only)
         run: python scripts/upstream_comparison_guard.py --check-live
       - name: Build distributions
@@ -148,27 +133,24 @@ jobs:
       - run: pip install twine pypi-attestations==0.0.30
       - name: Re-verify exact SHA release admission
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "rergards/mempalace-code"
           test "$GITHUB_EVENT_NAME" = "push"
-          git fetch origin main
-          MAIN_SHA=$(git rev-parse "origin/main^{commit}")
           TAG_SHA=$(git rev-parse --verify "refs/tags/${TAG_NAME}^{commit}")
           test "$TAG_SHA" = "$GITHUB_SHA"
-          test "$TAG_SHA" = "$MAIN_SHA"
           python scripts/release_preflight.py \
             --tag "$TAG_NAME" \
             --require-clean \
             --expect-sha "$TAG_SHA" \
-            --candidate-ref origin/main \
             --repo "$GITHUB_REPOSITORY" \
             --branch main \
+            --check-public-main \
             --check-required-check \
             --check-dependency-audit \
-            --check-branch-rules
+            --check-branch-rules \
+            --check-tag-ruleset
       - name: Inspect original-run distributions
         run: python scripts/release_artifact_gate.py --dist dist --require-wheel --require-sdist
       - name: Match original-run distributions to PyPI and provenance
@@ -179,10 +161,9 @@ jobs:
           import hashlib
           import json
           import os
-          import subprocess
+          import shutil
+          import tempfile
           from pathlib import Path
-          from urllib.parse import quote
-
           from scripts import release_status_gate as gate
 
           tag = os.environ["GITHUB_REF_NAME"]
@@ -194,42 +175,53 @@ jobs:
           if len(local) != 2:
               raise SystemExit(f"expected one wheel and one sdist, found {[p.name for p in local]}")
 
-          public, surface = gate.fetch_pypi_distributions(version, package, gate._default_http_get)
+          reader = gate._load_public_read().DEFAULT_READER
+          public, surface = gate.fetch_pypi_distributions(version, package, reader)
           if surface.status != gate.STATUS_OK or public is None:
               raise SystemExit(surface.detail)
           public_by_name = {item.filename: item for item in public}
           if set(public_by_name) != {path.name for path in local}:
               raise SystemExit("original-run and exact-version PyPI filename sets differ")
 
+          verifier = shutil.which("pypi-attestations")
+          if verifier is None:
+              raise SystemExit("official provenance verifier is unavailable")
+          verifier_state = tempfile.TemporaryDirectory(prefix="mempalace-verifier-")
+          verifier_root = Path(verifier_state.name)
+          smoke = gate._load_install_metadata_smoke()
+          verifier_env = smoke._isolate_probe_state(
+              smoke._credential_free_env(), verifier_root, Path(verifier).parent
+          )
           manifest = {}
-          for path in local:
-              digest = hashlib.sha256(path.read_bytes()).hexdigest()
-              if digest != public_by_name[path.name].sha256:
-                  raise SystemExit(f"PyPI digest differs for {path.name}")
-              provenance_url = gate.PYPI_PROVENANCE_URL.format(
-                  package=quote(package, safe=""),
-                  version=quote(version, safe=""),
-                  filename=quote(path.name, safe=""),
-              )
-              status, body, error = gate._default_http_get(provenance_url)
-              if status != 200 or not gate._publisher_identity_matches(body, repo):
-                  raise SystemExit(f"unexpected provenance for {path.name}: {error or status}")
-              verified = subprocess.run(
-                  [
-                      "pypi-attestations",
-                      "verify",
-                      "pypi",
-                      str(path),
-                      "--repository",
-                      f"https://github.com/{repo}",
-                  ],
-                  check=False,
-                  capture_output=True,
-                  text=True,
-              )
-              if verified.returncode != 0:
-                  raise SystemExit(f"official provenance verifier rejected {path.name}")
-              manifest[path.name] = digest
+          try:
+              for path in local:
+                  digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                  if digest != public_by_name[path.name].sha256:
+                      raise SystemExit(f"PyPI digest differs for {path.name}")
+                  query = gate._load_public_read().pypi_provenance(package, version, path.name)
+                  result = reader(query)
+                  if result.error or not gate._publisher_identity_matches(result.data, repo):
+                      raise SystemExit(f"unexpected provenance for {path.name}: {result.error}")
+                  code, stdout, stderr = gate._default_run_subprocess(
+                      [
+                          verifier,
+                          "verify",
+                          "pypi",
+                          str(path),
+                          "--repository",
+                          f"https://github.com/{repo}",
+                      ],
+                      env=verifier_env,
+                      cwd=str(Path.cwd()),
+                  )
+                  output_size = len(stdout.encode()) + len(stderr.encode())
+                  if output_size > gate.MAX_VERIFIER_OUTPUT_BYTES:
+                      raise SystemExit(f"official provenance verifier output exceeded bound for {path.name}")
+                  if code != 0:
+                      raise SystemExit(f"official provenance verifier rejected {path.name}")
+                  manifest[path.name] = digest
+          finally:
+              verifier_state.cleanup()
 
           manifest_path = Path(os.environ["RUNNER_TEMP"]) / "release-assets.json"
           manifest_path.write_text(json.dumps(manifest, sort_keys=True), encoding="utf-8")

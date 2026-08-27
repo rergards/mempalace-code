@@ -21,8 +21,10 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, cast, runtime_checkable
 
@@ -46,7 +48,7 @@ class _LanceTableProtocol(Protocol):
     def schema(self) -> Any: ...
     def search(self, query: Any = None) -> Any: ...
     def add(self, data: list) -> None: ...
-    def merge_insert(self, on: str) -> Any: ...
+    def merge_insert(self, on: str | list[str]) -> Any: ...
     def delete(self, condition: str) -> None: ...
     def count_rows(self, filter: str = "") -> int: ...
     def to_arrow(self) -> Any: ...
@@ -124,6 +126,17 @@ class DrawerStore(ABC):
         metadatas: List[Dict[str, Any]],
     ) -> None:
         """Insert or update drawers."""
+
+    def replace_source(
+        self,
+        source_file: str,
+        wing: str,
+        ids: List[str],
+        documents: List[str],
+        metadatas: List[Dict[str, Any]],
+    ) -> None:
+        """Atomically replace every drawer for one exact source and wing."""
+        raise NotImplementedError
 
     @abstractmethod
     def get(
@@ -500,16 +513,24 @@ class LanceStore(DrawerStore):
         old_stdout = os.dup(1)
         old_stderr = os.dup(2)
         try:
+            sys.stdout.flush()
+            sys.stderr.flush()
             os.dup2(devnull, 1)
             os.dup2(devnull, 2)
             self._embedder = cast("_EmbedderProtocol", self._get_embedder())
         finally:
-            os.dup2(old_stdout, 1)
-            os.dup2(old_stderr, 2)
-            os.close(devnull)
-            os.close(old_stdout)
-            os.close(old_stderr)
-            hf_logger.setLevel(prev_level)
+            try:
+                try:
+                    sys.stdout.flush()
+                    sys.stderr.flush()
+                finally:
+                    os.dup2(old_stdout, 1)
+                    os.dup2(old_stderr, 2)
+            finally:
+                os.close(devnull)
+                os.close(old_stdout)
+                os.close(old_stderr)
+                hf_logger.setLevel(prev_level)
 
     def _require_db(self) -> _LanceDBConnectionProtocol:
         """Return the open LanceDB connection or raise RuntimeError."""
@@ -668,6 +689,62 @@ class LanceStore(DrawerStore):
             if not _is_missing_fragment_error(exc):
                 raise
             logger.warning("Lance upsert saw a missing fragment; reopening table and retrying once")
+            _execute_merge(self._reopen_table())
+
+    def replace_source(
+        self,
+        source_file: str,
+        wing: str,
+        ids: List[str],
+        documents: List[str],
+        metadatas: List[Dict[str, Any]],
+    ) -> None:
+        """Atomically replace every drawer for one exact source and wing."""
+        if self._read_only:
+            raise RuntimeError("Cannot replace a source in a read-only LanceStore")
+        if not source_file or not wing:
+            raise ValueError("source_file and wing must be non-empty")
+        if not (len(ids) == len(documents) == len(metadatas)):
+            raise ValueError("ids, documents, and metadatas must have equal lengths")
+        if not ids:
+            raise ValueError("replace_source requires at least one replacement row")
+        if any(
+            metadata.get("source_file") != source_file or metadata.get("wing") != wing
+            for metadata in metadatas
+        ):
+            raise ValueError("every replacement row must match the exact source_file and wing")
+
+        table = self._require_table()
+        vectors = self._embed(documents)
+        rows = []
+        for id_, document, metadata, vector in zip(ids, documents, metadatas, vectors):
+            row = self._meta_defaults(metadata)
+            row["id"] = id_
+            row["text"] = document
+            row["vector"] = vector
+            rows.append(row)
+
+        escaped_file = source_file.replace("'", "''")
+        escaped_wing = wing.replace("'", "''")
+        source_scope = f"source_file = '{escaped_file}' AND wing = '{escaped_wing}'"
+
+        def _execute_merge(target_table: _LanceTableProtocol) -> None:
+            (
+                target_table.merge_insert(["id", "source_file", "wing"])
+                .when_matched_update_all()
+                .when_not_matched_insert_all()
+                .when_not_matched_by_source_delete(source_scope)
+                .execute(rows)
+            )
+
+        try:
+            _execute_merge(table)
+        except Exception as exc:
+            if not _is_missing_fragment_error(exc):
+                raise
+            logger.warning(
+                "Lance source replacement saw a missing fragment; reopening table and retrying once"
+            )
             _execute_merge(self._reopen_table())
 
     def get(self, ids=None, where=None, include=None, limit=10000, offset=0):
@@ -1192,12 +1269,12 @@ class LanceStore(DrawerStore):
           freed_bytes: int — max(0, on_disk_before - on_disk_after)
           version_count_before: int
           version_count_after: int
+          estimated_reclaimable_bytes_before: int
+          estimated_reclaimable_bytes_after: int
           cleanup_older_than_days: int
           delete_unverified: bool
           error: str (only present when ok=False)
         """
-        from datetime import timedelta
-
         table = self._table
         if table is None:
             return {
@@ -1228,6 +1305,39 @@ class LanceStore(DrawerStore):
             "cleanup_older_than_days": 0 if unsafe_now else older_than_days,
             "delete_unverified": delete_unverified,
         }
+
+        if not unsafe_now:
+            try:
+                versions = table.list_versions()
+                cutoff = datetime.now(UTC) - cleanup_older_than
+                no_eligible_version = len(versions) == version_count_before
+                for version in versions[:-1]:
+                    timestamp = version.get("timestamp")
+                    if not isinstance(timestamp, datetime):
+                        no_eligible_version = False
+                        break
+                    if timestamp.tzinfo is None:
+                        timestamp = timestamp.astimezone()
+                    if timestamp.astimezone(UTC) <= cutoff:
+                        no_eligible_version = False
+                        break
+            except Exception:
+                no_eligible_version = False
+
+            if no_eligible_version:
+                reclaimable_bytes = before_stats["estimated_reclaimable_bytes"]
+                return {
+                    "ok": True,
+                    "rows_before": rows_before,
+                    "rows_after": rows_before,
+                    "freed_bytes": 0,
+                    "version_count_before": version_count_before,
+                    "version_count_after": version_count_before,
+                    "estimated_reclaimable_bytes_before": reclaimable_bytes,
+                    "estimated_reclaimable_bytes_after": reclaimable_bytes,
+                    "cleanup_older_than_days": older_than_days,
+                    "delete_unverified": False,
+                }
 
         try:
             table.optimize(
@@ -1293,6 +1403,8 @@ class LanceStore(DrawerStore):
             "freed_bytes": freed_bytes,
             "version_count_before": version_count_before,
             "version_count_after": version_count_after,
+            "estimated_reclaimable_bytes_before": before_stats["estimated_reclaimable_bytes"],
+            "estimated_reclaimable_bytes_after": after_stats["estimated_reclaimable_bytes"],
             "cleanup_older_than_days": 0 if unsafe_now else older_than_days,
             "delete_unverified": delete_unverified,
         }
@@ -1599,7 +1711,7 @@ def open_store(
     create: bool = True,
     embed_model: Optional[str] = None,
     read_only: bool = False,
-) -> DrawerStore:
+) -> LanceStore:
     """
     Open a LanceDB drawer store. Auto-detects LanceDB palaces if not specified.
 

@@ -19,12 +19,10 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import json
 import re
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,11 +33,9 @@ if TYPE_CHECKING:
 MANIFEST_PATH = "docs/quality/upstream-comparison.json"
 SUPPORTED_SCHEMA_VERSION = 2
 DEFAULT_MAX_AGE_DAYS = 30
-GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_REPOSITORY_ROOT = "https://github.com/"
-USER_AGENT = "mempalace-code-upstream-comparison-guard"
-LIVE_TIMEOUT_SECONDS = 20
 DEFAULT_RECOVERY_COMMAND = "python scripts/upstream_comparison_guard.py --check-live --json"
+_PUBLIC_READ_MODULE = None
 
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -702,44 +698,41 @@ def python_file_defines(path: Path, function_name: str) -> bool:
     )
 
 
-def _default_fetch(url: str) -> str:
-    request = urllib.request.Request(  # noqa: S310 - fixed https GitHub API endpoint
-        url,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=LIVE_TIMEOUT_SECONDS) as response:  # noqa: S310
-            payload = response.read()
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise LiveCheckError(f"live-response: upstream head request failed ({exc})") from exc
-    try:
-        return payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise LiveCheckError("live-response: upstream head reply was not valid UTF-8") from exc
-
-
-def head_commit_url(manifest: dict[str, Any]) -> str:
-    """Build the read-only GitHub API URL for the manifest branch head."""
-    owner, repo = repository_slug(str(manifest["canonical_repository"]))
-    branch = urllib.parse.quote(str(manifest["branch"]), safe="")
-    return f"{GITHUB_API_ROOT}/repos/{owner}/{repo}/commits/{branch}"
+def _load_public_read():
+    global _PUBLIC_READ_MODULE
+    if _PUBLIC_READ_MODULE is None:
+        module_name = "release_public_read"
+        path = Path(__file__).resolve().parent / f"{module_name}.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        _PUBLIC_READ_MODULE = module
+    return _PUBLIC_READ_MODULE
 
 
 def fetch_head_commit(
     manifest: dict[str, Any],
     *,
-    fetch: Callable[[str], str] = _default_fetch,
+    public_read: Callable[[object], object] | None = None,
 ) -> str:
     """Return the current head sha of the manifest branch using one read-only request."""
-    payload = fetch(head_commit_url(manifest))
+    public = _load_public_read()
+    reader = public_read or public.DEFAULT_READER
+    owner, name = repository_slug(str(manifest["canonical_repository"]))
+    repository = f"{owner}/{name}"
+    branch = str(manifest["branch"])
     try:
-        data = json.loads(payload)
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise LiveCheckError("live-response: upstream head reply was not valid JSON") from exc
-    if not isinstance(data, dict):
-        raise LiveCheckError("live-response: upstream head reply was not a JSON object")
-    sha = data.get("sha")
+        result = reader(public.reviewed_upstream_head(repository, branch))
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise LiveCheckError(f"live-response: upstream head request failed ({exc})") from exc
+    if getattr(result, "error", ""):
+        raise LiveCheckError(
+            f"live-response: upstream head request failed ({getattr(result, 'error', '')})"
+        )
+    sha = getattr(result, "data", None)
     if not isinstance(sha, str) or not COMMIT_RE.fullmatch(sha):
         raise LiveCheckError("live-response: upstream head reply carried no 40-hex commit sha")
     return sha
@@ -748,7 +741,7 @@ def fetch_head_commit(
 def check_live(
     manifest: dict[str, Any],
     *,
-    fetch: Callable[[str], str] = _default_fetch,
+    public_read: Callable[[object], object] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Compare the pinned commit against the live branch head. Read-only, no mutation."""
     pinned = str(manifest.get("commit", ""))
@@ -756,7 +749,7 @@ def check_live(
     repository = str(manifest.get("canonical_repository", ""))
     recovery = str(manifest.get("recovery_command") or DEFAULT_RECOVERY_COMMAND)
     try:
-        head = fetch_head_commit(manifest, fetch=fetch)
+        head = fetch_head_commit(manifest, public_read=public_read)
     except (LiveCheckError, ValueError) as exc:
         return {"live_head": None, "pinned_commit": pinned}, [str(exc)]
 

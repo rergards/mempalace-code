@@ -8,9 +8,12 @@ Verifies:
   - python -m mempalace_code.cli does not emit the runpy RuntimeWarning (AC-1, AC-2)
 """
 
+import logging
+import os
 import subprocess
 import sys
 import types
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -329,6 +332,121 @@ def test_fetch_model_existing_local_path_does_not_retry_online(tmp_path, monkeyp
         model.fetch_model(str(model_path))
 
     assert calls == [(str(model_path), {"local_files_only": True})]
+
+
+def test_quiet_hf_model_output_preserves_progress_and_suppresses_noise(capfd, monkeypatch):
+    """Buffered progress survives while Python and fd-level loader noise stays hidden."""
+    from mempalace_code.cli_commands import model
+
+    logger = logging.getLogger("huggingface_hub")
+    previous_level = logger.level
+    logger.setLevel(logging.WARNING)
+    buffered_stdout = os.fdopen(1, "w", buffering=4096, closefd=False)
+    buffered_stderr = os.fdopen(2, "w", buffering=4096, closefd=False)
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(sys, "stdout", buffered_stdout)
+            context.setattr(sys, "stderr", buffered_stderr)
+            sys.stdout.write("Downloading\nWaiting for model download\n")
+            sys.stderr.write("progress stderr\n")
+            with model._quiet_hf_model_output():
+                assert logger.level == logging.ERROR
+                sys.stdout.write("python stdout noise\n")
+                sys.stderr.write("python stderr noise\n")
+                os.write(1, b"fd stdout noise\n")
+                os.write(2, b"fd stderr noise\n")
+            sys.stdout.write("Done\n")
+            sys.stderr.write("restored stderr\n")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.write(1, b"restored stdout fd\n")
+            os.write(2, b"restored stderr fd\n")
+            assert logger.level == logging.WARNING
+    finally:
+        buffered_stdout.close()
+        buffered_stderr.close()
+        logger.setLevel(previous_level)
+
+    captured = capfd.readouterr()
+    assert captured.out == ("Downloading\nWaiting for model download\nDone\nrestored stdout fd\n")
+    assert captured.err == "progress stderr\nrestored stderr\nrestored stderr fd\n"
+    assert logger.level == previous_level
+
+
+def test_quiet_hf_model_output_restores_state_after_loader_failure(capfd):
+    """A loader exception remains observable after descriptors and logging are restored."""
+    from mempalace_code.cli_commands import model
+
+    logger = logging.getLogger("huggingface_hub")
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
+
+    def load_model():
+        with model._quiet_hf_model_output():
+            os.write(1, b"hidden loader stdout\n")
+            os.write(2, b"hidden loader stderr\n")
+            raise RuntimeError("loader failed")
+
+    try:
+        with pytest.raises(RuntimeError, match="loader failed"):
+            load_model()
+        os.write(1, b"restored stdout\n")
+        os.write(2, b"restored stderr\n")
+        assert logger.level == logging.INFO
+    finally:
+        logger.setLevel(previous_level)
+
+    captured = capfd.readouterr()
+    assert captured.out == "restored stdout\n"
+    assert captured.err == "restored stderr\n"
+
+
+@pytest.mark.parametrize("stream_name", ["stdout", "stderr"])
+@pytest.mark.parametrize("loader_fails", [False, True])
+def test_quiet_hf_model_output_restores_state_after_cleanup_flush_failure(
+    capfd, monkeypatch, stream_name, loader_fails
+):
+    """Cleanup restores state and preserves an active loader error over flush errors."""
+    from mempalace_code.cli_commands import model
+
+    logger = logging.getLogger("huggingface_hub")
+    previous_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    underlying_stream = getattr(sys, stream_name)
+    stream = MagicMock(wraps=underlying_stream)
+    flush_calls = 0
+
+    def flush_stream():
+        nonlocal flush_calls
+        flush_calls += 1
+        if flush_calls == 2:
+            raise OSError("flush failed")
+        underlying_stream.flush()
+
+    stream.flush.side_effect = flush_stream
+
+    def load_model():
+        with model._quiet_hf_model_output():
+            assert logger.level == logging.ERROR
+            if loader_fails:
+                raise RuntimeError("loader failed")
+
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(sys, stream_name, stream)
+            expected_error = RuntimeError if loader_fails else OSError
+            expected_message = "loader failed" if loader_fails else "flush failed"
+            with pytest.raises(expected_error, match=expected_message):
+                load_model()
+            os.write(1, b"restored stdout\n")
+            os.write(2, b"restored stderr\n")
+            assert logger.level == logging.DEBUG
+    finally:
+        logger.setLevel(previous_level)
+
+    captured = capfd.readouterr()
+    assert captured.out == "restored stdout\n"
+    assert captured.err == "restored stderr\n"
 
 
 def test_main_alias_is_same_object_as_in_alias_module():

@@ -244,7 +244,7 @@ def test_scan_project_can_include_exact_file_without_known_extension():
 
 
 def test_scan_project_guard_skips_dangling_source_symlink():
-    """Opt-in guard drops a symlink whose target does not exist and records the reason."""
+    """Default discovery rejects a dangling source symlink by node kind."""
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
@@ -260,13 +260,13 @@ def test_scan_project_guard_skips_dangling_source_symlink():
         )
 
         assert files == []
-        assert diagnostics == [{"path": str(link), "reason": "dangling"}]
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
     finally:
         shutil.rmtree(tmpdir)
 
 
 def test_scan_project_guard_skips_unreadable_source_symlink():
-    """Opt-in guard drops a symlink whose target exists but cannot be read."""
+    """Default discovery rejects a source symlink without reading its target."""
     tmpdir = tempfile.mkdtemp()
     outside_dir = tempfile.mkdtemp()
     try:
@@ -279,24 +279,11 @@ def test_scan_project_guard_skips_unreadable_source_symlink():
         link = project_root / "link.py"
         link.symlink_to(target)
 
-        try:
-            # Some environments (e.g. tests run as root) ignore permission bits and can
-            # still read the target — skip rather than assert a platform-dependent result.
-            with open(link, "rb") as f:
-                f.read(1)
-            pytest.skip("current user can read despite chmod 0o000 (e.g. running as root)")
-        except OSError:
-            pass
-
         diagnostics = []
-        files = scan_project(
-            str(project_root),
-            skip_invalid_source_symlinks=True,
-            symlink_diagnostics=diagnostics,
-        )
+        files = scan_project(str(project_root), symlink_diagnostics=diagnostics)
 
         assert files == []
-        assert diagnostics == [{"path": str(link), "reason": "unreadable"}]
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
     finally:
         target.chmod(0o644)
         shutil.rmtree(tmpdir)
@@ -304,7 +291,7 @@ def test_scan_project_guard_skips_unreadable_source_symlink():
 
 
 def test_scan_project_guard_keeps_valid_source_symlink():
-    """Opt-in guard keeps a symlink to a readable file, unresolved to its target path."""
+    """Default discovery rejects a symlink even when its target is readable."""
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
@@ -321,10 +308,8 @@ def test_scan_project_guard_keeps_valid_source_symlink():
             symlink_diagnostics=diagnostics,
         )
 
-        assert diagnostics == []
-        assert sorted(p.name for p in files) == ["link.py", "real.py"]
-        link_entry = next(p for p in files if p.name == "link.py")
-        assert link_entry == link, "valid symlinks must keep the symlink path, not the target"
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
+        assert [p.name for p in files] == ["real.py"]
     finally:
         shutil.rmtree(tmpdir)
 
@@ -355,7 +340,7 @@ def test_scan_project_guard_skips_symlink_to_non_regular_file():
         )
 
         assert files == []
-        assert diagnostics == [{"path": str(link), "reason": "not-a-file"}]
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
     finally:
         shutil.rmtree(tmpdir)
 
@@ -382,7 +367,7 @@ def test_scan_project_guard_keeps_regular_source_file():
 
 
 # =============================================================================
-# Typed boundary coverage — GitignoreRule / ScanFilterRules / SymlinkDiagnostic (AC-2, AC-3)
+# Typed boundary coverage — GitignoreRule / ScanFilterRules / SourceDiagnostic (AC-2, AC-3)
 # =============================================================================
 
 
@@ -461,10 +446,8 @@ def test_scan_filter_rules_accepts_frozenset_and_list_fields():
     assert rules._fields == ("skip_dirs", "skip_files", "skip_globs")
 
 
-def test_invalid_source_symlink_reason_valid_symlink_returns_none():
-    """invalid_source_symlink_reason returns None for a symlink resolving to a readable file."""
-    from mempalace_code.mining.scanner import invalid_source_symlink_reason
-
+def test_source_diagnostic_reports_valid_symlink_as_symlink():
+    """Source diagnostics use non-following metadata for readable symlinks."""
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
@@ -473,8 +456,9 @@ def test_invalid_source_symlink_reason_valid_symlink_returns_none():
         link = project_root / "link.py"
         link.symlink_to(target)
 
-        assert invalid_source_symlink_reason(link) is None
-        assert invalid_source_symlink_reason(target) is None
+        diagnostics = []
+        assert scan_project(str(project_root), symlink_diagnostics=diagnostics) == [target]
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
     finally:
         shutil.rmtree(tmpdir)
 
@@ -1840,6 +1824,36 @@ def test_mine_noop_with_injected_collection_does_not_warm_embedder():
         get_collection.assert_not_called()
     finally:
         shutil.rmtree(tmpdir)
+
+
+def test_mine_regular_source_noop_and_rejected_source_sweep(tmp_path):
+    """Regular sources remain no-ops; symlink paths are never duplicated and are swept."""
+    project = tmp_path / "project"
+    project.mkdir()
+    regular = project / "regular.py"
+    legacy = project / "legacy.py"
+    write_file(regular, MULTI_FUNC_PY)
+    write_file(legacy, MULTI_FUNC_PY + "\n# legacy path\n")
+    _make_palace_config(project)
+    palace_path = str(tmp_path / "palace")
+
+    first = mine(str(project), palace_path, skip_optimize=True)
+    assert first["drawers_filed"] > 0
+
+    store = open_store(palace_path, create=False)
+    assert store.get(where={"source_file": str(regular)}, limit=100)["ids"]
+    assert store.get(where={"source_file": str(legacy)}, limit=100)["ids"]
+
+    unchanged = mine(str(project), palace_path, collection=store, skip_optimize=True)
+    assert unchanged["drawers_filed"] == 0
+    assert unchanged["embedder_warmed"] is False
+
+    legacy.unlink()
+    legacy.symlink_to(regular)
+    swept = mine(str(project), palace_path, collection=store, skip_optimize=True)
+    assert swept["drawers_filed"] == 0
+    assert store.get(where={"source_file": str(legacy)}, limit=100)["ids"] == []
+    assert store.get(where={"source_file": str(regular)}, limit=100)["ids"]
 
 
 def test_mine_hash_failure_reported_separately(capsys):
@@ -3387,11 +3401,25 @@ class TestProjectMarkerClassification:
 
         assert classify_project_root(tmp_path) == ("initialized", ["pyproject.toml"])
 
+    def test_regular_init_marker_alone_classifies_initialized(self, tmp_path):
+        (tmp_path / "mempalace.yaml").write_text("wing: test\n", encoding="utf-8")
+
+        assert classify_project_root(tmp_path) == ("initialized", [])
+
     def test_missing_root_fails_closed(self, tmp_path):
         assert classify_project_root(tmp_path / "missing") == ("parent", [])
 
 
 class TestDetectProjects:
+    def test_detect_finds_regular_init_marker_without_software_marker(self, tmp_path):
+        proj = tmp_path / "initialized"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("wing: initialized\n", encoding="utf-8")
+
+        assert detect_projects(str(tmp_path)) == [
+            {"path": str(proj), "markers": [], "initialized": True}
+        ]
+
     def test_detect_finds_git_dirs(self, tmp_path):
         proj = tmp_path / "myapp"
         proj.mkdir()

@@ -139,20 +139,26 @@ you intentionally want a fresh download.
 
 ## 5. Version Checks and Offline Guarantees
 
-All mempalace-code commands — `init`, `mine`, `mine-all`, `search`, `status`, `health`,
-`repair`, `backup`, `watch`, and all MCP tools — run completely offline after the
-one-time model download. Search/mining model startup first uses local-only
-resolution, so a populated cache does not require HuggingFace metadata checks.
-None of these commands contact PyPI or any external service.
+With version checks disabled, the core commands — `init`, `mine`, `mine-all`, `search`,
+`status`, `health`, `repair`, `backup`, and `watch` — and ordinary MCP tools run completely
+offline after the one-time model download. Search/mining model startup first uses local-only
+resolution, so a populated cache does not require HuggingFace metadata checks. These named
+application operations do not themselves contact PyPI or any external service.
 
-The only optional network activity exposed by the CLI and MCP server is the version
-check:
+The CLI also exposes these network-capable operations:
 
-- **Default (no opt-in):** no network calls, ever.
 - **Opted-in automatic checks:** contact `https://pypi.org/pypi/mempalace-code/json` for
   package metadata at most once per interval (default 168 h). Only the `info.version` field
   is read. No telemetry, no user IDs, no installed-package inventory.
-- **`--check-now`:** single metadata fetch, result printed to stdout.
+- **`version-check --check-now`:** performs a single metadata fetch and prints the result to
+  stdout, unless the process environment kill switch below is disabled or invalid.
+- **`update status` and `update check`:** are read-only, but each refreshes canonical package
+  metadata from `https://pypi.org/pypi/mempalace-code/json`. They can fail when PyPI or the
+  network is unavailable. Read-only means that they do not install a package or persist updater
+  state; it does not mean offline.
+- **`update apply --yes` and scheduled update execution:** can contact PyPI and package sources
+  to establish provenance and install an eligible release. See [UPDATES.md](UPDATES.md) for the
+  complete updater contract.
 
 The low-level Python API also exposes one explicit network-capable method:
 `EntityRegistry.research()`. Calling it directly contacts the English Wikipedia REST
@@ -166,8 +172,16 @@ To guarantee offline operation in automation or airgapped environments:
 export MEMPALACE_VERSION_CHECK=0
 ```
 
-This env var overrides any saved preference and prevents all version-check network calls.
-It does not alter an application that explicitly calls `EntityRegistry.research()`.
+This env var overrides any saved preference and prevents automatic and explicit version-check
+network calls, including `version-check --check-now`; invalid values fail closed in the same way.
+It does not block updater PyPI requests from `update status`, `update check`, `update apply --yes`,
+or scheduled update execution, and it does not alter an application that explicitly calls
+`EntityRegistry.research()`.
+
+While offline, do not run `update status`, `update check`, `update apply --yes`, or scheduled
+update execution. Avoid direct `EntityRegistry.research()` calls too. Retry them after connectivity
+is available. Run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) only when you also want to
+re-enable version checks.
 
 ---
 

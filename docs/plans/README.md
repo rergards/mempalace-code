@@ -12,8 +12,7 @@ The implementation-plan corpus is the exact output of
 README is the directory contract, not an implementation plan. The directory is
 listed in `.gitignore`, so newly generated plans remain ignored by default;
 already tracked plans remain available to Git, repository search, and source
-distribution inputs. The wheel configuration packages only `mempalace_code`, so
-these plans are absent from package-only wheels.
+review. Published wheels and source distributions exclude this directory.
 
 ## Lifecycle metadata
 

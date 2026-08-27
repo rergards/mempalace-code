@@ -30,9 +30,9 @@ def _get_kg():
     """Return the KnowledgeGraph singleton, creating it on first call."""
     global _kg
     if _kg is None:
-        from ..knowledge_graph import KnowledgeGraph
+        from ..knowledge_graph import KnowledgeGraph, palace_kg_path
 
-        _kg = KnowledgeGraph()
+        _kg = KnowledgeGraph(db_path=palace_kg_path(_config.palace_path))
     return _kg
 
 

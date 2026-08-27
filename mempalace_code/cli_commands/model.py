@@ -16,19 +16,50 @@ def _quiet_hf_model_output():
     old_stdout = os.dup(1)
     old_stderr = os.dup(2)
     try:
+        sys.stdout.flush()
+        sys.stderr.flush()
         for logger in loggers:
             logger.setLevel(logging.ERROR)
-        os.dup2(devnull, 1)
-        os.dup2(devnull, 2)
-        yield
+        active_error = None
+        cleanup_error = None
+        try:
+            os.dup2(devnull, 1)
+            os.dup2(devnull, 2)
+            try:
+                yield
+            except BaseException as exc:
+                active_error = exc
+                raise
+        finally:
+            try:
+                try:
+                    sys.stdout.flush()
+                except BaseException as exc:
+                    cleanup_error = exc
+                try:
+                    sys.stderr.flush()
+                except BaseException as exc:
+                    if cleanup_error is None:
+                        cleanup_error = exc
+            finally:
+                try:
+                    os.dup2(old_stdout, 1)
+                finally:
+                    os.dup2(old_stderr, 2)
+            if active_error is None and cleanup_error is not None:
+                raise cleanup_error
     finally:
-        os.dup2(old_stdout, 1)
-        os.dup2(old_stderr, 2)
-        os.close(devnull)
-        os.close(old_stdout)
-        os.close(old_stderr)
-        for logger, level in zip(loggers, previous):
-            logger.setLevel(level)
+        try:
+            os.close(devnull)
+        finally:
+            try:
+                os.close(old_stdout)
+            finally:
+                try:
+                    os.close(old_stderr)
+                finally:
+                    for logger, level in zip(loggers, previous):
+                        logger.setLevel(level)
 
 
 def _hf_model_id(model_name: str) -> str:

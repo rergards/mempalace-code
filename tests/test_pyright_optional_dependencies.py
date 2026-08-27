@@ -86,9 +86,28 @@ def test_chroma_migration_extra_declared_with_deprecated_compat_alias():
 
     data = _toml.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     extras = data["project"].get("optional-dependencies", {})
-    assert extras["chroma-migration"] == ["chromadb>=0.5.0,<1"]
+    assert extras["chroma-migration"] == ["chromadb>=0.5.0,<1", "posthog<6"]
     assert extras["chroma"] == extras["chroma-migration"]
-    assert not any("chromadb" in dep for dep in data["project"]["dependencies"])
+    assert not any(
+        package in dep
+        for package in ("chromadb", "posthog")
+        for dep in data["project"]["dependencies"]
+    )
+
+    lock = _toml.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    packages = lock["package"]
+    posthog = next(package for package in packages if package["name"] == "posthog")
+    assert int(posthog["version"].split(".", maxsplit=1)[0]) < 6
+    project = next(package for package in packages if package["name"] == "mempalace-code")
+    posthog_requirements = [
+        requirement
+        for requirement in project["metadata"]["requires-dist"]
+        if requirement["name"] == "posthog"
+    ]
+    assert posthog_requirements == [
+        {"name": "posthog", "marker": "extra == 'chroma'", "specifier": "<6"},
+        {"name": "posthog", "marker": "extra == 'chroma-migration'", "specifier": "<6"},
+    ]
 
 
 # ── Watchfiles boundary ────────────────────────────────────────────────────────

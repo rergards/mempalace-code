@@ -38,7 +38,7 @@ This fork (`rergards/mempalace-code`) is a code-first rewrite that inherited the
 | "Local, no network after install" is false (ChromaDB ONNX model downloads from AWS S3 on first use) | #524 `@gaby` | **Resolved in fork docs and CLI** — `mempalace-code init` and `mempalace-code fetch-model` make the one-time `all-MiniLM-L6-v2` download explicit; cached indexing/search use local-only model resolution first | None |
 | LongMemEval benchmark game: `n_results=min(n_results, len(corpus))` degenerates R@k into ranking over a fully-retrieved set when corpus ≤ 50 | #524 `@jtatum` | **Inherited** — `benchmarks/longmemeval_bench.py:225,303,456,606,689` use the same pattern | **FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT** |
 | LongMemEval benchmark drops assistant turns at line 189-190 | #242 `@bobmatnyc` | **Partially addressed** — fork's `longmemeval_bench.py` has a `Full-turn mode` (line 641) that indexes user+assistant turns; needs audit to confirm upstream bias is fully removed | Fold into `FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT` |
-| v3.0.0 → v3.1.0 silently tightens ChromaDB version and deletes users' palace data (no migration path) | #469 | **Already negated by architecture** — LanceDB is now the default backend with crash-safe columnar Arrow storage. ChromaDB is opt-in `.[chroma]` extra, marked deprecated. Upgrade path for existing LanceDB palaces is tracked by `STORE-MIGRATION-CLI` already in pre_release | Document the chroma-extra caveat in FORK-DOCS-CLEANUP |
+| v3.0.0 → v3.1.0 silently tightens ChromaDB version and deletes users' palace data (no migration path) | #469 | **Resolved in current runtime** — LanceDB is the only runtime backend. ChromaDB remains migration input through `.[chroma-migration]`; `.[chroma]` is only a deprecated alias for that bridge. | Keep the one-way migration warning in current upgrade docs |
 | "Highest-scoring AI memory system ever benchmarked" tagline | #27, #524 repeatedly | **Already negated** — fork tagline is "Crash-safe LanceDB memory for developers — code-first, local-first, no API key" — no superlative, no "highest", no "ever" | None |
 | AAAK encoding benchmark regresses LongMemEval 96.6 → 84.2% | #27 `@lhl` measurement | **Inherited in benchmark code** — fork keeps the AAAK path in `longmemeval_bench.py`. Not claimed as lossless in our README. Decision: inherit without claim | Out of scope — not a launch blocker |
 | Community rage about marketing framing, celebrity endorsement, "vibe code + publicity stunt" concerns | #524 comment thread | **Out of scope** — the fork distances itself from upstream marketing in the README's "This Fork vs Upstream" section | None |
@@ -103,7 +103,7 @@ No action required. These are listed here for auditability so a future contribut
 
 ### FORK-DOCS-CLEANUP — **already in pre_release**
 
-**Fold in**: add a subsection to CONTRIBUTING.md or the installation docs warning users who opt into `.[chroma]` extra that ChromaDB v0.5→v0.6 migrations can silently delete palace data (upstream #469), and that the only safe upgrade paths are (a) pin `chromadb` yourself, (b) export drawers to JSONL before upgrading, (c) use `chroma-migrate` at your own risk. Link upstream #469 so users have the full context.
+**Current resolution**: runtime ChromaDB support was removed. Existing Chroma data is accepted only by the one-way `migrate-storage` bridge installed through `.[chroma-migration]`; `.[chroma]` is a deprecated alias. Back up the source before migration and verify the LanceDB destination before removing it.
 
 **Note**: LanceDB default users are not affected by this. The warning is specifically for the opt-in legacy path.
 
@@ -147,6 +147,6 @@ Of the three upstream issues this audit tracks:
 
 - **#27 punch list** — resolved or negated in release-facing docs. Inherited benchmark details are retained only with caveats.
 - **#524 "baldfaced lies"** — the one-time model download is now explicit in CLI and docs; indexing/search are local after model setup.
-- **#469 data loss on chromadb upgrade** — architecturally immune because LanceDB is the default backend. The opt-in chroma legacy path inherits the risk and gets a documentation warning.
+- **#469 data loss on chromadb upgrade** — closed by the LanceDB-only runtime and one-way migration bridge.
 
 No upstream issue is ignored without justification. This document remains as the audit trail; current install, privacy, and benchmark positioning should be read from the README and release-facing docs.

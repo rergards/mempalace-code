@@ -15,9 +15,13 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
+
+import pytest
+from release_smoke_support import agent_plugin_mcp_responses
 
 ROOT = Path(__file__).parent.parent
 
@@ -36,6 +40,35 @@ smoke = _load_module_from_path(
 
 VERSION = "1.2.3"
 PACKAGE = "mempalace-code"
+_EXPECTED_MINIMAL_TOOLS = (
+    "mempalace_status",
+    "mempalace_search",
+    "mempalace_check_duplicate",
+    "mempalace_add_drawer",
+)
+
+
+@pytest.mark.parametrize(
+    ("installer", "manager", "eligible"),
+    [
+        (smoke.INSTALLER_VENV, "pip", False),
+        (smoke.INSTALLER_PIPX, "pipx", True),
+        (smoke.INSTALLER_UV_TOOL, "uv-tool", True),
+        (smoke.INSTALLER_BOOTSTRAP_VENV, "bootstrap-venv", True),
+    ],
+)
+def test_evaluate_smoke_reports_exact_manager_and_update_eligibility(installer, manager, eligible):
+    surfaces = [
+        smoke.SurfaceResult(name, smoke.STATUS_OK, "passed", VERSION)
+        for name in smoke.REQUIRED_SURFACES
+    ]
+
+    result = smoke.evaluate_smoke(surfaces, PACKAGE, "candidate.whl", installer)
+
+    assert result.ok is True
+    assert result.manager == manager
+    assert result.update_eligible is eligible
+
 
 # ── Mock run_subprocess factories ───────────────────────────────────────────────
 
@@ -129,23 +162,6 @@ def _write_agent_plugin_fixture(plugin_root: Path, *, version: str = VERSION) ->
     )
 
 
-def _agent_plugin_mcp_responses() -> str:
-    tools = [
-        {"name": name}
-        for name in (
-            "mempalace_status",
-            "mempalace_search",
-            "mempalace_check_duplicate",
-            "mempalace_add_drawer",
-        )
-    ]
-    responses = [
-        {"jsonrpc": "2.0", "id": 1, "result": {"serverInfo": {"name": "mempalace-code"}}},
-        {"jsonrpc": "2.0", "id": 2, "result": {"tools": tools}},
-    ]
-    return "\n".join(json.dumps(r) for r in responses) + "\n"
-
-
 def _venv_ok_subprocess(
     metadata_version: str = VERSION,
     module_version: str | None = None,
@@ -171,7 +187,7 @@ def _venv_ok_subprocess(
                 return 1, "", "agent-plugin path unavailable"
             return 0, json.dumps({"path": str(plugin_root)}), ""
         if args and args[0] == "mempalace-code-mcp":
-            return 0, _agent_plugin_mcp_responses(), ""
+            return 0, agent_plugin_mcp_responses(_EXPECTED_MINIMAL_TOOLS), ""
         if "-c" in args:
             if _is_runtime_probe(args):
                 return 0, _runtime_probe_output(), ""
@@ -292,7 +308,9 @@ def test_alias_probe_rejects_dedicated_installer_bound_to_ambient_target(tmp_pat
 # ── AC-1 / VER-2: venv smoke success ────────────────────────────────────────────
 
 
-def test_venv_smoke_reports_matching_metadata_module_and_cli_versions(tmp_path):
+def test_venv_smoke_reports_matching_metadata_module_and_cli_versions(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-be-forwarded")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-be-forwarded")
     calls: list = []
     plugin_root = tmp_path / "agent_plugin"
     _write_agent_plugin_fixture(plugin_root)
@@ -327,6 +345,13 @@ def test_venv_smoke_reports_matching_metadata_module_and_cli_versions(tmp_path):
     assert install_calls
     assert "-e" not in install_calls[0]["args"]
     assert "--editable" not in install_calls[0]["args"]
+    create_call = next(c for c in calls if "-m" in c["args"] and "venv" in c["args"])
+    for call in (create_call, install_calls[0]):
+        assert call["env"] is not None
+        assert "OPENAI_API_KEY" not in call["env"]
+        assert "ANTHROPIC_API_KEY" not in call["env"]
+        assert "mempalace-install-smoke-" in call["env"]["HOME"]
+    assert create_call["env"]["HOME"] == install_calls[0]["env"]["HOME"]
 
     human = smoke.render_human(result)
     assert "OK" in human
@@ -346,6 +371,8 @@ def test_venv_smoke_json_output_has_required_top_level_keys(tmp_path):
     assert data["ok"] is True
     assert data["expected_version"] == VERSION
     assert data["installer"] == smoke.INSTALLER_VENV
+    assert data["manager"] == "pip"
+    assert data["update_eligible"] is False
     assert data["install_spec"] == f"mempalace-code=={VERSION}"
 
     for s in data["surfaces"]:
@@ -380,7 +407,7 @@ def test_pipx_smoke_uses_disposable_tool_environment(monkeypatch, tmp_path):
         if "agent-plugin" in args and "path" in args:
             return 0, json.dumps({"path": str(plugin_root)}), ""
         if args and args[0] == "mempalace-code-mcp":
-            return 0, _agent_plugin_mcp_responses(), ""
+            return 0, agent_plugin_mcp_responses(_EXPECTED_MINIMAL_TOOLS), ""
         if "-c" in args:
             if _is_runtime_probe(args):
                 return 0, _runtime_probe_output(), ""
@@ -451,7 +478,7 @@ def test_mismatch_failure_names_surfaces_and_reinstall_command_without_private_p
         if "agent-plugin" in args and "path" in args:
             return 0, json.dumps({"path": str(plugin_root)}), ""
         if args and args[0] == "mempalace-code-mcp":
-            return 0, _agent_plugin_mcp_responses(), ""
+            return 0, agent_plugin_mcp_responses(_EXPECTED_MINIMAL_TOOLS), ""
         if "-c" in args:
             if _is_runtime_probe(args):
                 return 0, _runtime_probe_output(), ""
@@ -617,6 +644,29 @@ def test_sanitize_redacts_tokens_paths_and_remotes():
     assert smoke.sanitize(fake_linux_tmp) == "[REDACTED-PATH]"
 
 
+def test_sanitize_redacts_known_values_credential_urls_and_explicit_local_paths(tmp_path):
+    secret = "opaque-session-value"
+    diagnostic = (
+        f"secret={secret} "
+        "index=https://user:pass@example.invalid/simple "
+        "api=https://example.invalid/data?token=abc123 "
+        f"artifact={tmp_path}/candidate.whl"
+    )
+
+    sanitized = smoke.sanitize(
+        diagnostic,
+        known_secrets=(secret,),
+        local_paths=(tmp_path,),
+    )
+
+    assert secret not in sanitized
+    assert "user:pass" not in sanitized
+    assert "token=abc123" not in sanitized
+    assert str(tmp_path) not in sanitized
+    assert sanitized.count("[REDACTED-URL]") == 2
+    assert "[REDACTED-PATH]" in sanitized
+
+
 # ── Agent Plugin sensitive-content scan ──────────────────────────────────────────
 
 
@@ -688,14 +738,44 @@ def test_cli_help_exits_cleanly():
     assert "--json" in r.stdout
 
 
+@pytest.mark.parametrize(
+    ("command", "expected_timeout"),
+    [
+        (["/tmp/venv/bin/pip", "install", "--no-cache-dir", "."], 600),
+        (["/tmp/bootstrap/bin/pip", "install", "--no-cache-dir", "."], 600),
+        (["/opt/homebrew/bin/pipx", "install", "."], 600),
+        (["/opt/homebrew/bin/uv", "tool", "install", "--force", "."], 600),
+        (["/tmp/venv/bin/python", "-c", "print('probe')"], 300),
+    ],
+)
+def test_default_subprocess_uses_install_specific_timeout(monkeypatch, command, expected_timeout):
+    seen: list[int] = []
+
+    def fake_run(args, **kwargs):
+        seen.append(kwargs["timeout"])
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(smoke.subprocess, "run", fake_run)
+
+    assert smoke._default_run_subprocess(command) == (0, "", "")
+    assert seen == [expected_timeout]
+
+    seen.clear()
+    assert smoke._default_run_subprocess(command, timeout_seconds=42) == (0, "", "")
+    assert seen == [42]
+
+
 def test_main_json_flag_round_trips_through_mocked_subprocess(monkeypatch, tmp_path):
+    monkeypatch.setattr(smoke.sys, "platform", "linux")
     plugin_root = tmp_path / "agent_plugin"
     _write_agent_plugin_fixture(plugin_root)
     run_subprocess = _venv_ok_subprocess(plugin_root=plugin_root)
+    seen_timeouts: list[int] = []
 
     def fake_default(
         args, env=None, cwd=None, input_text=None, timeout_seconds=smoke.DEFAULT_TIMEOUT_SECONDS
     ):
+        seen_timeouts.append(timeout_seconds)
         return run_subprocess(args, env=env, cwd=cwd, input_text=input_text)
 
     monkeypatch.setattr(smoke, "_default_run_subprocess", fake_default)
@@ -709,6 +789,575 @@ def test_main_json_flag_round_trips_through_mocked_subprocess(monkeypatch, tmp_p
     assert data["ok"] is True
     assert data["expected_version"] == VERSION
     assert data["installer"] == smoke.INSTALLER_VENV
+    assert seen_timeouts == [None] * len(seen_timeouts)
+
+    seen_timeouts.clear()
+    with redirect_stdout(io.StringIO()):
+        override_exit_code = smoke.main(
+            ["--install-spec", ".", "--timeout-seconds", "42", "--json"]
+        )
+    assert override_exit_code == 0
+    assert set(seen_timeouts) == {42}
+
+
+def test_all_installers_runs_canonical_order_once(monkeypatch):
+    calls = []
+
+    def runner(installer):
+        def run(
+            install_spec,
+            package,
+            run_subprocess,
+            *,
+            recovery_safety=False,
+            linux_lifecycle=False,
+        ):
+            calls.append((installer, install_spec, package, recovery_safety, linux_lifecycle))
+            result = smoke.SmokeResult(True, VERSION, installer, install_spec, [], [])
+            if linux_lifecycle:
+                result.lifecycle = smoke.LinuxSystemdLifecycleResult(
+                    smoke.LIFECYCLE_STATUS_PASS, "passed"
+                )
+            return result
+
+        return run
+
+    monkeypatch.setattr(smoke, "run_venv_smoke", runner(smoke.INSTALLER_VENV))
+    monkeypatch.setattr(smoke, "run_bootstrap_venv_smoke", runner(smoke.INSTALLER_BOOTSTRAP_VENV))
+    monkeypatch.setattr(smoke, "run_pipx_smoke", runner(smoke.INSTALLER_PIPX))
+    monkeypatch.setattr(smoke, "run_uv_tool_smoke", runner(smoke.INSTALLER_UV_TOOL))
+    monkeypatch.setattr(smoke, "find_pipx_executable", lambda: "/tools/pipx")
+    monkeypatch.setattr(smoke, "find_uv_executable", lambda: "/tools/uv")
+
+    result = smoke.run_all_installers_smoke("candidate.whl", PACKAGE, lambda *a, **k: None)
+
+    assert result.ok is True
+    assert [call[0] for call in calls] == list(smoke.INSTALLERS)
+    assert all(call[1:4] == ("candidate.whl", PACKAGE, True) for call in calls)
+    assert [call[4] for call in calls] == [False, False, False, True]
+    assert result.linux_systemd_update_lifecycle.status == smoke.LIFECYCLE_STATUS_PASS
+
+
+def test_all_installers_missing_tool_fails_with_recovery(monkeypatch):
+    def runner(installer):
+        def run(
+            install_spec,
+            package,
+            run_subprocess,
+            *,
+            recovery_safety=False,
+            linux_lifecycle=False,
+        ):
+            ok = installer != smoke.INSTALLER_PIPX
+            surface = smoke.SurfaceResult(
+                smoke.SURFACE_INSTALL,
+                smoke.STATUS_OK if ok else smoke.STATUS_ERROR,
+                "complete" if ok else "pipx unavailable",
+                VERSION if ok else None,
+            )
+            result = smoke.SmokeResult(
+                ok, VERSION if ok else None, installer, install_spec, [surface], []
+            )
+            if linux_lifecycle:
+                result.lifecycle = smoke.LinuxSystemdLifecycleResult(
+                    smoke.LIFECYCLE_STATUS_PASS, "passed"
+                )
+            return result
+
+        return run
+
+    for name, installer in (
+        ("run_venv_smoke", smoke.INSTALLER_VENV),
+        ("run_bootstrap_venv_smoke", smoke.INSTALLER_BOOTSTRAP_VENV),
+        ("run_pipx_smoke", smoke.INSTALLER_PIPX),
+        ("run_uv_tool_smoke", smoke.INSTALLER_UV_TOOL),
+    ):
+        monkeypatch.setattr(smoke, name, runner(installer))
+    monkeypatch.setattr(smoke, "find_pipx_executable", lambda: None)
+    monkeypatch.setattr(smoke, "find_uv_executable", lambda: "/tools/uv")
+
+    result = smoke.run_all_installers_smoke("candidate.whl", PACKAGE, lambda *a, **k: None)
+
+    assert result.ok is False
+    assert result.diagnostics == [
+        "pipx: required tool unavailable; recovery: python -m pip install pipx"
+    ]
+
+
+def _linux_lifecycle_runner(home: Path, *, false_pass: str | None = None):
+    unit_dir = home / ".config" / "systemd" / "user"
+    rendered = {
+        "mempalace-update.service": "[Service]\nExecStart=exact\n",
+        "mempalace-update.timer": "[Timer]\nOnCalendar=daily\n",
+    }
+    lifecycle_installed = False
+    package_mutated = False
+
+    def run(args, env=None, cwd=None):
+        nonlocal lifecycle_installed, package_mutated
+        action = args[1:]
+        if action == ["update", "status", "--json"]:
+            version = "0.0.0" if false_pass == "candidate" else VERSION
+            return (
+                0,
+                json.dumps(
+                    {
+                        "ok": True,
+                        "stage": "status",
+                        "provenance": {"current_version": version},
+                    }
+                ),
+                "",
+            )
+        if action == ["update", "apply", "--json"]:
+            return (
+                2,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "stage": "confirmation",
+                        "recovery_command": "mempalace-code update apply --yes --json",
+                    }
+                ),
+                "",
+            )
+        if action == ["update", "scheduler", "install", "--yes", "--json"]:
+            lifecycle_installed = True
+            unit_dir.mkdir(parents=True, exist_ok=True)
+            for name, content in rendered.items():
+                (unit_dir / name).write_text(content, encoding="utf-8")
+            return 0, json.dumps({"ok": True, "stage": "scheduler-installed"}), ""
+        if args[0] == "/installed/bin/python" and args[1] == "-c":
+            if "metadata.distribution" in args[2]:
+                return (
+                    0,
+                    json.dumps(
+                        {
+                            "version": VERSION,
+                            "sha256": ("b" if package_mutated else "a") * 64,
+                            "files": 1,
+                        }
+                    ),
+                    "",
+                )
+            return 0, json.dumps(rendered), ""
+        if args[:3] == ["systemctl", "--user", "show"]:
+            if not lifecycle_installed:
+                return 0, "FragmentPath=\nLoadState=not-found\n", ""
+            fragment = unit_dir / args[3]
+            if false_pass == "fragment":
+                fragment = home / "foreign" / args[3]
+            return (
+                0,
+                f"FragmentPath={fragment}\nLoadState=loaded\n"
+                "ActiveState=active\nUnitFileState=enabled\n",
+                "",
+            )
+        if args[:3] in (
+            ["systemctl", "--user", "is-enabled"],
+            ["systemctl", "--user", "is-active"],
+        ):
+            if not lifecycle_installed:
+                return (1, "disabled\n", "") if args[2] == "is-enabled" else (3, "inactive\n", "")
+            return (1, "disabled\n", "") if false_pass == "manager-state" else (0, "ok\n", "")
+        if action == ["update", "scheduler", "remove", "--yes", "--json"]:
+            if false_pass != "cleanup":
+                for name in rendered:
+                    (unit_dir / name).unlink(missing_ok=True)
+                lifecycle_installed = False
+            return 0, json.dumps({"ok": True, "stage": "scheduler-removed"}), ""
+        if action == ["update", "apply", "--yes", "--json"]:
+            package_mutated = false_pass == "package"
+            assert env is not None
+            marker = Path(env["MEMPALACE_SOCKET_GUARD_LOADED"])
+            attempts = Path(env["MEMPALACE_SOCKET_ATTEMPTS"])
+            marker.write_text("loaded\n", encoding="utf-8")
+            if false_pass != "network-guard":
+                attempts.write_text("('pypi.org', 443)\n", encoding="utf-8")
+            return (
+                2,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "stage": "preflight",
+                        "message": "no newer stable compatible-major wheel is published and installed version is not proven current",
+                    }
+                ),
+                "",
+            )
+        if args[0] == "systemd-run":
+            return 0, f"{home}\n", ""
+        raise AssertionError(f"unexpected lifecycle command: {args}")
+
+    return run
+
+
+def _live_boundary(home: Path):
+    return lambda _console, _env: (
+        {
+            "uid_match": True,
+            "home_match": True,
+            "absolute_installed_console": True,
+            "home": home,
+        },
+        None,
+    )
+
+
+def test_linux_systemd_lifecycle_happy_path(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    guard = tmp_path / "guard-loaded"
+    attempts = tmp_path / "socket-attempts"
+
+    result = smoke.run_linux_systemd_update_lifecycle(
+        "/installed/bin/mempalace-code",
+        "/installed/bin/python",
+        VERSION,
+        str(tmp_path),
+        _linux_lifecycle_runner(home),
+        {
+            "MEMPALACE_SOCKET_GUARD_LOADED": str(guard),
+            "MEMPALACE_SOCKET_ATTEMPTS": str(attempts),
+        },
+        boundary_probe=_live_boundary(home),
+    )
+
+    assert result.status == smoke.LIFECYCLE_STATUS_PASS
+    assert result.recovery_command is None
+    assert result.evidence == {
+        "uid_match": True,
+        "home_match": True,
+        "absolute_installed_console": True,
+        "manager_home_match": True,
+        "candidate_version": VERSION,
+        "status_read_only": True,
+        "confirmation_read_only": True,
+        "fragment_content_match": True,
+        "timer_enabled": True,
+        "timer_active": True,
+        "repeat_idempotent": True,
+        "confirmed_removal": True,
+        "apply_terminal_stage": "preflight",
+        "package_snapshot_unchanged": True,
+        "network_attempt_blocked": True,
+        "unauthorized_mutation": False,
+        "cleanup_complete": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "false_pass",
+    ["candidate", "fragment", "manager-state", "cleanup", "package", "network-guard"],
+)
+def test_linux_systemd_lifecycle_false_pass_matrix(tmp_path, false_pass):
+    home = tmp_path / "home"
+    home.mkdir()
+
+    result = smoke.run_linux_systemd_update_lifecycle(
+        "/installed/bin/mempalace-code",
+        "/installed/bin/python",
+        VERSION,
+        str(tmp_path),
+        _linux_lifecycle_runner(home, false_pass=false_pass),
+        {
+            "MEMPALACE_SOCKET_GUARD_LOADED": str(tmp_path / "guard-loaded"),
+            "MEMPALACE_SOCKET_ATTEMPTS": str(tmp_path / "socket-attempts"),
+        },
+        boundary_probe=_live_boundary(home),
+    )
+
+    assert result.status == smoke.LIFECYCLE_STATUS_FAIL
+    assert result.ok is False
+
+
+def test_linux_systemd_lifecycle_unavailable_is_blocking_unrun(tmp_path):
+    result = smoke.run_linux_systemd_update_lifecycle(
+        "/installed/bin/mempalace-code",
+        "/installed/bin/python",
+        VERSION,
+        str(tmp_path),
+        lambda *_args, **_kwargs: pytest.fail("commands must not run without boundary evidence"),
+        {},
+        boundary_probe=lambda _console, _env: (None, "systemd-user manager unavailable"),
+    )
+
+    assert result.status == smoke.LIFECYCLE_STATUS_UNRUN
+    assert result.ok is False
+    assert result.detail == "systemd-user manager unavailable"
+    assert result.recovery_command == smoke.LIFECYCLE_RECOVERY_COMMAND
+
+
+def test_probe_environment_isolates_state_and_excludes_ambient_tools(tmp_path):
+    script_dir = tmp_path / "install" / "bin"
+    script_dir.mkdir(parents=True)
+    base_env = smoke._credential_free_env()
+    base_env["PATH"] = "/ambient/bin"
+    env = smoke._isolate_probe_state(base_env, tmp_path, script_dir)
+
+    assert env["PATH"] == os.pathsep.join((str(script_dir), os.defpath))
+    assert "/ambient/bin" not in env["PATH"]
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert env["PIP_CONFIG_FILE"] == os.devnull
+    assert env["PIP_KEYRING_PROVIDER"] == "disabled"
+    for name in (
+        "HOME",
+        "USERPROFILE",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "PIP_CACHE_DIR",
+        "HF_HOME",
+        "TRANSFORMERS_CACHE",
+    ):
+        assert Path(env[name]).is_dir()
+        assert Path(env[name]).is_relative_to(tmp_path)
+
+
+def test_recovery_refusals_require_exact_json_and_zero_mutation(tmp_path):
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+
+    def run_subprocess(args, env=None, cwd=None):
+        action = " ".join(args[1:-1])
+        payload = {
+            "ok": False,
+            "stage": "confirmation",
+            "exit_code": 2,
+            "recovery_command": f"mempalace-code {action} --yes --json",
+        }
+        return 2, json.dumps(payload), ""
+
+    result = smoke._probe_recovery_refusals(
+        "/install/bin/mempalace-code",
+        str(tmp_path),
+        run_subprocess,
+        {"HOME": str(state_root)},
+    )
+
+    assert result.status == smoke.STATUS_OK
+    assert list(state_root.iterdir()) == []
+
+
+class TestUnsupportedPlatformUpdateProbe:
+    @staticmethod
+    def _status_payload() -> dict[str, object]:
+        boundary = {
+            "platform": "darwin",
+            "required_platform": "linux",
+            "service_manager": "systemd-user",
+            "recovery_command": "mempalace-code update status --json",
+        }
+        return {
+            "ok": True,
+            "stage": "status",
+            "installation": {"kind": "bootstrap-venv", "supported": True},
+            "provenance": {"current_version": VERSION},
+            "watcher": {"active": False, "supported": False, **boundary},
+            "scheduler": {"enabled": False, "supported": False, **boundary},
+            **boundary,
+        }
+
+    @staticmethod
+    def _mutation_payload() -> dict[str, object]:
+        return {
+            "ok": False,
+            "stage": "unsupported-platform",
+            "message": "update mutations require Linux systemd-user; current platform is darwin",
+            "exit_code": 2,
+            "platform": "darwin",
+            "required_platform": "linux",
+            "service_manager": "systemd-user",
+            "recovery_command": "mempalace-code update status --json",
+        }
+
+    def test_probe_invokes_exact_installed_console_commands(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+        home = tmp_path / "home"
+        home.mkdir()
+        calls: list[tuple[list[str], dict[str, str] | None, str | None]] = []
+
+        def run_subprocess(args, env=None, cwd=None):
+            calls.append((args, env, cwd))
+            payload = (
+                self._status_payload()
+                if args[1:] == ["update", "status", "--json"]
+                else self._mutation_payload()
+            )
+            return (0 if payload["ok"] else 2), json.dumps(payload), ""
+
+        env = {"HOME": str(home)}
+        result = smoke._probe_unsupported_platform_updates(
+            "/installed/bin/mempalace-code", str(tmp_path), run_subprocess, env
+        )
+
+        assert result == smoke.SurfaceResult(
+            smoke.SURFACE_UPDATE_PLATFORM,
+            smoke.STATUS_OK,
+            "status and all confirmed update mutations returned stable unsupported-platform JSON",
+        )
+        assert [call[0] for call in calls] == [
+            ["/installed/bin/mempalace-code", "update", "status", "--json"],
+            ["/installed/bin/mempalace-code", "update", "apply", "--yes", "--json"],
+            [
+                "/installed/bin/mempalace-code",
+                "update",
+                "scheduler",
+                "install",
+                "--yes",
+                "--json",
+            ],
+            [
+                "/installed/bin/mempalace-code",
+                "update",
+                "scheduler",
+                "remove",
+                "--yes",
+                "--json",
+            ],
+        ]
+        assert all(call[1] is env and call[2] == str(tmp_path) for call in calls)
+        assert list(home.iterdir()) == []
+
+    def test_probe_rejects_raw_executable_diagnostic(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+        home = tmp_path / "home"
+        home.mkdir()
+
+        def run_subprocess(args, env=None, cwd=None):
+            if args[1:] == ["update", "status", "--json"]:
+                return 0, json.dumps(self._status_payload()), ""
+            payload = self._mutation_payload()
+            payload["message"] = "[Errno 2] systemctl executable missing"
+            return 2, json.dumps(payload), ""
+
+        result = smoke._probe_unsupported_platform_updates(
+            "/installed/bin/mempalace-code",
+            str(tmp_path),
+            run_subprocess,
+            {"HOME": str(home)},
+        )
+
+        assert result.status == smoke.STATUS_FAIL
+        assert result.detail == (
+            "confirmed update mutation did not return the unsupported-platform contract"
+        )
+
+    def test_probe_rejects_status_mutating_disposable_state(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+        data_home = tmp_path / "xdg-data"
+        data_home.mkdir()
+
+        def run_subprocess(args, env=None, cwd=None):
+            assert env is not None
+            Path(env["XDG_DATA_HOME"], "application-state").write_text(
+                "mutated\n", encoding="utf-8"
+            )
+            return 0, json.dumps(self._status_payload()), ""
+
+        result = smoke._probe_unsupported_platform_updates(
+            "/installed/bin/mempalace-code",
+            str(tmp_path),
+            run_subprocess,
+            {"XDG_DATA_HOME": str(data_home)},
+        )
+
+        assert result == smoke.SurfaceResult(
+            smoke.SURFACE_UPDATE_PLATFORM,
+            smoke.STATUS_FAIL,
+            "update status mutated disposable state",
+        )
+
+    @pytest.mark.parametrize(
+        ("platform", "expected_recovery_safety"),
+        [("darwin", True), ("linux", False)],
+    )
+    def test_main_enables_installed_probe_only_on_unsupported_hosts(
+        self, monkeypatch, platform, expected_recovery_safety
+    ):
+        monkeypatch.setattr(smoke.sys, "platform", platform)
+        calls: list[bool] = []
+
+        def runner(install_spec, package, run_subprocess, *, recovery_safety=False):
+            calls.append(recovery_safety)
+            return smoke.SmokeResult(True, VERSION, smoke.INSTALLER_VENV, install_spec, [], [])
+
+        monkeypatch.setattr(smoke, "run_venv_smoke", runner)
+
+        with redirect_stdout(io.StringIO()):
+            exit_code = smoke.main(["--install-spec", ".", "--json"])
+
+        assert exit_code == 0
+        assert calls == [expected_recovery_safety]
+
+
+@pytest.mark.parametrize("target_name", ["sitecustomize.py", smoke._SITE_GUARD_PTH])
+def test_version_guard_refuses_existing_guard_path_without_overwrite(tmp_path, target_name):
+    site_dir = tmp_path / "site-packages"
+    site_dir.mkdir()
+    guard = site_dir / target_name
+    guard.write_text("owned\n", encoding="utf-8")
+    calls = []
+
+    def run_subprocess(args, env=None, cwd=None):
+        calls.append(args)
+        return 0, json.dumps([str(site_dir)]), ""
+
+    result = smoke._probe_version_check_no_network(
+        "/install/bin/python",
+        "/install/bin/mempalace-code",
+        str(tmp_path),
+        tmp_path,
+        run_subprocess,
+        {},
+    )
+
+    assert result.status == smoke.STATUS_FAIL
+    assert guard.read_text(encoding="utf-8") == "owned\n"
+    assert len(calls) == 1
+
+
+def test_interpreter_site_guard_loads_and_records_all_socket_paths(tmp_path):
+    venv_dir = tmp_path / "venv"
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv_dir)], check=True)
+    python_bin = venv_dir / "bin" / "python"
+    site_paths = json.loads(
+        subprocess.run(
+            [python_bin, "-c", smoke._SITE_PACKAGES_SCRIPT],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    )
+    assert len(site_paths) == 1
+    site_dir = Path(site_paths[0])
+    guard = site_dir / "sitecustomize.py"
+    guard.write_text(smoke._SITE_GUARD, encoding="utf-8")
+    (site_dir / smoke._SITE_GUARD_PTH).write_text(
+        f"import runpy; runpy.run_path({str(guard)!r})\n", encoding="utf-8"
+    )
+    marker = tmp_path / "loaded"
+    attempts = tmp_path / "attempts"
+    env = os.environ.copy()
+    env.update(
+        {
+            "MEMPALACE_SOCKET_GUARD_LOADED": str(marker),
+            "MEMPALACE_SOCKET_ATTEMPTS": str(attempts),
+        }
+    )
+    program = (
+        "import socket\n"
+        "try:\n socket.create_connection(('example.invalid', 80))\nexcept OSError:\n pass\n"
+        "try:\n socket.socket().connect(('example.invalid', 80))\nexcept OSError:\n pass\n"
+        "try:\n socket.socket().connect_ex(('example.invalid', 80))\nexcept OSError:\n pass\n"
+    )
+
+    result = subprocess.run([python_bin, "-c", program], capture_output=True, text=True, env=env)
+
+    assert result.returncode == 0
+    assert marker.is_file(), (result.stdout, result.stderr, str(site_dir))
+    assert marker.read_text(encoding="utf-8") == "loaded\n"
+    assert len(attempts.read_text(encoding="utf-8").splitlines()) == 3
 
 
 # ── AC-9 / VER-7: uv-tool skip, notification probes, bootstrap-venv layout ────
@@ -729,7 +1378,21 @@ def test_uv_tool_smoke_uses_disposable_tool_dirs_and_neutral_cwd(monkeypatch, tm
     plugin_root = tmp_path / "agent_plugin"
     _write_agent_plugin_fixture(plugin_root)
     calls: list[tuple[list[str], dict[str, str] | None, str | None]] = []
+    lifecycle_envs: list[dict[str, str]] = []
     monkeypatch.setattr(smoke, "find_uv_executable", lambda: "/test/bin/uv")
+
+    def lifecycle_runner(
+        console_bin,
+        python_bin,
+        expected_version,
+        probe_cwd,
+        run_subprocess,
+        env,
+    ):
+        lifecycle_envs.append(env)
+        return smoke.LinuxSystemdLifecycleResult(smoke.LIFECYCLE_STATUS_PASS, "passed")
+
+    monkeypatch.setattr(smoke, "run_linux_systemd_update_lifecycle", lifecycle_runner)
 
     def run_subprocess(args, env=None, cwd=None, input_text=None, timeout_seconds=None):
         calls.append((args, env, cwd))
@@ -745,7 +1408,7 @@ def test_uv_tool_smoke_uses_disposable_tool_dirs_and_neutral_cwd(monkeypatch, tm
         if "agent-plugin" in args and "path" in args:
             return 0, json.dumps({"path": str(plugin_root)}), ""
         if args and args[0].endswith("mempalace-code-mcp"):
-            return 0, _agent_plugin_mcp_responses(), ""
+            return 0, agent_plugin_mcp_responses(_EXPECTED_MINIMAL_TOOLS), ""
         if "-c" in args:
             if _is_runtime_probe(args):
                 return 0, _runtime_probe_output(), ""
@@ -754,7 +1417,7 @@ def test_uv_tool_smoke_uses_disposable_tool_dirs_and_neutral_cwd(monkeypatch, tm
             return 0, _cli_output(VERSION), ""
         return 1, "", f"unexpected command: {args}"
 
-    result = smoke.run_uv_tool_smoke(".", PACKAGE, run_subprocess)
+    result = smoke.run_uv_tool_smoke(".", PACKAGE, run_subprocess, linux_lifecycle=True)
 
     assert result.ok is True
     assert result.installer == smoke.INSTALLER_UV_TOOL
@@ -763,6 +1426,10 @@ def test_uv_tool_smoke_uses_disposable_tool_dirs_and_neutral_cwd(monkeypatch, tm
     assert install_env is not None
     assert {"UV_TOOL_DIR", "UV_TOOL_BIN_DIR", "UV_CACHE_DIR"} <= install_env.keys()
     assert all(str(tmp_path) not in install_env[key] for key in ("UV_TOOL_DIR", "UV_TOOL_BIN_DIR"))
+    assert len(lifecycle_envs) == 1
+    lifecycle_path = lifecycle_envs[0]["PATH"].split(os.pathsep)
+    assert lifecycle_path[:2] == [install_env["UV_TOOL_BIN_DIR"], "/test/bin"]
+    assert lifecycle_path[2:] == os.defpath.split(os.pathsep)
     probe_cwds = [cwd for _args, _env, cwd in calls if cwd is not None]
     assert probe_cwds
     assert all(str(ROOT) not in cwd for cwd in probe_cwds)
@@ -790,7 +1457,7 @@ def test_venv_smoke_probes_version_check_status_for_executable_reporting(tmp_pat
         if "agent-plugin" in args and "path" in args:
             return 0, json.dumps({"path": str(plugin_root)}), ""
         if args and args[0] == "mempalace-code-mcp":
-            return 0, _agent_plugin_mcp_responses(), ""
+            return 0, agent_plugin_mcp_responses(_EXPECTED_MINIMAL_TOOLS), ""
         if "-c" in args:
             if _is_runtime_probe(args):
                 return 0, _runtime_probe_output(), ""
@@ -838,7 +1505,7 @@ def test_bootstrap_venv_layout_probes_from_neutral_directory(tmp_path):
         if "agent-plugin" in args and "path" in args:
             return 0, json.dumps({"path": str(plugin_root)}), ""
         if args and args[0] == "mempalace-code-mcp":
-            return 0, _agent_plugin_mcp_responses(), ""
+            return 0, agent_plugin_mcp_responses(_EXPECTED_MINIMAL_TOOLS), ""
         if "-c" in args:
             if _is_runtime_probe(args):
                 return 0, _runtime_probe_output(), ""
@@ -862,3 +1529,96 @@ def test_bootstrap_venv_layout_probes_from_neutral_directory(tmp_path):
         assert source_root not in cwd, (
             f"probe cwd {cwd!r} must not be inside the source checkout {source_root!r}"
         )
+
+
+def test_bootstrap_venv_install_timeout_fails_closed_with_installer_detail():
+    def run_subprocess(args, env=None, cwd=None):
+        if "-m" in args and "venv" in args:
+            return 0, "", ""
+        if "install" in args and "--no-cache-dir" in args:
+            return 124, "", "pip timed out after 600s"
+        raise AssertionError(f"unexpected command after failed install: {args}")
+
+    result = smoke.run_bootstrap_venv_smoke(".", PACKAGE, run_subprocess)
+
+    assert result.ok is False
+    assert result.installer == smoke.INSTALLER_BOOTSTRAP_VENV
+    assert result.surfaces[0].name == smoke.SURFACE_INSTALL
+    assert result.surfaces[0].status == smoke.STATUS_FAIL
+    assert result.surfaces[0].detail == "install failed: pip timed out after 600s"
+
+
+def test_candidate_extra_metadata_reconciliation_fails_closed(tmp_path):
+    expected_root = tmp_path / "venv"
+    payload = {
+        "version": "1.2.3",
+        "root": str(expected_root / "lib" / "python" / "site-packages"),
+        "provides_extra": [
+            "dev",
+            "spellcheck",
+            "watch",
+            "treesitter",
+            "chroma-migration",
+            "chroma",
+        ],
+    }
+
+    def probe(candidate):
+        def run(_command, **_kwargs):
+            return 0, json.dumps(candidate), ""
+
+        return smoke.probe_candidate_extra_metadata(
+            "/candidate/bin/python",
+            str(tmp_path),
+            run,
+            expected_root=str(expected_root),
+            expected_version="1.2.3",
+        )
+
+    result = probe(payload)
+    assert result.ok is True
+    assert result.extras == (
+        "chroma",
+        "chroma-migration",
+        "dev",
+        "spellcheck",
+        "treesitter",
+        "watch",
+    )
+    assert result.runtime_extras == (
+        "chroma",
+        "chroma-migration",
+        "spellcheck",
+        "treesitter",
+        "watch",
+    )
+    hostile = [
+        {**payload, "provides_extra": []},
+        {**payload, "provides_extra": ["dev", "watch", "watch"]},
+        {**payload, "provides_extra": ["dev", "bad_name"]},
+        {**payload, "root": str(tmp_path / "source")},
+        {**payload, "version": "9.9.9"},
+        {**payload, "unexpected": True},
+    ]
+    for candidate in hostile:
+        failed = probe(candidate)
+        assert failed.ok is False
+        assert failed.runtime_extras == ()
+        assert str(tmp_path) not in failed.detail
+
+    def raw_probe(returncode, stdout, stderr):
+        def run(_command, **_kwargs):
+            return returncode, stdout, stderr
+
+        return smoke.probe_candidate_extra_metadata("/candidate/bin/python", str(tmp_path), run)
+
+    for failed in (
+        raw_probe(1, "", "probe failed"),
+        raw_probe(0, json.dumps(payload), "unexpected stderr"),
+        raw_probe(0, "not-json", ""),
+        raw_probe(0, "x" * (smoke._EXTRA_METADATA_OUTPUT_LIMIT + 1), ""),
+        raw_probe(0, json.dumps([payload]), ""),
+        raw_probe(0, json.dumps({**payload, "provides_extra": [1]}), ""),
+    ):
+        assert failed.ok is False
+        assert failed.extras == ()

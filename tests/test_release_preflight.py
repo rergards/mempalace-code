@@ -6,6 +6,7 @@ import importlib.util
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).parent.parent
 
@@ -27,6 +28,41 @@ SHA = "a" * 40
 def _root(tmp_path: Path) -> Path:
     (tmp_path / "pyproject.toml").write_text('[project]\nversion = "1.2.3"\n', encoding="utf-8")
     return tmp_path
+
+
+def test_clean_tree_owner_accepts_clean_checkout(tmp_path: Path):
+    calls = []
+
+    def run(command, root):
+        calls.append((command, root))
+        return 0, ""
+
+    row = preflight.check_clean_tree(tmp_path, run)
+
+    assert row == {
+        "name": "clean_tree",
+        "status": "ok",
+        "detail": "worktree is clean",
+    }
+    assert calls == [(["git", "status", "--porcelain"], tmp_path)]
+
+
+def test_clean_tree_owner_rejects_dirty_checkout_with_remediation(tmp_path: Path):
+    row = preflight.check_clean_tree(
+        tmp_path, lambda command, root: (0, " M scripts/release_preflight.py")
+    )
+
+    assert row["status"] == "fail"
+    assert row["detail"] == " M scripts/release_preflight.py"
+    assert "Commit or discard" in row["remediation"]
+
+
+def test_clean_tree_owner_fails_closed_when_git_probe_fails(tmp_path: Path):
+    row = preflight.check_clean_tree(tmp_path, lambda command, root: (128, "fatal detail"))
+
+    assert row["status"] == "fail"
+    assert row["detail"] == "git status failed"
+    assert "fatal detail" not in row["detail"]
 
 
 def test_evaluate_accepts_matching_tag_and_passing_local_gates(tmp_path: Path):
@@ -218,16 +254,16 @@ def test_evaluate_rejects_sha_drift_with_bounded_remediation(tmp_path: Path):
 
 def test_malformed_expect_sha_skips_live_aggregate_lookup(tmp_path: Path):
     root = _root(tmp_path)
-    gh_calls: list[list[str]] = []
+    public_queries: list[object] = []
 
     def run(command, _root):
         if command[:2] == ["git", "rev-parse"] and "--verify" in command:
             return 1, "absent"
         return 0, "passed"
 
-    def run_gh(args):
-        gh_calls.append(args)
-        return 0, "{}", ""
+    def public_read(query):
+        public_queries.append(query)
+        return SimpleNamespace(data={}, error="")
 
     _, checks = preflight.evaluate(
         root,
@@ -236,10 +272,10 @@ def test_malformed_expect_sha_skips_live_aggregate_lookup(tmp_path: Path):
         expect_sha="bad-sha",
         check_required_check=True,
         run=run,
-        run_gh=run_gh,
+        public_read=public_read,
     )
 
-    assert gh_calls == []
+    assert public_queries == []
     format_row = next(check for check in checks if check["name"] == "expected_sha_format")
     aggregate = next(check for check in checks if check["name"] == "aggregate_required_check")
     assert format_row["status"] == "fail"
@@ -257,14 +293,16 @@ def test_required_check_blocks_when_missing_or_failed(tmp_path: Path):
             return 0, f"{SHA}\n"
         return 0, "passed"
 
-    def failed_check(args):
-        # The filter must travel in the query string: `gh api` switches to POST
-        # as soon as a -f/-F parameter is added, which the API rejects.
-        assert args[0] == "api"
-        assert args[1].startswith(f"repos/rergards/mempalace-code/commits/{SHA}/check-runs?")
-        assert "check_name=release-required" in args[1]
-        assert not any(arg in {"-f", "-F", "--method"} for arg in args)
+    def failed_check(query):
+        assert query.endpoint == "github_check_runs"
+        assert query.values == (
+            "rergards/mempalace-code",
+            SHA,
+            "release-required",
+            100,
+        )
         data = {
+            "total_count": 1,
             "check_runs": [
                 {
                     "name": "release-required",
@@ -272,9 +310,9 @@ def test_required_check_blocks_when_missing_or_failed(tmp_path: Path):
                     "status": "completed",
                     "conclusion": "failure",
                 }
-            ]
+            ],
         }
-        return 0, json.dumps(data), ""
+        return SimpleNamespace(data=data, error="")
 
     _, checks = preflight.evaluate(
         root,
@@ -283,7 +321,7 @@ def test_required_check_blocks_when_missing_or_failed(tmp_path: Path):
         expect_sha=SHA,
         check_required_check=True,
         run=run,
-        run_gh=failed_check,
+        public_read=failed_check,
     )
 
     aggregate = next(check for check in checks if check["name"] == "aggregate_required_check")
@@ -304,21 +342,19 @@ def test_dependency_audit_staleness_blocks_release_admission(tmp_path: Path):
             return 1, "absent"
         return 0, "passed"
 
-    def run_gh(args):
-        assert "Dependency Audit" in args
-        return (
-            0,
-            json.dumps(
-                [
-                    {
-                        "status": "completed",
-                        "conclusion": "success",
-                        "event": "schedule",
-                        "updatedAt": stale_stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    }
-                ]
-            ),
-            "",
+    def public_read(query):
+        assert query.endpoint == "github_workflow_runs"
+        assert query.values[1] == "Dependency Audit"
+        return SimpleNamespace(
+            data=[
+                {
+                    "status": "completed",
+                    "conclusion": "success",
+                    "event": "schedule",
+                    "updatedAt": stale_stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            ],
+            error="",
         )
 
     _, checks = preflight.evaluate(
@@ -327,13 +363,63 @@ def test_dependency_audit_staleness_blocks_release_admission(tmp_path: Path):
         require_clean=False,
         check_dependency_audit=True,
         run=run,
-        run_gh=run_gh,
+        public_read=public_read,
     )
 
     audit = next(check for check in checks if check["name"] == "dependency_audit_freshness")
     assert audit["status"] == "fail"
     assert "stale" in audit["detail"]
     assert "Dependency Audit" in audit["remediation"]
+
+
+def test_public_main_comparison_uses_the_normalized_public_query(tmp_path: Path):
+    root = _root(tmp_path)
+    observed = []
+
+    def run(command, _root):
+        if command[:2] == ["git", "rev-parse"] and "--verify" in command:
+            return 1, "absent"
+        if command == ["git", "rev-parse", "HEAD"]:
+            return 0, SHA
+        return 0, "passed"
+
+    def public_read(query):
+        observed.append(query.endpoint)
+        return SimpleNamespace(data=SHA, error="")
+
+    _, checks = preflight.evaluate(
+        root,
+        tag=None,
+        require_clean=False,
+        expect_sha=SHA,
+        check_public_main=True,
+        run=run,
+        public_read=public_read,
+    )
+
+    row = next(check for check in checks if check["name"] == "public_main_expected_sha")
+    assert row["status"] == "ok"
+    assert observed == ["github_commit"]
+
+
+def test_public_main_comparison_requires_a_reviewed_sha_without_network(tmp_path: Path):
+    root = _root(tmp_path)
+
+    def forbidden_public_read(_query):
+        raise AssertionError("public read must not run")
+
+    _, checks = preflight.evaluate(
+        root,
+        tag=None,
+        require_clean=False,
+        check_public_main=True,
+        run=lambda _command, _root: (0, "passed"),
+        public_read=forbidden_public_read,
+    )
+
+    row = next(check for check in checks if check["name"] == "public_main_expected_sha")
+    assert row["status"] == "fail"
+    assert "--expect-sha" in row["detail"]
 
 
 def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
@@ -353,6 +439,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
         check_dependency_audit,
         check_branch_rules,
         check_tag_ruleset,
+        check_public_main,
         repo,
         branch,
         required_check_name,
@@ -370,6 +457,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
             check_dependency_audit=check_dependency_audit,
             check_branch_rules=check_branch_rules,
             check_tag_ruleset=check_tag_ruleset,
+            check_public_main=check_public_main,
             repo=repo,
             branch=branch,
             required_check_name=required_check_name,
@@ -407,6 +495,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
         "check_dependency_audit": False,
         "check_branch_rules": False,
         "check_tag_ruleset": False,
+        "check_public_main": False,
         "repo": None,
         "branch": None,
         "required_check_name": None,

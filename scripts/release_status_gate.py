@@ -37,9 +37,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.error import URLError
-from urllib.parse import quote, urlsplit
-from urllib.request import urlopen
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -173,40 +171,10 @@ class PublicDistribution:
 # ── Surface checks ─────────────────────────────────────────────────────────────
 
 
-def check_publish_remote_tag(
-    version: str,
-    remote: str,
-    run_git: Callable[[list[str]], tuple[int, str, str]],
-) -> SurfaceResult:
-    tag = f"refs/tags/v{version}"
-    exit_code, stdout, stderr = run_git(["ls-remote", "--tags", remote, tag])
-    if exit_code != 0:
-        return SurfaceResult(
-            SURFACE_TAG,
-            STATUS_ERROR,
-            f"git ls-remote failed: {sanitize(stderr.strip())}",
-            "Verify the public remote name and rerun the status gate.",
-        )
-    # Exact ref match: a substring test would let refs/tags/v1.13.2 satisfy a
-    # query for refs/tags/v1.1 and report an unpublished version as published.
-    found = any(
-        len(parts) >= 2 and parts[1] in {tag, f"{tag}^{{}}"}
-        for parts in (line.split() for line in stdout.splitlines())
-    )
-    if found:
-        return SurfaceResult(SURFACE_TAG, STATUS_OK, f"tag v{version} found on remote {remote!r}")
-    return SurfaceResult(
-        SURFACE_TAG,
-        STATUS_FAIL,
-        f"tag v{version} not found on remote {remote!r}",
-        "Push the approved immutable tag to the public publish remote.",
-    )
-
-
 def resolve_remote_tag_sha(
     version: str,
-    remote: str,
-    run_git: Callable[[list[str]], tuple[int, str, str]],
+    repo: str,
+    public_read: Callable[[object], object],
 ) -> tuple[str | None, SurfaceResult]:
     """Resolve the public tag to the commit it targets, peeling an annotated tag.
 
@@ -214,27 +182,30 @@ def resolve_remote_tag_sha(
     failed lookup is reported rather than dropped.
     """
     tag = f"refs/tags/v{version}"
-    exit_code, stdout, stderr = run_git(["ls-remote", "--tags", remote, tag, f"{tag}^{{}}"])
-    if exit_code != 0:
+    public = _load_public_read()
+    try:
+        result = public_read(public.matching_version_tags(repo))
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return None, SurfaceResult(
             SURFACE_CANDIDATE_SHA,
             STATUS_ERROR,
-            f"git ls-remote failed while resolving tag commit: {sanitize(stderr.strip())}",
-            "Verify the public remote name and rerun the status gate.",
+            f"public matching-tag lookup failed: {sanitize(str(exc))}",
+            "Verify the fixed public repository and rerun the status gate.",
         )
-    direct_sha = ""
-    peeled_sha = ""
-    for line in stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 2:
-            continue
-        if parts[1] == tag:
-            direct_sha = parts[0]
-        elif parts[1] == f"{tag}^{{}}":
-            peeled_sha = parts[0]
-    # An annotated tag's own object is not the commit it publishes; the peeled
-    # ref is, so it wins whenever the remote reports both.
-    candidate = peeled_sha or direct_sha
+    if getattr(result, "error", ""):
+        return None, SurfaceResult(
+            SURFACE_CANDIDATE_SHA,
+            STATUS_ERROR,
+            f"public matching-tag lookup failed: {sanitize(str(getattr(result, 'error', '')))}",
+            "Verify the fixed public repository and rerun the status gate.",
+        )
+    rows = getattr(result, "data", None)
+    matches = (
+        [item for item in rows if isinstance(item, dict) and item.get("ref") == tag]
+        if isinstance(rows, list)
+        else []
+    )
+    candidate = str(matches[0].get("sha", "")) if len(matches) == 1 else ""
     if not candidate:
         return None, SurfaceResult(
             SURFACE_CANDIDATE_SHA,
@@ -251,10 +222,12 @@ def resolve_remote_tag_sha(
 
 def resolve_candidate_sha(
     version: str,
-    remote: str,
+    repo: str,
     expect_sha: str | None,
     admission,
-    run_git: Callable[[list[str]], tuple[int, str, str]],
+    public_read: Callable[[object], object],
+    *,
+    resolved_tag: tuple[str | None, SurfaceResult] | None = None,
 ) -> tuple[str | None, SurfaceResult]:
     """Return the candidate SHA plus exactly one ``release_candidate_sha`` surface.
 
@@ -270,7 +243,7 @@ def resolve_candidate_sha(
             # Malformed input: there is nothing to reconcile the public tag against.
             return None, _surface_from_admission(sha_row, SURFACE_CANDIDATE_SHA)
 
-    resolved, resolve_surface = resolve_remote_tag_sha(version, remote, run_git)
+    resolved, resolve_surface = resolved_tag or resolve_remote_tag_sha(version, repo, public_read)
     if resolved is None:
         # An unresolvable public tag is itself a blocker; the reviewed SHA still
         # drives the remaining exact-SHA surfaces so their evidence is not lost.
@@ -295,50 +268,39 @@ def check_workflow_run(
     surface_name: str,
     workflow: str,
     repo: str,
-    extra_args: list[str],
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
+    branch: str | None,
+    public_read: Callable[[object], object],
     expected_sha: str | None = None,
     version: str | None = None,
 ) -> SurfaceResult:
-    # `gh run list` has no head-SHA filter, so the exact-SHA run has to be found
-    # inside a bounded window. The window is widened when filtering by SHA so a
+    # The bounded workflow-runs query has no head-SHA filter, so the exact-SHA
+    # run has to be found inside its window. The window is widened by SHA so a
     # burst of later pushes cannot silently push the candidate's run out of view.
     limit = WORKFLOW_RUN_LIMIT_BY_SHA if expected_sha else WORKFLOW_RUN_LIMIT
-    gh_args = [
-        "run",
-        "list",
-        "--repo",
-        repo,
-        "--workflow",
-        workflow,
-        "--json",
-        "status,conclusion,headBranch,headSha,displayTitle,url,createdAt,event,databaseId",
-        "--limit",
-        str(limit),
-        *extra_args,
-    ]
-    exit_code, stdout, stderr = run_gh(gh_args)
-    if exit_code != 0:
+    public = _load_public_read()
+    try:
+        result = public_read(public.workflow_runs(repo, workflow, limit, branch=branch))
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return SurfaceResult(
             surface_name,
             STATUS_ERROR,
-            f"gh run list failed for {workflow!r}: {sanitize(stderr.strip())}",
+            f"public workflow-runs lookup failed for {workflow!r}: {sanitize(str(exc))}",
             f"Rerun the {workflow} workflow and wait for a successful completed run.",
         )
-    try:
-        runs = json.loads(stdout)
-    except json.JSONDecodeError as e:
+    if getattr(result, "error", ""):
         return SurfaceResult(
             surface_name,
             STATUS_ERROR,
-            f"could not parse gh run list output: {sanitize(str(e))}",
+            f"public workflow-runs lookup failed for {workflow!r}: "
+            f"{sanitize(str(getattr(result, 'error', '')))}",
             f"Rerun the {workflow} workflow and wait for a parseable GitHub response.",
         )
+    runs = getattr(result, "data", None)
     if not isinstance(runs, list):
         return SurfaceResult(
             surface_name,
             STATUS_ERROR,
-            f"unexpected gh run list response shape for {workflow!r}",
+            f"unexpected public workflow-runs response shape for {workflow!r}",
             f"Rerun the {workflow} workflow and wait for a parseable GitHub response.",
         )
     candidates = [r for r in runs if isinstance(r, dict)]
@@ -404,7 +366,7 @@ def check_workflow_run(
             repo,
             expected_sha,
             most_recent,
-            run_gh,
+            public_read,
         )
     if most_recent.get("conclusion") == "success":
         suffix = f" for SHA {expected_sha}" if expected_sha else ""
@@ -438,7 +400,7 @@ def _check_publish_run_jobs(
     repo: str,
     expected_sha: str | None,
     run: dict,
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
+    public_read: Callable[[object], object],
 ) -> SurfaceResult:
     """Validate the selected tag run and its unique build/publish/release jobs."""
     version = str(run.get("headBranch", "")).removeprefix("v")
@@ -458,25 +420,25 @@ def _check_publish_run_jobs(
             f"workflow {workflow!r} exact tag run has no valid database ID",
             bounded,
         )
-    exit_code, stdout, stderr = run_gh(
-        ["run", "view", str(run_id), "--repo", repo, "--json", "jobs"]
-    )
-    if exit_code != 0:
-        return SurfaceResult(
-            surface_name,
-            STATUS_ERROR,
-            f"gh run view failed for exact run {run_id}: {sanitize(stderr.strip())}",
-            bounded,
-        )
+    public = _load_public_read()
     try:
-        payload = json.loads(stdout)
-    except json.JSONDecodeError as exc:
+        result = public_read(public.workflow_jobs(repo, run_id))
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return SurfaceResult(
             surface_name,
             STATUS_ERROR,
-            f"could not parse jobs for exact run {run_id}: {sanitize(str(exc))}",
+            f"public workflow-jobs lookup failed for run {run_id}: {sanitize(str(exc))}",
             bounded,
         )
+    if getattr(result, "error", ""):
+        return SurfaceResult(
+            surface_name,
+            STATUS_ERROR,
+            f"public workflow-jobs lookup failed for run {run_id}: "
+            f"{sanitize(str(getattr(result, 'error', '')))}",
+            bounded,
+        )
+    payload = getattr(result, "data", None)
     jobs = payload.get("jobs") if isinstance(payload, dict) else None
     if not isinstance(jobs, list):
         return SurfaceResult(
@@ -534,7 +496,7 @@ def _check_publish_run_jobs(
 def unbound_candidate_workflow_surface(surface_name: str, workflow: str) -> SurfaceResult:
     """Report an exact-SHA workflow surface that has no candidate SHA to bind to.
 
-    Without this the surface would fall back to ``gh run list``'s branch-latest
+    Without this the surface would fall back to the public branch-latest
     window, so a malformed ``--expect-sha`` — or a public tag that never resolved —
     would print ``ok`` rows sourced from a commit nobody reviewed, sitting inside
     an overall-failing report. The row stays present and machine-readable so the
@@ -552,40 +514,48 @@ def unbound_candidate_workflow_surface(surface_name: str, workflow: str) -> Surf
 def check_github_release(
     version: str,
     repo: str,
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
+    public_read: Callable[[object], object],
     allow_prerelease: bool = False,
 ) -> SurfaceResult:
-    view_args = [
-        "release",
-        "view",
-        f"v{version}",
-        "--repo",
-        repo,
-        "--json",
-        "tagName,isDraft,isPrerelease,publishedAt,url,targetCommitish",
-    ]
-    exit_code, stdout, stderr = run_gh(view_args)
-    if exit_code != 0:
-        return SurfaceResult(
-            SURFACE_RELEASE,
-            STATUS_ERROR,
-            f"gh release view failed: {sanitize(stderr.strip())}",
-            f"Create or repair the non-draft GitHub Release for v{version}.",
-        )
+    admission = _load_admission_checks()
+    public = _load_public_read()
     try:
-        data = json.loads(stdout)
-    except json.JSONDecodeError as e:
+        result = public_read(public.releases(repo, admission.MAX_RELEASE_LIST))
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return SurfaceResult(
             SURFACE_RELEASE,
             STATUS_ERROR,
-            f"could not parse gh release view output: {sanitize(str(e))}",
+            f"public GitHub release lookup failed: {sanitize(str(exc))}",
             f"Create or repair the non-draft GitHub Release for v{version}.",
         )
-    if not isinstance(data, dict):
+    if getattr(result, "error", ""):
         return SurfaceResult(
             SURFACE_RELEASE,
             STATUS_ERROR,
-            "unexpected gh release view response shape",
+            f"public GitHub release lookup failed: {sanitize(str(getattr(result, 'error', '')))}",
+            f"Create or repair the non-draft GitHub Release for v{version}.",
+        )
+    releases = getattr(result, "data", None)
+    if not isinstance(releases, list):
+        return SurfaceResult(
+            SURFACE_RELEASE,
+            STATUS_ERROR,
+            "unexpected gh release list response shape",
+            f"Create or repair the non-draft GitHub Release for v{version}.",
+        )
+    data = next(
+        (
+            release
+            for release in releases
+            if isinstance(release, dict) and release.get("tagName") == f"v{version}"
+        ),
+        None,
+    )
+    if data is None:
+        return SurfaceResult(
+            SURFACE_RELEASE,
+            STATUS_FAIL,
+            f"GitHub Release v{version} was not found",
             f"Create or repair the non-draft GitHub Release for v{version}.",
         )
     tag_name = data.get("tagName", "")
@@ -614,41 +584,6 @@ def check_github_release(
             "Pass --allow-prerelease for an approved prerelease, or publish a stable release.",
         )
 
-    list_args = [
-        "release",
-        "list",
-        "--repo",
-        repo,
-        "--limit",
-        "10",
-        "--json",
-        "tagName,isLatest,publishedAt",
-    ]
-    exit_code, stdout, stderr = run_gh(list_args)
-    if exit_code != 0:
-        return SurfaceResult(
-            SURFACE_RELEASE,
-            STATUS_ERROR,
-            f"gh release list failed: {sanitize(stderr.strip())}",
-            f"Create or repair the non-draft GitHub Release for v{version}.",
-        )
-    try:
-        releases = json.loads(stdout)
-    except json.JSONDecodeError as e:
-        return SurfaceResult(
-            SURFACE_RELEASE,
-            STATUS_ERROR,
-            f"could not parse gh release list output: {sanitize(str(e))}",
-            f"Create or repair the non-draft GitHub Release for v{version}.",
-        )
-    if not isinstance(releases, list):
-        return SurfaceResult(
-            SURFACE_RELEASE,
-            STATUS_ERROR,
-            "unexpected gh release list response shape",
-            f"Create or repair the non-draft GitHub Release for v{version}.",
-        )
-
     latest_tag = ""
     for release in releases:
         if isinstance(release, dict) and release.get("isLatest") is True:
@@ -673,27 +608,26 @@ def check_github_release(
 def fetch_pypi_distributions(
     version: str,
     package: str,
-    http_get: Callable[[str], tuple[int, bytes, str]],
+    public_read: Callable[[object], object],
 ) -> tuple[list[PublicDistribution] | None, SurfaceResult]:
-    url = PYPI_JSON_URL.format(package=package)
-    status_code, body, error = http_get(url)
-    if status_code != 200:
-        msg = sanitize(error) if error else f"HTTP {status_code}"
-        return None, SurfaceResult(
-            SURFACE_PYPI,
-            STATUS_ERROR,
-            f"PyPI JSON fetch failed: {msg}",
-            "Wait for PyPI propagation, then rerun the status gate.",
-        )
+    public = _load_public_read()
     try:
-        data = json.loads(body)
-    except json.JSONDecodeError as e:
+        result = public_read(public.pypi_metadata(package))
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return None, SurfaceResult(
             SURFACE_PYPI,
             STATUS_ERROR,
-            f"could not parse PyPI JSON response: {e}",
+            f"PyPI metadata lookup failed: {sanitize(str(exc))}",
             "Wait for PyPI propagation, then rerun the status gate.",
         )
+    if getattr(result, "error", ""):
+        return None, SurfaceResult(
+            SURFACE_PYPI,
+            STATUS_ERROR,
+            f"PyPI metadata lookup failed: {sanitize(str(getattr(result, 'error', '')))}",
+            "Wait for PyPI propagation, then rerun the status gate.",
+        )
+    data = getattr(result, "data", None)
     if not isinstance(data, dict):
         return None, SurfaceResult(
             SURFACE_PYPI,
@@ -767,6 +701,10 @@ def fetch_pypi_distributions(
                 f"malformed distribution metadata for {package}=={version}",
                 "Wait for PyPI propagation or fix the published file inventory, then rerun the status gate.",
             )
+        assert isinstance(filename, str)
+        assert isinstance(package_type, str)
+        assert isinstance(digest, str)
+        assert isinstance(file_url, str)
         if filename in seen_filenames:
             return None, SurfaceResult(
                 SURFACE_PYPI,
@@ -802,10 +740,10 @@ def fetch_pypi_distributions(
 def check_pypi(
     version: str,
     package: str,
-    http_get: Callable[[str], tuple[int, bytes, str]],
+    public_read: Callable[[object], object],
 ) -> SurfaceResult:
     """Compatibility wrapper for the public PyPI inventory surface."""
-    _, surface = fetch_pypi_distributions(version, package, http_get)
+    _, surface = fetch_pypi_distributions(version, package, public_read)
     return surface
 
 
@@ -889,7 +827,7 @@ def check_pypi_provenance(
     package: str,
     repo: str,
     distributions: list[PublicDistribution],
-    http_get: Callable[[str], tuple[int, bytes, str]],
+    public_read: Callable[[object], object],
     run_subprocess: Callable[..., tuple[int, str, str]],
     project_root: Path | None = None,
 ) -> SurfaceResult:
@@ -906,8 +844,22 @@ def check_pypi_provenance(
     with tempfile.TemporaryDirectory(prefix="mempalace-provenance-") as temporary:
         temp_root = Path(temporary)
         venv = temp_root / "venv"
+        smoke = _load_install_metadata_smoke()
+        base_env = smoke._credential_free_env()
+        state_dirs = {
+            "HOME": temp_root / "home",
+            "USERPROFILE": temp_root / "home",
+            "TMPDIR": temp_root / "tmp",
+            "XDG_CACHE_HOME": temp_root / "xdg-cache",
+            "XDG_CONFIG_HOME": temp_root / "xdg-config",
+            "XDG_DATA_HOME": temp_root / "xdg-data",
+        }
+        for name, path in state_dirs.items():
+            path.mkdir(parents=True, exist_ok=True)
+            base_env[name] = str(path)
         exit_code, _, _ = run_subprocess(
             ["uv", "lock", "--check"],
+            env=base_env,
             cwd=str(root),
         )
         if exit_code != 0:
@@ -917,6 +869,7 @@ def check_pypi_provenance(
             )
         exit_code, _, _ = run_subprocess(
             ["uv", "venv", str(venv), "--python", sys.executable, "--no-project"],
+            env=base_env,
             cwd=str(root),
         )
         if exit_code != 0:
@@ -925,7 +878,7 @@ def check_pypi_provenance(
                 f"locked verifier environment creation failed for {VERIFIER_PACKAGE}=={verifier_version}",
             )
 
-        sync_env = os.environ.copy()
+        sync_env = dict(base_env)
         sync_env["VIRTUAL_ENV"] = str(venv)
         exit_code, _, _ = run_subprocess(
             [
@@ -948,9 +901,19 @@ def check_pypi_provenance(
 
         executable_dir = "Scripts" if os.name == "nt" else "bin"
         verifier = venv / executable_dir / "pypi-attestations"
+        public = _load_public_read()
         for distribution in distributions:
-            status_code, artifact, _ = http_get(distribution.url)
-            if status_code != 200 or len(artifact) > MAX_PUBLIC_RESPONSE_BYTES:
+            try:
+                artifact_result = public_read(public.pypi_distribution(distribution.url))
+            except (OSError, RuntimeError, TypeError, ValueError):
+                artifact_result = None
+            artifact = getattr(artifact_result, "data", None)
+            if (
+                artifact_result is None
+                or getattr(artifact_result, "error", "")
+                or not isinstance(artifact, bytes)
+                or len(artifact) > MAX_PUBLIC_RESPONSE_BYTES
+            ):
                 return _provenance_failure(
                     STATUS_ERROR,
                     f"could not fetch a bounded public artifact for {distribution.filename}",
@@ -963,14 +926,17 @@ def check_pypi_provenance(
             artifact_path = temp_root / distribution.filename
             artifact_path.write_bytes(artifact)
 
-            provenance_url = PYPI_PROVENANCE_URL.format(
-                package=quote(package, safe=""),
-                version=quote(version, safe=""),
-                filename=quote(distribution.filename, safe=""),
-            )
-            status_code, provenance, _ = http_get(provenance_url)
+            try:
+                provenance_result = public_read(
+                    public.pypi_provenance(package, version, distribution.filename)
+                )
+            except (OSError, RuntimeError, TypeError, ValueError):
+                provenance_result = None
+            provenance = getattr(provenance_result, "data", None)
             if (
-                status_code != 200
+                provenance_result is None
+                or getattr(provenance_result, "error", "")
+                or not isinstance(provenance, bytes)
                 or len(provenance) > MAX_PUBLIC_RESPONSE_BYTES
                 or not _publisher_identity_matches(provenance, repo)
             ):
@@ -988,6 +954,7 @@ def check_pypi_provenance(
                     "--repository",
                     f"https://github.com/{repo}",
                 ],
+                env=base_env,
                 cwd=str(root),
             )
             output_size = len(stdout.encode()) + len(stderr.encode())
@@ -1025,6 +992,7 @@ def check_pypi_provenance(
 
 _INSTALL_METADATA_SMOKE_MODULE = None
 _ADMISSION_CHECKS_MODULE = None
+_PUBLIC_READ_MODULE = None
 
 
 def _load_install_metadata_smoke():
@@ -1054,6 +1022,21 @@ def _load_admission_checks():
         spec.loader.exec_module(module)
         _ADMISSION_CHECKS_MODULE = module
     return _ADMISSION_CHECKS_MODULE
+
+
+def _load_public_read():
+    global _PUBLIC_READ_MODULE
+    if _PUBLIC_READ_MODULE is None:
+        module_name = "release_public_read"
+        path = Path(__file__).resolve().parent / f"{module_name}.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        _PUBLIC_READ_MODULE = module
+    return _PUBLIC_READ_MODULE
 
 
 def _surface_from_admission(row, surface_name: str | None = None) -> SurfaceResult:
@@ -1140,23 +1123,48 @@ def run_gate(
     expect_sha: str | None,
     required_check_name: str,
     audit_max_age_hours: int,
-    run_git: Callable[[list[str]], tuple[int, str, str]],
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
-    http_get: Callable[[str], tuple[int, bytes, str]],
+    public_read: Callable[[object], object],
     run_subprocess: Callable[..., tuple[int, str, str]],
 ) -> GateResult:
     admission = _load_admission_checks()
     surfaces: list[SurfaceResult] = []
 
-    surfaces.append(check_publish_remote_tag(version, remote, run_git))
+    public_cache: dict[tuple[object, ...], object] = {}
+
+    def cached_public_read(query: object) -> object:
+        key = (getattr(query, "endpoint", None), *getattr(query, "values", ()))
+        if key not in public_cache:
+            public_cache[key] = public_read(query)
+        return public_cache[key]
+
+    resolved_tag = resolve_remote_tag_sha(version, repo, cached_public_read)
+    resolved_sha, resolution_surface = resolved_tag
+    if resolved_sha is None:
+        surfaces.append(
+            SurfaceResult(
+                SURFACE_TAG,
+                resolution_surface.status,
+                resolution_surface.detail,
+                resolution_surface.remediation,
+            )
+        )
+    else:
+        surfaces.append(
+            SurfaceResult(SURFACE_TAG, STATUS_OK, f"tag v{version} found on remote {remote!r}")
+        )
     candidate_sha, candidate_surface = resolve_candidate_sha(
-        version, remote, expect_sha, admission, run_git
+        version,
+        repo,
+        expect_sha,
+        admission,
+        cached_public_read,
+        resolved_tag=resolved_tag,
     )
     surfaces.append(candidate_surface)
 
     # Every workflow surface below is exact-SHA evidence. When the candidate SHA
     # could not be established the lookup is not run at all: an unbound
-    # `gh run list` answers a different question (what did the branch do lately?)
+    # a branch-latest query answers a different question (what happened lately?)
     # and answering it here would put misleading ok rows in the report.
     if candidate_sha is None:
         surfaces.append(unbound_candidate_workflow_surface(SURFACE_TESTS, TESTS_WORKFLOW))
@@ -1166,8 +1174,8 @@ def run_gate(
                 SURFACE_TESTS,
                 TESTS_WORKFLOW,
                 repo,
-                ["--branch", branch],
-                run_gh,
+                branch,
+                cached_public_read,
                 expected_sha=candidate_sha,
             )
         )
@@ -1176,7 +1184,7 @@ def run_gate(
             admission.check_aggregate_required_check(
                 candidate_sha,
                 repo,
-                run_gh,
+                cached_public_read,
                 check_name=required_check_name,
             ),
             SURFACE_REQUIRED_CHECK,
@@ -1190,14 +1198,14 @@ def run_gate(
                 SURFACE_PUBLISH,
                 PUBLISH_WORKFLOW,
                 repo,
-                [],
-                run_gh,
+                None,
+                cached_public_read,
                 expected_sha=candidate_sha,
                 version=version,
             )
         )
-    surfaces.append(check_github_release(version, repo, run_gh, allow_prerelease))
-    distributions, pypi_surface = fetch_pypi_distributions(version, package, http_get)
+    surfaces.append(check_github_release(version, repo, cached_public_read, allow_prerelease))
+    distributions, pypi_surface = fetch_pypi_distributions(version, package, cached_public_read)
     surfaces.append(pypi_surface)
     if distributions is None:
         surfaces.append(
@@ -1213,7 +1221,7 @@ def run_gate(
                 package,
                 repo,
                 distributions,
-                http_get,
+                cached_public_read,
                 run_subprocess,
             )
         )
@@ -1234,25 +1242,24 @@ def run_gate(
             admission.check_main_branch_rules(
                 repo,
                 branch,
-                run_gh,
+                cached_public_read,
                 check_name=required_check_name,
             ),
             SURFACE_MAIN_PROTECTION,
         )
     )
     surfaces.append(
-        _surface_from_admission(admission.check_tag_ruleset(repo, run_gh), SURFACE_TAG_RULESET)
+        _surface_from_admission(
+            admission.check_tag_ruleset(repo, cached_public_read), SURFACE_TAG_RULESET
+        )
     )
     surfaces.append(
         _surface_from_admission(
             admission.check_public_orphan_tags(
                 version,
                 repo,
-                remote,
                 package,
-                run_git,
-                run_gh,
-                http_get,
+                cached_public_read,
                 # Post-publication: the public tag for this version must exist.
                 require_expected_tag=True,
             ),
@@ -1263,7 +1270,7 @@ def run_gate(
         _surface_from_admission(
             admission.check_dependency_audit_freshness(
                 repo,
-                run_gh,
+                cached_public_read,
                 max_age_hours=audit_max_age_hours,
             ),
             SURFACE_AUDIT,
@@ -1312,8 +1319,10 @@ def _apply_partial_publication_recovery(
         return
 
     release = by_name[SURFACE_RELEASE]
-    release_missing = (
-        release.status == STATUS_ERROR and "release not found" in release.detail.lower()
+    release_missing = release.status in (STATUS_FAIL, STATUS_ERROR) and (
+        "release not found" in release.detail.lower()
+        or "release v" in release.detail.lower()
+        and "was not found" in release.detail.lower()
     )
     release_safe = release.status == STATUS_OK or release_missing
 
@@ -1381,26 +1390,7 @@ def render_human(result: GateResult) -> str:
     return "\n".join(lines)
 
 
-# ── Default subprocess/HTTP callables ─────────────────────────────────────────
-
-
-def _default_run_git(args: list[str]) -> tuple[int, str, str]:
-    r = subprocess.run(["git", *args], capture_output=True, text=True)
-    return r.returncode, r.stdout, r.stderr
-
-
-def _default_run_gh(args: list[str]) -> tuple[int, str, str]:
-    r = subprocess.run(["gh", *args], capture_output=True, text=True)
-    return r.returncode, r.stdout, r.stderr
-
-
-def _default_http_get(url: str) -> tuple[int, bytes, str]:
-    try:
-        with urlopen(url, timeout=30) as resp:  # noqa: S310  # reason: public PyPI endpoint, URL not user-controlled
-            body = resp.read(MAX_PUBLIC_RESPONSE_BYTES + 1)
-            return resp.status, body, ""
-    except URLError as e:
-        return 0, b"", str(e)
+# ── Default local subprocess callable ─────────────────────────────────────────
 
 
 def _default_run_subprocess(
@@ -1550,9 +1540,7 @@ Exits 0 only when all required surfaces agree (or all agree excluding skipped sm
         expect_sha=args.expect_sha,
         required_check_name=args.required_check_name,
         audit_max_age_hours=args.audit_max_age_hours,
-        run_git=_default_run_git,
-        run_gh=_default_run_gh,
-        http_get=_default_http_get,
+        public_read=_load_public_read().DEFAULT_READER,
         run_subprocess=lambda cmd, env=None, cwd=None, input_text=None: _default_run_subprocess(
             cmd,
             env=env,

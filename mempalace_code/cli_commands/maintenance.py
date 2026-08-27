@@ -131,6 +131,15 @@ def cmd_cleanup(args):
             f"  Versions before: {result['version_count_before']}  "
             f"after: {result['version_count_after']}"
         )
+        if {
+            "estimated_reclaimable_bytes_before",
+            "estimated_reclaimable_bytes_after",
+        } <= result.keys():
+            print(
+                "  Reclaimable before: "
+                f"{fmt_bytes(result['estimated_reclaimable_bytes_before'])}  "
+                f"after: {fmt_bytes(result['estimated_reclaimable_bytes_after'])}"
+            )
         print(f"  Freed: {fmt_bytes(result['freed_bytes'])}")
         if not result["ok"]:
             print(f"  Error: {result.get('error', 'unknown')}", file=sys.stderr)
@@ -173,18 +182,22 @@ def cmd_repair(args):
             print("  --rollback is only supported for LanceDB palaces", file=sys.stderr)
             sys.exit(1)
 
-        print(f"\n{'=' * 55}")
-        print("  MemPalace Repair — Version Rollback")
-        print(f"{'=' * 55}\n")
-        print(f"  Palace: {palace_path}")
+        header_lines = [
+            f"\n{'=' * 55}",
+            "  MemPalace Repair — Version Rollback",
+            f"{'=' * 55}",
+            "",
+            f"  Palace: {palace_path}",
+        ]
         if dry_run:
-            print("  Mode: dry-run (no changes will be made)\n")
+            header_lines.extend(["  Mode: dry-run (no changes will be made)", ""])
         else:
-            print("  Mode: live (will restore if candidate found)\n")
+            header_lines.extend(["  Mode: live (will restore if candidate found)", ""])
 
         try:
             result = store.recover_to_last_working_version(dry_run=dry_run)
         except Exception as e:
+            print("\n".join(header_lines))
             print(f"  Restore failed: {e}", file=sys.stderr)
             print("  Palace may still be in a degraded state.", file=sys.stderr)
             print("  Try: mempalace-code repair (full rebuild)", file=sys.stderr)
@@ -192,20 +205,47 @@ def cmd_repair(args):
             sys.exit(1)
 
         if result.get("recovered"):
+            print("\n".join(header_lines))
             print(f"  Restored to version: {result['restored_to']}")
             print(f"  Rows after restore: {result['rows_after']}")
         elif result.get("candidate_version") is not None:
+            print("\n".join(header_lines))
             print(f"  Candidate version found: {result['candidate_version']}")
             if dry_run:
                 print("  (dry-run — no changes made)")
                 print("  Run without --dry-run to apply the rollback.")
         else:
             msg = result.get("message") or result.get("error") or "no healthy prior version found"
-            print(f"  No candidate version: {msg}", file=sys.stderr)
-            print("  Try: mempalace-code repair (full rebuild)", file=sys.stderr)
-            print(f"\n{'=' * 55}\n")
+            if dry_run:
+                outcome_lines = [
+                    f"  No candidate version: {msg}",
+                    "  Mutation: preview completed; no changes were made; "
+                    "no restore or full rebuild occurred.",
+                    "  Exit status: 0 (completed non-mutating preview).",
+                ]
+                output_stream = sys.stdout
+            else:
+                outcome_lines = [
+                    f"  No candidate version: {msg}",
+                    "  Mutation: rollback attempted; no restore or full rebuild occurred; "
+                    "palace remained unchanged.",
+                    "  Exit status: 1 (rollback failed because no candidate was found).",
+                ]
+                output_stream = sys.stderr
+            summary = "\n".join(
+                [
+                    *header_lines,
+                    *outcome_lines,
+                    "  Try: mempalace-code repair (full rebuild)",
+                    "",
+                    "=" * 55,
+                    "",
+                ]
+            )
+            print(summary, file=output_stream)
             if not dry_run:
                 sys.exit(1)
+            return
         print(f"\n{'=' * 55}\n")
         return
 

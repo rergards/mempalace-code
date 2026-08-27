@@ -5,9 +5,10 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
-import urllib.error
 from datetime import date
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).parent.parent
 
@@ -22,6 +23,13 @@ def _load_module(name: str, path: Path):
 
 
 guard = _load_module("upstream_comparison_guard", ROOT / "scripts" / "upstream_comparison_guard.py")
+guard._load_public_read().REVIEWED_UPSTREAM_REPOSITORY = "Example/example"
+guard._load_public_read().REVIEWED_UPSTREAM_BRANCH = "main"
+
+
+def _public_result(data=None, error=""):
+    return type("Result", (), {"data": data, "error": error})()
+
 
 COMMIT = "a" * 40
 PREVIOUS_COMMIT = "b" * 40
@@ -436,10 +444,10 @@ def test_check_live_accepts_matching_sha_from_injected_fetcher(tmp_path: Path):
         "readme": (root / "README.md").read_bytes(),
     }
 
-    def fetch(_url: str) -> str:
-        return json.dumps({"sha": COMMIT})
+    def public_read(_query):
+        return _public_result(COMMIT)
 
-    facts, errors = guard.check_live(manifest, fetch=fetch)
+    facts, errors = guard.check_live(manifest, public_read=public_read)
 
     assert errors == []
     assert facts["live_head"] == COMMIT
@@ -455,10 +463,10 @@ def test_check_live_rejects_mismatching_sha(tmp_path: Path):
     manifest = guard.load_manifest(root)
     other_sha = "b" * 40
 
-    def fetch(_url: str) -> str:
-        return json.dumps({"sha": other_sha})
+    def public_read(_query):
+        return _public_result(other_sha)
 
-    facts, errors = guard.check_live(manifest, fetch=fetch)
+    facts, errors = guard.check_live(manifest, public_read=public_read)
 
     assert facts["live_head"] == other_sha
     assert any("upstream-drift" in error for error in errors)
@@ -469,10 +477,10 @@ def test_check_live_drift_error_names_the_range_and_the_recovery_command(tmp_pat
     manifest = guard.load_manifest(root)
     other_sha = "c" * 40
 
-    def fetch(_url: str) -> str:
-        return json.dumps({"sha": other_sha})
+    def public_read(_query):
+        return _public_result(other_sha)
 
-    _, errors = guard.check_live(manifest, fetch=fetch)
+    _, errors = guard.check_live(manifest, public_read=public_read)
 
     assert len(errors) == 1
     assert f"{REPOSITORY}/compare/{COMMIT}...{other_sha}" in errors[0]
@@ -483,10 +491,10 @@ def test_check_live_rejects_invalid_json(tmp_path: Path):
     root = _root(tmp_path)
     manifest = guard.load_manifest(root)
 
-    def fetch(_url: str) -> str:
-        return "not json"
+    def public_read(_query):
+        return _public_result(error="response was not valid UTF-8 JSON")
 
-    facts, errors = guard.check_live(manifest, fetch=fetch)
+    facts, errors = guard.check_live(manifest, public_read=public_read)
 
     assert facts["live_head"] is None
     assert any("live-response" in error for error in errors)
@@ -496,36 +504,33 @@ def test_check_live_fails_closed_on_fetch_failure(tmp_path: Path):
     root = _root(tmp_path)
     manifest = guard.load_manifest(root)
 
-    def fetch(_url: str) -> str:
-        raise guard.LiveCheckError("live-response: upstream head request failed (offline)")
+    def public_read(_query):
+        return _public_result(error="offline")
 
-    facts, errors = guard.check_live(manifest, fetch=fetch)
+    facts, errors = guard.check_live(manifest, public_read=public_read)
 
     assert facts["live_head"] is None
     assert errors == ["live-response: upstream head request failed (offline)"]
 
 
-def test_default_fetch_wraps_network_failure_as_untrusted_live_response(monkeypatch):
-    def urlopen(*_args, **_kwargs):
-        raise urllib.error.URLError("offline")
-
-    monkeypatch.setattr(guard.urllib.request, "urlopen", urlopen)
-
-    try:
-        guard._default_fetch("https://api.github.com/example")
-    except guard.LiveCheckError as exc:
-        assert "live-response" in str(exc)
-        assert "offline" in str(exc)
-    else:
-        raise AssertionError("network failure must fail closed")
+def test_default_public_reader_error_is_an_untrusted_live_response(tmp_path: Path):
+    manifest = guard.load_manifest(_root(tmp_path))
+    with pytest.raises(guard.LiveCheckError, match="offline"):
+        guard.fetch_head_commit(
+            manifest,
+            public_read=lambda _query: _public_result(error="offline"),
+        )
 
 
 def test_check_live_rejects_empty_or_malformed_head_resolution(tmp_path: Path):
     root = _root(tmp_path)
     manifest = guard.load_manifest(root)
 
-    for payload in ("{}", '{"sha": ""}', '{"sha": "not-a-commit"}'):
-        facts, errors = guard.check_live(manifest, fetch=lambda _url, payload=payload: payload)
+    for payload in (None, "", "not-a-commit"):
+        facts, errors = guard.check_live(
+            manifest,
+            public_read=lambda _query, payload=payload: _public_result(payload),
+        )
         assert facts["live_head"] is None
         assert errors == ["live-response: upstream head reply carried no 40-hex commit sha"]
 

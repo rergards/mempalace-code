@@ -9,18 +9,21 @@ import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from packaging.version import Version
 
+import mempalace_code.updater as updater
 from mempalace_code.cli_commands.update import cmd_update
 from mempalace_code.operation_lock import OperationLock
 from mempalace_code.updater import (
     DEFAULT_SERVICE_UNIT,
     DEFAULT_TIMER_UNIT,
     DEFAULT_WATCHER_UNIT,
+    SCHEDULER_UNSET_ENVIRONMENT,
     SYSTEMD_BASELINE_PATH,
     Installation,
     SystemdUserService,
@@ -42,6 +45,12 @@ CURRENT_VERSION = str(_CURRENT)
 ELIGIBLE_VERSION = f"{_CURRENT.major}.{_CURRENT.minor}.{_CURRENT.micro + 1}"
 PRERELEASE_VERSION = f"{_CURRENT.major}.{_CURRENT.minor}.{_CURRENT.micro + 2}rc1"
 INCOMPATIBLE_MAJOR_VERSION = f"{_CURRENT.major + 1}.0.0"
+
+
+@pytest.fixture(autouse=True)
+def _supported_update_platform(monkeypatch):
+    """Keep established transaction tests on their supported Linux boundary."""
+    monkeypatch.setattr(updater.sys, "platform", "linux")
 
 
 class FakeService:
@@ -150,6 +159,7 @@ def _manager(
         service=service or FakeService(),
         palace_validator=palace_validator or (lambda _path: (True, "healthy")),
         backup_preflight=backup_preflight or (lambda: (True, "backup policy checked")),
+        scheduler_context=lambda: (Path.home() / ".config" / "systemd" / "user", None),
         minimum_free_bytes=minimum_free_bytes,
     )
     return manager, commands
@@ -201,6 +211,7 @@ def _systemd_manager(
         service=SystemdUserService(runner),
         palace_validator=palace_validator or (lambda _path: (True, "healthy")),
         backup_preflight=lambda: (True, "backup policy checked"),
+        scheduler_context=lambda: (Path.home() / ".config" / "systemd" / "user", None),
         minimum_free_bytes=0,
     )
     return manager, commands
@@ -224,6 +235,146 @@ class TestUpdateStatus:
         assert not (tmp_path / "state" / "updates" / "state.json").exists()
         assert all("pip" not in command for command in commands)
         assert service.calls == ["is-active"]
+
+
+class TestUnsupportedPlatformDiagnostics:
+    @staticmethod
+    def _manager(tmp_path: Path, calls: list[list[str]]) -> UpdateManager:
+        def runner(command: list[str]) -> tuple[int, str, str]:
+            calls.append(command)
+            raise FileNotFoundError(2, "No such file or directory", command[0])
+
+        def unexpected_installation() -> Installation:
+            raise AssertionError("mutation platform preflight must precede installer detection")
+
+        def unexpected_fetch() -> dict[str, Any]:
+            raise AssertionError("mutation platform preflight must precede provenance resolution")
+
+        return UpdateManager(
+            state_root=tmp_path / "state",
+            installation_detector=unexpected_installation,
+            runner=runner,
+            fetcher=unexpected_fetch,
+            minimum_free_bytes=0,
+        )
+
+    @staticmethod
+    def _expected_result() -> dict[str, object]:
+        return {
+            "ok": False,
+            "stage": "unsupported-platform",
+            "message": "update mutations require Linux systemd-user; current platform is darwin",
+            "exit_code": 2,
+            "log_path": None,
+            "platform": "darwin",
+            "required_platform": "linux",
+            "service_manager": "systemd-user",
+            "recovery_command": "mempalace-code update status --json",
+        }
+
+    @pytest.mark.parametrize("method", ["apply", "install_scheduler", "remove_scheduler"])
+    def test_confirmed_mutations_refuse_before_effects(self, tmp_path, monkeypatch, method):
+        monkeypatch.setattr(updater.sys, "platform", "darwin")
+        calls: list[list[str]] = []
+        manager = self._manager(tmp_path, calls)
+        before = tuple(tmp_path.rglob("*"))
+
+        result = getattr(manager, method)()
+
+        assert result.as_dict() == self._expected_result()
+        assert calls == []
+        assert tuple(tmp_path.rglob("*")) == before
+
+    def test_status_is_useful_and_bypasses_systemd(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(updater.sys, "platform", "darwin")
+        calls: list[list[str]] = []
+
+        def runner(command: list[str]) -> tuple[int, str, str]:
+            calls.append(command)
+            raise FileNotFoundError(2, "No such file or directory", command[0])
+
+        manager = UpdateManager(
+            state_root=tmp_path / "state",
+            installation=_installation(),
+            runner=runner,
+            fetcher=_pypi,
+            minimum_free_bytes=0,
+        )
+        before = tuple(tmp_path.rglob("*"))
+
+        result = manager.status()
+        scheduler = manager.scheduler_status()
+
+        assert result.ok is True
+        assert result.stage == "status"
+        assert result.data["platform"] == "darwin"
+        assert result.data["installation"]["supported"] is True  # type: ignore[index]  # reason: stable status mapping
+        assert result.data["provenance"]["target_version"] == ELIGIBLE_VERSION  # type: ignore[index]  # reason: stable status mapping
+        assert result.data["watcher"] == {  # type: ignore[comparison-overlap]  # reason: stable status mapping
+            "unit": DEFAULT_WATCHER_UNIT,
+            "active": False,
+            "detail": "update mutations require Linux systemd-user; current platform is darwin",
+            "safe": False,
+            "supported": False,
+            "platform": "darwin",
+            "required_platform": "linux",
+            "service_manager": "systemd-user",
+            "recovery_command": "mempalace-code update status --json",
+        }
+        assert scheduler == result.data["scheduler"]
+        assert calls == []
+        assert tuple(tmp_path.rglob("*")) == before
+
+    @pytest.mark.parametrize(
+        ("update_command", "scheduler_command"),
+        [("apply", None), ("scheduler", "install"), ("scheduler", "remove")],
+    )
+    def test_json_cli_uses_stable_result(
+        self, tmp_path, monkeypatch, capsys, update_command, scheduler_command
+    ):
+        monkeypatch.setattr(updater.sys, "platform", "darwin")
+        calls: list[list[str]] = []
+        manager = self._manager(tmp_path, calls)
+        args = Namespace(
+            update_command=update_command,
+            scheduler_command=scheduler_command,
+            palace=None,
+            yes=True,
+            json=True,
+            scheduled=False,
+        )
+
+        with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=manager):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_update(args)
+
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert json.loads(captured.out) == self._expected_result()
+        assert "FileNotFoundError" not in captured.out
+        assert "Errno" not in captured.out
+        assert "systemctl" not in captured.out
+        assert calls == []
+
+    def test_linux_platform_passes_through_to_scheduler_transaction(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(updater.sys, "platform", "linux-gnu")
+        monkeypatch.setattr(updater.Path, "home", lambda: tmp_path / "home")
+        manager, commands = _manager(tmp_path)
+
+        result = manager.install_scheduler()
+
+        assert result.as_dict() == {
+            "ok": True,
+            "stage": "scheduler-installed",
+            "message": "systemd-user update timer enabled",
+            "exit_code": 0,
+            "log_path": None,
+        }
+        assert commands == [
+            ["systemctl", "--user", "daemon-reload"],
+            ["systemctl", "--user", "enable", "--now", DEFAULT_TIMER_UNIT],
+        ]
 
 
 class TestSystemdWatcherDiscovery:
@@ -438,6 +589,266 @@ class TestRollback:
 
 
 class TestScheduling:
+    def test_scheduler_remove_disables_and_removes_owned_units(self, tmp_path):
+        commands: list[list[str]] = []
+        home = tmp_path / "home"
+        unit_dir = home / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        manager, _ = _manager(tmp_path)
+        for name, content in manager.render_scheduler_units().items():
+            (unit_dir / name).write_text(content, encoding="utf-8")
+        manager.runner = lambda command: (commands.append(command), (0, "ok", ""))[1]
+
+        with patch.object(Path, "home", return_value=home):
+            result = manager.remove_scheduler()
+
+        assert result.ok is True
+        assert result.stage == "scheduler-removed"
+        assert commands == [
+            ["systemctl", "--user", "disable", "--now", DEFAULT_TIMER_UNIT],
+            ["systemctl", "--user", "stop", DEFAULT_SERVICE_UNIT],
+            ["systemctl", "--user", "daemon-reload"],
+        ]
+        assert not (unit_dir / DEFAULT_TIMER_UNIT).exists()
+        assert not (unit_dir / DEFAULT_SERVICE_UNIT).exists()
+
+    def test_scheduler_remove_preserves_units_when_disable_fails(self, tmp_path):
+        home = tmp_path / "home"
+        unit_dir = home / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        timer = unit_dir / DEFAULT_TIMER_UNIT
+        manager, _ = _manager(tmp_path)
+        for name, content in manager.render_scheduler_units().items():
+            (unit_dir / name).write_text(content, encoding="utf-8")
+        manager.runner = lambda command: (1, "", "disable failed")
+
+        with patch.object(Path, "home", return_value=home):
+            result = manager.remove_scheduler()
+
+        assert result.ok is False
+        assert result.stage == "scheduler-remove"
+        assert result.message == "disable failed"
+        assert (
+            timer.read_text(encoding="utf-8")
+            == manager.render_scheduler_units()[DEFAULT_TIMER_UNIT]
+        )
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "partial",
+            "symlink",
+            "non-regular",
+            "foreign-owner",
+            "content-mismatch",
+            "identity-mismatch",
+            "path-escape",
+        ],
+    )
+    def test_scheduler_unit_ownership_matrix_refuses_before_mutation(
+        self, tmp_path, monkeypatch, case
+    ):
+        home = tmp_path / "home"
+        unit_dir = home / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        manager, commands = _manager(tmp_path)
+        manager.scheduler_context = lambda: (unit_dir, None)
+        rendered = manager.render_scheduler_units()
+        for name, content in rendered.items():
+            (unit_dir / name).write_text(content, encoding="utf-8")
+
+        if case == "partial":
+            (unit_dir / DEFAULT_TIMER_UNIT).unlink()
+        elif case == "symlink":
+            service = unit_dir / DEFAULT_SERVICE_UNIT
+            service.unlink()
+            service.symlink_to(unit_dir / DEFAULT_TIMER_UNIT)
+        elif case == "non-regular":
+            service = unit_dir / DEFAULT_SERVICE_UNIT
+            service.unlink()
+            service.mkdir()
+        elif case == "foreign-owner":
+            actual_uid = os.geteuid()
+            monkeypatch.setattr(updater.os, "geteuid", lambda: actual_uid + 1)
+        elif case == "content-mismatch":
+            (unit_dir / DEFAULT_SERVICE_UNIT).write_text("foreign\n", encoding="utf-8")
+        elif case == "identity-mismatch":
+            manager.scheduler_context = lambda: (
+                unit_dir,
+                "XDG runtime and bus do not match the effective uid",
+            )
+        elif case == "path-escape":
+            manager.scheduler_context = lambda: (
+                unit_dir,
+                "scheduler unit directory escapes HOME",
+            )
+
+        before = tuple(
+            (path.name, path.is_symlink(), path.read_bytes() if path.is_file() else b"")
+            for path in unit_dir.iterdir()
+        )
+        result = manager.install_scheduler()
+
+        assert result.ok is False
+        assert result.stage == "scheduler-preflight"
+        assert result.exit_code == 2
+        assert commands == []
+        after = tuple(
+            (path.name, path.is_symlink(), path.read_bytes() if path.is_file() else b"")
+            for path in unit_dir.iterdir()
+        )
+        assert after == before
+
+    def test_scheduler_matching_owned_pair_is_idempotent(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        unit_dir = home / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        manager, commands = _manager(tmp_path)
+        manager.scheduler_context = lambda: (unit_dir, None)
+        rendered = manager.render_scheduler_units()
+        for name, content in rendered.items():
+            (unit_dir / name).write_text(content, encoding="utf-8")
+        before = {name: (unit_dir / name).read_bytes() for name in rendered}
+        monkeypatch.setattr(
+            manager,
+            "_atomic_write_text",
+            lambda *_args: pytest.fail("matching scheduler units must not be rewritten"),
+        )
+
+        with patch.object(Path, "home", return_value=home):
+            first = manager.install_scheduler()
+            second = manager.install_scheduler()
+            removed = manager.remove_scheduler()
+
+        assert first.ok is True
+        assert second.ok is True
+        assert removed.ok is True
+        assert commands == [
+            ["systemctl", "--user", "daemon-reload"],
+            ["systemctl", "--user", "enable", "--now", DEFAULT_TIMER_UNIT],
+            ["systemctl", "--user", "daemon-reload"],
+            ["systemctl", "--user", "enable", "--now", DEFAULT_TIMER_UNIT],
+            ["systemctl", "--user", "disable", "--now", DEFAULT_TIMER_UNIT],
+            ["systemctl", "--user", "stop", DEFAULT_SERVICE_UNIT],
+            ["systemctl", "--user", "daemon-reload"],
+        ]
+        assert before
+        assert not any((unit_dir / name).exists() for name in rendered)
+
+    def test_scheduler_install_rolls_back_partial_pair(self, tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        unit_dir = home / ".config" / "systemd" / "user"
+        manager, commands = _manager(tmp_path)
+        manager.scheduler_context = lambda: (unit_dir, None)
+        atomic_write = manager._atomic_write_text
+        writes = 0
+
+        def fail_second_write(path, content):
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise OSError("injected second-unit failure")
+            atomic_write(path, content)
+
+        monkeypatch.setattr(manager, "_atomic_write_text", fail_second_write)
+
+        result = manager.install_scheduler()
+
+        assert result.ok is False
+        assert result.stage == "scheduler-install"
+        assert "injected second-unit failure" in result.message
+        assert not any((unit_dir / name).exists() for name in manager.render_scheduler_units())
+        assert commands == [
+            ["systemctl", "--user", "disable", "--now", DEFAULT_TIMER_UNIT],
+            ["systemctl", "--user", "daemon-reload"],
+        ]
+
+    def test_scheduler_remove_stops_service_before_deleting_units(self, tmp_path):
+        unit_dir = tmp_path / "home" / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        commands: list[list[str]] = []
+
+        def runner(command):
+            commands.append(command)
+            if command[:3] == ["systemctl", "--user", "stop"]:
+                return 1, "", "service still running"
+            return 0, "ok", ""
+
+        manager, _ = _manager(tmp_path)
+        manager.runner = runner
+        manager.scheduler_context = lambda: (unit_dir, None)
+        rendered = manager.render_scheduler_units()
+        for name, content in rendered.items():
+            (unit_dir / name).write_text(content, encoding="utf-8")
+
+        result = manager.remove_scheduler()
+
+        assert result.ok is False
+        assert result.stage == "scheduler-remove"
+        assert "service still running" in result.message
+        assert commands == [
+            ["systemctl", "--user", "disable", "--now", DEFAULT_TIMER_UNIT],
+            ["systemctl", "--user", "stop", DEFAULT_SERVICE_UNIT],
+        ]
+        assert all((unit_dir / name).exists() for name in rendered)
+
+    def test_scheduler_remove_restores_units_when_final_reload_fails(self, tmp_path):
+        unit_dir = tmp_path / "home" / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        commands: list[list[str]] = []
+        reloads = 0
+
+        def runner(command):
+            nonlocal reloads
+            commands.append(command)
+            if command == ["systemctl", "--user", "daemon-reload"]:
+                reloads += 1
+                if reloads == 1:
+                    return 1, "", "injected reload failure"
+            return 0, "ok", ""
+
+        manager, _ = _manager(tmp_path)
+        manager.runner = runner
+        manager.scheduler_context = lambda: (unit_dir, None)
+        rendered = manager.render_scheduler_units()
+        for name, content in rendered.items():
+            (unit_dir / name).write_text(content, encoding="utf-8")
+
+        result = manager.remove_scheduler()
+
+        assert result.ok is False
+        assert result.stage == "scheduler-remove"
+        assert result.message == "injected reload failure"
+        assert commands == [
+            ["systemctl", "--user", "disable", "--now", DEFAULT_TIMER_UNIT],
+            ["systemctl", "--user", "stop", DEFAULT_SERVICE_UNIT],
+            ["systemctl", "--user", "daemon-reload"],
+            ["systemctl", "--user", "daemon-reload"],
+            ["systemctl", "--user", "enable", "--now", DEFAULT_TIMER_UNIT],
+        ]
+        assert {
+            name: (unit_dir / name).read_text(encoding="utf-8") for name in rendered
+        } == rendered
+
+    def test_scheduler_context_refuses_home_mismatch_before_runtime_access(
+        self, tmp_path, monkeypatch
+    ):
+        passwd_home = tmp_path / "passwd-home"
+        configured_home = tmp_path / "configured-home"
+        passwd_home.mkdir()
+        configured_home.mkdir()
+        uid = os.geteuid()
+        monkeypatch.setattr(
+            updater.pwd, "getpwuid", lambda _uid: SimpleNamespace(pw_dir=passwd_home)
+        )
+
+        with patch.dict(os.environ, {"HOME": str(configured_home)}, clear=True):
+            unit_dir, error = UpdateManager._scheduler_context()
+
+        assert unit_dir == passwd_home
+        assert error == "HOME does not match the effective uid passwd directory"
+        assert uid == os.geteuid()
+
     @pytest.mark.parametrize(
         "unsafe_character",
         [":", "\x00", "\n", "\r", "\t", "\x1f", "\x7f"],
@@ -529,6 +940,10 @@ class TestScheduling:
                 "[Service]",
                 "Type=oneshot",
                 f'Environment="PATH={escaped_path}"',
+                'Environment="PIP_CONFIG_FILE=/dev/null"',
+                'Environment="PIP_KEYRING_PROVIDER=disabled"',
+                'Environment="PYTHONNOUSERSITE=1"',
+                "UnsetEnvironment=" + " ".join(SCHEDULER_UNSET_ENVIRONMENT),
                 "ExecStart="
                 + " ".join(
                     shlex.quote(part)
@@ -949,6 +1364,43 @@ class TestScheduling:
 
 
 class TestInstallerDetection:
+    @pytest.mark.parametrize(
+        ("direct_url", "expected"),
+        [
+            ('{"archive_info": {"hash": "sha256=abc"}}', False),
+            ('{"dir_info": {"editable": false}}', False),
+            ('{"dir_info": {"editable": true}}', True),
+            ('{"dir_info": {"editable": "true"}}', True),
+            ('{"dir_info": "invalid"}', True),
+            ('["not", "an", "object"]', True),
+            ("not-json", True),
+        ],
+    )
+    def test_editable_metadata_requires_explicit_boolean_and_fails_closed_on_malformed_shape(
+        self, direct_url, expected
+    ):
+        dist = MagicMock()
+        dist.read_text.return_value = direct_url
+        with patch("mempalace_code.updater.metadata.distribution", return_value=dist):
+            assert updater._has_editable_metadata() is expected
+
+    def test_pipx_wheel_direct_url_without_dir_info_remains_supported(self, tmp_path):
+        prefix = tmp_path / "pipx" / "venvs" / "mempalace-code"
+        dist = MagicMock()
+        dist.read_text.return_value = '{"archive_info": {"hash": "sha256=abc"}}'
+        with patch("mempalace_code.updater.metadata.distribution", return_value=dist):
+            installation = detect_installation(
+                python=str(prefix / "bin" / "python"),
+                prefix=prefix,
+                base_prefix=tmp_path / "system-python",
+                environ={"PIPX_HOME": str(tmp_path / "pipx")},
+                which=lambda name: "/usr/bin/pipx" if name == "pipx" else None,
+                extras=frozenset(),
+            )
+
+        assert installation.supported is True
+        assert installation.kind == "pipx"
+
     def test_unsupported_or_missing_required_extra_fails_before_mutation(self, tmp_path):
         service = FakeService(active=True)
         manager, commands = _manager(tmp_path, service=service, extras=frozenset())
@@ -1032,14 +1484,64 @@ class TestUpdateCommand:
         manager.status.assert_called_once_with()
         manager.apply.assert_not_called()
 
-    def test_apply_requires_yes_before_invoking_updater(self, capsys):
+    @pytest.mark.parametrize(
+        ("update_command", "scheduler_command", "method", "action"),
+        [
+            ("apply", None, "apply", ("update", "apply")),
+            ("scheduler", "install", "install_scheduler", ("update", "scheduler", "install")),
+            ("scheduler", "remove", "remove_scheduler", ("update", "scheduler", "remove")),
+        ],
+    )
+    @pytest.mark.parametrize("as_json", [False, True])
+    def test_guarded_mutations_require_yes_without_invoking_updater(
+        self, capsys, update_command, scheduler_command, method, action, as_json
+    ):
         manager = MagicMock()
-        args = Namespace(update_command="apply", palace=None, yes=False, json=False)
+        args = Namespace(
+            update_command=update_command,
+            scheduler_command=scheduler_command,
+            palace="/tmp/palace with spaces",
+            yes=False,
+            json=as_json,
+            scheduled=False,
+        )
 
         with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=manager):
             with pytest.raises(SystemExit) as exc_info:
                 cmd_update(args)
 
         assert exc_info.value.code == 2
+        getattr(manager, method).assert_not_called()
         manager.apply.assert_not_called()
-        assert "Re-run with --yes" in capsys.readouterr().err
+        manager.install_scheduler.assert_not_called()
+        manager.remove_scheduler.assert_not_called()
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        expected_command = shlex.join(
+            [
+                "mempalace-code",
+                "--palace",
+                "/tmp/palace with spaces",
+                *action,
+                "--yes",
+                *(["--json"] if as_json else []),
+            ]
+        )
+        if as_json:
+            payload = json.loads(captured.out)
+            assert payload == {
+                "exit_code": 2,
+                "log_path": None,
+                "message": (
+                    "refused: package or systemd-user mutation requires explicit confirmation"
+                ),
+                "ok": False,
+                "recovery_command": expected_command,
+                "stage": "confirmation",
+            }
+        else:
+            assert captured.out.splitlines() == [
+                "  Update confirmation: refused: package or systemd-user mutation requires "
+                "explicit confirmation",
+                f"  Recovery: {expected_command}",
+            ]

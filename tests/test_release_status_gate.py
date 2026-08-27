@@ -15,9 +15,11 @@ import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
+from release_smoke_support import agent_plugin_mcp_responses
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -36,40 +38,35 @@ def _load_module_from_path(name: str, path: Path):
 rsg = _load_module_from_path("release_status_gate", ROOT / "scripts" / "release_status_gate.py")
 
 VERSION = "1.2.3"
-REPO = "testowner/testrepo"
+REPO = "rergards/mempalace-code"
 REMOTE = "publish"
 BRANCH = "main"
 PACKAGE = "mempalace-code"
 SHA = "a" * 40
 PUBLISH_RUN_ID = 4242
 RELEASE_JOB_ID = 4343
+_EXPECTED_MINIMAL_TOOLS = (
+    "mempalace_status",
+    "mempalace_search",
+    "mempalace_check_duplicate",
+    "mempalace_add_drawer",
+)
 
 # ── Mock factories ─────────────────────────────────────────────────────────────
-
-
-def _release_view_data(
-    version: str = VERSION,
-    release_draft: bool = False,
-    release_prerelease: bool = False,
-) -> dict[str, object]:
-    return {
-        "tagName": f"v{version}",
-        "isDraft": release_draft,
-        "isPrerelease": release_prerelease,
-        "publishedAt": "2024-01-01T00:00:00Z",
-        "url": f"https://github.com/testowner/testrepo/releases/tag/v{version}",
-        "targetCommitish": "main",
-    }
 
 
 def _release_list_data(
     version: str = VERSION,
     release_latest: bool = True,
+    release_draft: bool = False,
+    release_prerelease: bool = False,
 ) -> list[dict[str, object]]:
     if release_latest:
         return [
             {
                 "tagName": f"v{version}",
+                "isDraft": release_draft,
+                "isPrerelease": release_prerelease,
                 "isLatest": True,
                 "publishedAt": "2024-01-01T00:00:00Z",
                 "url": f"https://github.com/testowner/testrepo/releases/tag/v{version}",
@@ -84,6 +81,8 @@ def _release_list_data(
         },
         {
             "tagName": f"v{version}",
+            "isDraft": release_draft,
+            "isPrerelease": release_prerelease,
             "isLatest": False,
             "publishedAt": "2024-01-01T00:00:00Z",
             "url": f"https://github.com/testowner/testrepo/releases/tag/v{version}",
@@ -245,10 +244,19 @@ def _gh_all_ok(
                 )
             ]
             return 0, json.dumps({"jobs": jobs}), ""
-        if "release" in args and "view" in args:
-            return 0, json.dumps(_release_view_data(version, release_draft, release_prerelease)), ""
         if "release" in args and "list" in args:
-            return 0, json.dumps(_release_list_data(version, release_latest)), ""
+            return (
+                0,
+                json.dumps(
+                    _release_list_data(
+                        version,
+                        release_latest,
+                        release_draft,
+                        release_prerelease,
+                    )
+                ),
+                "",
+            )
         return 0, "[]", ""
 
     return run_gh
@@ -287,10 +295,10 @@ def _gh_no_runs() -> Callable[[list[str]], tuple[int, str, str]]:
 
 
 def _gh_release_error() -> Callable[[list[str]], tuple[int, str, str]]:
-    """Return a run_gh stub where release view returns nonzero."""
+    """Return a run_gh stub where release inventory lookup returns nonzero."""
 
     def run_gh(args: list[str]) -> tuple[int, str, str]:
-        if "release" in args and "view" in args:
+        if "release" in args and "list" in args:
             return 1, "", "release not found"
         return _gh_all_ok()(args)
 
@@ -342,8 +350,6 @@ def _gh_partial_publication(
             if duplicate_release_job:
                 jobs.append(dict(jobs[0], databaseId=9999))
             return 0, json.dumps({"jobs": jobs}), ""
-        if "release" in args and "view" in args:
-            return 1, "", "release not found"
         if "release" in args and "list" in args:
             return 0, "[]", ""
         return _gh_all_ok()(args)
@@ -434,6 +440,92 @@ def _pypi_error(msg: str = "Connection refused") -> Callable[[str], tuple[int, b
     return http_get
 
 
+def _github_fixture_args(query) -> list[str]:
+    """Translate normalized query identity for pre-existing payload fixtures only."""
+    if query.endpoint == "github_workflow_runs":
+        repo, workflow, limit, branch = query.values
+        args = ["run", "list", "--repo", repo, "--workflow", workflow, "--limit", str(limit)]
+        if branch:
+            args.extend(["--branch", branch])
+        return args
+    if query.endpoint == "github_workflow_jobs":
+        repo, run_id = query.values
+        return ["run", "view", str(run_id), "--repo", repo]
+    if query.endpoint == "github_releases":
+        repo, limit = query.values
+        return ["release", "list", "--repo", repo, "--limit", str(limit)]
+    if query.endpoint == "github_check_runs":
+        repo, sha, name, limit = query.values
+        return ["api", f"repos/{repo}/commits/{sha}/check-runs?check_name={name}&per_page={limit}"]
+    if query.endpoint == "github_branch_rules":
+        repo, branch = query.values
+        return ["api", f"repos/{repo}/rules/branches/{branch}"]
+    if query.endpoint == "github_rulesets":
+        repo, limit = query.values
+        return ["api", f"repos/{repo}/rulesets?per_page={limit}"]
+    if query.endpoint == "github_ruleset":
+        repo, ruleset_id = query.values
+        return ["api", f"repos/{repo}/rulesets/{ruleset_id}"]
+    raise AssertionError(f"unexpected public query fixture: {query.endpoint}")
+
+
+def _public_read(run_git=None, run_gh=None, http_get=None):
+    git_read = run_git or _git_ok()
+    github_read = run_gh or _gh_all_ok()
+    web_read = http_get or _pypi_ok()
+
+    def read(query):
+        endpoint = query.endpoint
+        if endpoint == "github_matching_tags":
+            code, refs_output, error = git_read(
+                ["ls-remote", "--tags", "--refs", REMOTE, "refs/tags/v*"]
+            )
+            detail_code, detail_output, detail_error = git_read(
+                ["ls-remote", "--tags", REMOTE, "refs/tags/v*", "refs/tags/v*^{}"]
+            )
+            if code == 0 and detail_code != 0:
+                code, error = detail_code, detail_error
+            output = refs_output + "\n".join(
+                line for line in detail_output.splitlines() if line.split()[-1].endswith("^{}")
+            )
+            rows = []
+            direct = {}
+            peeled = {}
+            for line in output.splitlines():
+                parts = line.split()
+                if len(parts) != 2:
+                    continue
+                sha, ref = parts
+                if ref.endswith("^{}"):
+                    peeled[ref.removesuffix("^{}")] = sha
+                else:
+                    direct[ref] = sha
+            for ref, sha in direct.items():
+                rows.append({"ref": ref, "sha": peeled.get(ref, sha), "type": "commit"})
+            data = rows
+        elif endpoint == "pypi_metadata":
+            code, body, error = web_read(rsg.PYPI_JSON_URL.format(package=PACKAGE))
+            output = body.decode(errors="replace")
+            data = json.loads(output) if code == 200 else None
+            code = 0 if code == 200 else code
+        elif endpoint == "pypi_distribution":
+            code, data, error = web_read(str(query.values[0]))
+            output = ""
+            code = 0 if code == 200 else code
+        elif endpoint == "pypi_provenance":
+            package, version, filename = query.values
+            url = f"https://pypi.org/integrity/{package}/{version}/{filename}/provenance"
+            code, data, error = web_read(url)
+            output = ""
+            code = 0 if code == 200 else code
+        else:
+            code, output, error = github_read(_github_fixture_args(query))
+            data = json.loads(output) if code == 0 else None
+        return SimpleNamespace(data=data, error="" if code == 0 else error or output)
+
+    return read
+
+
 _AGENT_PLUGIN_FIXTURE_ROOT: Path | None = None
 
 
@@ -508,23 +600,6 @@ def _agent_plugin_fixture_root_cache(tmp_path_factory: pytest.TempPathFactory):
         _AGENT_PLUGIN_FIXTURE_ROOT = None
 
 
-def _agent_plugin_mcp_responses() -> str:
-    tools = [
-        {"name": name}
-        for name in (
-            "mempalace_status",
-            "mempalace_search",
-            "mempalace_check_duplicate",
-            "mempalace_add_drawer",
-        )
-    ]
-    responses = [
-        {"jsonrpc": "2.0", "id": 1, "result": {"serverInfo": {"name": "mempalace-code"}}},
-        {"jsonrpc": "2.0", "id": 2, "result": {"tools": tools}},
-    ]
-    return "\n".join(json.dumps(r) for r in responses) + "\n"
-
-
 def _alias_probe_response(args: list[str], version: str) -> tuple[int, str, str] | None:
     if args and Path(args[0]).name == "mempalace-code-alias":
         alias_dir = Path(args[0]).parent
@@ -561,7 +636,7 @@ def _smoke_ok(
         if "agent-plugin" in args and "path" in args:
             return 0, json.dumps({"path": str(_agent_plugin_fixture_root())}), ""
         if args and args[0] == "mempalace-code-mcp":
-            return 0, _agent_plugin_mcp_responses(), ""
+            return 0, agent_plugin_mcp_responses(_EXPECTED_MINIMAL_TOOLS), ""
         if args and Path(args[0]).name == "pypi-attestations":
             return 0, "", f"OK: {args[3]}\n"
         if "-c" in args:
@@ -615,7 +690,7 @@ def _smoke_mismatch(
         if "agent-plugin" in args and "path" in args:
             return 0, json.dumps({"path": str(_agent_plugin_fixture_root())}), ""
         if args and args[0] == "mempalace-code-mcp":
-            return 0, _agent_plugin_mcp_responses(), ""
+            return 0, agent_plugin_mcp_responses(_EXPECTED_MINIMAL_TOOLS), ""
         if args and Path(args[0]).name == "pypi-attestations":
             return 0, "", f"OK: {args[3]}\n"
         if "-c" in args:
@@ -685,9 +760,7 @@ def _call_gate(
         expect_sha=expect_sha,
         required_check_name="release-required",
         audit_max_age_hours=168,
-        run_git=run_git or _git_ok(),
-        run_gh=run_gh or _gh_all_ok(),
-        http_get=http_get or _pypi_ok(),
+        public_read=_public_read(run_git, run_gh, http_get),
         run_subprocess=run_subprocess or _smoke_ok(),
     )
 
@@ -723,20 +796,78 @@ def test_gate_passes_when_all_public_surfaces_match():
     assert "Remaining blockers" not in human
 
 
-def test_provenance_verifies_every_exact_version_file_with_locked_uv_environment():
+def test_gate_reuses_public_release_and_package_inventories():
+    git_calls: list[tuple[str, ...]] = []
+    gh_calls: list[tuple[str, ...]] = []
+    http_calls: list[str] = []
+    real_git = _git_ok()
+    real_gh = _gh_all_ok()
+    real_http = _pypi_ok()
+
+    def run_git(args: list[str]) -> tuple[int, str, str]:
+        git_calls.append(tuple(args))
+        return real_git(args)
+
+    def run_gh(args: list[str]) -> tuple[int, str, str]:
+        gh_calls.append(tuple(args))
+        return real_gh(args)
+
+    def http_get(url: str) -> tuple[int, bytes, str]:
+        http_calls.append(url)
+        return real_http(url)
+
+    result = _call_gate(run_git=run_git, run_gh=run_gh, http_get=http_get)
+
+    assert result.ok is True
+    assert sum(call[:2] == ("release", "list") for call in gh_calls) == 1
+    assert http_calls.count(rsg.PYPI_JSON_URL.format(package=PACKAGE)) == 1
+    assert sum(call[:2] == ("ls-remote", "--tags") for call in git_calls) == 2
+
+
+def test_provenance_verifies_every_exact_version_file_with_locked_uv_environment(monkeypatch):
+    portable_env = {
+        "PATH": "/synthetic/bin",
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8",
+        "SSL_CERT_FILE": "/synthetic/cert.pem",
+        "SSL_CERT_DIR": "/synthetic/certs",
+        "SYSTEMROOT": r"C:\synthetic-windows",
+        "WINDIR": r"C:\synthetic-windows",
+    }
+    ambient_env = {
+        "PYPI_API_TOKEN": "synthetic-api-secret",
+        "OAUTH_TOKEN": "synthetic-oauth-secret",
+        "AWS_SHARED_CREDENTIALS_FILE": "/synthetic/credentials",
+        "PYTHONPATH": "/synthetic/pythonpath",
+        "ARBITRARY_MARKER": "synthetic-parent-marker",
+    }
+    for name, value in (portable_env | ambient_env).items():
+        monkeypatch.setenv(name, value)
+
+    smoke = rsg._load_install_metadata_smoke()
+    original_credential_free_env = smoke._credential_free_env
+    credential_free_env_calls = 0
+
+    def credential_free_env():
+        nonlocal credential_free_env_calls
+        credential_free_env_calls += 1
+        return original_credential_free_env()
+
+    monkeypatch.setattr(smoke, "_credential_free_env", credential_free_env)
     http_get = _pypi_ok(extra_wheel=True)
-    distributions, inventory = rsg.fetch_pypi_distributions(VERSION, PACKAGE, http_get)
+    public_read = _public_read(http_get=http_get)
+    distributions, inventory = rsg.fetch_pypi_distributions(VERSION, PACKAGE, public_read)
     assert inventory.status == rsg.STATUS_OK
     assert distributions is not None
     commands: list[tuple[list[str], dict | None, str | None]] = []
     delegate = _smoke_ok()
 
     def recording_subprocess(args: list[str], env=None, cwd=None):
-        commands.append((args, env, cwd))
+        commands.append((args, dict(env) if env is not None else None, cwd))
         return delegate(args, env=env, cwd=cwd)
 
     result = rsg.check_pypi_provenance(
-        VERSION, PACKAGE, REPO, distributions, http_get, recording_subprocess
+        VERSION, PACKAGE, REPO, distributions, public_read, recording_subprocess
     )
 
     assert result.status == rsg.STATUS_OK
@@ -744,8 +875,28 @@ def test_provenance_verifies_every_exact_version_file_with_locked_uv_environment
     assert REPO in result.detail
     assert rsg.EXPECTED_PROVENANCE_WORKFLOW in result.detail
     assert rsg.EXPECTED_PROVENANCE_ENVIRONMENT in result.detail
+    assert credential_free_env_calls == 1
+    assert all(command[1] is not None for command in commands)
+    captured_envs = [command[1] for command in commands]
+    assert all(env is not None for env in captured_envs)
+    for env in captured_envs:
+        assert env is not None
+        assert portable_env.items() <= env.items()
+        assert ambient_env.keys().isdisjoint(env)
+        assert set(ambient_env.values()).isdisjoint(env.values())
+        assert Path(env["HOME"]) == Path(env["USERPROFILE"])
+        for name in (
+            "HOME",
+            "USERPROFILE",
+            "TMPDIR",
+            "XDG_CACHE_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+        ):
+            assert Path(env[name]).parent == Path(env["HOME"]).parent
     lock_check = next(command for command in commands if command[0][:2] == ["uv", "lock"])
     assert lock_check[0] == ["uv", "lock", "--check"]
+    venv_create = next(command for command in commands if command[0][:2] == ["uv", "venv"])
     sync = next(command for command in commands if command[0][:2] == ["uv", "sync"])
     assert "--frozen" in sync[0]
     assert "--locked" not in sync[0]
@@ -760,6 +911,14 @@ def test_provenance_verifies_every_exact_version_file_with_locked_uv_environment
         distribution.filename for distribution in distributions
     ]
     assert all(command[0][-1] == f"https://github.com/{REPO}" for command in verifier_calls)
+    assert lock_check[1] is not None
+    assert venv_create[1] is not None
+    assert "VIRTUAL_ENV" not in lock_check[1]
+    assert "VIRTUAL_ENV" not in venv_create[1]
+    assert all(command[1] is not None for command in verifier_calls)
+    assert all(
+        "VIRTUAL_ENV" not in command[1] for command in verifier_calls if command[1] is not None
+    )
 
 
 @pytest.mark.parametrize(
@@ -851,8 +1010,10 @@ def test_provenance_fails_closed_for_verifier_errors(
     verifier_result: tuple[int, str, str], expected_status: str, expected_detail: str
 ):
     delegate = _smoke_ok()
+    commands: list[tuple[list[str], dict | None]] = []
 
     def verifier_failure(args: list[str], env=None, cwd=None, input_text=None):
+        commands.append((args, dict(env) if env is not None else None))
         if args and Path(args[0]).name == "pypi-attestations":
             return verifier_result
         return delegate(args, env=env, cwd=cwd, input_text=input_text)
@@ -865,6 +1026,17 @@ def test_provenance_fails_closed_for_verifier_errors(
     assert expected_detail in surface.detail
     assert "not the verifier contract" not in output
     assert "x" * 100 not in output
+    assert [command[0][:2] for command in commands[:3]] == [
+        ["uv", "lock"],
+        ["uv", "venv"],
+        ["uv", "sync"],
+    ]
+    verifier_call = next(
+        command for command in commands if Path(command[0][0]).name == "pypi-attestations"
+    )
+    assert all(command[1] is not None for command in commands)
+    assert verifier_call[1] is not None
+    assert "VIRTUAL_ENV" not in verifier_call[1]
 
 
 def test_provenance_fails_closed_when_lock_is_missing_or_stale(tmp_path: Path):
@@ -881,7 +1053,8 @@ def test_provenance_fails_closed_when_lock_is_missing_or_stale(tmp_path: Path):
         encoding="utf-8",
     )
     http_get = _pypi_ok()
-    distributions, _ = rsg.fetch_pypi_distributions(VERSION, PACKAGE, http_get)
+    public_read = _public_read(http_get=http_get)
+    distributions, _ = rsg.fetch_pypi_distributions(VERSION, PACKAGE, public_read)
     assert distributions is not None
     calls: list[list[str]] = []
 
@@ -894,7 +1067,7 @@ def test_provenance_fails_closed_when_lock_is_missing_or_stale(tmp_path: Path):
         PACKAGE,
         REPO,
         distributions,
-        http_get,
+        public_read,
         must_not_run,
         project_root=project_root,
     )
@@ -1050,9 +1223,9 @@ def test_partial_publication_fails_closed_without_exact_command(kwargs, extra_bl
 
 
 def test_partial_publication_command_is_never_rendered_for_another_repository():
-    result = _call_gate(run_gh=_gh_partial_publication())
+    result = _call_gate(run_gh=_gh_partial_publication(), repo="another/repository")
 
-    assert "gh run rerun" not in rsg.render_human(result)
+    assert f"gh run rerun {PUBLISH_RUN_ID}" not in rsg.render_human(result)
 
 
 def test_completed_publication_has_no_recovery_command():
@@ -1342,25 +1515,15 @@ def test_gate_rejects_version_and_release_metadata_edge_cases():
 
     # Tag mismatch (release returns a different tag)
     def gh_wrong_tag(args: list[str]) -> tuple[int, str, str]:
-        if "release" in args and "view" in args:
-            data = {
-                "tagName": "v9.9.9",
-                "isDraft": False,
-                "isPrerelease": False,
-                "publishedAt": "2024-01-01T00:00:00Z",
-                "url": "https://github.com/...",
-                "targetCommitish": "main",
-            }
-            return 0, json.dumps(data), ""
         if "release" in args and "list" in args:
-            return 0, json.dumps(_release_list_data()), ""
+            return 0, json.dumps(_release_list_data(version="9.9.9")), ""
         return _gh_all_ok()(args)
 
     result_tag_mismatch = _call_gate(run_gh=gh_wrong_tag)
     assert result_tag_mismatch.ok is False
     rel_surf5 = next(s for s in result_tag_mismatch.surfaces if s.name == rsg.SURFACE_RELEASE)
     assert rel_surf5.status == rsg.STATUS_FAIL
-    assert "v9.9.9" in rel_surf5.detail
+    assert f"v{VERSION}" in rel_surf5.detail
 
     # Missing sdist only
     result_no_sdist = _call_gate(http_get=_pypi_ok(has_sdist=False))
@@ -1402,9 +1565,7 @@ def test_gate_handles_transient_public_lookup_errors_without_private_leaks():
         expect_sha=SHA,
         required_check_name="release-required",
         audit_max_age_hours=168,
-        run_git=run_git_with_leak,
-        run_gh=run_gh_with_leak,
-        http_get=http_get_with_leak,
+        public_read=_public_read(run_git_with_leak, run_gh_with_leak, http_get_with_leak),
         run_subprocess=run_subprocess_with_leak,
     )
 

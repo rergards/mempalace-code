@@ -207,6 +207,27 @@ def test_run_cli_sets_version_check_env():
     assert captured_env.get("MEMPALACE_VERSION_CHECK") == "0"
 
 
+def test_run_cli_uses_selected_absolute_installed_launcher(tmp_path):
+    launcher = tmp_path / "mempalace-code"
+    launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+    launcher.chmod(0o755)
+    captured: list[str] = []
+
+    def fake_run(cmd, capture_output, text, env):
+        captured.extend(cmd)
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    previous = _smoke_mod._CLI_EXECUTABLE
+    _smoke_mod._CLI_EXECUTABLE = str(launcher)
+    try:
+        with patch("subprocess.run", side_effect=fake_run):
+            _smoke_mod._run_cli(["--help"])
+    finally:
+        _smoke_mod._CLI_EXECUTABLE = previous
+
+    assert captured == [str(launcher), "--help"]
+
+
 # ── Cleanup semantics ─────────────────────────────────────────────────────────
 
 

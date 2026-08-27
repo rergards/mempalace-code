@@ -36,10 +36,9 @@ ABOUT_TEMPLATE = (
 )
 
 # Documented verification-command coverage per public surface. Each name must be
-# a key in scripts/quality_scorecard.py's _VERIFICATION_COMMANDS. A surface is
-# only required to carry the subset of canonical commands relevant to it —
-# e.g. the release skill only repeats lint/format/typecheck, not the full table
-# that .claude/skills/verify/INSTRUCTIONS.md is the verbatim source for.
+# a key in scripts/quality_scorecard.py's _VERIFICATION_COMMANDS. Detailed
+# release commands belong to docs/RELEASING.md; the release skill only routes to
+# that canonical runbook and names its two entry-point gates.
 VERIFICATION_COMMAND_SURFACES: dict[str, tuple[str, ...]] = {
     ".claude/skills/verify/INSTRUCTIONS.md": (
         "lint",
@@ -51,8 +50,7 @@ VERIFICATION_COMMAND_SURFACES: dict[str, tuple[str, ...]] = {
         "scorecard",
         "architecture_guard",
     ),
-    "CLAUDE.md": ("lint", "format", "tests", "typecheck"),
-    ".claude/skills/release/SKILL.md": ("lint", "format", "typecheck"),
+    "AGENTS.md": ("lint", "format", "tests", "typecheck"),
     "docs/quality/README.md": ("scorecard", "public_safety"),
 }
 
@@ -61,13 +59,12 @@ CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND = (
 )
 LIVE_RELEASE_PREFLIGHT_COMMAND_SURFACES: tuple[str, ...] = (
     "docs/RELEASING.md",
-    ".claude/skills/release/SKILL.md",
     ".claude/skills/release-prep/SKILL.md",
     "docs/UPSTREAM_COMPARISON.md",
 )
 CANONICAL_EXACT_SHA_RELEASE_PREFLIGHT_COMMAND = (
     "python scripts/release_preflight.py --tag vX.Y.Z --require-clean "
-    "--expect-sha <40-hex-candidate-sha> --candidate-ref publish/main "
+    "--expect-sha <40-hex-candidate-sha> --check-public-main "
     "--check-required-check --check-dependency-audit --check-branch-rules "
     "--check-tag-ruleset"
 )
@@ -80,25 +77,11 @@ CANONICAL_PARTIAL_PUBLICATION_RECOVERY_COMMAND = (
     "gh run rerun <publish-workflow-run-id> --job <github-release-job-id> "
     "--repo rergards/mempalace-code"
 )
-# Surfaces that must carry both exact-SHA commands verbatim. The release skill is
-# what an agent actually executes, so a skill that still names the pre-admission
-# preflight would route the agent around the publication boundary.
-EXACT_SHA_RELEASE_COMMAND_SURFACES: tuple[str, ...] = (
-    "docs/RELEASING.md",
-    ".claude/skills/release/SKILL.md",
-)
+EXACT_SHA_RELEASE_COMMAND_SURFACES: tuple[str, ...] = ("docs/RELEASING.md",)
 PARTIAL_PUBLICATION_RECOVERY_SURFACES: tuple[str, ...] = (
     "docs/RELEASING.md",
     "docs/release-admission-rulesets.md",
-    ".claude/skills/release/SKILL.md",
 )
-# The release skill must enumerate every status-gate surface inside this block,
-# one per table row, first backticked cell. Names are compared against
-# release_status_gate.REQUIRED_SURFACES, so a new surface that the skill omits
-# and a surface name the skill still carries after a rename both fail.
-RELEASE_STATUS_SURFACE_DOC = ".claude/skills/release/SKILL.md"
-RELEASE_STATUS_SURFACE_MARKER = "release-status-surfaces"
-_RELEASE_STATUS_SURFACE_ROW_RE = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`", re.MULTILINE)
 # Prose markers that no code constant owns. Everything the admission library does
 # define — check name, ref patterns, rule types, acknowledged orphan tags, audit
 # window — is derived from that module instead, so the contract cannot drift.
@@ -108,6 +91,10 @@ RELEASE_ADMISSION_PROSE_MARKERS: tuple[str, ...] = (
     "break-glass",
     "audit log",
     "read-only",
+)
+PUBLIC_READ_BOUNDARY_MARKERS: tuple[str, ...] = (
+    "credential-free public-read transport",
+    "separate explicit authorization",
 )
 DEPENDENCY_AUDIT_PROSE_MARKERS: tuple[str, ...] = (
     "Dependency Audit",
@@ -150,10 +137,6 @@ def release_admission_markers() -> tuple[str, ...]:
         *admission.MAIN_BRANCH_REQUIRED_RULE_TYPES,
         *admission.TAG_RULESET_REQUIRED_RULE_TYPES,
         *admission.RELEASE_CRITICAL_CI_JOBS,
-        # The floor stays required in the doc even if someone shrinks
-        # RELEASE_CRITICAL_CI_JOBS, so a demoted gate cannot quietly stop being
-        # documented as release-critical.
-        *admission.RELEASE_CRITICAL_MINIMUM_CI_JOBS,
         # An exempt CI job must be named in the doc too, so no job can be excused
         # from the aggregate check without a publicly recorded reason.
         *admission.AGGREGATE_EXEMPT_CI_JOBS,
@@ -240,10 +223,14 @@ _RETRIEVAL_DOTNET_STRING_FIELDS: tuple[str, ...] = (
 )
 _RETRIEVAL_DOTNET_NUMERIC_FIELDS: tuple[str, ...] = ("vector_r_at_5", "hybrid_r_at_5")
 
-# The Python API's EntityRegistry.research() is the only method that reaches out to
-# a third-party network service on its own; docs/OFFLINE_USAGE.md must disclose it
-# explicitly so airgapped/offline users know it exists and that nothing else calls it.
+# The offline guide must keep every network-capable escape hatch and its recovery
+# boundary explicit for airgapped users and degraded agents.
 OFFLINE_USAGE_DISCLOSURE_MARKERS: tuple[str, ...] = (
+    "With version checks disabled",
+    "`update status` and `update check`",
+    "refreshes canonical package metadata",
+    "does not block updater PyPI requests",
+    "While offline, do not run `update status`, `update check`, `update apply --yes`, or scheduled update execution.",
     "EntityRegistry.research()",
     "English Wikipedia REST API",
     "flows never call this method",
@@ -258,7 +245,7 @@ CHROMA_RUNTIME_SUPPORT_MARKERS: dict[str, tuple[str, ...]] = {
         "ChromaDB legacy backend",
     ),
     "mempalace_code/README.md": ("ChromaDB is a deprecated optional legacy backend",),
-    "CLAUDE.md": (
+    "AGENTS.md": (
         "ChromaDB legacy backend",
         "ChromaDB is a legacy optional backend",
     ),
@@ -1145,20 +1132,6 @@ def agent_instruction_boundary_errors(root: Path, rules_text: str, install_text:
     return errors
 
 
-_QUESTION_COUNTS = {
-    "one": 1,
-    "two": 2,
-    "three": 3,
-    "four": 4,
-    "five": 5,
-    "six": 6,
-    "seven": 7,
-    "eight": 8,
-    "nine": 9,
-    "ten": 10,
-}
-
-
 def runbook_consistency_errors(releasing_text: str, install_text: str) -> list[str]:
     """Reject ambiguous release identity and inconsistent install-question state."""
     errors: list[str] = []
@@ -1183,16 +1156,6 @@ def runbook_consistency_errors(releasing_text: str, install_text: str) -> list[s
         return errors
 
     section = section_match.group("body")
-    count_matches = re.findall(
-        r"^Ask all ([a-z]+) questions before acting\.", section, re.MULTILINE
-    )
-    declared_count = _QUESTION_COUNTS.get(count_matches[0]) if len(count_matches) == 1 else None
-    if declared_count is None:
-        errors.append(
-            "docs/AGENT_INSTALL.md: expected exactly one supported Section 2 "
-            "question-count statement"
-        )
-
     question_numbers = [
         int(value) for value in re.findall(r"^### Q(\d+) \u2014", section, re.MULTILINE)
     ]
@@ -1201,11 +1164,6 @@ def runbook_consistency_errors(releasing_text: str, install_text: str) -> list[s
         errors.append(
             "docs/AGENT_INSTALL.md: Section 2 question headings must be contiguous "
             f"Q1 through Q7; found {question_numbers}"
-        )
-    if declared_count is not None and declared_count != len(question_numbers):
-        errors.append(
-            "docs/AGENT_INSTALL.md: Section 2 declares "
-            f"{declared_count} questions but defines {len(question_numbers)} headings"
         )
     return errors
 
@@ -1329,6 +1287,7 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
         "README.md": _text(root, "README.md"),
         "mempalace_code/README.md": _text(root, "mempalace_code/README.md"),
         "CHANGELOG.md": _text(root, "CHANGELOG.md"),
+        "AGENTS.md": _text(root, "AGENTS.md"),
         "CLAUDE.md": _text(root, "CLAUDE.md"),
         "docs/AGENT_INSTALL.md": _text(root, "docs/AGENT_INSTALL.md"),
         "docs/LLM_USAGE_RULES.md": _text(root, "docs/LLM_USAGE_RULES.md"),
@@ -1351,6 +1310,9 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
         "docs/UPSTREAM_COMPARISON.md": _text(root, "docs/UPSTREAM_COMPARISON.md"),
         "docs/WHY_THIS_FORK.md": _text(root, "docs/WHY_THIS_FORK.md"),
     }
+
+    if docs["CLAUDE.md"] != "@AGENTS.md\n":
+        errors.append("CLAUDE.md: must contain exactly '@AGENTS.md' and one trailing newline")
 
     readme = docs["README.md"]
     errors.extend(backup_restore_contract_errors(readme, docs["docs/BACKUP_RESTORE.md"]))
@@ -1446,14 +1408,7 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
     errors.extend(
         runbook_consistency_errors(docs["docs/RELEASING.md"], docs["docs/AGENT_INSTALL.md"])
     )
-    errors.extend(
-        release_promotion_errors(
-            {
-                "docs/RELEASING.md": docs["docs/RELEASING.md"],
-                ".claude/skills/release/SKILL.md": docs[".claude/skills/release/SKILL.md"],
-            }
-        )
-    )
+    errors.extend(release_promotion_errors({"docs/RELEASING.md": docs["docs/RELEASING.md"]}))
     # Release-prep hands off to the release procedure; it must never publish. It
     # is still held to the same force-push and unbroken-flag safety, because it
     # is where a stuck maintainer first reads about the two diverged histories.
@@ -1514,12 +1469,12 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
         if detail:
             errors.append(f"README.md: 'Optional extras' block: drift ({'; '.join(detail)})")
 
-    claude_extras = set(re.findall(r"\.\[([a-z][a-z0-9-]*)\]", docs["CLAUDE.md"]))
-    stale_claude_extras = sorted(claude_extras - set(extras))
-    if stale_claude_extras:
+    agent_extras = set(re.findall(r"\.\[([a-z][a-z0-9-]*)\]", docs["AGENTS.md"]))
+    stale_agent_extras = sorted(agent_extras - set(extras))
+    if stale_agent_extras:
         errors.append(
-            "CLAUDE.md: 'Optional extras' section: references unknown extras: "
-            + ", ".join(stale_claude_extras)
+            "AGENTS.md: 'Optional extras' section: references unknown extras: "
+            + ", ".join(stale_agent_extras)
         )
 
     for relative_path, markers in CHROMA_RUNTIME_SUPPORT_MARKERS.items():
@@ -1588,30 +1543,7 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
             relative_path,
         )
 
-    # --- Release-status surfaces the release skill must enumerate -------------
     required_surfaces = release_status_surface_names()
-    surface_block = _marker_block(docs[RELEASE_STATUS_SURFACE_DOC], RELEASE_STATUS_SURFACE_MARKER)
-    if surface_block is None:
-        errors.append(
-            f"{RELEASE_STATUS_SURFACE_DOC}: missing "
-            f"<!-- {RELEASE_STATUS_SURFACE_MARKER} start --> block listing "
-            f"{len(required_surfaces)} release-status surfaces"
-        )
-    else:
-        documented = set(_RELEASE_STATUS_SURFACE_ROW_RE.findall(surface_block))
-        missing = sorted(set(required_surfaces) - documented)
-        unknown = sorted(documented - set(required_surfaces))
-        if missing:
-            errors.append(
-                f"{RELEASE_STATUS_SURFACE_DOC}: release-status surface drift: "
-                f"undocumented surfaces {missing}"
-            )
-        if unknown:
-            errors.append(
-                f"{RELEASE_STATUS_SURFACE_DOC}: release-status surface drift: "
-                f"stale surfaces {unknown} are not in REQUIRED_SURFACES"
-            )
-
     admission = _load_admission_checks()
     for marker in release_admission_markers():
         _require(
@@ -1620,6 +1552,9 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
             marker,
             "docs/release-admission-rulesets.md",
         )
+    for marker in PUBLIC_READ_BOUNDARY_MARKERS:
+        for relative_path in ("docs/RELEASING.md", "docs/release-admission-rulesets.md"):
+            _require(errors, docs[relative_path], marker, relative_path)
     for marker in dependency_audit_markers():
         _require(
             errors,

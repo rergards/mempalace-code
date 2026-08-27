@@ -224,6 +224,14 @@ Tree-sitter is optional (`pip install "mempalace-code[treesitter]"`). When a gra
 Extensions outside the miner catalog are skipped by normal project scans unless
 you explicitly force-include an exact path with `--include-ignored path/to/file`.
 
+Mining indexes only ordinary readable regular files. Source-shaped FIFO, socket,
+character device, block device, symlink, and directory entries are rejected or skipped
+before their source content is opened. An ordinary regular file that cannot be read is
+reported as a read error; it is not necessarily reported as
+`<path>: not a regular file (<kind>)`. Mining continues with other ordinary readable
+regular files, and its diagnostics are bounded and actionable. After replacing or
+removing the offending entry, run `mempalace-code mine <dir> --full`.
+
 ```bash
 mempalace-code mine ~/projects/myapp                  # all supported file types
 mempalace-code mine ~/projects/myapp --wing myapp     # tag with a specific wing
@@ -295,11 +303,13 @@ mempalace-code watch ~/projects/ schedule             # print launchd/cron snipp
 
 `watch` accepts either an **initialized project directory** (has `mempalace.yaml`) or a **parent directory** containing immediate initialized project subdirectories. Pointing it at a project root that has project files but no `mempalace.yaml` exits with the correct `mempalace-code init <dir>` command.
 
-Startup validates source roots before creating a pre-watch backup, so dangling or
-unreadable symlinks fail with an actionable diagnostic instead of entering a restart
-loop. A watcher run also reuses one warmed store and embedding-model lifecycle across
-remine cycles; regression tests bound post-warm-up RSS, file descriptors, archive
-retention, disk growth, and SIGINT shutdown.
+Startup resolves and validates each watcher source root as a directory before creating a
+pre-watch backup. Nested non-regular or unreadable source entries follow the mining
+contract above: other ordinary readable regular files continue through the mine, and
+such an entry does not by itself abort or restart the watcher. A watcher run also reuses
+one warmed store and embedding-model lifecycle across remine cycles; regression tests
+bound post-warm-up RSS, file descriptors, archive retention, disk growth, and SIGINT
+shutdown.
 
 **Install as persistent daemon (macOS):**
 
@@ -905,7 +915,7 @@ mempalace-code version-check --enable
 # Opt out (suppresses future first-run prompts)
 mempalace-code version-check --disable
 
-# Check right now regardless of the interval setting
+# Check right now regardless of the interval or persisted preference
 mempalace-code version-check --check-now
 ```
 
@@ -913,7 +923,9 @@ mempalace-code version-check --check-now
 
 - On the first interactive command after a fresh install, the CLI prompts once: *"Enable periodic new-version checks?"* — answering `n` records the opt-out permanently. Non-interactive (piped, CI, non-TTY) invocations **never prompt**.
 - When opted in, a background check runs at most once per interval (default: 168 hours / 1 week). Any update hint appears on **stderr only** — stdout remains machine-parseable.
-- Explicit `--check-now` ignores the interval, contacts PyPI, and prints current/latest/error to stdout.
+- Explicit `--check-now` ignores the interval and persisted preference, then contacts PyPI and
+  prints current/latest/error to stdout. `MEMPALACE_VERSION_CHECK=0` and invalid values still block
+  the request; run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) before retrying.
 - Only `https://pypi.org/pypi/mempalace-code/json` is contacted. No telemetry, no user IDs, no installed-package inventory.
 
 **Environment overrides:**
@@ -924,7 +936,9 @@ mempalace-code version-check --check-now
 | `MEMPALACE_VERSION_CHECK=0` | Force-disable (overrides config and state) |
 | `MEMPALACE_VERSION_CHECK_INTERVAL_HOURS=N` | Override interval (default: 168) |
 
-Setting `MEMPALACE_VERSION_CHECK=0` in a CI pipeline guarantees no network calls regardless of any saved preference.
+Setting `MEMPALACE_VERSION_CHECK=0` in a CI pipeline guarantees no version-check network calls,
+including explicit `--check-now`, regardless of any saved preference. Invalid values fail closed in
+the same way. Run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) before an explicit check.
 
 ---
 
@@ -1056,6 +1070,15 @@ mempalace-code compress                                # lossy structured summar
 
 # Diary
 mempalace-code diary write --agent <name> --entry "<text>"  # write a diary entry
+```
+
+A successful direct diary write prints `Diary entry stored.`, stable `ID`, `Wing`, `Room`, and
+`Topic` poststate, then a bounded `Verify before retry` search command. If that output is retained
+after an ambiguous result, run the printed search before any retry. An exact hit means success: do
+not repeat the write. If the response or printed command is unavailable, do not retry; inspect
+recent same-agent entries with exposed `mempalace_diary_read`, or stop for owner reconciliation.
+
+```bash
 
 # Backup & Recovery
 mempalace-code backup create                           # create backup (default: <palace_parent>/backups/)
@@ -1144,6 +1167,11 @@ mempalace-code update apply --yes            # explicit package and managed-watc
 mempalace-code update scheduler render       # inspect systemd-user units without writing them
 mempalace-code update scheduler install --yes # explicit daily scheduler opt-in (Linux systemd-user)
 ```
+
+Omitting `--yes` from `update apply`, `update scheduler install`, or `update scheduler remove`
+exits 2 before mutation. Human output prints `Recovery: <command>`; JSON output supplies the exact
+guarded command in `recovery_command`. Review current mutation authority before running that
+emitted command. See [the update runbook](docs/UPDATES.md) for the complete refusal contract.
 
 The first slice supports `uv tool`, `pipx`, and the documented `~/.mempalace/venv` bootstrap
 install. It refuses system Python, distro-managed, editable/source, and ambiguous environments
