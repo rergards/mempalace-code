@@ -1172,12 +1172,12 @@ def _stub_direct_golden_scenarios(monkeypatch):
 @pytest.mark.parametrize(
     "invalid_payload",
     [
-        "not-json",
-        json.dumps({"members": []}),
-        json.dumps({"members": [["update"], ["update"]]}),
-        json.dumps({"members": [["update", "apply"]]}),
-        json.dumps({"members": [["unsafe/value"]]}),
-        "x" * (rrg.INSTALLED_CLI_INVENTORY_OUTPUT_LIMIT + 1),
+        pytest.param("not-json", id="malformed-json"),
+        pytest.param(json.dumps({"members": []}), id="empty-members"),
+        pytest.param(json.dumps({"members": [["update"], ["update"]]}), id="duplicate-members"),
+        pytest.param(json.dumps({"members": [["update", "apply"]]}), id="nested-command"),
+        pytest.param(json.dumps({"members": [["unsafe/value"]]}), id="unsafe-command-segment"),
+        pytest.param("x" * (rrg.INSTALLED_CLI_INVENTORY_OUTPUT_LIMIT + 1), id="oversized-output"),
     ],
 )
 def test_installed_cli_inventory_reconciliation_fails_closed(tmp_path, invalid_payload):
