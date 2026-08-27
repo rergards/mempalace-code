@@ -1681,3 +1681,8 @@ items:
       resolution: '2026-08-27: completed in pipeline run (delivered: Assigned six concise semantic pytest IDs to the existing invalid installed-CLI inventory payload cases, including the oversized boundary payload., artifacts: tests/test_release_readiness_gate.py, phase_commit=f848d26f, final_commit=31306a0a, 1 file changed, 28 insertions(+), 8 deletions(-))'
       archived_date: "2026-08-27"
       done_summary: 'completed in pipeline run (delivered: Assigned six concise semantic pytest IDs to the existing invalid installed-CLI inventory payload cases, including the oversized boundary payload., artifacts: tests/test_release_readiness_gate.py, phase_commit=f848d26f, final_commit=31306a0a, 1 file changed, 28 insertions(+), 8 deletions(-))'
+    - key: REL-INSTALLED-CACHE-BOOTSTRAP
+      summary: Make installed-application self-seed the credential-free MiniLM cache
+      resolution: '2026-08-27: Hosted candidate run 33098437503 proved the cache-miss path: MiniLM seeding succeeded without credential or AI-client access, then the existing job built and provisioned the exact wheel before an independent disposable-user workspace-permission failure.'
+      archived_date: "2026-08-27"
+      done_summary: 'Hosted candidate run 33098437503 proved the cache-miss path: MiniLM seeding succeeded without credential or AI-client access, then the existing job built and provisioned the exact wheel before an independent disposable-user workspace-permission failure.'
