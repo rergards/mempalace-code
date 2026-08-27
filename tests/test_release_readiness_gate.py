@@ -1170,17 +1170,37 @@ def _stub_direct_golden_scenarios(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "invalid_payload",
+    ("invalid_payload", "expected_id"),
     [
-        pytest.param("not-json", id="malformed-json"),
-        pytest.param(json.dumps({"members": []}), id="empty-members"),
-        pytest.param(json.dumps({"members": [["update"], ["update"]]}), id="duplicate-members"),
-        pytest.param(json.dumps({"members": [["update", "apply"]]}), id="nested-command"),
-        pytest.param(json.dumps({"members": [["unsafe/value"]]}), id="unsafe-command-segment"),
-        pytest.param("x" * (rrg.INSTALLED_CLI_INVENTORY_OUTPUT_LIMIT + 1), id="oversized-output"),
+        pytest.param("not-json", "malformed-json", id="malformed-json"),
+        pytest.param(json.dumps({"members": []}), "empty-members", id="empty-members"),
+        pytest.param(
+            json.dumps({"members": [["update"], ["update"]]}),
+            "duplicate-members",
+            id="duplicate-members",
+        ),
+        pytest.param(
+            json.dumps({"members": [["update", "apply"]]}),
+            "nested-command",
+            id="nested-command",
+        ),
+        pytest.param(
+            json.dumps({"members": [["unsafe/value"]]}),
+            "unsafe-command-segment",
+            id="unsafe-command-segment",
+        ),
+        pytest.param(
+            "x" * (rrg.INSTALLED_CLI_INVENTORY_OUTPUT_LIMIT + 1),
+            "oversized-output",
+            id="oversized-output",
+        ),
     ],
 )
-def test_installed_cli_inventory_reconciliation_fails_closed(tmp_path, invalid_payload):
+def test_installed_cli_inventory_reconciliation_fails_closed(
+    tmp_path, request, invalid_payload, expected_id
+):
+    assert request.node.callspec.id == expected_id
+
     payload = json.dumps(
         {
             "members": [
