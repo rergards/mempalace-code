@@ -269,7 +269,28 @@ jobs:
           key: hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-${{ hashFiles('pyproject.toml', 'uv.lock') }} # zizmor: ignore[cache-poisoning]
           restore-keys: |
             hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-
-          fail-on-cache-miss: true
+      - name: Seed missing MiniLM cache
+        if: steps.hf-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap_home="$RUNNER_TEMP/mempalace-cache-bootstrap-home"
+          mkdir -p "$bootstrap_home"
+          clean_env=(
+            env -i
+            HOME="$bootstrap_home"
+            HF_HOME="$HF_HOME"
+            HF_HUB_DISABLE_IMPLICIT_TOKEN=1
+            LANG=C.UTF-8
+            PATH="$PATH"
+            PIP_CONFIG_FILE=/dev/null
+            PIP_DISABLE_PIP_VERSION_CHECK=1
+            PIP_KEYRING_PROVIDER=disabled
+            PYTHONDONTWRITEBYTECODE=1
+            PYTHONNOUSERSITE=1
+          )
+          "${clean_env[@]}" python -m pip install .
+          "${clean_env[@]}" mempalace-code fetch-model
       - name: Build exact candidate and provision installers
         run: |
           python -m pip install build pipx pytest uv

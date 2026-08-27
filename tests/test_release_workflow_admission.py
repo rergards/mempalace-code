@@ -97,19 +97,80 @@ def test_installed_application_job_uses_local_wheel_without_credentials():
     assert all(client not in commands for client in ("codex", "claude", "gemini"))
 
 
-def test_installed_application_restores_required_minilm_cache_fail_closed():
+def test_installed_application_self_seeds_required_minilm_cache_on_miss():
     job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
     assert job["env"] == {
         "HF_HOME": "${{ github.workspace }}/.cache/huggingface",
         "MEMPALACE_TEST_HF_HOME": "${{ github.workspace }}/.cache/huggingface",
     }
+    steps = job["steps"]
     cache = next(step for step in job["steps"] if step.get("id") == "hf-cache")
     assert str(cache["uses"]).startswith("actions/cache@")
     assert cache["with"]["path"].endswith(
         "/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2"
     )
-    assert cache["with"]["fail-on-cache-miss"] is True
+    assert "fail-on-cache-miss" not in cache["with"]
     assert "minilm-all-MiniLM-L6-v2" in cache["with"]["key"]
+
+    bootstrap = next(step for step in steps if "fetch-model" in str(step.get("run", "")))
+    assert bootstrap["if"] == "steps.hf-cache.outputs.cache-hit != 'true'"
+    assert bootstrap["shell"] == "bash"
+    bootstrap_command = bootstrap["run"]
+    assert "set -euo pipefail" in bootstrap_command
+    assert "clean_env=(" in bootstrap_command
+    assert "env -i" in bootstrap_command
+    for assignment in (
+        'HOME="$bootstrap_home"',
+        'HF_HOME="$HF_HOME"',
+        "HF_HUB_DISABLE_IMPLICIT_TOKEN=1",
+        'PATH="$PATH"',
+        "PIP_CONFIG_FILE=/dev/null",
+        "PIP_KEYRING_PROVIDER=disabled",
+        "PYTHONNOUSERSITE=1",
+    ):
+        assert assignment in bootstrap_command
+    assert bootstrap_command.count('"${clean_env[@]}"') == 2
+    assert '"${clean_env[@]}" python -m pip install .' in bootstrap_command
+    assert '"${clean_env[@]}" mempalace-code fetch-model' in bootstrap_command
+    for forbidden in (
+        "HF_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+        "PIP_INDEX_URL",
+        "PIP_EXTRA_INDEX_URL",
+        "GITHUB_TOKEN",
+    ):
+        assert forbidden not in bootstrap_command
+    assert "continue-on-error" not in bootstrap
+    assert "continue-on-error" not in job
+
+    build_index = next(
+        index
+        for index, step in enumerate(steps)
+        if "python -m build --wheel" in step.get("run", "")
+    )
+    bootstrap_index = steps.index(bootstrap)
+    manager_index = next(
+        index
+        for index, step in enumerate(steps)
+        if "release_install_metadata_smoke.py" in step.get("run", "")
+    )
+    golden_index = next(
+        index
+        for index, step in enumerate(steps)
+        if "--installed-golden-wheel" in step.get("run", "")
+    )
+    assert steps.index(cache) < bootstrap_index < build_index < manager_index < golden_index
+
+
+def test_installed_application_cache_bootstrap_has_no_credential_or_provider_access():
+    workflow = _workflow(CI_WORKFLOW)
+    job = workflow["jobs"]["installed-application"]
+    serialized = yaml.safe_dump(job).lower()
+
+    assert "persist-credentials: false" in serialized
+    assert "secrets." not in serialized
+    assert all(client not in serialized for client in ("codex", "claude", "gemini"))
+    assert workflow["jobs"]["release-required"]["needs"].count("installed-application") == 1
 
 
 def test_installed_application_keeps_manager_matrix_and_full_suite_separate():
@@ -249,6 +310,14 @@ def test_aggregate_script_fails_when_a_release_critical_job_is_missing():
     code, output = _run_aggregate_script(needs)
     assert code == 1
     assert "typecheck: missing from needs" in output
+
+
+def test_aggregate_script_fails_when_installed_application_bootstrap_fails():
+    needs = _all_successful()
+    needs["installed-application"] = {"result": "failure"}
+    code, output = _run_aggregate_script(needs)
+    assert code == 1
+    assert "installed-application: failure" in output
 
 
 def test_aggregate_script_fails_when_needs_carries_an_unlisted_job():
