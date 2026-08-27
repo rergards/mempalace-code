@@ -68,8 +68,6 @@ items:
     links:
       - type: subtask-of
         key: RELEASE-DIRECT-INSTALLED-APP-GATE
-      - type: is-blocked-by
-        key: REL-DEPENDENCY-REPORT-CURRENT-HASH
   - key: REL-DEPENDENCY-REPORT-CURRENT-HASH
     summary: "Regenerate the v1.13.5 dependency report for current hashes"
     type: task
