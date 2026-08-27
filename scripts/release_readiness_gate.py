@@ -1526,6 +1526,12 @@ def _run_installed_schedule_snippet_scenario(
 
     if not command_prefix or not Path(command_prefix[0]).is_absolute():
         return failure("schedule scenario requires an absolute invoked launcher")
+    if sys.platform.startswith("linux"):
+        platform_marker = "crontab -e"
+    elif sys.platform.startswith("darwin"):
+        platform_marker = None
+    else:
+        return failure(f"schedule snippet platform is unsupported: {sys.platform}")
 
     neutral_cwd.mkdir(parents=True, exist_ok=True)
     repository_before: tuple[tuple[str, str, int, str], ...] | None = None
@@ -1582,6 +1588,7 @@ def _run_installed_schedule_snippet_scenario(
         )
 
         for label, args, expected_target, alternate_target, scheduler_name in cases:
+            expected_guidance = scheduler_name if platform_marker is None else platform_marker
             outputs = []
             for attempt in ("first", "second"):
                 invocation = run(args, run_env)
@@ -1597,7 +1604,7 @@ def _run_installed_schedule_snippet_scenario(
                     or safe_launcher not in combined
                     or expected_target not in combined
                     or alternate_target in combined
-                    or scheduler_name not in invocation.stderr
+                    or expected_guidance not in invocation.stderr
                     or str(ambient) in combined
                     or "ambient-launcher-must-not-run" in combined
                     or marker.exists()
@@ -1627,7 +1634,7 @@ def _run_installed_schedule_snippet_scenario(
                 or safe_launcher not in refusal.stderr
                 or expected_target not in refusal.stderr
                 or alternate_target in refusal.stderr
-                or scheduler_name not in refusal.stderr
+                or expected_guidance not in refusal.stderr
                 or str(ambient) in refusal.stderr
                 or "ambient-launcher-must-not-run" in refusal.stderr
                 or marker.exists()

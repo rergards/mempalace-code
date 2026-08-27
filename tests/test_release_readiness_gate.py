@@ -3142,7 +3142,14 @@ def test_installed_watcher_signal_cleanup_fails_closed(tmp_path):
         "backup-alternate-target",
         "watch-alternate-target",
         "nondeterministic-output",
-        "wrong-scheduler",
+        "backup-marker-preview-missing",
+        "backup-marker-preview-wrong",
+        "backup-marker-refusal-missing",
+        "backup-marker-refusal-wrong",
+        "watch-marker-preview-missing",
+        "watch-marker-preview-wrong",
+        "watch-marker-refusal-missing",
+        "watch-marker-refusal-wrong",
         "install-success",
         "install-code",
         "state-drift",
@@ -3155,7 +3162,9 @@ def test_installed_watcher_signal_cleanup_fails_closed(tmp_path):
         "cleanup-failure",
     ],
 )
-def test_installed_schedule_snippet_scenario_fails_closed(tmp_path, monkeypatch, fault):
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_installed_schedule_snippet_scenario_fails_closed(tmp_path, monkeypatch, fault, platform):
+    monkeypatch.setattr(rrg.sys, "platform", platform)
     repository_root = tmp_path / "repository"
     repository_root.mkdir()
     (repository_root / "tracked.txt").write_text("stable\n", encoding="utf-8")
@@ -3187,10 +3196,18 @@ def test_installed_schedule_snippet_scenario_fails_closed(tmp_path, monkeypatch,
             safe_target = shlex.quote(raw_target)
             alternate_target = shlex.quote(os.path.abspath(str(target)))
         safe_launcher = shlex.quote(str(candidate.resolve()))
+        platform_marker = scheduler if platform == "darwin" else "crontab -e"
         rendered_targets.append((label, safe_target, alternate_target))
         stdout = "" if install else f"preview {safe_launcher} {safe_target}\n"
-        stderr = f"instructions {safe_launcher} {safe_target} {scheduler}\n"
+        stderr = f"instructions {safe_launcher} {safe_target} {platform_marker}\n"
         returncode = 2 if install else 0
+
+        marker_stage = "refusal" if install else "preview"
+        marker_fault = f"{label}-marker-{marker_stage}"
+        if fault == f"{marker_fault}-missing":
+            stderr = stderr.replace(platform_marker, "")
+        elif fault == f"{marker_fault}-wrong":
+            stderr = stderr.replace(platform_marker, "wrong-platform-marker")
 
         if len(calls) == 1:
             if fault == "ambient-execution":
@@ -3213,8 +3230,6 @@ def test_installed_schedule_snippet_scenario_fails_closed(tmp_path, monkeypatch,
             elif fault == "backup-alternate-target" and label == "backup":
                 stdout = stdout.replace(safe_target, alternate_target)
                 stderr = stderr.replace(safe_target, alternate_target)
-            elif fault == "wrong-scheduler":
-                stderr = stderr.replace(scheduler, "com.mempalace.wrong.plist")
             elif fault == "state-drift":
                 (target.parent / "unexpected.txt").write_text("drift\n", encoding="utf-8")
             elif fault == "polluted-output":
@@ -3293,6 +3308,31 @@ def test_installed_schedule_snippet_scenario_fails_closed(tmp_path, monkeypatch,
             False,
             True,
         ]
+
+
+def test_installed_schedule_snippet_scenario_rejects_unsupported_platform(tmp_path, monkeypatch):
+    monkeypatch.setattr(rrg.sys, "platform", "win32")
+    repository_root = tmp_path / "repository"
+    repository_root.mkdir()
+    candidate = tmp_path / "candidate" / "mempalace-code"
+    candidate.parent.mkdir()
+    candidate.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    candidate.chmod(0o755)
+    calls = []
+
+    row = rrg._run_installed_schedule_snippet_scenario(
+        [str(candidate.resolve())],
+        {"PATH": "/usr/bin"},
+        tmp_path / "schedule-scenario",
+        tmp_path / "neutral",
+        repository_root=repository_root,
+        run_subprocess=lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    assert row["status"] == "fail"
+    assert "schedule snippet platform is unsupported: win32" in row["detail"]
+    assert row["detail"].count(f"rerun: {rrg.INSTALLED_GOLDEN_COMMAND}") == 1
+    assert calls == []
 
 
 @pytest.mark.parametrize(
