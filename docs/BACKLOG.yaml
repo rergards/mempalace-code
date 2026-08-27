@@ -71,8 +71,6 @@ items:
       - type: is-blocked-by
         key: REL-INSTALLED-CACHE-BOOTSTRAP
       - type: is-blocked-by
-        key: REL-CI-PYTEST-BOUNDED-PARAM-ID
-      - type: is-blocked-by
         key: REL-DEPENDENCY-REPORT-CURRENT-HASH
   - key: REL-INSTALLED-CACHE-BOOTSTRAP
     summary: "Make installed-application self-seed the credential-free MiniLM cache"
@@ -82,14 +80,6 @@ items:
     size: S
     section_id: pre_release
     description: "## Symptom\n\nThe first public release-candidate push stops the existing installed-application job at Restore required MiniLM cache because fail-on-cache-miss is enabled and no matching cache exists.\n\n## Steps to reproduce\n\nPush a new release/v* candidate whose dependency hash has no existing HuggingFace cache key. The cache action exits before the exact wheel is built or any installed application surface runs.\n\n## Scope\n\nExtend the existing installed-application job only. Reuse the current model-tests cache and mempalace-code fetch-model path to provision a missing MiniLM cache without credentials, external AI clients, a new job, a new gate, or a second cache owner. Preserve exact-wheel provenance, offline installed checks, all four installer contours, systemd-user lifecycle evidence, cache-hit behavior, and fail-closed cleanup.\n\n## Expected vs actual\n\nExpected: a cache hit proceeds unchanged; a cache miss performs one bounded credential-free model bootstrap, then the existing exact-wheel installed flow executes offline. Actual: the cache miss terminates the job before application execution.\n\n## Root cause hypothesis\n\nfail-on-cache-miss assumes a cache producer that the push-triggered release path does not guarantee.\n\n## Acceptance criteria\n\n- The existing job reaches the exact-wheel installed flow on both cache hit and cache miss.\n- Cache-miss bootstrap uses the existing fetch-model command, disables credential lookup, and does not invoke codex, claude, gemini, provider APIs, or repository secrets.\n- The installed scenarios remain offline after setup and still require all four installers plus linux_systemd_update_lifecycle.\n- Existing workflow admission, actionlint, `uv run zizmor --offline --min-severity=medium .github/workflows/ci.yml`, public-safety, and focused tests pass locally; the next public candidate run provides hosted cache proof.\n- Recovery: revert only the cache bootstrap hunk; no cache-miss result may be reported as installed-application PASS."
-  - key: REL-CI-PYTEST-BOUNDED-PARAM-ID
-    summary: "Bound verbose pytest IDs for oversized invalid payloads"
-    type: bug
-    status: open
-    priority: high
-    size: XS
-    section_id: pre_release
-    description: "## Symptom\n\nEvery hosted Python matrix job exits during the same parametrized release-readiness test immediately before the oversized invalid payload case, with no pytest summary.\n\n## Steps to reproduce\n\nRun the full suite with pytest -v in the hosted log contour. The parametrized value larger than the installed CLI output limit is selected as the default test ID and expands the step log until the process terminates.\n\n## Scope\n\nExtend the existing parametrization in tests/test_release_readiness_gate.py with short explicit IDs. Preserve every payload, assertion, parser limit, and production behavior. Do not add output filtering, a new helper, a new test file, or a workflow workaround.\n\n## Expected vs actual\n\nExpected: every hostile payload executes with a bounded readable test ID and the suite reaches its terminal summary. Actual: the oversized payload becomes an unbounded verbose ID and the hosted step exits early.\n\n## Root cause hypothesis\n\nThe parametrization relies on pytest default IDs for an intentionally oversized string.\n\n## Acceptance criteria\n\n- All existing invalid payload cases execute unchanged under stable bounded IDs.\n- Focused pytest -vv output contains no oversized payload and passes.\n- The full non-network suite reaches a terminal summary on the hosted matrix.\n- Recovery: revert only the explicit IDs; production code remains untouched."
   - key: REL-DEPENDENCY-REPORT-CURRENT-HASH
     summary: "Regenerate the v1.13.5 dependency report for current hashes"
     type: task

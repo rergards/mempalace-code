@@ -1676,3 +1676,8 @@ items:
       resolution: '2026-08-27: Exact-wheel optional extras and public exports now reconcile installed metadata to direct behavior; all 26 direct rows, four installer contours, 4,213 non-network tests, and final correctness/security/Rule Zero reviews passed in 8094831b.'
       archived_date: "2026-08-27"
       done_summary: Exact-wheel optional extras and public exports now reconcile installed metadata to direct behavior; all 26 direct rows, four installer contours, 4,213 non-network tests, and final correctness/security/Rule Zero reviews passed in 8094831b.
+    - key: REL-CI-PYTEST-BOUNDED-PARAM-ID
+      summary: Bound verbose pytest IDs for oversized invalid payloads
+      resolution: '2026-08-27: completed in pipeline run (delivered: Assigned six concise semantic pytest IDs to the existing invalid installed-CLI inventory payload cases, including the oversized boundary payload., artifacts: tests/test_release_readiness_gate.py, phase_commit=f848d26f, final_commit=31306a0a, 1 file changed, 28 insertions(+), 8 deletions(-))'
+      archived_date: "2026-08-27"
+      done_summary: 'completed in pipeline run (delivered: Assigned six concise semantic pytest IDs to the existing invalid installed-CLI inventory payload cases, including the oversized boundary payload., artifacts: tests/test_release_readiness_gate.py, phase_commit=f848d26f, final_commit=31306a0a, 1 file changed, 28 insertions(+), 8 deletions(-))'
