@@ -1734,6 +1734,10 @@ def open_store(
     if backend == _BACKEND_CHROMA_MIGRATION_REQUIRED:
         raise ChromaRuntimeRetiredError(CHROMA_RUNTIME_RETIRED_MESSAGE)
 
+    table_dir = os.path.join(palace_path, "lance", f"{_LANCE_TABLE}.lance")
+    if not read_only and not create and not os.path.isdir(table_dir):
+        raise RuntimeError("Table does not exist and create=False")
+
     if not read_only:
         os.makedirs(palace_path, exist_ok=True)
 

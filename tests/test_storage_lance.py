@@ -440,54 +440,6 @@ class TestDelete:
         assert store.count() == 1
 
 
-# ─── TestNoneTableGuards ──────────────────────────────────────────────────────
-
-
-class TestNoneTableGuards:
-    def test_add_raises_on_no_table(self, tmp_path):
-        """AC-2: add() raises RuntimeError when create=False and no prior table exists."""
-        store = open_store(str(tmp_path), create=False)
-        with pytest.raises(RuntimeError, match="Table does not exist"):
-            store.add(
-                ids=["bad"],
-                documents=["should not be added"],
-                metadatas=[{"wing": "w", "room": "r"}],
-            )
-
-    def test_upsert_raises_on_no_table(self, tmp_path):
-        """AC-2: upsert() raises RuntimeError when create=False and no prior table exists."""
-        store = open_store(str(tmp_path), create=False)
-        with pytest.raises(RuntimeError, match="Table does not exist"):
-            store.upsert(
-                ids=["bad"],
-                documents=["should not be upserted"],
-                metadatas=[{"wing": "w", "room": "r"}],
-            )
-
-    def test_count_no_table(self, tmp_path):
-        """AC-12: count() returns 0 when _table is None."""
-        store = open_store(str(tmp_path), create=False)
-        assert store.count() == 0
-
-    def test_get_no_table(self, tmp_path):
-        """AC-12: get() returns empty result dict when _table is None."""
-        store = open_store(str(tmp_path), create=False)
-        result = store.get()
-        assert result == {"ids": [], "documents": [], "metadatas": []}
-
-    def test_query_no_table(self, tmp_path):
-        """AC-12: query() returns empty nested lists when _table is None."""
-        store = open_store(str(tmp_path), create=False)
-        result = store.query(query_texts=["anything"], n_results=5)
-        assert result == {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
-
-    def test_delete_no_table(self, tmp_path):
-        """AC-12: delete() is a no-op when _table is None."""
-        store = open_store(str(tmp_path), create=False)
-        result = store.delete(["any_id"])  # must not raise
-        assert result is None
-
-
 # ─── TestMetaDefaults ─────────────────────────────────────────────────────────
 
 
@@ -882,6 +834,28 @@ class TestDetectBackend:
 
 
 class TestOpenStoreFactory:
+    @pytest.mark.parametrize("palace_shape", ["missing", "empty", "empty_lance"])
+    def test_create_false_rejects_absent_table_before_mutation_or_connect(
+        self, tmp_path, monkeypatch, palace_shape
+    ):
+        """AC-2/AC-5: absent canonical tables fail before filesystem or LanceDB mutation."""
+        palace = tmp_path / "nested" / "palace" if palace_shape == "missing" else tmp_path
+        if palace_shape == "empty_lance":
+            (palace / "lance").mkdir()
+        before = sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*"))
+
+        def fail_connect(*_args, **_kwargs):
+            raise AssertionError("lancedb.connect must not run without the canonical table")
+
+        monkeypatch.setattr("lancedb.connect", fail_connect)
+
+        with pytest.raises(RuntimeError, match="^Table does not exist and create=False$"):
+            open_store(str(palace), create=False)
+
+        after = sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*"))
+        assert after == before
+        assert not (palace / "lance" / "mempalace_drawers.lance").exists()
+
     def test_invalid_backend(self, tmp_path):
         """AC-24: open_store() with backend='invalid' raises ValueError."""
         with pytest.raises(ValueError, match="Unknown storage backend"):
@@ -916,7 +890,8 @@ class TestOpenStoreFactory:
         self, tmp_path, monkeypatch
     ):
         """REG: a stale Chroma marker does not block a LanceDB palace."""
-        (tmp_path / "lance").mkdir()
+        seeded = open_store(str(tmp_path), create=True)
+        assert seeded._table is not None
         marker = tmp_path / "chroma.sqlite3"
         marker.touch()
         original_import = builtins.__import__

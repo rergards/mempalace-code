@@ -445,9 +445,12 @@ def test_pipx_smoke_uses_disposable_tool_environment(monkeypatch, tmp_path):
     assert smoke.SURFACE_CLI in surface_names
 
 
-def test_pipx_smoke_install_failure_is_diagnostic_not_ok():
+def test_pipx_smoke_install_failure_is_diagnostic_not_ok(monkeypatch):
+    fake_pipx = "/fake/bin/pipx"
+    monkeypatch.setattr(smoke, "find_pipx_executable", lambda: fake_pipx)
+
     def run_subprocess(args, env=None, cwd=None):
-        if "pipx" in args and "install" in args:
+        if fake_pipx in args and "install" in args:
             return 1, "", "No matching distribution found for mempalace-code==9.9.9"
         return 0, "", ""
 
