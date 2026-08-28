@@ -1288,6 +1288,65 @@ def test_default_subprocess_pipe_retention_is_bounded_and_reaped(tmp_path):
                 pass
 
 
+def test_settle_owned_process_group_waits_for_group_visibility_to_end(monkeypatch):
+    class FakeProcess:
+        pid = 4242
+
+        communicate_calls = 0
+
+        def communicate(self, timeout=None):
+            self.communicate_calls += 1
+            return ("first-out", "first-err") if self.communicate_calls == 1 else ("", "")
+
+    kill_calls = []
+
+    def fake_killpg(pgid, sig):
+        kill_calls.append((pgid, sig))
+        if sig == 0 and len(kill_calls) == 2:
+            return
+        if sig == 0:
+            raise ProcessLookupError
+
+    monkeypatch.setattr(smoke, "_owned_process_group_matches", lambda *_args: True)
+    monkeypatch.setattr(smoke.os, "killpg", fake_killpg)
+    monkeypatch.setattr(smoke.time, "sleep", lambda _seconds: None)
+
+    stdout, stderr, settled = smoke._settle_owned_process_group(
+        FakeProcess(), pgid=4242, caller_pgid=999
+    )
+
+    assert (stdout, stderr) == ("first-out", "first-err")
+    assert settled is True
+    assert kill_calls == [
+        (4242, smoke.signal.SIGTERM),
+        (4242, 0),
+        (4242, smoke.signal.SIGKILL),
+        (4242, 0),
+    ]
+
+
+def test_settle_owned_process_group_fails_closed_on_signal_oserror(monkeypatch):
+    class FakeProcess:
+        pid = 4242
+
+        def communicate(self, timeout=None):
+            return "", ""
+
+    monkeypatch.setattr(smoke, "_owned_process_group_matches", lambda *_args: True)
+
+    def signal_error_killpg(_pgid, sig):
+        if sig == smoke.signal.SIGTERM:
+            raise OSError("signal denied")
+
+    monkeypatch.setattr(smoke.os, "killpg", signal_error_killpg)
+
+    _stdout, _stderr, settled = smoke._settle_owned_process_group(
+        FakeProcess(), pgid=4242, caller_pgid=999
+    )
+
+    assert settled is False
+
+
 def test_default_subprocess_timeout_fails_closed_when_cleanup_is_unconfirmed(monkeypatch):
     class FakePopen:
         pid = 4242

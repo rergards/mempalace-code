@@ -40,6 +40,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -2546,6 +2547,23 @@ def _owned_process_group_matches(pid: int, pgid: int, caller_pgid: int) -> bool:
     return current_pgid == pgid
 
 
+def _owned_process_group_visibility(pgid: int, deadline: float, *, poll: bool = True) -> str:
+    """Confirm group disappearance, reporting visible, failed, or budget-exhausted states."""
+    while True:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return "gone"
+        except (PermissionError, OSError):
+            return "error"
+        if not poll:
+            return "visible"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "timeout"
+        time.sleep(min(0.01, remaining))
+
+
 def _settle_owned_process_group(
     process: subprocess.Popen[str],
     *,
@@ -2553,29 +2571,53 @@ def _settle_owned_process_group(
     caller_pgid: int | None,
 ) -> tuple[str, str, bool]:
     """Apply finite TERM/KILL escalation and reap one previously admitted group."""
-    group_owned = (
+    owned_group = (
         pgid is not None
         and caller_pgid is not None
         and _owned_process_group_matches(process.pid, pgid, caller_pgid)
     )
+    term_deadline = time.monotonic() + 2
     try:
-        if group_owned and pgid is not None:
+        if owned_group and pgid is not None:
             os.killpg(pgid, signal.SIGTERM)
         else:
             process.terminate()
     except ProcessLookupError:
         pass
+    except (PermissionError, OSError):
+        return "", "", False
     stdout = ""
     stderr = ""
     try:
         stdout, stderr = process.communicate(timeout=2)
-        return stdout, stderr, True
+        if not owned_group or pgid is None:
+            return stdout, stderr, True
+        visibility = _owned_process_group_visibility(pgid, term_deadline, poll=False)
+        if visibility == "gone":
+            return stdout, stderr, True
+        if visibility != "visible" or time.monotonic() >= term_deadline:
+            return stdout, stderr, False
+        if caller_pgid is None or not _owned_process_group_matches(process.pid, pgid, caller_pgid):
+            return stdout, stderr, False
+        kill_deadline = time.monotonic() + 2
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except (PermissionError, OSError):
+            return stdout, stderr, False
+        try:
+            process.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            return stdout, stderr, False
+        return stdout, stderr, _owned_process_group_visibility(pgid, kill_deadline) == "gone"
     except subprocess.TimeoutExpired:
         group_owned = (
             pgid is not None
             and caller_pgid is not None
             and _owned_process_group_matches(process.pid, pgid, caller_pgid)
         )
+        kill_deadline = time.monotonic() + 2
         try:
             if group_owned and pgid is not None:
                 os.killpg(pgid, signal.SIGKILL)
@@ -2583,6 +2625,8 @@ def _settle_owned_process_group(
                 process.kill()
         except ProcessLookupError:
             pass
+        except (PermissionError, OSError):
+            return stdout, stderr, False
         try:
             stdout, stderr = process.communicate(timeout=2)
         except subprocess.TimeoutExpired:
@@ -2597,7 +2641,12 @@ def _settle_owned_process_group(
             except (subprocess.TimeoutExpired, OSError):
                 return stdout, stderr, False
             return stdout, stderr, False
-        return stdout, stderr, group_owned or pgid is None
+        settled = (
+            _owned_process_group_visibility(pgid, kill_deadline) == "gone"
+            if owned_group and pgid is not None
+            else pgid is None
+        )
+        return stdout, stderr, settled
 
 
 def _default_run_subprocess(
