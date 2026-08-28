@@ -8,23 +8,23 @@ Schema version: 4
 
 | Metric | Value |
 |--------|------:|
-| Package files (`mempalace_code/`) | 84 |
-| Package total lines | 28937 |
-| Package code lines | 23735 |
-| Test files (`tests/`) | 90 |
-| Test total lines | 76698 |
+| Package files (`mempalace_code/`) | 80 |
+| Package total lines | 28589 |
+| Package code lines | 23463 |
+| Test files (`tests/`) | 87 |
+| Test total lines | 76033 |
 
 ## Largest Modules (top 10)
 
 | Module | Lines |
 |--------|------:|
-| `mempalace_code/storage.py` | 1744 |
+| `mempalace_code/storage.py` | 1730 |
 | `mempalace_code/updater.py` | 1477 |
 | `mempalace_code/mining/chunkers.py` | 1466 |
 | `mempalace_code/watcher.py` | 1335 |
 | `mempalace_code/dialect.py` | 1074 |
 | `mempalace_code/backup.py` | 987 |
-| `mempalace_code/cli.py` | 939 |
+| `mempalace_code/cli.py` | 933 |
 | `mempalace_code/mining/symbols.py` | 904 |
 | `mempalace_code/entity_detector.py` | 885 |
 | `mempalace_code/mining/orchestrator.py` | 860 |
@@ -112,9 +112,9 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| type/pyright ignores (total) | 166 |
+| type/pyright ignores (total) | 160 |
 | type/pyright unreasoned | 0 |
-| noqa (total) | 42 |
+| noqa (total) | 39 |
 | noqa blanket | 0 |
 | **Unreasoned suppressions (total)** | **0** |
 
@@ -122,8 +122,8 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| Test files | 90 |
-| Test functions | 3613 |
+| Test files | 87 |
+| Test functions | 3581 |
 
 ## Available Suites
 
@@ -138,7 +138,6 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | mcp_tool_profiles | `tests/test_mcp_tool_profiles.py` | yes |
 | backup_cli | `tests/test_backup_cli.py` | yes |
 | offline | `tests/test_offline.py` | yes |
-| migrate_storage_smoke | `scripts/migrate_storage_smoke.py` | yes |
 | code_intelligence_packet | `tests/test_code_intelligence_packet.py` | yes |
 
 ## Verification Commands

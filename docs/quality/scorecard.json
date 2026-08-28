@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 23735,
-    "package_files": 84,
-    "package_total_lines": 28937,
-    "test_files": 90,
-    "test_total_lines": 76698
+    "package_code_lines": 23463,
+    "package_files": 80,
+    "package_total_lines": 28589,
+    "test_files": 87,
+    "test_total_lines": 76033
   },
   "demo_gates": {
     "architecture_guard": {
@@ -52,7 +52,7 @@
   },
   "largest_modules": [
     {
-      "lines": 1744,
+      "lines": 1730,
       "path": "mempalace_code/storage.py"
     },
     {
@@ -76,7 +76,7 @@
       "path": "mempalace_code/backup.py"
     },
     {
-      "lines": 939,
+      "lines": 933,
       "path": "mempalace_code/cli.py"
     },
     {
@@ -257,12 +257,6 @@
       "present": true
     },
     {
-      "description": "migrate-storage disposable smoke",
-      "name": "migrate_storage_smoke",
-      "path": "scripts/migrate_storage_smoke.py",
-      "present": true
-    },
-    {
       "description": "Code-intelligence demo packet generation and validation tests",
       "name": "code_intelligence_packet",
       "path": "tests/test_code_intelligence_packet.py",
@@ -271,18 +265,18 @@
   ],
   "suppressions": {
     "noqa_blanket": 0,
-    "noqa_total": 42,
+    "noqa_total": 39,
     "scope": [
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 166,
+    "type_pyright_total": 160,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 90,
-    "test_functions": 3613
+    "test_files": 87,
+    "test_functions": 3581
   },
   "verification_commands": [
     {
