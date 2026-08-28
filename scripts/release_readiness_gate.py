@@ -2135,6 +2135,7 @@ def _installed_golden_env(
             "MEMPALACE_SOCKET_ATTEMPTS": str(attempts),
             "MEMPALACE_VERSION_CHECK": "0",
             "MEMPALACE_DISK_MIN_FREE_BYTES": "1",
+            "CUDA_CACHE_DISABLE": "1",
             "HF_HUB_OFFLINE": "1",
             "TRANSFORMERS_OFFLINE": "1",
             "PYTHONNOUSERSITE": "1",

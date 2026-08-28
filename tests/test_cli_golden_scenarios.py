@@ -202,6 +202,7 @@ def _make_env(tmp_path: Path, fake_pkg_root: Path) -> dict:
     env["XDG_CONFIG_HOME"] = str(xdg_config)
     env["XDG_DATA_HOME"] = str(xdg_data)
     env["MEMPALACE_VERSION_CHECK"] = "0"
+    env["CUDA_CACHE_DISABLE"] = "1"
     env["HF_HUB_OFFLINE"] = "1"
     env["TRANSFORMERS_OFFLINE"] = "1"
     env["MEMPALACE_DISK_MIN_FREE_BYTES"] = "1"
@@ -655,6 +656,7 @@ def test_cli_non_regular_source_guard(tmp_path, fake_pkg_root):
         pytest.skip("os.mkfifo is not available on this platform")
 
     env = _make_env(tmp_path, fake_pkg_root)
+    assert env["CUDA_CACHE_DISABLE"] == "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     config_root = Path(env["HOME"]) / ".mempalace"
     config_root.mkdir()
@@ -677,6 +679,7 @@ def test_cli_non_regular_source_guard(tmp_path, fake_pkg_root):
         "project, remine, mine-all, watcher, and conversation paths rejected all supported "
         "non-regular source kinds"
     )
+    assert not (Path(env["HOME"]) / ".nv" / "ComputeCache").exists()
 
 
 # ── AC-5: fixture shape ──────────────────────────────────────────────────────────

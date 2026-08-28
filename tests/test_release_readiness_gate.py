@@ -764,6 +764,22 @@ def test_installed_recovery_safety_scenario_fails_closed(tmp_path, monkeypatch, 
         assert all(kwargs["timeout"] == rrg.DEFAULT_TIMEOUT for _command, kwargs in calls)
 
 
+def test_installed_golden_env_disables_cuda_cache(tmp_path):
+    temp_root = tmp_path / "installed-golden"
+    temp_root.mkdir()
+
+    env = rrg._installed_golden_env(
+        {"PATH": os.environ.get("PATH", ""), "CUDA_CACHE_DISABLE": "0"},
+        temp_root=temp_root,
+        hf_home=tmp_path / "hf-home",
+        console=tmp_path / "venv" / "bin" / "mempalace-code",
+        marker=tmp_path / "socket-guard",
+        attempts=tmp_path / "socket-attempts",
+    )
+
+    assert env["CUDA_CACHE_DISABLE"] == "1"
+
+
 @pytest.mark.parametrize(
     "fault",
     [
@@ -869,6 +885,8 @@ def test_installed_non_regular_source_scenario(tmp_path, fault):
                     (drift_roots[fault] / "unexpected-state").write_text(
                         "drift\n", encoding="utf-8"
                     )
+                if fault == "home-cache-drift":
+                    (env_roots["HOME"] / ".nv" / "ComputeCache").mkdir(parents=True)
             else:
                 stdout = ""
             return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
@@ -995,6 +1013,7 @@ def test_installed_non_regular_source_scenario(tmp_path, fault):
             "repository-drift": "repository-root artifact",
             "neutral-drift": "disposable root neutral cwd",
             "home-drift": "disposable root HOME",
+            "home-cache-drift": "disposable root HOME at .nv",
             "config-drift": "disposable root XDG_CONFIG_HOME",
             "data-drift": "disposable root XDG_DATA_HOME",
             "cache-drift": "disposable root XDG_CACHE_HOME",
@@ -1008,6 +1027,8 @@ def test_installed_non_regular_source_scenario(tmp_path, fault):
             "watcher-stop": "watcher did not stop cleanly",
         }[fault]
         assert expected_marker in row["detail"]
+        if fault == "home-cache-drift":
+            assert ".nv/ComputeCache" in row["detail"]
 
     if hasattr(socket, "AF_UNIX"):
         assert not any(
@@ -1015,6 +1036,10 @@ def test_installed_non_regular_source_scenario(tmp_path, fault):
             for path in scenario_root.rglob("*")
             if path.exists() or path.is_symlink()
         )
+
+
+def test_non_regular_scenario_rejects_home_cache_drift(tmp_path):
+    test_installed_non_regular_source_scenario(tmp_path, "home-cache-drift")
 
 
 def _stub_direct_golden_scenarios(monkeypatch):

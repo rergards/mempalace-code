@@ -10,6 +10,7 @@ Verifies:
 
 import logging
 import os
+import runpy
 import subprocess
 import sys
 import types
@@ -81,8 +82,72 @@ def test_search_help_describes_semantic_verbatim_behavior():
 def test_package_main_is_callable():
     """AC-3: import mempalace_code; mempalace_code.main must be callable for console-script compat."""
     import mempalace_code
+    import mempalace_code.cli as cli
 
     assert callable(mempalace_code.main), "mempalace_code.main must be callable"
+    assert mempalace_code.main is cli._one_shot_main
+
+
+def test_one_shot_main_collects_after_return_and_system_exit(monkeypatch, capsys):
+    import mempalace_code.cli as cli
+
+    events = []
+    result = object()
+
+    def returning_main():
+        events.append("main")
+        print("normal output")
+        return result
+
+    monkeypatch.setattr(cli, "main", returning_main)
+    monkeypatch.setattr(cli.gc, "collect", lambda: events.append("collect"))
+
+    assert cli._one_shot_main() is result
+    assert events == ["main", "collect"]
+
+    events.clear()
+    original_exit = SystemExit(17)
+
+    def exiting_main():
+        events.append("main")
+        print("exit diagnostic", file=sys.stderr)
+        raise original_exit
+
+    monkeypatch.setattr(cli, "main", exiting_main)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._one_shot_main()
+
+    assert exc_info.value is original_exit
+    assert events == ["main", "collect"]
+    captured = capsys.readouterr()
+    assert captured.out == "normal output\n"
+    assert captured.err == "exit diagnostic\n"
+
+    package_module_calls = []
+    monkeypatch.setattr(cli, "_one_shot_main", lambda: package_module_calls.append("called"))
+    runpy.run_module("mempalace_code.__main__", run_name="__main__")
+    assert package_module_calls == ["called"]
+
+
+def test_direct_main_remains_reusable_without_process_shutdown(monkeypatch, capsys):
+    import mempalace_code.cli as cli
+
+    calls = []
+
+    def agent_plugin(args):
+        calls.append(args.agent_plugin_command)
+        print("plugin-path")
+
+    monkeypatch.setattr(cli, "cmd_agent_plugin", agent_plugin)
+    monkeypatch.setattr(cli.gc, "collect", MagicMock())
+    monkeypatch.setattr(sys, "argv", ["mempalace-code", "agent-plugin", "path"])
+
+    assert cli.main() is None
+    assert cli.main() is None
+    assert calls == ["path", "path"]
+    cli.gc.collect.assert_not_called()
+    assert capsys.readouterr() == ("plugin-path\nplugin-path\n", "")
 
 
 def test_cli_module_exports_stable_entry_points():

@@ -41,6 +41,7 @@ Examples:
 """
 
 import argparse
+import gc
 import sys
 
 from .cli_commands.agent_plugin import cmd_agent_plugin
@@ -929,5 +930,13 @@ def main():
         )
 
 
+def _one_shot_main():
+    """Run one CLI process and collect unreachable native handles before shutdown."""
+    try:
+        return main()
+    finally:
+        gc.collect()
+
+
 if __name__ == "__main__":
-    main()
+    _one_shot_main()
