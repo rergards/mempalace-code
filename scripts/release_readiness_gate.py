@@ -2738,7 +2738,8 @@ def _run_installed_version_scenario(
         len(command_prefix) == 1 and Path(command_prefix[0]).name == "mempalace-code"
     )
     if source_launcher:
-        launcher_pattern = r"(?:cli\.py|python -m mempalace_code\.cli)"
+        python_module_label = rf"python{sys.version_info.major} -m mempalace_code\.cli"
+        launcher_pattern = rf"(?:cli\.py|python -m mempalace_code\.cli|{python_module_label})"
     elif installed_launcher:
         launcher_pattern = r"mempalace-code"
     else:
