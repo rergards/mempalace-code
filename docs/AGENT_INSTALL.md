@@ -217,7 +217,7 @@ Each notification check reads package metadata only and does not install package
 
 **ASK HUMAN:** "Which tool profile should the mempalace-code MCP server use? Reply with one of:
 - `full` — all 29 tools (direct-server default; no surface reduction)
-- `minimal` — 4 tools: search + store only
+- `minimal` — 4 tools: status, search, duplicate check, and store
 - `kg` — 8 tools: minimal + temporal knowledge graph
 - `code` — 10 tools: code archaeology (no drawer-write/diary)
 - `notes` — 12 tools: knowledge management + diary (no code-search)
