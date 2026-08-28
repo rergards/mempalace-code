@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
@@ -460,6 +461,22 @@ class MempalaceConfig:
             people_map: Dict mapping name variants to canonical names.
         """
         self._config_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._people_map_file.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            try:
+                if not stat.S_ISREG(self._people_map_file.stat().st_mode):
+                    raise OSError("people_map.json is not a regular file")
+                with open(self._people_map_file, "r") as f:
+                    json.load(f)
+            except (json.JSONDecodeError, UnicodeError, OSError) as exc:
+                raise RuntimeError(
+                    f"Refusing to overwrite {self._people_map_file}: the existing path is the "
+                    "recovery source. Repair or move it, then retry save_people_map()."
+                ) from exc
+
         with open(self._people_map_file, "w") as f:
             json.dump(people_map, f, indent=2)
         return self._people_map_file
