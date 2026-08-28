@@ -4157,7 +4157,7 @@ def _run_installed_workflow_happy_path_scenario(
 
     def stop_watcher(process, reader, lines, output: list[str]) -> None:
         if process is not None and process.poll() is None:
-            process.send_signal(signal.SIGINT)
+            process.send_signal(signal.SIGTERM)
             try:
                 process.wait(timeout=30)
             except subprocess.TimeoutExpired:

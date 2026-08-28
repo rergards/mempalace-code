@@ -13,6 +13,7 @@ import socket
 import stat
 import subprocess
 import sys
+import threading
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -3442,26 +3443,46 @@ def test_installed_workflow_happy_path_fails_closed(tmp_path, fault):
 
     watchers = []
 
+    class WatcherOutput:
+        def __init__(self, *, exited=False):
+            self._condition = threading.Condition()
+            self._lines = [] if exited else ["state=watch-ready\n", "[project: 1 change(s)]\n"]
+            self._closed = exited
+
+        def readline(self):
+            with self._condition:
+                while not self._lines and not self._closed:
+                    self._condition.wait()
+                return self._lines.pop(0) if self._lines else ""
+
+        def finish(self, summary):
+            with self._condition:
+                self._lines.append(summary)
+                self._closed = True
+                self._condition.notify_all()
+
+        def close(self):
+            with self._condition:
+                self._closed = True
+                self._condition.notify_all()
+
     class FakeWatcher:
         def __init__(self, *, exited=False, stop_failure=False):
-            output = (
-                ""
-                if exited
-                else (
-                    "state=watch-ready\n"
-                    "[project: 1 change(s)]\n"
-                    "Watch stopped after 1 re-mine cycle(s), 1 event(s)\n"
-                )
-            )
-            self.stdout = io.StringIO(output)
+            self.stdout = WatcherOutput(exited=exited)
             self.returncode = 1 if exited else None
             self.stop_failure = stop_failure
             self.killed = False
+            self.signals = []
 
         def poll(self):
             return self.returncode
 
-        def send_signal(self, _shutdown_signal):
+        def send_signal(self, shutdown_signal):
+            self.signals.append(shutdown_signal)
+            cycles = 1 if shutdown_signal == signal.SIGTERM else 0
+            self.stdout.finish(
+                f"Watch stopped after {cycles} re-mine cycle(s), {cycles} event(s)\n"
+            )
             self.returncode = 1 if self.stop_failure else 0
 
         def wait(self, timeout=None):
@@ -3500,6 +3521,10 @@ def test_installed_workflow_happy_path_fails_closed(tmp_path, fault):
     assert all(kwargs["cwd"] == str(neutral) for _command, kwargs in calls)
     assert all(kwargs["env"] == {"SAFE": "1"} for _command, kwargs in calls)
     assert all(watcher.poll() is not None for watcher in watchers)
+    assert all(
+        watcher.signals == ([] if fault == "watcher-exit" else [signal.SIGTERM])
+        for watcher in watchers
+    )
 
 
 def test_installed_golden_uses_watch_extra_provenance_neutral_cwd_and_safe_env(
