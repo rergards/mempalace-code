@@ -2856,8 +2856,9 @@ class TestChromaRuntimeRetiredCli:
         captured = capsys.readouterr()
         assert captured.out == ""
         assert captured.err == f"Error: {CHROMA_RUNTIME_RETIRED_MESSAGE}\n"
-        assert "mempalace-code[chroma-migration]" in captured.err
-        assert "mempalace-code migrate-storage SRC DST --verify" in captured.err
+        assert "Back up the source palace before upgrading" in captured.err
+        assert captured.err.count("mempalace-code[chroma]==1.13.4") == 1
+        assert CHROMA_RUNTIME_RETIRED_MESSAGE in captured.err
         assert "Traceback" not in captured.err
         assert marker.exists()
         assert not (palace / "lance").exists()
@@ -2900,128 +2901,63 @@ class TestChromaRuntimeRetiredCli:
 
 
 class TestMigrateStorageCommand:
-    """CLI-level tests for migrate-storage argparse wiring and dispatch."""
+    """CLI tombstone accepts stale invocation shapes and never touches their paths."""
 
     def _run(self, argv):
         with patch.object(sys, "argv", argv):
             main()
 
-    def test_migrate_storage_cli_happy_path(self, tmp_path, capsys):
-        """AC-1: happy path calls migrate_chroma_to_lance with expected defaults and prints counts."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        # Use distinct counts so a src/dst swap in the print statement is detectable.
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(10, 7)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst])
-
-        mock_migrate.assert_called_once_with(
-            src_path=src,
-            dst_path=dst,
-            backup_dir=None,
-            force=False,
-            embed_model=None,
-            verify=False,
-            no_backup=False,
-        )
-        captured = capsys.readouterr()
-        assert "Source drawers: 10" in captured.out
-        assert "Destination drawers: 7" in captured.out
-
-    def test_migrate_storage_help_names_migration_bridge_extra(self, capsys):
-        """AC-1: help points users to the migration-only extra."""
+    def test_help_names_retirement_backup_and_one_recovery_command(self, capsys):
         with pytest.raises(SystemExit) as exc:
             self._run(["mempalace", "migrate-storage", "--help"])
 
         assert exc.value.code == 0
         captured = capsys.readouterr()
-        assert "legacy ChromaDB palace to LanceDB" in captured.out
-        assert "mempalace-code[chroma-migration]" in captured.out
+        assert "Back up the source palace before upgrading" in captured.out
+        assert captured.out.count("mempalace-code[chroma]==1.13.4") == 1
+        assert CHROMA_RUNTIME_RETIRED_MESSAGE in captured.out
 
-    def test_migrate_storage_cli_verify_fail(self, tmp_path, capsys):
-        """AC-2: VerificationError exits with code 1, stderr includes 'Verification failed:'."""
-        from mempalace_code.migrate import VerificationError
-
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance",
-            side_effect=VerificationError("wing count mismatch"),
-        ):
-            with pytest.raises(SystemExit) as exc:
-                self._run(["mempalace", "migrate-storage", src, dst])
-
-        assert exc.value.code == 1
-        captured = capsys.readouterr()
-        assert "Verification failed: wing count mismatch" in captured.err
-
-    def test_migrate_storage_cli_backup_dir_passthrough(self, tmp_path, capsys):
-        """AC-3: --backup-dir <dir> reaches migrate_chroma_to_lance as backup_dir."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-        backup = str(tmp_path / "backups")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(5, 5)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst, "--backup-dir", backup])
-
-        assert mock_migrate.call_args.kwargs["backup_dir"] == backup
-
-    def test_migrate_storage_cli_force_passthrough(self, tmp_path, capsys):
-        """AC-4: --force reaches migrate_chroma_to_lance with force=True."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(3, 3)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst, "--force"])
-
-        assert mock_migrate.call_args.kwargs["force"] is True
-
-    def test_migrate_storage_cli_verify_passthrough(self, tmp_path):
-        """AC-1: --verify flag reaches migrate_chroma_to_lance as verify=True."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(0, 0)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst, "--verify"])
-
-        assert mock_migrate.call_args.kwargs["verify"] is True
-
-    def test_migrate_storage_cli_embed_model_passthrough(self, tmp_path):
-        """AC-2: --embed-model VALUE reaches migrate_chroma_to_lance as embed_model='VALUE'."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(0, 0)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst, "--embed-model", "test-model"])
-
-        assert mock_migrate.call_args.kwargs["embed_model"] == "test-model"
-
-    def test_migrate_storage_cli_runtime_error_exits_1(self, tmp_path, capsys):
-        """AC-3: RuntimeError from migrator exits with code 1 and writes 'Error:' to stderr."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance",
-            side_effect=RuntimeError("boom"),
-        ):
-            with pytest.raises(SystemExit) as exc:
-                self._run(["mempalace", "migrate-storage", src, dst])
+    @pytest.mark.parametrize(
+        "arguments",
+        [
+            [],
+            ["source-only"],
+            ["source", "destination"],
+            [
+                "source",
+                "destination",
+                "--backup-dir",
+                "backups",
+                "--force",
+                "--embed-model",
+                "old-model",
+                "--verify",
+            ],
+        ],
+    )
+    def test_every_accepted_legacy_shape_returns_exact_tombstone(self, arguments, capsys):
+        with pytest.raises(SystemExit) as exc:
+            self._run(["mempalace", "migrate-storage", *arguments])
 
         assert exc.value.code == 1
         captured = capsys.readouterr()
-        assert "Error: boom" in captured.err
+        assert captured.out == ""
+        assert captured.err == f"Error: {CHROMA_RUNTIME_RETIRED_MESSAGE}\n"
+
+    def test_legacy_paths_are_never_created_or_inspected(self, tmp_path, capsys):
+        source = tmp_path / "missing-source"
+        destination = tmp_path / "missing-destination"
+        before = sorted(tmp_path.rglob("*"))
+
+        for _ in range(2):
+            with pytest.raises(SystemExit) as exc:
+                self._run(
+                    ["mempalace", "migrate-storage", str(source), str(destination), "--force"]
+                )
+            assert exc.value.code == 1
+            assert capsys.readouterr().err == f"Error: {CHROMA_RUNTIME_RETIRED_MESSAGE}\n"
+
+        assert sorted(tmp_path.rglob("*")) == before
 
 
 class TestVersionCheckCLIHook:

@@ -74,9 +74,6 @@ pip install -e ".[dev]"
 No Docker required. Everything runs locally in a venv or with pipx.
 
 Optional extras:
-- `.[chroma-migration]` — ChromaDB-to-LanceDB migration bridge; capped below
-  ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line
-- `.[chroma]` — deprecated compatibility alias for the migration bridge
 - `.[spellcheck]` — autocorrect support for room/wing names
 
 ## Running Tests
@@ -140,11 +137,10 @@ Line length: 100. Target: py311. Quote style: double.
 ## Storage Backend
 
 - **LanceDB** is the core backend (installed by default via `lancedb>=0.20`).
-- **ChromaDB** is supported only as migration input through
-  `mempalace-code migrate-storage SRC DST --verify`. Install
-  `.[chroma-migration]` for that bridge. The deprecated `.[chroma]` alias is
-  retained for existing scripts, and the dependency stays capped below 1.x while
-  GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
+- **ChromaDB** support is retired from current packages because every available
+  release is advisory-affected. Back up a legacy source palace before upgrading,
+  then use the last public bridge release in isolation:
+  `uvx --from 'mempalace-code[chroma]==1.13.4' mempalace-code migrate-storage SRC DST --verify`.
 
 ## Embedding Model Policy
 

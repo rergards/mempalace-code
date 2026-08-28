@@ -35,7 +35,6 @@ RULESET_DOC = "docs/release-admission-rulesets.md"
 # workflow-shape test compares the ``needs:`` list against this tuple, so adding
 # a release-critical job to ci.yml without widening the aggregate check fails.
 RELEASE_CRITICAL_CI_JOBS: tuple[str, ...] = (
-    "chroma-migration-bridge",
     "dependency-upgrade-gate",
     "gitleaks-changed-range",
     "installed-application",

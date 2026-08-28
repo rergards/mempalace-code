@@ -527,7 +527,7 @@ def test_version_check_state_preserves_existing_config_and_malformed_config_is_s
     config_file = tmp_path / "config.json"
     existing_data = {
         "palace_path": "/my/palace",
-        "collection_name": "mypalace_drawers",
+        "people_map": {"name": "canonical"},
     }
     config_file.write_text(json.dumps(existing_data, indent=2), encoding="utf-8")
 

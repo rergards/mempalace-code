@@ -4351,7 +4351,7 @@ def test_main_single_canonical_failure_exits_1(tmp_path):
     assert result["ok"] is False
 
 
-def test_installed_optional_extras_and_public_exports_reconcile_direct_evidence(tmp_path):
+def test_installed_optional_extras_exclude_retired_chroma(tmp_path):
     venv = tmp_path / "venv"
     site = venv / "lib" / "python" / "site-packages" / "mempalace_code"
     site.mkdir(parents=True)
@@ -4374,7 +4374,7 @@ def test_installed_optional_extras_and_public_exports_reconcile_direct_evidence(
     exports = rrg._parse_installed_public_exports(
         json.dumps(payload), venv=venv, repository_root=tmp_path / "repository"
     )
-    extras = ("chroma", "chroma-migration", "spellcheck", "treesitter", "watch")
+    extras = ("spellcheck", "treesitter", "watch")
     evidence = {f"extra:{extra}": True for extra in extras}
     evidence.update(
         {
@@ -4388,6 +4388,8 @@ def test_installed_optional_extras_and_public_exports_reconcile_direct_evidence(
         rrg._reconcile_installed_optional_extras_and_public_exports(extras, exports, evidence)
         is None
     )
+    assert "chroma" not in extras
+    assert "chroma-migration" not in extras
 
     hostile = [
         ((*extras, "unknown"), exports, evidence),

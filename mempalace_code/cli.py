@@ -63,7 +63,7 @@ from .cli_commands.query import cmd_compress, cmd_read, cmd_search, cmd_wakeup
 from .cli_commands.update import cmd_update
 from .cli_commands.version_check import cmd_version_check
 from .cli_commands.watch import cmd_watch
-from .storage import ChromaRuntimeRetiredError
+from .storage import CHROMA_RUNTIME_RETIRED_MESSAGE, ChromaRuntimeRetiredError
 from .version import __version__
 
 # Re-export for backward compatibility (tests and downstream direct imports).
@@ -419,37 +419,31 @@ def main():
     # migrate-storage
     p_migrate = sub.add_parser(
         "migrate-storage",
-        help=(
-            "Migrate a legacy ChromaDB palace to LanceDB "
-            "(requires mempalace-code[chroma-migration])"
-        ),
-        description=(
-            "Migrate a legacy ChromaDB palace to LanceDB.\n"
-            "Requires: mempalace-code[chroma-migration]"
-        ),
+        help="Explain the retired ChromaDB migration recovery path",
+        description=CHROMA_RUNTIME_RETIRED_MESSAGE,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_migrate.add_argument("src_palace", help="Source ChromaDB palace path")
-    p_migrate.add_argument("dst_palace", help="Destination LanceDB palace path")
+    p_migrate.add_argument("src_palace", nargs="?", help="Ignored legacy source path")
+    p_migrate.add_argument("dst_palace", nargs="?", help="Ignored legacy destination path")
     p_migrate.add_argument(
         "--backup-dir",
         default=None,
-        help="Directory for the source backup tar.gz (default: parent of src_palace)",
+        help="Ignored legacy option",
     )
     p_migrate.add_argument(
         "--force",
         action="store_true",
-        help="Allow appending to a non-empty destination palace",
+        help="Ignored legacy option",
     )
     p_migrate.add_argument(
         "--embed-model",
         default=None,
-        help="Embedding model for the destination (default: all-MiniLM-L6-v2)",
+        help="Ignored legacy option",
     )
     p_migrate.add_argument(
         "--verify",
         action="store_true",
-        help="Verify per-wing counts after migration; exit non-zero on mismatch",
+        help="Ignored legacy option",
     )
 
     # health

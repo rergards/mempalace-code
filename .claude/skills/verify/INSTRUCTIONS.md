@@ -98,9 +98,9 @@ python3.13 -m venv /tmp/mempalace-ci-venv
 ```
 
 If an optional extra changed, create a separate fresh environment for that
-extra and run its focused tests. For ChromaDB, use only the `chroma-migration`
-bridge extra and do not raise into affected 1.x versions while
-GHSA-f4j7-r4q5-qw2c applies.
+extra and run its focused tests. The retired `chroma` and `chroma-migration`
+extras are not current verification targets. For historical ChromaDB recovery,
+follow `docs/BACKUP_RESTORE.md`; do not restore those extras to this package.
 
 ## Step 3: Report Results
 

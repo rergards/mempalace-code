@@ -253,11 +253,19 @@ CHROMA_RUNTIME_SUPPORT_MARKERS: dict[str, tuple[str, ...]] = {
     "docs/UPDATES.md": ("legacy `chroma` extras",),
     "docs/UPSTREAM_COMPARISON.md": ("backend-chromadb-optional-deprecated",),
     "docs/WHY_THIS_FORK.md": ("kept as an opt-in `.[chroma]` extra",),
+    "docs/UPSTREAM_HARDENING.md": (
+        "ChromaDB remains migration input through `.[chroma-migration]`",
+        "one-way `migrate-storage` bridge installed through `.[chroma-migration]`",
+        "one-way migration bridge",
+    ),
     ".claude/skills/verify/INSTRUCTIONS.md": (
         "runtime compatibility",
         "ChromaStore compatibility",
     ),
 }
+CHROMA_RECOVERY_COMMAND = (
+    "uvx --from 'mempalace-code[chroma]==1.13.4' mempalace-code migrate-storage SRC DST --verify"
+)
 
 BACKUP_RESTORE_REBUILD_SEQUENCE: tuple[str, ...] = (
     'mempalace-code --palace "$PALACE" export --only-manual --with-kg --out "$EXPORT_JSONL"',
@@ -1309,6 +1317,7 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
         ".claude/skills/release-prep/SKILL.md": _text(root, ".claude/skills/release-prep/SKILL.md"),
         "docs/UPSTREAM_COMPARISON.md": _text(root, "docs/UPSTREAM_COMPARISON.md"),
         "docs/WHY_THIS_FORK.md": _text(root, "docs/WHY_THIS_FORK.md"),
+        "docs/UPSTREAM_HARDENING.md": _text(root, "docs/UPSTREAM_HARDENING.md"),
     }
 
     if docs["CLAUDE.md"] != "@AGENTS.md\n":
@@ -1485,6 +1494,10 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
                     f"{relative_path}: current ChromaDB runtime support wording still present: "
                     f"{marker!r}"
                 )
+        if text.count(CHROMA_RECOVERY_COMMAND) > 1:
+            errors.append(
+                f"{relative_path}: duplicate ChromaDB recovery command; retain one recovery action"
+            )
 
     # --- Release / dependency gate workflow names (AC-3) --------------------
     _require(errors, docs["docs/RELEASING.md"], publish_workflow, "docs/RELEASING.md")

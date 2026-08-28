@@ -12,8 +12,7 @@ Usage:
     store = open_store("/path/to/palace", "lance")  # explicit backend
 
 The store object exposes a collection-like API that all MemPalace code
-uses instead of calling LanceDB directly. Legacy ChromaDB palaces are read only
-through the isolated migrate-storage bridge.
+uses instead of calling LanceDB directly. Current releases are LanceDB-only.
 """
 
 from __future__ import annotations
@@ -71,32 +70,20 @@ class LanceStoreDependencyError(RuntimeError):
     """Raised when a required Lance cleanup dependency is not available."""
 
 
-CHROMA_MIGRATION_COMMAND = "mempalace-code migrate-storage SRC DST --verify"
-CHROMA_MIGRATION_EXTRA = "mempalace-code[chroma-migration]"
-CHROMA_MIGRATION_INSTALL_HINT = (
-    "Install the migration bridge with: pip install 'mempalace-code[chroma-migration]'"
+CHROMA_MIGRATION_COMMAND = (
+    "uvx --from 'mempalace-code[chroma]==1.13.4' mempalace-code migrate-storage SRC DST --verify"
 )
 CHROMA_RUNTIME_RETIRED_MESSAGE = (
-    "ChromaDB runtime storage has been retired. "
-    f"Migrate legacy palaces with `{CHROMA_MIGRATION_COMMAND}`; "
-    "the command creates a source backup by default. "
-    f"{CHROMA_MIGRATION_INSTALL_HINT}."
+    "ChromaDB migration support is retired from current releases because every available "
+    "ChromaDB release is advisory-affected. Back up the source palace before upgrading. "
+    "Use the last public bridge release in isolation exactly once: "
+    f"`{CHROMA_MIGRATION_COMMAND}`."
 )
 _BACKEND_CHROMA_MIGRATION_REQUIRED = "chroma_migration_required"
 
 
 class ChromaRuntimeRetiredError(RuntimeError):
     """Raised when legacy ChromaDB storage is requested as a runtime backend."""
-
-
-class ChromaStore:  # pragma: no cover - behavior is exercised through tests.
-    """Retired public Chroma runtime symbol.
-
-    The private migration adapter remains in ``mempalace_code._chroma_store``.
-    """
-
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        raise ChromaRuntimeRetiredError(CHROMA_RUNTIME_RETIRED_MESSAGE)
 
 
 # ─── Abstract interface ────────────────────────────────────────────────────────
@@ -1707,7 +1694,6 @@ def _detect_backend(palace_path: str) -> str:
 def open_store(
     palace_path: str,
     backend: Optional[str] = None,
-    collection_name: str = "mempalace_drawers",
     create: bool = True,
     embed_model: Optional[str] = None,
     read_only: bool = False,
@@ -1718,7 +1704,6 @@ def open_store(
     Args:
         palace_path: Path to the palace data directory.
         backend: "lance" or None. "chroma" is retired and raises before mutation.
-        collection_name: Legacy migrate-storage compatibility parameter; ignored for LanceDB.
         create: Create the LanceDB table if it doesn't exist.
         embed_model: Embedding model name. None = default.
         read_only: When True, skip directory creation, schema migration, and embedder

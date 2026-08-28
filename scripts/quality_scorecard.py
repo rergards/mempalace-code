@@ -86,11 +86,6 @@ _KNOWN_SUITES = (
     ("backup_cli", "tests/test_backup_cli.py", "Backup/restore CLI tests"),
     ("offline", "tests/test_offline.py", "Offline / no-network guard tests"),
     (
-        "migrate_storage_smoke",
-        "scripts/migrate_storage_smoke.py",
-        "migrate-storage disposable smoke",
-    ),
-    (
         "code_intelligence_packet",
         "tests/test_code_intelligence_packet.py",
         "Code-intelligence demo packet generation and validation tests",

@@ -155,7 +155,7 @@ def test_suppressions_invariant_holds():
 
 def test_suites_include_known_surfaces():
     suites = {s["name"]: s for s in sc.build_scorecard(ROOT)["suites"]}
-    for name in ("cli", "cli_golden_scenarios", "mcp_stdio", "migrate_storage_smoke"):
+    for name in ("cli", "cli_golden_scenarios", "mcp_stdio"):
         assert name in suites
         assert suites[name]["present"] is True
     # cli_golden_scenarios is a distinct suite from cli (subprocess workflows vs

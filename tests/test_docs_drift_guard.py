@@ -376,6 +376,11 @@ python -m pyright
         "Updates preserve installed extras, including `chroma-migration` when present.\n",
     )
     _write(
+        tmp_path / "docs" / "UPSTREAM_HARDENING.md",
+        "Current releases reject ChromaDB input without mutation. "
+        "Follow docs/BACKUP_RESTORE.md for historical recovery.\n",
+    )
+    _write(
         tmp_path / "docs" / "DEPENDENCY_UPGRADE_GATE.md",
         "Dependency Audit workflow. Tests workflow.\n"
         + "\n".join(guard.dependency_audit_markers())
@@ -1031,6 +1036,24 @@ def test_stale_benchmark_wording_is_rejected_even_when_facts_match(tmp_path: Pat
 # ── AC-5: stale document fixtures across every category ────────────────────────
 
 
+def test_current_chroma_support_and_duplicate_recovery_are_rejected(tmp_path: Path):
+    current_root = _make_repo(tmp_path / "current-chroma-support")
+    readme = current_root / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8")
+        + "\nChromaDB only, as a deprecated optional runtime backend.\n",
+        encoding="utf-8",
+    )
+    backup = current_root / "docs" / "BACKUP_RESTORE.md"
+    command = guard.CHROMA_RECOVERY_COMMAND
+    backup.write_text(f"Recovery: {command}\nRepeated: {command}\n", encoding="utf-8")
+
+    _, errors = guard.evaluate(current_root)
+
+    assert any("current ChromaDB runtime support wording" in error for error in errors)
+    assert any("duplicate ChromaDB recovery command" in error for error in errors)
+
+
 def test_stale_document_fixtures_fail_with_file_and_section_diagnostics(tmp_path: Path):
     """Every guard category fails deterministically with a file + section diagnostic."""
 
@@ -1089,6 +1112,7 @@ def test_stale_document_fixtures_fail_with_file_and_section_diagnostics(tmp_path
     for relative_path, marker in (
         ("CONTRIBUTING.md", "deprecated legacy optional extra (`.[chroma]`)"),
         ("docs/WHY_THIS_FORK.md", "kept as an opt-in `.[chroma]` extra"),
+        ("docs/UPSTREAM_HARDENING.md", "one-way migration bridge"),
     ):
         case_root = _make_repo(
             tmp_path / f"chroma-runtime-{relative_path.replace('/', '-').replace('.', '-')}"

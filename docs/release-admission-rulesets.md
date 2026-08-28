@@ -24,8 +24,8 @@ The public release branch is `refs/heads/main`. Required repository-rule types:
 
 `release-required` is the stable aggregate check exposed by the **Tests**
 workflow (`.github/workflows/ci.yml`). It depends on every release-critical job —
-`chroma-migration-bridge`, `dependency-upgrade-gate`, `gitleaks-changed-range`,
-`installed-application`, `lint`, `package`, `test`, `typecheck` — and runs with
+`dependency-upgrade-gate`, `gitleaks-changed-range`, `installed-application`,
+`lint`, `package`, `test`, `typecheck` — and runs with
 `if: always()` so it still reports when an upstream job fails or is skipped. It
 fails when any of those jobs is failed, cancelled, skipped, missing from `needs`,
 or reports an unknown result. The job name is the required-check context:

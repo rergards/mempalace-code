@@ -263,37 +263,30 @@ for language, (ext, content, beta_declaration) in fixtures.items():
     }
 print(json.dumps(results, separators=(",", ":")))
 """
-INSTALLED_MIGRATION_PROBE = r"""import json
+INSTALLED_MIGRATION_PROBE = r"""import importlib.util
 import importlib.metadata
+import json
 import re
+import subprocess
 import sys
-import chromadb
-from chromadb.config import Settings
-from mempalace_code.migrate import migrate_chroma_to_lance
-from mempalace_code.storage import ChromaRuntimeRetiredError, ChromaStore, LanceStore
+from mempalace_code.storage import CHROMA_RUNTIME_RETIRED_MESSAGE
 
-src, dst, extra = sys.argv[1:4]
-client = chromadb.PersistentClient(path=src, settings=Settings(anonymized_telemetry=False))
-collection = client.get_or_create_collection("mempalace_drawers")
-collection.add(
-    ids=["seed"], documents=["bounded migration seed"],
-    metadatas=[{"wing": "release", "room": "evidence"}], embeddings=[[0.0] * 384]
+result = subprocess.run(
+    [sys.executable, "-m", "mempalace_code.cli", "migrate-storage"],
+    capture_output=True, text=True, check=False,
 )
-src_count, dst_count = migrate_chroma_to_lance(src, dst, verify=True, no_backup=True)
-runtime_retired = False
-try:
-    ChromaStore(dst)
-except ChromaRuntimeRetiredError:
-    runtime_retired = True
+dependencies = sorted({
+    re.split(r"[ <>=!~\[(;]", raw, maxsplit=1)[0].lower()
+    for raw in (importlib.metadata.requires("mempalace-code") or [])
+})
 print("MEMPALACE-MIGRATION-EVIDENCE=" + json.dumps({
-    "src": src_count, "dst": dst_count, "lance": LanceStore(dst).count(),
-    "source_marker": __import__("pathlib").Path(src, "chroma.sqlite3").is_file(),
-    "runtime_retired": runtime_retired,
-    "dependencies": sorted({
-        re.split(r"[ <>=!~\[(;]", raw, maxsplit=1)[0].lower()
-        for raw in (importlib.metadata.requires("mempalace-code") or [])
-        if f'extra == "{extra}"' in raw or f"extra == '{extra}'" in raw
-    }),
+    "returncode": result.returncode,
+    "stderr_exact": result.stderr == "Error: " + CHROMA_RUNTIME_RETIRED_MESSAGE + "\n",
+    "bridge_modules_absent": all(
+        importlib.util.find_spec(name) is None
+        for name in ("mempalace_code.migrate", "mempalace_code._chroma_store")
+    ),
+    "chromadb_dependency_absent": "chromadb" not in dependencies,
 }, separators=(",", ":")))
 """
 INSTALLED_MIGRATION_EVIDENCE_MARKER = "MEMPALACE-MIGRATION-EVIDENCE="
@@ -6113,37 +6106,25 @@ def _run_installed_extra_and_export_reconciliation(
             raise RuntimeError(treesitter_error)
         evidence["extra:treesitter"] = True
 
-        migration_dependencies = None
-        migration_attempts = []
-        migration_markers = []
-        for extra in ("chroma-migration", "chroma"):
-            migrate_python, migrate_env, attempts, marker = install_extra(extra)
-            migration_attempts.append(attempts)
-            migration_markers.append(marker)
-            contour_root = attempts.parent
-            migration = json_probe(
-                migrate_python,
-                INSTALLED_MIGRATION_PROBE,
-                [str(contour_root / "source"), str(contour_root / "destination"), extra],
-                migrate_env,
-                f"installed {extra} migration probe",
-                timeout=INSTALLED_GOLDEN_TIMEOUT,
-                marker=INSTALLED_MIGRATION_EVIDENCE_MARKER,
+        migration = json_probe(
+            base_python,
+            INSTALLED_MIGRATION_PROBE,
+            [],
+            base_env,
+            "installed Chroma retirement probe",
+            timeout=INSTALLED_GOLDEN_TIMEOUT,
+            marker=INSTALLED_MIGRATION_EVIDENCE_MARKER,
+        )
+        if migration.get("returncode") != 1 or any(
+            migration.get(key) is not True
+            for key in (
+                "stderr_exact",
+                "bridge_modules_absent",
+                "chromadb_dependency_absent",
             )
-            if any(migration.get(key) != 1 for key in ("src", "dst", "lance")) or any(
-                migration.get(key) is not True for key in ("source_marker", "runtime_retired")
-            ):
-                raise RuntimeError(f"installed {extra} migration post-state is invalid")
-            dependencies = migration.get("dependencies")
-            if not isinstance(dependencies, list) or not {"chromadb", "posthog"}.issubset(
-                set(dependencies)
-            ):
-                raise RuntimeError(f"installed {extra} dependency evidence is incomplete")
-            if migration_dependencies is None:
-                migration_dependencies = dependencies
-            elif dependencies != migration_dependencies:
-                raise RuntimeError("migration alias dependencies do not match canonical extra")
-            evidence[f"extra:{extra}"] = True
+        ):
+            raise RuntimeError("installed Chroma retirement evidence is incomplete")
+        evidence["chroma:retired"] = True
 
         alias_target = temp_root / "alias-launcher-target"
         alias_target.mkdir()
@@ -6154,8 +6135,8 @@ def _run_installed_extra_and_export_reconciliation(
             raise RuntimeError("installed alias launcher behavior failed")
         evidence["export:mempalace_code.cli:main_alias"] = True
 
-        checked_attempts = [spell_attempts, tree_attempts, *migration_attempts]
-        checked_markers = [spell_marker, tree_marker, *migration_markers]
+        checked_attempts = [spell_attempts, tree_attempts]
+        checked_markers = [spell_marker, tree_marker]
         if not all(path.is_file() for path in checked_markers):
             raise RuntimeError("installed optional-extra socket guard did not load")
         if any(path.exists() and path.read_text(encoding="utf-8") for path in checked_attempts):

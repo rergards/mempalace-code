@@ -56,25 +56,6 @@ jobs:
         if: matrix.python-version == '3.13'
         run: python benchmarks/demo_perf_budgets.py --check --ci
 
-  chroma-migration-bridge:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.13"
-          cache: pip # zizmor: ignore[cache-poisoning]
-          cache-dependency-path: |
-            pyproject.toml
-            uv.lock
-      - run: pip install -e ".[dev,chroma-migration]"
-      - name: ChromaDB-to-LanceDB migration bridge tests
-        run: python -m pytest tests/test_migrate.py tests/test_migrate_storage_smoke.py -v
-      - name: Installed migration bridge smoke
-        run: python scripts/migrate_storage_smoke.py --rows 1
-
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -440,7 +421,6 @@ jobs:
     name: release-required
     runs-on: ubuntu-latest
     needs:
-      - chroma-migration-bridge
       - dependency-upgrade-gate
       - gitleaks-changed-range
       - installed-application
@@ -455,8 +435,8 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
           EXPECTED_JOBS: >-
-            chroma-migration-bridge dependency-upgrade-gate gitleaks-changed-range
-            installed-application lint package test typecheck
+            dependency-upgrade-gate gitleaks-changed-range installed-application
+            lint package test typecheck
         run: |
           python3 - <<'PY'
           import json

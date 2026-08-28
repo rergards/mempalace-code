@@ -18,7 +18,6 @@ def test_malformed_config_json_falls_back_to_empty_file_config():
         f.write("{not valid json,,,")
     cfg = MempalaceConfig(config_dir=tmpdir)
     assert cfg.palace_path == DEFAULT_PALACE_PATH
-    assert cfg.collection_name == "mempalace_drawers"
     assert cfg.hall_keywords == DEFAULT_HALL_KEYWORDS
     assert cfg.topic_wings == DEFAULT_TOPIC_WINGS
 
@@ -79,7 +78,6 @@ def test_people_map_malformed_dedicated_file_falls_back_to_config_key():
 def test_default_config():
     cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
     assert "palace" in cfg.palace_path
-    assert cfg.collection_name == "mempalace_drawers"
 
 
 def test_config_from_file():

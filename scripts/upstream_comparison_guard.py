@@ -91,15 +91,16 @@ DECISION_REQUIRED_FIELDS = (
 # guard exists, so the guard has to be nameable and present in the checkout.
 PREDICATE_REQUIRED_DECISIONS = ("adopted", "equivalent-local")
 
-# ChromaDB stays migration-bridge-only. The required identifier says so; the
-# forbidden ones are the runtime-backend claims this fork retired.
-REQUIRED_FORK_CAPABILITIES = ("backend-chromadb-migration-bridge-only",)
+# Current releases fully retire ChromaDB support. All Chroma capability claims
+# are forbidden from the fork-current set.
+REQUIRED_FORK_CAPABILITIES: tuple[str, ...] = ()
 FORBIDDEN_FORK_CAPABILITIES = (
     "backend-chromadb",
     "backend-chromadb-default",
     "backend-chromadb-optional",
     "backend-chromadb-optional-deprecated",
     "backend-chromadb-runtime",
+    "backend-chromadb-migration-bridge-only",
 )
 
 
@@ -300,7 +301,7 @@ def _validate_capability_sources(manifest: dict[str, Any]) -> list[str]:
 
 
 def _validate_chroma_stance(manifest: dict[str, Any]) -> list[str]:
-    """The fork may record ChromaDB only as a migration bridge, never as a runtime backend."""
+    """The current fork capability set must record no ChromaDB support."""
     capabilities = manifest.get("capabilities")
     if not isinstance(capabilities, dict):
         return []
@@ -314,13 +315,13 @@ def _validate_chroma_stance(manifest: dict[str, Any]) -> list[str]:
         if required not in present:
             errors.append(
                 f"chroma-stance: capabilities.fork_current must record {required!r}; "
-                "ChromaDB support is migration input only"
+                "current releases have retired ChromaDB support"
             )
     for forbidden in FORBIDDEN_FORK_CAPABILITIES:
         if forbidden in present:
             errors.append(
                 f"chroma-stance: capabilities.fork_current must not claim {forbidden!r}; "
-                "this fork has no ChromaDB runtime backend"
+                "current releases have retired ChromaDB support"
             )
     return errors
 

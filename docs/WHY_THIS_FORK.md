@@ -28,7 +28,7 @@ Every chunk stores `symbol_name` and `symbol_type` (function / class / method). 
 
 ### 5. LanceDB Instead of ChromaDB
 
-The original backend was ChromaDB (SQLite + Python). It had no bulk operations, was slow on large repositories, and was fragile under interruption. This fork moved the runtime backend to **LanceDB** (Rust + Arrow, columnar, crash-safe). ChromaDB remains only as input to the one-way `migrate-storage` bridge through `.[chroma-migration]`; `.[chroma]` is a deprecated install alias. The migration dependency stays capped below ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
+The original backend was ChromaDB (SQLite + Python). It had no bulk operations, was slow on large repositories, and was fragile under interruption. This fork moved the runtime backend to **LanceDB** (Rust + Arrow, columnar, crash-safe). Current packages fully retire ChromaDB support and carry no ChromaDB dependency.
 
 Direct effects:
 

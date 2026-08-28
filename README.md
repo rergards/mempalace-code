@@ -952,7 +952,7 @@ Snapshot reviewed on 2026-08-11 against upstream `develop` at commit `b2104238d4
 |---|---|---|
 | Focus | General-purpose AI memory | Code-first: repository mining, `code_search`, symbol/type/project-graph tools |
 | Default storage | ChromaDB | LanceDB |
-| Other backends offered | `sqlite_exact`, Milvus, Qdrant, pgvector | LanceDB-only runtime; one-way ChromaDB-to-LanceDB migration bridge; no server-backed backends |
+| Other backends offered | `sqlite_exact`, Milvus, Qdrant, pgvector | LanceDB-only current package; ChromaDB support is retired; no server-backed backends |
 | Embedding model | `all-MiniLM-L6-v2`, plus an optional `embeddinggemma` multilingual model | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration flow |
 | Retrieval | Hybrid retrieval | Vector search, plus a local deterministic `code_search(rerank="hybrid")` |
 | Reranking | Optional LLM reranking | None — no LLM reranker; this direction is explicitly rejected |
@@ -1018,8 +1018,6 @@ BOOTSTRAP_FILE="$(mktemp -t mempalace-bootstrap.XXXXXX)" || exit 1
 
 ```bash
 pip install "mempalace-code[treesitter]"  # AST parsing
-pip install "mempalace-code[chroma-migration]"  # ChromaDB-to-LanceDB migration bridge
-pip install "mempalace-code[chroma]"      # deprecated alias for chroma-migration
 pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[watch]"       # optional watcher (auto-mine on file changes)
 pip install "mempalace-code[dev]"         # pytest + ruff + pyright
@@ -1102,7 +1100,9 @@ mempalace-code health --json                           # compact integrity repor
 mempalace-code fetch-model                             # cache or verify model for offline use
 
 # Advanced / Ops
-mempalace-code migrate-storage <src> <dst> --verify    # migrate a legacy ChromaDB palace to LanceDB
+# Legacy Chroma palace recovery: back up SRC before upgrading, then run the last bridge in isolation
+mempalace-code migrate-storage SRC DST --verify         # retired; exits before mutation and points here
+uvx --from 'mempalace-code[chroma]==1.13.4' mempalace-code migrate-storage SRC DST --verify
 mempalace-code preflight mirror --command "<cmd>"      # inspect an rsync command for state-dir risks
 mempalace-code version-check                           # show version-check status (opt-in PyPI checks)
 mempalace-code version-check --check-now               # check PyPI now; prints a pip fallback for unmanaged installs

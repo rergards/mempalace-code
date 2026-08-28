@@ -102,7 +102,7 @@ changes in this review.
 | Area | Upstream, as advertised at the reviewed commit | This fork today |
 |---|---|---|
 | Product focus | General-purpose AI memory | Code-first memory: repository mining, `code_search`, symbol/type/project-graph tools |
-| Storage and retrieval | ChromaDB default; `sqlite_exact`, Milvus, Qdrant, and pgvector are offered; hybrid retrieval and optional LLM reranking are described; 3.8.0 documents indexed/paged metadata paths for Chroma and `sqlite_exact` | LanceDB-only runtime; one-way ChromaDB-to-LanceDB migration bridge; local deterministic `code_search(rerank="hybrid")`; no LLM reranker or server-vector backends |
+| Storage and retrieval | ChromaDB default; `sqlite_exact`, Milvus, Qdrant, and pgvector are offered; hybrid retrieval and optional LLM reranking are described; 3.8.0 documents indexed/paged metadata paths for Chroma and `sqlite_exact` | LanceDB-only current package with ChromaDB support retired; local deterministic `code_search(rerank="hybrid")`; no LLM reranker or server-vector backends |
 | Embeddings | New onboarding offers multilingual `embeddinggemma-300m`; opt-in `openai-compat` targets an OpenAI-compatible `/v1/embeddings` endpoint | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration path, and no remote embedding-provider integration |
 | Search filtering | `mempalace_search` and CLI search advertise `since` / `before` date windows | No matching documented date-window search surface |
 | Agent integration | Changelog 3.7.0 advertises a core Hermes `MemoryProvider` and `mine --source <adapter>` source-adapter resolution | No Hermes provider or source-adapter ingestion surface |
@@ -154,7 +154,6 @@ This fork, current:
 
 - `code-first-mining`
 - `backend-lancedb-default`
-- `backend-chromadb-migration-bridge-only`
 - `local-deterministic-code-search-hybrid-rerank`
 - `no-llm-reranker`
 - `no-supported-multilingual-configuration-migration`

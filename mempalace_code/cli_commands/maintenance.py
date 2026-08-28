@@ -319,24 +319,7 @@ def cmd_repair(args):
 
 
 def cmd_migrate_storage(args):
-    """Migrate a ChromaDB palace to a LanceDB palace."""
-    from ..migrate import VerificationError, migrate_chroma_to_lance
+    """Fail closed for every legacy migration invocation without inspecting its arguments."""
+    from ..storage import CHROMA_RUNTIME_RETIRED_MESSAGE, ChromaRuntimeRetiredError
 
-    try:
-        src_count, dst_count = migrate_chroma_to_lance(
-            src_path=args.src_palace,
-            dst_path=args.dst_palace,
-            backup_dir=args.backup_dir,
-            force=args.force,
-            embed_model=args.embed_model,
-            verify=args.verify,
-            no_backup=False,
-        )
-    except VerificationError as e:
-        print(f"Verification failed: {e}", file=sys.stderr)
-        sys.exit(1)
-    except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Source drawers: {src_count}  Destination drawers: {dst_count}")
+    raise ChromaRuntimeRetiredError(CHROMA_RUNTIME_RETIRED_MESSAGE)

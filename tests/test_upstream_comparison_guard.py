@@ -64,7 +64,7 @@ def _manifest(**overrides) -> dict:
         "comparison_markers": ["## Snapshot"],
         "capabilities": {
             "upstream_advertised": ["some-capability"],
-            "fork_current": [BRIDGE_CAPABILITY, "other-capability"],
+            "fork_current": ["other-capability"],
         },
         "capability_sources": {"some-capability": ["README.md"]},
         "delta_decisions": [
@@ -390,7 +390,7 @@ def test_evaluate_rejects_a_chromadb_runtime_backend_claim(tmp_path: Path):
     manifest = _manifest(
         capabilities={
             "upstream_advertised": ["some-capability"],
-            "fork_current": [BRIDGE_CAPABILITY, "backend-chromadb-runtime"],
+            "fork_current": ["backend-chromadb-runtime"],
         }
     )
     root = _root(tmp_path, manifest=manifest)
@@ -400,11 +400,11 @@ def test_evaluate_rejects_a_chromadb_runtime_backend_claim(tmp_path: Path):
     assert any("chroma-stance" in error for error in errors)
 
 
-def test_evaluate_requires_the_chromadb_migration_bridge_stance(tmp_path: Path):
+def test_evaluate_rejects_the_retired_chromadb_migration_bridge_stance(tmp_path: Path):
     manifest = _manifest(
         capabilities={
             "upstream_advertised": ["some-capability"],
-            "fork_current": ["other-capability"],
+            "fork_current": [BRIDGE_CAPABILITY, "other-capability"],
         }
     )
     root = _root(tmp_path, manifest=manifest)

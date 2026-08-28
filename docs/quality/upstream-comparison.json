@@ -81,7 +81,6 @@
     "fork_current": [
       "code-first-mining",
       "backend-lancedb-default",
-      "backend-chromadb-migration-bridge-only",
       "local-deterministic-code-search-hybrid-rerank",
       "no-llm-reranker",
       "no-supported-multilingual-configuration-migration",

@@ -56,8 +56,8 @@ targets are newer stable PEP 440 releases in the compatible major version with a
 Prereleases, yanked files, wheels missing from PyPI metadata, and failed provenance requests do not
 produce an update target.
 
-The updater detects the installed optional topology. It retains `watch`, `treesitter`, `spellcheck`,
-and `chroma-migration` bridge extras where present. An active configured watcher without the `watch` extra is a
+The updater detects the installed optional topology. It retains `watch`, `treesitter`, and
+`spellcheck` extras where present. Retired Chroma extras are excluded. An active configured watcher without the `watch` extra is a
 preflight failure. The update transaction also checks free disk capacity and the local backup policy;
 it does not alter palace data or create a replacement palace backup.
 

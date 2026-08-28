@@ -602,97 +602,23 @@ Or set them independently to give the watcher a tighter budget:
 
 ---
 
-## Migrate-Storage Release Smoke
+## Legacy Chroma Palace Recovery Before Upgrade
 
-Use this disposable smoke to verify the `migrate-storage` CLI end-to-end before a
-release. It generates a tiny legacy Chroma source palace, runs the real
-`migrate-storage` CLI in a subprocess, verifies source and destination counts, and
-confirms a unique marker is searchable in the migrated Lance palace. All artifacts
-live in a temporary directory and are removed on exit — no repository files are
-written.
+Current releases contain no ChromaDB dependency or migration bridge. A legacy
+palace with `chroma.sqlite3` fails closed without modifying the source, marker,
+destination, backup, or archive.
 
-### Prerequisites
-
-1. Install the `[chroma-migration]` extra:
-
-   ```bash
-   pip install 'mempalace-code[chroma-migration]'
-   ```
-
-   The migration bridge reads legacy ChromaDB sources only and is currently
-   capped below ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available
-   1.x line.
-
-2. If the release host is offline, pre-fetch the embedding model before running
-   the smoke (the `migrate-storage` CLI re-embeds source rows into LanceDB):
-
-   ```bash
-   mempalace-code fetch-model
-   ```
-
-   On an already-prefetched host, you can also force offline model resolution to
-   verify the smoke does not need network access:
-
-   ```bash
-   HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python scripts/migrate_storage_smoke.py --rows 3
-   ```
-
-### Running the migrate-storage smoke
-
-**Happy-path (3 rows):**
+Create and verify a separate source backup before upgrading. Then run the last
+public bridge release in an isolated `uvx` environment:
 
 ```bash
-python scripts/migrate_storage_smoke.py --rows 3
+uvx --from 'mempalace-code[chroma]==1.13.4' mempalace-code migrate-storage SRC DST --verify
 ```
 
-Expected output markers:
-
-```
-[smoke] counts: source=3 destination=3
-[smoke] search: marker found in migrated palace
-[smoke] PASS: source=3 destination=3 search=ok
-[smoke] temporary artifacts removed
-```
-
-**Boundary fixture (1 row):**
-
-```bash
-python scripts/migrate_storage_smoke.py --rows 1
-```
-
-Expected: `source=1 destination=1 search=ok`.
-
-**Non-empty destination guard:**
-
-```bash
-python scripts/migrate_storage_smoke.py --exercise-dst-guard
-```
-
-Expected output markers:
-
-```
-[smoke] guard-ok: dst count unchanged at 1
-[smoke] PASS: destination guard verified
-[smoke] temporary artifacts removed
-```
-
-### What the smoke verifies
-
-| Check | Evidence in output |
-|-------|--------------------|
-| Source count matches seed | `source=N` in the `PASS` line |
-| Destination count matches | `destination=N` in the `PASS` line |
-| Source backup exists | one `chroma-pre-migrate-*.tar.gz` archive in the smoke backup directory |
-| Source content is preserved | source Chroma row count and marker documents still match the seed |
-| Migrated content is searchable | `search=ok` in the `PASS` line |
-| Guard refuses non-empty dst without `--force` | `guard-ok` + `PASS` lines |
-
-### Cleanup boundary
-
-The smoke creates a `TemporaryDirectory` prefixed `mempalace_smoke_migrate_` under
-the system temp path (e.g. `/tmp`). It is removed automatically on exit — including
-failed runs — because Python's `TemporaryDirectory` context manager handles cleanup
-regardless of exceptions. No files are written inside the repository.
+Inspect the destination and retain the source backup until the LanceDB palace has
+passed `mempalace-code --palace DST health`. Re-running a current-version
+`migrate-storage` invocation only prints the retirement recovery message and exits
+nonzero; it performs no filesystem reads or writes.
 
 ---
 

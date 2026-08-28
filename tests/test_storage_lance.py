@@ -35,6 +35,7 @@ import pytest
 from mempalace_code.storage import (
     _META_DEFAULTS,
     _META_KEYS,
+    CHROMA_MIGRATION_COMMAND,
     ChromaRuntimeRetiredError,
     LanceStore,
     _detect_backend,
@@ -869,9 +870,9 @@ class TestOpenStoreFactory:
             open_store(str(missing), backend="chroma")
 
         msg = str(exc_info.value)
-        assert "mempalace-code migrate-storage SRC DST --verify" in msg
-        assert "source backup by default" in msg
-        assert "mempalace-code[chroma-migration]" in msg
+        assert "Back up the source palace before upgrading" in msg
+        assert msg.count("mempalace-code[chroma]==1.13.4") == 1
+        assert CHROMA_MIGRATION_COMMAND in msg
         assert not missing.exists()
 
     def test_chroma_only_auto_detect_fails_without_mutating_marker(self, tmp_path):
@@ -882,7 +883,7 @@ class TestOpenStoreFactory:
         with pytest.raises(ChromaRuntimeRetiredError) as exc_info:
             open_store(str(tmp_path), create=True)
 
-        assert "migrate-storage SRC DST --verify" in str(exc_info.value)
+        assert CHROMA_MIGRATION_COMMAND in str(exc_info.value)
         assert marker.exists()
         assert not (tmp_path / "lance").exists()
 

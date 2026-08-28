@@ -8,12 +8,12 @@ itself) and builds a file-level import graph scoped to ``mempalace_code/``,
 enforcement — negative cases use synthetic fixture roots instead.
 
 Layers (see ``LAYER_RULES`` / ``LAYER_NAMES``):
-    core, storage, mining, cli, mcp, legacy_optional, scripts
+    core, storage, mining, cli, mcp, scripts
 
 Enforces the minimum architecture boundary: protected layers (``storage``,
 ``mining`` — which includes ``config.py`` and ``miner.py``/``mining/**``) must
-not have a static runtime import path into ``cli``, ``mcp``, or
-``legacy_optional``. Direct and transitive violations are both reported, each
+not have a static runtime import path into ``cli`` or ``mcp``. Direct and
+transitive violations are both reported, each
 with the file-level hop path that produced them.
 
 Import cycles among runtime (non-``TYPE_CHECKING``) edges are detected and
@@ -42,18 +42,12 @@ LAYER_NAMES: tuple[str, ...] = (
     "mining",
     "cli",
     "mcp",
-    "legacy_optional",
     "scripts",
 )
 
 # Ordered, most-specific-first. Each entry: (layer, exact rel-posix files, path prefixes).
 # A file that matches no rule falls back to "core".
 LAYER_RULES: tuple[tuple[str, frozenset[str], tuple[str, ...]], ...] = (
-    (
-        "legacy_optional",
-        frozenset({"mempalace_code/_chroma_store.py", "mempalace_code/migrate.py"}),
-        ("mempalace_code/legacy_optional/",),
-    ),
     (
         "cli",
         frozenset({"mempalace_code/cli.py"}),
@@ -90,7 +84,7 @@ SCAN_ROOTS: tuple[str, ...] = ("mempalace_code", "mempalace", "scripts")
 # modules are classified but not enforced (e.g. mempalace_code/__init__.py
 # legitimately re-exports the CLI entry point).
 PROTECTED_LAYERS: frozenset[str] = frozenset({"storage", "mining"})
-FORBIDDEN_TARGET_LAYERS: frozenset[str] = frozenset({"cli", "mcp", "legacy_optional"})
+FORBIDDEN_TARGET_LAYERS: frozenset[str] = frozenset({"cli", "mcp"})
 
 
 def repo_root() -> Path:
@@ -186,8 +180,7 @@ class _ImportVisitor(ast.NodeVisitor):
     Static AST inspection only — a lazy import nested inside a function body is
     still visited, since it is still a real runtime import statement. Only
     ``importlib.import_module()`` calls (not ``Import``/``ImportFrom`` nodes)
-    are invisible to this visitor; that is the deliberate, narrowly reviewed
-    escape hatch for the legacy Chroma compatibility gateway.
+    are invisible to this visitor.
     """
 
     def __init__(self, source_rel: str, base_package: str, manifest: dict[str, str]) -> None:

@@ -1,5 +1,7 @@
 ---
 slug: CHROMA-MIGRATION-ADVISORY-SUNSET
+status: active
+authority: non_authoritative
 goal: "Remove ChromaDB from the release while retaining one safe retirement and pre-upgrade recovery path."
 risk: high
 risk_note: "This removes a published optional dependency and migration implementation while changing release-critical CI, installed-package behavior, and legacy-palace recovery guidance."

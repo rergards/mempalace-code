@@ -1561,8 +1561,6 @@ def test_candidate_extra_metadata_reconciliation_fails_closed(tmp_path):
             "spellcheck",
             "watch",
             "treesitter",
-            "chroma-migration",
-            "chroma",
         ],
     }
 
@@ -1581,16 +1579,12 @@ def test_candidate_extra_metadata_reconciliation_fails_closed(tmp_path):
     result = probe(payload)
     assert result.ok is True
     assert result.extras == (
-        "chroma",
-        "chroma-migration",
         "dev",
         "spellcheck",
         "treesitter",
         "watch",
     )
     assert result.runtime_extras == (
-        "chroma",
-        "chroma-migration",
         "spellcheck",
         "treesitter",
         "watch",
