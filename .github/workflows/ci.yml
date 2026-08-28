@@ -291,6 +291,12 @@ jobs:
           stage_dir=""
           staged_script=""
           staged_wheel=""
+          smoke_launcher_pid=""
+          smoke_pid=""
+          smoke_pgid=""
+          smoke_identity=""
+          smoke_identity_tmp=""
+          # shellcheck disable=SC2329  # Invoked indirectly by the EXIT trap below.
           cleanup_lifecycle_user() {
             trap - EXIT
             set +e
@@ -306,6 +312,59 @@ jobs:
             if [ -z "$lifecycle_runtime" ] && [ -n "$lifecycle_uid" ]; then
               lifecycle_runtime="/run/user/$lifecycle_uid"
             fi
+            cleanup_rc=0
+            if [ -n "$smoke_identity" ] && sudo test -e "$smoke_identity"; then
+              identity_rc=0
+              sudo test -f "$smoke_identity" && sudo test ! -L "$smoke_identity" || identity_rc=1
+              test "$(sudo stat -c %u "$smoke_identity" 2>/dev/null)" = "$lifecycle_uid" || identity_rc=1
+              smoke_extra=""
+              read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra < <(sudo cat "$smoke_identity")
+              test -n "$smoke_pid" && test -n "$smoke_pgid" && test -n "$smoke_uid" && test -n "$smoke_command" || identity_rc=1
+              test -z "$smoke_extra" || identity_rc=1
+              test "$smoke_pid" = "$smoke_pgid" || identity_rc=1
+              test "$smoke_uid" = "$lifecycle_uid" || identity_rc=1
+              test "$smoke_command" = "$python_bin" || identity_rc=1
+              if [ -n "$smoke_pid" ] && sudo test -d "/proc/$smoke_pid"; then
+                current_pgid="$(ps -o pgid= -p "$smoke_pid" | tr -d ' ')"
+                current_uid="$(sudo awk '/^Uid:/ {print $2}' "/proc/$smoke_pid/status")"
+                mapfile -d '' smoke_cmdline < <(sudo cat "/proc/$smoke_pid/cmdline")
+                test "$current_pgid" = "$smoke_pgid" || identity_rc=1
+                test "$current_uid" = "$lifecycle_uid" || identity_rc=1
+                test "${smoke_cmdline[0]:-}" = "$python_bin" || identity_rc=1
+                test "${smoke_cmdline[1]:-}" = "$staged_script" || identity_rc=1
+                if (( identity_rc == 0 )); then
+                  sudo kill -TERM -- "-$smoke_pgid"
+                  for _attempt in {1..20}; do
+                    sudo kill -0 -- "-$smoke_pgid" 2>/dev/null || break
+                    sleep 0.25
+                  done
+                  if sudo kill -0 -- "-$smoke_pgid" 2>/dev/null; then
+                    if sudo test -d "/proc/$smoke_pid"; then
+                      test "$(ps -o pgid= -p "$smoke_pid" | tr -d ' ')" = "$smoke_pgid" || identity_rc=1
+                    fi
+                    if (( identity_rc == 0 )); then
+                      sudo kill -KILL -- "-$smoke_pgid"
+                      for _attempt in {1..20}; do
+                        sudo kill -0 -- "-$smoke_pgid" 2>/dev/null || break
+                        sleep 0.25
+                      done
+                    fi
+                  fi
+                  sudo kill -0 -- "-$smoke_pgid" 2>/dev/null && identity_rc=1
+                fi
+              elif [ -n "$smoke_pgid" ] && sudo kill -0 -- "-$smoke_pgid" 2>/dev/null; then
+                identity_rc=1
+              fi
+              cleanup_rc=$((cleanup_rc | identity_rc))
+            fi
+            if [ -n "$smoke_identity_tmp" ]; then
+              sudo rm -f -- "$smoke_identity_tmp"
+              cleanup_rc=$((cleanup_rc | $?))
+            fi
+            if (( cleanup_rc != 0 )); then
+              echo "disposable smoke process identity or termination failed" >&2
+              exit 1
+            fi
             sudo -u "$lifecycle_user" env -i \
               HOME="$lifecycle_home" \
               XDG_RUNTIME_DIR="$lifecycle_runtime" \
@@ -313,7 +372,6 @@ jobs:
               PATH=/usr/local/bin:/usr/bin:/bin \
               systemctl --user disable --now mempalace-update.timer
             unit_rc=$?
-            cleanup_rc=0
             if (( unit_rc != 0 )) && {
               sudo test -e "$lifecycle_home/.config/systemd/user/mempalace-update.timer" ||
               sudo test -e "$lifecycle_home/.config/systemd/user/mempalace-update.service"
@@ -365,6 +423,8 @@ jobs:
           lifecycle_uid="$(id -u "$lifecycle_user")"
           lifecycle_home="$(getent passwd "$lifecycle_user" | cut -d: -f6)"
           lifecycle_runtime="/run/user/$lifecycle_uid"
+          smoke_identity="$lifecycle_home/.mempalace-release-smoke.identity"
+          smoke_identity_tmp="$smoke_identity.tmp"
           sudo systemctl start "user@${lifecycle_uid}.service"
           test "$(stat -c %u "$lifecycle_runtime")" = "$lifecycle_uid"
           python_bin="$(command -v python)"
@@ -398,10 +458,49 @@ jobs:
             XDG_RUNTIME_DIR="$lifecycle_runtime" \
             DBUS_SESSION_BUS_ADDRESS="unix:path=$lifecycle_runtime/bus" \
             MEMPALACE_RELEASE_SYSTEMD_USER=1 \
-            "$python_bin" "$staged_script" \
-              --all-installers \
-              --install-spec "$staged_wheel" \
-              --json
+            setsid bash -c '
+              set -euo pipefail
+              umask 077
+              test ! -e "$1"
+              test ! -e "$2"
+              test ! -L "$2"
+              trap '\''rm -f -- "$2"'\'' EXIT
+              printf "%s %s %s %s\n" "$$" "$$" "$(id -u)" "$3" > "$2"
+              test -f "$2" && test ! -L "$2"
+              test "$(stat -c %u "$2")" = "$(id -u)"
+              test "$(stat -c %a "$2")" = 600
+              mv -- "$2" "$1"
+              trap - EXIT
+              exec "$3" "$4" --all-installers --install-spec "$5" --json
+            ' bash "$smoke_identity" "$smoke_identity_tmp" "$python_bin" "$staged_script" "$staged_wheel" &
+          smoke_launcher_pid=$!
+          smoke_started_at=$SECONDS
+          for _attempt in {1..40}; do
+            sudo test -f "$smoke_identity" && break
+            kill -0 "$smoke_launcher_pid" 2>/dev/null || break
+            sleep 0.25
+          done
+          sudo test -f "$smoke_identity" && sudo test ! -L "$smoke_identity"
+          smoke_extra=""
+          read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra < <(sudo cat "$smoke_identity")
+          test -n "$smoke_pid" && test -n "$smoke_pgid" && test -n "$smoke_uid" && test -n "$smoke_command"
+          test -z "$smoke_extra"
+          test "$smoke_pid" = "$smoke_pgid"
+          test "$smoke_uid" = "$lifecycle_uid"
+          test "$smoke_command" = "$python_bin"
+          while kill -0 "$smoke_launcher_pid" 2>/dev/null; do
+            if (( SECONDS - smoke_started_at >= 2400 )); then
+              echo "installed-application smoke exceeded its 40-minute deadline; recovery: rerun the installed-application job" >&2
+              exit 124
+            fi
+            sleep 1
+          done
+          if wait "$smoke_launcher_pid"; then
+            smoke_launcher_rc=0
+          else
+            smoke_launcher_rc=$?
+          fi
+          exit "$smoke_launcher_rc"
       - name: Run full golden CLI suite through the exact installed wheel
         shell: bash
         run: |

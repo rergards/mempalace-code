@@ -218,8 +218,48 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert 'sudo rm -f -- "$staged_script" "$staged_wheel"' in command
     assert 'sudo rmdir -- "$stage_dir"' in command
     assert "rm -rf" not in command
-    assert '"$python_bin" "$staged_script"' in command
-    assert '--install-spec "$staged_wheel"' in command
+    assert "setsid bash -c" in command
+    assert 'exec "$3" "$4" --all-installers --install-spec "$5" --json' in command
+    assert 'smoke_identity="$lifecycle_home/.mempalace-release-smoke.identity"' in command
+    assert 'smoke_identity_tmp="$smoke_identity.tmp"' in command
+    assert "umask 077" in command
+    assert r"""trap '\''rm -f -- "$2"'\'' EXIT""" in command
+    assert 'test ! -e "$2"\n    test ! -L "$2"' in command
+    assert 'printf "%s %s %s %s\\n" "$$" "$$" "$(id -u)" "$3" > "$2"' in command
+    assert 'test "$(stat -c %u "$2")" = "$(id -u)"' in command
+    assert 'test "$(stat -c %a "$2")" = 600' in command
+    assert 'mv -- "$2" "$1"' in command
+    assert command.index('printf "%s %s %s %s\\n"') < command.index('mv -- "$2" "$1"')
+    assert command.count("read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra") == 2
+    assert (
+        'test -n "$smoke_pid" && test -n "$smoke_pgid" && test -n "$smoke_uid" && test -n "$smoke_command"'
+        in command
+    )
+    assert 'test -z "$smoke_extra"' in command
+    assert 'test "$smoke_pid" = "$smoke_pgid"' in command
+    assert 'test "$smoke_uid" = "$lifecycle_uid"' in command
+    assert 'test "$smoke_command" = "$python_bin"' in command
+    assert 'test "${smoke_cmdline[0]:-}" = "$python_bin"' in command
+    assert 'test "${smoke_cmdline[1]:-}" = "$staged_script"' in command
+    assert 'sudo kill -TERM -- "-$smoke_pgid"' in command
+    assert 'sudo kill -KILL -- "-$smoke_pgid"' in command
+    assert command.count('sudo kill -0 -- "-$smoke_pgid" 2>/dev/null || break') == 2
+    assert "disposable smoke process identity or termination failed" in command
+    assert 'sudo rm -f -- "$smoke_identity_tmp"' in command
+    assert "smoke_started_at=$SECONDS" in command
+    assert 'while kill -0 "$smoke_launcher_pid" 2>/dev/null; do' in command
+    assert "SECONDS - smoke_started_at >= 2400" in command
+    assert (
+        "installed-application smoke exceeded its 40-minute deadline; recovery: rerun the installed-application job"
+        in command
+    )
+    assert "exit 124" in command
+    assert 'if wait "$smoke_launcher_pid"; then' in command
+    assert 'exit "$smoke_launcher_rc"' in command
+    assert '\n          wait "$smoke_launcher_pid"\n' not in command
+    assert command.index('sudo kill -TERM -- "-$smoke_pgid"') < command.index(
+        'userdel --remove "$lifecycle_user"'
+    )
     assert '"$python_bin" scripts/release_install_metadata_smoke.py' not in command
     assert '--install-spec "$wheel_path"' not in command
     assert command.index("trap cleanup_lifecycle_user EXIT") < command.index(

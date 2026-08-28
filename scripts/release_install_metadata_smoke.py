@@ -35,6 +35,8 @@ import os
 import pwd
 import re
 import shutil
+import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -88,6 +90,7 @@ LIFECYCLE_STATUS_PASS = "pass"
 LIFECYCLE_STATUS_FAIL = "fail"
 LIFECYCLE_STATUS_UNRUN = "unrun"
 LIFECYCLE_AUTHORITY_ENV = "MEMPALACE_RELEASE_SYSTEMD_USER"
+LIFECYCLE_STAGING_ROOT_ENV = "MEMPALACE_RELEASE_STAGING_ROOT"
 LIFECYCLE_RECOVERY_COMMAND = (
     "MEMPALACE_RELEASE_SYSTEMD_USER=1 python "
     "scripts/release_install_metadata_smoke.py --all-installers "
@@ -459,14 +462,75 @@ def _linux_systemd_boundary(
     if home != passwd_home or home.stat().st_uid != uid or not home.is_dir():
         return None, "HOME does not match the effective uid passwd directory"
     console = Path(console_bin)
-    if not console.is_absolute() or not console.exists():
+    try:
+        console_stat = console.lstat()
+    except OSError:
         return None, "the selected installed console is not an existing absolute path"
+    if (
+        not console.is_absolute()
+        or not stat.S_ISREG(console_stat.st_mode)
+        or console.is_symlink()
+        or console_stat.st_uid != uid
+        or console_stat.st_mode & 0o111 == 0
+    ):
+        return None, "the selected installed console is not an owned regular executable"
     return {
         "uid_match": True,
         "home_match": True,
         "absolute_installed_console": True,
+        "console_validated": True,
+        "uid": uid,
         "home": home,
     }, None
+
+
+def _validate_owned_staging_path(
+    value: str,
+    *,
+    staging_root: Path,
+    expected_uid: int,
+) -> tuple[Path | None, str | None]:
+    """Admit a missing or owned regular path below one real owned staging root."""
+    candidate = Path(value)
+    try:
+        root = staging_root.resolve(strict=True)
+        root_stat = root.lstat()
+        parent = candidate.parent.resolve(strict=True)
+    except OSError:
+        return None, "installed network guard staging contour is unavailable"
+    if (
+        not candidate.is_absolute()
+        or not staging_root.is_absolute()
+        or not stat.S_ISDIR(root_stat.st_mode)
+        or staging_root.is_symlink()
+        or staging_root != root
+        or root_stat.st_uid != expected_uid
+        or parent != root
+        or candidate.parent != root
+    ):
+        return None, "installed network guard path escaped the owned staging contour"
+    try:
+        candidate_stat = candidate.lstat()
+    except FileNotFoundError:
+        return candidate, None
+    except OSError:
+        return None, "installed network guard path is unavailable"
+    if (
+        candidate.is_symlink()
+        or not stat.S_ISREG(candidate_stat.st_mode)
+        or candidate_stat.st_uid != expected_uid
+    ):
+        return None, "installed network guard path is not an owned regular file"
+    return candidate, None
+
+
+def _emit_progress(phase: str, status: str) -> None:
+    """Emit one bounded stderr receipt while reserving stdout for terminal JSON."""
+    print(
+        json.dumps({"release_install_smoke": {"phase": phase, "status": status}}),
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 def _lifecycle_snapshot(home: Path) -> tuple[object, object]:
@@ -561,13 +625,31 @@ def run_linux_systemd_update_lifecycle(
     unit_dir = home / ".config" / "systemd" / "user"
     marker_value = env.get("MEMPALACE_SOCKET_GUARD_LOADED")
     attempts_value = env.get("MEMPALACE_SOCKET_ATTEMPTS")
-    if not marker_value or not attempts_value:
+    staging_root_value = env.get(LIFECYCLE_STAGING_ROOT_ENV)
+    expected_uid = boundary.get("uid", os.geteuid())
+    if (
+        not marker_value
+        or not attempts_value
+        or not staging_root_value
+        or not isinstance(expected_uid, int)
+        or boundary.get("console_validated") is not True
+    ):
         return LinuxSystemdLifecycleResult(
             LIFECYCLE_STATUS_FAIL,
-            "installed network guard evidence paths are missing",
+            "installed lifecycle path ownership evidence is missing",
         )
-    marker = Path(marker_value)
-    attempts = Path(attempts_value)
+    staging_root = Path(staging_root_value)
+    marker, marker_error = _validate_owned_staging_path(
+        marker_value, staging_root=staging_root, expected_uid=expected_uid
+    )
+    attempts, attempts_error = _validate_owned_staging_path(
+        attempts_value, staging_root=staging_root, expected_uid=expected_uid
+    )
+    if marker is None or attempts is None:
+        return LinuxSystemdLifecycleResult(
+            LIFECYCLE_STATUS_FAIL,
+            sanitize(marker_error or attempts_error or "installed lifecycle path refused"),
+        )
     installed = False
     cleanup_ok = False
     evidence: dict[str, object] = {
@@ -782,12 +864,23 @@ def run_linux_systemd_update_lifecycle(
         evidence["confirmed_removal"] = True
 
         before_apply = _lifecycle_snapshot(home)
+        attempts, attempts_error = _validate_owned_staging_path(
+            attempts_value, staging_root=staging_root, expected_uid=expected_uid
+        )
+        if attempts is None:
+            return fail(attempts_error or "installed network guard attempts path refused")
         attempts.unlink(missing_ok=True)
         rc, applied, detail = _json_command(
             [console_bin, "update", "apply", "--yes", "--json"],
             env=env,
             cwd=probe_cwd,
             run_subprocess=run_subprocess,
+        )
+        verified_marker, marker_error = _validate_owned_staging_path(
+            marker_value, staging_root=staging_root, expected_uid=expected_uid
+        )
+        verified_attempts, attempts_error = _validate_owned_staging_path(
+            attempts_value, staging_root=staging_root, expected_uid=expected_uid
         )
         safe_preflight = (
             rc == 2
@@ -808,9 +901,13 @@ def run_linux_systemd_update_lifecycle(
                 python_bin, env=env, cwd=probe_cwd, run_subprocess=run_subprocess
             )
             == candidate_baseline
-            and marker.is_file()
-            and attempts.is_file()
-            and "pypi.org" in attempts.read_text(encoding="utf-8")
+            and marker_error is None
+            and attempts_error is None
+            and verified_marker is not None
+            and verified_attempts is not None
+            and verified_marker.is_file()
+            and verified_attempts.is_file()
+            and "pypi.org" in verified_attempts.read_text(encoding="utf-8")
         )
         if not safe_preflight:
             return fail(detail or "confirmed apply escaped the blocked-network preflight boundary")
@@ -2261,11 +2358,32 @@ def run_uv_tool_smoke(
             )
         result = evaluate_smoke(surfaces, package, install_spec, INSTALLER_UV_TOOL)
         if linux_lifecycle and result.ok:
+            try:
+                lifecycle_console = Path(console_bin).resolve(strict=True)
+                resolved_tool_dir = tool_dir.resolve(strict=True)
+                lifecycle_console_stat = lifecycle_console.lstat()
+            except (OSError, RuntimeError):
+                lifecycle_console = None
+            if (
+                lifecycle_console is None
+                or resolved_tool_dir not in lifecycle_console.parents
+                or not stat.S_ISREG(lifecycle_console_stat.st_mode)
+                or lifecycle_console_stat.st_uid != os.geteuid()
+                or lifecycle_console_stat.st_mode & 0o111 == 0
+            ):
+                result.lifecycle = LinuxSystemdLifecycleResult(
+                    LIFECYCLE_STATUS_UNRUN,
+                    "uv tool lifecycle console did not resolve to an owned regular executable "
+                    "within UV_TOOL_DIR",
+                    recovery_command=LIFECYCLE_RECOVERY_COMMAND,
+                )
+                return result
             lifecycle_env = dict(env)
             lifecycle_env.update(
                 {
                     "MEMPALACE_SOCKET_GUARD_LOADED": str(tmp_root / "socket-guard-loaded"),
                     "MEMPALACE_SOCKET_ATTEMPTS": str(tmp_root / "socket-attempts.log"),
+                    LIFECYCLE_STAGING_ROOT_ENV: str(tmp_root),
                     "PATH": os.pathsep.join(
                         (str(bin_dir), str(Path(uv_exe).resolve().parent), os.defpath)
                     ),
@@ -2281,7 +2399,7 @@ def run_uv_tool_smoke(
                 if value is not None:
                     lifecycle_env[name] = value
             result.lifecycle = run_linux_systemd_update_lifecycle(
-                console_bin,
+                str(lifecycle_console),
                 str(python_path),
                 result.expected_version,
                 str(probe_cwd),
@@ -2306,6 +2424,7 @@ def run_all_installers_smoke(
     results = []
     diagnostics = []
     for installer in INSTALLERS:
+        _emit_progress(f"installer:{installer}", "started")
         if (
             installer == INSTALLER_PIPX
             and find_pipx_executable() is None
@@ -2326,6 +2445,7 @@ def run_all_installers_smoke(
         else:
             result = runners[installer](install_spec, package, run_subprocess, recovery_safety=True)
         results.append(result)
+        _emit_progress(f"installer:{installer}", "passed" if result.ok else "failed")
         if not result.ok:
             diagnostics.extend(f"{installer}: {item}" for item in result.diagnostics)
     lifecycle = next((result.lifecycle for result in results if result.lifecycle is not None), None)
@@ -2340,12 +2460,16 @@ def run_all_installers_smoke(
             f"{SURFACE_LINUX_SYSTEMD_LIFECYCLE}: {lifecycle.status}: {lifecycle.detail}; "
             f"recovery: {lifecycle.recovery_command}"
         )
+    _emit_progress(
+        SURFACE_LINUX_SYSTEMD_LIFECYCLE,
+        lifecycle.status,
+    )
+    aggregate_ok = (
+        len(results) == len(INSTALLERS) and all(result.ok for result in results) and lifecycle.ok
+    )
+    _emit_progress("aggregate", "passed" if aggregate_ok else "failed")
     return AggregateSmokeResult(
-        ok=(
-            len(results) == len(INSTALLERS)
-            and all(result.ok for result in results)
-            and lifecycle.ok
-        ),
+        ok=aggregate_ok,
         install_spec=install_spec,
         results=results,
         diagnostics=diagnostics,
@@ -2400,6 +2524,82 @@ def _is_dependency_install(args: list[str]) -> bool:
     )
 
 
+def _owned_process_group_matches(pid: int, pgid: int, caller_pgid: int) -> bool:
+    """Revalidate the exact session retained from one child before signaling it."""
+    if pgid <= 1 or pgid != pid or pgid == caller_pgid or pgid == os.getpgrp():
+        return False
+    try:
+        current_pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        # A session leader may exit while its descendants retain our pipes.  Its
+        # process group cannot be reused while those descendants remain members,
+        # so the retained pid/pgid token still identifies exactly our session.
+        try:
+            os.killpg(pgid, 0)
+        except (ProcessLookupError, PermissionError):
+            return False
+        except OSError:
+            return False
+        return True
+    except OSError:
+        return False
+    return current_pgid == pgid
+
+
+def _settle_owned_process_group(
+    process: subprocess.Popen[str],
+    *,
+    pgid: int | None,
+    caller_pgid: int | None,
+) -> tuple[str, str, bool]:
+    """Apply finite TERM/KILL escalation and reap one previously admitted group."""
+    group_owned = (
+        pgid is not None
+        and caller_pgid is not None
+        and _owned_process_group_matches(process.pid, pgid, caller_pgid)
+    )
+    try:
+        if group_owned and pgid is not None:
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            process.terminate()
+    except ProcessLookupError:
+        pass
+    stdout = ""
+    stderr = ""
+    try:
+        stdout, stderr = process.communicate(timeout=2)
+        return stdout, stderr, True
+    except subprocess.TimeoutExpired:
+        group_owned = (
+            pgid is not None
+            and caller_pgid is not None
+            and _owned_process_group_matches(process.pid, pgid, caller_pgid)
+        )
+        try:
+            if group_owned and pgid is not None:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                process.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            stdout, stderr = process.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                if pipe is not None:
+                    try:
+                        pipe.close()
+                    except OSError:
+                        pass
+            try:
+                process.wait(timeout=1)
+            except (subprocess.TimeoutExpired, OSError):
+                return stdout, stderr, False
+            return stdout, stderr, False
+        return stdout, stderr, group_owned or pgid is None
+
+
 def _default_run_subprocess(
     args: list[str],
     env: dict[str, str] | None = None,
@@ -2413,25 +2613,76 @@ def _default_run_subprocess(
             if _is_dependency_install(args)
             else DEFAULT_TIMEOUT_SECONDS
         )
+    process: subprocess.Popen[str] | None = None
+    group_supported = os.name == "posix" and hasattr(os, "killpg")
+    caller_pgid = os.getpgrp() if group_supported else None
+    pgid: int | None = None
+    termination_started = False
+    previous_term_handler: object | None = None
+
+    def terminate_after_teardown(signum: int, _frame: object) -> None:
+        nonlocal termination_started
+        if termination_started:
+            return
+        termination_started = True
+        raise SystemExit(128 + signum)
+
     try:
-        r = subprocess.run(
+        previous_term_handler = signal.signal(signal.SIGTERM, terminate_after_teardown)
+    except (OSError, ValueError):
+        previous_term_handler = None
+    try:
+        process = subprocess.Popen(
             args,
-            input=input_text,
-            capture_output=True,
+            stdin=subprocess.PIPE if input_text is not None else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_seconds,
             env=env,
             cwd=cwd,
+            start_new_session=group_supported,
         )
+        if group_supported:
+            pgid = process.pid
+        stdout, stderr = process.communicate(input=input_text, timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
-        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        assert process is not None
+        stdout, stderr, _settled = _settle_owned_process_group(
+            process,
+            pgid=pgid,
+            caller_pgid=caller_pgid,
+        )
+        if not stdout and isinstance(exc.stdout, str):
+            stdout = exc.stdout
+        if not stderr and isinstance(exc.stderr, str):
+            stderr = exc.stderr
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode(errors="replace")
         command = Path(args[0]).name if args else "command"
-        detail = stderr.strip() or f"{command} timed out after {timeout_seconds}s"
+        detail = sanitize(stderr.strip()) or f"{command} timed out after {timeout_seconds}s"
+        if not _settled:
+            detail = sanitize(
+                f"{detail}; cleanup could not be confirmed; recovery: {LIFECYCLE_RECOVERY_COMMAND}"
+            )
         return 124, stdout, detail
     except OSError as exc:
+        if process is not None:
+            _settle_owned_process_group(process, pgid=pgid, caller_pgid=caller_pgid)
         return 1, "", str(exc)
-    return r.returncode, r.stdout, r.stderr
+    except BaseException:
+        if process is not None:
+            try:
+                _settle_owned_process_group(process, pgid=pgid, caller_pgid=caller_pgid)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        raise
+    finally:
+        if previous_term_handler is not None:
+            try:
+                signal.signal(signal.SIGTERM, previous_term_handler)
+            except (OSError, ValueError):
+                pass
+    return process.returncode, stdout, stderr
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
