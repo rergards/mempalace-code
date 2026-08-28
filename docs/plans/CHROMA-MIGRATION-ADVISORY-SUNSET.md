@@ -1,6 +1,6 @@
 ---
 slug: CHROMA-MIGRATION-ADVISORY-SUNSET
-status: active
+status: completed
 authority: non_authoritative
 goal: "Remove ChromaDB from the release while retaining one safe retirement and pre-upgrade recovery path."
 risk: high
