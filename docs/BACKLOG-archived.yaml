@@ -1701,3 +1701,8 @@ items:
       resolution: '2026-08-28: Regenerated and verified the v1.13.5 dependency report against current pyproject.toml and uv.lock hashes with successful default/dev/remaining-extra audits and no chromadb row.'
       archived_date: "2026-08-28"
       done_summary: Regenerated and verified the v1.13.5 dependency report against current pyproject.toml and uv.lock hashes with successful default/dev/remaining-extra audits and no chromadb row.
+    - key: DOC-MINIMAL-PROFILE-TOOL-LIST
+      summary: Name all four minimal MCP tools in agent install guidance
+      resolution: '2026-08-28: Corrected the minimal MCP profile choice to name status, search, duplicate check, and store; docs drift and public-safety checks pass.'
+      archived_date: "2026-08-28"
+      done_summary: Corrected the minimal MCP profile choice to name status, search, duplicate check, and store; docs drift and public-safety checks pass.
