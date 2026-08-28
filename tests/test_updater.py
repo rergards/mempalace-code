@@ -87,6 +87,24 @@ def _installation(extras: frozenset[str] = frozenset({"watch", "spellcheck"})) -
     )
 
 
+def test_detect_installed_extras_ignores_retired_chromadb(monkeypatch):
+    queried: list[str] = []
+
+    def fake_find_spec(module: str):
+        queried.append(module)
+        return object() if module in {"watchfiles", "chromadb"} else None
+
+    monkeypatch.setattr(updater, "find_spec", fake_find_spec)
+
+    extras = updater.detect_installed_extras()
+
+    assert extras == frozenset({"watch"})
+    assert "chromadb" not in queried
+    assert _installation(extras).package_spec(ELIGIBLE_VERSION) == (
+        f"mempalace-code[watch]=={ELIGIBLE_VERSION}"
+    )
+
+
 def _wheel(
     version: str, *, digest: str, yanked: bool = False, **overrides: object
 ) -> dict[str, object]:

@@ -366,7 +366,6 @@ def detect_installed_extras() -> frozenset[str]:
         "watch": "watchfiles",
         "treesitter": "tree_sitter",
         "spellcheck": "autocorrect",
-        "chroma": "chromadb",
     }
     return frozenset(extra for extra, module in modules.items() if find_spec(module) is not None)
 

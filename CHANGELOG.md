@@ -15,7 +15,7 @@ validation.
 ### Changed
 
 - Installed CLI paths now provide consistent project detection, confirmation output, and machine-reconcilable recovery commands.
-- ChromaDB runtime retired: configurations selecting the retired backend must run `mempalace-code migrate-storage SRC DST --verify` before upgrading. Migration-only extras `.[chroma-migration]` and the deprecated `.[chroma]` compatibility alias remain available; default LanceDB users require no action (`STORE-RETIRE-CHROMA-RUNTIME`).
+- ChromaDB runtime and migration bridge retired: current packages contain no Chroma extras. Retired backend or `migrate-storage` invocations stop before mutation and print the isolated 1.13.4 recovery command. Back up the Chroma source before upgrading; default LanceDB users require no action (`CHROMA-MIGRATION-ADVISORY-SUNSET`).
 - `mine-all`, `watch <dir>`, and `watch <dir> schedule` now ignore symlinked project and initialization markers, including `.git`. Replace the symlink with a supported in-project marker — a real `.git` directory or a regular marker file — then rerun the original command (`WATCH-ROOT-PROJECT-MARKER-CLASSIFICATION-REUSE`).
 - Update and install flows surface safe opt-in choices explicitly to agents and users (`AGENT-INSTALL-UPDATE-OPT-IN-FLOW`).
 - Alias target directory is now contained to the explicitly configured path (`INSTALL-ALIAS-TARGET-CONTAINMENT`).

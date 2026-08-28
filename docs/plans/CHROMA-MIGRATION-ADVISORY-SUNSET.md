@@ -22,6 +22,8 @@ files:
     change: "Remove ChromaStore from the current DrawerStore examples."
   - path: mempalace_code/layers.py
     change: "Describe the current palace store as LanceDB-only."
+  - path: mempalace_code/updater.py
+    change: "Stop inferring the removed chroma extra from an ambient chromadb installation so update commands remain installable after retirement."
   - path: mempalace_code/_chroma_store.py
     change: "Delete the packaged ChromaDB adapter."
   - path: mempalace_code/migrate.py
@@ -60,6 +62,8 @@ files:
     change: "Remove expectations for the retired Chroma collection-name configuration."
   - path: tests/test_version_check.py
     change: "Remove the obsolete Chroma collection-name key from configuration fixtures."
+  - path: tests/test_updater.py
+    change: "Prove that ambient chromadb is ignored and cannot reappear in a generated update package spec."
   - path: tests/test_pyright_optional_dependencies.py
     change: "Assert that default and optional package metadata contain no Chroma bridge files, extras, or dependency exclusions."
   - path: tests/test_dependency_upgrade_gate.py
@@ -104,6 +108,8 @@ files:
     change: "Update current fork storage capability to LanceDB-only with no packaged Chroma bridge while retaining upstream/historical facts."
   - path: docs/release-admission-rulesets.md
     change: "Remove the retired Chroma migration CI job from the documented release-required set."
+  - path: CHANGELOG.md
+    change: "Correct the current v1.13.5 entry to describe complete bridge retirement while preserving older historical release entries."
 acceptance:
   - id: AC-1
     when: "Fresh default, dev, and every remaining optional-extra resolver is audited and the v1.13.5 report is verified against the final pyproject.toml and uv.lock hashes."
@@ -116,7 +122,7 @@ acceptance:
     then: "Chroma paths exit nonzero before mutation with one retirement/advisory message, a backup requirement, and exactly one isolated recovery command using mempalace-code[chroma]==1.13.4; mixed valid Lance palaces continue to open as LanceDB without marker mutation."
   - id: AC-4
     when: "Repository, package metadata, built artifacts, CI topology, quality inventory, and current public documentation are inspected after the sunset."
-    then: "Chroma extras, lock entries, packaged bridge code, smoke owners, public exports, current install suggestions, duplicate recovery guidance, and generated residue are absent while historical changelog, archived reports, and upstream evidence remain intact."
+    then: "Chroma extras, lock entries, packaged bridge code, smoke owners, public exports, current install suggestions, duplicate recovery guidance, and generated residue are absent; the current changelog is accurate while older changelog entries, archived reports, and upstream evidence remain historical."
   - id: AC-5
     when: "Focused regressions, fresh Python 3.11-3.14 resolution, the configured offline suite, Ruff, both Pyright contours, architecture/docs/scorecard/public-safety/Gitleaks gates, artifact qualification, and direct exact-wheel installed paths run for the final candidate."
     then: "Every required check exits zero; recovery for a failed implementation remains restoring only the reviewed task files, with no palace, backup, or archive deletion."
@@ -309,6 +315,6 @@ task_contract:
 - Remove `mempalace_code/_chroma_store.py`, `mempalace_code/migrate.py`, `mempalace_code/legacy_optional/`, their direct tests/smoke, both extras, and the resulting lock graph. Remove the public `storage.ChromaStore` stub and migration-only configuration/argument surfaces rather than retaining dead compatibility owners.
 - Remove `chroma-migration-bridge` from both CI and `RELEASE_CRITICAL_CI_JOBS`; preserve all other jobs and the exact Python 3.11-3.14 matrix. Existing package and installed-golden owners absorb negative dependency, tombstone, and Lance regression evidence.
 - Regenerate `uv.lock`, the v1.13.5 dependency report, scorecards, and current upstream-comparison data only after source/metadata changes settle. The report must enumerate default, dev, spellcheck, treesitter, and watch as declared at implementation time; it must contain no Chroma extra or chromadb package row.
-- Current-support docs contain the retirement state and one recovery command. `CHANGELOG.md`, older dependency reports, benchmark artifacts, `NOTICE`, and bounded upstream evidence remain unchanged when their Chroma references are historical or describe upstream.
+- Current-support docs and the current v1.13.5 changelog entry contain the retirement state and one recovery command per user-facing surface. Older changelog entries, dependency reports, benchmark artifacts, `NOTICE`, and bounded upstream evidence remain unchanged when they accurately describe history or upstream.
 - Command context basis: repository-root Python commands and the exact lint, format, pytest, Pyright, scorecard, architecture, public-safety, and Gitleaks contours come from `pyproject.toml`, `pyrightconfig.strict.json`, `.claude/skills/verify/INSTRUCTIONS.md`, and the current release plans. The exact-candidate readiness command is the configured runner owner for hosted matrix and direct-wheel evidence.
 - Cheapest decisive falsifier: after metadata/lock regeneration, any `chromadb` row in the fresh current audit, wheel metadata, sdist/wheel members, or installed optional-extra inventory rejects the implementation before release qualification.

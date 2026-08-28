@@ -9,17 +9,17 @@ Schema version: 4
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 80 |
-| Package total lines | 28588 |
-| Package code lines | 23462 |
+| Package total lines | 28587 |
+| Package code lines | 23461 |
 | Test files (`tests/`) | 87 |
-| Test total lines | 75994 |
+| Test total lines | 76012 |
 
 ## Largest Modules (top 10)
 
 | Module | Lines |
 |--------|------:|
 | `mempalace_code/storage.py` | 1729 |
-| `mempalace_code/updater.py` | 1477 |
+| `mempalace_code/updater.py` | 1476 |
 | `mempalace_code/mining/chunkers.py` | 1466 |
 | `mempalace_code/watcher.py` | 1335 |
 | `mempalace_code/dialect.py` | 1074 |
@@ -123,7 +123,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | Test files | 87 |
-| Test functions | 3580 |
+| Test functions | 3581 |
 
 ## Available Suites
 
