@@ -98,9 +98,11 @@ items:
   - key: DOC-MINIMAL-PROFILE-TOOL-LIST
     summary: "Name all four minimal MCP tools in agent install guidance"
     type: bug
-    status: open
+    status: done
     priority: high
     size: XS
     section_id: pre_release
     assignee: bot
     description: "## Symptom\n\ndocs/AGENT_INSTALL.md calls the four-tool minimal MCP profile search + store only, omitting status and duplicate check from the human/LLM choice text.\n\n## Steps to reproduce\n\nCompare the Q6 minimal-profile wording with the canonical minimal set in mempalace_code/mcp_tool_profiles.py.\n\n## Scope\n\nCorrect only the existing minimal-profile choice line to name status, search, duplicate check, and store. Reuse the canonical profile owner in mempalace_code/mcp_tool_profiles.py.\n\n## Acceptance criteria\n\n- The agent install guidance names status, search, duplicate check, and store.\n- Docs drift and public-safety checks pass.\n- Recovery: revert only the one documentation line."
+    resolution: "2026-08-28: Corrected the minimal MCP profile choice to name status, search, duplicate check, and store; docs drift and public-safety checks pass."
+    done_summary: "Corrected the minimal MCP profile choice to name status, search, duplicate check, and store; docs drift and public-safety checks pass."
