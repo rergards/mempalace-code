@@ -1706,3 +1706,8 @@ items:
       resolution: '2026-08-28: Corrected the minimal MCP profile choice to name status, search, duplicate check, and store; docs drift and public-safety checks pass.'
       archived_date: "2026-08-28"
       done_summary: Corrected the minimal MCP profile choice to name status, search, duplicate check, and store; docs drift and public-safety checks pass.
+    - key: CONFIG-PEOPLE-MAP-MALFORMED-PRESERVE
+      summary: Refuse writes over unsafe people_map targets
+      resolution: '2026-08-28: Fail-closed regular-file validation now preserves malformed and unreadable bytes, rejects FIFO and other unsafe entries before open, retains valid symlink behavior, and passes direct smoke, 4,259 offline tests, static/public gates, Gitleaks, and three independent reviews at a0e40798.'
+      archived_date: "2026-08-28"
+      done_summary: Fail-closed regular-file validation now preserves malformed and unreadable bytes, rejects FIFO and other unsafe entries before open, retains valid symlink behavior, and passes direct smoke, 4,259 offline tests, static/public gates, Gitleaks, and three independent reviews at a0e40798.
