@@ -1010,7 +1010,12 @@ def _linux_lifecycle_runner(home: Path, *, false_pass: str | None = None):
                 "",
             )
         if args[0] == "systemd-run":
-            return 0, f"{home}\n", ""
+            return (
+                0,
+                f"{home}\n",
+                "Running as unit: mempalace-release-boundary.service\n"
+                "Finished with result: success\n",
+            )
         raise AssertionError(f"unexpected lifecycle command: {args}")
 
     return run

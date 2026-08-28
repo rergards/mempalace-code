@@ -296,7 +296,7 @@ jobs:
           smoke_pgid=""
           smoke_identity=""
           smoke_identity_tmp=""
-          # shellcheck disable=SC2329  # Invoked indirectly by the EXIT trap below.
+          # shellcheck disable=SC2317,SC2329  # Invoked indirectly by the EXIT trap below.
           cleanup_lifecycle_user() {
             trap - EXIT
             set +e

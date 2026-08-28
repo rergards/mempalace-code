@@ -670,7 +670,7 @@ def run_linux_systemd_update_lifecycle(
         if candidate_baseline is None or candidate_baseline.get("version") != expected_version:
             return fail("installed candidate package snapshot is unavailable")
         boundary_unit = f"mempalace-release-boundary-{os.getpid()}"
-        rc, manager_home, manager_error = run_subprocess(
+        rc, manager_home, _ = run_subprocess(
             [
                 "systemd-run",
                 "--user",
@@ -684,7 +684,7 @@ def run_linux_systemd_update_lifecycle(
             env=env,
             cwd=probe_cwd,
         )
-        if rc != 0 or manager_error or manager_home.strip() != str(home):
+        if rc != 0 or manager_home.strip() != str(home):
             return LinuxSystemdLifecycleResult(
                 LIFECYCLE_STATUS_UNRUN,
                 "systemd-user manager HOME does not match the disposable user",
