@@ -1696,3 +1696,8 @@ items:
       resolution: '2026-08-27: Captured exact clean Linux Python 3.14.7 failure, test owner, ambient-pipx root cause, and deterministic test-only correction; parent remains open.'
       archived_date: "2026-08-28"
       done_summary: Captured exact clean Linux Python 3.14.7 failure, test owner, ambient-pipx root cause, and deterministic test-only correction; parent remains open.
+    - key: REL-DEPENDENCY-REPORT-CURRENT-HASH
+      summary: Regenerate the v1.13.5 dependency report for current hashes
+      resolution: '2026-08-28: Regenerated and verified the v1.13.5 dependency report against current pyproject.toml and uv.lock hashes with successful default/dev/remaining-extra audits and no chromadb row.'
+      archived_date: "2026-08-28"
+      done_summary: Regenerated and verified the v1.13.5 dependency report against current pyproject.toml and uv.lock hashes with successful default/dev/remaining-extra audits and no chromadb row.

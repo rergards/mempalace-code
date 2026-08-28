@@ -68,16 +68,6 @@ items:
     links:
       - type: subtask-of
         key: RELEASE-DIRECT-INSTALLED-APP-GATE
-  - key: REL-DEPENDENCY-REPORT-CURRENT-HASH
-    summary: "Regenerate the v1.13.5 dependency report for current hashes"
-    type: task
-    status: done
-    priority: high
-    size: S
-    section_id: pre_release
-    description: "## Scope\n\nRegenerate docs/dependency-upgrade-reports/v1.13.5-release.json with the existing scripts/dependency_upgrade_gate.py audit path and the established REL-DEPENDENCY-AUDIT-1-13-5 contract. Keep pyproject.toml, uv.lock, dependency bounds, gate code, CI behavior, and report schema unchanged. Use one transient manifest covering default, dev, and every remaining optional extra with exact current locked targets after Chroma retirement. Commit only the sanitized successful report; retain no manifest, resolver output, cache path, hostname, credential, token, or temporary artifact.\n\n## Acceptance criteria\n\n- verify-report accepts the report against the current pyproject.toml and uv.lock hashes.\n- resolver_audits contains successful default, dev, and every remaining optional-extra row in the established manifest order, with no chromadb row.\n- ci-check passes against publish/main while the existing stale-report regression still fails closed.\n- public-safety and Gitleaks find no private or secret material.\n- Any advisory or resolver failure blocks replacement of the current report and returns one recovery command."
-    resolution: "2026-08-28: Regenerated and verified the v1.13.5 dependency report against current pyproject.toml and uv.lock hashes with successful default/dev/remaining-extra audits and no chromadb row."
-    done_summary: "Regenerated and verified the v1.13.5 dependency report against current pyproject.toml and uv.lock hashes with successful default/dev/remaining-extra audits and no chromadb row."
   - key: REL-SCHEDULE-SNIPPET-LINUX-MARKER
     summary: "Accept Linux cron evidence in installed schedule-snippet qualification"
     type: bug
