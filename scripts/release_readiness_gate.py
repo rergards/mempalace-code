@@ -5860,7 +5860,7 @@ def _reconcile_installed_optional_extras_and_public_exports(
         return "installed non-dev extras do not equal the direct evidence bindings"
     if exports != INSTALLED_PUBLIC_EXPORTS:
         return "installed public exports do not equal the direct evidence bindings"
-    required = {f"extra:{extra}" for extra in runtime_extras}
+    required = {"chroma:retired", *(f"extra:{extra}" for extra in runtime_extras)}
     required.update(
         f"export:{owner}:{member}" for owner, members in exports.items() for member in members
     )

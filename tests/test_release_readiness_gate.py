@@ -4376,6 +4376,7 @@ def test_installed_optional_extras_exclude_retired_chroma(tmp_path):
     )
     extras = ("spellcheck", "treesitter", "watch")
     evidence = {f"extra:{extra}": True for extra in extras}
+    evidence["chroma:retired"] = True
     evidence.update(
         {
             f"export:{owner}:{member}": True
