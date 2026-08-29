@@ -20,6 +20,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import platform
 import queue
 import re
 import shlex
@@ -49,6 +50,9 @@ INSTALLED_MODEL_CACHE_PROBE = (
 )
 INSTALLED_GOLDEN_COMMAND = (
     'python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json'
+)
+INSTALLED_GOLDEN_ONNX_CPU_WARNING = (
+    "onnxruntime cpuid_info warning: Unknown CPU vendor. cpuinfo_vendor value: 0"
 )
 INSTALLED_CLI_INVENTORY_PROBE_NAME = "installed-cli-inventory-probe.py"
 INSTALLED_CLI_INVENTORY_OUTPUT_LIMIT = 64 * 1024
@@ -772,6 +776,18 @@ def _run_golden_subprocess(run_subprocess, command: list[str], **kwargs):
         return subprocess.CompletedProcess(
             command, 127, stdout="", stderr=f"subprocess failed: {exc}"
         )
+
+
+def _classify_installed_golden_diagnostic(result, *, platform_name: str, machine: str):
+    """Consume the one proven-safe ONNX diagnostic on successful native Linux ARM."""
+    if (
+        result.returncode == 0
+        and platform_name == "linux"
+        and machine.strip().lower() in {"aarch64", "arm64"}
+        and result.stderr == f"{INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"
+    ):
+        result.stderr = ""
+    return result
 
 
 def _run_installed_cli(
@@ -6205,6 +6221,8 @@ def _run_installed_golden_wheel(
     base_env: dict[str, str] | None = None,
     run_subprocess=subprocess.run,
     popen=subprocess.Popen,
+    platform_name: str = sys.platform,
+    machine: str = platform.machine(),
 ) -> list[dict]:
     """Run the complete golden suite through one exact installed wheel executable."""
     env_source = dict(os.environ if base_env is None else base_env)
@@ -6336,6 +6354,18 @@ def _run_installed_golden_wheel(
             ]
         guard.write_text(smoke._SITE_GUARD, encoding="utf-8")
         guard_loader.write_text(f"import runpy; runpy.run_path({str(guard)!r})\n", encoding="utf-8")
+
+        candidate_run_subprocess = run_subprocess
+
+        def run_candidate_subprocess(command, **kwargs):
+            result = candidate_run_subprocess(command, **kwargs)
+            return _classify_installed_golden_diagnostic(
+                result,
+                platform_name=platform_name,
+                machine=machine,
+            )
+
+        run_subprocess = run_candidate_subprocess
 
         source_cache_env = setup_env.copy()
         source_cache_env.update(

@@ -198,6 +198,32 @@ def _successful_golden_runner(calls: list[tuple[list[str], dict]]):
     return run
 
 
+def _golden_runner_with_model_probe_diagnostic(
+    calls: list[tuple[list[str], dict]], *, stderr: str, returncode: int = 0
+):
+    successful = _successful_golden_runner(calls)
+    emitted = False
+
+    def run(command, **kwargs):
+        nonlocal emitted
+        result = successful(command, **kwargs)
+        normalized_command = [str(item) for item in command]
+        if (
+            not emitted
+            and len(normalized_command) > 2
+            and normalized_command[1:3] == ["-c", rrg.INSTALLED_MODEL_CACHE_PROBE]
+        ):
+            emitted = True
+            return SimpleNamespace(
+                returncode=returncode,
+                stdout=result.stdout,
+                stderr=stderr,
+            )
+        return result
+
+    return run
+
+
 def _compress_retry_runner(fault: str):
     state = {"compressed": False, "mixed": False, "exports": 0}
 
@@ -4041,6 +4067,104 @@ def test_installed_golden_uses_watch_extra_provenance_neutral_cwd_and_safe_env(
         str(tmp_path / "tests/test_cli_golden_scenarios.py") in command
         for command, _kwargs in failure_calls
     )
+
+
+@pytest.mark.parametrize("machine", ["AARCH64", "arm64"], ids=("aarch64", "arm64"))
+def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_suite(
+    tmp_path, monkeypatch, machine
+):
+    wheel = _write_candidate_wheel(tmp_path)
+    cache = _write_model_cache(tmp_path / "hf")
+    calls = []
+    _stub_direct_golden_scenarios(monkeypatch)
+    warning = f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"
+
+    rows = rrg._run_installed_golden_wheel(
+        tmp_path,
+        wheel,
+        base_env={"PATH": "/usr/bin", "MEMPALACE_TEST_HF_HOME": str(cache)},
+        run_subprocess=_golden_runner_with_model_probe_diagnostic(calls, stderr=warning),
+        platform_name="linux",
+        machine=machine,
+    )
+
+    assert len(rows) == 26
+    assert [row["status"] for row in rows] == ["pass"] * 26
+    assert rows[-1] == {
+        "id": "installed_golden_suite",
+        "command": rrg.INSTALLED_GOLDEN_COMMAND,
+        "status": "pass",
+        "detail": "complete golden CLI suite, optional extras, and public exports passed offline",
+    }
+    assert any(
+        len(command) > 2 and command[1:3] == ["-c", rrg.INSTALLED_MODEL_CACHE_PROBE]
+        for command, _kwargs in calls
+    )
+
+
+@pytest.mark.parametrize(
+    ("platform_name", "machine", "returncode", "stderr"),
+    [
+        ("linux", "x86_64", 0, f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
+        ("darwin", "arm64", 0, f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
+        ("linux", "unknown", 0, f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
+        ("linux", "arm64", 1, f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
+        ("linux", "arm64", 0, rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING),
+        ("linux", "arm64", 0, f" {rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
+        ("linux", "arm64", 0, f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING.lower()}\n"),
+        (
+            "linux",
+            "arm64",
+            0,
+            f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n",
+        ),
+        (
+            "linux",
+            "arm64",
+            0,
+            f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\nunexpected stderr\n",
+        ),
+    ],
+    ids=(
+        "linux-x64",
+        "darwin-arm64",
+        "linux-unknown",
+        "nonzero-exit",
+        "missing-terminal-newline",
+        "leading-content",
+        "case-drift",
+        "duplicate",
+        "additional-stderr",
+    ),
+)
+def test_installed_golden_onnx_warning_boundaries_fail_closed(
+    tmp_path, monkeypatch, platform_name, machine, returncode, stderr
+):
+    wheel = _write_candidate_wheel(tmp_path)
+    cache = _write_model_cache(tmp_path / "hf")
+    calls = []
+    _stub_direct_golden_scenarios(monkeypatch)
+
+    rows = rrg._run_installed_golden_wheel(
+        tmp_path,
+        wheel,
+        base_env={"PATH": "/usr/bin", "MEMPALACE_TEST_HF_HOME": str(cache)},
+        run_subprocess=_golden_runner_with_model_probe_diagnostic(
+            calls, stderr=stderr, returncode=returncode
+        ),
+        platform_name=platform_name,
+        machine=machine,
+    )
+
+    assert rows == [
+        {
+            "id": "installed_golden_cache",
+            "command": rrg.INSTALLED_GOLDEN_COMMAND,
+            "status": "fail",
+            "detail": "installed package rejected the canonical FastEmbed cache; "
+            + rrg._cache_recovery(),
+        }
+    ]
 
 
 def test_installed_golden_propagates_network_failure_with_sanitized_detail(tmp_path, monkeypatch):
