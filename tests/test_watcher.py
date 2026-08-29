@@ -26,6 +26,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+import mempalace_code.watcher as watcher_module
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -612,6 +614,70 @@ class TestWatcherOperationLease:
 
 
 class TestWatcherShutdownSignals:
+    @pytest.mark.parametrize("entrypoint", ["watch_and_mine", "watch_all"])
+    def test_immediate_sigint_after_watch_ready_is_clean(self, tmp_path, capsys, entrypoint):
+        project = tmp_path / "project"
+        _make_project(project)
+        supported_signals = [signal.SIGTERM]
+        if hasattr(signal, "SIGHUP"):
+            supported_signals.append(signal.SIGHUP)
+
+        original_handlers = {
+            shutdown_signal: signal.SIG_DFL for shutdown_signal in supported_signals
+        }
+        current_handlers = dict(original_handlers)
+        signal_calls = []
+        emitted_states = []
+        original_emit_run_state = watcher_module._emit_run_state
+        watch_mock = MagicMock(side_effect=AssertionError("watch loop must not start"))
+
+        def fake_getsignal(shutdown_signal):
+            return current_handlers[shutdown_signal]
+
+        def fake_signal(shutdown_signal, handler):
+            signal_calls.append((shutdown_signal, handler))
+            current_handlers[shutdown_signal] = handler
+
+        def interrupt_after_ready(run_id, state, extra=""):
+            original_emit_run_state(run_id, state, extra)
+            emitted_states.append(state)
+            if state == "watch-ready":
+                raise KeyboardInterrupt
+
+        with (
+            patch("mempalace_code.watcher.signal.getsignal", side_effect=fake_getsignal),
+            patch("mempalace_code.watcher.signal.signal", side_effect=fake_signal),
+            patch("mempalace_code.watcher._emit_run_state", side_effect=interrupt_after_ready),
+            patch("mempalace_code.watcher.mine", return_value={}),
+            patch("mempalace_code.watcher.get_collection"),
+            patch("watchfiles.watch", new=watch_mock),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            if entrypoint == "watch_and_mine":
+                watch_and_mine(str(project), str(tmp_path / "palace"))
+            else:
+                watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
+
+        assert emitted_states[-1] == "watch-ready"
+        watch_mock.assert_not_called()
+        assert [call[0] for call in signal_calls[: len(supported_signals)]] == supported_signals
+        assert [call[0] for call in signal_calls[-len(supported_signals) :]] == list(
+            reversed(supported_signals)
+        )
+        assert current_handlers == original_handlers
+
+        captured = capsys.readouterr()
+        combined_output = captured.out + captured.err
+        assert "Watch stopped after" in captured.out
+        expected_summary = (
+            "0 re-mine cycle(s), 0 file event(s)."
+            if entrypoint == "watch_and_mine"
+            else "0 re-mine cycle(s), 0 event(s) across 1 project(s)."
+        )
+        assert expected_summary in captured.out
+        assert "Traceback" not in combined_output
+
     @pytest.mark.parametrize("entrypoint", ["watch_and_mine", "watch_all"])
     def test_entrypoints_register_deliver_and_restore_supported_signals(self, tmp_path, entrypoint):
         project = tmp_path / "project"
