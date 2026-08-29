@@ -46,34 +46,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: UPSTREAM-COMMIT-INVENTORY-EXACT
-    summary: "Require exact upstream commit inventory coverage"
-    type: bug
-    status: open
-    priority: highest
-    size: S
-    section_id: quality
-    description: |-
-      ## Symptom
-
-      The first Autopilot pass fixed set equality but closed the task with two acceptance gaps: duplicate commit entries remain invisible after set conversion, and docs/UPSTREAM_COMPARISON.md still omits nested merge 7641e637 while claiming the manifest records the full merge and constituent inventory.
-
-      ## Steps to reproduce
-
-      1. Append an already-accounted SHA to another delta decision constituent_commits list in memory and run _validate_delta_decisions; the current result has no duplicate inventory error.
-      2. Inspect docs/UPSTREAM_COMPARISON.md: its 26 non-merge list omits 7641e637 even though the machine manifest now accounts for 43 total range commits.
-
-      ## Scope
-
-      Extend the existing scripts/upstream_comparison_guard.py implementation and tests to reject duplicate inventory ownership before set comparison. Correct the existing human-readable inventory definition/list in docs/UPSTREAM_COMPARISON.md. Preserve the current pins, decisions, owners, manifest schema, and no-network behavior. Do not add a new script, service, config, state owner, external client, or product decision.
-
-      Rule Zero evidence: these are incomplete acceptance edges in the same existing owner and canonical document. Cheapest falsifiers are a repeated SHA producing zero errors and the document lacking 7641e637.
-
-      ## Acceptance criteria
-
-      - A SHA repeated anywhere across merge_group or constituent_commits is rejected with deterministic ownership evidence.
-      - The 43-commit full-range inventory and the 26 non-merge subset are stated unambiguously in docs/UPSTREAM_COMPARISON.md, including nested merge 7641e637 in its owning group.
-      - Missing, extra, duplicate, exact, and unavailable Git evidence tests pass.
-      - The live upstream guard, docs drift, public safety, and focused upstream tests pass.
-      - No new inventory owner, network call, credential access, or follow-up backlog item is introduced.
+items: []
