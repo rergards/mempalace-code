@@ -613,12 +613,24 @@ class TestWatcherOperationLease:
 
 
 class TestWatcherShutdownSignals:
-    def test_watch_ready_sigint_exits_cleanly_and_restores_handlers(self, tmp_path, capsys):
+    @pytest.mark.parametrize(
+        ("entrypoint", "summary"),
+        [
+            ("watch_and_mine", "0 re-mine cycle(s), 0 file event(s)."),
+            ("watch_all", "0 re-mine cycle(s), 0 event(s) across 1 project(s)."),
+        ],
+    )
+    def test_watch_ready_sigint_exits_cleanly_and_restores_handlers(
+        self, tmp_path, capsys, entrypoint, summary
+    ):
         if not hasattr(os, "mkfifo"):
             pytest.skip("os.mkfifo is unavailable")
 
         project = tmp_path / "project"
-        project.mkdir()
+        if entrypoint == "watch_all":
+            _make_project(project)
+        else:
+            project.mkdir()
         fifo = project / "blocked.py"
         os.mkfifo(fifo)
 
@@ -644,8 +656,14 @@ class TestWatcherShutdownSignals:
                 "watchfiles.watch",
                 side_effect=AssertionError("watch loop must not start after ready-to-SIGINT"),
             ),
+            patch("mempalace_code.watcher.mine", return_value={}),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
         ):
-            watch_and_mine(str(project), str(tmp_path / "palace"))
+            if entrypoint == "watch_all":
+                watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
+            else:
+                watch_and_mine(str(project), str(tmp_path / "palace"))
 
         captured = capsys.readouterr()
         output = captured.out + captured.err
@@ -653,7 +671,7 @@ class TestWatcherShutdownSignals:
         assert f"{fifo} (fifo)" in output
         assert "state=watch-ready" in output
         assert "Watch stopped after" in output
-        assert "0 re-mine cycle(s), 0 file event(s)." in output
+        assert summary in output
         assert "Traceback" not in output
         assert "KeyboardInterrupt" not in output
         assert {
