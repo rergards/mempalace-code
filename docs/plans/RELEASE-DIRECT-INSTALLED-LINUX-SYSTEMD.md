@@ -1,6 +1,6 @@
 ---
 slug: RELEASE-DIRECT-INSTALLED-LINUX-SYSTEMD
-status: active
+status: completed
 authority: non_authoritative
 goal: "Make the exact MemPalace wheel self-sufficient on supported Linux pip and bootstrap-venv installs by declaring overrides>=7.7 as one direct runtime dependency."
 risk: medium
