@@ -148,12 +148,17 @@ The exact same owner runs inside `release_readiness_gate.py --check` and the
 required `installed-application` CI job; missing or failing evidence therefore
 blocks `release-required`.
 
-The default tag preflight is deterministic, local, and non-mutating. It checks
-tag/version agreement, the documentation contract, the committed-tree
-public-safety scan, and optionally a clean worktree. The explicit
-`--check-live-upstream` mode reuses the read-only shared upstream comparison
-guard; it adds one live branch-head lookup and never rewrites source or Git
-state.
+The default tag preflight is non-mutating. It checks tag/version agreement, the
+documentation contract, the committed-tree public-safety scan, optionally a
+clean worktree, and the exact 43-commit upstream inventory through one fixed,
+credential-free GitHub compare request. Unavailable, malformed, incomplete,
+duplicated, missing, or extra evidence blocks preflight. The explicit
+`--check-live-upstream` mode adds the separate fixed branch-head lookup. Neither
+path rewrites source or Git state. Recover and recheck with:
+
+```bash
+python scripts/upstream_comparison_guard.py --check-live --json
+```
 
 The exact-SHA release admission command is the publication boundary after the
 operator has reviewed the candidate commit and fetched the public target:

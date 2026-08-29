@@ -292,18 +292,21 @@ that named it, leaves the input in place, and makes the CLI exit nonzero.
 
 ## Automation Policy
 
-`scripts/upstream_comparison_guard.py` has two modes.
+`scripts/upstream_comparison_guard.py` uses a fixed, credential-free public read.
 
-**Static mode (default).** It validates manifest shape, pin format, review age,
+**Default mode.** It validates manifest shape, pin format, review age,
 README/document pointers, capability identifiers, published source links, delta
-decision stances, and the local files those stances name, using only the
-checkout. It is deterministic and network-free. CI lint and the default
-`scripts/release_preflight.py` use this mode.
+decision stances, and the local files those stances name. It then requests the
+fixed GitHub compare endpoint for the manifest-owned previous/current SHAs. The
+response must prove the expected base and head, an exact bounded total, and 43
+unique full commit SHAs equal to the manifest inventory. Missing, extra,
+duplicated, malformed, truncated, or unavailable evidence blocks the guard and
+the default `scripts/release_preflight.py`. The read uses no ambient credentials,
+proxies, cookies, redirects, retries, or Git checkout mutation.
 
-**Live mode (`--check-live`, explicit).** Live drift detection runs only at
-release time. It performs one read-only GitHub API request for the pinned branch
-head and fails closed on drift, fetch failure, or an unusable response. It never
-rewrites source or GitHub state. The canonical pre-tag owner is
+**Live mode (`--check-live`, explicit).** Live drift detection adds the separate
+fixed GitHub branch-head request and compares it with the reviewed pin. Drift,
+fetch failure, or an unusable response blocks the guard. The canonical pre-tag owner is
 `scripts/release_preflight.py`; invoke it with:
 
 ```bash
@@ -317,9 +320,10 @@ depth after a tag exists.
 
 ## Drift Recovery
 
-When the pre-tag release preflight or tag-only publish workflow reports
-`upstream-drift`, the failure names the current upstream head and the compare
-range from the pin. Refresh the review rather than moving the pin alone:
+When the default compare inventory read fails, or the live check reports
+`upstream-drift`, rerun the canonical recovery command below with public GitHub
+API access. A live drift failure names the current upstream head and compare
+range from the pin. Refresh the complete review:
 
 1. Read the compare range the failure prints, and classify every changed public
    surface into one delta decision with a stance from the closed set above.

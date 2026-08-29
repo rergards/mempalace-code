@@ -88,6 +88,68 @@ def test_check_runs_uses_one_bounded_credential_free_get():
     assert request.get_header("Cookie") is None
 
 
+def _compare_payload(commits: list[str]) -> dict[str, object]:
+    return {
+        "total_commits": len(commits),
+        "base_commit": {"sha": public.REVIEWED_UPSTREAM_PREVIOUS_COMMIT},
+        "commits": [{"sha": sha} for sha in commits],
+    }
+
+
+def test_upstream_compare_uses_fixed_endpoint_and_returns_complete_unique_inventory():
+    commits = ["1" * 40, public.REVIEWED_UPSTREAM_COMMIT]
+    opener = Opener([_json(_compare_payload(commits))])
+    result = public.PublicReader(opener)(
+        public.reviewed_upstream_compare(
+            public.REVIEWED_UPSTREAM_REPOSITORY,
+            public.REVIEWED_UPSTREAM_PREVIOUS_COMMIT,
+            public.REVIEWED_UPSTREAM_COMMIT,
+        )
+    )
+
+    assert result.data == commits
+    assert result.error == ""
+    request = opener.requests[0]
+    assert request.full_url == (
+        f"{public.GITHUB_API}/repos/{public.REVIEWED_UPSTREAM_REPOSITORY}/compare/"
+        f"{public.REVIEWED_UPSTREAM_PREVIOUS_COMMIT}...{public.REVIEWED_UPSTREAM_COMMIT}"
+        f"?per_page={public.MAX_UPSTREAM_COMPARE_COMMITS}&page=1"
+    )
+    assert request.get_header("Authorization") is None
+    assert request.get_header("Cookie") is None
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda payload: payload.update(total_commits=3), "complete pagination"),
+        (lambda payload: payload.update(base_commit={"sha": "2" * 40}), "reviewed base"),
+        (
+            lambda payload: (
+                payload["commits"].append({"sha": "1" * 40}),
+                payload.update(total_commits=3),
+            ),
+            "duplicate",
+        ),
+        (lambda payload: payload["commits"][-1].update(sha="3" * 40), "reviewed head"),
+        (lambda payload: payload["commits"][0].update(sha="bad"), "malformed commit"),
+    ],
+)
+def test_upstream_compare_rejects_incomplete_mismatched_or_malformed_evidence(mutate, message: str):
+    payload = _compare_payload(["1" * 40, public.REVIEWED_UPSTREAM_COMMIT])
+    mutate(payload)
+    result = public.PublicReader(Opener([_json(payload)]))(
+        public.reviewed_upstream_compare(
+            public.REVIEWED_UPSTREAM_REPOSITORY,
+            public.REVIEWED_UPSTREAM_PREVIOUS_COMMIT,
+            public.REVIEWED_UPSTREAM_COMMIT,
+        )
+    )
+
+    assert result.data is None
+    assert message in result.error
+
+
 @pytest.mark.parametrize(
     ("factory", "args"),
     [
@@ -105,6 +167,30 @@ def test_check_runs_uses_one_bounded_credential_free_get():
         (public.branch_rules, (public.PUBLIC_REPOSITORY, "feature")),
         (public.pypi_metadata, ("other-package",)),
         (public.reviewed_upstream_head, ("other/repo", "main")),
+        (
+            public.reviewed_upstream_compare,
+            (
+                "other/repo",
+                public.REVIEWED_UPSTREAM_PREVIOUS_COMMIT,
+                public.REVIEWED_UPSTREAM_COMMIT,
+            ),
+        ),
+        (
+            public.reviewed_upstream_compare,
+            (
+                public.REVIEWED_UPSTREAM_REPOSITORY,
+                "b" * 40,
+                public.REVIEWED_UPSTREAM_COMMIT,
+            ),
+        ),
+        (
+            public.reviewed_upstream_compare,
+            (
+                public.REVIEWED_UPSTREAM_REPOSITORY,
+                public.REVIEWED_UPSTREAM_PREVIOUS_COMMIT,
+                "c" * 40,
+            ),
+        ),
     ],
 )
 def test_unsupported_targets_are_rejected_before_a_request(factory, args):

@@ -22,6 +22,8 @@ PUBLIC_REPOSITORY: Final = "rergards/mempalace-code"
 PUBLIC_PACKAGE: Final = "mempalace-code"
 REVIEWED_UPSTREAM_REPOSITORY: Final = "MemPalace/mempalace"
 REVIEWED_UPSTREAM_BRANCH: Final = "develop"
+REVIEWED_UPSTREAM_PREVIOUS_COMMIT: Final = "dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0"
+REVIEWED_UPSTREAM_COMMIT: Final = "a9f345cc63254eb4dea7abad36963b85c9f8453a"
 GITHUB_API: Final = "https://api.github.com"
 PYPI_API: Final = "https://pypi.org"
 FILES_HOST: Final = "files.pythonhosted.org"
@@ -31,6 +33,7 @@ ARTIFACT_LIMIT: Final = 128 * 1024 * 1024
 ERROR_LIMIT: Final = 320
 USER_AGENT: Final = "mempalace-code-release-public-read/1"
 MAX_TAG_PEELS: Final = 4
+MAX_UPSTREAM_COMPARE_COMMITS: Final = 100
 
 _SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -196,6 +199,21 @@ def reviewed_upstream_head(repo: str, branch: str) -> _PublicQuery:
         (
             _fixed(repo, REVIEWED_UPSTREAM_REPOSITORY, "upstream repository"),
             _fixed(_branch(branch), REVIEWED_UPSTREAM_BRANCH, "upstream branch"),
+        ),
+    )
+
+
+def reviewed_upstream_compare(repo: str, previous_commit: str, commit: str) -> _PublicQuery:
+    return _PublicQuery(
+        "github_upstream_compare",
+        (
+            _fixed(repo, REVIEWED_UPSTREAM_REPOSITORY, "upstream repository"),
+            _fixed(
+                _sha(previous_commit),
+                REVIEWED_UPSTREAM_PREVIOUS_COMMIT,
+                "upstream previous commit",
+            ),
+            _fixed(_sha(commit), REVIEWED_UPSTREAM_COMMIT, "upstream commit"),
         ),
     )
 
@@ -417,6 +435,12 @@ class PublicReader:
         elif endpoint in {"github_commit", "github_upstream_head"}:
             repo, ref = values
             path = f"/repos/{repo}/commits/{urllib.parse.quote(str(ref), safe='')}"
+        elif endpoint == "github_upstream_compare":
+            repo, previous_commit, commit = values
+            path = (
+                f"/repos/{repo}/compare/{previous_commit}...{commit}"
+                f"?per_page={MAX_UPSTREAM_COMPARE_COMMITS}&page=1"
+            )
         elif endpoint == "pypi_metadata":
             (package,) = values
             return f"{PYPI_API}/pypi/{package}/json", JSON_LIMIT, "application/json"
@@ -515,6 +539,8 @@ class PublicReader:
             ):
                 raise PublicReadError("commit response carried no 40-hex SHA")
             return data["sha"].lower()
+        if endpoint == "github_upstream_compare":
+            return _upstream_compare(data, str(query.values[1]), str(query.values[2]))
         if endpoint == "pypi_metadata":
             if (
                 not isinstance(data, dict)
@@ -528,6 +554,35 @@ class PublicReader:
                 raise PublicReadError("unexpected provenance response shape")
             return json.dumps(data, separators=(",", ":")).encode()
         raise ValueError(f"unsupported public endpoint: {endpoint!r}")
+
+
+def _upstream_compare(data: object, previous_commit: str, commit: str) -> list[str]:
+    if (
+        not isinstance(data, dict)
+        or type(data.get("total_commits")) is not int
+        or not isinstance(data.get("base_commit"), dict)
+        or not isinstance(data.get("commits"), list)
+    ):
+        raise PublicReadError("unexpected upstream compare response shape")
+    total = data["total_commits"]
+    rows = data["commits"]
+    if total <= 0 or total > MAX_UPSTREAM_COMPARE_COMMITS or total != len(rows):
+        raise PublicReadError("upstream compare response does not prove complete pagination")
+    base_sha = data["base_commit"].get("sha")
+    if not isinstance(base_sha, str) or base_sha.lower() != previous_commit:
+        raise PublicReadError("upstream compare response does not match the reviewed base")
+
+    shas: list[str] = []
+    for item in rows:
+        sha = item.get("sha") if isinstance(item, dict) else None
+        if not isinstance(sha, str) or not _SHA.fullmatch(sha):
+            raise PublicReadError("upstream compare response contains a malformed commit")
+        shas.append(sha.lower())
+    if len(set(shas)) != len(shas):
+        raise PublicReadError("upstream compare response contains duplicate commits")
+    if shas[-1] != commit:
+        raise PublicReadError("upstream compare response does not match the reviewed head")
+    return shas
 
 
 def _workflow_run(item: object, workflow: str) -> dict[str, object]:

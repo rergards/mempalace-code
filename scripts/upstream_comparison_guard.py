@@ -2,9 +2,8 @@
 """Guard the reviewed upstream comparison against silent drift.
 
 The guard is stdlib-only so it can run in lint CI without importing package
-dependencies. Static mode reads only the checked-out tree and performs no
-network access. Live mode is opt-in, read-only, and performs exactly one
-GitHub API request for the pinned branch head.
+dependencies. Default mode performs one bounded public compare request for the
+pinned range. Live mode additionally reads the pinned branch head.
 
 The guard never rewrites the manifest, the comparison document, or the README,
 and never performs a GitHub mutation of any kind.
@@ -22,7 +21,6 @@ import ast
 import importlib.util
 import json
 import re
-import subprocess
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -112,7 +110,7 @@ class LiveCheckError(RuntimeError):
 
 
 class CommitInventoryError(RuntimeError):
-    """Raised when the pinned local Git revision set cannot be trusted."""
+    """Raised when the pinned public compare inventory cannot be trusted."""
 
 
 def repo_root() -> Path:
@@ -414,40 +412,6 @@ def manifest_commit_inventory(manifest: dict[str, Any]) -> set[str]:
     return inventory
 
 
-def collect_git_revision_set(
-    root: Path,
-    previous_commit: str,
-    commit: str,
-    *,
-    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
-) -> set[str]:
-    """Resolve the complete pinned Git range without first-parent filtering."""
-    revision = f"{previous_commit}..{commit}"
-    try:
-        result = run(
-            ["git", "rev-list", revision],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError as exc:
-        raise CommitInventoryError(f"git rev-list {revision} could not run ({exc})") from exc
-    if result.returncode != 0:
-        detail = result.stderr.strip() or f"exit status {result.returncode}"
-        raise CommitInventoryError(f"git rev-list {revision} failed ({detail})")
-
-    lines = result.stdout.splitlines()
-    if not lines:
-        raise CommitInventoryError(f"git rev-list {revision} returned no commits")
-    malformed = sorted({line for line in lines if not COMMIT_RE.fullmatch(line)})
-    if malformed:
-        raise CommitInventoryError(
-            f"git rev-list {revision} returned malformed revision lines {malformed}"
-        )
-    return set(lines)
-
-
 def _validate_decision_body(
     decision: dict[str, Any], label: str, tracked_paths: set[str]
 ) -> list[str]:
@@ -553,9 +517,9 @@ def evaluate(
     *,
     max_age_days: int = DEFAULT_MAX_AGE_DAYS,
     today: date | None = None,
-    revision_collector: Callable[[Path, str, str], set[str]] | None = None,
+    public_read: Callable[[object], object] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Return reviewed upstream facts and any static drift errors. No network access."""
+    """Return reviewed upstream facts and errors using bounded public range evidence."""
     if max_age_days < 0:
         return {}, [f"config-invalid: max_age_days must not be negative, found {max_age_days}"]
 
@@ -680,29 +644,28 @@ def evaluate(
 
     errors.extend(_missing_predicate_errors(root, manifest["delta_decisions"]))
 
-    git_commits: set[str] | None = None
+    upstream_commits: set[str] | None = None
     manifest_commits = manifest_commit_inventory(manifest)
-    collect_revisions = revision_collector or collect_git_revision_set
     try:
-        git_commits = collect_revisions(root, previous_commit, commit)
+        upstream_commits = fetch_commit_inventory(manifest, public_read=public_read)
     except CommitInventoryError as exc:
         errors.append(
-            f"commit-inventory: {exc}; rerun {INVENTORY_RECOVERY_COMMAND} from a checkout "
-            "containing the pinned history"
+            f"commit-inventory: {exc}; rerun {INVENTORY_RECOVERY_COMMAND} with public GitHub "
+            "API access"
         )
 
     missing_commits: list[str] = []
     extra_commits: list[str] = []
-    if git_commits is not None:
-        missing_commits = sorted(git_commits - manifest_commits)
-        extra_commits = sorted(manifest_commits - git_commits)
+    if upstream_commits is not None:
+        missing_commits = sorted(upstream_commits - manifest_commits)
+        extra_commits = sorted(manifest_commits - upstream_commits)
         if missing_commits:
             errors.append(
-                f"commit-inventory: manifest is missing Git-range commits {missing_commits}"
+                f"commit-inventory: manifest is missing upstream-range commits {missing_commits}"
             )
         if extra_commits:
             errors.append(
-                "commit-inventory: manifest has extra commits outside the Git range "
+                "commit-inventory: manifest has extra commits outside the upstream range "
                 f"{extra_commits}"
             )
 
@@ -731,11 +694,13 @@ def evaluate(
             for decision in manifest["delta_decisions"]
             if decision["release_critical"]
         ),
-        "git_range_commit_count": len(git_commits) if git_commits is not None else None,
+        "upstream_range_commit_count": (
+            len(upstream_commits) if upstream_commits is not None else None
+        ),
         "manifest_inventory_commit_count": len(manifest_commits),
         "missing_commits": missing_commits,
         "extra_commits": extra_commits,
-        "commit_inventory_exact": git_commits is not None
+        "commit_inventory_exact": upstream_commits is not None
         and not missing_commits
         and not extra_commits,
     }
@@ -832,6 +797,37 @@ def _load_public_read():
     return _PUBLIC_READ_MODULE
 
 
+def fetch_commit_inventory(
+    manifest: dict[str, Any],
+    *,
+    public_read: Callable[[object], object] | None = None,
+) -> set[str]:
+    """Return the complete pinned range from the fixed public compare endpoint."""
+    public = _load_public_read()
+    reader = public_read or public.DEFAULT_READER
+    owner, name = repository_slug(str(manifest["canonical_repository"]))
+    repository = f"{owner}/{name}"
+    previous_commit = str(manifest["previous_commit"])
+    commit = str(manifest["commit"])
+    try:
+        result = reader(public.reviewed_upstream_compare(repository, previous_commit, commit))
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise CommitInventoryError(f"upstream compare request failed ({exc})") from exc
+    if getattr(result, "error", ""):
+        raise CommitInventoryError(
+            f"upstream compare request failed ({getattr(result, 'error', '')})"
+        )
+    rows = getattr(result, "data", None)
+    if (
+        not isinstance(rows, list)
+        or not rows
+        or any(not isinstance(sha, str) or not COMMIT_RE.fullmatch(sha) for sha in rows)
+        or len(set(rows)) != len(rows)
+    ):
+        raise CommitInventoryError("upstream compare reply carried no complete unique SHA list")
+    return set(rows)
+
+
 def fetch_head_commit(
     manifest: dict[str, Any],
     *,
@@ -886,8 +882,8 @@ def check_live(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Verify the reviewed upstream comparison snapshot. Static checks are "
-            "network-free; --check-live adds one read-only GitHub API request."
+            "Verify the reviewed upstream comparison snapshot with one public compare request; "
+            "--check-live adds one read-only branch-head request."
         )
     )
     parser.add_argument(
@@ -951,7 +947,7 @@ def main(argv: list[str] | None = None) -> int:
             f"reviewed={facts['reviewed_date']} age_days={facts['review_age_days']} "
             f"delta_decisions={len(decisions)} "
             f"release_critical={len(facts['release_critical_decisions'])} "
-            f"git_range_commits={facts['git_range_commit_count']} "
+            f"upstream_range_commits={facts['upstream_range_commit_count']} "
             f"manifest_inventory_commits={facts['manifest_inventory_commit_count']}"
             f"{live_note}"
         )

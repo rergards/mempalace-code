@@ -87,7 +87,7 @@ def test_evaluate_accepts_matching_tag_and_passing_local_gates(tmp_path: Path):
     assert all(check["status"] == "ok" for check in checks)
 
 
-def test_evaluate_default_keeps_upstream_comparison_static_and_network_free(tmp_path: Path):
+def test_evaluate_default_delegates_public_upstream_inventory_success(tmp_path: Path):
     root = _root(tmp_path)
     commands: list[list[str]] = []
 
@@ -95,6 +95,8 @@ def test_evaluate_default_keeps_upstream_comparison_static_and_network_free(tmp_
         commands.append(command)
         if command[:2] == ["git", "rev-parse"] and "--verify" in command:
             return 1, "absent"
+        if command == [preflight.sys.executable, "scripts/upstream_comparison_guard.py"]:
+            return 0, "commit_inventory_exact=true upstream_range_commits=43"
         return 0, "passed"
 
     _, checks = preflight.evaluate(root, tag=None, require_clean=False, run=run)
@@ -105,6 +107,25 @@ def test_evaluate_default_keeps_upstream_comparison_static_and_network_free(tmp_
         preflight.sys.executable,
         "scripts/upstream_comparison_guard.py",
     ] in commands
+    upstream = next(check for check in checks if check["name"] == "upstream_comparison")
+    assert upstream["status"] == "ok"
+    assert upstream["detail"] == "commit_inventory_exact=true upstream_range_commits=43"
+
+
+def test_evaluate_default_fails_closed_on_public_upstream_inventory_error(tmp_path: Path):
+    root = _root(tmp_path)
+
+    def run(command, _root):
+        if command == [preflight.sys.executable, "scripts/upstream_comparison_guard.py"]:
+            return 1, "commit-inventory: upstream compare request failed (offline)"
+        return 0, "passed"
+
+    _, checks = preflight.evaluate(root, tag=None, require_clean=False, run=run)
+
+    upstream = next(check for check in checks if check["name"] == "upstream_comparison")
+    assert upstream["status"] == "fail"
+    assert upstream["detail"] == "commit-inventory: upstream compare request failed (offline)"
+    assert upstream["remediation"]
 
 
 def test_evaluate_opt_in_runs_gitleaks_history_gate_and_surfaces_failure(tmp_path: Path):
