@@ -202,7 +202,7 @@ def test_evaluate_accepts_valid_static_snapshot(tmp_path: Path):
 
 
 def test_evaluate_rejects_nested_merge_missing_from_manifest(tmp_path: Path):
-    nested_merge = "7" * 40
+    nested_merge = "7641e63741908ac2c5772e7b52a82efa57e9a826"
     root = _root(tmp_path)
     expected = guard.manifest_commit_inventory(guard.load_manifest(root)) | {nested_merge}
 
