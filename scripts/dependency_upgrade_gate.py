@@ -312,7 +312,15 @@ def _default_resolver_runner(audit_plan: list[list[str]], root: Path) -> list[di
             # Keep the audit tooling itself current so resolver evidence is not
             # blocked by an advisory in the venv's bundled pip.
             subprocess.run(
-                [str(pip), "install", "--quiet", "--upgrade", "pip", "pip-audit"],
+                [
+                    str(pip),
+                    "install",
+                    "--quiet",
+                    "--upgrade",
+                    "pip",
+                    "setuptools>=83",
+                    "pip-audit",
+                ],
                 capture_output=True,
             )
 

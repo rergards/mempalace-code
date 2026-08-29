@@ -21,6 +21,7 @@ ROOT = Path(__file__).parent.parent
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "publish.yml"
 UPSTREAM_DRIFT_WORKFLOW = ROOT / ".github" / "workflows" / "upstream-drift.yml"
+DOTNET_BENCH_WORKFLOW = ROOT / ".github" / "workflows" / "dotnet-bench.yml"
 
 
 def _load_admission():
@@ -107,10 +108,16 @@ def test_installed_application_self_seeds_required_minilm_cache_on_miss():
     cache = next(step for step in job["steps"] if step.get("id") == "hf-cache")
     assert str(cache["uses"]).startswith("actions/cache@")
     assert cache["with"]["path"].endswith(
-        "/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2"
+        "/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1"
     )
     assert "fail-on-cache-miss" not in cache["with"]
-    assert "minilm-all-MiniLM-L6-v2" in cache["with"]["key"]
+    assert "fastembed-" in cache["with"]["key"]
+    assert "benchmarks/minilm_runtime_compatibility_fixture.json" in cache["with"]["key"]
+    assert job["runs-on"] == "${{ matrix.runner }}"
+    assert job["strategy"]["matrix"]["include"] == [
+        {"runner": "ubuntu-latest", "python": "3.11", "arch": "x64"},
+        {"runner": "ubuntu-24.04-arm", "python": "3.12", "arch": "arm64"},
+    ]
 
     bootstrap = next(step for step in steps if "fetch-model" in str(step.get("run", "")))
     assert bootstrap["if"] == "steps.hf-cache.outputs.cache-hit != 'true'"
@@ -159,7 +166,24 @@ def test_installed_application_self_seeds_required_minilm_cache_on_miss():
         for index, step in enumerate(steps)
         if "--installed-golden-wheel" in step.get("run", "")
     )
-    assert steps.index(cache) < bootstrap_index < build_index < manager_index < golden_index
+    compatibility = next(
+        step for step in steps if "--check-minilm-runtime-compatibility" in step.get("run", "")
+    )
+    compatibility_index = steps.index(compatibility)
+    assert compatibility["if"] == "matrix.arch == 'x64'"
+    assert 'python -m pip install "${wheel[0]}"' in compatibility["run"]
+    checkout = next(
+        step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    assert checkout["with"]["fetch-depth"] == "${{ matrix.arch == 'x64' && '0' || '1' }}"
+    assert (
+        steps.index(cache)
+        < bootstrap_index
+        < build_index
+        < compatibility_index
+        < manager_index
+        < golden_index
+    )
 
 
 def test_installed_application_cache_bootstrap_has_no_credential_or_provider_access():
@@ -885,3 +909,10 @@ def test_publish_never_gains_a_manual_or_release_trigger():
     text = PUBLISH_WORKFLOW.read_text(encoding="utf-8")
     assert "workflow_dispatch" not in text
     assert "\n  release:" not in text
+
+
+def test_benchmark_owner_uses_canonical_fastembed_cache():
+    text = DOTNET_BENCH_WORKFLOW.read_text(encoding="utf-8")
+    assert ".cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1" in text
+    assert "hub/models--sentence-transformers--all-MiniLM-L6-v2" not in text
+    assert "--check-facts benchmarks/retrieval_quality_facts.json" not in text

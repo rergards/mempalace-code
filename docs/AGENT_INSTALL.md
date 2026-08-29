@@ -179,7 +179,7 @@ read-only Linux eligibility checks pass.
 
 ### Q3 — Model download consent
 
-**ASK HUMAN:** "mempalace-code uses a local embedding model (~80 MB) cached once from HuggingFace. This requires internet access only if the model is not already cached; after that everything runs offline. Reply `yes` to cache/verify now, `no` to skip (you can run `mempalace-code fetch-model` later), or `offline` if this machine has no internet access."
+**ASK HUMAN:** "mempalace-code uses a local CPU FastEmbed/ONNX model cached once with immutable MemPalace provenance. This requires internet access only if the model is not already cached; after that everything runs offline. Reply `yes` to cache/verify now, `no` to skip (you can run `mempalace-code fetch-model` later), or `offline` if this machine has no internet access."
 
 **Parse response:**
 - `yes` → Set `DOWNLOAD_MODEL=yes`.
@@ -510,6 +510,12 @@ Run:
 ```
 
 `fetch-model` is idempotent — if the model is already cached it verifies local-only model resolution from disk (no network call). Expected output ends with `Done — embedding model is ready for offline use.`
+
+The canonical cache authority is
+`$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/.mempalace-model.json`.
+For an explicit custom model or local SentenceTransformer path, ask for authority before
+running `python -m pip install 'mempalace-code[custom-models]'`; only that path may execute
+trusted remote model code.
 
 Exit code 0 = success. Set `MODEL_READY=true`. Continue to Step 4d.
 

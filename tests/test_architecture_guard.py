@@ -35,6 +35,24 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def test_embedding_manifest_rejects_torch_and_requires_custom_owner(tmp_path: Path):
+    _write(tmp_path / "mempalace_code" / "storage.py", "")
+    _write(
+        tmp_path / "pyproject.toml",
+        """[project]
+dependencies = ["fastembed>=0.8", "onnxruntime>=1.20", "torch>=2"]
+[project.optional-dependencies]
+custom-models = []
+""",
+    )
+
+    result = guard.evaluate(tmp_path)
+
+    assert result.ok is False
+    assert "forbidden default runtime dependency: torch" in result.manifest_violations
+    assert "custom-models must own sentence-transformers" in result.manifest_violations
+
+
 # ── AC-1: clean graph exits 0 ───────────────────────────────────────────────────
 
 

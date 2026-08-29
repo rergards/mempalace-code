@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 23484,
+    "package_code_lines": 23810,
     "package_files": 80,
-    "package_total_lines": 28613,
-    "test_files": 87,
-    "test_total_lines": 77002
+    "package_total_lines": 28982,
+    "test_files": 88,
+    "test_total_lines": 77472
   },
   "demo_gates": {
     "architecture_guard": {
@@ -52,7 +52,7 @@
   },
   "largest_modules": [
     {
-      "lines": 1729,
+      "lines": 2053,
       "path": "mempalace_code/storage.py"
     },
     {
@@ -270,13 +270,13 @@
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 160,
+    "type_pyright_total": 157,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 87,
-    "test_functions": 3611
+    "test_files": 88,
+    "test_functions": 3633
   },
   "verification_commands": [
     {

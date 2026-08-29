@@ -164,17 +164,12 @@ def _stop_watcher(
 
 
 def _require_cached_default_model() -> None:
-    from mempalace_code.storage import DEFAULT_EMBED_MODEL
+    from mempalace_code.storage import _FastEmbedder, canonical_fastembed_cache_owned
 
     try:
-        from sentence_transformers import SentenceTransformer
-
-        SentenceTransformer(
-            DEFAULT_EMBED_MODEL,
-            device="cpu",
-            local_files_only=True,
-            trust_remote_code=True,
-        )
+        assert canonical_fastembed_cache_owned()
+        vector = _FastEmbedder(local_files_only=True).compute_source_embeddings(["watcher"])[0]
+        assert len(vector) == 384
     except Exception as exc:
         pytest.skip(f"required watcher support unavailable: cached default embedding model: {exc}")
 

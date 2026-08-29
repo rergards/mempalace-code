@@ -206,7 +206,7 @@ Copy `palace_full.jsonl` to the target machine (USB, encrypted transfer, etc.).
 **On the airgap machine:**
 
 ```bash
-# Ensure embedding model is cached first
+# Ensure the canonical FastEmbed model and provenance are cached first
 mempalace-code fetch-model
 
 # Import — will re-embed content using the local model

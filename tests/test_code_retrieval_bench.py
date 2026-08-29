@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 _BENCH_FILE = Path(__file__).resolve().parent.parent / "benchmarks" / "code_retrieval_bench.py"
 _spec = importlib.util.spec_from_file_location("code_retrieval_bench", _BENCH_FILE)
@@ -220,3 +221,125 @@ def test_run_benchmark_json_shape_without_embeddings(monkeypatch, tmp_path):
     assert set(report["modes"]) == {"smart", "treesitter"}
     assert report["modes"]["smart"]["per_query"][0]["top5_files"] == ["/repo/miner.py"]
     assert report["comparison"]["treesitter"]["chunk_count"] == 2
+
+
+def _compatibility_result(*, chunks=466, r5=0.95, r10=1.0):
+    return {
+        "query_count": 20,
+        "models": {
+            "minilm": {
+                "performance": {"embed_chunks": chunks},
+                "code_retrieval": {"R@5": r5, "R@10": r10},
+            }
+        },
+    }
+
+
+def test_minilm_compatibility_fixture_binds_public_reproduction_contract():
+    facts = json.loads(bench.RETRIEVAL_QUALITY_FACTS.read_text(encoding="utf-8"))
+    provenance = facts["code_minilm"]["public_reproducible_compatibility"]
+
+    assert provenance == {
+        "chunk_count": 466,
+        "commit": "3ad086bfd15bab032e86bef3e9deec207c13c17b",
+        "excluded_output": "benchmarks/results_embed_ab_2026-04-09.json",
+        "headline_469_corpus_rerun": False,
+        "minimum_r_at_10": 1.0,
+        "minimum_r_at_5": 0.95,
+        "query_count": 20,
+        "reproduction_command": (
+            "python benchmarks/code_retrieval_bench.py --check-minilm-runtime-compatibility"
+        ),
+        "runtime_owner": "mempalace_code.storage._FastEmbedder(local_files_only=True)",
+    }
+    assert {key: facts["code_minilm"][key] for key in ("chunk_count", "r_at_5", "r_at_10")} == {
+        "chunk_count": 469,
+        "r_at_5": 0.95,
+        "r_at_10": 1.0,
+    }
+    fixture = json.loads(
+        (
+            bench.RETRIEVAL_QUALITY_FACTS.parent / "minilm_runtime_compatibility_fixture.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert "historical_corpus_compatibility" not in fixture
+    assert "exact_top_12_order_match" not in json.dumps(fixture)
+
+
+def test_minilm_compatibility_result_passes_exact_corpus_and_thresholds():
+    contract = bench._minilm_compatibility_contract()
+
+    bench._validate_minilm_compatibility_result(contract, _compatibility_result())
+
+
+def test_minilm_compatibility_result_fails_closed_on_corpus_or_quality_drift():
+    contract = bench._minilm_compatibility_contract()
+
+    for result in (
+        _compatibility_result(chunks=465),
+        _compatibility_result(r5=0.949),
+        _compatibility_result(r10=0.999),
+    ):
+        try:
+            bench._validate_minilm_compatibility_result(contract, result)
+        except bench.BenchError:
+            pass
+        else:
+            raise AssertionError("expected compatibility drift to fail closed")
+
+
+def test_minilm_compatibility_adapter_delegates_to_current_storage_owner():
+    source = bench._compatibility_adapter_source()
+
+    assert "import mempalace_code.storage as _storage" in source
+    assert "_storage._FastEmbedder(local_files_only=True)" in source
+    assert 'os.environ["MEMPALACE_EXPECTED_RUNTIME_ROOT"]' in source
+    assert "_storage_file.is_relative_to(_expected_runtime_root)" in source
+    assert "sentence_transformers" not in source
+
+
+def test_active_distribution_root_contains_imported_storage_owner():
+    import mempalace_code.storage
+
+    runtime_root = bench._active_distribution_package_root()
+
+    assert Path(mempalace_code.storage.__file__).resolve().is_relative_to(runtime_root)
+
+
+def test_main_compatibility_mode_bypasses_current_dataset(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(
+        bench, "run_minilm_runtime_compatibility", lambda _repo: _compatibility_result()
+    )
+
+    assert (
+        bench.main(
+            [
+                "--repo-dir",
+                str(tmp_path),
+                "--dataset",
+                str(tmp_path / "missing.json"),
+                "--check-minilm-runtime-compatibility",
+            ]
+        )
+        == 0
+    )
+    assert "PASS MiniLM runtime compatibility" in capsys.readouterr().out
+
+
+def test_history_recovery_is_truthful_for_shallow_and_complete_repositories(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        bench.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout="true\n"),
+    )
+    commit = "3ad086bfd15bab032e86bef3e9deec207c13c17b"
+    assert bench._history_recovery(tmp_path, commit) == "git fetch --unshallow"
+
+    monkeypatch.setattr(
+        bench.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout="false\n"),
+    )
+    assert bench._history_recovery(tmp_path, commit) == (
+        f"git fetch {bench.MINILM_PUBLIC_REPOSITORY} {commit}"
+    )

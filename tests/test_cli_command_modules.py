@@ -8,12 +8,14 @@ Verifies:
   - python -m mempalace_code.cli does not emit the runpy RuntimeWarning (AC-1, AC-2)
 """
 
+import json
 import logging
 import os
 import runpy
 import subprocess
 import sys
 import types
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -315,13 +317,64 @@ def test_fetch_model_is_same_object_as_in_model_module():
     assert cli.fetch_model is model.fetch_model
 
 
-def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False):
+def _write_fake_fastembed_layout(cache_dir: Path, *, provenance: bool) -> None:
+    from mempalace_code.storage import (
+        CANONICAL_EMBED_MODEL_REVISION,
+        canonical_fastembed_provenance,
+    )
+
+    repository = cache_dir / "models--qdrant--all-MiniLM-L6-v2-onnx"
+    refs = repository / "refs"
+    refs.mkdir(parents=True, exist_ok=True)
+    (refs / "main").write_text(CANONICAL_EMBED_MODEL_REVISION, encoding="utf-8")
+    snapshot = repository / "snapshots" / CANONICAL_EMBED_MODEL_REVISION
+    snapshot.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "config.json",
+        "model.onnx",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+    ):
+        (snapshot / name).write_bytes(b"fixture")
+    (snapshot / "tokenizer_config.json").write_text(
+        json.dumps({"max_length": 256, "model_max_length": 512}), encoding="utf-8"
+    )
+    if provenance:
+        (cache_dir / ".mempalace-model.json").write_text(
+            json.dumps(canonical_fastembed_provenance()), encoding="utf-8"
+        )
+
+
+def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False, fail_online=False):
+    downloaded = False
+
+    class FakeTextEmbedding:
+        def __init__(self, **kwargs):
+            nonlocal downloaded
+            calls.append(kwargs)
+            if fail_local and kwargs.get("local_files_only") and not downloaded:
+                raise RuntimeError("local model unavailable")
+            if not kwargs.get("local_files_only"):
+                if fail_online:
+                    cache = Path(kwargs["cache_dir"])
+                    cache.mkdir(parents=True, exist_ok=True)
+                    (cache / "interrupted.bin").write_bytes(b"partial")
+                    raise RuntimeError("download interrupted")
+                _write_fake_fastembed_layout(Path(kwargs["cache_dir"]), provenance=False)
+                downloaded = True
+
     class FakeSentenceTransformer:
         def __init__(self, model_name, **kwargs):
             calls.append((model_name, kwargs))
             if fail_local and kwargs.get("local_files_only"):
                 raise RuntimeError("local model unavailable")
 
+    monkeypatch.setitem(
+        sys.modules,
+        "fastembed",
+        types.SimpleNamespace(TextEmbedding=FakeTextEmbedding),
+    )
     monkeypatch.setitem(
         sys.modules,
         "sentence_transformers",
@@ -337,51 +390,86 @@ def test_fetch_model_uses_cached_model_without_download(tmp_path, monkeypatch, c
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     cache_dir = model._model_cache_dir(DEFAULT_EMBED_MODEL)
     assert cache_dir is not None
-    (cache_dir / "refs").mkdir(parents=True)
-    (cache_dir / "snapshots" / "snapshot").mkdir(parents=True)
+    _write_fake_fastembed_layout(cache_dir, provenance=True)
 
     calls = []
     _install_fake_fetch_model(monkeypatch, calls)
 
     model.fetch_model(DEFAULT_EMBED_MODEL)
 
-    assert calls == [(DEFAULT_EMBED_MODEL, {"local_files_only": True})]
+    assert len(calls) == 1
+    assert calls[0]["local_files_only"] is True
+    assert calls[0]["providers"] == ["CPUExecutionProvider"]
+    assert "trust_remote_code" not in calls[0]
     output = capsys.readouterr().out
     assert "already available locally" in output
     assert "Downloading model" not in output
 
 
-def test_fetch_model_downloads_after_local_cache_miss(monkeypatch, capsys):
-    """Uncached fetch-model probes local files first, then performs one online load."""
+def test_fetch_model_downloads_after_local_cache_miss(tmp_path, monkeypatch, capsys):
+    """Uncached fetch normalizes the downloaded cache before its local reload."""
     from mempalace_code.cli_commands import model
     from mempalace_code.storage import DEFAULT_EMBED_MODEL
 
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     calls = []
     _install_fake_fetch_model(monkeypatch, calls, fail_local=True)
 
     model.fetch_model(DEFAULT_EMBED_MODEL)
 
-    assert calls == [
-        (DEFAULT_EMBED_MODEL, {"local_files_only": True}),
-        (DEFAULT_EMBED_MODEL, {"local_files_only": False}),
-    ]
+    assert len(calls) == 2
+    assert calls[0]["local_files_only"] is False
+    assert calls[1]["local_files_only"] is True
     output = capsys.readouterr().out
     assert "Downloading model" in output
     assert "Waiting for model download" in output
 
 
-def test_fetch_model_force_skips_local_probe(monkeypatch, capsys):
+def test_fetch_model_force_skips_local_probe(tmp_path, monkeypatch, capsys):
     """--force must re-download instead of accepting a local cached load."""
     from mempalace_code.cli_commands import model
     from mempalace_code.storage import DEFAULT_EMBED_MODEL
 
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     calls = []
     _install_fake_fetch_model(monkeypatch, calls)
 
     model.fetch_model(DEFAULT_EMBED_MODEL, force=True)
 
-    assert calls == [(DEFAULT_EMBED_MODEL, {"local_files_only": False})]
+    assert len(calls) == 2
+    assert calls[0]["local_files_only"] is False
+    assert calls[1]["local_files_only"] is True
     assert "Waiting for model download" in capsys.readouterr().out
+
+
+def test_fetch_model_preserves_partial_cache_and_retry_is_idempotent(tmp_path, monkeypatch, capsys):
+    from mempalace_code.cli_commands import model
+    from mempalace_code.storage import DEFAULT_EMBED_MODEL, canonical_fastembed_cache_owned
+
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    cache_dir = model._model_cache_dir(DEFAULT_EMBED_MODEL)
+    assert cache_dir is not None
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "original-partial.bin").write_bytes(b"original")
+    calls = []
+    _install_fake_fetch_model(monkeypatch, calls, fail_online=True)
+
+    with pytest.raises(RuntimeError, match=r"Retry exactly: `mempalace-code fetch-model"):
+        model.fetch_model(DEFAULT_EMBED_MODEL)
+    first_output = capsys.readouterr().out
+    assert "Preserved partial cache at:" in first_output
+    assert (cache_dir / "interrupted.bin").read_bytes() == b"partial"
+
+    calls.clear()
+    _install_fake_fetch_model(monkeypatch, calls)
+    model.fetch_model(DEFAULT_EMBED_MODEL)
+
+    preserved = sorted(cache_dir.parent.glob(f"{cache_dir.name}.quarantine-*"))
+    assert len(preserved) == 2
+    assert any((path / "original-partial.bin").exists() for path in preserved)
+    assert any((path / "interrupted.bin").exists() for path in preserved)
+    assert canonical_fastembed_cache_owned()
+    assert "already available locally" not in capsys.readouterr().out
 
 
 def test_fetch_model_existing_local_path_does_not_retry_online(tmp_path, monkeypatch):

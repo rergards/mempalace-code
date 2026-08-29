@@ -18,9 +18,13 @@ uses instead of calling LanceDB directly. Current releases are LanceDB-only.
 from __future__ import annotations
 
 import importlib
+import json
 import logging
+import math
 import os
+import shutil
 import sys
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -269,6 +273,23 @@ def optimize_store(
 
 _LANCE_TABLE = "mempalace_drawers"
 DEFAULT_EMBED_MODEL = "all-MiniLM-L6-v2"  # same model ChromaDB uses by default
+CANONICAL_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+CANONICAL_EMBED_MODEL_REVISION = "5f1b8cd78bc4fb444dd171e59b18f3a3af89a079"
+CANONICAL_EMBED_MAX_LENGTH = 256
+CANONICAL_EMBED_COMPATIBILITY_REVISION = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
+CUSTOM_MODELS_INSTALL_COMMAND = "python -m pip install 'mempalace-code[custom-models]'"
+_CANONICAL_MODEL_ALIASES = frozenset({DEFAULT_EMBED_MODEL, CANONICAL_EMBED_MODEL})
+_FASTEMBED_CACHE_LAYOUT_VERSION = 1
+_FASTEMBED_CACHE_CHILD = Path("mempalace-fastembed") / "all-MiniLM-L6-v2-v1"
+_FASTEMBED_PROVENANCE = ".mempalace-model.json"
+_FASTEMBED_REPOSITORY = "models--qdrant--all-MiniLM-L6-v2-onnx"
+_FASTEMBED_REQUIRED_ARTIFACTS = (
+    "config.json",
+    "model.onnx",
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+)
 BULK_DELETE_BATCH_SIZE = 500  # max source_file values per single IN-predicate delete
 
 
@@ -283,6 +304,305 @@ def _is_existing_model_path(model_name: str) -> bool:
         return False
 
 
+def is_canonical_embed_model(model_name: str) -> bool:
+    """Return whether *model_name* selects the built-in MiniLM runtime."""
+    return model_name in _CANONICAL_MODEL_ALIASES
+
+
+def canonical_fastembed_cache_root() -> Path:
+    """Return the one explicit FastEmbed cache root used by every runtime contour."""
+    hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
+    return hf_home.expanduser() / _FASTEMBED_CACHE_CHILD
+
+
+def canonical_fastembed_provenance() -> dict[str, object]:
+    """Return the immutable identity required before an offline cache is trusted."""
+    return {
+        "cache_layout_version": _FASTEMBED_CACHE_LAYOUT_VERSION,
+        "dimensions": 384,
+        "max_sequence_length": CANONICAL_EMBED_MAX_LENGTH,
+        "model": CANONICAL_EMBED_MODEL,
+        "normalization": "l2",
+        "provider": "CPUExecutionProvider",
+        "revision": CANONICAL_EMBED_MODEL_REVISION,
+        "runtime": "fastembed",
+        "sequence_length_source_revision": CANONICAL_EMBED_COMPATIBILITY_REVISION,
+    }
+
+
+def canonical_fastembed_provenance_path() -> Path:
+    return canonical_fastembed_cache_root() / _FASTEMBED_PROVENANCE
+
+
+def _read_canonical_provenance(root: Path | None = None) -> dict[str, object] | None:
+    path = (root or canonical_fastembed_cache_root()) / _FASTEMBED_PROVENANCE
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _canonical_fastembed_cache_error(root: Path) -> str | None:
+    """Return why *root* is not the exact bounded cache owned by MemPalace."""
+    if root.is_symlink() or not root.is_dir():
+        return "cache root is missing, not a directory, or symlinked"
+    try:
+        resolved_root = root.resolve(strict=True)
+        if resolved_root.parent != root.parent.resolve(strict=True):
+            return "cache root resolves outside its owner parent"
+        if _read_canonical_provenance(root) != canonical_fastembed_provenance():
+            return "cache provenance is missing, symlinked, or mismatched"
+
+        repository = root / _FASTEMBED_REPOSITORY
+        refs = repository / "refs"
+        snapshots = repository / "snapshots"
+        snapshot = snapshots / CANONICAL_EMBED_MODEL_REVISION
+        for directory in (repository, refs, snapshots, snapshot):
+            if directory.is_symlink() or not directory.is_dir():
+                return f"runtime cache component is missing or symlinked: {directory.name}"
+            if not directory.resolve(strict=True).is_relative_to(resolved_root):
+                return "runtime cache component resolves outside the owned root"
+
+        revision_path = refs / "main"
+        if revision_path.is_symlink() or not revision_path.is_file():
+            return "refs/main is missing or symlinked"
+        if not revision_path.resolve(strict=True).is_relative_to(resolved_root):
+            return "refs/main resolves outside the owned root"
+        if revision_path.read_text(encoding="utf-8").strip() != CANONICAL_EMBED_MODEL_REVISION:
+            return "refs/main does not equal the pinned revision"
+
+        for name in _FASTEMBED_REQUIRED_ARTIFACTS:
+            artifact = snapshot / name
+            if not artifact.is_file():
+                return f"runtime artifact is missing or not a file: {name}"
+            if not artifact.resolve(strict=True).is_relative_to(resolved_root):
+                return f"runtime artifact resolves outside the owned root: {name}"
+        tokenizer_config = json.loads(
+            (snapshot / "tokenizer_config.json").read_text(encoding="utf-8")
+        )
+        if (
+            not isinstance(tokenizer_config, dict)
+            or tokenizer_config.get("max_length") != CANONICAL_EMBED_MAX_LENGTH
+        ):
+            return "tokenizer max_length does not equal the compatibility contract"
+    except (json.JSONDecodeError, OSError, UnicodeError):
+        return "cache ownership validation could not read a required component"
+    return None
+
+
+def _require_owned_canonical_fastembed_cache(root: Path | None = None) -> Path:
+    cache_root = root or canonical_fastembed_cache_root()
+    error = _canonical_fastembed_cache_error(cache_root)
+    if error is not None:
+        raise RuntimeError(
+            f"Canonical FastEmbed cache is not owned: {error}. "
+            "Run `mempalace-code fetch-model` while online, then retry offline."
+        )
+    return cache_root
+
+
+def canonical_fastembed_cache_owned() -> bool:
+    return _canonical_fastembed_cache_error(canonical_fastembed_cache_root()) is None
+
+
+def canonical_fastembed_cache_status() -> dict[str, object]:
+    """Return the installed runtime owner's cache identity and validation result."""
+    root = canonical_fastembed_cache_root()
+    error = _canonical_fastembed_cache_error(root)
+    return {
+        "owned": error is None,
+        "root": str(root),
+        "error": error,
+    }
+
+
+def _cache_tree_safe_to_quarantine(root: Path) -> bool:
+    """Allow preservation only when no link can escape the cache being renamed."""
+    if root.is_symlink() or not root.is_dir():
+        return False
+    try:
+        resolved_root = root.resolve(strict=True)
+        provenance = root / _FASTEMBED_PROVENANCE
+        if provenance.is_symlink():
+            return False
+        for path in root.rglob("*"):
+            if path.is_symlink() and not path.resolve(strict=True).is_relative_to(resolved_root):
+                return False
+    except OSError:
+        return False
+    return True
+
+
+def quarantine_unowned_canonical_fastembed_cache() -> Path | None:
+    """Atomically preserve a safe partial cache beside the canonical root."""
+    root = canonical_fastembed_cache_root()
+    if not root.exists() and not root.is_symlink():
+        return None
+    if canonical_fastembed_cache_owned():
+        return None
+    if not _cache_tree_safe_to_quarantine(root):
+        raise RuntimeError(
+            f"Refusing to quarantine hostile embedding cache: {root}. "
+            "Move it aside manually, then run `mempalace-code fetch-model`."
+        )
+    quarantine = root.with_name(f"{root.name}.quarantine-{uuid.uuid4().hex}")
+    root.rename(quarantine)
+    return quarantine
+
+
+def remove_owned_canonical_fastembed_cache() -> bool:
+    """Remove only the exact, provenance-bound canonical artifact."""
+    root = canonical_fastembed_cache_root()
+    if not root.exists() and not root.is_symlink():
+        return False
+    if _canonical_fastembed_cache_error(root) is not None:
+        raise RuntimeError(
+            f"Refusing to remove unowned embedding cache: {root}. "
+            "Move it aside manually, then run `mempalace-code fetch-model`."
+        )
+    # Rename first so a concurrent replacement at the public path cannot change
+    # what is deleted. Revalidate the exact renamed tree before recursive removal.
+    quarantine = root.with_name(f".{root.name}.delete-{os.getpid()}-{uuid.uuid4().hex}")
+    root.rename(quarantine)
+    try:
+        _require_owned_canonical_fastembed_cache(quarantine)
+    except Exception:
+        if not root.exists() and not root.is_symlink():
+            quarantine.rename(root)
+        raise RuntimeError(
+            f"Refusing to remove embedding cache changed during validation: {root}. "
+            "Move it aside manually, then run `mempalace-code fetch-model`."
+        ) from None
+    shutil.rmtree(quarantine)
+    return True
+
+
+def preflight_embed_model(model_name: str) -> None:
+    """Fail explicit custom models before LanceDB or filesystem mutation."""
+    if is_canonical_embed_model(model_name):
+        return
+    try:
+        importlib.import_module("sentence_transformers")
+    except ImportError as exc:
+        raise RuntimeError(
+            "Custom embedding model support is not installed. Run exactly: "
+            f"{CUSTOM_MODELS_INSTALL_COMMAND}"
+        ) from exc
+
+
+def _write_canonical_provenance() -> None:
+    root = canonical_fastembed_cache_root()
+    root.mkdir(parents=True, exist_ok=True)
+    revision_path = root / _FASTEMBED_REPOSITORY / "refs" / "main"
+    try:
+        resolved_revision = revision_path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise RuntimeError("FastEmbed cache is missing immutable model revision evidence") from exc
+    if resolved_revision != CANONICAL_EMBED_MODEL_REVISION:
+        raise RuntimeError(
+            "FastEmbed model revision changed; refusing to bless unreviewed cache artifact"
+        )
+    tokenizer_config = (
+        root
+        / _FASTEMBED_REPOSITORY
+        / "snapshots"
+        / CANONICAL_EMBED_MODEL_REVISION
+        / "tokenizer_config.json"
+    )
+    resolved_root = root.resolve(strict=True)
+    if not tokenizer_config.is_file() or not tokenizer_config.resolve(strict=True).is_relative_to(
+        resolved_root
+    ):
+        raise RuntimeError("FastEmbed tokenizer configuration is missing or unowned")
+    try:
+        config = json.loads(tokenizer_config.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+        raise RuntimeError("FastEmbed tokenizer configuration is invalid") from exc
+    if not isinstance(config, dict):
+        raise RuntimeError("FastEmbed tokenizer configuration is invalid")
+    config["max_length"] = CANONICAL_EMBED_MAX_LENGTH
+    temporary_config = tokenizer_config.with_name(
+        f".{tokenizer_config.name}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        with temporary_config.open("x", encoding="utf-8") as handle:
+            json.dump(config, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+        if not tokenizer_config.is_file() or not tokenizer_config.resolve(
+            strict=True
+        ).is_relative_to(root.resolve(strict=True)):
+            raise RuntimeError("FastEmbed tokenizer configuration changed during normalization")
+        temporary_config.replace(tokenizer_config)
+    finally:
+        temporary_config.unlink(missing_ok=True)
+    path = canonical_fastembed_provenance_path()
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(canonical_fastembed_provenance(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+    _require_owned_canonical_fastembed_cache(root)
+
+
+class _FastEmbedder:
+    """CPU-only FastEmbed adapter for the canonical MiniLM aliases."""
+
+    def __init__(self, *, local_files_only: bool | None = None):
+        from fastembed import TextEmbedding
+
+        explicit_offline = _env_truthy("HF_HUB_OFFLINE") or _env_truthy("TRANSFORMERS_OFFLINE")
+        offline = explicit_offline if local_files_only is None else local_files_only
+        if offline:
+            _require_owned_canonical_fastembed_cache()
+            cache_owned = True
+        else:
+            cache_owned = canonical_fastembed_cache_owned()
+            cache_root = canonical_fastembed_cache_root()
+            if (cache_root.exists() or cache_root.is_symlink()) and not cache_owned:
+                _require_owned_canonical_fastembed_cache()
+        kwargs = {
+            "model_name": CANONICAL_EMBED_MODEL,
+            "cache_dir": str(canonical_fastembed_cache_root()),
+            "providers": ["CPUExecutionProvider"],
+            "cuda": False,
+            "local_files_only": offline or cache_owned,
+        }
+        if offline or cache_owned:
+            _require_owned_canonical_fastembed_cache()
+        try:
+            model = TextEmbedding(**kwargs)
+        except Exception:
+            if offline:
+                raise
+            kwargs["local_files_only"] = False
+            model = TextEmbedding(**kwargs)
+        if offline or cache_owned:
+            _require_owned_canonical_fastembed_cache()
+        if not offline:
+            _write_canonical_provenance()
+            if not cache_owned:
+                kwargs["local_files_only"] = True
+                model = TextEmbedding(**kwargs)
+        self._model = model
+
+    def ndims(self) -> int:
+        return 384
+
+    def compute_source_embeddings(self, texts: list[str]) -> list[list[float]]:
+        vectors = []
+        for raw in self._model.embed(list(texts)):
+            vector = [float(value) for value in raw]
+            norm = math.sqrt(sum(value * value for value in vector))
+            if norm == 0:
+                raise RuntimeError("FastEmbed returned a zero-length embedding")
+            vectors.append([value / norm for value in vector])
+        return vectors
+
+
 class _SentenceTransformerEmbedder:
     """MemPalace-controlled sentence-transformers wrapper.
 
@@ -293,12 +613,13 @@ class _SentenceTransformerEmbedder:
     """
 
     def __init__(self, model_name: str):
+        preflight_embed_model(model_name)
         self._model_name = model_name
         self._model = self._load_model()
         self._ndims: int | None = None
 
     def _load_model(self):
-        from sentence_transformers import SentenceTransformer
+        SentenceTransformer = importlib.import_module("sentence_transformers").SentenceTransformer
 
         explicit_offline = _env_truthy("HF_HUB_OFFLINE") or _env_truthy("TRANSFORMERS_OFFLINE")
         is_local_path = _is_existing_model_path(self._model_name)
@@ -461,9 +782,10 @@ class LanceStore(DrawerStore):
         embed_model: Optional[str] = None,
         read_only: bool = False,
     ):
+        self._model_name = embed_model or DEFAULT_EMBED_MODEL
+        preflight_embed_model(self._model_name)
         import lancedb
 
-        self._model_name = embed_model or DEFAULT_EMBED_MODEL
         self._read_only = read_only
         self._embedder: _EmbedderProtocol | None = None  # lazy — initialized by _ensure_embedder()
         self._db: _LanceDBConnectionProtocol | None = None
@@ -480,7 +802,9 @@ class LanceStore(DrawerStore):
         self._table = self._open_or_create(create)
 
     def _get_embedder(self):
-        """Load the sentence-transformers embedding model."""
+        """Load the provider selected by the existing embed_model contract."""
+        if is_canonical_embed_model(self._model_name):
+            return _FastEmbedder()
         return _SentenceTransformerEmbedder(self._model_name)
 
     def _ensure_embedder(self) -> None:

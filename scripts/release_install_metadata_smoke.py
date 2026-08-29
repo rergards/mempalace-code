@@ -159,6 +159,7 @@ _EXTRA_METADATA_PROBE_SCRIPT = (
 
 _RUNTIME_NO_CHROMADB_PROBE_SCRIPT = (
     "import builtins\n"
+    "import importlib.metadata as _metadata\n"
     "import sys\n"
     "import tempfile\n"
     "_orig_import = builtins.__import__\n"
@@ -167,6 +168,10 @@ _RUNTIME_NO_CHROMADB_PROBE_SCRIPT = (
     "        raise RuntimeError('chromadb import blocked during ordinary runtime probe')\n"
     "    return _orig_import(name, globals, locals, fromlist, level)\n"
     "builtins.__import__ = _guard\n"
+    "_names = {d.metadata['Name'].lower().replace('_', '-') for d in _metadata.distributions()}\n"
+    "assert {'fastembed', 'onnxruntime'} <= _names, sorted(_names)\n"
+    "_forbidden = sorted(n for n in _names if n in {'torch','triton','chromadb'} or n.startswith(('nvidia-','cuda-')))\n"
+    "assert not _forbidden, _forbidden\n"
     "import mempalace_code\n"
     "from mempalace_code.storage import open_store\n"
     "with tempfile.TemporaryDirectory(prefix='mempalace-runtime-probe-') as palace:\n"

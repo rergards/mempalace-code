@@ -850,7 +850,8 @@ def test_default_resolver_runner_upgrades_audit_tooling(monkeypatch):
         }
     ]
     assert any(
-        command[1:] == ["install", "--quiet", "--upgrade", "pip", "pip-audit"] for command in calls
+        command[1:] == ["install", "--quiet", "--upgrade", "pip", "setuptools>=83", "pip-audit"]
+        for command in calls
     )
 
 

@@ -134,6 +134,20 @@ section. Each mode includes `chunk_count`, `embed_time_s`,
 `top5_files` / `top5_symbols`. Recall answers only "did retrieval surface the
 right code file?" It does not prove an LLM would generate a correct answer.
 
+The release compatibility check reconstructs the public pre-output benchmark
+tree and runs its historical miner through the canonical FastEmbed owner from
+the active installed `mempalace-code` distribution and its cache contract:
+
+```bash
+python benchmarks/code_retrieval_bench.py --check-minilm-runtime-compatibility
+```
+
+This check requires full Git history and a cache prepared by
+`mempalace-code fetch-model`. It verifies the reproducible 466-chunk corpus at
+20 queries, R@5 >= 0.95, and R@10 >= 1.0. The authoritative 469-chunk result in
+`results_embed_ab_2026-04-09.json` remains historical evidence; this command
+does not claim to rerun that unavailable live working-tree corpus.
+
 ## Benchmark 5: .NET Code Retrieval
 
 Tests C#/.NET retrieval on a pinned CleanArchitecture corpus. The known-answer

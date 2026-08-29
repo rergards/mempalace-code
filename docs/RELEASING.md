@@ -107,11 +107,11 @@ WHEEL=dist/mempalace_code-X.Y.Z-py3-none-any.whl
 python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
 ```
 
-Set `MEMPALACE_TEST_HF_HOME` to a pre-populated Hugging Face cache root before
-running that command. The gate requires
-`hub/models--sentence-transformers--all-MiniLM-L6-v2/refs/main` to select a
-populated snapshot and stops before venv creation when the cache is absent,
-empty, or stale. Provision the cache outside qualification, then retry:
+Set `MEMPALACE_TEST_HF_HOME` to a pre-populated cache root before running that
+command. The gate requires the CPU FastEmbed artifact and exact MemPalace
+provenance at `mempalace-fastembed/all-MiniLM-L6-v2-v1/.mempalace-model.json`
+and stops before venv creation when either is absent, foreign, or stale.
+Provision the cache outside qualification, then retry:
 
 ```bash
 HF_HOME="$MEMPALACE_TEST_HF_HOME" mempalace-code fetch-model

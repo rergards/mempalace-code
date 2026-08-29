@@ -10,7 +10,7 @@ isolation, captured stdout/stderr, and explicit artifact-cleanup proof.
 Environment isolation: every subprocess gets a disposable HOME/XDG tree plus
 MEMPALACE_VERSION_CHECK=0, HF_HUB_OFFLINE=1, and TRANSFORMERS_OFFLINE=1.
 
-In source mode (the default), a fake ``sentence_transformers`` package is
+In source mode (the default), a fake ``fastembed`` package is
 injected via PYTHONPATH so no ~80MB model download is ever needed. Its
 embedder is deterministic (token-hash based — the same scheme as
 tests/conftest.py's ``_DeterministicTestEmbedder``) so mine, search, and read
@@ -103,14 +103,12 @@ _WATCHER_SHUTDOWN_SIGNALS = (signal.SIGTERM,) + (
 
 # ── Fake offline embedder + socket guard, injected via PYTHONPATH ──────────────
 
-_FAKE_SENTENCE_TRANSFORMERS = '''\
-"""Fake sentence-transformers: deterministic, local-only, no model download."""
+_FAKE_FASTEMBED = '''\
+"""Fake FastEmbed: deterministic, local-only, no model download."""
 
 import hashlib
 import math
 import re
-
-import numpy as _np
 
 _DIM = 384
 
@@ -125,9 +123,9 @@ def _embed(text):
     return [v / norm for v in vec]
 
 
-class SentenceTransformer:
-    def __init__(self, model_name_or_path, **kwargs):
-        self._model_name = model_name_or_path
+class TextEmbedding:
+    def __init__(self, model_name, **kwargs):
+        self._model_name = model_name
         import os
         import sys
 
@@ -135,11 +133,11 @@ class SentenceTransformer:
         sys.stderr.write("fake buffered stderr noise\\n")
         os.write(1, b"fake fd stdout noise\\n")
         os.write(2, b"fake fd stderr noise\\n")
-        if os.environ.get("MEMPALACE_FAKE_ST_FAIL") == "1":
+        if os.environ.get("MEMPALACE_FAKE_FASTEMBED_FAIL") == "1":
             raise RuntimeError("fake model load failed")
 
-    def encode(self, texts, **kwargs):
-        return _np.array([_embed(t) for t in texts], dtype=_np.float32)
+    def embed(self, texts, **kwargs):
+        return iter([_embed(t) for t in texts])
 '''
 
 _SITECUSTOMIZE = '''\
@@ -167,13 +165,43 @@ _OrigSocket.connect = _blocked_connect
 
 @pytest.fixture(scope="session")
 def fake_pkg_root(tmp_path_factory) -> Path:
-    """A PYTHONPATH root providing a deterministic, offline sentence_transformers."""
+    """A PYTHONPATH root providing deterministic, offline FastEmbed."""
     root = tmp_path_factory.mktemp("cli_golden_fake_pkgs")
     (root / "sitecustomize.py").write_text(_SITECUSTOMIZE, encoding="utf-8")
-    st_dir = root / "sentence_transformers"
-    st_dir.mkdir()
-    (st_dir / "__init__.py").write_text(_FAKE_SENTENCE_TRANSFORMERS, encoding="utf-8")
+    fastembed_dir = root / "fastembed"
+    fastembed_dir.mkdir()
+    (fastembed_dir / "__init__.py").write_text(_FAKE_FASTEMBED, encoding="utf-8")
     return root
+
+
+def _write_fake_fastembed_cache(hf_home: Path) -> None:
+    """Write the minimum owned layout consumed by the FastEmbed-compatible fake."""
+    from mempalace_code.storage import (
+        CANONICAL_EMBED_MODEL_REVISION,
+        canonical_fastembed_provenance,
+    )
+
+    root = hf_home / "mempalace-fastembed" / "all-MiniLM-L6-v2-v1"
+    repository = root / "models--qdrant--all-MiniLM-L6-v2-onnx"
+    snapshot = repository / "snapshots" / CANONICAL_EMBED_MODEL_REVISION
+    snapshot.mkdir(parents=True)
+    refs = repository / "refs"
+    refs.mkdir()
+    (refs / "main").write_text(CANONICAL_EMBED_MODEL_REVISION, encoding="utf-8")
+    for name in (
+        "config.json",
+        "model.onnx",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+    ):
+        (snapshot / name).write_bytes(b"fixture")
+    (snapshot / "tokenizer_config.json").write_text(
+        json.dumps({"max_length": 256, "model_max_length": 512}), encoding="utf-8"
+    )
+    (root / ".mempalace-model.json").write_text(
+        json.dumps(canonical_fastembed_provenance()), encoding="utf-8"
+    )
 
 
 # ── Subprocess env + fixture project helpers ────────────────────────────────────
@@ -182,7 +210,7 @@ def fake_pkg_root(tmp_path_factory) -> Path:
 def _make_env(tmp_path: Path, fake_pkg_root: Path) -> dict:
     """Disposable HOME/XDG tree, offline flags, and mode-appropriate embedder source.
 
-    Source mode injects the fake offline ``sentence_transformers`` package and the
+    Source mode injects the fake offline ``fastembed`` package and the
     ``sitecustomize`` socket guard via PYTHONPATH. Installed mode's console script
     has a ``python -E`` shebang that ignores PYTHONPATH, so no fake package is put
     there; it instead requires ``MEMPALACE_TEST_HF_HOME`` to already exist and points
@@ -216,7 +244,7 @@ def _make_env(tmp_path: Path, fake_pkg_root: Path) -> dict:
         assert hf_home, (
             "MEMPALACE_TEST_INSTALLED_CLI requires MEMPALACE_TEST_HF_HOME: the installed "
             "console script's python -E shebang ignores PYTHONPATH, so the fake offline "
-            "sentence_transformers injection never loads and a real, pre-cached model is "
+            "FastEmbed injection never loads and a real, pre-cached model is "
             "required instead"
         )
         hf_home_path = Path(hf_home)
@@ -225,6 +253,9 @@ def _make_env(tmp_path: Path, fake_pkg_root: Path) -> dict:
     else:
         # Source mode's ``python -m`` invocation needs ROOT on PYTHONPATH to import
         # mempalace_code from a neutral cwd, plus the fake offline embedder package.
+        hf_home = xdg_cache / "huggingface"
+        _write_fake_fastembed_cache(hf_home)
+        env["HF_HOME"] = str(hf_home)
         env["PYTHONPATH"] = os.pathsep.join([str(fake_pkg_root), str(ROOT)])
 
     return env
@@ -413,6 +444,11 @@ def test_cli_golden_fetch_model_buffering_failure_and_retry(tmp_path, fake_pkg_r
     """Direct fetch-model paths preserve progress and leave the source cache untouched."""
     env = _make_env(tmp_path, fake_pkg_root)
     _assert_installed_cli_provenance(env, tmp_path)
+    if not _INSTALLED_CLI:
+        result = subprocess.run(_CLI + ["fetch-model"], env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert "already available locally" in result.stdout
+        return
     row = _run_installed_fetch_model_scenario(
         _CLI,
         env,

@@ -1020,12 +1020,21 @@ BOOTSTRAP_FILE="$(mktemp -t mempalace-bootstrap.XXXXXX)" || exit 1
 pip install "mempalace-code[treesitter]"  # AST parsing
 pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[watch]"       # optional watcher (auto-mine on file changes)
+pip install "mempalace-code[custom-models]" # arbitrary SentenceTransformer names/paths
 pip install "mempalace-code[dev]"         # pytest + ruff + pyright
 ```
 
 **Requirements:** Python 3.11+. Use `mempalace-code init <dir> --skip-model-download` for an
 offline-safe init. Run `mempalace-code fetch-model` later only after explicit consent to cache
 the ~80 MB embedding model.
+
+The default `all-MiniLM-L6-v2` runtime is CPU FastEmbed/ONNX and stores its
+immutable MemPalace provenance under
+`$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/`. Canonical aliases never
+enable trusted remote code. Explicit custom models require `[custom-models]`;
+that path retains SentenceTransformer's `trust_remote_code=True` compatibility
+boundary. Recovery: run `mempalace-code fetch-model` while online, then retry
+with `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`.
 
 </details>
 

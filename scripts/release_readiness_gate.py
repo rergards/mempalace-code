@@ -42,16 +42,11 @@ DEFAULT_TIMEOUT = 120
 DEFAULT_REPO = "rergards/mempalace-code"
 DEFAULT_REMOTE = "publish"
 DEFAULT_BRANCH = "main"
-MODEL_CACHE_RELATIVE = Path("hub/models--sentence-transformers--all-MiniLM-L6-v2")
-MODEL_CACHE_REQUIRED_FILES = (
-    Path("config.json"),
-    Path("modules.json"),
-    Path("sentence_bert_config.json"),
-    Path("tokenizer.json"),
-    Path("tokenizer_config.json"),
-    Path("1_Pooling/config.json"),
+INSTALLED_MODEL_CACHE_PROBE = (
+    "import json; "
+    "from mempalace_code.storage import canonical_fastembed_cache_status; "
+    "print(json.dumps(canonical_fastembed_cache_status(), separators=(',', ':')))"
 )
-MODEL_CACHE_WEIGHT_FILES = (Path("model.safetensors"), Path("pytorch_model.bin"))
 INSTALLED_GOLDEN_COMMAND = (
     'python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json'
 )
@@ -224,6 +219,43 @@ from mempalace_code.normalize import normalize
 
 output = normalize(sys.argv[1], spellcheck=True)
 print(json.dumps({"autocorrect": find_spec("autocorrect") is not None, "output": output}))
+"""
+INSTALLED_CUSTOM_MODEL_ABSENT_PROBE = r"""import json
+import tempfile
+from importlib.util import find_spec
+from pathlib import Path
+from mempalace_code.storage import CUSTOM_MODELS_INSTALL_COMMAND, LanceStore
+
+with tempfile.TemporaryDirectory(prefix="mempalace-custom-absent-") as tmpdir:
+    palace = Path(tmpdir) / "palace"
+    try:
+        LanceStore(str(palace), embed_model="example/custom-model")
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+    print(json.dumps({
+        "dependency_absent": find_spec("sentence_transformers") is None,
+        "preflight_failed": CUSTOM_MODELS_INSTALL_COMMAND in message,
+        "palace_absent": not palace.exists(),
+    }, separators=(",", ":")))
+"""
+INSTALLED_CUSTOM_MODEL_PROBE = r"""import json
+import tempfile
+from pathlib import Path
+from sentence_transformers import SentenceTransformer, models
+from mempalace_code.storage import _SentenceTransformerEmbedder
+
+with tempfile.TemporaryDirectory(prefix="mempalace-custom-model-") as tmpdir:
+    model_path = Path(tmpdir) / "model"
+    SentenceTransformer(modules=[models.BoW(["alpha", "beta", "context"])]).save(str(model_path))
+    embedder = _SentenceTransformerEmbedder(str(model_path))
+    vectors = embedder.compute_source_embeddings(["alpha context", "beta context"])
+    print(json.dumps({
+        "dimensions": embedder.ndims(),
+        "rows": len(vectors),
+        "normalized": all(abs(sum(value * value for value in vector) - 1.0) < 1e-5 for vector in vectors),
+    }, separators=(",", ":")))
 """
 INSTALLED_TREESITTER_PROBE = r"""import json
 from mempalace_code.mining.chunkers import chunk_file
@@ -678,44 +710,51 @@ def _cache_recovery() -> str:
 
 
 def _validated_model_cache(env: dict[str, str]) -> tuple[Path | None, str]:
-    """Return a usable MiniLM HF_HOME before any candidate environment is created."""
+    """Return configured HF_HOME; the installed wheel owns cache validation."""
     configured = env.get("MEMPALACE_TEST_HF_HOME", "").strip()
     if not configured:
         return None, ("MEMPALACE_TEST_HF_HOME is required; provision it with " + _cache_recovery())
     hf_home = Path(configured).expanduser()
-    model_root = hf_home / MODEL_CACHE_RELATIVE
-    refs_main = model_root / "refs" / "main"
+    if hf_home.is_symlink() or not hf_home.is_dir():
+        return None, "MEMPALACE_TEST_HF_HOME must be an existing directory; " + _cache_recovery()
+    return hf_home.resolve(), "configured cache home; installed owner validation pending"
+
+
+def _installed_model_cache_root(
+    python_bin: Path,
+    env: dict[str, str],
+    cwd: Path,
+    *,
+    run_subprocess=subprocess.run,
+) -> tuple[Path | None, str]:
+    """Ask the exact installed package to validate and identify its cache root."""
+    result = _run_golden_subprocess(
+        run_subprocess,
+        [str(python_bin), "-c", INSTALLED_MODEL_CACHE_PROBE],
+        capture_output=True,
+        text=True,
+        cwd=str(cwd),
+        env=env,
+        timeout=DEFAULT_TIMEOUT,
+    )
     try:
-        revision = refs_main.read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeError):
-        revision = ""
-    snapshots_root = model_root / "snapshots"
-    snapshot = snapshots_root / revision
-    try:
-        resolved_model_root = model_root.resolve()
-        required_files = tuple(snapshot / relative for relative in MODEL_CACHE_REQUIRED_FILES)
-        weight_files = tuple(snapshot / relative for relative in MODEL_CACHE_WEIGHT_FILES)
-        populated = (
-            bool(re.fullmatch(r"[A-Za-z0-9._-]+", revision))
-            and revision not in (".", "..")
-            and snapshot.is_dir()
-            and snapshot.resolve().is_relative_to(snapshots_root.resolve())
-            and all(
-                path.is_file() and path.resolve().is_relative_to(resolved_model_root)
-                for path in required_files
-            )
-            and any(
-                path.is_file() and path.resolve().is_relative_to(resolved_model_root)
-                for path in weight_files
-            )
+        payload = json.loads(result.stdout)
+        root = Path(payload["root"]).resolve()
+        hf_home = Path(env["HF_HOME"]).resolve()
+        valid = (
+            result.returncode == 0
+            and result.stderr == ""
+            and set(payload) == {"owned", "root", "error"}
+            and payload["owned"] is True
+            and payload["error"] is None
+            and root.is_relative_to(hf_home)
         )
-    except OSError:
-        populated = False
-    if not revision or not populated:
-        return None, (
-            "MiniLM cache is missing, empty, or stale; provision it with " + _cache_recovery()
-        )
-    return hf_home.resolve(), f"validated MiniLM revision {revision[:12]}"
+    except (json.JSONDecodeError, KeyError, OSError, TypeError):
+        valid = False
+        root = Path.cwd()
+    if not valid:
+        return None, "installed package rejected the canonical FastEmbed cache"
+    return root, "installed package validated canonical FastEmbed cache ownership"
 
 
 def _run_golden_subprocess(run_subprocess, command: list[str], **kwargs):
@@ -1675,50 +1714,20 @@ def _run_installed_schedule_snippet_scenario(
     )
 
 
-def _materialized_copy_snapshots(
-    path: Path, allowed_root: Path
-) -> tuple[
-    tuple[tuple[str, str, int, str], ...],
-    tuple[tuple[str, str, int, str], ...],
-]:
-    """Return the stable source and expected materialized-copy snapshots."""
-    allowed_root = allowed_root.resolve()
-    source_snapshot = _semantic_tree_snapshot(path)
-    materialized_snapshot = []
-    for relative, kind, size, value in source_snapshot:
-        if kind != "symlink":
-            materialized_snapshot.append((relative, kind, size, value))
-            continue
-        link = path / relative
-        target = (link.parent / value).resolve()
-        if not target.is_relative_to(allowed_root) or not target.is_file():
-            raise OSError(f"unsafe symlink target in local-model source at {relative}")
-        target_size, target_digest = _stable_file_digest(target)
-        materialized_snapshot.append((relative, "file", target_size, target_digest))
-    return source_snapshot, tuple(materialized_snapshot)
-
-
-def _materialize_model_cache(source_hf_home: Path, target_hf_home: Path) -> Path:
-    """Copy only the validated model subtree into a disposable, symlink-free HF home."""
-    source = source_hf_home / MODEL_CACHE_RELATIVE
-    staging = target_hf_home / ".model-source"
-    target = target_hf_home / MODEL_CACHE_RELATIVE
-    source_before = _semantic_tree_snapshot(source)
-    shutil.copytree(source, staging, symlinks=True)
-    staging_before = _semantic_tree_snapshot(staging)
-    if _semantic_tree_snapshot(source) != source_before or staging_before != source_before:
-        raise OSError("source model cache changed during staging")
-    _staged_source, target_expected = _materialized_copy_snapshots(staging, staging)
-    target.parent.mkdir(parents=True)
-    shutil.copytree(staging, target, symlinks=False)
+def _materialize_model_cache(
+    source_cache_root: Path, source_hf_home: Path, target_hf_home: Path
+) -> Path:
+    """Copy the installed-owner-validated cache root into an isolated HF home."""
+    relative = source_cache_root.relative_to(source_hf_home)
+    target = target_hf_home / relative
+    source_before = _semantic_tree_snapshot(source_cache_root)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_cache_root, target, symlinks=True)
     if (
-        _semantic_tree_snapshot(staging) != staging_before
-        or _semantic_tree_snapshot(target) != target_expected
+        _semantic_tree_snapshot(source_cache_root) != source_before
+        or _semantic_tree_snapshot(target) != source_before
     ):
         raise OSError("disposable model cache differs from validated source")
-    shutil.rmtree(staging)
-    if staging.exists():
-        raise OSError("model cache staging cleanup failed")
     return target_hf_home
 
 
@@ -1935,49 +1944,26 @@ def _run_installed_fetch_model_scenario(
     try:
         repository_boundary = boundary_snapshot()
         neutral_cwd.mkdir(parents=True, exist_ok=True)
+        python_bin = Path(command_prefix[0]).resolve().with_name("python")
+        source_hf_home = Path(env["HF_HOME"]).resolve()
+        source_cache, cache_detail = _installed_model_cache_root(
+            python_bin, env, neutral_cwd, run_subprocess=run_subprocess
+        )
+        if source_cache is None:
+            return failure(cache_detail)
+        source_cache_before = _semantic_tree_snapshot(source_cache)
         disposable_hf_home = scenario_root / "hf-home"
-        disposable_cache = disposable_hf_home / MODEL_CACHE_RELATIVE
-        local_model = scenario_root / "local-model"
-        retry_model = scenario_root / "retry-model"
-        source_cache = None
-        source_cache_before = None
-        installed_mode = bool(env.get("MEMPALACE_TEST_INSTALLED_CLI"))
-
-        if installed_mode:
-            source_cache = Path(env["HF_HOME"]) / MODEL_CACHE_RELATIVE
-            if not source_cache.is_dir():
-                return failure("validated source model cache is missing")
-            source_cache_before = _semantic_tree_snapshot(source_cache)
-            shutil.copytree(source_cache, disposable_cache, symlinks=True)
-            revision = (disposable_cache / "refs" / "main").read_text(encoding="utf-8").strip()
-            snapshots_root = disposable_cache / "snapshots"
-            named_snapshot = snapshots_root / revision
-            if (
-                not re.fullmatch(r"[A-Za-z0-9._-]+", revision)
-                or revision in (".", "..")
-                or named_snapshot.is_symlink()
-                or not named_snapshot.is_dir()
-                or not named_snapshot.resolve().is_relative_to(snapshots_root.resolve())
-            ):
-                return failure("validated source model cache refs/main snapshot is unsafe")
-            _semantic_tree_snapshot(disposable_cache)
-            named_snapshot_before, local_model_expected = _materialized_copy_snapshots(
-                named_snapshot, disposable_cache
-            )
-            shutil.copytree(named_snapshot, local_model, symlinks=False)
-            if (
-                _semantic_tree_snapshot(named_snapshot) != named_snapshot_before
-                or _semantic_tree_snapshot(local_model) != local_model_expected
-            ):
-                return failure("local-model materialization changed during copy")
-        else:
-            disposable_cache.mkdir(parents=True)
-            local_model.mkdir(parents=True)
+        _materialize_model_cache(source_cache, source_hf_home, disposable_hf_home)
 
         scenario_env = env.copy()
         scenario_env["HF_HOME"] = str(disposable_hf_home)
         scenario_env["MEMPALACE_TEST_HF_HOME"] = str(disposable_hf_home)
         scenario_env.pop("PYTHONUNBUFFERED", None)
+        disposable_cache, cache_detail = _installed_model_cache_root(
+            python_bin, scenario_env, neutral_cwd, run_subprocess=run_subprocess
+        )
+        if disposable_cache is None:
+            return failure(cache_detail)
 
         cached = run(
             ["fetch-model", "--model", "all-MiniLM-L6-v2"],
@@ -1993,61 +1979,77 @@ def _run_installed_fetch_model_scenario(
         if failed:
             return failed
 
-        local = run(["fetch-model", "--model", str(local_model)], scenario_env)
-        failed = require_success(
-            "explicit local model",
-            local,
-            "already available locally",
-            "Local model path:",
-            "Done",
-        )
-        if failed:
-            return failed
-
+        offline_env = scenario_env.copy()
+        offline_env["HF_HUB_OFFLINE"] = "1"
+        offline_env["TRANSFORMERS_OFFLINE"] = "1"
         forced = run(
-            ["fetch-model", "--model", str(local_model), "--force"],
-            scenario_env,
+            ["fetch-model", "--model", "all-MiniLM-L6-v2", "--force"],
+            offline_env,
         )
-        failed = require_success(
-            "forced local refresh",
-            forced,
-            "Downloading model",
-            "Waiting for model download",
-            "Local model path:",
-            "Done",
+        force_failure_ok = (
+            forced.returncode == 1
+            and _installed_output_is_clean(forced)
+            and "Removing cached model:" in (forced.stdout or "")
+            and "Downloading model" in (forced.stdout or "")
+            and "Retry exactly: `mempalace-code fetch-model --model all-MiniLM-L6-v2`"
+            in (forced.stderr or "")
         )
-        if failed:
-            return failed
+        if not force_failure_ok:
+            return failure(forced.stderr or forced.stdout or "forced offline refresh did not fail")
 
-        failing_env = scenario_env.copy()
-        if not installed_mode:
-            failing_env["MEMPALACE_FAKE_ST_FAIL"] = "1"
-        offline_failure = run(["fetch-model", "--model", str(retry_model)], failing_env)
-        offline_failure_ok = (
-            offline_failure.returncode == 1
-            and _installed_output_is_clean(offline_failure)
-            and "Downloading model" in (offline_failure.stdout or "")
-            and "Waiting for model download" in (offline_failure.stdout or "")
-            and "Done" not in (offline_failure.stdout or "")
-            and "Error preparing model:" in (offline_failure.stderr or "")
-            and not retry_model.exists()
+        if disposable_cache.exists() or disposable_cache.is_symlink():
+            if disposable_cache.is_symlink() or not disposable_cache.is_dir():
+                return failure("forced failure left a hostile canonical cache root")
+        else:
+            disposable_cache.mkdir(parents=True)
+        marker = disposable_cache / "interrupted-download.release-fixture"
+        marker.write_text("preserve", encoding="utf-8")
+
+        partial_failure = run(["fetch-model", "--model", "all-MiniLM-L6-v2"], offline_env)
+        partial_failure_ok = (
+            partial_failure.returncode == 1
+            and _installed_output_is_clean(partial_failure)
+            and "Preserved partial cache at:" in (partial_failure.stdout or "")
+            and "Retry exactly: `mempalace-code fetch-model --model all-MiniLM-L6-v2`"
+            in (partial_failure.stderr or "")
         )
-        if not offline_failure_ok:
-            detail = (
-                offline_failure.stderr
-                or offline_failure.stdout
-                or f"exit {offline_failure.returncode}"
+        if not partial_failure_ok:
+            return failure(
+                partial_failure.stderr
+                or partial_failure.stdout
+                or "partial-cache recovery did not fail safely"
             )
-            return failure(f"offline missing-model failure was unsafe: {detail}")
+        preserved = [
+            path
+            for path in disposable_cache.parent.glob(f"{disposable_cache.name}.quarantine-*")
+            if (path / marker.name).read_text(encoding="utf-8") == "preserve"
+        ]
+        if len(preserved) != 1:
+            return failure("partial-cache recovery did not preserve exactly one fixture")
 
-        shutil.copytree(local_model, retry_model, symlinks=True)
-        retry_model_expected = _semantic_tree_snapshot(retry_model)
-        retried = run(["fetch-model", "--model", str(retry_model)], scenario_env)
+        quarantine_code = (
+            "from mempalace_code.storage import quarantine_unowned_canonical_fastembed_cache; "
+            "print(quarantine_unowned_canonical_fastembed_cache() or '')"
+        )
+        cleanup = _run_golden_subprocess(
+            run_subprocess,
+            [str(python_bin), "-c", quarantine_code],
+            capture_output=True,
+            text=True,
+            cwd=str(neutral_cwd),
+            env=offline_env,
+            timeout=DEFAULT_TIMEOUT,
+        )
+        if cleanup.returncode != 0 or cleanup.stderr != "" or disposable_cache.exists():
+            return failure("installed owner could not preserve the interrupted retry cache")
+
+        _materialize_model_cache(source_cache, source_hf_home, disposable_hf_home)
+        retried = run(["fetch-model", "--model", "all-MiniLM-L6-v2"], offline_env)
         failed = require_success(
             "successful retry",
             retried,
             "already available locally",
-            "Local model path:",
+            "Cached at:",
             "Done",
         )
         if failed:
@@ -2055,12 +2057,7 @@ def _run_installed_fetch_model_scenario(
 
         if not disposable_cache.is_dir():
             return failure("disposable cached default model is missing after retry")
-        if not retry_model.is_dir() or _semantic_tree_snapshot(retry_model) != retry_model_expected:
-            return failure("successful retry target changed or disappeared after retry")
-        if (
-            source_cache is not None
-            and _semantic_tree_snapshot(source_cache) != source_cache_before
-        ):
+        if _semantic_tree_snapshot(source_cache) != source_cache_before:
             return failure("validated source model cache changed during the scenario")
         if boundary_snapshot() != repository_boundary:
             return failure("fetch-model scenario created a repository-root artifact")
@@ -2078,7 +2075,8 @@ def _run_installed_fetch_model_scenario(
         "installed_golden_fetch_model",
         INSTALLED_FETCH_MODEL_COMMAND,
         "pass",
-        "cached default, local, force, offline failure, retry, and immutable source cache passed",
+        "installed-owner cache validation, cached default, force failure, partial preservation, "
+        "retry, and immutable source cache passed",
     )
 
 
@@ -2136,6 +2134,7 @@ def _installed_golden_env(
             "MEMPALACE_VERSION_CHECK": "0",
             "MEMPALACE_DISK_MIN_FREE_BYTES": "1",
             "CUDA_CACHE_DISABLE": "1",
+            "ORT_DISABLE_TELEMETRY": "1",
             "HF_HUB_OFFLINE": "1",
             "TRANSFORMERS_OFFLINE": "1",
             "PYTHONNOUSERSITE": "1",
@@ -6068,6 +6067,37 @@ def _run_installed_extra_and_export_reconciliation(
             repository_root=root,
         )
 
+        base_custom = json_probe(
+            base_python,
+            INSTALLED_CUSTOM_MODEL_ABSENT_PROBE,
+            [],
+            base_env,
+            "base custom-model preflight probe",
+        )
+        if base_custom != {
+            "dependency_absent": True,
+            "preflight_failed": True,
+            "palace_absent": True,
+        }:
+            raise RuntimeError("base custom-model contour did not fail before palace mutation")
+        custom_python, custom_env, custom_attempts, custom_marker = install_extra("custom-models")
+        custom = json_probe(
+            custom_python,
+            INSTALLED_CUSTOM_MODEL_PROBE,
+            [],
+            custom_env,
+            "installed custom-model behavior probe",
+        )
+        if (
+            not isinstance(custom, dict)
+            or custom.get("rows") != 2
+            or not isinstance(custom.get("dimensions"), int)
+            or custom["dimensions"] <= 0
+            or custom.get("normalized") is not True
+        ):
+            raise RuntimeError("installed custom-model behavior evidence is incomplete")
+        evidence["extra:custom-models"] = True
+
         fixture = temp_root / "spellcheck-fixture.txt"
         fixture.write_text("> mispelled quick brown fox\nassistant: unchanged\n", encoding="utf-8")
         base_spell = json_probe(
@@ -6137,8 +6167,8 @@ def _run_installed_extra_and_export_reconciliation(
             raise RuntimeError("installed alias launcher behavior failed")
         evidence["export:mempalace_code.cli:main_alias"] = True
 
-        checked_attempts = [spell_attempts, tree_attempts]
-        checked_markers = [spell_marker, tree_marker]
+        checked_attempts = [custom_attempts, spell_attempts, tree_attempts]
+        checked_markers = [custom_marker, spell_marker, tree_marker]
         if not all(path.is_file() for path in checked_markers):
             raise RuntimeError("installed optional-extra socket guard did not load")
         if any(path.exists() and path.read_text(encoding="utf-8") for path in checked_attempts):
@@ -6307,8 +6337,33 @@ def _run_installed_golden_wheel(
         guard.write_text(smoke._SITE_GUARD, encoding="utf-8")
         guard_loader.write_text(f"import runpy; runpy.run_path({str(guard)!r})\n", encoding="utf-8")
 
+        source_cache_env = setup_env.copy()
+        source_cache_env.update(
+            {
+                "HF_HOME": str(hf_home),
+                "MEMPALACE_SOCKET_GUARD_LOADED": str(marker),
+                "MEMPALACE_SOCKET_ATTEMPTS": str(attempts),
+            }
+        )
+        source_cache_root, source_cache_detail = _installed_model_cache_root(
+            python_bin,
+            source_cache_env,
+            neutral_cwd,
+            run_subprocess=run_subprocess,
+        )
+        if source_cache_root is None:
+            return [
+                _make_row(
+                    "installed_golden_cache",
+                    INSTALLED_GOLDEN_COMMAND,
+                    "fail",
+                    f"{source_cache_detail}; {_cache_recovery()}",
+                )
+            ]
         try:
-            disposable_hf_home = _materialize_model_cache(hf_home, temp_root / "model-home")
+            disposable_hf_home = _materialize_model_cache(
+                source_cache_root, hf_home, temp_root / "model-home"
+            )
             golden_env = _installed_golden_env(
                 env_source,
                 temp_root=temp_root,
@@ -6324,6 +6379,21 @@ def _run_installed_golden_wheel(
                     INSTALLED_GOLDEN_COMMAND,
                     "fail",
                     "validated model cache could not be isolated; " + _cache_recovery(),
+                )
+            ]
+        isolated_cache_root, isolated_cache_detail = _installed_model_cache_root(
+            python_bin,
+            golden_env,
+            neutral_cwd,
+            run_subprocess=run_subprocess,
+        )
+        if isolated_cache_root is None:
+            return [
+                _make_row(
+                    "installed_golden_cache",
+                    INSTALLED_GOLDEN_COMMAND,
+                    "fail",
+                    isolated_cache_detail,
                 )
             ]
         provenance_code = (

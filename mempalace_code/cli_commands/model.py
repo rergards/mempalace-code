@@ -1,5 +1,6 @@
 """Model command handlers: fetch-model."""
 
+import importlib
 import logging
 import os
 import sys
@@ -74,6 +75,10 @@ def _is_existing_model_path(model_name: str) -> bool:
 
 
 def _model_cache_dir(model_name: str) -> Path | None:
+    from ..storage import canonical_fastembed_cache_root, is_canonical_embed_model
+
+    if is_canonical_embed_model(model_name):
+        return canonical_fastembed_cache_root()
     if _is_existing_model_path(model_name):
         return None
     hf_home = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
@@ -81,7 +86,13 @@ def _model_cache_dir(model_name: str) -> Path | None:
 
 
 def _load_model(model_name: str, *, local_files_only: bool):
-    from sentence_transformers import SentenceTransformer
+    from ..storage import _FastEmbedder, is_canonical_embed_model, preflight_embed_model
+
+    if is_canonical_embed_model(model_name):
+        return _FastEmbedder(local_files_only=local_files_only)
+
+    preflight_embed_model(model_name)
+    SentenceTransformer = importlib.import_module("sentence_transformers").SentenceTransformer
 
     with _quiet_hf_model_output():
         return SentenceTransformer(model_name, local_files_only=local_files_only)
@@ -94,13 +105,38 @@ def fetch_model(model_name: str, force: bool = False) -> None:
     cached model directory is removed before downloading so a fresh copy is
     retrieved.
     """
-    import shutil
+    from ..storage import (
+        canonical_fastembed_cache_owned,
+        is_canonical_embed_model,
+        quarantine_unowned_canonical_fastembed_cache,
+        remove_owned_canonical_fastembed_cache,
+    )
 
     model_dir = _model_cache_dir(model_name)
+    canonical = is_canonical_embed_model(model_name)
+    quarantined: Path | None = None
 
-    if force and model_dir and model_dir.exists():
+    def preserve_partial_cache() -> None:
+        nonlocal quarantined
+        if not canonical or model_dir is None:
+            return
+        if (model_dir.exists() or model_dir.is_symlink()) and not canonical_fastembed_cache_owned():
+            quarantined = quarantine_unowned_canonical_fastembed_cache()
+            if quarantined is not None:
+                print(f"  Preserved partial cache at: {quarantined}")
+
+    if force and model_dir and (model_dir.exists() or model_dir.is_symlink()):
         print(f"  Removing cached model: {model_dir}")
-        shutil.rmtree(model_dir)
+        if canonical:
+            if canonical_fastembed_cache_owned():
+                remove_owned_canonical_fastembed_cache()
+            else:
+                preserve_partial_cache()
+        else:
+            raise RuntimeError(
+                "Refusing to delete a custom-model cache automatically. "
+                "Move the custom cache aside manually, then retry without --force."
+            )
 
     if not force:
         try:
@@ -109,13 +145,32 @@ def fetch_model(model_name: str, force: bool = False) -> None:
         except Exception:
             if _is_existing_model_path(model_name):
                 raise
+            preserve_partial_cache()
             print(f"  Downloading model '{model_name}' …")
             print("  Waiting for model download; no input is needed.")
-            _load_model(model_name, local_files_only=False)
+            try:
+                _load_model(model_name, local_files_only=False)
+            except Exception as exc:
+                if not canonical:
+                    raise
+                recovery = f"mempalace-code fetch-model --model {model_name}"
+                preserved = f" Preserved cache: {quarantined}." if quarantined else ""
+                raise RuntimeError(
+                    f"Model download did not complete.{preserved} Retry exactly: `{recovery}`"
+                ) from exc
     else:
         print(f"  Downloading model '{model_name}' …")
         print("  Waiting for model download; no input is needed.")
-        _load_model(model_name, local_files_only=False)
+        try:
+            _load_model(model_name, local_files_only=False)
+        except Exception as exc:
+            if not canonical:
+                raise
+            recovery = f"mempalace-code fetch-model --model {model_name}"
+            preserved = f" Preserved cache: {quarantined}." if quarantined else ""
+            raise RuntimeError(
+                f"Model download did not complete.{preserved} Retry exactly: `{recovery}`"
+            ) from exc
 
     # Report cache location and size
     if model_dir and model_dir.exists():

@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import torch
 import yaml
 
 from mempalace_code.miner import (
@@ -1679,39 +1678,24 @@ def test_status_empty_palace_no_embedder(capsys, monkeypatch):
 
 
 # =============================================================================
-# _detect_batch_size() tests — monkeypatch device/memory detection
+# _detect_batch_size() tests — CPU/RAM detection
 # =============================================================================
-
-
-def test_detect_batch_size_mps():
-    with patch.object(torch.backends.mps, "is_available", return_value=True):
-        assert _detect_batch_size() == 256
-
-
-def test_detect_batch_size_cuda():
-    with patch.object(torch.backends.mps, "is_available", return_value=False):
-        with patch.object(torch.cuda, "is_available", return_value=True):
-            assert _detect_batch_size() == 256
 
 
 def test_detect_batch_size_cpu_high_ram():
     """CPU with >4 GB RAM → batch size 128."""
     # 8 GB = 2097152 pages * 4096 bytes/page
-    with patch.object(torch.backends.mps, "is_available", return_value=False):
-        with patch.object(torch.cuda, "is_available", return_value=False):
-            sysconf_vals = {"SC_PHYS_PAGES": 2097152, "SC_PAGE_SIZE": 4096}
-            with patch("os.sysconf", side_effect=lambda name: sysconf_vals[name]):
-                assert _detect_batch_size() == 128
+    sysconf_vals = {"SC_PHYS_PAGES": 2097152, "SC_PAGE_SIZE": 4096}
+    with patch("os.sysconf", side_effect=lambda name: sysconf_vals[name]):
+        assert _detect_batch_size() == 128
 
 
 def test_detect_batch_size_cpu_low_ram():
     """CPU with <=4 GB RAM → batch size 64."""
     # 2 GB = 524288 pages * 4096 bytes/page
-    with patch.object(torch.backends.mps, "is_available", return_value=False):
-        with patch.object(torch.cuda, "is_available", return_value=False):
-            sysconf_vals = {"SC_PHYS_PAGES": 524288, "SC_PAGE_SIZE": 4096}
-            with patch("os.sysconf", side_effect=lambda name: sysconf_vals[name]):
-                assert _detect_batch_size() == 64
+    sysconf_vals = {"SC_PHYS_PAGES": 524288, "SC_PAGE_SIZE": 4096}
+    with patch("os.sysconf", side_effect=lambda name: sysconf_vals[name]):
+        assert _detect_batch_size() == 64
 
 
 # =============================================================================
@@ -1744,28 +1728,20 @@ def test_get_batch_size_cached():
         batching_mod._batch_size = original
 
 
-def test_ac6_get_batch_size_fallback_when_torch_unavailable():
-    """AC-6: get_batch_size() returns fallback 128 when torch import fails."""
-    import sys
-
+def test_get_batch_size_fallback_when_ram_detection_unavailable():
+    """Batch sizing remains available when platform RAM detection is unsupported."""
     import mempalace_code.mining.batching as batching_mod
     from mempalace_code.miner import get_batch_size
 
     # Reset the lazy cache so detection runs fresh
     original_cache = batching_mod._batch_size
     batching_mod._batch_size = None
-    # Make torch appear unimportable inside _detect_batch_size
-    original_torch = sys.modules.get("torch")
-    sys.modules["torch"] = None  # type: ignore[assignment]  # reason: signals ImportError on import for torch-missing fallback path
     try:
-        result = get_batch_size()
-        assert result == 128, f"Expected fallback 128 when torch unavailable, got {result}"
+        with patch("os.sysconf", side_effect=ValueError("unsupported")):
+            result = get_batch_size()
+        assert result == 128, f"Expected fallback 128 when RAM detection fails, got {result}"
     finally:
         batching_mod._batch_size = original_cache
-        if original_torch is None:
-            sys.modules.pop("torch", None)
-        else:
-            sys.modules["torch"] = original_torch
 
 
 # =============================================================================

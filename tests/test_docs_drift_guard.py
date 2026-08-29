@@ -1902,7 +1902,7 @@ def test_releasing_names_exact_wheel_installed_golden_cache_and_provenance_contr
     assert text.count(command) == 2
     assert "`watch` extra" in text
     assert 'HF_HOME="$MEMPALACE_TEST_HF_HOME" mempalace-code fetch-model' in text
-    assert "hub/models--sentence-transformers--all-MiniLM-L6-v2/refs/main" in text
+    assert "mempalace-fastembed/all-MiniLM-L6-v2-v1/.mempalace-model.json" in text
     assert "interpreter-site\nsocket guard" in text
     assert "neutral cwd" in text
     assert "outside the checkout and ambient PATH" in text

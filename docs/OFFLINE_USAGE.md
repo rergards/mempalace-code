@@ -9,8 +9,8 @@ This guide covers airgapped installs, offline verification, custom models, and t
 ## 1. Airgapped Install
 
 On an airgapped machine you cannot download the embedding model automatically.  The
-recommended approach is to pre-seed the HuggingFace Hub cache from a connected machine
-and copy it over.
+recommended approach is to pre-seed the MemPalace-owned FastEmbed cache from a connected
+machine and copy it with its immutable provenance file.
 
 ### Option A — Copy the cache from a connected machine
 
@@ -20,19 +20,19 @@ On a machine with internet access:
 # Download or verify the model in the default cache location
 mempalace-code fetch-model
 
-# The model lives at:
-#   ~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2/
+# The model and .mempalace-model.json provenance live at:
+#   ~/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1/
 # Archive it:
-tar -czf minilm-cache.tar.gz -C ~/.cache/huggingface/hub \
-    models--sentence-transformers--all-MiniLM-L6-v2
+tar -czf minilm-cache.tar.gz -C ~/.cache/huggingface/mempalace-fastembed \
+    all-MiniLM-L6-v2-v1
 ```
 
 On the airgapped machine:
 
 ```bash
 # Restore to the same cache location
-mkdir -p ~/.cache/huggingface/hub
-tar -xzf minilm-cache.tar.gz -C ~/.cache/huggingface/hub
+mkdir -p ~/.cache/huggingface/mempalace-fastembed
+tar -xzf minilm-cache.tar.gz -C ~/.cache/huggingface/mempalace-fastembed
 
 # Install mempalace-code without triggering a download
 pip install mempalace-code
@@ -45,7 +45,7 @@ If your cache lives in a non-default location (e.g. on a read-only network share
 
 ```bash
 export HF_HOME=/mnt/shared/huggingface
-mempalace-code search "my query"   # resolves model from $HF_HOME/hub/
+mempalace-code search "my query"   # resolves from $HF_HOME/mempalace-fastembed/
 ```
 
 Set `HF_HOME` in your shell profile so it persists across sessions.
@@ -76,18 +76,23 @@ If you want to use a different embedding model (see `docs/UPSTREAM_HARDENING.md`
 the model upgrade policy):
 
 ```bash
-# 1. Download or verify on a connected machine:
+# 1. Install the explicit custom-model compatibility boundary:
+python -m pip install 'mempalace-code[custom-models]'
+
+# 2. Download or verify on a connected machine:
 mempalace-code fetch-model --model all-mpnet-base-v2
 
-# 2. Pass the model name when opening the store (Python API):
+# 3. Pass the model name when opening the store (Python API):
 from mempalace_code.storage import LanceStore
 store = LanceStore(palace_path="~/.mempalace/palace", embed_model="all-mpnet-base-v2")
 
-# 3. Or pass embed_model= wherever you open a LanceStore in your own scripts.
+# 4. Or pass embed_model= wherever you open a LanceStore in your own scripts.
 ```
 
-Note: once a palace is created with a specific model, all subsequent queries must use
-the same model — changing the model requires re-mining all content.
+Only the explicit custom-model path may use SentenceTransformer trusted remote code.
+Canonical `all-MiniLM-L6-v2` aliases always use CPU FastEmbed and never enable it.
+Once a palace is created with a specific model, all subsequent queries must use the same
+model; changing the model requires re-mining all content.
 
 ---
 
@@ -100,7 +105,7 @@ mempalace-code fetch-model [--model MODEL] [--force]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--model MODEL` | `all-MiniLM-L6-v2` | HuggingFace model name or local model path |
-| `--force` | off | Delete the existing Hub cache entry and re-download |
+| `--force` | off | Delete only an exact provenance-owned canonical cache and re-download |
 
 **Exit codes:**
 - `0` — model is available locally or was downloaded and cached successfully
@@ -108,10 +113,10 @@ mempalace-code fetch-model [--model MODEL] [--force]
 
 **Cache location:**
 
-Remote HuggingFace models are stored in the HuggingFace Hub cache:
+The canonical FastEmbed artifact is stored at:
 
 ```
-$HF_HOME/hub/models--sentence-transformers--<model-name>/
+$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/
 ```
 
 `HF_HOME` defaults to `~/.cache/huggingface`.  Override it with the `HF_HOME`
@@ -126,14 +131,16 @@ mempalace-code fetch-model
 # Force re-download (e.g. after corruption)
 mempalace-code fetch-model --force
 
-# Verify or download a non-default model
+# Verify or download a non-default model after installing [custom-models]
 mempalace-code fetch-model --model all-mpnet-base-v2
 ```
 
 `fetch-model` always tries local-only model resolution first. If the model is
 already cached, it does not make an online-capable HuggingFace Hub lookup and
 prints `Model '<name>' is already available locally.`. Use `--force` only when
-you intentionally want a fresh download.
+you intentionally want a fresh canonical download. It refuses symlinks, foreign
+directories, and missing or mismatched provenance. Move refused state aside manually,
+then run `mempalace-code fetch-model`.
 
 ---
 

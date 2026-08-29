@@ -82,7 +82,7 @@ assets/             ← logo + brand
 - **Naming**: `snake_case` for functions/variables, `PascalCase` for classes
 - **Docstrings**: on all modules and public functions
 - **Type hints**: where they improve readability
-- **Dependencies**: minimize. Core: `lancedb>=0.20` + `sentence-transformers`. Current releases expose no ChromaDB extra. Before raising dependency bounds or refreshing `uv.lock`, check current and target versions against OSV or an equivalent advisory source, audit a fresh resolved environment, and run clean resolver tests matching CI. Don't add new deps without discussion.
+- **Dependencies**: minimize. Core: `lancedb>=0.20`, `fastembed>=0.8,<0.9`, and `onnxruntime>=1.20,<2`. Custom sentence-transformers models require the `custom-models` extra. Current releases expose no ChromaDB extra. Before raising dependency bounds or refreshing `uv.lock`, check current and target versions against OSV or an equivalent advisory source, audit a fresh resolved environment, and run clean resolver tests matching CI. Don't add new deps without discussion.
 
 ## Good First Issues
 

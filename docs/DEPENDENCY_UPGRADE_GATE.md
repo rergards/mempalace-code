@@ -45,10 +45,11 @@ lock file. A dependency change must not land without a passing report.
 {
   "targets": {
     "lancedb": "0.33.0",
-    "sentence-transformers": "2.7.0"
+    "fastembed": "0.8.0",
+    "onnxruntime": "1.29.0"
   },
   "changed_groups": ["runtime"],
-  "changed_extras": []
+  "changed_extras": ["custom-models"]
 }
 ```
 

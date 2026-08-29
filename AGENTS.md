@@ -55,7 +55,7 @@ and clean it up later.
 
 - **Python** 3.11+ (supports 3.11–3.14)
 - **Storage**: LanceDB (core, crash-safe vector DB — no server required)
-- **Embeddings**: sentence-transformers (local, no API key)
+- **Embeddings**: FastEmbed/ONNX by default; SentenceTransformer only in `[custom-models]`
 - **Config**: PyYAML
 - **Linting / formatting / typing**: Ruff + Pyright
 - **Tests**: pytest
@@ -131,8 +131,8 @@ Line length: 100. Target: py311. Quote style: double.
 ## Architecture Principles
 
 1. **Verbatim-first** — store content exactly as provided; do not summarize or compress drawers.
-2. **Local-first** — no external APIs required; all embeddings run on-device via sentence-transformers.
-3. **Zero-API-by-default** — LanceDB and sentence-transformers work offline; API integrations are opt-in.
+2. **Local-first** — no external APIs required; default embeddings run on-device via CPU FastEmbed/ONNX.
+3. **Zero-API-by-default** — LanceDB and FastEmbed work offline after explicit model setup.
 
 ## Storage Backend
 
@@ -144,7 +144,13 @@ Line length: 100. Target: py311. Quote style: double.
 
 ## Embedding Model Policy
 
-- **Current default**: `all-MiniLM-L6-v2` (384d, sentence-transformers).
+- **Current default**: `all-MiniLM-L6-v2` (384d, normalized CPU FastEmbed/ONNX).
+- **Cache authority**: `$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/` plus its
+  immutable `.mempalace-model.json` provenance. Recovery is
+  `mempalace-code fetch-model` while online.
+- **Custom-model boundary**: arbitrary Hugging Face names and local
+  SentenceTransformer paths require `python -m pip install 'mempalace-code[custom-models]'`.
+  Only that explicit path may use `trust_remote_code=True`; canonical MiniLM aliases never do.
 - **No-regression rule**: any embedding model change must match or beat MiniLM on LongMemEval R@5 (text retrieval). Text quality is non-negotiable — this is a code-first fork but natural language search (conversations, commits, decisions) must not degrade.
 - **No code-only models**: CodeBERT, UniXcoder, etc. improve code at the expense of prose. Only general-purpose sentence-transformers that handle both are candidates.
 - **Gate**: model upgrades are gated behind A/B benchmark results.

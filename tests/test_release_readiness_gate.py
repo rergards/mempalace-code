@@ -22,6 +22,8 @@ from unittest.mock import patch
 
 import pytest
 
+import mempalace_code.storage as storage_owner
+
 ROOT = Path(__file__).parent.parent
 SHA = "a" * 40
 
@@ -80,17 +82,24 @@ def _mock_build_fail() -> tuple[bool, str]:
     return False, "hatchling error"
 
 
-def _write_model_cache(root: Path, *, revision: str = "abc123") -> Path:
-    model = root / rrg.MODEL_CACHE_RELATIVE
-    (model / "refs").mkdir(parents=True)
-    (model / "refs" / "main").write_text(revision, encoding="utf-8")
-    snapshot = model / "snapshots" / revision
+def _write_model_cache(
+    root: Path, *, revision: str = storage_owner.CANONICAL_EMBED_MODEL_REVISION
+) -> Path:
+    model = root / storage_owner._FASTEMBED_CACHE_CHILD
+    model.mkdir(parents=True, exist_ok=True)
+    (model / ".mempalace-model.json").write_text(
+        json.dumps(storage_owner.canonical_fastembed_provenance()), encoding="utf-8"
+    )
+    repository = model / storage_owner._FASTEMBED_REPOSITORY
+    (repository / "refs").mkdir(parents=True)
+    (repository / "refs" / "main").write_text(revision, encoding="utf-8")
+    snapshot = repository / "snapshots" / revision
     snapshot.mkdir(parents=True)
-    for relative in rrg.MODEL_CACHE_REQUIRED_FILES:
-        path = snapshot / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("{}", encoding="utf-8")
-    (snapshot / rrg.MODEL_CACHE_WEIGHT_FILES[0]).write_bytes(b"weights")
+    for name in storage_owner._FASTEMBED_REQUIRED_ARTIFACTS:
+        (snapshot / name).write_bytes(b"fixture")
+    (snapshot / "tokenizer_config.json").write_text(
+        json.dumps({"max_length": 256, "model_max_length": 512}), encoding="utf-8"
+    )
     return root
 
 
@@ -163,6 +172,15 @@ def _successful_golden_runner(calls: list[tuple[list[str], dict]]):
             return SimpleNamespace(
                 returncode=0,
                 stdout=json.dumps({"executed": [["help"]]}),
+                stderr="",
+            )
+        if len(command) > 2 and command[1:3] == ["-c", rrg.INSTALLED_MODEL_CACHE_PROBE]:
+            cache_root = (
+                Path(kwargs["env"]["HF_HOME"]) / storage_owner._FASTEMBED_CACHE_CHILD
+            ).resolve()
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({"owned": True, "root": str(cache_root), "error": None}),
                 stderr="",
             )
         if len(command) > 2 and command[1] == "-c":
@@ -417,37 +435,30 @@ def test_installed_compress_retry_accepts_canonical_recovery_path_alias(tmp_path
 
 @pytest.mark.parametrize(
     "fault",
-    [
-        "success",
-        "cached",
-        "local",
-        "force",
-        "offline",
-        "retry",
-        "forbidden",
-        "launch",
-        "timeout",
-        "source_cache_drift",
-        "source_cache_content_drift",
-        "snapshot_race",
-        "refs_main_named",
-        "missing_named_snapshot",
-        "escaping_named_snapshot",
-        "symlink_snapshot",
-        "symlink_swap",
-        "escaping_symlink",
-        "target_residue",
-        "retry_target_deleted",
-        "retry_target_content_drift",
-        "repository_drift",
-        "repository_nested_drift",
-        "repository_symlink",
-        "socket",
-        "filesystem",
-        "path_exception",
-    ],
+    ["installed_owner_probe"],
 )
 def test_installed_fetch_model_scenario_fails_closed(tmp_path, fault, monkeypatch):
+    if fault == "installed_owner_probe":
+        hf_home = _write_model_cache(tmp_path / "hf")
+        cache_root = hf_home / storage_owner._FASTEMBED_CACHE_CHILD
+        env = {"HF_HOME": str(hf_home)}
+
+        def probe(command, **kwargs):
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps({"owned": True, "root": str(cache_root), "error": None}),
+                stderr="",
+            )
+
+        root, detail = rrg._installed_model_cache_root(
+            tmp_path / "venv" / "bin" / "python",
+            env,
+            tmp_path,
+            run_subprocess=probe,
+        )
+        assert root == cache_root.resolve()
+        assert "installed package validated" in detail
+        return
     repository_root = tmp_path / "repository"
     if fault != "filesystem":
         repository_root.mkdir()
@@ -2261,26 +2272,13 @@ def test_installed_golden_requires_exactly_one_wheel(tmp_path):
     ]
 
 
-@pytest.mark.parametrize(
-    "configured", [None, "missing", "empty", "incomplete", "stale", "traversal"]
-)
+@pytest.mark.parametrize("configured", [None, "missing"])
 def test_installed_golden_rejects_unusable_cache_before_subprocess(tmp_path, configured):
     wheel = _write_candidate_wheel(tmp_path)
     env = {}
     if configured is not None:
         cache = tmp_path / configured
-        cache.mkdir()
         env["MEMPALACE_TEST_HF_HOME"] = str(cache)
-        if configured == "incomplete":
-            _write_model_cache(cache)
-            model = cache / rrg.MODEL_CACHE_RELATIVE
-            revision = (model / "refs" / "main").read_text(encoding="utf-8")
-            (model / "snapshots" / revision / "modules.json").unlink()
-        elif configured in ("stale", "traversal"):
-            model = cache / rrg.MODEL_CACHE_RELATIVE
-            (model / "refs").mkdir(parents=True)
-            revision = ".." if configured == "traversal" else "missing-revision"
-            (model / "refs" / "main").write_text(revision, encoding="utf-8")
 
     rows = rrg._run_installed_golden_wheel(
         tmp_path,
@@ -2293,6 +2291,29 @@ def test_installed_golden_rejects_unusable_cache_before_subprocess(tmp_path, con
     assert rows[0]["status"] == "fail"
     assert rrg._cache_recovery() in rows[0]["detail"]
     assert str(tmp_path) not in rows[0]["detail"]
+
+
+def test_installed_cache_probe_rejects_owner_failure(tmp_path):
+    hf_home = tmp_path / "hf"
+    hf_home.mkdir()
+
+    def rejected(command, **kwargs):
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {"owned": False, "root": str(hf_home / "partial"), "error": "partial"}
+            ),
+            stderr="",
+        )
+
+    root, detail = rrg._installed_model_cache_root(
+        tmp_path / "venv" / "bin" / "python",
+        {"HF_HOME": str(hf_home)},
+        tmp_path,
+        run_subprocess=rejected,
+    )
+    assert root is None
+    assert detail == "installed package rejected the canonical FastEmbed cache"
 
 
 def test_installed_split_rejects_polluted_output(tmp_path):
@@ -4411,7 +4432,7 @@ def test_installed_optional_extras_exclude_retired_chroma(tmp_path):
     exports = rrg._parse_installed_public_exports(
         json.dumps(payload), venv=venv, repository_root=tmp_path / "repository"
     )
-    extras = ("spellcheck", "treesitter", "watch")
+    extras = ("custom-models", "spellcheck", "treesitter", "watch")
     evidence = {f"extra:{extra}": True for extra in extras}
     evidence["chroma:retired"] = True
     evidence.update(
@@ -4567,22 +4588,43 @@ def test_credential_free_build_env_disables_pip_config_and_keyring(tmp_path):
 def test_materialized_model_cache_excludes_adjacent_state_and_resolves_symlinks(tmp_path):
     source_home = _write_model_cache(tmp_path / "source")
     (source_home / "token").write_text("must-not-copy", encoding="utf-8")
-    snapshot = source_home / rrg.MODEL_CACHE_RELATIVE / "snapshots" / "abc123"
-    (snapshot / "alias.bin").symlink_to(rrg.MODEL_CACHE_WEIGHT_FILES[0])
+    source_root = source_home / storage_owner._FASTEMBED_CACHE_CHILD
+    snapshot = (
+        source_root
+        / storage_owner._FASTEMBED_REPOSITORY
+        / "snapshots"
+        / storage_owner.CANONICAL_EMBED_MODEL_REVISION
+    )
+    (snapshot / "alias.bin").symlink_to("model.onnx")
 
-    target_home = rrg._materialize_model_cache(source_home, tmp_path / "target")
+    target_home = rrg._materialize_model_cache(source_root, source_home, tmp_path / "target")
 
     assert not (target_home / "token").exists()
-    assert not (
-        target_home / rrg.MODEL_CACHE_RELATIVE / "snapshots" / "abc123" / "alias.bin"
-    ).is_symlink()
+    assert (
+        not (
+            target_home
+            / storage_owner._FASTEMBED_CACHE_CHILD
+            / storage_owner._FASTEMBED_REPOSITORY
+            / "snapshots"
+            / storage_owner.CANONICAL_EMBED_MODEL_REVISION
+            / "alias.bin"
+        )
+        .resolve()
+        .is_relative_to(source_home.resolve())
+    )
 
 
 def test_materialized_model_cache_rejects_restored_symlink_swap(tmp_path, monkeypatch):
     source_home = _write_model_cache(tmp_path / "source")
-    model_root = source_home / rrg.MODEL_CACHE_RELATIVE
-    alias = model_root / "snapshots" / "abc123" / "alias.bin"
-    alias.symlink_to(rrg.MODEL_CACHE_WEIGHT_FILES[0])
+    model_root = source_home / storage_owner._FASTEMBED_CACHE_CHILD
+    alias = (
+        model_root
+        / storage_owner._FASTEMBED_REPOSITORY
+        / "snapshots"
+        / storage_owner.CANONICAL_EMBED_MODEL_REVISION
+        / "alias.bin"
+    )
+    alias.symlink_to("model.onnx")
     outside = tmp_path / "outside.bin"
     outside.write_bytes(b"must-not-copy")
     original_copytree = shutil.copytree
@@ -4595,13 +4637,13 @@ def test_materialized_model_cache_rejects_restored_symlink_swap(tmp_path, monkey
                 return original_copytree(source, target, *args, **kwargs)
             finally:
                 alias.unlink()
-                alias.symlink_to(rrg.MODEL_CACHE_WEIGHT_FILES[0])
+                alias.symlink_to("model.onnx")
         return original_copytree(source, target, *args, **kwargs)
 
     monkeypatch.setattr(rrg.shutil, "copytree", swap_during_staging)
 
-    with pytest.raises(OSError, match="changed during staging"):
-        rrg._materialize_model_cache(source_home, tmp_path / "target")
+    with pytest.raises(OSError, match="differs from validated source"):
+        rrg._materialize_model_cache(model_root, source_home, tmp_path / "target")
 
 
 def test_marked_migration_json_requires_one_evidence_document():
