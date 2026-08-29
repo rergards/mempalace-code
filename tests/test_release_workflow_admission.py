@@ -246,6 +246,10 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert 'exec "$3" "$4" --all-installers --install-spec "$5" --json' in command
     assert 'smoke_identity="$lifecycle_home/.mempalace-release-smoke.identity"' in command
     assert 'smoke_identity_tmp="$smoke_identity.tmp"' in command
+    assert (
+        'smoke_launcher_stderr="$lifecycle_home/.mempalace-release-smoke.launcher.stderr"'
+        in command
+    )
     assert "umask 077" in command
     assert r"""trap '\''rm -f -- "$2"'\'' EXIT""" in command
     assert 'test ! -e "$2"\n    test ! -L "$2"' in command
@@ -253,6 +257,10 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert 'test "$(stat -c %u "$2")" = "$(id -u)"' in command
     assert 'test "$(stat -c %a "$2")" = 600' in command
     assert 'mv -- "$2" "$1"' in command
+    assert 'exec 3>&2 2>"$6"' in command
+    assert "pre-handshake command failed: status=%s line=%s command=%q" in command
+    assert "trap - ERR" in command
+    assert "exec 2>&3 3>&-" in command
     assert command.index('printf "%s %s %s %s\\n"') < command.index('mv -- "$2" "$1"')
     assert command.count("read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra") == 2
     assert (
@@ -270,6 +278,12 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert command.count('sudo kill -0 -- "-$smoke_pgid" 2>/dev/null || break') == 2
     assert "disposable smoke process identity or termination failed" in command
     assert 'sudo rm -f -- "$smoke_identity_tmp"' in command
+    assert 'sudo rm -f -- "$smoke_launcher_stderr"' in command
+    assert 'lifecycle_mail_spool="/var/mail/$lifecycle_user"' in command
+    assert (
+        'sudo test -f "$lifecycle_mail_spool" && sudo test ! -L "$lifecycle_mail_spool"' in command
+    )
+    assert 'sudo rm -f -- "$lifecycle_mail_spool"' in command
     assert "smoke_started_at=$SECONDS" in command
     assert 'while kill -0 "$smoke_launcher_pid" 2>/dev/null; do' in command
     assert "SECONDS - smoke_started_at >= 2400" in command
@@ -280,6 +294,18 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert "exit 124" in command
     assert 'if wait "$smoke_launcher_pid"; then' in command
     assert 'exit "$smoke_launcher_rc"' in command
+    assert "launcher exited before identity publication: status=$smoke_launcher_rc" in command
+    assert 'sudo head -c 4096 -- "$smoke_launcher_stderr" >&2' in command
+    assert 'cat "$smoke_launcher_stderr"' not in command
+    missing_identity_guard = command.index('if ! sudo test -f "$smoke_identity"')
+    identity_read = command.rindex(
+        "read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra"
+    )
+    assert missing_identity_guard < identity_read
+    assert command.index("launcher exited before identity publication") < identity_read
+    assert "primary_rc=$?" in command
+    assert command.count('exit "$primary_rc"') == 2
+    assert command.index("if (( primary_rc != 0 )); then") < command.rindex('exit "$primary_rc"')
     assert '\n          wait "$smoke_launcher_pid"\n' not in command
     assert command.index('sudo kill -TERM -- "-$smoke_pgid"') < command.index(
         'userdel --remove "$lifecycle_user"'
@@ -294,6 +320,74 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert all(client not in command for client in ("codex", "claude", "gemini"))
     assert command.count("--all-installers") == 1
     assert workflow["jobs"]["release-required"]["needs"].count("installed-application") == 1
+
+
+@pytest.mark.parametrize(
+    ("lifecycle_created", "primary_rc", "cleanup_rc", "expected_rc"),
+    [
+        (0, 17, 0, 17),
+        (1, 17, 1, 17),
+        (1, 0, 1, 1),
+    ],
+)
+def test_installed_application_cleanup_preserves_primary_status(
+    lifecycle_created: int,
+    primary_rc: int,
+    cleanup_rc: int,
+    expected_rc: int,
+):
+    import subprocess
+
+    job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
+    command = next(
+        str(step["run"])
+        for step in job["steps"]
+        if "release_install_metadata_smoke.py" in str(step.get("run", ""))
+    )
+    match = re.search(
+        r"(cleanup_lifecycle_user\(\) \{\n.*?\n\})\ntrap cleanup_lifecycle_user EXIT",
+        command,
+        re.DOTALL,
+    )
+    assert match is not None
+    script = f"""\
+set -u
+{match.group(1)}
+lifecycle_created={lifecycle_created}
+lifecycle_user=mempalace-ci-test
+lifecycle_uid=12345
+lifecycle_home=/nonexistent/mempalace-ci-test
+lifecycle_runtime=/run/user/12345
+stage_dir=
+staged_script=
+staged_wheel=
+smoke_launcher_pid=
+smoke_pid=
+smoke_pgid=
+smoke_identity=
+smoke_identity_tmp=
+smoke_launcher_stderr=
+python_bin=/usr/bin/python3
+sudo() {{
+  if [ "$1" = test ] && {{ [ "${{2:-}}" = -e ] || [ "${{2:-}}" = -L ]; }}; then
+    return 1
+  fi
+  if [ "$1" = systemctl ] && [ "${{2:-}}" = stop ]; then
+    return {cleanup_rc}
+  fi
+  return 0
+}}
+trap cleanup_lifecycle_user EXIT
+exit {primary_rc}
+"""
+    completed = subprocess.run(
+        ["bash"],
+        input=script,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    assert completed.returncode == expected_rc, completed.stdout + completed.stderr
 
 
 def test_no_ci_job_escapes_the_release_critical_classification():

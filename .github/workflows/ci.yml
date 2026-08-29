@@ -316,12 +316,14 @@ jobs:
           smoke_pgid=""
           smoke_identity=""
           smoke_identity_tmp=""
+          smoke_launcher_stderr=""
           # shellcheck disable=SC2317,SC2329  # Invoked indirectly by the EXIT trap below.
           cleanup_lifecycle_user() {
+            primary_rc=$?
             trap - EXIT
             set +e
             if (( lifecycle_created == 0 )); then
-              return
+              exit "$primary_rc"
             fi
             if [ -z "$lifecycle_uid" ]; then
               lifecycle_uid="$(id -u "$lifecycle_user" 2>/dev/null)"
@@ -381,9 +383,12 @@ jobs:
               sudo rm -f -- "$smoke_identity_tmp"
               cleanup_rc=$((cleanup_rc | $?))
             fi
+            if [ -n "$smoke_launcher_stderr" ]; then
+              sudo rm -f -- "$smoke_launcher_stderr"
+              cleanup_rc=$((cleanup_rc | $?))
+            fi
             if (( cleanup_rc != 0 )); then
               echo "disposable smoke process identity or termination failed" >&2
-              exit 1
             fi
             sudo -u "$lifecycle_user" env -i \
               HOME="$lifecycle_home" \
@@ -401,6 +406,20 @@ jobs:
             if [ -n "$lifecycle_uid" ]; then
               sudo systemctl stop "user@${lifecycle_uid}.service"
               cleanup_rc=$((cleanup_rc | $?))
+            fi
+            lifecycle_mail_spool="/var/mail/$lifecycle_user"
+            if sudo test -e "$lifecycle_mail_spool" || sudo test -L "$lifecycle_mail_spool"; then
+              mail_rc=0
+              case "$lifecycle_mail_spool" in
+                "/var/mail/$lifecycle_user") ;;
+                *) mail_rc=1 ;;
+              esac
+              sudo test -f "$lifecycle_mail_spool" && sudo test ! -L "$lifecycle_mail_spool" || mail_rc=1
+              if (( mail_rc == 0 )); then
+                sudo rm -f -- "$lifecycle_mail_spool"
+                mail_rc=$?
+              fi
+              cleanup_rc=$((cleanup_rc | mail_rc))
             fi
             sudo userdel --remove "$lifecycle_user"
             cleanup_rc=$((cleanup_rc | $?))
@@ -430,8 +449,11 @@ jobs:
             fi
             if (( cleanup_rc != 0 )); then
               echo "disposable systemd-user or staging cleanup failed" >&2
-              exit 1
             fi
+            if (( primary_rc != 0 )); then
+              exit "$primary_rc"
+            fi
+            exit "$cleanup_rc"
           }
           trap cleanup_lifecycle_user EXIT
           if getent passwd "$lifecycle_user" >/dev/null; then
@@ -445,6 +467,7 @@ jobs:
           lifecycle_runtime="/run/user/$lifecycle_uid"
           smoke_identity="$lifecycle_home/.mempalace-release-smoke.identity"
           smoke_identity_tmp="$smoke_identity.tmp"
+          smoke_launcher_stderr="$lifecycle_home/.mempalace-release-smoke.launcher.stderr"
           sudo systemctl start "user@${lifecycle_uid}.service"
           test "$(stat -c %u "$lifecycle_runtime")" = "$lifecycle_uid"
           python_bin="$(command -v python)"
@@ -481,6 +504,8 @@ jobs:
             setsid bash -c '
               set -euo pipefail
               umask 077
+              exec 3>&2 2>"$6"
+              trap '\''rc=$?; printf "pre-handshake command failed: status=%s line=%s command=%q\n" "$rc" "$LINENO" "$BASH_COMMAND" >&2; exit "$rc"'\'' ERR
               test ! -e "$1"
               test ! -e "$2"
               test ! -L "$2"
@@ -491,8 +516,10 @@ jobs:
               test "$(stat -c %a "$2")" = 600
               mv -- "$2" "$1"
               trap - EXIT
+              trap - ERR
+              exec 2>&3 3>&-
               exec "$3" "$4" --all-installers --install-spec "$5" --json
-            ' bash "$smoke_identity" "$smoke_identity_tmp" "$python_bin" "$staged_script" "$staged_wheel" &
+            ' bash "$smoke_identity" "$smoke_identity_tmp" "$python_bin" "$staged_script" "$staged_wheel" "$smoke_launcher_stderr" &
           smoke_launcher_pid=$!
           smoke_started_at=$SECONDS
           for _attempt in {1..40}; do
@@ -500,6 +527,24 @@ jobs:
             kill -0 "$smoke_launcher_pid" 2>/dev/null || break
             sleep 0.25
           done
+          if ! sudo test -f "$smoke_identity" || sudo test -L "$smoke_identity"; then
+            if wait "$smoke_launcher_pid"; then
+              smoke_launcher_rc=0
+            else
+              smoke_launcher_rc=$?
+            fi
+            smoke_launcher_pid=""
+            echo "launcher exited before identity publication: status=$smoke_launcher_rc" >&2
+            if sudo test -f "$smoke_launcher_stderr" && sudo test ! -L "$smoke_launcher_stderr"; then
+              if ! sudo head -c 4096 -- "$smoke_launcher_stderr" >&2; then
+                echo "bounded launcher diagnostic could not be read" >&2
+              fi
+            fi
+            if (( smoke_launcher_rc == 0 )); then
+              exit 1
+            fi
+            exit "$smoke_launcher_rc"
+          fi
           sudo test -f "$smoke_identity" && sudo test ! -L "$smoke_identity"
           smoke_extra=""
           read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra < <(sudo cat "$smoke_identity")
