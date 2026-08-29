@@ -47,14 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: REL-MINILM-PUBLIC-CORPUS-PIN
-    summary: "Move MiniLM compatibility corpus to a publicly reproducible commit"
-    type: bug
-    status: open
-    priority: highest
-    size: S
-    section_id: quality
-    description: "## Symptom\n\nHosted x64 installed-application job 99121176043 stops before embedding with `pinned MiniLM compatibility commit is unavailable` for 3ad086bfd15bab032e86bef3e9deec207c13c17b.\n\n## Steps to reproduce\n\nFrom a fresh clone of `rergards/mempalace-code`, build/install the exact wheel and run `python benchmarks/code_retrieval_bench.py --check-minilm-runtime-compatibility`.\n\n## Scope\n\nExtend the existing benchmark contract in `benchmarks/retrieval_quality_facts.json` and its owning runner/tests. Select a commit already reachable from the public repository and remeasure the compatibility facts. Do not publish the old private/local commit, weaken missing-history refusal, substitute the current SHA without measurement, or claim the 469-chunk headline was rerun.\n\n## Expected vs actual\n\nExpected: the committed reproduction command runs from a public clean clone. Actual: the pin exists only on a local/private feature branch and is not an ancestor of the public candidate.\n\n## Root cause hypothesis\n\nThe historical benchmark commit was retained across the public-history squash without checking public reachability.\n\n## Acceptance criteria\n\n- AC-1: The pin resolves from a fresh public clone and no private commit or tree is published.\n- AC-2: The exact installed wheel runs the compatibility benchmark offline against the seeded MiniLM cache.\n- AC-3: Query and chunk counts plus R@5 and R@10 are measured and committed truthfully; focused tests and x64 installed-application pass."
   - key: REL-LINUX-ARM-INSTALLER-HANDSHAKE
     summary: "Repair the hosted ARM installer identity handshake"
     type: bug
