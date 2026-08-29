@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-29 · REL-MINILM-PUBLIC-CORPUS-PIN
+
+Harden outputs.
+
 ## Unreleased
 
 ## v1.14.0 — 2026-08-29
