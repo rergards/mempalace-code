@@ -23,7 +23,7 @@ import textwrap
 import time
 from collections import defaultdict
 from datetime import UTC, date, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
@@ -80,6 +80,7 @@ def _minilm_compatibility_contract() -> dict:
     if any(type(contract.get(field)) not in (int, float) for field in quality_fields):
         raise BenchError("MiniLM compatibility retrieval facts are malformed")
     commit = contract["commit"]
+    excluded_output = PurePosixPath(contract["excluded_output"])
     try:
         measured_date = date.fromisoformat(contract["measured_date"])
     except ValueError as exc:
@@ -91,7 +92,9 @@ def _minilm_compatibility_contract() -> dict:
         or contract["query_count"] <= 0
         or contract["chunk_count"] <= 0
         or contract["headline_469_corpus_rerun"] is not False
-        or not contract["excluded_output"]
+        or not excluded_output.parts
+        or excluded_output.is_absolute()
+        or ".." in excluded_output.parts
         or contract["reproduction_command"]
         != "python benchmarks/code_retrieval_bench.py --check-minilm-runtime-compatibility"
         or contract["runtime_owner"]

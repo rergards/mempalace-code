@@ -295,14 +295,20 @@ def test_minilm_compatibility_result_fails_closed_on_corpus_or_quality_drift():
 
 def test_minilm_compatibility_contract_rejects_malformed_measured_provenance(monkeypatch, tmp_path):
     contract = bench._minilm_compatibility_contract()
+    missing = object()
 
     for field, value in (
         ("measured_date", "2026-02-30"),
         ("measured_r_at_5", "0.95"),
+        ("measured_r_at_10", missing),
         ("minimum_r_at_10", 0.96),
+        ("excluded_output", "../outside.json"),
     ):
         malformed = dict(contract)
-        malformed[field] = value
+        if value is missing:
+            malformed.pop(field)
+        else:
+            malformed[field] = value
         facts = tmp_path / f"{field}.json"
         facts.write_text(
             json.dumps({"code_minilm": {"public_reproducible_compatibility": malformed}}),
