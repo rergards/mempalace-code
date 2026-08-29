@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import os
 import re
+import shutil
+import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -254,6 +258,7 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert r"""trap '\''rm -f -- "$2"'\'' EXIT""" in command
     assert 'test ! -e "$2"\n    test ! -L "$2"' in command
     assert 'printf "%s %s %s %s\\n" "$$" "$$" "$(id -u)" "$3" > "$2"' in command
+    assert 'chmod 0600 -- "$2"' in command
     assert 'test "$(stat -c %u "$2")" = "$(id -u)"' in command
     assert 'test "$(stat -c %a "$2")" = 600' in command
     assert 'mv -- "$2" "$1"' in command
@@ -261,7 +266,11 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert "pre-handshake command failed: status=%s line=%s command=%q" in command
     assert "trap - ERR" in command
     assert "exec 2>&3 3>&-" in command
-    assert command.index('printf "%s %s %s %s\\n"') < command.index('mv -- "$2" "$1"')
+    identity_write = command.index('printf "%s %s %s %s\\n"')
+    identity_chmod = command.index('chmod 0600 -- "$2"')
+    identity_mode_check = command.index('test "$(stat -c %a "$2")" = 600')
+    identity_publish = command.index('mv -- "$2" "$1"')
+    assert identity_write < identity_chmod < identity_mode_check < identity_publish
     assert command.count("read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra") == 2
     assert (
         'test -n "$smoke_pid" && test -n "$smoke_pgid" && test -n "$smoke_uid" && test -n "$smoke_command"'
@@ -320,6 +329,152 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert all(client not in command for client in ("codex", "claude", "gemini"))
     assert command.count("--all-installers") == 1
     assert workflow["jobs"]["release-required"]["needs"].count("installed-application") == 1
+
+
+def test_installed_application_embedded_launcher_publishes_or_fails_closed(tmp_path: Path):
+    job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
+    command = next(
+        str(step["run"])
+        for step in job["steps"]
+        if "release_install_metadata_smoke.py" in str(step.get("run", ""))
+    )
+    match = re.search(
+        r"setsid bash -c '\n(?P<launcher>.*?)\n\s*' bash \"\$smoke_identity\"",
+        command,
+        re.DOTALL,
+    )
+    assert match is not None
+    launcher = match.group("launcher").replace(r"'\''", "'")
+    bash = shutil.which("bash")
+    assert bash is not None
+
+    success_dir = tmp_path / "success"
+    success_dir.mkdir()
+    success_identity = success_dir / "identity"
+    success_identity_tmp = success_dir / "identity.tmp"
+    success_stderr = success_dir / "launcher.stderr"
+    invocation = success_dir / "invocation"
+    staged_script = success_dir / "staged-application"
+    staged_script.write_text(
+        f'printf "%s\\n" "$@" > "{invocation}"\n',
+        encoding="utf-8",
+    )
+    wheel = success_dir / "candidate.whl"
+    wheel.touch()
+    launcher_path = os.environ["PATH"]
+    if sys.platform == "darwin":
+        compat_bin = success_dir / "bin"
+        compat_bin.mkdir()
+        compat_stat = compat_bin / "stat"
+        compat_stat.write_text(
+            """#!/bin/sh
+if [ "$1" = -c ]; then
+  case "$2" in
+    %u) exec /usr/bin/stat -f %u "$3" ;;
+    %a) exec /usr/bin/stat -f %Lp "$3" ;;
+  esac
+fi
+exec /usr/bin/stat "$@"
+""",
+            encoding="utf-8",
+        )
+        compat_stat.chmod(0o755)
+        for name in ("chmod", "mv", "rm"):
+            compat_command = compat_bin / name
+            compat_command.write_text(
+                f"""#!/bin/sh
+if [ "$1" = -- ]; then
+  shift
+elif [ "${{2:-}}" = -- ]; then
+  first="$1"
+  shift 2
+  set -- "$first" "$@"
+fi
+exec /bin/{name} "$@"
+""",
+                encoding="utf-8",
+            )
+            compat_command.chmod(0o755)
+        launcher_path = f"{compat_bin}{os.pathsep}{launcher_path}"
+
+    completed = subprocess.run(
+        [
+            bash,
+            "-c",
+            launcher,
+            "bash",
+            str(success_identity),
+            str(success_identity_tmp),
+            bash,
+            str(staged_script),
+            str(wheel),
+            str(success_stderr),
+        ],
+        capture_output=True,
+        text=True,
+        env={"PATH": launcher_path},
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert not success_identity_tmp.exists()
+    assert stat.S_IMODE(success_identity.stat().st_mode) == 0o600
+    identity_fields = success_identity.read_text(encoding="utf-8").split()
+    assert len(identity_fields) == 4
+    assert identity_fields[0] == identity_fields[1]
+    assert identity_fields[2] == str(os.getuid())
+    assert identity_fields[3] == bash
+    assert invocation.read_text(encoding="utf-8").splitlines() == [
+        "--all-installers",
+        "--install-spec",
+        str(wheel),
+        "--json",
+    ]
+    assert success_stderr.read_text(encoding="utf-8") == ""
+
+    failure_dir = tmp_path / "failure"
+    failure_dir.mkdir()
+    failure_identity = failure_dir / "identity"
+    failure_identity_tmp = failure_dir / "identity.tmp"
+    failure_stderr = failure_dir / "launcher.stderr"
+    failure_invocation = failure_dir / "invocation"
+    failure_script = failure_dir / "staged-application"
+    failure_script.write_text(
+        f'printf "unexpected\\n" > "{failure_invocation}"\n',
+        encoding="utf-8",
+    )
+    failing_bin = failure_dir / "bin"
+    failing_bin.mkdir()
+    failing_chmod = failing_bin / "chmod"
+    failing_chmod.write_text("#!/bin/sh\nexit 23\n", encoding="utf-8")
+    failing_chmod.chmod(0o755)
+
+    failed = subprocess.run(
+        [
+            bash,
+            "-c",
+            launcher,
+            "bash",
+            str(failure_identity),
+            str(failure_identity_tmp),
+            bash,
+            str(failure_script),
+            str(wheel),
+            str(failure_stderr),
+        ],
+        capture_output=True,
+        text=True,
+        env={"PATH": f"{failing_bin}{os.pathsep}{launcher_path}"},
+    )
+
+    diagnostic = failure_stderr.read_text(encoding="utf-8")
+    assert failed.returncode == 23
+    assert not failure_identity.exists()
+    assert not failure_identity_tmp.exists()
+    assert not failure_invocation.exists()
+    assert len(diagnostic.encode("utf-8")) <= 4096
+    assert diagnostic.count("pre-handshake command failed:") == 1
+    assert "status=23" in diagnostic
+    assert "chmod" in diagnostic
 
 
 @pytest.mark.parametrize(
