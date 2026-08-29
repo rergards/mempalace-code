@@ -1,9 +1,5 @@
 # Changelog
 
-## 2026-08-29 · REL-MINILM-PUBLIC-CORPUS-PIN
-
-Harden outputs.
-
 ## Unreleased
 
 ## v1.14.0 — 2026-08-29
@@ -18,6 +14,7 @@ validation.
 
 ### Changed
 
+- MiniLM runtime-compatibility reproduction now pins public commit `66ff5a61`, with freshly measured 557-chunk results of R@5 0.95 and R@10 0.95; the separate 469-chunk headline remains historical (`REL-MINILM-PUBLIC-CORPUS-PIN`).
 - Installed CLI paths now provide consistent project detection, confirmation output, and machine-reconcilable recovery commands.
 - ChromaDB runtime and migration bridge retired: current packages contain no Chroma extras. Retired backend or `migrate-storage` invocations stop before mutation and print the isolated 1.13.4 recovery command. Back up the Chroma source before upgrading; default LanceDB users require no action (`CHROMA-MIGRATION-ADVISORY-SUNSET`).
 - `mine-all`, `watch <dir>`, and `watch <dir> schedule` now ignore symlinked project and initialization markers, including `.git`. Replace the symlink with a supported in-project marker — a real `.git` directory or a regular marker file — then rerun the original command (`WATCH-ROOT-PROJECT-MARKER-CLASSIFICATION-REUSE`).
