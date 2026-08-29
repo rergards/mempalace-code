@@ -48,7 +48,7 @@ sections:
 # ============================================================
 items:
   - key: REL-LINUX-ARM-TORCH-CUDA-RESOLVER
-    summary: "Qualify the minimal provenance fix on native ARM"
+    summary: "Qualify the minimal provenance fix and clean watcher-ready shutdown on native ARM"
     type: bug
     status: open
     priority: highest
@@ -73,13 +73,22 @@ items:
 
       Run the exact 1.13.5 wheel through the existing local installed-golden owner and the native
       Ubuntu 24 aarch64 installer, systemd-user, and installed-golden owners. Any non-green row or
-      differing wheel hash leaves the task open.
+      differing wheel hash leaves the task open. On exact wheel SHA-256
+      7c88ea3113c6997a5b25d2cabc9bd28305f48cf9be4ed90b2af44c8b5ae85019, native
+      ARM passed all four installer contours and the real systemd-user lifecycle, then the
+      non-regular-source direct row exposed a startup race: immediate SIGINT after `watch-ready`
+      reached `_emit_run_state` before the surrounding `KeyboardInterrupt` guard and printed a
+      traceback instead of the normal clean stop summary.
 
       ## Scope
 
-      Make no further source or test change. Build one fresh exact 1.13.5 wheel from the final
-      candidate SHA and qualify that identical wheel through the existing local and native Ubuntu
-      24 aarch64 release owners.
+      Keep commit 91593424 as the complete provenance fix. In both existing watcher entry points,
+      bring the `watch-ready` emission under the already-owned
+      `try`/`except KeyboardInterrupt`/signal-restoration lifecycle and add the smallest existing-owner
+      regression for immediate SIGINT at that boundary. Do not add a signal abstraction, platform
+      branch, option, or release gate. Build one fresh exact 1.13.5 wheel from the final candidate
+      SHA and qualify that identical wheel through the existing local and native Ubuntu 24 aarch64
+      release owners.
 
       ## Acceptance criteria
 
@@ -90,6 +99,8 @@ items:
         bootstrap-venv, pipx, uv-tool, Linux systemd-user lifecycle, and all 26 installed-golden
         rows with terminal ok true; real embedding, search, old-palace append, watcher exit, and
         disposable user/cache/root cleanup are observed.
+      - Immediate SIGINT after each watcher emits `watch-ready` produces no traceback, restores
+        installed signal handlers, and reports the normal clean stop summary.
       - The final default graph contains FastEmbed and ONNX and excludes Torch, CUDA, NVIDIA,
         Triton, Chroma extras, and ChromaDB. Existing compatibility, docs, security, artifact, and
         release gates pass at that SHA.
@@ -97,4 +108,6 @@ items:
       ## Recovery
 
       Remove only disposable qualification roots, rebuild the exact wheel from the same SHA, and
-      rerun the failed existing owner. Do not resume the rejected provenance rewrite.
+      rerun `MEMPALACE_TEST_HF_HOME=<cache> python scripts/release_readiness_gate.py
+      --installed-golden-wheel <wheel> --json` on native ARM. Do not resume the rejected provenance
+      rewrite.
