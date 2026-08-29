@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -23,6 +24,7 @@ def _load_module(name: str, path: Path):
 
 
 guard = _load_module("upstream_comparison_guard", ROOT / "scripts" / "upstream_comparison_guard.py")
+REAL_COLLECT_GIT_REVISION_SET = guard.collect_git_revision_set
 guard._load_public_read().REVIEWED_UPSTREAM_REPOSITORY = "Example/example"
 guard._load_public_read().REVIEWED_UPSTREAM_BRANCH = "main"
 
@@ -33,6 +35,10 @@ def _public_result(data=None, error=""):
 
 COMMIT = "a" * 40
 PREVIOUS_COMMIT = "b" * 40
+MERGE_ONE = "c" * 40
+MERGE_TWO = "d" * 40
+CONSTITUENT_ONE = "e" * 40
+CONSTITUENT_TWO = "f" * 40
 REPOSITORY = "https://github.com/Example/example"
 BRANCH = "main"
 REVIEWED_DATE = "2026-07-01"
@@ -70,6 +76,8 @@ def _manifest(**overrides) -> dict:
         "delta_decisions": [
             {
                 "id": "guarded-change",
+                "merge_group": MERGE_ONE,
+                "constituent_commits": [CONSTITUENT_ONE],
                 "upstream_change": "upstream tightened a documented guard",
                 "source_refs": ["README.md"],
                 "release_critical": True,
@@ -79,6 +87,8 @@ def _manifest(**overrides) -> dict:
             },
             {
                 "id": "repository-metadata-change",
+                "merge_group": MERGE_TWO,
+                "constituent_commits": [CONSTITUENT_TWO],
                 "upstream_change": "upstream changed repository review routing",
                 "source_refs": ["compare"],
                 "release_critical": False,
@@ -90,6 +100,16 @@ def _manifest(**overrides) -> dict:
     }
     manifest.update(overrides)
     return manifest
+
+
+@pytest.fixture(autouse=True)
+def _use_fixture_commit_inventory(monkeypatch):
+    """Keep static fixture tests independent from temporary Git repositories."""
+
+    def collect(root: Path, _previous_commit: str, _commit: str) -> set[str]:
+        return guard.manifest_commit_inventory(guard.load_manifest(root))
+
+    monkeypatch.setattr(guard, "collect_git_revision_set", collect)
 
 
 def _decisions(manifest: dict) -> list[dict]:
@@ -174,6 +194,162 @@ def test_evaluate_accepts_valid_static_snapshot(tmp_path: Path):
     }
     assert facts["release_critical_decisions"] == ["guarded-change"]
     assert facts["review_age_days"] == 9
+    assert facts["git_range_commit_count"] == 4
+    assert facts["manifest_inventory_commit_count"] == 4
+    assert facts["missing_commits"] == []
+    assert facts["extra_commits"] == []
+    assert facts["commit_inventory_exact"] is True
+
+
+def test_evaluate_rejects_nested_merge_missing_from_manifest(tmp_path: Path):
+    nested_merge = "7" * 40
+    root = _root(tmp_path)
+    expected = guard.manifest_commit_inventory(guard.load_manifest(root)) | {nested_merge}
+
+    facts, errors = guard.evaluate(
+        root,
+        today=date(2026, 7, 10),
+        revision_collector=lambda _root, _previous, _commit: expected,
+    )
+
+    assert facts["missing_commits"] == [nested_merge]
+    assert facts["commit_inventory_exact"] is False
+    assert any("commit-inventory" in error and nested_merge in error for error in errors)
+
+
+def test_evaluate_rejects_extra_manifest_commit(tmp_path: Path):
+    extra_commit = CONSTITUENT_TWO
+    root = _root(tmp_path)
+    expected = guard.manifest_commit_inventory(guard.load_manifest(root)) - {extra_commit}
+
+    facts, errors = guard.evaluate(
+        root,
+        today=date(2026, 7, 10),
+        revision_collector=lambda _root, _previous, _commit: expected,
+    )
+
+    assert facts["extra_commits"] == [extra_commit]
+    assert facts["commit_inventory_exact"] is False
+    assert any("commit-inventory" in error and extra_commit in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["git rev-list could not run", "git rev-list returned malformed revision lines ['bad']"],
+)
+def test_evaluate_fails_closed_when_git_range_is_unavailable_or_invalid(
+    tmp_path: Path, reason: str
+):
+    root = _root(tmp_path)
+
+    def fail(_root: Path, _previous: str, _commit: str) -> set[str]:
+        raise guard.CommitInventoryError(reason)
+
+    facts, errors = guard.evaluate(
+        root,
+        today=date(2026, 7, 10),
+        revision_collector=fail,
+    )
+
+    assert facts["git_range_commit_count"] is None
+    assert facts["commit_inventory_exact"] is False
+    assert errors == [
+        f"commit-inventory: {reason}; rerun {guard.INVENTORY_RECOVERY_COMMAND} "
+        "from a checkout containing the pinned history"
+    ]
+
+
+def test_collect_git_revision_set_rejects_malformed_output(tmp_path: Path):
+    result = type(
+        "Result",
+        (),
+        {"returncode": 0, "stdout": f"{MERGE_ONE}\nnot-a-sha\n", "stderr": ""},
+    )()
+
+    with pytest.raises(guard.CommitInventoryError, match="malformed revision lines"):
+        REAL_COLLECT_GIT_REVISION_SET(
+            tmp_path,
+            PREVIOUS_COMMIT,
+            COMMIT,
+            run=lambda *_args, **_kwargs: result,
+        )
+
+
+def test_collect_git_revision_set_returns_exact_unique_commits(tmp_path: Path):
+    result = type(
+        "Result",
+        (),
+        {"returncode": 0, "stdout": f"{MERGE_ONE}\n{MERGE_TWO}\n{MERGE_ONE}\n", "stderr": ""},
+    )()
+
+    commits = REAL_COLLECT_GIT_REVISION_SET(
+        tmp_path,
+        PREVIOUS_COMMIT,
+        COMMIT,
+        run=lambda *_args, **_kwargs: result,
+    )
+
+    assert commits == {MERGE_ONE, MERGE_TWO}
+
+
+@pytest.mark.parametrize(
+    ("result", "message"),
+    [
+        (
+            type("Result", (), {"returncode": 128, "stdout": "", "stderr": "bad revision"})(),
+            "failed (bad revision)",
+        ),
+        (
+            type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
+            "returned no commits",
+        ),
+    ],
+)
+def test_collect_git_revision_set_rejects_failed_or_empty_revision_walk(
+    tmp_path: Path, result, message: str
+):
+    with pytest.raises(guard.CommitInventoryError, match=re.escape(message)):
+        REAL_COLLECT_GIT_REVISION_SET(
+            tmp_path,
+            PREVIOUS_COMMIT,
+            COMMIT,
+            run=lambda *_args, **_kwargs: result,
+        )
+
+
+def test_collect_git_revision_set_rejects_missing_git_executable(tmp_path: Path):
+    def unavailable(*_args, **_kwargs):
+        raise FileNotFoundError("git")
+
+    with pytest.raises(guard.CommitInventoryError, match="could not run"):
+        REAL_COLLECT_GIT_REVISION_SET(
+            tmp_path,
+            PREVIOUS_COMMIT,
+            COMMIT,
+            run=unavailable,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("merge_group", "NOT-A-SHA", "merge_group"),
+        ("constituent_commits", [], "non-empty list"),
+        ("constituent_commits", ["NOT-A-SHA"], "lowercase hex shas"),
+    ],
+)
+def test_evaluate_rejects_malformed_commit_inventory_fields(
+    tmp_path: Path, field: str, value, message: str
+):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0][field] = value
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts == {}
+    assert any("commit-inventory" in error and message in error for error in errors)
 
 
 def test_evaluate_rejects_stale_review_date(tmp_path: Path):
@@ -545,6 +721,11 @@ def test_evaluate_rejects_negative_max_age_days(tmp_path: Path):
 
 def test_repository_manifest_and_document_agree():
     """The shipped manifest and document must pass the guard they are checked by."""
-    _, errors = guard.evaluate(ROOT, max_age_days=10_000, today=date(2026, 12, 31))
+    _, errors = guard.evaluate(
+        ROOT,
+        max_age_days=10_000,
+        today=date(2026, 12, 31),
+        revision_collector=REAL_COLLECT_GIT_REVISION_SET,
+    )
 
     assert errors == []
