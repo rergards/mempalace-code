@@ -46,4 +46,12 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: REL-LINUX-ARM-TORCH-CUDA-RESOLVER
+    summary: "Prevent CUDA resolver bloat on Linux aarch64"
+    type: bug
+    status: open
+    priority: highest
+    size: S
+    section_id: quality
+    description: "## Symptom\n\nA fresh unlocked Python 3.12 install on Linux aarch64 resolves sentence-transformers 6.0.0 and torch 2.13.0. PyTorch 2.11+ declares CUDA 13, cuDNN, NCCL, NVSHMEM and Triton for every Linux architecture, so pip downloaded multiple gigabytes of irrelevant GPU packages and failed with ENOSPC before MemPalace could install.\n\n## Steps to reproduce\n\nOn a clean Ubuntu 24 aarch64 environment, install the current project or exact wheel with ordinary pip and no existing packages. The resolver selects torch 2.13.0 and the unconditional Linux CUDA 13 dependency set. PyPI metadata shows torch 2.10 limits that GPU set to Linux x86_64; torch 2.11 removes the architecture guard.\n\n## Scope\n\nUse the existing project dependency contract, uv lock, dependency report, and release/dependency regression owner. Add the smallest Linux-aarch64-only upper bound that keeps torch below the marker regression. Do not change macOS, Windows, Linux x86_64, the embedding model, package index, installer UX, storage, or runtime architecture. Regenerate only required existing artifacts.\n\nRule Zero evidence: deletion leaves fresh ARM installs broken; capping sentence-transformers alone still selects torch 2.13; a platform-specific torch bound changes only the failing resolver contour. Cheapest falsifier: a clean Linux aarch64 pip resolver still selects torch >=2.11 or any cuda-/nvidia- package.\n\n## Acceptance criteria\n\n- Published metadata constrains torch below 2.11 only when sys_platform is Linux and platform_machine is aarch64.\n- A focused regression evaluates the marker for Linux aarch64 and proves it does not affect Linux x86_64, macOS, or Windows.\n- A clean unlocked Python 3.12 Linux aarch64 install of the exact wheel succeeds without any cuda-, nvidia-, or Triton distribution.\n- The installed package reports version 1.13.5 and directly executes ordinary LanceDB/CLI behavior.\n- uv.lock and the v1.13.5 dependency report are regenerated through existing owners and verify successfully.\n- Full macOS and fresh Linux suites, artifact/Twine, installed-golden, public-safety, Gitleaks, and static gates pass at the final SHA."
