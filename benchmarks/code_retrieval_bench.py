@@ -11,16 +11,25 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import importlib.metadata
 import json
+import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
+import textwrap
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING
+from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
@@ -33,10 +42,247 @@ SUPPORTED_MODES = ("naive", "smart", "treesitter")
 DEFAULT_DATASET = Path(__file__).resolve().parent / "data" / "code_retrieval_queries.json"
 NAIVE_WINDOW_LINES = 80
 NAIVE_OVERLAP_LINES = 10
+RETRIEVAL_QUALITY_FACTS = Path(__file__).resolve().parent / "retrieval_quality_facts.json"
+MINILM_PUBLIC_REPOSITORY = "https://github.com/rergards/mempalace-code.git"
 
 
 class BenchError(Exception):
     """Expected user-facing benchmark failure."""
+
+
+def _minilm_compatibility_contract() -> dict:
+    """Load the single public compatibility contract from retrieval facts."""
+    try:
+        facts = json.loads(RETRIEVAL_QUALITY_FACTS.read_text(encoding="utf-8"))
+        contract = facts["code_minilm"]["public_reproducible_compatibility"]
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise BenchError("MiniLM compatibility retrieval facts are malformed") from exc
+    if not isinstance(contract, dict):
+        raise BenchError("MiniLM compatibility retrieval facts are malformed")
+    return contract
+
+
+def _active_distribution_package_root() -> Path:
+    """Resolve mempalace_code from active distribution metadata, including editable installs."""
+    try:
+        distribution = importlib.metadata.distribution("mempalace-code")
+    except importlib.metadata.PackageNotFoundError as exc:
+        raise BenchError("active mempalace-code distribution is not installed") from exc
+
+    direct_url_text = distribution.read_text("direct_url.json")
+    if direct_url_text:
+        try:
+            direct_url = json.loads(direct_url_text)
+            parsed = urlparse(direct_url["url"])
+            editable = direct_url.get("dir_info", {}).get("editable") is True
+        except (KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise BenchError("active mempalace-code distribution metadata is malformed") from exc
+        if editable and parsed.scheme == "file":
+            file_path = url2pathname(unquote(parsed.path))
+            if parsed.netloc:
+                file_path = f"//{parsed.netloc}{file_path}"
+            package_root = Path(file_path) / "mempalace_code"
+        else:
+            package_root = Path(str(distribution.locate_file("mempalace_code")))
+    else:
+        package_root = Path(str(distribution.locate_file("mempalace_code")))
+
+    try:
+        package_root = package_root.resolve(strict=True)
+    except OSError as exc:
+        raise BenchError("active mempalace-code package root is unavailable") from exc
+    if not package_root.is_dir():
+        raise BenchError("active mempalace-code package root is unavailable")
+    return package_root
+
+
+def _history_recovery(repo_dir: Path, commit: str) -> str:
+    """Return one truthful command that can make the pinned public commit available."""
+    shallow = subprocess.run(
+        ["git", "-C", str(repo_dir), "rev-parse", "--is-shallow-repository"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if shallow.returncode == 0 and shallow.stdout.strip() == "true":
+        return "git fetch --unshallow"
+    return f"git fetch {MINILM_PUBLIC_REPOSITORY} {commit}"
+
+
+def _compatibility_adapter_source() -> str:
+    """Return the disposable historical API adapter backed by the current owner."""
+    return textwrap.dedent(
+        """\
+        from __future__ import annotations
+
+        import os
+        from pathlib import Path
+
+        import numpy as np
+
+        import mempalace_code.storage as _storage
+
+
+        _expected_runtime_root = Path(os.environ["MEMPALACE_EXPECTED_RUNTIME_ROOT"]).resolve(
+            strict=True
+        )
+        _storage_file = Path(_storage.__file__).resolve(strict=True)
+        if not _storage_file.is_relative_to(_expected_runtime_root):
+            raise RuntimeError(
+                "compatibility runtime mismatch: "
+                f"{_storage_file} is outside {_expected_runtime_root}"
+            )
+
+
+        class SentenceTransformer:
+            def __init__(self, _model_name: str, **_kwargs: object) -> None:
+                self._embedder = _storage._FastEmbedder(local_files_only=True)
+
+            def encode(
+                self,
+                texts,
+                *,
+                convert_to_numpy: bool = True,
+                normalize_embeddings: bool = True,
+                **_kwargs: object,
+            ):
+                if not convert_to_numpy or not normalize_embeddings:
+                    raise RuntimeError("historical compatibility requires normalized numpy output")
+                return np.asarray(
+                    self._embedder.compute_source_embeddings(list(texts)), dtype=np.float32
+                )
+        """
+    )
+
+
+def _validate_minilm_compatibility_result(contract: dict, result: dict) -> None:
+    """Fail closed unless the executable result matches the committed compatibility contract."""
+    try:
+        model = result["models"]["minilm"]
+        actual = {
+            "query_count": result["query_count"],
+            "chunk_count": model["performance"]["embed_chunks"],
+            "r_at_5": model["code_retrieval"]["R@5"],
+            "r_at_10": model["code_retrieval"]["R@10"],
+        }
+        expected = {
+            "query_count": contract["query_count"],
+            "chunk_count": contract["chunk_count"],
+            "r_at_5": contract["minimum_r_at_5"],
+            "r_at_10": contract["minimum_r_at_10"],
+        }
+    except (KeyError, TypeError) as exc:
+        raise BenchError("MiniLM compatibility retrieval facts or result are malformed") from exc
+    for field in ("query_count", "chunk_count"):
+        if actual[field] != expected[field]:
+            raise BenchError(
+                f"MiniLM compatibility {field} mismatch: {actual[field]} != {expected[field]}"
+            )
+    for field in ("r_at_5", "r_at_10"):
+        if not isinstance(actual[field], (int, float)) or actual[field] < expected[field]:
+            raise BenchError(
+                f"MiniLM compatibility {field} regressed: {actual[field]} < {expected[field]}"
+            )
+
+
+def run_minilm_runtime_compatibility(repo_dir: Path) -> dict:
+    """Run the pinned historical miner through the current canonical embedding owner."""
+    contract = _minilm_compatibility_contract()
+    try:
+        commit = contract["commit"]
+        excluded_output = contract["excluded_output"]
+    except KeyError as exc:
+        raise BenchError("MiniLM compatibility retrieval facts are malformed") from exc
+    if not isinstance(commit, str) or not isinstance(excluded_output, str):
+        raise BenchError("MiniLM compatibility retrieval facts are malformed")
+    runtime_root = _active_distribution_package_root()
+    recovery = _history_recovery(repo_dir, commit)
+    resolved = subprocess.run(
+        ["git", "-C", str(repo_dir), "rev-parse", f"{commit}^{{commit}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if resolved.returncode != 0 or resolved.stdout.strip() != commit:
+        raise BenchError(f"pinned MiniLM compatibility commit is unavailable; recovery: {recovery}")
+
+    with tempfile.TemporaryDirectory(prefix="mempalace-minilm-compatibility-") as temp:
+        temp_root = Path(temp)
+        archive_path = temp_root / "corpus.tar"
+        corpus = temp_root / "corpus"
+        corpus.mkdir()
+        archived = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_dir),
+                "archive",
+                "--format=tar",
+                f"--output={archive_path}",
+                commit,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if archived.returncode != 0:
+            raise BenchError(f"could not extract pinned compatibility corpus; recovery: {recovery}")
+        with tarfile.open(archive_path) as archive:
+            for member in archive.getmembers():
+                destination = (corpus / member.name).resolve()
+                if not destination.is_relative_to(corpus.resolve()):
+                    raise BenchError("pinned compatibility archive contains an unsafe path")
+            archive.extractall(corpus)
+
+        excluded = corpus / excluded_output
+        if not excluded.is_file() or excluded.is_symlink():
+            raise BenchError("pinned compatibility output exclusion is missing or unsafe")
+        excluded.unlink()
+        (corpus / "mempalace.yaml").write_text(
+            "wing: mempalace\nrooms:\n  - name: general\n"
+            "    description: Historical benchmark corpus\n",
+            encoding="utf-8",
+        )
+
+        adapter_root = temp_root / "adapter" / "sentence_transformers"
+        adapter_root.mkdir(parents=True)
+        (adapter_root / "__init__.py").write_text(_compatibility_adapter_source(), encoding="utf-8")
+        output = temp_root / "result.json"
+        env = os.environ.copy()
+        env.update(
+            {
+                "HF_HUB_OFFLINE": "1",
+                "MEMPALACE_EXPECTED_RUNTIME_ROOT": str(runtime_root),
+                "TRANSFORMERS_OFFLINE": "1",
+                "PYTHONPATH": os.pathsep.join(
+                    [str(adapter_root.parent), env.get("PYTHONPATH", "")]
+                ).rstrip(os.pathsep),
+            }
+        )
+        benchmark = subprocess.run(
+            [
+                sys.executable,
+                str(corpus / "benchmarks" / "embed_ab_bench.py"),
+                "--models",
+                "minilm",
+                "--project",
+                str(corpus),
+                "--skip-longmemeval",
+                "--out",
+                str(output),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+            timeout=600,
+        )
+        if benchmark.returncode != 0 or not output.is_file():
+            detail = (benchmark.stderr or benchmark.stdout or "no result")[-1200:]
+            raise BenchError(f"MiniLM compatibility benchmark failed: {detail}")
+        result = json.loads(output.read_text(encoding="utf-8"))
+        _validate_minilm_compatibility_result(contract, result)
+        return result
 
 
 def load_dataset(path: Path, limit: int | None = None) -> list[dict]:
@@ -214,7 +460,7 @@ def mine_naive(repo_dir: Path, palace_path: Path):
                     "source_file": rel_source,
                     "chunk_index": chunk_index,
                     "added_by": "bench",
-                    "filed_at": datetime.now(timezone.utc).isoformat(),
+                    "filed_at": datetime.now(UTC).isoformat(),
                     "language": language,
                     "symbol_name": symbol_name,
                     "symbol_type": symbol_type,
@@ -391,7 +637,7 @@ def run_benchmark(repo_dir: Path, dataset_path: Path, modes: list[str], limit: i
     mode_results = {mode: run_mode(repo_dir, mode, records) for mode in modes}
     return {
         "meta": {
-            "date": datetime.now(timezone.utc).isoformat(),
+            "date": datetime.now(UTC).isoformat(),
             "repo_path": str(repo_dir),
             "repo_name": repo_dir.name,
             "repo_commit": _repo_commit(repo_dir),
@@ -416,10 +662,26 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Validate expected_files against scanned corpus without embedding",
     )
+    parser.add_argument(
+        "--check-minilm-runtime-compatibility",
+        action="store_true",
+        help="Run the pinned historical 466-chunk corpus through the current runtime owner",
+    )
     args = parser.parse_args(argv)
 
     try:
         repo_dir = Path(args.repo_dir).expanduser().resolve()
+        if args.check_minilm_runtime_compatibility:
+            result = run_minilm_runtime_compatibility(repo_dir)
+            model = result["models"]["minilm"]
+            print(
+                "PASS MiniLM runtime compatibility: "
+                f"queries={result['query_count']} "
+                f"chunks={model['performance']['embed_chunks']} "
+                f"R@5={model['code_retrieval']['R@5']:.3f} "
+                f"R@10={model['code_retrieval']['R@10']:.3f}"
+            )
+            return 0
         dataset_path = Path(args.dataset).expanduser().resolve()
         records = load_dataset(dataset_path, args.limit)
         if args.validate_dataset:

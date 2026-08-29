@@ -46,6 +46,7 @@ from mempalace_code.source_io import (
     hash_regular_bytes,
     read_regular_bytes,
     read_regular_text,
+    source_path_kind,
     stat_regular_source,
 )
 from mempalace_code.split_mega_files import discover_text_sources, split_file
@@ -772,7 +773,7 @@ def test_diagnostic_or_required_input_error(tmp_path, capsys):
     diagnostics = []
 
     assert scan_project(str(project), symlink_diagnostics=diagnostics) == []
-    assert diagnostics == [{"path": str(fifo_source), "reason": "not a regular file"}]
+    assert diagnostics == [{"path": str(fifo_source), "reason": "fifo"}]
 
     convo_dir = tmp_path / "convos"
     convo_dir.mkdir()
@@ -822,11 +823,14 @@ def test_symlink_regular_contract(tmp_path):
     if not _try_symlink(link, target):
         pytest.skip("symlink creation is not available for this user/platform")
 
-    files = scan_project(str(project))
+    diagnostics = []
+    files = scan_project(str(project), symlink_diagnostics=diagnostics)
 
-    assert files == [link]
-    assert files[0] == link
-    assert read_regular_text(link) == "print('valid symlink target')\n"
+    assert files == []
+    assert diagnostics == [{"path": str(link), "reason": "symlink"}]
+    assert source_path_kind(link) == "symlink"
+    with pytest.raises(RegularSourceError, match=r"not a regular file \(symlink\)"):
+        read_regular_text(link)
 
 
 def test_symlink_rejection_contract(tmp_path):
@@ -837,26 +841,18 @@ def test_symlink_rejection_contract(tmp_path):
         pytest.skip("symlink creation is not available for this user/platform")
 
     diagnostics = []
-    files = scan_project(
-        str(project),
-        skip_invalid_source_symlinks=True,
-        symlink_diagnostics=diagnostics,
-    )
+    files = scan_project(str(project), symlink_diagnostics=diagnostics)
     assert files == []
-    assert diagnostics == [{"path": str(broken), "reason": "dangling"}]
+    assert diagnostics == [{"path": str(broken), "reason": "symlink"}]
 
     if hasattr(os, "mkfifo"):
         fifo = _make_fifo(project / "pipe")
         link = project / "fifo_link.py"
         assert _try_symlink(link, fifo)
         diagnostics = []
-        files = scan_project(
-            str(project),
-            skip_invalid_source_symlinks=True,
-            symlink_diagnostics=diagnostics,
-        )
+        files = scan_project(str(project), symlink_diagnostics=diagnostics)
         assert files == []
-        assert {"path": str(link), "reason": "not-a-file"} in diagnostics
+        assert {"path": str(link), "reason": "symlink"} in diagnostics
 
 
 def test_regular_bytes_decoding_size_metadata(tmp_path):
@@ -933,6 +929,10 @@ def test_posix_non_regular_subprocess_matrix(tmp_path):
     fifo_no_writer = _make_fifo(tmp_path / "blocked_no_writer.txt")
     fifo_live_writer = _make_fifo(tmp_path / "blocked_live_writer.txt")
     sock = _make_unix_socket(tmp_path / "blocked_socket.txt")
+    directory = tmp_path / "blocked_directory.txt"
+    directory.mkdir()
+    symlink = tmp_path / "blocked_symlink.txt"
+    assert _try_symlink(symlink, regular)
 
     scanned = tmp_path / "scanned.py"
     scanned.write_text("print('initial regular')\n", encoding="utf-8")
@@ -946,6 +946,8 @@ def test_posix_non_regular_subprocess_matrix(tmp_path):
             "fifo_no_writer": fifo_no_writer,
             "fifo_live_writer": fifo_live_writer,
             "unix_socket": tmp_path / "blocked_socket.txt",
+            "directory": directory,
+            "symlink": symlink,
             "replacement_race": replacement_fifo,
             "regular_control": regular,
         }
@@ -957,9 +959,20 @@ def test_posix_non_regular_subprocess_matrix(tmp_path):
         os.close(held_fd)
         sock.close()
 
-    for name in ("fifo_no_writer", "fifo_live_writer", "unix_socket", "replacement_race"):
+    for name in (
+        "fifo_no_writer",
+        "fifo_live_writer",
+        "unix_socket",
+        "directory",
+        "symlink",
+        "replacement_race",
+    ):
         assert results[name]["status"] == "error", results[name]
         assert "not a regular file" in results[name]["message"]
+    assert "(fifo)" in results["fifo_no_writer"]["message"]
+    assert "(socket)" in results["unix_socket"]["message"]
+    assert "(directory)" in results["directory"]["message"]
+    assert "(symlink)" in results["symlink"]["message"]
     assert results["regular_control"] == {"status": "ok", "value": "regular control"}
 
 
@@ -974,8 +987,9 @@ def test_windows_regular_and_symlink_compatibility(tmp_path):
     link = tmp_path / "linked.py"
     if _try_symlink(link, regular):
         files = sorted(path.name for path in scan_project(str(tmp_path)))
-        assert files == ["linked.py", "regular.py"]
-        assert read_regular_text(link) == read_regular_text(regular)
+        assert files == ["regular.py"]
+        with pytest.raises(RegularSourceError, match="symlink"):
+            read_regular_text(link)
 
     projects_parent = tmp_path / "projects"
     dotnet = projects_parent / "dotnet"

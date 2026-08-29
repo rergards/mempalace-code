@@ -8,12 +8,12 @@ itself) and builds a file-level import graph scoped to ``mempalace_code/``,
 enforcement — negative cases use synthetic fixture roots instead.
 
 Layers (see ``LAYER_RULES`` / ``LAYER_NAMES``):
-    core, storage, mining, cli, mcp, legacy_optional, scripts
+    core, storage, mining, cli, mcp, scripts
 
 Enforces the minimum architecture boundary: protected layers (``storage``,
 ``mining`` — which includes ``config.py`` and ``miner.py``/``mining/**``) must
-not have a static runtime import path into ``cli``, ``mcp``, or
-``legacy_optional``. Direct and transitive violations are both reported, each
+not have a static runtime import path into ``cli`` or ``mcp``. Direct and
+transitive violations are both reported, each
 with the file-level hop path that produced them.
 
 Import cycles among runtime (non-``TYPE_CHECKING``) edges are detected and
@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import ast
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,18 +43,12 @@ LAYER_NAMES: tuple[str, ...] = (
     "mining",
     "cli",
     "mcp",
-    "legacy_optional",
     "scripts",
 )
 
 # Ordered, most-specific-first. Each entry: (layer, exact rel-posix files, path prefixes).
 # A file that matches no rule falls back to "core".
 LAYER_RULES: tuple[tuple[str, frozenset[str], tuple[str, ...]], ...] = (
-    (
-        "legacy_optional",
-        frozenset({"mempalace_code/_chroma_store.py", "mempalace_code/migrate.py"}),
-        ("mempalace_code/legacy_optional/",),
-    ),
     (
         "cli",
         frozenset({"mempalace_code/cli.py"}),
@@ -90,7 +85,7 @@ SCAN_ROOTS: tuple[str, ...] = ("mempalace_code", "mempalace", "scripts")
 # modules are classified but not enforced (e.g. mempalace_code/__init__.py
 # legitimately re-exports the CLI entry point).
 PROTECTED_LAYERS: frozenset[str] = frozenset({"storage", "mining"})
-FORBIDDEN_TARGET_LAYERS: frozenset[str] = frozenset({"cli", "mcp", "legacy_optional"})
+FORBIDDEN_TARGET_LAYERS: frozenset[str] = frozenset({"cli", "mcp"})
 
 
 def repo_root() -> Path:
@@ -139,10 +134,51 @@ class GuardResult:
     violations: list[Violation]
     cycles: list[list[str]]
     type_checking_imports: list[TypeCheckingImport]
+    manifest_violations: list[str]
 
     @property
     def ok(self) -> bool:
-        return not self.violations and not self.cycles
+        return not self.violations and not self.cycles and not self.manifest_violations
+
+
+def _dependency_name(requirement: str) -> str:
+    return (
+        requirement.split(";", 1)[0]
+        .split("[", 1)[0]
+        .split("<", 1)[0]
+        .split(">", 1)[0]
+        .split("=", 1)[0]
+        .strip()
+        .lower()
+        .replace("_", "-")
+    )
+
+
+def _manifest_violations(root: Path) -> list[str]:
+    """Protect the single default FastEmbed runtime and retired-Chroma boundary."""
+    manifest = root / "pyproject.toml"
+    if not manifest.is_file():
+        return []
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    project = data.get("project", {})
+    runtime = {_dependency_name(item) for item in project.get("dependencies", [])}
+    optional = project.get("optional-dependencies", {})
+    custom = {_dependency_name(item) for item in optional.get("custom-models", [])}
+    violations = []
+    for required in ("fastembed", "onnxruntime"):
+        if required not in runtime:
+            violations.append(f"runtime dependency {required!r} is required")
+    for name in sorted(runtime):
+        if name in {"sentence-transformers", "torch", "triton", "chromadb"} or name.startswith(
+            ("nvidia-", "cuda-")
+        ):
+            violations.append(f"forbidden default runtime dependency: {name}")
+    if "sentence-transformers" not in custom:
+        violations.append("custom-models must own sentence-transformers")
+    for retired in ("chroma", "chroma-migration"):
+        if retired in optional:
+            violations.append(f"retired optional dependency surface: {retired}")
+    return violations
 
 
 # ─── Module resolution ─────────────────────────────────────────────────────────
@@ -186,8 +222,7 @@ class _ImportVisitor(ast.NodeVisitor):
     Static AST inspection only — a lazy import nested inside a function body is
     still visited, since it is still a real runtime import statement. Only
     ``importlib.import_module()`` calls (not ``Import``/``ImportFrom`` nodes)
-    are invisible to this visitor; that is the deliberate, narrowly reviewed
-    escape hatch for the legacy Chroma compatibility gateway.
+    are invisible to this visitor.
     """
 
     def __init__(self, source_rel: str, base_package: str, manifest: dict[str, str]) -> None:
@@ -367,6 +402,7 @@ def evaluate(root: Path) -> GuardResult:
         violations=violations,
         cycles=cycles,
         type_checking_imports=type_checking_imports,
+        manifest_violations=_manifest_violations(root),
     )
 
 
@@ -394,6 +430,10 @@ def format_report(result: GuardResult) -> str:
         lines.append(f"Import cycles ({len(result.cycles)}):")
         for cycle in result.cycles:
             lines.append(f"  - {' -> '.join(cycle)}")
+    if result.manifest_violations:
+        lines.append(f"Embedding manifest violations ({len(result.manifest_violations)}):")
+        for violation in result.manifest_violations:
+            lines.append(f"  - {violation}")
     if result.type_checking_imports:
         lines.append(
             f"TYPE_CHECKING-only imports ({len(result.type_checking_imports)}) [review only]:"
@@ -408,7 +448,7 @@ def format_report(result: GuardResult) -> str:
     else:
         lines.append(
             f"architecture-guard: FAIL ({len(result.violations)} boundary violations, "
-            f"{len(result.cycles)} cycles)"
+            f"{len(result.cycles)} cycles, {len(result.manifest_violations)} manifest violations)"
         )
     return "\n".join(lines)
 

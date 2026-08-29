@@ -18,7 +18,10 @@ import threading
 import time
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    from types import FrameType
 
 from .backup import create_backup
 from .config import MempalaceConfig
@@ -49,6 +52,42 @@ _UNSET: object = object()  # sentinel for _ScanRulesSnapshot._bad_mtime
 
 # Throttle: print disk-budget skip message at most once per this many seconds.
 _BUDGET_LOG_INTERVAL = 300  # 5 minutes
+
+
+class _WatcherShutdownSignals:
+    """Install and restore the supported graceful watcher signal handlers."""
+
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self._original_handlers: list[
+            tuple[int, Callable[[int, FrameType | None], object] | int | None]
+        ] = []
+
+    def install(self) -> threading.Event:
+        """Register one idempotent event handler, rolling back partial setup."""
+        supported_signals = [signal.SIGTERM]
+        sighup = getattr(signal, "SIGHUP", None)
+        if sighup is not None:
+            supported_signals.append(sighup)
+
+        def handle_shutdown(_signum, _frame) -> None:
+            self.event.set()
+
+        try:
+            for shutdown_signal in supported_signals:
+                original_handler = signal.getsignal(shutdown_signal)
+                signal.signal(shutdown_signal, handle_shutdown)
+                self._original_handlers.append((shutdown_signal, original_handler))
+        except Exception:
+            self.restore()
+            raise
+        return self.event
+
+    def restore(self) -> None:
+        """Restore every replaced handler once, in reverse registration order."""
+        while self._original_handlers:
+            shutdown_signal, original_handler = self._original_handlers.pop()
+            signal.signal(shutdown_signal, original_handler)
 
 
 class _WatcherMiningStore:
@@ -275,7 +314,7 @@ def _emit_run_state(run_id: str, state: str, extra: str = "") -> None:
     print(line, flush=True)
 
 
-_SYMLINK_DIAGNOSTIC_PREVIEW = 5
+_SOURCE_DIAGNOSTIC_PREVIEW = 5
 
 
 def _startup_source_discovery(
@@ -283,31 +322,30 @@ def _startup_source_discovery(
     respect_gitignore: bool,
     include_ignored: Optional[list],
 ) -> tuple[int, list]:
-    """Guarded startup scan: count valid sources and collect invalid-symlink diagnostics.
-
-    Runs before pre-watch backup creation and initial mine so a dangling or unreadable
-    source symlink is excluded before it can reach hashing.
-    """
+    """Count regular sources and collect rejected-source diagnostics before mutation."""
     diagnostics: list = []
     files = scan_project(
         str(project_path),
         respect_gitignore=respect_gitignore,
         include_ignored=include_ignored,
-        skip_invalid_source_symlinks=True,
         symlink_diagnostics=diagnostics,
     )
     return len(files), diagnostics
 
 
-def _print_skipped_symlink_diagnostic(diagnostics: list) -> None:
-    """Print a bounded diagnostic for source symlinks skipped by the startup guard."""
+def _print_rejected_source_diagnostic(diagnostics: list) -> None:
+    """Print bounded path-plus-kind diagnostics for rejected source candidates."""
     total = len(diagnostics)
-    print(f"  Skipped {total} invalid source symlink(s):", flush=True)
-    for entry in diagnostics[:_SYMLINK_DIAGNOSTIC_PREVIEW]:
+    print(f"  Rejected {total} non-regular source(s):", flush=True)
+    for entry in diagnostics[:_SOURCE_DIAGNOSTIC_PREVIEW]:
         print(f"    {entry['path']} ({entry['reason']})", flush=True)
-    omitted = total - _SYMLINK_DIAGNOSTIC_PREVIEW
+    omitted = total - _SOURCE_DIAGNOSTIC_PREVIEW
     if omitted > 0:
         print(f"    (+{omitted} more)", flush=True)
+    print(
+        "    Remove or replace each path with a regular file, then rerun the watcher.",
+        flush=True,
+    )
 
 
 @_with_watcher_lease
@@ -323,7 +361,7 @@ def watch_and_mine(
 ) -> None:
     """Watch *project_dir* for file changes and re-mine incrementally.
 
-    Blocks until SIGTERM or KeyboardInterrupt (Ctrl-C). On exit, prints a
+    Blocks until SIGTERM, POSIX SIGHUP, or KeyboardInterrupt (Ctrl-C). On exit, prints a
     one-line summary of cycles and events processed.
 
     Parameters match ``mine()`` (minus ``limit``, ``dry_run``, and
@@ -361,20 +399,20 @@ def watch_and_mine(
     _emit_run_state(run_id, "run-started")
 
     # Guarded startup source discovery — runs before pre-watch backup creation and
-    # initial mine so a dangling or unreadable source symlink is diagnosed and excluded
-    # before it can reach hashing.
-    valid_source_count, symlink_diagnostics = _startup_source_discovery(
+    # initial mine so rejected non-regular source nodes are diagnosed and excluded
+    # before they can reach hashing.
+    valid_source_count, source_diagnostics = _startup_source_discovery(
         project_path, respect_gitignore, include_ignored
     )
-    if symlink_diagnostics:
-        _print_skipped_symlink_diagnostic(symlink_diagnostics)
-    invalid_only_startup = valid_source_count == 0 and bool(symlink_diagnostics)
+    if source_diagnostics:
+        _print_rejected_source_diagnostic(source_diagnostics)
+    invalid_only_startup = valid_source_count == 0 and bool(source_diagnostics)
 
     # Pre-watch backup: required when existing lance data is present.
     # Fail closed if backup creation fails so the initial mine cannot corrupt
     # the palace without a recoverable snapshot in place. Skipped entirely when
-    # the only discovered source is an invalid symlink — there is nothing safe to
-    # mine, so creating an archive here would just churn on every restart.
+    # there are no valid regular sources — there is nothing safe to mine, so creating
+    # an archive here would just churn on every restart.
     _local_kg_path = _palace_kg_path(palace_path)
     mining_store = _WatcherMiningStore(palace_path)
     pre_watch_archive: Optional[str] = None
@@ -426,7 +464,6 @@ def watch_and_mine(
             incremental=True,
             kg=kg,
             skip_optimize=True,
-            skip_invalid_source_symlinks=True,
             kg_path=_local_kg_path,
         )
         stats = _run_initial_mine_with_recovery(
@@ -465,15 +502,8 @@ def watch_and_mine(
     # Shared gitignore matcher cache — loaded lazily, keyed by directory Path.
     matcher_cache: dict = {}
 
-    # Shutdown flag — set by SIGTERM handler; checked by watchfiles via stop_event.
-    shutdown_event = threading.Event()
-
-    original_sigterm = signal.getsignal(signal.SIGTERM)
-
-    def _handle_sigterm(_signum, _frame):
-        shutdown_event.set()
-
-    signal.signal(signal.SIGTERM, _handle_sigterm)
+    shutdown_signals = _WatcherShutdownSignals()
+    shutdown_event = shutdown_signals.install()
 
     cycles = 0
     event_count = 0
@@ -528,7 +558,6 @@ def watch_and_mine(
                     "incremental": True,
                     "kg": kg,
                     "skip_optimize": True,
-                    "skip_invalid_source_symlinks": True,
                     "kg_path": _local_kg_path,
                 },
                 mining_store,
@@ -562,7 +591,7 @@ def watch_and_mine(
     except KeyboardInterrupt:
         pass
     finally:
-        signal.signal(signal.SIGTERM, original_sigterm)
+        shutdown_signals.restore()
 
     elapsed = time.monotonic() - start_time
     print(
@@ -788,7 +817,7 @@ def watch_all(
     When *on_commit* is False, watches the full project tree and re-mines on
     any file save (5s debounce).
 
-    Blocks until SIGTERM or KeyboardInterrupt.
+    Blocks until SIGTERM, POSIX SIGHUP, or KeyboardInterrupt.
 
     Requires ``watchfiles`` (``pip install 'mempalace-code[watch]'``).
     """
@@ -903,9 +932,9 @@ def watch_all(
     _emit_run_state(run_id, "run-started")
 
     # Guarded per-project startup source discovery — runs before the shared pre-watch
-    # backup so a dangling or unreadable source symlink is diagnosed and excluded before
-    # it can reach hashing. Projects whose only discovered source is an invalid symlink
-    # are skipped for initial mining below.
+    # backup so rejected non-regular source nodes are diagnosed and excluded before
+    # they can reach hashing. Projects with no valid regular sources are skipped for
+    # initial mining below.
     project_valid_counts: dict = {}
     project_diagnostics: dict = {}
     any_valid_source = False
@@ -915,7 +944,7 @@ def watch_all(
         project_diagnostics[proj_path] = diagnostics
         if diagnostics:
             print(f"  [{wing}]", flush=True)
-            _print_skipped_symlink_diagnostic(diagnostics)
+            _print_rejected_source_diagnostic(diagnostics)
         if valid_count > 0:
             any_valid_source = True
     invalid_only_startup = not any_valid_source and any(project_diagnostics.values())
@@ -923,8 +952,8 @@ def watch_all(
     _all_local_kg_path = _palace_kg_path(palace_path)
     mining_store = _WatcherMiningStore(palace_path)
     # Pre-watch backup: one archive before the initial multi-project batch.
-    # Fail closed if backup creation fails. Skipped entirely when every project's
-    # only discovered source is an invalid symlink — there is nothing safe to mine.
+    # Fail closed if backup creation fails. Skipped entirely when there are no valid
+    # regular sources across projects — there is nothing safe to mine.
     pre_watch_archive: Optional[str] = None
     if not invalid_only_startup and _has_existing_lance_data(palace_path):
         try:
@@ -965,7 +994,6 @@ def watch_all(
                 incremental=True,
                 kg=kg,
                 skip_optimize=True,
-                skip_invalid_source_symlinks=True,
                 kg_path=_all_local_kg_path,
             )
             stats = _run_initial_mine_with_recovery(
@@ -1035,13 +1063,8 @@ def watch_all(
     snapshot = _ScanRulesSnapshot(scan_rules)
 
     matcher_cache: dict = {}
-    shutdown_event = threading.Event()
-    original_sigterm = signal.getsignal(signal.SIGTERM)
-
-    def _handle_sigterm(_signum, _frame):
-        shutdown_event.set()
-
-    signal.signal(signal.SIGTERM, _handle_sigterm)
+    shutdown_signals = _WatcherShutdownSignals()
+    shutdown_event = shutdown_signals.install()
 
     cycles = 0
     event_count = 0
@@ -1102,7 +1125,6 @@ def watch_all(
                             "incremental": True,
                             "kg": kg,
                             "skip_optimize": True,
-                            "skip_invalid_source_symlinks": True,
                             "kg_path": _all_local_kg_path,
                         },
                         mining_store,
@@ -1166,7 +1188,6 @@ def watch_all(
                             "incremental": True,
                             "kg": kg,
                             "skip_optimize": True,
-                            "skip_invalid_source_symlinks": True,
                             "kg_path": _all_local_kg_path,
                         },
                         mining_store,
@@ -1196,7 +1217,7 @@ def watch_all(
     except KeyboardInterrupt:
         pass
     finally:
-        signal.signal(signal.SIGTERM, original_sigterm)
+        shutdown_signals.restore()
 
     elapsed = time.monotonic() - start_time
     print(
@@ -1220,7 +1241,7 @@ def render_watch_schedule(
     platform:
         'darwin' for launchd plist, 'linux' for cron @reboot line.
     mempalace_bin:
-        Override the mempalace-code binary path (default: resolved via shutil.which).
+        Override the mempalace-code binary path (default: invoked launcher, then PATH).
 
     Returns
     -------
@@ -1233,6 +1254,20 @@ def render_watch_schedule(
     if platform not in ("darwin", "linux"):
         raise ValueError(f"Unsupported platform {platform!r}; must be 'darwin' or 'linux'")
 
+    if mempalace_bin is None:
+        from .cli_commands.alias import resolve_invoked_canonical_cli
+
+        invoked_bin = resolve_invoked_canonical_cli()
+        resolved_bin = (
+            str(invoked_bin) if invoked_bin is not None else _shutil.which("mempalace-code")
+        )
+        if resolved_bin is None:
+            safe_bin = f"{_shlex.quote(sys.executable)} -m mempalace_code"
+        else:
+            safe_bin = _shlex.quote(resolved_bin)
+    else:
+        safe_bin = _shlex.quote(mempalace_bin)
+
     watch_root = Path(parent_dir).expanduser().resolve()
 
     # Validate root — refuse uninitialized roots that would crash-loop under KeepAlive.
@@ -1244,7 +1279,7 @@ def render_watch_schedule(
         if root_kind == "project":
             raise ValueError(
                 f"{watch_root} is a project directory but has not been initialized.\n"
-                f"  Run:  mempalace-code init {watch_root}"
+                f"  Run:  {safe_bin} init {_shlex.quote(str(watch_root))}"
             )
         if root_kind == "parent":
             projects = detect_projects(str(watch_root))
@@ -1254,19 +1289,11 @@ def render_watch_schedule(
                     "  Supported watch roots:\n"
                     "    - An initialized project directory (contains mempalace.yaml)\n"
                     "    - A parent directory with at least one initialized immediate child project\n"
-                    f"  Run 'mempalace-code init <dir>' on a project under {watch_root} first."
+                    f"  Run {safe_bin} init <dir> on a project under "
+                    f"{_shlex.quote(str(watch_root))} first."
                 )
 
     safe_dir = _shlex.quote(str(watch_root))
-
-    if mempalace_bin is None:
-        resolved_bin = _shutil.which("mempalace-code")
-        if resolved_bin is None:
-            safe_bin = f"{_shlex.quote(sys.executable)} -m mempalace_code"
-        else:
-            safe_bin = _shlex.quote(resolved_bin)
-    else:
-        safe_bin = _shlex.quote(mempalace_bin)
 
     cmd = f"{safe_bin} watch {safe_dir}"
 

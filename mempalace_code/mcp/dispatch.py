@@ -59,12 +59,13 @@ def _coerce_arg(key, value, declared_type):
     if declared_type == "number":
         if isinstance(value, bool) or value is None:
             return _fail("number")
-        if isinstance(value, (int, float)):
-            return value, None
         try:
-            return float(value), None
+            coerced = float(value)
         except (TypeError, ValueError):
             return _fail("number")
+        if not math.isfinite(coerced):
+            return _fail("finite number")
+        return value if isinstance(value, (int, float)) else coerced, None
     return value, None
 
 
@@ -216,6 +217,25 @@ def handle_request(request, active_registry=None):
                 "error": {
                     "code": -32602,
                     "message": f"Invalid params: missing required argument(s): {', '.join(missing)}",
+                },
+            }
+        # Required strings must carry content. Inspect a stripped view only for
+        # this predicate; accepted values remain byte-for-byte unchanged.
+        blank_required_strings = [
+            arg
+            for arg in required_args
+            if schema_props.get(arg, {}).get("type") == "string" and not tool_args[arg].strip()
+        ]
+        if blank_required_strings:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32602,
+                    "message": (
+                        "Invalid params: blank required argument(s): "
+                        f"{', '.join(blank_required_strings)}"
+                    ),
                 },
             }
         try:

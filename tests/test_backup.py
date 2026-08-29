@@ -11,14 +11,18 @@ Uses the shared fixtures from conftest.py:
 import io
 import json
 import os
+import plistlib
 import shlex
+import subprocess
 import sys
 import tarfile
 import time
+from argparse import Namespace
 from unittest.mock import patch
 
 import pytest
 
+import mempalace_code.backup as backup_module
 from mempalace_code.backup import (
     BackupArchiveError,
     create_backup,
@@ -26,6 +30,7 @@ from mempalace_code.backup import (
     render_schedule,
     restore_backup,
 )
+from mempalace_code.cli_commands.backup_restore import cmd_backup_schedule
 from mempalace_code.storage import open_store
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -224,6 +229,130 @@ def test_restore_with_force_overwrites(seeded_collection, palace_path, tmp_dir):
     restore_backup(out, restore_dir, force=True, kg_path=restore_kg)
 
     assert os.path.isdir(os.path.join(restore_dir, "lance"))
+
+
+def test_force_restore_copy_failure_preserves_existing_lance(
+    seeded_collection, palace_path, tmp_dir
+):
+    out = os.path.join(tmp_dir, "backup.tar.gz")
+    create_backup(palace_path, out_path=out, kg_path=os.path.join(tmp_dir, "source-kg"))
+    restore_dir = os.path.join(tmp_dir, "restored_palace")
+    restore_kg = os.path.join(tmp_dir, "restored_kg.sqlite3")
+    restore_backup(out, restore_dir, kg_path=restore_kg)
+    sentinel = os.path.join(restore_dir, "lance", "preserve.txt")
+    with open(sentinel, "w", encoding="utf-8") as handle:
+        handle.write("old state")
+
+    with patch("mempalace_code.backup.shutil.copytree", side_effect=OSError("disk full")):
+        with pytest.raises(OSError, match="disk full"):
+            restore_backup(out, restore_dir, force=True, kg_path=restore_kg)
+
+    with open(sentinel, encoding="utf-8") as handle:
+        assert handle.read() == "old state"
+    assert not any(name.startswith(".mempalace-lance-") for name in os.listdir(restore_dir))
+
+
+def test_force_restore_publish_failure_restores_existing_lance(
+    seeded_collection, palace_path, tmp_dir
+):
+    out = os.path.join(tmp_dir, "backup.tar.gz")
+    create_backup(palace_path, out_path=out, kg_path=os.path.join(tmp_dir, "source-kg"))
+    restore_dir = os.path.join(tmp_dir, "restored_palace")
+    restore_kg = os.path.join(tmp_dir, "restored_kg.sqlite3")
+    restore_backup(out, restore_dir, kg_path=restore_kg)
+    sentinel = os.path.join(restore_dir, "lance", "preserve.txt")
+    with open(sentinel, "w", encoding="utf-8") as handle:
+        handle.write("old state")
+    real_replace = os.replace
+
+    def fail_staged_publish(source, destination):
+        if ".mempalace-lance-stage-" in str(source) and str(destination) == os.path.join(
+            restore_dir, "lance"
+        ):
+            raise OSError("publish failed")
+        return real_replace(source, destination)
+
+    with patch("mempalace_code.backup.os.replace", side_effect=fail_staged_publish):
+        with pytest.raises(OSError, match="publish failed"):
+            restore_backup(out, restore_dir, force=True, kg_path=restore_kg)
+
+    with open(sentinel, encoding="utf-8") as handle:
+        assert handle.read() == "old state"
+    assert not any(name.startswith(".mempalace-lance-") for name in os.listdir(restore_dir))
+
+
+def test_force_restore_kg_publish_failure_restores_existing_lance_and_kg(
+    seeded_collection, palace_path, tmp_dir
+):
+    source_kg = os.path.join(tmp_dir, "source-kg.sqlite3")
+    with open(source_kg, "wb") as handle:
+        handle.write(b"new kg")
+    out = os.path.join(tmp_dir, "backup.tar.gz")
+    create_backup(palace_path, out_path=out, kg_path=source_kg)
+
+    restore_dir = os.path.join(tmp_dir, "restored_palace")
+    restore_kg = os.path.join(tmp_dir, "restored_kg.sqlite3")
+    restore_backup(out, restore_dir, kg_path=restore_kg)
+    sentinel = os.path.join(restore_dir, "lance", "preserve.txt")
+    with open(sentinel, "w", encoding="utf-8") as handle:
+        handle.write("old lance")
+    with open(restore_kg, "wb") as handle:
+        handle.write(b"old kg")
+    real_replace = os.replace
+
+    def fail_kg_publish(source, destination):
+        if str(destination) == restore_kg and str(source).endswith(".tmp"):
+            raise OSError("kg publish failed")
+        return real_replace(source, destination)
+
+    with patch("mempalace_code.backup.os.replace", side_effect=fail_kg_publish):
+        with pytest.raises(OSError, match="kg publish failed"):
+            restore_backup(out, restore_dir, force=True, kg_path=restore_kg)
+
+    with open(sentinel, encoding="utf-8") as handle:
+        assert handle.read() == "old lance"
+    with open(restore_kg, "rb") as handle:
+        assert handle.read() == b"old kg"
+    assert not any(name.startswith(".mempalace-lance-") for name in os.listdir(restore_dir))
+
+
+def test_force_restore_rollback_failure_preserves_existing_lance_backup(
+    seeded_collection, palace_path, tmp_dir
+):
+    source_kg = os.path.join(tmp_dir, "source-kg.sqlite3")
+    with open(source_kg, "wb") as handle:
+        handle.write(b"new kg")
+    out = os.path.join(tmp_dir, "backup.tar.gz")
+    create_backup(palace_path, out_path=out, kg_path=source_kg)
+
+    restore_dir = os.path.join(tmp_dir, "restored_palace")
+    restore_kg = os.path.join(tmp_dir, "restored_kg.sqlite3")
+    restore_backup(out, restore_dir, kg_path=restore_kg)
+    sentinel = os.path.join(restore_dir, "lance", "preserve.txt")
+    with open(sentinel, "w", encoding="utf-8") as handle:
+        handle.write("old lance")
+    real_replace = os.replace
+
+    def fail_kg_publish(source, destination):
+        if str(destination) == restore_kg and str(source).endswith(".tmp"):
+            raise OSError("kg publish failed")
+        return real_replace(source, destination)
+
+    with (
+        patch("mempalace_code.backup.os.replace", side_effect=fail_kg_publish),
+        patch("mempalace_code.backup._remove_owned_lance_dir", return_value=False),
+        pytest.raises(RuntimeError, match="rollback failed.*prior state remains"),
+    ):
+        restore_backup(out, restore_dir, force=True, kg_path=restore_kg)
+
+    backups = [
+        os.path.join(restore_dir, name)
+        for name in os.listdir(restore_dir)
+        if name.startswith(".mempalace-lance-backup-")
+    ]
+    assert len(backups) == 1
+    with open(os.path.join(backups[0], "lance", "preserve.txt"), encoding="utf-8") as handle:
+        assert handle.read() == "old lance"
 
 
 # ── Round-trip tests ───────────────────────────────────────────────────────────
@@ -597,6 +726,35 @@ class TestRenderSchedule:
         out = render_schedule("daily", palace_path, "darwin", mempalace_bin=bin_with_space)
         assert shlex.quote(bin_with_space) in out
 
+    @pytest.mark.parametrize("platform", ["linux", "darwin"])
+    def test_rendered_command_executes_launcher_and_preserves_arguments(self, tmp_path, platform):
+        launcher = tmp_path / "launcher ; path" / "mempalace-code"
+        palace = tmp_path / "palace ; path"
+        record = tmp_path / "recorded argv"
+        launcher.parent.mkdir()
+        launcher.write_text(
+            f"#!/bin/sh\nprintf '%s\\n' \"$@\" > {shlex.quote(str(record))}\n",
+            encoding="utf-8",
+        )
+        launcher.chmod(0o755)
+
+        snippet = render_schedule("daily", str(palace), platform, mempalace_bin=str(launcher))
+        if platform == "linux":
+            command = snippet.rstrip().split(maxsplit=5)[5]
+            subprocess.run(["/bin/sh", "-c", command], check=True)
+        else:
+            arguments = plistlib.loads(snippet.encode())["ProgramArguments"]
+            subprocess.run(arguments, check=True)
+
+        assert record.read_text(encoding="utf-8").splitlines() == [
+            "--palace",
+            str(palace.resolve()),
+            "backup",
+            "create",
+            "--kind",
+            "scheduled",
+        ]
+
     def test_default_bin_falls_back_to_mempalace_code_module(self, palace_path, monkeypatch):
         """Packaged docs and generated schedules must use the renamed import module."""
         monkeypatch.setattr("shutil.which", lambda _name: None)
@@ -607,6 +765,106 @@ class TestRenderSchedule:
         assert f"{shlex.quote(sys.executable)} -m mempalace_code --palace " in out
         assert "backup create" in out
         assert "-m mempalace backup" not in out
+
+    def test_invoked_launcher_precedes_conflicting_path(self, palace_path, tmp_path, monkeypatch):
+        invoked_dir = tmp_path / "invoked bin"
+        ambient_dir = tmp_path / "ambient-bin"
+        invoked_dir.mkdir()
+        ambient_dir.mkdir()
+        invoked = invoked_dir / "mempalace-code"
+        ambient = ambient_dir / "mempalace-code"
+        for executable in (invoked, ambient):
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+        monkeypatch.setenv("PATH", str(ambient_dir))
+        monkeypatch.setattr(sys, "argv", [str(invoked), "backup", "schedule"])
+
+        out = render_schedule("daily", palace_path, "linux")
+
+        assert shlex.quote(str(invoked)) in out
+        assert str(ambient) not in out
+
+    def test_command_handler_reuses_selected_launcher_in_deterministic_guidance(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        invoked_dir = tmp_path / "invoked bin"
+        ambient_dir = tmp_path / "ambient-bin"
+        home = tmp_path / "home with spaces"
+        for directory in (invoked_dir, ambient_dir, home):
+            directory.mkdir()
+        invoked = invoked_dir / "mempalace-code"
+        ambient = ambient_dir / "mempalace-code"
+        for executable in (invoked, ambient):
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+        palace = tmp_path / "palace ; quoted"
+        args = Namespace(palace=str(palace), freq="daily", install=False)
+        monkeypatch.setenv("PATH", str(ambient_dir))
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(sys, "platform", "darwin")
+        monkeypatch.setattr(sys, "argv", [str(invoked), "backup", "schedule"])
+        before = tuple(sorted(tmp_path.rglob("*")))
+
+        cmd_backup_schedule(args)
+        first = capsys.readouterr()
+        cmd_backup_schedule(args)
+        second = capsys.readouterr()
+
+        assert first == second
+        assert shlex.quote(str(invoked)) in first.out
+        assert shlex.quote(str(invoked)) in first.err
+        assert str(ambient) not in first.out + first.err
+        assert shlex.quote(str(palace.resolve())) in first.out + first.err
+        assert "--freq daily" in first.err
+        assert (
+            shlex.quote(str(home / "Library/LaunchAgents/com.mempalace.backup.plist")) in first.err
+        )
+        assert tuple(sorted(tmp_path.rglob("*"))) == before
+
+    def test_install_refusal_names_selected_launcher_and_explicit_targets(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        invoked = tmp_path / "bin with spaces" / "mempalace-code"
+        invoked.parent.mkdir()
+        invoked.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        invoked.chmod(0o755)
+        palace = tmp_path / "palace with spaces"
+        monkeypatch.setattr(sys, "argv", [str(invoked), "backup", "schedule"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_backup_schedule(Namespace(palace=str(palace), freq="weekly", install=True))
+
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert shlex.quote(str(invoked)) in captured.err
+        assert shlex.quote(str(palace.resolve())) in captured.err
+        assert "--freq weekly" in captured.err
+        assert "com.mempalace.backup.plist" in captured.err
+
+    def test_missing_dedicated_sibling_refuses_before_emitting_snippet(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        invoked = tmp_path / "invoked-bin" / "mempalace-code-alias"
+        ambient = tmp_path / "ambient-bin" / "mempalace-code"
+        invoked.parent.mkdir()
+        ambient.parent.mkdir()
+        for executable in (invoked, ambient):
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+        monkeypatch.setenv("PATH", str(ambient.parent))
+        monkeypatch.setattr(sys, "argv", [str(invoked), "backup", "schedule"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_backup_schedule(
+                Namespace(palace=str(tmp_path / "palace"), freq="daily", install=False)
+            )
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "cannot find executable sibling" in captured.err
+        assert str(ambient) not in captured.err
 
     def test_render_schedule_kind_scheduled_darwin(self, palace_path):
         """AC-6: darwin schedule contains '--kind scheduled', does not contain '$(date'."""
@@ -1598,6 +1856,211 @@ class TestRestoreArchiveSecurityBoundary:
         ),
     ]
 
+    @pytest.mark.parametrize(
+        "metadata",
+        [None, [], {"drawer_count": True}, {"drawer_count": -1}, {"drawer_count": "4"}],
+    )
+    def test_restore_rejects_missing_or_invalid_canonical_metadata_before_mutation(
+        self, metadata, tmp_dir
+    ):
+        archive = os.path.join(tmp_dir, f"invalid-metadata-{type(metadata).__name__}.tar.gz")
+        with tarfile.open(archive, "w:gz") as tar:
+            if metadata is not None:
+                payload = json.dumps(metadata).encode()
+                info = tarfile.TarInfo("mempalace_backup/metadata.json")
+                info.size = len(payload)
+                tar.addfile(info, io.BytesIO(payload))
+            escaped = tarfile.TarInfo("../../mempalace-direct-escaped.txt")
+            escaped.size = 7
+            tar.addfile(escaped, io.BytesIO(b"escaped"))
+
+        target = os.path.join(tmp_dir, "invalid-metadata-target")
+        selected_kg = os.path.join(tmp_dir, "invalid-metadata-kg.sqlite3")
+        os.makedirs(os.path.join(target, "lance"))
+        sentinel = os.path.join(target, "lance", "sentinel.bin")
+        with open(sentinel, "wb") as file:
+            file.write(b"LANCE_SENTINEL")
+        with open(selected_kg, "wb") as file:
+            file.write(b"KG_SENTINEL")
+
+        with pytest.raises(BackupArchiveError) as exc_info:
+            restore_backup(archive, target, force=True, kg_path=selected_kg)
+
+        expected_code = "missing_metadata" if metadata is None else "malformed_metadata"
+        assert exc_info.value.code == expected_code
+        with open(sentinel, "rb") as file:
+            assert file.read() == b"LANCE_SENTINEL"
+        with open(selected_kg, "rb") as file:
+            assert file.read() == b"KG_SENTINEL"
+        assert not os.path.lexists(os.path.join(tmp_dir, "mempalace-direct-escaped.txt"))
+
+    def test_restore_rejects_positive_drawer_count_without_lance(self, tmp_dir):
+        archive = os.path.join(tmp_dir, "contradictory.tar.gz")
+        with tarfile.open(archive, "w:gz") as tar:
+            payload = json.dumps({"drawer_count": 1, "wings": []}).encode()
+            info = tarfile.TarInfo("mempalace_backup/metadata.json")
+            info.size = len(payload)
+            tar.addfile(info, io.BytesIO(payload))
+
+        with pytest.raises(BackupArchiveError) as exc_info:
+            restore_backup(
+                archive,
+                os.path.join(tmp_dir, "contradictory-target"),
+                kg_path=os.path.join(tmp_dir, "contradictory-kg.sqlite3"),
+            )
+
+        assert exc_info.value.code == "invalid_backup_shape"
+
+    def test_create_backup_shapes_restore_declared_state(
+        self, seeded_collection, palace_path, tmp_dir
+    ):
+        source_kg = os.path.join(tmp_dir, "source-kg.sqlite3")
+        with open(source_kg, "wb") as file:
+            file.write(b"KG_PAYLOAD")
+        cases = [
+            (
+                "empty",
+                os.path.join(tmp_dir, "absent-palace"),
+                os.path.join(tmp_dir, "absent-kg"),
+                False,
+                False,
+            ),
+            ("lance", palace_path, os.path.join(tmp_dir, "absent-lance-kg"), True, False),
+            ("kg", os.path.join(tmp_dir, "absent-kg-palace"), source_kg, False, True),
+            ("combined", palace_path, source_kg, True, True),
+        ]
+
+        for name, source_palace, source_graph, expect_lance, expect_kg in cases:
+            archive = os.path.join(tmp_dir, f"{name}.tar.gz")
+            metadata, _ = create_backup(source_palace, out_path=archive, kg_path=source_graph)
+            target = os.path.join(tmp_dir, f"{name}-target")
+            selected_kg = os.path.join(tmp_dir, f"{name}-target.sqlite3")
+
+            restored = restore_backup(archive, target, kg_path=selected_kg)
+
+            assert restored == metadata
+            assert os.path.isdir(os.path.join(target, "lance")) is expect_lance
+            assert os.path.isfile(selected_kg) is expect_kg
+            if expect_lance:
+                assert open_store(target, create=False, read_only=True).count() == 4
+            if expect_kg:
+                with open(selected_kg, "rb") as file:
+                    assert file.read() == b"KG_PAYLOAD"
+
+    def test_force_post_state_verification_failure_restores_prior_lance_and_kg(
+        self, seeded_collection, palace_path, tmp_dir
+    ):
+        source_kg = os.path.join(tmp_dir, "post-verify-source.sqlite3")
+        with open(source_kg, "wb") as file:
+            file.write(b"NEW_KG")
+        archive = os.path.join(tmp_dir, "post-verify.tar.gz")
+        create_backup(palace_path, out_path=archive, kg_path=source_kg)
+        target = os.path.join(tmp_dir, "post-verify-target")
+        selected_kg = os.path.join(tmp_dir, "post-verify-target.sqlite3")
+        restore_backup(archive, target, kg_path=selected_kg)
+        sentinel = os.path.join(target, "lance", "prior.bin")
+        with open(sentinel, "wb") as file:
+            file.write(b"PRIOR_LANCE")
+        with open(selected_kg, "wb") as file:
+            file.write(b"PRIOR_KG")
+
+        real_verify = backup_module._verify_restored_lance
+        calls = 0
+
+        def fail_final_verification(path, count):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise BackupArchiveError("invalid_lance_payload", "mempalace_backup/lance")
+            return real_verify(path, count)
+
+        with patch(
+            "mempalace_code.backup._verify_restored_lance", side_effect=fail_final_verification
+        ):
+            with pytest.raises(BackupArchiveError, match="invalid_lance_payload"):
+                restore_backup(archive, target, force=True, kg_path=selected_kg)
+
+        with open(sentinel, "rb") as file:
+            assert file.read() == b"PRIOR_LANCE"
+        with open(selected_kg, "rb") as file:
+            assert file.read() == b"PRIOR_KG"
+
+    def test_force_post_state_failure_restores_kg_symlink_to_directory(
+        self, seeded_collection, palace_path, tmp_dir
+    ):
+        source_kg = os.path.join(tmp_dir, "symlink-source.sqlite3")
+        with open(source_kg, "wb") as file:
+            file.write(b"NEW_KG")
+        archive = os.path.join(tmp_dir, "symlink-rollback.tar.gz")
+        create_backup(palace_path, out_path=archive, kg_path=source_kg)
+
+        target = os.path.join(tmp_dir, "symlink-target")
+        selected_kg = os.path.join(tmp_dir, "selected-kg.sqlite3")
+        referent = os.path.join(tmp_dir, "kg-referent")
+        os.mkdir(referent)
+        sentinel = os.path.join(referent, "preserve.bin")
+        with open(sentinel, "wb") as file:
+            file.write(b"PRIOR_REFERENT")
+        os.symlink(referent, selected_kg)
+        link_before = os.lstat(selected_kg)
+        referent_before = os.stat(selected_kg)
+
+        real_verify = backup_module._verify_restored_lance
+        calls = 0
+
+        def fail_final_verification(path, count):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise BackupArchiveError("invalid_lance_payload", "mempalace_backup/lance")
+            return real_verify(path, count)
+
+        with patch(
+            "mempalace_code.backup._verify_restored_lance", side_effect=fail_final_verification
+        ):
+            with pytest.raises(BackupArchiveError, match="invalid_lance_payload"):
+                restore_backup(archive, target, force=True, kg_path=selected_kg)
+
+        link_after = os.lstat(selected_kg)
+        referent_after = os.stat(selected_kg)
+        assert (link_after.st_dev, link_after.st_ino) == (link_before.st_dev, link_before.st_ino)
+        assert os.readlink(selected_kg) == referent
+        assert (referent_after.st_dev, referent_after.st_ino) == (
+            referent_before.st_dev,
+            referent_before.st_ino,
+        )
+        with open(sentinel, "rb") as file:
+            assert file.read() == b"PRIOR_REFERENT"
+
+    def test_nonforce_post_state_verification_failure_removes_owned_state(
+        self, seeded_collection, palace_path, tmp_dir
+    ):
+        source_kg = os.path.join(tmp_dir, "nonforce-verify-source.sqlite3")
+        with open(source_kg, "wb") as file:
+            file.write(b"NEW_KG")
+        archive = os.path.join(tmp_dir, "nonforce-verify.tar.gz")
+        create_backup(palace_path, out_path=archive, kg_path=source_kg)
+        target = os.path.join(tmp_dir, "nonforce-verify-target")
+        selected_kg = os.path.join(tmp_dir, "nonforce-verify-target.sqlite3")
+        real_verify = backup_module._verify_restored_lance
+        calls = 0
+
+        def fail_final_verification(path, count):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise BackupArchiveError("invalid_lance_payload", "mempalace_backup/lance")
+            return real_verify(path, count)
+
+        with patch(
+            "mempalace_code.backup._verify_restored_lance", side_effect=fail_final_verification
+        ):
+            with pytest.raises(BackupArchiveError, match="invalid_lance_payload"):
+                restore_backup(archive, target, kg_path=selected_kg)
+
+        assert not os.path.lexists(target)
+        assert not os.path.lexists(selected_kg)
+
     def test_security_boundary_restore_rejects_unsafe_members(self, tmp_dir):
         """Each unsafe managed member raises BackupArchiveError(unsafe_archive_member)
         before any lance/KG data is copied into the destination palace (AC-1, AC-3)."""
@@ -1704,31 +2167,19 @@ class TestRestoreArchiveSecurityBoundary:
             "existing palace data must not be deleted before malformed metadata is rejected"
         )
 
-    def test_security_boundary_restore_valid_archive_still_restores(self, tmp_dir):
-        """Regression: a well-formed archive containing only safe managed members is
-        unaffected by the new member validation (INV-1)."""
+    def test_security_boundary_restore_valid_archive_still_restores(
+        self, seeded_collection, palace_path, tmp_dir
+    ):
+        """Regression: the canonical create_backup output remains restorable (INV-1)."""
         safe = os.path.join(tmp_dir, "safe.tar.gz")
-        with tarfile.open(safe, "w:gz") as tar:
-            meta_bytes = json.dumps({"drawer_count": 1, "wings": ["proj"]}).encode()
-            meta_info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
-            meta_info.size = len(meta_bytes)
-            tar.addfile(meta_info, io.BytesIO(meta_bytes))
-
-            dir_info = tarfile.TarInfo(name="mempalace_backup/lance")
-            dir_info.type = tarfile.DIRTYPE
-            tar.addfile(dir_info)
-
-            file_bytes = b"safe-file-content"
-            file_info = tarfile.TarInfo(name="mempalace_backup/lance/data.lance")
-            file_info.size = len(file_bytes)
-            tar.addfile(file_info, io.BytesIO(file_bytes))
-
+        metadata, _ = create_backup(
+            palace_path, out_path=safe, kg_path=os.path.join(tmp_dir, "missing-kg")
+        )
         restore_dir = os.path.join(tmp_dir, "safe_restored")
-        restore_kg = os.path.join(tmp_dir, "safe_restored_kg.sqlite3")
-        metadata = restore_backup(safe, restore_dir, kg_path=restore_kg)
 
-        assert metadata["drawer_count"] == 1
-        restored_file = os.path.join(restore_dir, "lance", "data.lance")
-        assert os.path.isfile(restored_file)
-        with open(restored_file, "rb") as f:
-            assert f.read() == b"safe-file-content"
+        restored = restore_backup(
+            safe, restore_dir, kg_path=os.path.join(tmp_dir, "safe_restored_kg.sqlite3")
+        )
+
+        assert restored == metadata
+        assert open_store(restore_dir, create=False, read_only=True).count() == 4

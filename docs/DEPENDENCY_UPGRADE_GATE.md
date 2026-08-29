@@ -45,10 +45,11 @@ lock file. A dependency change must not land without a passing report.
 {
   "targets": {
     "lancedb": "0.33.0",
-    "sentence-transformers": "2.7.0"
+    "fastembed": "0.8.0",
+    "onnxruntime": "1.29.0"
   },
   "changed_groups": ["runtime"],
-  "changed_extras": []
+  "changed_extras": ["custom-models"]
 }
 ```
 
@@ -58,24 +59,7 @@ Fields:
 |------------------|-----------------|-------------|
 | `targets`        | object          | Map of package name → exact target version. Must include every package in each named changed group and changed extra. Unknown package names are rejected. |
 | `changed_groups` | array of strings | Groups whose bounds changed: `"runtime"` or `"dev"`. |
-| `changed_extras` | array of strings | Optional extra names (e.g. `"chroma-migration"`, `"spellcheck"`) whose bounds changed. |
-
-## ChromaDB 1.x Hold Policy
-
-ChromaDB is retained only as isolated ChromaDB-to-LanceDB migration input. It is
-capped at `<1` because `GHSA-f4j7-r4q5-qw2c` affects the currently available
-1.x line.
-
-The current safe ceiling is `chromadb>=0.5.0,<1`.
-
-A target manifest that raises ChromaDB into a 1.x version will be rejected by
-the advisory gate as long as `GHSA-f4j7-r4q5-qw2c` remains active for that
-target. The ceiling must not be raised until:
-
-1. The advisory source confirms the chosen 1.x target is advisory-clean.
-2. The full `audit` command passes (advisory gate + resolver audit).
-3. A passing report with the new hashes is committed together with the
-   pyproject and lock-file changes.
+| `changed_extras` | array of strings | Optional extra names (e.g. `"spellcheck"`, `"treesitter"`) whose bounds changed. |
 
 ## Public Report Schema
 

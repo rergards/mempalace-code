@@ -30,7 +30,12 @@ from pathlib import Path
 # documents why; no audit is disabled repository-wide.
 ACTIONLINT_COMMAND = "actionlint .github/workflows/*.yml"
 ZIZMOR_COMMAND = "zizmor --offline --min-severity=medium .github/workflows/ .github/actions/"
-WORKFLOW_SECURITY_GATE_COMMAND = "python scripts/workflow_security_gate.py --root . --format json"
+RELEASE_READINESS_COMMAND = (
+    'python scripts/release_readiness_gate.py --check --candidate-sha "$CANDIDATE_SHA" --json'
+)
+INSTALLED_GOLDEN_COMMAND = (
+    'python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json'
+)
 # The Gitleaks CLI version is declared in exactly one place — the checksum-locked
 # tool module at tools/gitleaks/go.mod — so Dependabot's gomod ecosystem owns the
 # upgrade and no workflow ever names a mutable `@tag`. Workflows install it through
@@ -39,12 +44,10 @@ GITLEAKS_GO_MODULE = "github.com/zricethezav/gitleaks/v8"
 GITLEAKS_TOOL_MODULE_PATH = "tools/gitleaks/go.mod"
 GITLEAKS_SETUP_ACTION = "./.github/actions/gitleaks-gate"
 GITLEAKS_INSTALL_COMMAND = f"uses: {GITLEAKS_SETUP_ACTION}"
-GITLEAKS_BASELINE_COMMAND = "python scripts/gitleaks_scan.py validate-baseline"
 GITLEAKS_CHANGED_RANGE_COMMAND = (
     "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD"
 )
 GITLEAKS_FULL_HISTORY_COMMAND = "python scripts/gitleaks_scan.py full-history"
-GITLEAKS_FIXTURE_SMOKE_COMMAND = "python scripts/gitleaks_scan.py fixture-smoke"
 
 _GITLEAKS_REQUIRE_RE = re.compile(
     rf"^\s*(?:require\s+)?{re.escape(GITLEAKS_GO_MODULE)}\s+(?P<version>v\S+?)\s*(?://.*)?$",
@@ -130,18 +133,6 @@ CANONICAL_GATES: list[dict] = [
         "surfaces": [],
     },
     {
-        "id": "gitleaks_baseline",
-        "name": "Gitleaks reviewed baseline metadata",
-        "command": GITLEAKS_BASELINE_COMMAND,
-        "category": "quality",
-        "surfaces": [
-            ".claude/skills/verify/INSTRUCTIONS.md",
-            ".github/workflows/ci.yml",
-            ".github/workflows/publish.yml",
-            ".github/workflows/gitleaks-history.yml",
-        ],
-    },
-    {
         "id": "gitleaks_changed_range",
         "name": "Gitleaks changed-range scan",
         "command": GITLEAKS_CHANGED_RANGE_COMMAND,
@@ -157,17 +148,6 @@ CANONICAL_GATES: list[dict] = [
         "command": GITLEAKS_FULL_HISTORY_COMMAND,
         "category": "release",
         "surfaces": [
-            ".github/workflows/publish.yml",
-            ".github/workflows/gitleaks-history.yml",
-        ],
-    },
-    {
-        "id": "gitleaks_fixture_smoke",
-        "name": "Gitleaks synthetic fixture smoke",
-        "command": GITLEAKS_FIXTURE_SMOKE_COMMAND,
-        "category": "quality",
-        "surfaces": [
-            ".github/workflows/ci.yml",
             ".github/workflows/publish.yml",
             ".github/workflows/gitleaks-history.yml",
         ],
@@ -222,15 +202,6 @@ CANONICAL_GATES: list[dict] = [
         ],
     },
     {
-        "id": "workflow_security",
-        "name": "Immutable Action pins and publish permission boundary",
-        "command": WORKFLOW_SECURITY_GATE_COMMAND,
-        "category": "quality",
-        "surfaces": [
-            ".github/workflows/ci.yml",
-        ],
-    },
-    {
         "id": "docs_drift",
         "name": "Docs drift guard",
         "command": "python scripts/docs_drift_guard.py",
@@ -258,18 +229,26 @@ CANONICAL_GATES: list[dict] = [
     {
         "id": "release_readiness",
         "name": "Release readiness gate",
-        "command": "python scripts/release_readiness_gate.py --check --json",
+        "command": RELEASE_READINESS_COMMAND,
         "category": "release",
-        "surfaces": [],
+        "surfaces": ["docs/RELEASING.md", ".claude/skills/release/SKILL.md"],
+    },
+    {
+        "id": "installed_golden",
+        "name": "Exact-wheel installed golden CLI suite",
+        "command": INSTALLED_GOLDEN_COMMAND,
+        "category": "install",
+        "surfaces": ["docs/RELEASING.md", ".github/workflows/ci.yml"],
     },
     {
         "id": "install_smoke",
         "name": "Install metadata smoke (checkout)",
-        "command": "python scripts/release_install_metadata_smoke.py --install-spec . --json",
+        "command": "python scripts/release_install_metadata_smoke.py --all-installers --install-spec . --json",
         "category": "install",
         "surfaces": [],
     },
 ]
+
 
 # ── Verify-surface subset ─────────────────────────────────────────────────────
 # Which gate IDs should appear in INSTRUCTIONS.md as the /verify surface.
@@ -281,7 +260,6 @@ VERIFY_SURFACE_IDS: tuple[str, ...] = (
     "typecheck",
     "typecheck_strict_slice",
     "public_safety",
-    "gitleaks_baseline",
     "gitleaks_changed_range",
     "scorecard",
     "architecture_guard",

@@ -28,7 +28,7 @@ Every chunk stores `symbol_name` and `symbol_type` (function / class / method). 
 
 ### 5. LanceDB Instead of ChromaDB
 
-The original backend was ChromaDB (SQLite + Python). It had no bulk operations, was slow on large repositories, and was fragile under interruption. This fork moved the runtime backend to **LanceDB** (Rust + Arrow, columnar, crash-safe). ChromaDB remains only as input to the one-way `migrate-storage` bridge through `.[chroma-migration]`; `.[chroma]` is a deprecated install alias. The migration dependency stays capped below ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
+The original backend was ChromaDB (SQLite + Python). It had no bulk operations, was slow on large repositories, and was fragile under interruption. This fork moved the runtime backend to **LanceDB** (Rust + Arrow, columnar, crash-safe). Current packages fully retire ChromaDB support and carry no ChromaDB dependency.
 
 Direct effects:
 
@@ -58,7 +58,7 @@ A code-first fork should not upgrade its embedding model on vibes. This fork shi
 
 `all-MiniLM-L6-v2` was compared against `all-mpnet-base-v2` and `nomic-embed-text-v1.5`. MiniLM stays the default: R@5 = 0.950, fastest, 80 MB model. Any future model upgrade must pass both the code gate **and** the LongMemEval text gate — prose retrieval quality is non-negotiable.
 
-Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized in the project `CLAUDE.md`.
+Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized in the project `AGENTS.md`.
 
 ### 8. Configurable Embedding Model
 

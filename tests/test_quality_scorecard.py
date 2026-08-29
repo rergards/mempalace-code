@@ -155,7 +155,7 @@ def test_suppressions_invariant_holds():
 
 def test_suites_include_known_surfaces():
     suites = {s["name"]: s for s in sc.build_scorecard(ROOT)["suites"]}
-    for name in ("cli", "cli_golden_scenarios", "mcp_stdio", "migrate_storage_smoke"):
+    for name in ("cli", "cli_golden_scenarios", "mcp_stdio"):
         assert name in suites
         assert suites[name]["present"] is True
     # cli_golden_scenarios is a distinct suite from cli (subprocess workflows vs
@@ -234,19 +234,16 @@ def test_scorecard_reports_distinct_public_safety_and_gitleaks_coverage():
 
     assert set(data["public_safety"]["modes"]) == {"committed", "staged", "tracked"}
     assert "changed_range" not in data["public_safety"]["modes"]
-    assert set(data["gitleaks"]["modes"]) == {
-        "baseline",
-        "changed_range",
-        "fixture_smoke",
-        "full_history",
-    }
+    assert set(data["gitleaks"]["modes"]) == {"changed_range", "full_history"}
     assert "local-only-artifact-path" not in data["gitleaks"]["coverage"]
     assert "maintained_default_corpus" in data["gitleaks"]["coverage"]
     assert "entropy_rule" in data["gitleaks"]["coverage"]
     assert "full_git_history" in data["gitleaks"]["coverage"]
     commands = {c["name"]: c["command"] for c in data["verification_commands"]}
     assert commands["public_safety"] == "python scripts/public_safety_scan.py --tracked --staged"
-    assert commands["gitleaks_baseline"] == "python scripts/gitleaks_scan.py validate-baseline"
+    assert commands["gitleaks_changed_range"] == (
+        "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD"
+    )
 
 
 # ── Validation catches malformed output ────────────────────────────────────────
@@ -391,7 +388,7 @@ def test_run_check_fails_when_build_raises(monkeypatch):
         lambda d: d["code_size"].__setitem__("package_files", -1),
         lambda d: d["suites"][0].pop("present"),
         lambda d: d["verification_commands"][0].pop("command"),
-        lambda d: d["gitleaks"].__setitem__("modes", ["baseline"]),
+        lambda d: d["gitleaks"].__setitem__("modes", ["changed_range"]),
         lambda d: d["ruff"].__setitem__("global_ignore_rules", {}),
         lambda d: d["performance_budgets"].__setitem__("valid", "yes"),
         lambda d: d["performance_budgets"]["metrics"][0].pop("current"),

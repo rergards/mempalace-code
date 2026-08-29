@@ -5,9 +5,12 @@ before a release is admitted. Every constant named here is defined once in
 `scripts/release_admission_checks.py`; `scripts/docs_drift_guard.py` fails when
 this document and those constants disagree.
 
-Release scripts inspect this state through **read-only** GitHub APIs. They never
-create, edit, delete, or bypass a repository ruleset, branch protection entry,
-tag, GitHub Release, or PyPI distribution.
+Release scripts inspect this state through one read-only, credential-free public-read transport.
+It performs bounded GETs only to fixed GitHub, PyPI, files.pythonhosted.org, and
+reviewed-upstream endpoint shapes. It does not consult ambient credentials,
+proxies, cookies, netrc, redirects, or retry configuration. Creating or changing
+a tag, GitHub Release, ruleset, branch protection entry, or PyPI distribution
+requires separate explicit authorization in the owning publication path.
 
 ## Public main
 
@@ -21,12 +24,12 @@ The public release branch is `refs/heads/main`. Required repository-rule types:
 
 `release-required` is the stable aggregate check exposed by the **Tests**
 workflow (`.github/workflows/ci.yml`). It depends on every release-critical job —
-`chroma-migration-bridge`, `dependency-upgrade-gate`, `gitleaks-changed-range`,
-`lint`, `package`, `test`, `typecheck` — and runs with `if: always()` so it still
-reports when an upstream job fails or is skipped. It fails when any of those jobs
-is failed, cancelled, skipped, missing from `needs`, or reports an unknown
-result. The job name is the required-check context: renaming it silently removes
-the branch requirement, so `RELEASE_CRITICAL_CI_JOBS` and
+`dependency-upgrade-gate`, `gitleaks-changed-range`, `installed-application`,
+`lint`, `package`, `test`, `typecheck` — and runs with
+`if: always()` so it still reports when an upstream job fails or is skipped. It
+fails when any of those jobs is failed, cancelled, skipped, missing from `needs`,
+or reports an unknown result. The job name is the required-check context:
+renaming it silently removes the branch requirement, so `RELEASE_CRITICAL_CI_JOBS` and
 `AGGREGATE_REQUIRED_CHECK` in `scripts/release_admission_checks.py` pin both the
 name and the job set, and `tests/test_release_workflow_admission.py` compares
 them against the workflow.
@@ -44,19 +47,6 @@ cannot gate a release. The only current exemption is `model-tests`, a manual
 `tests/test_release_workflow_admission.py` compares the workflow's whole job set
 against those three groups, so a newly added CI job blocks until it is classified.
 
-Exemption is the one direction in that classification that can weaken a release,
-so the set of gates that may never be exempted is pinned separately as
-`RELEASE_CRITICAL_MINIMUM_CI_JOBS` — `chroma-migration-bridge`,
-`dependency-upgrade-gate`, `gitleaks-changed-range`, `lint`, `package`, `test`,
-and `typecheck`. `RELEASE_CRITICAL_CI_JOBS` may grow beyond that floor but never
-below it, the exemption set may never intersect it, and `model-tests` remains the
-only reasoned exemption. The floor is a duplicate of the required set, not
-independent evidence: it makes a demotion a two-place edit, while the guarantee
-that neither list may shrink comes from a contract test that derives the floor's
-contents from `ci.yml` and requires every job except the aggregate check and the
-recorded exemption to sit inside it. Editing both tuples together therefore still
-fails.
-
 Admission evidence therefore comes only from `push` and `pull_request` runs:
 `dependency-upgrade-gate` and `gitleaks-changed-range` are skipped on
 `workflow_dispatch`, and `release-required` fails closed on any skipped
@@ -70,11 +60,9 @@ supported recovery is to land that SHA through one of those events.
 
 Hosted `.github/workflows/publish.yml` evaluates the effective
 `refs/heads/main` rules and requires `non_fast_forward`, `deletion`, and
-`required_status_checks` containing `release-required`. Its token uses
-`contents: read`, `checks: read`, and `actions: read` for admission. The active
-`refs/tags/v*` ruleset with `creation`, `update`, and `deletion` remains an
-operator-side readiness/status check because the ruleset API requires repository
-administration read.
+`required_status_checks` containing `release-required`. It also evaluates the
+active `refs/tags/v*` ruleset with `creation`, `update`, and `deletion`. Both use
+the fixed credential-free public reader; admission receives no GitHub token.
 
 ## Public version tags
 
@@ -148,17 +136,17 @@ Each predicate emits exactly one row, always — an error in one lookup never
 removes another row from the report — and each failure names one concrete
 recovery command.
 
-| Row | Read-only lookup | Required token scope | Recovery for a failed row |
+| Row | Read-only lookup | Admission credentials | Recovery for a failed row |
 |---|---|---|---|
 | `expected_sha_format` | none | none | rerun with the reviewed candidate 40-hex SHA: `python scripts/release_preflight.py --expect-sha <40-hex-candidate-sha> …` |
 | `head_expected_sha` | `git rev-parse HEAD` | none | `git checkout <40-hex-candidate-sha>` |
 | `tag_expected_sha` | `git rev-parse --verify refs/tags/vX.Y.Z^{commit}` | none | re-review the SHA or bump `project.version`, and never move a published tag |
 | `candidate_ref_expected_sha` | `git rev-parse <ref>^{commit}` | none | `git fetch <remote> <branch>`, then rerun with the candidate `--expect-sha` |
-| `aggregate_required_check` | `gh api repos/<repo>/commits/<sha>/check-runs?check_name=release-required` | `checks: read` | `gh run list --repo rergards/mempalace-code --workflow Tests --json headSha,event,databaseId,conclusion`, then `gh run rerun <run-id> --repo rergards/mempalace-code --failed` for the run whose head SHA is the candidate SHA **and** whose event is `push` or `pull_request`; if that SHA has no such run — none at all, or only a `workflow_dispatch` run — land it through a `push` or `pull_request` event instead |
-| `dependency_audit_freshness` | `gh run list --repo <repo> --workflow 'Dependency Audit'` | `actions: read` | `gh workflow run 'Dependency Audit' --repo rergards/mempalace-code` and wait for a fresh success |
-| `public_main_protection` | `gh api repos/<repo>/rules/branches/main` | metadata read | apply the *Public main* table above in repository → Settings → Rules |
-| `public_v_tag_ruleset` | `gh api repos/<repo>/rulesets` then `…/rulesets/<id>` | `administration: read` | apply the *Public version tags* table above in repository → Settings → Rules |
-| `public_orphan_tags` | `git ls-remote --tags --refs <remote> 'refs/tags/v*'`, `gh release list`, PyPI JSON | `contents: read` | rerun `release_status_gate.py`; use its exact-job command only for the proven partial state, otherwise follow its bounded instruction; only a reviewed permanent gap enters `ACKNOWLEDGED_ORPHAN_TAGS` |
+| `aggregate_required_check` | fixed GitHub check-runs GET for the exact SHA and `release-required` | none | `gh run list --repo rergards/mempalace-code --workflow Tests --json headSha,event,databaseId,conclusion`, then `gh run rerun <run-id> --repo rergards/mempalace-code --failed` for the run whose head SHA is the candidate SHA **and** whose event is `push` or `pull_request`; if that SHA has no such run — none at all, or only a `workflow_dispatch` run — land it through a `push` or `pull_request` event instead |
+| `dependency_audit_freshness` | fixed GitHub workflow-runs GET for `Dependency Audit` | none | `gh workflow run 'Dependency Audit' --repo rergards/mempalace-code` and wait for a fresh success |
+| `public_main_protection` | fixed GitHub effective branch-rules GET for `main` | none | apply the *Public main* table above in repository → Settings → Rules |
+| `public_v_tag_ruleset` | fixed GitHub ruleset list/detail GETs | none | apply the *Public version tags* table above in repository → Settings → Rules |
+| `public_orphan_tags` | fixed GitHub matching-ref and release list/latest GETs plus fixed PyPI metadata GET | none | rerun `release_status_gate.py`; use its exact-job command only for the proven partial state, otherwise follow its bounded instruction; only a reviewed permanent gap enters `ACKNOWLEDGED_ORPHAN_TAGS` |
 
 Every `gh` recovery command names the public repository explicitly. An operator
 shell is frequently defaulted to a fork, where a bare `gh run list` or
@@ -171,11 +159,9 @@ row naming the truncation instead of a `fail` row claiming that no ruleset cover
 `refs/tags/v*`. A page boundary can hide a ruleset; it can never be reported as
 the absence of one.
 
-`administration: read` cannot be granted to a workflow `GITHUB_TOKEN`, so
-`publish.yml` requests only `contents: read`, `checks: read`, and `actions: read`
-and runs the branch-rule predicate. `public_v_tag_ruleset` is verified by the
-operator-run readiness and status gates with a token that has repository
-administration read.
+`publish.yml`, the readiness gate, and the status gate all query the public
+branch and tag rules through the same fixed credential-free reader. No admission
+step requests or consumes a GitHub token.
 
 Applying these rulesets to the live repository is an owner action tracked by
 backlog item `REL-ADMISSION-EXACT-SHA-PROTECTED-REFS-APPLY-RULESETS`. Until it is

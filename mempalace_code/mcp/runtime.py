@@ -30,9 +30,9 @@ def _get_kg():
     """Return the KnowledgeGraph singleton, creating it on first call."""
     global _kg
     if _kg is None:
-        from ..knowledge_graph import KnowledgeGraph
+        from ..knowledge_graph import KnowledgeGraph, palace_kg_path
 
-        _kg = KnowledgeGraph()
+        _kg = KnowledgeGraph(db_path=palace_kg_path(_config.palace_path))
     return _kg
 
 
@@ -93,10 +93,10 @@ def _mine_quiet(**kwargs) -> dict:
     """Run mine() with stdout/stderr suppressed at the fd level; return stats dict.
 
     Uses os.dup2 to redirect fds 1 and 2 to /dev/null so that C-extension writes
-    (e.g. from sentence-transformers) and buffered Python writes do not corrupt
+    (e.g. from FastEmbed/ONNX Runtime) and buffered Python writes do not corrupt
     the MCP stdio JSON-RPC stream.
     """
-    from ..miner import mine  # lazy import — miner imports torch at module level
+    from ..miner import mine  # lazy import — mining loads embedding/runtime owners on demand
 
     devnull = os.open(os.devnull, os.O_WRONLY)
     old_out = os.dup(1)

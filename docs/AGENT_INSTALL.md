@@ -140,7 +140,9 @@ command -v uv
 
 ## Section 2 — Human-in-the-loop Questions
 
-Ask all seven questions before acting. Record the literal answers; they parameterize Sections 3–7.
+Ask each applicable question below before its dependent action. Record the literal answers; they
+parameterize Sections 3–7. Step 6.5 may ask one additional scheduler question only after its
+read-only Linux eligibility checks pass.
 
 ---
 
@@ -177,7 +179,7 @@ Ask all seven questions before acting. Record the literal answers; they paramete
 
 ### Q3 — Model download consent
 
-**ASK HUMAN:** "mempalace-code uses a local embedding model (~80 MB) cached once from HuggingFace. This requires internet access only if the model is not already cached; after that everything runs offline. Reply `yes` to cache/verify now, `no` to skip (you can run `mempalace-code fetch-model` later), or `offline` if this machine has no internet access."
+**ASK HUMAN:** "mempalace-code uses a local CPU FastEmbed/ONNX model cached once with immutable MemPalace provenance. This requires internet access only if the model is not already cached; after that everything runs offline. Reply `yes` to cache/verify now, `no` to skip (you can run `mempalace-code fetch-model` later), or `offline` if this machine has no internet access."
 
 **Parse response:**
 - `yes` → Set `DOWNLOAD_MODEL=yes`.
@@ -215,7 +217,7 @@ Each notification check reads package metadata only and does not install package
 
 **ASK HUMAN:** "Which tool profile should the mempalace-code MCP server use? Reply with one of:
 - `full` — all 29 tools (direct-server default; no surface reduction)
-- `minimal` — 4 tools: search + store only
+- `minimal` — 4 tools: status, search, duplicate check, and store
 - `kg` — 8 tools: minimal + temporal knowledge graph
 - `code` — 10 tools: code archaeology (no drawer-write/diary)
 - `notes` — 12 tools: knowledge management + diary (no code-search)
@@ -339,11 +341,10 @@ is_full_commit "${BOOTSTRAP_REF:-}" || { echo "BOOTSTRAP_REF must be a full comm
 Any branch failure stops. Retry the same displayed branch command or return to Q1 for a new
 human choice; never fall through to another installer.
 
-Bootstrap accepts only an absolute venv path with non-symlink, invoking-user-owned components.
-It reuses an existing venv only when its interpreter prefix and installed launchers match that
-venv. It never replaces `~/.local/bin/mempalace-code`. On a venv lock or launcher collision,
-run the exact `ls -ld -- <reported-path>` command printed by the script, decide explicitly who
-owns the node, then move or remove it only with the owner's approval before retrying.
+Bootstrap accepts only an absolute venv path whose final node is absent or a real directory. It
+reuses an existing venv only when its interpreter prefix matches that directory. It never replaces
+`~/.local/bin/mempalace-code` and leaves any existing `mempalace` alias untouched. On a launcher
+collision, inspect the reported path and move it aside only with the owner's approval before retrying.
 
 ---
 
@@ -509,6 +510,12 @@ Run:
 ```
 
 `fetch-model` is idempotent — if the model is already cached it verifies local-only model resolution from disk (no network call). Expected output ends with `Done — embedding model is ready for offline use.`
+
+The canonical cache authority is
+`$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/.mempalace-model.json`.
+For an explicit custom model or local SentenceTransformer path, ask for authority before
+running `python -m pip install --force-reinstall --no-cache-dir torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu && python -m pip install 'mempalace-code[custom-models]'`;
+only that path may execute trusted remote model code.
 
 Exit code 0 = success. Set `MODEL_READY=true`. Continue to Step 4d.
 
@@ -915,15 +922,17 @@ The installer does **not** enable periodic version checks. Users may opt in inte
 ```bash
 mempalace-code version-check --enable   # opt in
 mempalace-code version-check --disable  # opt out (suppress future prompts)
-mempalace-code version-check            # show current status (local-only)
-mempalace-code version-check --check-now  # fetch from PyPI right now
+mempalace-code version-check --status   # show current status (local-only)
+mempalace-code version-check --check-now  # fetch now when the env kill switch permits it
 ```
 
 For automated installs, CI pipelines, and non-interactive agents:
 - The first-run prompt is suppressed automatically when stdin/stdout/stderr are not TTYs.
 - To permanently disable prompts and checks: `mempalace-code version-check --disable` or set
   `MEMPALACE_VERSION_CHECK=0` in the environment.
-- No version-check network call is ever made unless the user has opted in or passed `--check-now`.
+- `MEMPALACE_VERSION_CHECK=0` and invalid values block every version-check network call, including
+  explicit `--check-now`. Run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) before retrying.
+- Without that process override, `--check-now` bypasses the interval and persisted preference.
 
 ### Opt-in package updates (supported Linux installs)
 
@@ -1056,48 +1065,13 @@ version.
 
 ## Validation Log
 
-Latest **build/install/artifact** validation: **passed on 2026-08-10**. The run built
-wheel and sdist artifacts, installed the wheel in a neutral disposable venv, ran a
-separate pipx metadata smoke, and exercised init, mine, no-op mine, backup, restore,
-search, read, and a real watch cycle with the cached embedding model forced offline.
-Package metadata and import provenance resolved to the installed artifact. The separate
-clean-machine/hosted-runner contour remains pending and must be recorded before claiming
-that boundary.
+Keep run-specific evidence outside this public runbook. Record the current
+validation contour with this format:
 
-```text
-Agent:      Codex CLI
-Date:       2026-08-10
-Machine:    local macOS; disposable neutral-directory venv and pipx contours
-Deviations: cached embedding model used in forced-offline mode; not a clean VM
-Questions outside script: none
-Result:     pass for local build, install, metadata, CLI workflow, and watcher resource bounds
 ```
-
-That 2026-08-10 record predates the Step 6.4 / 6.5 opt-in prompts. Those surfaces were validated
-separately by automated checks rather than by a re-run of this script:
-
-```text
-Agent:      Claude Code
-Date:       2026-08-16
-Machine:    local macOS working tree (no install script re-run)
-Scope:      Step 6.4/6.5 opt-in prompts and their documented invariants
-Evidence:   pytest tests/ -m "not needs_network" — 3498 passed, 6 skipped, 2 deselected
-            scripts/docs_drift_guard.py — OK (version 1.13.5, 29 tools, 5 profiles)
-            scripts/public_safety_scan.py --tracked --staged — OK
-            scripts/quality_scorecard.py --check — OK (schema 4)
-            scripts/release_readiness_gate.py --check — OK (15/15 rows)
-Deviations: this entry is documentation-and-guard validation only
-Not covered: no execution of the install script itself and no clean-VM or hosted-runner contour
-Questions outside script: none
-Result:     pass for documented-shape and guard coverage; build/install contour above
-            remains the authoritative record for artifacts and CLI workflow
-```
-
-Record format (fill in after validation):
-```
-Agent:      <Claude Code | Codex | other>
-Date:       <ISO date>
-Machine:    <clean VM / CI container / other>
+Executor:   <local operator | CI job>
+Revision:   <40-hex candidate SHA>
+Contour:    <clean VM | CI container | disposable local install>
 Deviations: <list any step where agent deviated from script, or "none">
 Questions outside script: <list any, or "none">
 Result:     <pass | fail>

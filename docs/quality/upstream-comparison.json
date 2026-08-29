@@ -1,12 +1,12 @@
 {
   "schema_version": 2,
-  "reviewed_date": "2026-08-21",
+  "reviewed_date": "2026-08-29",
   "canonical_repository": "https://github.com/MemPalace/mempalace",
   "branch": "develop",
-  "commit": "3e56979fb456c7478a4b57414027873bd78f2d37",
-  "previous_commit": "639c69a1d6be41a04964ceb72a3d29d6f45629e9",
-  "previous_reviewed_date": "2026-08-16",
-  "compare_ref": "https://github.com/MemPalace/mempalace/compare/639c69a1d6be41a04964ceb72a3d29d6f45629e9...3e56979fb456c7478a4b57414027873bd78f2d37",
+  "commit": "a9f345cc63254eb4dea7abad36963b85c9f8453a",
+  "previous_commit": "dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0",
+  "previous_reviewed_date": "2026-08-24",
+  "compare_ref": "https://github.com/MemPalace/mempalace/compare/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0...a9f345cc63254eb4dea7abad36963b85c9f8453a",
   "canonical_document": "docs/UPSTREAM_COMPARISON.md",
   "readme_path": "README.md",
   "recovery_command": "python scripts/upstream_comparison_guard.py --check-live --json",
@@ -17,22 +17,24 @@
     ".codex-plugin/plugin.json",
     ".agents/plugins/marketplace.json",
     ".mcp.json",
+    "mempalace/config.py",
     "mempalace/split_mega_files.py",
     "docs/rfcs/003-agent-logstream-coordination.md",
     "docs/rfcs/004-replicated-palace.md",
     "docs/rfcs/005-agent-identity-routing.md"
   ],
   "source_refs": {
-    "README.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/README.md",
-    "CHANGELOG.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/CHANGELOG.md",
-    "pyproject.toml": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/pyproject.toml",
-    ".codex-plugin/plugin.json": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/.codex-plugin/plugin.json",
-    ".agents/plugins/marketplace.json": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/.agents/plugins/marketplace.json",
-    ".mcp.json": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/.mcp.json",
-    "mempalace/split_mega_files.py": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/mempalace/split_mega_files.py",
-    "docs/rfcs/003-agent-logstream-coordination.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/docs/rfcs/003-agent-logstream-coordination.md",
-    "docs/rfcs/004-replicated-palace.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/docs/rfcs/004-replicated-palace.md",
-    "docs/rfcs/005-agent-identity-routing.md": "https://github.com/MemPalace/mempalace/blob/3e56979fb456c7478a4b57414027873bd78f2d37/docs/rfcs/005-agent-identity-routing.md"
+    "README.md": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/README.md",
+    "CHANGELOG.md": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/CHANGELOG.md",
+    "pyproject.toml": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/pyproject.toml",
+    ".codex-plugin/plugin.json": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/.codex-plugin/plugin.json",
+    ".agents/plugins/marketplace.json": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/.agents/plugins/marketplace.json",
+    ".mcp.json": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/.mcp.json",
+    "mempalace/config.py": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/mempalace/config.py",
+    "mempalace/split_mega_files.py": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/mempalace/split_mega_files.py",
+    "docs/rfcs/003-agent-logstream-coordination.md": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/docs/rfcs/003-agent-logstream-coordination.md",
+    "docs/rfcs/004-replicated-palace.md": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/docs/rfcs/004-replicated-palace.md",
+    "docs/rfcs/005-agent-identity-routing.md": "https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/docs/rfcs/005-agent-identity-routing.md"
   },
   "readme_markers": [
     "## This Fork vs Upstream",
@@ -64,7 +66,7 @@
       "chroma-sqlite-metadata-read-paths",
       "sqlite-exact-indexed-structured-fields",
       "mcp-tools-44",
-      "codex-plugin-manifest-tools-36",
+      "plugin-manifests-tools-44",
       "codex-plugin-metadata",
       "openai-compatible-embeddings",
       "search-date-window",
@@ -81,7 +83,6 @@
     "fork_current": [
       "code-first-mining",
       "backend-lancedb-default",
-      "backend-chromadb-migration-bridge-only",
       "local-deterministic-code-search-hybrid-rerank",
       "no-llm-reranker",
       "no-supported-multilingual-configuration-migration",
@@ -108,7 +109,7 @@
     "chroma-sqlite-metadata-read-paths": ["CHANGELOG.md"],
     "sqlite-exact-indexed-structured-fields": ["CHANGELOG.md"],
     "mcp-tools-44": ["README.md"],
-    "codex-plugin-manifest-tools-36": [".codex-plugin/plugin.json"],
+    "plugin-manifests-tools-44": [".codex-plugin/plugin.json"],
     "codex-plugin-metadata": [
       ".codex-plugin/plugin.json",
       ".agents/plugins/marketplace.json",
@@ -137,115 +138,217 @@
   },
   "delta_decisions": [
     {
-      "id": "split-name-detection-opt-in",
-      "upstream_change": "split_mega_files removes built-in fallback person names, so name extraction requires explicit known_names.json configuration instead of matching common names in unrelated content",
-      "source_refs": ["mempalace/split_mega_files.py"],
-      "release_critical": true,
-      "decision": "adopted",
-      "rationale": "The fork's _load_known_people() in mempalace_code/split_mega_files.py reads optional ~/.mempalace/known_names.json data and returns an empty list when the file is absent or unusable, so extract_people() does not match generic person names by default. tests/test_split_mega_files.py::test_load_known_people_requires_explicit_config pins the no-configuration boundary.",
-      "local_predicates": [
-        "mempalace_code/split_mega_files.py",
-        "tests/test_split_mega_files.py::test_load_known_people_requires_explicit_config"
-      ]
+      "id": "logstream-watch-reply-filter",
+      "merge_group": "334c60e3c9f556ae94746aa4294cf6a65fc0d552",
+      "constituent_commits": [
+        "7641e63741908ac2c5772e7b52a82efa57e9a826",
+        "de7a09306d2f71e578f56a5cd58801e88fcbd83c",
+        "63581bdefbd47b1751310d58b32a8ccd97bb30b3"
+      ],
+      "upstream_change": "shared-brain watcher guidance wakes on addressed replies while keeping announcements silent, with separate watcher and inbox cursor handling",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork has no agent logstream, watcher cursor, inbox cursor, notification wake filter, or replication owner. Its local filesystem watcher does not consume upstream coordination events.",
+      "local_predicates": []
     },
     {
-      "id": "non-regular-file-boundary-unchanged",
-      "upstream_change": "the range does not alter upstream FIFO or other irregular-file protections; the fork's descriptor-validation boundary remains in force",
+      "id": "sqlite-integrity-absent-verdict",
+      "merge_group": "42a8e910aff54aaccbd43176ad422d0e75f56d22",
+      "constituent_commits": ["32636ddeaac8a284ea1c9cf6e6d37fb787ff2b7a"],
+      "upstream_change": "repair and MCP status distinguish a missing Chroma SQLite integrity verdict from a clean quick_check result",
+      "source_refs": ["CHANGELOG.md", "compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The current package is LanceDB-only and has no Chroma chroma.sqlite3 integrity gate, SQLite quick_check verdict, or HTTP MCP status owner. Lance health and recovery use a separate storage contract.",
+      "local_predicates": []
+    },
+    {
+      "id": "contributing-branching-model",
+      "merge_group": "88247acf80121aec0179d1a75606b8252329d3a6",
+      "constituent_commits": ["3cca2aa253e75738914cb393ae30bcc29df82b51"],
+      "upstream_change": "CONTRIBUTING documents upstream's branch naming and pull-request target model",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "This is upstream repository-process documentation. The fork retains its own Git workflow in AGENTS.md and gains no runtime or release capability from the upstream wording.",
+      "local_predicates": []
+    },
+    {
+      "id": "sqlite-exact-cache-and-id-filters",
+      "merge_group": "fae7de0fce97f18a5eb8b81d711f6d0422b7acbc",
+      "constituent_commits": ["1076e684068f95837c66ab523ec6a492f908a699"],
+      "upstream_change": "the sqlite_exact backend invalidates caches across handles and applies filtered ID lookups consistently",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork ships LanceDB only and has no sqlite_exact backend, cross-handle sqlite_exact cache, or filtered sqlite_exact ID lookup surface.",
+      "local_predicates": []
+    },
+    {
+      "id": "closet-search-distinct-passages",
+      "merge_group": "ff7abc2e87f6fc401261bf455bdee243a12135be",
+      "constituent_commits": ["ad78f63ac980352a699c1e7c28c826efc6a9ab69"],
+      "upstream_change": "search widens and hydrates closet-enriched candidates, then removes duplicate rendered passages while preserving plain-drawer repeats",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork's code_search operates on Lance chunks and does not implement upstream closet enrichment, parent-drawer hydration, or the generic search result shape changed by this group.",
+      "local_predicates": []
+    },
+    {
+      "id": "palace-graph-stats-completeness",
+      "merge_group": "e4318d65f6a299e156f5002273ad5a51067c2235",
+      "constituent_commits": ["c14d8761b3ab98d9ab8960d3b2670856cc1fb912"],
+      "upstream_change": "palace graph statistics include general rooms, room instances, passive and explicit tunnels, and total connections",
       "source_refs": ["compare"],
       "release_critical": false,
       "decision": "equivalent-local",
-      "rationale": "The fork continues to open accepted ingest sources and generated split outputs through descriptors, revalidate them with fstat, refuse symlinks, FIFOs, and hard links, retain the source mega-file after refusal, and exit nonzero.",
+      "rationale": "The fork already derives graph statistics from all Lance room metadata, reports rooms, tunnel rooms, edges, rooms per wing, and top tunnels, and verifies exact counts plus the empty-store boundary.",
       "local_predicates": [
-        "mempalace_code/source_io.py",
-        "tests/test_regular_source_guard.py::test_scan_discovery_rejects_non_regular_sources",
-        "tests/test_split_mega_files.py::test_split_file_refuses_a_fifo_at_a_synthesized_output_name"
+        "tests/test_palace_graph.py::TestGraphStatsOutputShape::test_graph_stats_counts_are_correct",
+        "tests/test_palace_graph.py::TestGraphStatsOutputShape::test_graph_stats_empty_store"
       ]
     },
     {
-      "id": "chromadb-repair-and-read-paths",
-      "upstream_change": "Chroma repair corroborates FTS5 content before rebuilding, client-cache bookkeeping stops treating its own writes as external invalidation, and listing and tunnel metadata reads bypass HNSW",
+      "id": "shared-brain-rules-command",
+      "merge_group": "21ea8a735cae9367eaa701f8ab7cc778146b5906",
+      "constituent_commits": [
+        "b55d032904e339500d6809d840f62188d968cf6f",
+        "503e6265fed190d9409397d7ee43067fcb91a737",
+        "902d7c31b0f027f588c55105b330473d7e7f2610"
+      ],
+      "upstream_change": "CLI and MCP surfaces render canonical shared-brain coordination rules",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork has no shared-brain rules owner, distributed coordination protocol, live hub, or peer-fleet contract. Adding a rules command would advertise an unsupported capability.",
+      "local_predicates": []
+    },
+    {
+      "id": "drawer-mutation-closet-purge",
+      "merge_group": "86f2900c6a189740136be6e9488609e1d87c9e53",
+      "constituent_commits": ["f92095e6ca133d44af622fce84982363c1d6fc66"],
+      "upstream_change": "MCP drawer update and delete purge stale closet entries associated with the mutated drawer",
       "source_refs": ["CHANGELOG.md", "compare"],
       "release_critical": false,
-      "decision": "migration-only",
-      "rationale": "All three upstream changes operate its Chroma runtime. The fork retains Chroma solely as one-way migration input; LanceDB remains the only runtime backend. Migration smoke and error tests continue to enforce that boundary.",
+      "decision": "irrelevant",
+      "rationale": "The fork stores and mutates Lance drawers directly and has no upstream closet index or closet-enrichment cache to purge. Lance stale-fragment cleanup owns storage versions, a different lifecycle.",
+      "local_predicates": []
+    },
+    {
+      "id": "mcp-search-candidate-union",
+      "merge_group": "98e6dfc206720c4e8aec115b5e14ab645e4bd844",
+      "constituent_commits": ["af7bca775d8f3a6480a5453b04652e6da7ad74a2"],
+      "upstream_change": "generic MCP search exposes candidate union and retains lexical candidates under strict vector thresholds only when stored embeddings satisfy the threshold",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork's documented hybrid code_search reranks one over-fetched Lance vector pool and exposes no generic candidate_strategy=union contract. Importing upstream union logic would create a second retrieval behavior owner.",
+      "local_predicates": []
+    },
+    {
+      "id": "project-yaml-utf8",
+      "merge_group": "4c1e6d0c1150e2a0134ad9d085cf952f77f64aa1",
+      "constituent_commits": [
+        "abf839ab3fce581caa01215a0087c6a73d746f6f",
+        "02ae4f700192baf3e0c750f076c33eb2aa42a1b3"
+      ],
+      "upstream_change": "project mempalace.yaml reads and writes use UTF-8 explicitly on every platform",
+      "source_refs": ["compare"],
+      "release_critical": false,
+      "decision": "equivalent-local",
+      "rationale": "The fork already reads project YAML through read_regular_text(..., encoding=\"utf-8\") and writes generated mempalace.yaml through an explicit UTF-8 atomic destination writer.",
       "local_predicates": [
-        "tests/test_migrate_storage_smoke.py",
-        "tests/test_chroma_import_errors.py"
+        "mempalace_code/mining/projects.py",
+        "mempalace_code/room_detector_local.py"
       ]
     },
     {
-      "id": "sqlite-exact-indexed-read-paths",
-      "upstream_change": "sqlite_exact vectorizes ranking, hydrates only selected rows, caches facets, and indexes generated wing, room, and hall columns for structured access",
+      "id": "skill-first-logstream-tasks",
+      "merge_group": "a54921f186ded3ae46bfc88c0cf0489962ee48f9",
+      "constituent_commits": [
+        "7fa48687ab23a3ad8cf0168424feda8e87249a20",
+        "c77efaa92e29bcd55d59c9e56b5b539e296272ef",
+        "7e2d2e6bd3972c7b892e59ba8376bf5db3234306"
+      ],
+      "upstream_change": "task create, list, read, inbox, and complete flows are coordinated through logstream-aware skills and Claude/Cursor plugin packaging, with controlled launch-input validation",
+      "source_refs": ["README.md", "CHANGELOG.md", "compare"],
+      "release_critical": false,
+      "decision": "irrelevant",
+      "rationale": "The fork has no upstream task state owner, task CLI/MCP tools, logstream notification workflow, Claude marketplace task skill, or Cursor task plugin surface. Its portable Agent Plugin keeps the existing four-tool default.",
+      "local_predicates": []
+    },
+    {
+      "id": "init-resolved-palace-path",
+      "merge_group": "528732bfcd605259aaf358cb9f9c229fa9d24ff8",
+      "constituent_commits": ["39cb6595a47b0999249367ba69d9d323c54ec4c1"],
+      "upstream_change": "upstream init persists its constructor or environment-resolved palace_path instead of the module default",
       "source_refs": ["compare"],
       "release_critical": false,
       "decision": "irrelevant",
-      "rationale": "The fork has no sqlite_exact runtime backend. Its LanceDB storage and search paths do not import the upstream SQL schema, generated columns, caches, or pagination code.",
+      "rationale": "The upstream constructor-level palace override and init lifecycle are not the fork's project-init contract. The fork's --palace selection is command-scoped and this review does not import upstream global-config persistence semantics.",
       "local_predicates": []
     },
     {
-      "id": "embeddinggemma-coreml-validation",
-      "upstream_change": "embeddinggemma avoids CoreML under automatic selection and validates non-CPU witness vectors for finite, non-zero norm before use",
-      "source_refs": ["CHANGELOG.md", "compare"],
+      "id": "qdrant-versioned-user-agent",
+      "merge_group": "f6987c606560e3ac6963222287ed679cfbc67e11",
+      "constituent_commits": [
+        "2fc3b8708aa6c8c63f782c2f46801cd0d49394fa",
+        "95c72b7abd5b60ea50fdbcd82ad6a599efee4ab3",
+        "e9e448ba0faeb2fd9529cd5c5ee09f325a3b6bfa"
+      ],
+      "upstream_change": "the Qdrant backend sends a versioned MemPalace user-agent and tests the request header",
+      "source_refs": ["compare"],
       "release_critical": false,
       "decision": "irrelevant",
-      "rationale": "The fork supports all-MiniLM-L6-v2 as its default and has no supported embeddinggemma model configuration or migration flow. Importing provider policy without the gated text-retrieval evidence would violate the fork's model policy.",
+      "rationale": "The fork has no supported Qdrant backend or outbound Qdrant client, so it has no matching request-header owner.",
       "local_predicates": []
     },
     {
-      "id": "logstream-watch-cursor-and-signal-lifecycle",
-      "upstream_change": "a background logstream watch adds typed filters, restart-safe event-id checkpoints, bounded idle exit, and interrupt exit status; repeated fixes make malformed, missing, or unreachable checkpoints replay rather than skip events",
-      "source_refs": ["CHANGELOG.md", "compare"],
+      "id": "c-cpp-readable-extensions",
+      "merge_group": "239ee519bd0cf7b72eb9958dba5418699f6fd1f2",
+      "constituent_commits": [
+        "0b5591da8f26d4bc7bb493e639f6891d9bdd8b78",
+        "505a131e95271124f2e2e131722381b828170a35"
+      ],
+      "upstream_change": "the project miner recognizes C and C++ source and header suffixes as readable inputs",
+      "source_refs": ["compare"],
       "release_critical": false,
-      "decision": "deferred",
-      "rationale": "The fork has no logstream, event cursor, replication, or agent wake-up surface. Its existing local watcher independently holds a shared operation lease for its lifetime, handles SIGTERM, restores the prior handler, and releases the lease at shutdown; those protections remain unchanged and are not claimed as logstream compatibility.",
+      "decision": "equivalent-local",
+      "rationale": "The fork's canonical language catalog already maps and scans .c, .h, .cpp, and .hpp as readable C/C++ sources and keeps readable extensions synchronized with detection metadata.",
       "local_predicates": [
-        "mempalace_code/watcher.py",
-        "tests/test_watcher.py::TestWatcherOperationLease::test_watcher_releases_shared_lease_after_shutdown"
+        "tests/test_language_catalog.py::test_catalog_preserves_current_detection_labels",
+        "tests/test_language_catalog.py::test_catalog_readable_and_searchable_sets_stay_in_sync"
       ]
     },
     {
-      "id": "mesh-estate-publication",
-      "upstream_change": "the HTTP peer-sync process publishes a redacted atomic mesh-state snapshot for other local transports to read",
-      "source_refs": ["compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The fork ships no peer mesh or cross-transport estate, so there is no compatible state file to adopt.",
-      "local_predicates": []
+      "id": "config-unreadable-write-preservation",
+      "merge_group": "abcdc46445c08bf023750142b5923e8901080466",
+      "constituent_commits": ["f3f23d1ca88737e75f74b203c693e6bca377645e"],
+      "upstream_change": "configuration setters refuse to overwrite a config file that could not be read and preserve malformed bytes before publishing replacement configuration",
+      "source_refs": ["mempalace/config.py", "CHANGELOG.md", "compare"],
+      "release_critical": true,
+      "decision": "adopted",
+      "rationale": "The applicable reproduced data-loss class is closed locally by CONFIG-PEOPLE-MAP-MALFORMED-PRESERVE: save_people_map refuses malformed or unreadable existing people_map.json, preserves the original bytes, and gives bounded repair-and-retry guidance.",
+      "local_predicates": [
+        "tests/test_config.py::test_save_people_map_refuses_malformed_existing_file",
+        "tests/test_config.py::test_save_people_map_refuses_unreadable_existing_file",
+        "tests/test_config.py::test_save_people_map_repeated_refusal_preserves_file_without_artifacts"
+      ]
     },
     {
-      "id": "thin-stdio-hub-proxy",
-      "upstream_change": "a stdio MCP session uses a lightweight proxy path and imports the storage server lazily only when local fallback is required",
+      "id": "mcp-convos-single-file-source",
+      "merge_group": "a9f345cc63254eb4dea7abad36963b85c9f8453a",
+      "constituent_commits": [
+        "a6725e9f79a59f045c8f57b134942ade27cb00d6",
+        "a2949be1b041d4a0e41cfc4dabf2b703b2f588cd"
+      ],
+      "upstream_change": "upstream MCP mine accepts one conversation file when mode=convos and aligns its tool documentation with that input shape",
       "source_refs": ["CHANGELOG.md", "compare"],
       "release_critical": false,
       "decision": "irrelevant",
-      "rationale": "The fork ships stdio MCP without the upstream live hub or proxy transport and does not import that execution path.",
-      "local_predicates": []
-    },
-    {
-      "id": "upstream-documentation-and-test-coverage",
-      "upstream_change": "the range adds KG supersede, hook-routing, Termux, API, coordination, and performance-test documentation or coverage without a corresponding fork runtime contract",
-      "source_refs": ["compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "These files document or test upstream-only surfaces and do not change a runtime contract imported by the fork.",
-      "local_predicates": []
-    },
-    {
-      "id": "upstream-benchmark-portability",
-      "upstream_change": "three upstream benchmark runners pin UTF-8 file I/O and use ASCII-safe console separators on Windows",
-      "source_refs": ["compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The fork does not import or publish those upstream benchmark runners.",
-      "local_predicates": []
-    },
-    {
-      "id": "upstream-release-and-ci-metadata",
-      "upstream_change": "upstream advances package and plugin metadata to 3.8.0, guards the OpenClaw skill version, updates actions, and attaches container provenance and SBOM attestations",
-      "source_refs": ["README.md", "CHANGELOG.md", "pyproject.toml", ".codex-plugin/plugin.json", "compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "These changes govern upstream-only workflows, container publication, and release metadata. The fork does not import those artifacts.",
+      "rationale": "The fork's MCP mempalace_mine owns initialized project-directory mining and explicitly rejects a file path; conversation ingestion remains a separate directory-oriented CLI/module surface. No upstream hub or hook-transcript contract is advertised.",
       "local_predicates": []
     }
   ]

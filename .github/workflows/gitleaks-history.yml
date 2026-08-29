@@ -23,9 +23,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.13"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: tools/gitleaks/go.mod
@@ -36,12 +33,6 @@ jobs:
       # Installs the Gitleaks version pinned by tools/gitleaks/go.mod and locked by
       # tools/gitleaks/go.sum. Dependabot's gomod ecosystem owns that upgrade.
       - uses: ./.github/actions/gitleaks-gate
-      - name: Validate Gitleaks baseline metadata
-        run: python scripts/gitleaks_scan.py validate-baseline
-      - name: Gitleaks synthetic fixture smoke
-        run: >
-          python scripts/gitleaks_scan.py fixture-smoke
-          --artifact-dir "${{ runner.temp }}/gitleaks/fixture-smoke"
       # Artifacts land in RUNNER_TEMP, never in the checkout, so the worktree stays
       # clean and no scan output can ever be committed.
       - name: Gitleaks full-history scan

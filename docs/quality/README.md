@@ -80,7 +80,7 @@ absolute paths, no machine identifiers:
     extras against `pyproject.toml`, checks release/dependency-gate workflow
     names and script paths against `.github/workflows/` and the release docs,
     and checks the canonical verification command list (from
-    `scripts/quality_scorecard.py`) against `CLAUDE.md`, the verify and
+    `scripts/quality_scorecard.py`) against `AGENTS.md`, the verify and
     release skills, and this file. CI runs it directly. `demo_gates.
     docs_drift_guard.coverage` in the scorecard JSON lists these check
     categories.

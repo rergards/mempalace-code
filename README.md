@@ -224,6 +224,14 @@ Tree-sitter is optional (`pip install "mempalace-code[treesitter]"`). When a gra
 Extensions outside the miner catalog are skipped by normal project scans unless
 you explicitly force-include an exact path with `--include-ignored path/to/file`.
 
+Mining indexes only ordinary readable regular files. Source-shaped FIFO, socket,
+character device, block device, symlink, and directory entries are rejected or skipped
+before their source content is opened. An ordinary regular file that cannot be read is
+reported as a read error; it is not necessarily reported as
+`<path>: not a regular file (<kind>)`. Mining continues with other ordinary readable
+regular files, and its diagnostics are bounded and actionable. After replacing or
+removing the offending entry, run `mempalace-code mine <dir> --full`.
+
 ```bash
 mempalace-code mine ~/projects/myapp                  # all supported file types
 mempalace-code mine ~/projects/myapp --wing myapp     # tag with a specific wing
@@ -295,11 +303,13 @@ mempalace-code watch ~/projects/ schedule             # print launchd/cron snipp
 
 `watch` accepts either an **initialized project directory** (has `mempalace.yaml`) or a **parent directory** containing immediate initialized project subdirectories. Pointing it at a project root that has project files but no `mempalace.yaml` exits with the correct `mempalace-code init <dir>` command.
 
-Startup validates source roots before creating a pre-watch backup, so dangling or
-unreadable symlinks fail with an actionable diagnostic instead of entering a restart
-loop. A watcher run also reuses one warmed store and embedding-model lifecycle across
-remine cycles; regression tests bound post-warm-up RSS, file descriptors, archive
-retention, disk growth, and SIGINT shutdown.
+Startup resolves and validates each watcher source root as a directory before creating a
+pre-watch backup. Nested non-regular or unreadable source entries follow the mining
+contract above: other ordinary readable regular files continue through the mine, and
+such an entry does not by itself abort or restart the watcher. A watcher run also reuses
+one warmed store and embedding-model lifecycle across remine cycles; regression tests
+bound post-warm-up RSS, file descriptors, archive retention, disk growth, and SIGINT
+shutdown.
 
 **Install as persistent daemon (macOS):**
 
@@ -905,7 +915,7 @@ mempalace-code version-check --enable
 # Opt out (suppresses future first-run prompts)
 mempalace-code version-check --disable
 
-# Check right now regardless of the interval setting
+# Check right now regardless of the interval or persisted preference
 mempalace-code version-check --check-now
 ```
 
@@ -913,7 +923,9 @@ mempalace-code version-check --check-now
 
 - On the first interactive command after a fresh install, the CLI prompts once: *"Enable periodic new-version checks?"* — answering `n` records the opt-out permanently. Non-interactive (piped, CI, non-TTY) invocations **never prompt**.
 - When opted in, a background check runs at most once per interval (default: 168 hours / 1 week). Any update hint appears on **stderr only** — stdout remains machine-parseable.
-- Explicit `--check-now` ignores the interval, contacts PyPI, and prints current/latest/error to stdout.
+- Explicit `--check-now` ignores the interval and persisted preference, then contacts PyPI and
+  prints current/latest/error to stdout. `MEMPALACE_VERSION_CHECK=0` and invalid values still block
+  the request; run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) before retrying.
 - Only `https://pypi.org/pypi/mempalace-code/json` is contacted. No telemetry, no user IDs, no installed-package inventory.
 
 **Environment overrides:**
@@ -924,7 +936,9 @@ mempalace-code version-check --check-now
 | `MEMPALACE_VERSION_CHECK=0` | Force-disable (overrides config and state) |
 | `MEMPALACE_VERSION_CHECK_INTERVAL_HOURS=N` | Override interval (default: 168) |
 
-Setting `MEMPALACE_VERSION_CHECK=0` in a CI pipeline guarantees no network calls regardless of any saved preference.
+Setting `MEMPALACE_VERSION_CHECK=0` in a CI pipeline guarantees no version-check network calls,
+including explicit `--check-now`, regardless of any saved preference. Invalid values fail closed in
+the same way. Run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) before an explicit check.
 
 ---
 
@@ -938,7 +952,7 @@ Snapshot reviewed on 2026-08-11 against upstream `develop` at commit `b2104238d4
 |---|---|---|
 | Focus | General-purpose AI memory | Code-first: repository mining, `code_search`, symbol/type/project-graph tools |
 | Default storage | ChromaDB | LanceDB |
-| Other backends offered | `sqlite_exact`, Milvus, Qdrant, pgvector | LanceDB-only runtime; one-way ChromaDB-to-LanceDB migration bridge; no server-backed backends |
+| Other backends offered | `sqlite_exact`, Milvus, Qdrant, pgvector | LanceDB-only current package; ChromaDB support is retired; no server-backed backends |
 | Embedding model | `all-MiniLM-L6-v2`, plus an optional `embeddinggemma` multilingual model | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration flow |
 | Retrieval | Hybrid retrieval | Vector search, plus a local deterministic `code_search(rerank="hybrid")` |
 | Reranking | Optional LLM reranking | None — no LLM reranker; this direction is explicitly rejected |
@@ -1004,16 +1018,23 @@ BOOTSTRAP_FILE="$(mktemp -t mempalace-bootstrap.XXXXXX)" || exit 1
 
 ```bash
 pip install "mempalace-code[treesitter]"  # AST parsing
-pip install "mempalace-code[chroma-migration]"  # ChromaDB-to-LanceDB migration bridge
-pip install "mempalace-code[chroma]"      # deprecated alias for chroma-migration
 pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[watch]"       # optional watcher (auto-mine on file changes)
+python -m pip install --force-reinstall --no-cache-dir torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu && python -m pip install 'mempalace-code[custom-models]' # arbitrary SentenceTransformer names/paths
 pip install "mempalace-code[dev]"         # pytest + ruff + pyright
 ```
 
 **Requirements:** Python 3.11+. Use `mempalace-code init <dir> --skip-model-download` for an
 offline-safe init. Run `mempalace-code fetch-model` later only after explicit consent to cache
 the ~80 MB embedding model.
+
+The default `all-MiniLM-L6-v2` runtime is CPU FastEmbed/ONNX and stores its
+immutable MemPalace provenance under
+`$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/`. Canonical aliases never
+enable trusted remote code. Explicit custom models require `[custom-models]`;
+that path retains SentenceTransformer's `trust_remote_code=True` compatibility
+boundary. Recovery: run `mempalace-code fetch-model` while online, then retry
+with `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`.
 
 </details>
 
@@ -1056,6 +1077,15 @@ mempalace-code compress                                # lossy structured summar
 
 # Diary
 mempalace-code diary write --agent <name> --entry "<text>"  # write a diary entry
+```
+
+A successful direct diary write prints `Diary entry stored.`, stable `ID`, `Wing`, `Room`, and
+`Topic` poststate, then a bounded `Verify before retry` search command. If that output is retained
+after an ambiguous result, run the printed search before any retry. An exact hit means success: do
+not repeat the write. If the response or printed command is unavailable, do not retry; inspect
+recent same-agent entries with exposed `mempalace_diary_read`, or stop for owner reconciliation.
+
+```bash
 
 # Backup & Recovery
 mempalace-code backup create                           # create backup (default: <palace_parent>/backups/)
@@ -1079,7 +1109,9 @@ mempalace-code health --json                           # compact integrity repor
 mempalace-code fetch-model                             # cache or verify model for offline use
 
 # Advanced / Ops
-mempalace-code migrate-storage <src> <dst> --verify    # migrate a legacy ChromaDB palace to LanceDB
+# Legacy Chroma palace recovery: back up SRC before upgrading, then run the last bridge in isolation
+mempalace-code migrate-storage SRC DST --verify         # retired; exits before mutation and points here
+uvx --from 'mempalace-code[chroma]==1.13.4' mempalace-code migrate-storage SRC DST --verify
 mempalace-code preflight mirror --command "<cmd>"      # inspect an rsync command for state-dir risks
 mempalace-code version-check                           # show version-check status (opt-in PyPI checks)
 mempalace-code version-check --check-now               # check PyPI now; prints a pip fallback for unmanaged installs
@@ -1145,6 +1177,11 @@ mempalace-code update scheduler render       # inspect systemd-user units withou
 mempalace-code update scheduler install --yes # explicit daily scheduler opt-in (Linux systemd-user)
 ```
 
+Omitting `--yes` from `update apply`, `update scheduler install`, or `update scheduler remove`
+exits 2 before mutation. Human output prints `Recovery: <command>`; JSON output supplies the exact
+guarded command in `recovery_command`. Review current mutation authority before running that
+emitted command. See [the update runbook](docs/UPDATES.md) for the complete refusal contract.
+
 The first slice supports `uv tool`, `pipx`, and the documented `~/.mempalace/venv` bootstrap
 install. It refuses system Python, distro-managed, editable/source, and ambiguous environments
 before stopping a watcher or changing package state. If you installed with plain `pip`, upgrade
@@ -1175,7 +1212,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.13.5-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.14.0-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

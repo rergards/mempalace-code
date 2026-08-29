@@ -1,7 +1,7 @@
 """
 test_installed_cli_palace_scope.py — CLI-level palace scope tests (AC-6).
 
-Verifies that the CLI command handlers (cmd_backup_create, cmd_mine) correctly
+Verifies that the CLI command handlers (backup, mine, export, import) correctly
 compute and pass the palace-local KG path when --palace is explicit, and that
 they fall back to None (global default) when --palace is absent.
 
@@ -249,3 +249,145 @@ class TestCmdMineAllKgScope:
             assert path == expected_kg_path, (
                 f"mine_all must pass palace-local kg_path={expected_kg_path!r}, got: {path!r}"
             )
+
+
+# ─── cmd_export / cmd_import KG scoping ───────────────────────────────────────
+
+
+class TestCmdExportImportKgScope:
+    def test_export_explicit_palace_uses_local_kg(self, tmp_dir):
+        palace_path = os.path.join(tmp_dir, "palace")
+        os.makedirs(palace_path)
+        args = SimpleNamespace(
+            palace=palace_path,
+            out="-",
+            with_kg=True,
+            only_manual=False,
+            wing=None,
+            room=None,
+            since=None,
+            with_embeddings=False,
+        )
+
+        with (
+            patch("mempalace_code.storage.open_store"),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph") as kg_open,
+            patch(
+                "mempalace_code.export.write_jsonl",
+                return_value={"drawer_count": 0, "kg_count": 0},
+            ),
+        ):
+            from mempalace_code.cli_commands.export_import import cmd_export
+
+            cmd_export(args)
+
+        kg_open.assert_called_once_with(db_path=palace_kg_path(palace_path))
+
+    def test_export_omitted_palace_uses_global_kg_default(self, tmp_dir):
+        palace_path = os.path.join(tmp_dir, "default-palace")
+        os.makedirs(palace_path)
+        args = SimpleNamespace(
+            palace=None,
+            out="-",
+            with_kg=True,
+            only_manual=False,
+            wing=None,
+            room=None,
+            since=None,
+            with_embeddings=False,
+        )
+
+        with (
+            patch("mempalace_code.storage.open_store"),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph") as kg_open,
+            patch(
+                "mempalace_code.export.write_jsonl",
+                return_value={"drawer_count": 0, "kg_count": 0},
+            ),
+            patch("mempalace_code.cli_commands.export_import.MempalaceConfig") as config,
+        ):
+            config.return_value.palace_path = palace_path
+            from mempalace_code.cli_commands.export_import import cmd_export
+
+            cmd_export(args)
+
+        kg_open.assert_called_once_with(db_path=None)
+
+    def test_import_explicit_palace_scopes_live_and_dry_run_kg(self, tmp_dir):
+        palace_path = os.path.join(tmp_dir, "palace")
+        jsonl_path = os.path.join(tmp_dir, "import.jsonl")
+        with open(jsonl_path, "w", encoding="utf-8") as handle:
+            handle.write('{"type": "export_header"}\n')
+        args = SimpleNamespace(
+            palace=palace_path,
+            jsonl_file=jsonl_path,
+            dry_run=False,
+            skip_kg=False,
+            skip_dedup=False,
+            wing_override=None,
+        )
+        expected_path = palace_kg_path(palace_path)
+
+        with (
+            patch("mempalace_code.storage.open_store"),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph") as kg_open,
+            patch("mempalace_code.knowledge_graph.LazyKnowledgeGraph") as lazy_kg_open,
+            patch("mempalace_code.export.read_jsonl", return_value=iter([])),
+            patch(
+                "mempalace_code.export.import_jsonl",
+                return_value={
+                    "imported_drawers": 0,
+                    "skipped_duplicates": 0,
+                    "imported_triples": 0,
+                    "warnings": [],
+                },
+            ),
+        ):
+            from mempalace_code.cli_commands.export_import import cmd_import
+
+            cmd_import(args)
+            args.dry_run = True
+            cmd_import(args)
+
+        kg_open.assert_called_once_with(db_path=expected_path)
+        lazy_kg_open.assert_called_once_with(db_path=expected_path)
+
+    def test_import_omitted_palace_preserves_global_kg_default(self, tmp_dir):
+        palace_path = os.path.join(tmp_dir, "default-palace")
+        jsonl_path = os.path.join(tmp_dir, "import.jsonl")
+        with open(jsonl_path, "w", encoding="utf-8") as handle:
+            handle.write('{"type": "export_header"}\n')
+        args = SimpleNamespace(
+            palace=None,
+            jsonl_file=jsonl_path,
+            dry_run=False,
+            skip_kg=False,
+            skip_dedup=False,
+            wing_override=None,
+        )
+
+        with (
+            patch("mempalace_code.storage.open_store"),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph") as kg_open,
+            patch("mempalace_code.knowledge_graph.LazyKnowledgeGraph") as lazy_kg_open,
+            patch("mempalace_code.export.read_jsonl", return_value=iter([])),
+            patch(
+                "mempalace_code.export.import_jsonl",
+                return_value={
+                    "imported_drawers": 0,
+                    "skipped_duplicates": 0,
+                    "imported_triples": 0,
+                    "warnings": [],
+                },
+            ),
+            patch("mempalace_code.cli_commands.export_import.MempalaceConfig") as config,
+        ):
+            config.return_value.palace_path = palace_path
+            from mempalace_code.cli_commands.export_import import cmd_import
+
+            cmd_import(args)
+            args.dry_run = True
+            cmd_import(args)
+
+        kg_open.assert_called_once_with(db_path=None)
+        lazy_kg_open.assert_called_once_with(db_path=None)
