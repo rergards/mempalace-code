@@ -1,5 +1,7 @@
 ---
 slug: REL-PY314-HOSTED-MATRIX-FAILURE
+status: active
+authority: non_authoritative
 goal: "Align installed-golden public-export evidence with the existing one-shot root launcher while preserving the 26-row release contour."
 risk: medium
 risk_note: "The change is test-only release evidence, but an over-permissive binding parser could admit a stale or malformed wheel and an over-broad edit could disturb release-blocking installed qualification."

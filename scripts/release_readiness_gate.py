@@ -210,7 +210,7 @@ for name, module in (("mempalace_code", root), ("mempalace_code.cli", cli), ("me
 print(json.dumps({
     "owners": owners,
     "bindings": {
-        "root_main_is_cli_main": root.main is cli.main,
+        "root_main_is_one_shot_main": root.main is cli._one_shot_main,
         "mcp_tools_is_registry_tools": mcp.TOOLS is registry.TOOLS,
         "mcp_handle_request_is_dispatch": mcp.handle_request is dispatch.handle_request,
         "mcp_main_is_dispatch": mcp.main is dispatch.main,
@@ -5804,7 +5804,7 @@ def _parse_installed_public_exports(
     if not isinstance(payload, dict) or set(payload) != {"owners", "bindings"}:
         raise ValueError("installed public export document has invalid shape")
     if payload["bindings"] != {
-        "root_main_is_cli_main": True,
+        "root_main_is_one_shot_main": True,
         "mcp_tools_is_registry_tools": True,
         "mcp_handle_request_is_dispatch": True,
         "mcp_main_is_dispatch": True,

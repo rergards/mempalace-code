@@ -4394,7 +4394,7 @@ def test_installed_optional_extras_exclude_retired_chroma(tmp_path):
     site.mkdir(parents=True)
     payload = {
         "bindings": {
-            "root_main_is_cli_main": True,
+            "root_main_is_one_shot_main": True,
             "mcp_tools_is_registry_tools": True,
             "mcp_handle_request_is_dispatch": True,
             "mcp_main_is_dispatch": True,
@@ -4428,6 +4428,34 @@ def test_installed_optional_extras_exclude_retired_chroma(tmp_path):
     )
     assert "chroma" not in extras
     assert "chroma-migration" not in extras
+
+    binding_hostile_documents = [
+        {
+            **{
+                key: value
+                for key, value in payload["bindings"].items()
+                if key != "root_main_is_one_shot_main"
+            },
+            "root_main_is_cli_main": True,
+        },
+        {**payload["bindings"], "root_main_is_one_shot_main": False},
+        {
+            key: value
+            for key, value in payload["bindings"].items()
+            if key != "root_main_is_one_shot_main"
+        },
+        {**payload["bindings"], "unexpected_binding": True},
+        {**payload["bindings"], "mcp_tools_is_registry_tools": False},
+        {**payload["bindings"], "mcp_handle_request_is_dispatch": False},
+        {**payload["bindings"], "mcp_main_is_dispatch": False},
+    ]
+    for bindings in binding_hostile_documents:
+        with pytest.raises(ValueError, match="not bound to their runtime owners"):
+            rrg._parse_installed_public_exports(
+                json.dumps({**payload, "bindings": bindings}),
+                venv=venv,
+                repository_root=tmp_path / "repository",
+            )
 
     hostile = [
         ((*extras, "unknown"), exports, evidence),
