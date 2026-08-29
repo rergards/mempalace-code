@@ -1,0 +1,16 @@
+stash_ref: 0b6cb5f366b7a199cd453d8bb3f9db65eef37d1f
+stash_commit: 0b6cb5f366b7a199cd453d8bb3f9db65eef37d1f
+stash_parent_1: 0065e770b81ff440d3fb14576b9146a0527ec3ff
+stash_parent_2: 3ced5009fbb6abb0c24520bede61658a6496599b
+stash_parent_3: 320ae7cd0deabe46b75fb977fa5baffb5996d61c
+reason: failed
+slug: REL-LINUX-ARM-INSTALLER-HANDSHAKE
+restore: git stash apply 0b6cb5f366b7a199cd453d8bb3f9db65eef37d1f
+phase: implement
+producer_phase: implement
+run_id: 02cb81fe-1484-4e16-80d0-04e4376646bd
+worktree_attempt: 1
+commit_before: b37103a0c12a30ee16706fde4dc78c955e33b295
+paths:
+- .github/workflows/ci.yml
+- tests/test_release_workflow_admission.py
