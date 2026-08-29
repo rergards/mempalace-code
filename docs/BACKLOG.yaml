@@ -46,4 +46,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items: [{key: UPSTREAM-COMMIT-INVENTORY-EXACT, summary: "Require exact upstream commit inventory coverage", type: task, status: open, priority: medium, section_id: quality}]
