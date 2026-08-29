@@ -1741,3 +1741,8 @@ items:
       resolution: '2026-08-29: completed in pipeline run (delivered: Refreshed the canonical upstream comparison from dfba59b0 to live develop a9f345cc with 16 merge-group dispositions and zero unresolved release-critical drift., artifacts: docs/quality/upstream-comparison.json, docs/UPSTREAM_COMPARISON.md, phase_commit=b96eee04, final_commit=f05983fa, 2 files changed, 290 insertions(+), 87 deletions(-))'
       archived_date: "2026-08-29"
       done_summary: 'completed in pipeline run (delivered: Refreshed the canonical upstream comparison from dfba59b0 to live develop a9f345cc with 16 merge-group dispositions and zero unresolved release-critical drift., artifacts: docs/quality/upstream-comparison.json, docs/UPSTREAM_COMPARISON.md, phase_commit=b96eee04, final_commit=f05983fa, 2 files changed, 290 insertions(+), 87 deletions(-))'
+    - key: UPSTREAM-COMMIT-INVENTORY-EXACT
+      summary: Require exact upstream commit inventory coverage
+      resolution: '2026-08-29: Exact 43-commit inventory, duplicate ownership validation, canonical 43/26 documentation, focused regression coverage, formatting and scorecard evidence are complete. Focused 54 tests, Ruff, scorecard, docs drift, live upstream and combined public-safety checks pass; private runner artifacts remain excluded.'
+      archived_date: "2026-08-29"
+      done_summary: Exact 43-commit inventory, duplicate ownership validation, canonical 43/26 documentation, focused regression coverage, formatting and scorecard evidence are complete. Focused 54 tests, Ruff, scorecard, docs drift, live upstream and combined public-safety checks pass; private runner artifacts remain excluded.
