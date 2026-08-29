@@ -247,9 +247,7 @@ def test_evaluate_rejects_extra_manifest_commit(tmp_path: Path):
             ],
         ),
         (
-            lambda decisions: decisions[0].update(
-                constituent_commits=[CONSTITUENT_ONE, MERGE_ONE]
-            ),
+            lambda decisions: decisions[0].update(constituent_commits=[CONSTITUENT_ONE, MERGE_ONE]),
             MERGE_ONE,
             [
                 "delta decision 'guarded-change' merge_group",
