@@ -1,6 +1,6 @@
 ---
 slug: REL-CI-UPSTREAM-INVENTORY-CLEAN-CHECKOUT
-status: active
+status: completed
 authority: non_authoritative
 goal: "Verify the pinned exact upstream commit inventory from any public clean checkout without relying on developer-local Git objects."
 risk: medium
