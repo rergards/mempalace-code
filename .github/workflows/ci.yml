@@ -89,7 +89,7 @@ jobs:
         run: python scripts/quality_scorecard.py --check
       - name: Documentation drift guard
         run: python scripts/docs_drift_guard.py
-      - name: Upstream comparison guard (static, network-free)
+      - name: Upstream comparison guard (credential-free public read)
         run: python scripts/upstream_comparison_guard.py
 
   gitleaks-changed-range:

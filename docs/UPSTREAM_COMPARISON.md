@@ -303,6 +303,8 @@ unique full commit SHAs equal to the manifest inventory. Missing, extra,
 duplicated, malformed, truncated, or unavailable evidence blocks the guard and
 the default `scripts/release_preflight.py`. The read uses no ambient credentials,
 proxies, cookies, redirects, retries, or Git checkout mutation.
+The reviewed SHAs are also fixed in `scripts/release_public_read.py`; an upstream
+review refresh updates the manifest and that transport allowlist together.
 
 **Live mode (`--check-live`, explicit).** Live drift detection adds the separate
 fixed GitHub branch-head request and compares it with the reviewed pin. Drift,

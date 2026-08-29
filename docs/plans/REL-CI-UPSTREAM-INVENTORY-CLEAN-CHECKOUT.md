@@ -10,6 +10,10 @@ files:
     change: "Add one fixed, credential-free GitHub compare-range query that returns a bounded, normalized, complete commit inventory for the manifest-owned upstream pins."
   - path: scripts/upstream_comparison_guard.py
     change: "Replace the checkout-local rev-list dependency with the shared public compare-range reader while preserving exact set equality, 43-commit facts, live-head validation, and fail-closed output."
+  - path: scripts/release_preflight.py
+    change: "Correct its user-facing network-boundary contract for the default compare read and the optional live branch-head read."
+  - path: .github/workflows/ci.yml
+    change: "Correct the existing lint-step label to describe the credential-free public read without changing workflow behavior or topology."
   - path: tests/test_release_public_read.py
     change: "Cover the fixed compare endpoint, complete pagination/count proof, normalized unique SHAs, target rejection, and malformed or truncated response failures."
   - path: tests/test_upstream_comparison_guard.py

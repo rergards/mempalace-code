@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Run release checks before creating or publishing a tag.
 
-Default checks validate only the checked-out tree and stay deterministic and
-network-free. ``--check-live-upstream`` explicitly adds the shared read-only
-upstream head comparison. This guard never tags, pushes, creates a release, or
-contacts package registries.
+Default checks are non-mutating and include one fixed, credential-free public
+compare read for the reviewed upstream range. ``--check-live-upstream`` adds the
+shared read-only upstream head comparison. This guard never tags, pushes, creates
+a release, or contacts package registries.
 """
 
 from __future__ import annotations
@@ -311,9 +311,9 @@ def evaluate(
 ) -> tuple[str, list[dict[str, object]]]:
     """Return package version and one result object per local release invariant.
 
-    The default stays deterministic and network-free.  ``check_live_upstream`` is
-    the explicit pre-tag opt-in that delegates the one bounded read-only lookup
-    to the shared upstream comparison guard.
+    The default delegates one fixed, credential-free public compare read to the
+    shared upstream comparison guard. ``check_live_upstream`` is the explicit
+    pre-tag opt-in that adds the bounded read-only branch-head lookup.
 
     ``with_gitleaks_history`` is the explicit opt-in for the full-history secret
     scan. It is off by default because the scan needs both a non-shallow checkout
