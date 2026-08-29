@@ -139,6 +139,11 @@
   "delta_decisions": [
     {
       "id": "logstream-watch-reply-filter",
+      "merge_group": "334c60e3c9f556ae94746aa4294cf6a65fc0d552",
+      "constituent_commits": [
+        "de7a09306d2f71e578f56a5cd58801e88fcbd83c",
+        "63581bdefbd47b1751310d58b32a8ccd97bb30b3"
+      ],
       "upstream_change": "shared-brain watcher guidance wakes on addressed replies while keeping announcements silent, with separate watcher and inbox cursor handling",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -148,6 +153,8 @@
     },
     {
       "id": "sqlite-integrity-absent-verdict",
+      "merge_group": "42a8e910aff54aaccbd43176ad422d0e75f56d22",
+      "constituent_commits": ["32636ddeaac8a284ea1c9cf6e6d37fb787ff2b7a"],
       "upstream_change": "repair and MCP status distinguish a missing Chroma SQLite integrity verdict from a clean quick_check result",
       "source_refs": ["CHANGELOG.md", "compare"],
       "release_critical": false,
@@ -157,6 +164,8 @@
     },
     {
       "id": "contributing-branching-model",
+      "merge_group": "88247acf80121aec0179d1a75606b8252329d3a6",
+      "constituent_commits": ["3cca2aa253e75738914cb393ae30bcc29df82b51"],
       "upstream_change": "CONTRIBUTING documents upstream's branch naming and pull-request target model",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -166,6 +175,8 @@
     },
     {
       "id": "sqlite-exact-cache-and-id-filters",
+      "merge_group": "fae7de0fce97f18a5eb8b81d711f6d0422b7acbc",
+      "constituent_commits": ["1076e684068f95837c66ab523ec6a492f908a699"],
       "upstream_change": "the sqlite_exact backend invalidates caches across handles and applies filtered ID lookups consistently",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -175,6 +186,8 @@
     },
     {
       "id": "closet-search-distinct-passages",
+      "merge_group": "ff7abc2e87f6fc401261bf455bdee243a12135be",
+      "constituent_commits": ["ad78f63ac980352a699c1e7c28c826efc6a9ab69"],
       "upstream_change": "search widens and hydrates closet-enriched candidates, then removes duplicate rendered passages while preserving plain-drawer repeats",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -184,6 +197,8 @@
     },
     {
       "id": "palace-graph-stats-completeness",
+      "merge_group": "e4318d65f6a299e156f5002273ad5a51067c2235",
+      "constituent_commits": ["c14d8761b3ab98d9ab8960d3b2670856cc1fb912"],
       "upstream_change": "palace graph statistics include general rooms, room instances, passive and explicit tunnels, and total connections",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -196,6 +211,12 @@
     },
     {
       "id": "shared-brain-rules-command",
+      "merge_group": "21ea8a735cae9367eaa701f8ab7cc778146b5906",
+      "constituent_commits": [
+        "b55d032904e339500d6809d840f62188d968cf6f",
+        "503e6265fed190d9409397d7ee43067fcb91a737",
+        "902d7c31b0f027f588c55105b330473d7e7f2610"
+      ],
       "upstream_change": "CLI and MCP surfaces render canonical shared-brain coordination rules",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -205,6 +226,8 @@
     },
     {
       "id": "drawer-mutation-closet-purge",
+      "merge_group": "86f2900c6a189740136be6e9488609e1d87c9e53",
+      "constituent_commits": ["f92095e6ca133d44af622fce84982363c1d6fc66"],
       "upstream_change": "MCP drawer update and delete purge stale closet entries associated with the mutated drawer",
       "source_refs": ["CHANGELOG.md", "compare"],
       "release_critical": false,
@@ -214,6 +237,8 @@
     },
     {
       "id": "mcp-search-candidate-union",
+      "merge_group": "98e6dfc206720c4e8aec115b5e14ab645e4bd844",
+      "constituent_commits": ["af7bca775d8f3a6480a5453b04652e6da7ad74a2"],
       "upstream_change": "generic MCP search exposes candidate union and retains lexical candidates under strict vector thresholds only when stored embeddings satisfy the threshold",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -223,6 +248,11 @@
     },
     {
       "id": "project-yaml-utf8",
+      "merge_group": "4c1e6d0c1150e2a0134ad9d085cf952f77f64aa1",
+      "constituent_commits": [
+        "abf839ab3fce581caa01215a0087c6a73d746f6f",
+        "02ae4f700192baf3e0c750f076c33eb2aa42a1b3"
+      ],
       "upstream_change": "project mempalace.yaml reads and writes use UTF-8 explicitly on every platform",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -235,6 +265,12 @@
     },
     {
       "id": "skill-first-logstream-tasks",
+      "merge_group": "a54921f186ded3ae46bfc88c0cf0489962ee48f9",
+      "constituent_commits": [
+        "7fa48687ab23a3ad8cf0168424feda8e87249a20",
+        "c77efaa92e29bcd55d59c9e56b5b539e296272ef",
+        "7e2d2e6bd3972c7b892e59ba8376bf5db3234306"
+      ],
       "upstream_change": "task create, list, read, inbox, and complete flows are coordinated through logstream-aware skills and Claude/Cursor plugin packaging, with controlled launch-input validation",
       "source_refs": ["README.md", "CHANGELOG.md", "compare"],
       "release_critical": false,
@@ -244,6 +280,8 @@
     },
     {
       "id": "init-resolved-palace-path",
+      "merge_group": "528732bfcd605259aaf358cb9f9c229fa9d24ff8",
+      "constituent_commits": ["39cb6595a47b0999249367ba69d9d323c54ec4c1"],
       "upstream_change": "upstream init persists its constructor or environment-resolved palace_path instead of the module default",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -253,6 +291,12 @@
     },
     {
       "id": "qdrant-versioned-user-agent",
+      "merge_group": "f6987c606560e3ac6963222287ed679cfbc67e11",
+      "constituent_commits": [
+        "2fc3b8708aa6c8c63f782c2f46801cd0d49394fa",
+        "95c72b7abd5b60ea50fdbcd82ad6a599efee4ab3",
+        "e9e448ba0faeb2fd9529cd5c5ee09f325a3b6bfa"
+      ],
       "upstream_change": "the Qdrant backend sends a versioned MemPalace user-agent and tests the request header",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -262,6 +306,11 @@
     },
     {
       "id": "c-cpp-readable-extensions",
+      "merge_group": "239ee519bd0cf7b72eb9958dba5418699f6fd1f2",
+      "constituent_commits": [
+        "0b5591da8f26d4bc7bb493e639f6891d9bdd8b78",
+        "505a131e95271124f2e2e131722381b828170a35"
+      ],
       "upstream_change": "the project miner recognizes C and C++ source and header suffixes as readable inputs",
       "source_refs": ["compare"],
       "release_critical": false,
@@ -274,6 +323,8 @@
     },
     {
       "id": "config-unreadable-write-preservation",
+      "merge_group": "abcdc46445c08bf023750142b5923e8901080466",
+      "constituent_commits": ["f3f23d1ca88737e75f74b203c693e6bca377645e"],
       "upstream_change": "configuration setters refuse to overwrite a config file that could not be read and preserve malformed bytes before publishing replacement configuration",
       "source_refs": ["mempalace/config.py", "CHANGELOG.md", "compare"],
       "release_critical": true,
@@ -287,6 +338,11 @@
     },
     {
       "id": "mcp-convos-single-file-source",
+      "merge_group": "a9f345cc63254eb4dea7abad36963b85c9f8453a",
+      "constituent_commits": [
+        "a6725e9f79a59f045c8f57b134942ade27cb00d6",
+        "a2949be1b041d4a0e41cfc4dabf2b703b2f588cd"
+      ],
       "upstream_change": "upstream MCP mine accepts one conversation file when mode=convos and aligns its tool documentation with that input shape",
       "source_refs": ["CHANGELOG.md", "compare"],
       "release_critical": false,

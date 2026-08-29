@@ -80,8 +80,25 @@ only public evidence is the commit range itself cite `compare`.
 | `config-unreadable-write-preservation` | Configuration writes preserve unreadable inputs and refuse unsafe overwrite | `adopted` | yes | `abcdc464` |
 | `mcp-convos-single-file-source` | MCP mine accepts one conversation file for `mode=convos` | `irrelevant` | no | `a9f345cc` |
 
-The table groups each merge with its constituent commits, so the 27 non-merge
-commits in `dfba59b0..a9f345cc` appear once under their owning merge group.
+The manifest records the full merge and constituent SHAs. The corresponding
+26-commit inventory for `dfba59b0..a9f345cc` is:
+
+- `334c60e3`: `de7a0930`, `63581bde`
+- `42a8e910`: `32636dde`
+- `88247acf`: `3cca2aa2`
+- `fae7de0f`: `1076e684`
+- `ff7abc2e`: `ad78f63a`
+- `e4318d65`: `c14d8761`
+- `21ea8a73`: `b55d0329`, `503e6265`, `902d7c31`
+- `86f2900c`: `f92095e6`
+- `98e6dfc2`: `af7bca77`
+- `4c1e6d0c`: `abf839ab`, `02ae4f70`
+- `a54921f1`: `7fa48687`, `c77efaa9`, `7e2d2e6b`
+- `528732bf`: `39cb6595`
+- `f6987c60`: `2fc3b870`, `95c72b7a`, `e9e448ba`
+- `239ee519`: `0b5591da`, `505a131e`
+- `abcdc464`: `f3f23d1c`
+- `a9f345cc`: `a6725e9f`, `a2949be1`
 
 **Adopted.** `config-unreadable-write-preservation` is the applicable reproduced
 data-loss class. The completed `CONFIG-PEOPLE-MAP-MALFORMED-PRESERVE` predicate
@@ -219,9 +236,10 @@ advertised capability that names no tracked source.
 `pyproject.toml`, `mempalace/split_mega_files.py`, and
 `docs/rfcs/005-agent-identity-routing.md` are tracked for
 drift without backing a capability identifier: the first carries the advertised
-package version and dependency declarations, the second provides immutable
-evidence for the release-critical name-detection delta, and the third is watched
-because an identity routing surface would change the coordination row if it shipped.
+package version and dependency declarations, the second preserves review coverage
+for upstream's transcript name-detection and configuration-loading surface, and the
+third is watched because an identity routing surface would change the coordination
+row if it shipped.
 
 ## Fork Stance
 
