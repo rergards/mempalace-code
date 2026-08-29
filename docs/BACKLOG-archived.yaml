@@ -1761,3 +1761,8 @@ items:
       resolution: '2026-08-29: Installed the existing ignored repository-local Autopilot override with pipeline.commit_attribution.enabled=false. Resolved profile remains operator-luna-sol and the phase routing JSON matches the global profile; the public AGENTS.md remains the durable commit policy. No release file or model route changed.'
       archived_date: "2026-08-29"
       done_summary: Installed the existing ignored repository-local Autopilot override with pipeline.commit_attribution.enabled=false. Resolved profile remains operator-luna-sol and the phase routing JSON matches the global profile; the public AGENTS.md remains the durable commit policy. No release file or model route changed.
+    - key: REL-CI-UPSTREAM-INVENTORY-CLEAN-CHECKOUT
+      summary: Make exact upstream inventory work in a public clean checkout
+      resolution: '2026-08-29: Fresh depth-1 checkout now verifies the exact 43-commit public compare inventory through the existing fixed credential-free reader; focused tests, Ruff/format, actionlint, docs drift, scorecard, shallow-clone execution, and independent Rule Zero closure passed. Hosted exact-SHA evidence remains a release admission step after all blockers close.'
+      archived_date: "2026-08-29"
+      done_summary: Fresh depth-1 checkout now verifies the exact 43-commit public compare inventory through the existing fixed credential-free reader; focused tests, Ruff/format, actionlint, docs drift, scorecard, shallow-clone execution, and independent Rule Zero closure passed. Hosted exact-SHA evidence remains a release admission step after all blockers close.

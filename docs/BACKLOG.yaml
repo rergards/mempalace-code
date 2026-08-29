@@ -47,16 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: REL-CI-UPSTREAM-INVENTORY-CLEAN-CHECKOUT
-    summary: "Make exact upstream inventory work in a public clean checkout"
-    type: bug
-    status: done
-    priority: highest
-    size: S
-    section_id: quality
-    description: "## Symptom\n\nHosted Tests run 33260376052 at SHA 3f76fa5a0c363032505aae059bed6c5346a85162 fails lint, package, and all Python 3.11-3.14 test jobs because `git rev-list dfba59b0..a9f345cc` cannot resolve the upstream-only commits.\n\n## Steps to reproduce\n\nClone public branch `release/v1.14.0-public-final-20260829` with `--depth 1`; run `python scripts/upstream_comparison_guard.py`, `python scripts/release_preflight.py`, or the full non-network suite. The Linux suite reaches 4086 passed before `test_repository_manifest_and_document_agree` fails on the same invalid revision range.\n\n## Scope\n\nExtend the existing upstream comparison/CI preparation owner. Preserve exact 43-commit inventory validation and the live head check. Do not silently skip, weaken, or treat missing Git objects as PASS. Avoid repeated equivalent setup across jobs when one existing owner can provide the evidence at lower total cost.\n\n## Expected vs actual\n\nExpected: credential-free public clean checkout supplies or verifies the pinned exact upstream range. Actual: only the developer shared object store contains it, which masked the hosted failure.\n\n## Root cause hypothesis\n\nThe guard requires upstream Git objects, while GitHub Actions checks out only the fork and never obtains the canonical upstream range.\n\n## Acceptance criteria\n\n- AC-1: Fresh public shallow-clone guard and release preflight pass with exact inventory still enforced.\n- AC-2: Focused guard tests pass and the full hosted Python matrix, lint, and package jobs reach their later steps.\n- AC-3: Documentation accurately names any network boundary and one recovery command."
-    resolution: "2026-08-29: Fresh depth-1 checkout now verifies the exact 43-commit public compare inventory through the existing fixed credential-free reader; focused tests, Ruff/format, actionlint, docs drift, scorecard, shallow-clone execution, and independent Rule Zero closure passed. Hosted exact-SHA evidence remains a release admission step after all blockers close."
-    done_summary: "Fresh depth-1 checkout now verifies the exact 43-commit public compare inventory through the existing fixed credential-free reader; focused tests, Ruff/format, actionlint, docs drift, scorecard, shallow-clone execution, and independent Rule Zero closure passed. Hosted exact-SHA evidence remains a release admission step after all blockers close."
   - key: REL-MINILM-PUBLIC-CORPUS-PIN
     summary: "Move MiniLM compatibility corpus to a publicly reproducible commit"
     type: bug
