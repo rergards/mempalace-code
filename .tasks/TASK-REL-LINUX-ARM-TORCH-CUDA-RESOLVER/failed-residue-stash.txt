@@ -1,0 +1,16 @@
+stash_ref: 39501d9c38ed31e464f51d4e37553cfc093e3634
+stash_commit: 39501d9c38ed31e464f51d4e37553cfc093e3634
+stash_parent_1: 97eba1b1d4d0ffa15af25da336581d5d34660754
+stash_parent_2: e42a5ab34c3cb0ba81c2f8e8ac447e3939b201c7
+stash_parent_3: 6570f9f6f90ad7db013352cbd9a3b32f2b0bf2a1
+reason: failed
+slug: REL-LINUX-ARM-TORCH-CUDA-RESOLVER
+restore: git stash apply 39501d9c38ed31e464f51d4e37553cfc093e3634
+phase: implement
+producer_phase: implement
+run_id: ff0895ed-ca7c-4096-88fe-82bc00458dde
+worktree_attempt: 1
+commit_before: 08812d17e224ab5aa9bba5c842e8a4a4e023deeb
+paths:
+- mempalace_code/storage.py
+- tests/test_embedding_runtime.py
