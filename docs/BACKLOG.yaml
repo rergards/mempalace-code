@@ -46,13 +46,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: UPSTREAM-COMPARISON-A9F345CC
-    summary: "Refresh reviewed upstream comparison to a9f345cc"
-    type: task
-    status: open
-    priority: highest
-    size: XS
-    section_id: pre_release
-    assignee: bot
-    description: "## Scope\n\nRefresh the existing upstream comparison manifest and comparison document from reviewed dfba59b0 to live develop a9f345cc after applicable CONFIG-PEOPLE-MAP-MALFORMED-PRESERVE behavior is resolved. Record exact commit categories, adopted, already-covered, and not-applicable decisions plus zero remaining release-critical drift. Do not restore the retired notification workflow, import legacy Chroma, SQLite, Qdrant, or shared-brain code, or add a second comparison owner.\n\n## Acceptance criteria\n\n- The canonical comparison manifest and document name a9f345cc63254eb4dea7abad36963b85c9f8453a.\n- The live upstream guard passes.\n- The reproduced config data-loss behavior links to its completed fix.\n- C and C++ support is recorded as already covered.\n- Legacy backend, task, and plugin changes are explicitly not applicable.\n- Docs drift, public safety, scorecard, and preflight pass."
+items: []
