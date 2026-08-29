@@ -948,6 +948,7 @@ source = { editable = "." }
 dependencies = [
     { name = "lancedb" },
     { name = "mcp" },
+    { name = "overrides" },
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "sentence-transformers" },
@@ -1002,6 +1003,7 @@ requires-dist = [
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.18" },
     { name = "lancedb", specifier = ">=0.20" },
     { name = "mcp", specifier = ">=2,<3" },
+    { name = "overrides", specifier = ">=7.7" },
     { name = "packaging", specifier = ">=21.0" },
     { name = "pypi-attestations", marker = "extra == 'dev'", specifier = "==0.0.30" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.350" },

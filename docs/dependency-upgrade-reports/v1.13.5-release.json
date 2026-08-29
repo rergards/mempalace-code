@@ -2,8 +2,8 @@
   "schema_version": 1,
   "status": "success",
   "slug": "v1.13.5-release",
-  "pyproject_hash": "sha256:1b35125bf67ffb691e613f2e77a96139067d4862bcbdf240ac5262522c8208c1",
-  "lockfile_hash": "sha256:825db9a19e5e5c5a42d53f071ba4a3dd7002b6542906935738f54b0d7e2c338d",
+  "pyproject_hash": "sha256:8212f6d038c208a8203ecfe0dde6f43d9663f12acc14eeced1ed2e71750f23b7",
+  "lockfile_hash": "sha256:879b5f6cde1706374a809bfc0d2ba4509ba853f32a10f55035596d9329a8cd81",
   "dependencies": [
     {
       "name": "lancedb",
@@ -12,6 +12,14 @@
       "specifier": ">=0.20",
       "current_version": "0.33.0",
       "target_version": null
+    },
+    {
+      "name": "overrides",
+      "normalized_name": "overrides",
+      "group": "runtime",
+      "specifier": ">=7.7",
+      "current_version": "7.7.0",
+      "target_version": "7.7.0"
     },
     {
       "name": "sentence-transformers",
@@ -187,6 +195,20 @@
       "name": "lancedb",
       "version": "0.33.0",
       "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "overrides",
+      "version": "7.7.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "overrides",
+      "version": "7.7.0",
+      "role": "target",
       "advisories": [],
       "status": "clean"
     },

@@ -31,6 +31,7 @@ classifiers = [
 ]
 dependencies = [
     "lancedb>=0.20",
+    "overrides>=7.7",
     "sentence-transformers>=2.2",
     "pyyaml>=6.0",
     "packaging>=21.0",
