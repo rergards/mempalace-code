@@ -1,6 +1,6 @@
 ---
 slug: REL-PY314-HOSTED-MATRIX-FAILURE
-status: active
+status: completed
 authority: non_authoritative
 goal: "Align installed-golden public-export evidence with the existing one-shot root launcher while preserving the 26-row release contour."
 risk: medium
