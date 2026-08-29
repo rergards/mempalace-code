@@ -80,10 +80,11 @@ only public evidence is the commit range itself cite `compare`.
 | `config-unreadable-write-preservation` | Configuration writes preserve unreadable inputs and refuse unsafe overwrite | `adopted` | yes | `abcdc464` |
 | `mcp-convos-single-file-source` | MCP mine accepts one conversation file for `mode=convos` | `irrelevant` | no | `a9f345cc` |
 
-The manifest records the full merge and constituent SHAs. The corresponding
-26-commit inventory for `dfba59b0..a9f345cc` is:
+The manifest records the exact 43-commit full-range inventory for
+`dfba59b0..a9f345cc`: 16 top-level merge commits, one nested merge commit, and a
+26-commit non-merge constituent subset. Grouped by the top-level merge commits:
 
-- `334c60e3`: `de7a0930`, `63581bde`
+- `334c60e3`: `7641e637` (nested merge), `de7a0930`, `63581bde`
 - `42a8e910`: `32636dde`
 - `88247acf`: `3cca2aa2`
 - `fae7de0f`: `1076e684`

@@ -234,6 +234,64 @@ def test_evaluate_rejects_extra_manifest_commit(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
+    ("mutate", "commit", "owners"),
+    [
+        (
+            lambda decisions: decisions[0].update(
+                constituent_commits=[CONSTITUENT_ONE, CONSTITUENT_ONE]
+            ),
+            CONSTITUENT_ONE,
+            [
+                "delta decision 'guarded-change' constituent_commits[0]",
+                "delta decision 'guarded-change' constituent_commits[1]",
+            ],
+        ),
+        (
+            lambda decisions: decisions[0].update(
+                constituent_commits=[CONSTITUENT_ONE, MERGE_ONE]
+            ),
+            MERGE_ONE,
+            [
+                "delta decision 'guarded-change' merge_group",
+                "delta decision 'guarded-change' constituent_commits[1]",
+            ],
+        ),
+        (
+            lambda decisions: decisions[1].update(constituent_commits=[CONSTITUENT_ONE]),
+            CONSTITUENT_ONE,
+            [
+                "delta decision 'guarded-change' constituent_commits[0]",
+                "delta decision 'repository-metadata-change' constituent_commits[0]",
+            ],
+        ),
+        (
+            lambda decisions: decisions[1].update(constituent_commits=[MERGE_ONE]),
+            MERGE_ONE,
+            [
+                "delta decision 'guarded-change' merge_group",
+                "delta decision 'repository-metadata-change' constituent_commits[0]",
+            ],
+        ),
+    ],
+    ids=["within-list", "merge-to-constituent", "across-constituents", "across-fields"],
+)
+def test_evaluate_rejects_duplicate_commit_inventory_ownership(
+    tmp_path: Path, mutate, commit: str, owners: list[str]
+):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    mutate(decisions)
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts == {}
+    assert errors == [
+        f"commit-inventory: commit {commit} is declared more than once: {', '.join(owners)}"
+    ]
+
+
+@pytest.mark.parametrize(
     "reason",
     ["git rev-list could not run", "git rev-list returned malformed revision lines ['bad']"],
 )
@@ -350,6 +408,55 @@ def test_evaluate_rejects_malformed_commit_inventory_fields(
 
     assert facts == {}
     assert any("commit-inventory" in error and message in error for error in errors)
+
+
+def test_malformed_commits_do_not_produce_duplicate_ownership_errors(tmp_path: Path):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0]["constituent_commits"] = ["NOT-A-SHA", "NOT-A-SHA"]
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts == {}
+    assert errors == [
+        "commit-inventory: delta decision 'guarded-change' constituent_commits must contain "
+        "only full 40-character lowercase hex shas"
+    ]
+
+
+def test_canonical_document_records_the_exact_commit_inventory():
+    manifest = guard.load_manifest(ROOT)
+    document = (ROOT / "docs" / "UPSTREAM_COMPARISON.md").read_text(encoding="utf-8")
+    decisions = manifest["delta_decisions"]
+    nested_merge = "7641e63741908ac2c5772e7b52a82efa57e9a826"
+
+    merge_groups = [decision["merge_group"] for decision in decisions]
+    constituent_commits = [
+        commit for decision in decisions for commit in decision["constituent_commits"]
+    ]
+    full_inventory = set(merge_groups) | set(constituent_commits)
+    non_merge_constituents = set(constituent_commits) - {nested_merge}
+    inventory_lines = [
+        line
+        for line in document.splitlines()
+        if line.startswith("- `") and any(line.startswith(f"- `{sha[:8]}`:") for sha in merge_groups)
+    ]
+
+    assert len(merge_groups) == len(set(merge_groups)) == 16
+    assert len(full_inventory) == 43
+    assert nested_merge in constituent_commits
+    assert len(non_merge_constituents) == 26
+    assert "exact 43-commit full-range inventory" in document
+    assert "26-commit non-merge constituent subset" in document
+    assert len(inventory_lines) == 16
+    for decision in decisions:
+        group_prefix = f"- `{decision['merge_group'][:8]}`:"
+        line = next(line for line in inventory_lines if line.startswith(group_prefix))
+        for commit in decision["constituent_commits"]:
+            assert f"`{commit[:8]}`" in line
+    owner_line = next(line for line in inventory_lines if line.startswith("- `334c60e3`:"))
+    assert "`7641e637` (nested merge)" in owner_line
 
 
 def test_evaluate_rejects_stale_review_date(tmp_path: Path):

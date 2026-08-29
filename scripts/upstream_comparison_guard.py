@@ -346,6 +346,7 @@ def _validate_delta_decisions(manifest: dict[str, Any]) -> list[str]:
 
     errors: list[str] = []
     seen: set[str] = set()
+    commit_occurrences: dict[str, list[str]] = {}
     for index, decision in enumerate(decisions):
         label = f"delta_decisions[{index}]"
         if not isinstance(decision, dict):
@@ -377,17 +378,30 @@ def _validate_delta_decisions(manifest: dict[str, Any]) -> list[str]:
                 f"commit-inventory: {label} merge_group must be a full 40-character "
                 "lowercase hex sha"
             )
+        else:
+            commit_occurrences.setdefault(merge_group, []).append(f"{label} merge_group")
         constituent_commits = decision["constituent_commits"]
         if not isinstance(constituent_commits, list) or not constituent_commits:
             errors.append(f"commit-inventory: {label} constituent_commits must be a non-empty list")
-        elif not all(
-            isinstance(item, str) and COMMIT_RE.fullmatch(item) for item in constituent_commits
-        ):
-            errors.append(
-                f"commit-inventory: {label} constituent_commits must contain only full "
-                "40-character lowercase hex shas"
-            )
+        else:
+            if not all(
+                isinstance(item, str) and COMMIT_RE.fullmatch(item) for item in constituent_commits
+            ):
+                errors.append(
+                    f"commit-inventory: {label} constituent_commits must contain only full "
+                    "40-character lowercase hex shas"
+                )
+            for commit_index, commit in enumerate(constituent_commits):
+                if isinstance(commit, str) and COMMIT_RE.fullmatch(commit):
+                    occurrence = f"{label} constituent_commits[{commit_index}]"
+                    commit_occurrences.setdefault(commit, []).append(occurrence)
         errors.extend(_validate_decision_body(decision, label, tracked_paths))
+    for commit, occurrences in commit_occurrences.items():
+        if len(occurrences) > 1:
+            errors.append(
+                f"commit-inventory: commit {commit} is declared more than once: "
+                f"{', '.join(occurrences)}"
+            )
     return errors
 
 
