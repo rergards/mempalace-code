@@ -143,10 +143,12 @@ python benchmarks/code_retrieval_bench.py --check-minilm-runtime-compatibility
 ```
 
 This check requires full Git history and a cache prepared by
-`mempalace-code fetch-model`. It verifies the reproducible 466-chunk corpus at
-20 queries, R@5 >= 0.95, and R@10 >= 1.0. The authoritative 469-chunk result in
-`results_embed_ab_2026-04-09.json` remains historical evidence; this command
-does not claim to rerun that unavailable live working-tree corpus.
+`mempalace-code fetch-model`. The public compatibility corpus was measured on
+2026-08-29 at 557 chunks and 20 queries, with R@5 = 0.95 and R@10 = 0.95; those
+values are also the release minima. The authoritative 469-chunk result with
+R@5 = 0.95 and R@10 = 1.0 in `results_embed_ab_2026-04-09.json` remains
+historical evidence; this command does not claim to rerun that unavailable live
+working-tree corpus.
 
 ## Benchmark 5: .NET Code Retrieval
 

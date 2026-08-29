@@ -223,9 +223,9 @@ def test_run_benchmark_json_shape_without_embeddings(monkeypatch, tmp_path):
     assert report["comparison"]["treesitter"]["chunk_count"] == 2
 
 
-def _compatibility_result(*, chunks=466, r5=0.95, r10=1.0):
+def _compatibility_result(*, queries=20, chunks=557, r5=0.95, r10=0.95):
     return {
-        "query_count": 20,
+        "query_count": queries,
         "models": {
             "minilm": {
                 "performance": {"embed_chunks": chunks},
@@ -240,11 +240,14 @@ def test_minilm_compatibility_fixture_binds_public_reproduction_contract():
     provenance = facts["code_minilm"]["public_reproducible_compatibility"]
 
     assert provenance == {
-        "chunk_count": 466,
-        "commit": "3ad086bfd15bab032e86bef3e9deec207c13c17b",
+        "chunk_count": 557,
+        "commit": "66ff5a61f2c335b3827050df287839f89effb15b",
         "excluded_output": "benchmarks/results_embed_ab_2026-04-09.json",
         "headline_469_corpus_rerun": False,
-        "minimum_r_at_10": 1.0,
+        "measured_date": "2026-08-29",
+        "measured_r_at_10": 0.95,
+        "measured_r_at_5": 0.95,
+        "minimum_r_at_10": 0.95,
         "minimum_r_at_5": 0.95,
         "query_count": 20,
         "reproduction_command": (
@@ -275,17 +278,43 @@ def test_minilm_compatibility_result_passes_exact_corpus_and_thresholds():
 def test_minilm_compatibility_result_fails_closed_on_corpus_or_quality_drift():
     contract = bench._minilm_compatibility_contract()
 
-    for result in (
-        _compatibility_result(chunks=465),
-        _compatibility_result(r5=0.949),
-        _compatibility_result(r10=0.999),
+    for result, message in (
+        (_compatibility_result(queries=19), "query_count mismatch"),
+        (_compatibility_result(chunks=556), "chunk_count mismatch"),
+        (_compatibility_result(r5=0.949), "r_at_5 regressed"),
+        (_compatibility_result(r10=0.949), "r_at_10 regressed"),
+        (_compatibility_result(r5=1.0), "r_at_5 mismatch"),
     ):
         try:
             bench._validate_minilm_compatibility_result(contract, result)
-        except bench.BenchError:
-            pass
+        except bench.BenchError as exc:
+            assert message in str(exc)
         else:
             raise AssertionError("expected compatibility drift to fail closed")
+
+
+def test_minilm_compatibility_contract_rejects_malformed_measured_provenance(monkeypatch, tmp_path):
+    contract = bench._minilm_compatibility_contract()
+
+    for field, value in (
+        ("measured_date", "2026-02-30"),
+        ("measured_r_at_5", "0.95"),
+        ("minimum_r_at_10", 0.96),
+    ):
+        malformed = dict(contract)
+        malformed[field] = value
+        facts = tmp_path / f"{field}.json"
+        facts.write_text(
+            json.dumps({"code_minilm": {"public_reproducible_compatibility": malformed}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(bench, "RETRIEVAL_QUALITY_FACTS", facts)
+        try:
+            bench._minilm_compatibility_contract()
+        except bench.BenchError as exc:
+            assert "retrieval facts are malformed" in str(exc)
+        else:
+            raise AssertionError("expected malformed compatibility provenance to fail closed")
 
 
 def test_minilm_compatibility_adapter_delegates_to_current_storage_owner():
@@ -293,6 +322,7 @@ def test_minilm_compatibility_adapter_delegates_to_current_storage_owner():
 
     assert "import mempalace_code.storage as _storage" in source
     assert "_storage._FastEmbedder(local_files_only=True)" in source
+    assert "compute_source_embeddings([text])[0]" in source
     assert 'os.environ["MEMPALACE_EXPECTED_RUNTIME_ROOT"]' in source
     assert "_storage_file.is_relative_to(_expected_runtime_root)" in source
     assert "sentence_transformers" not in source
@@ -332,7 +362,7 @@ def test_history_recovery_is_truthful_for_shallow_and_complete_repositories(monk
         "run",
         lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout="true\n"),
     )
-    commit = "3ad086bfd15bab032e86bef3e9deec207c13c17b"
+    commit = "66ff5a61f2c335b3827050df287839f89effb15b"
     assert bench._history_recovery(tmp_path, commit) == "git fetch --unshallow"
 
     monkeypatch.setattr(
@@ -343,3 +373,28 @@ def test_history_recovery_is_truthful_for_shallow_and_complete_repositories(monk
     assert bench._history_recovery(tmp_path, commit) == (
         f"git fetch {bench.MINILM_PUBLIC_REPOSITORY} {commit}"
     )
+
+
+def test_minilm_compatibility_unavailable_pin_stops_before_archive(monkeypatch, tmp_path):
+    commit = "66ff5a61f2c335b3827050df287839f89effb15b"
+    contract = {
+        "commit": commit,
+        "excluded_output": "benchmarks/results_embed_ab_2026-04-09.json",
+    }
+    monkeypatch.setattr(bench, "_minilm_compatibility_contract", lambda: contract)
+    monkeypatch.setattr(bench, "_active_distribution_package_root", lambda: tmp_path)
+    monkeypatch.setattr(bench, "_history_recovery", lambda _repo, _commit: "git fetch --unshallow")
+    monkeypatch.setattr(
+        bench.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=128, stdout="", stderr="missing"),
+    )
+
+    try:
+        bench.run_minilm_runtime_compatibility(tmp_path)
+    except bench.BenchError as exc:
+        assert str(exc) == (
+            "pinned MiniLM compatibility commit is unavailable; recovery: git fetch --unshallow"
+        )
+    else:
+        raise AssertionError("expected unavailable compatibility commit to fail closed")

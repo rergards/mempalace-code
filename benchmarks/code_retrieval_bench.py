@@ -22,7 +22,7 @@ import tempfile
 import textwrap
 import time
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import unquote, urlparse
@@ -58,6 +58,48 @@ def _minilm_compatibility_contract() -> dict:
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
         raise BenchError("MiniLM compatibility retrieval facts are malformed") from exc
     if not isinstance(contract, dict):
+        raise BenchError("MiniLM compatibility retrieval facts are malformed")
+    required_types = {
+        "chunk_count": int,
+        "commit": str,
+        "excluded_output": str,
+        "headline_469_corpus_rerun": bool,
+        "measured_date": str,
+        "query_count": int,
+        "reproduction_command": str,
+        "runtime_owner": str,
+    }
+    if any(type(contract.get(field)) is not expected for field, expected in required_types.items()):
+        raise BenchError("MiniLM compatibility retrieval facts are malformed")
+    quality_fields = (
+        "measured_r_at_5",
+        "measured_r_at_10",
+        "minimum_r_at_5",
+        "minimum_r_at_10",
+    )
+    if any(type(contract.get(field)) not in (int, float) for field in quality_fields):
+        raise BenchError("MiniLM compatibility retrieval facts are malformed")
+    commit = contract["commit"]
+    try:
+        measured_date = date.fromisoformat(contract["measured_date"])
+    except ValueError as exc:
+        raise BenchError("MiniLM compatibility retrieval facts are malformed") from exc
+    if (
+        len(commit) != 40
+        or any(character not in "0123456789abcdef" for character in commit)
+        or measured_date.strftime("%Y-%m-%d") != contract["measured_date"]
+        or contract["query_count"] <= 0
+        or contract["chunk_count"] <= 0
+        or contract["headline_469_corpus_rerun"] is not False
+        or not contract["excluded_output"]
+        or contract["reproduction_command"]
+        != "python benchmarks/code_retrieval_bench.py --check-minilm-runtime-compatibility"
+        or contract["runtime_owner"]
+        != "mempalace_code.storage._FastEmbedder(local_files_only=True)"
+        or any(not 0 <= contract[field] <= 1 for field in quality_fields)
+        or contract["measured_r_at_5"] < contract["minimum_r_at_5"]
+        or contract["measured_r_at_10"] < contract["minimum_r_at_10"]
+    ):
         raise BenchError("MiniLM compatibility retrieval facts are malformed")
     return contract
 
@@ -149,7 +191,11 @@ def _compatibility_adapter_source() -> str:
                 if not convert_to_numpy or not normalize_embeddings:
                     raise RuntimeError("historical compatibility requires normalized numpy output")
                 return np.asarray(
-                    self._embedder.compute_source_embeddings(list(texts)), dtype=np.float32
+                    [
+                        self._embedder.compute_source_embeddings([text])[0]
+                        for text in texts
+                    ],
+                    dtype=np.float32,
                 )
         """
     )
@@ -168,6 +214,10 @@ def _validate_minilm_compatibility_result(contract: dict, result: dict) -> None:
         expected = {
             "query_count": contract["query_count"],
             "chunk_count": contract["chunk_count"],
+            "r_at_5": contract["measured_r_at_5"],
+            "r_at_10": contract["measured_r_at_10"],
+        }
+        minimum = {
             "r_at_5": contract["minimum_r_at_5"],
             "r_at_10": contract["minimum_r_at_10"],
         }
@@ -179,9 +229,13 @@ def _validate_minilm_compatibility_result(contract: dict, result: dict) -> None:
                 f"MiniLM compatibility {field} mismatch: {actual[field]} != {expected[field]}"
             )
     for field in ("r_at_5", "r_at_10"):
-        if not isinstance(actual[field], (int, float)) or actual[field] < expected[field]:
+        if type(actual[field]) not in (int, float) or actual[field] < minimum[field]:
             raise BenchError(
-                f"MiniLM compatibility {field} regressed: {actual[field]} < {expected[field]}"
+                f"MiniLM compatibility {field} regressed: {actual[field]} < {minimum[field]}"
+            )
+        if actual[field] != expected[field]:
+            raise BenchError(
+                f"MiniLM compatibility {field} mismatch: {actual[field]} != {expected[field]}"
             )
 
 
@@ -665,7 +719,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-minilm-runtime-compatibility",
         action="store_true",
-        help="Run the pinned historical 466-chunk corpus through the current runtime owner",
+        help="Run the pinned historical corpus through the current runtime owner",
     )
     args = parser.parse_args(argv)
 
