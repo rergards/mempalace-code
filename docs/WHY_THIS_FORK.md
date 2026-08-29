@@ -62,7 +62,7 @@ Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized
 
 ### 8. Configurable Embedding Model
 
-`open_store(..., embed_model="nomic")` — you can now run several palaces side by side with different models. Previously the model was a hard-coded constant.
+`open_store(..., embed_model="nomic")` can run palaces with explicit alternative Hugging Face models or local SentenceTransformer paths when `mempalace-code[custom-models]` is installed. The ordinary install keeps the canonical MiniLM FastEmbed/ONNX runtime and does not load trusted remote code.
 
 ### 9. Diary Write CLI (CLI-DIARY-WRITE)
 

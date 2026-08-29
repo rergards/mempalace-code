@@ -54,15 +54,15 @@ No action required. These are listed here for auditability so a future contribut
 
 ### FORK-MODEL-OFFLINE-HANDOFF — **completed before v1.0**
 
-**Problem**: An older README said "No internet after install. Everything local." This was false. On first mine or first search, `sentence-transformers` downloads `all-MiniLM-L6-v2` (80 MB) from HuggingFace Hub. This is the same class of overclaim gaby caught upstream in #524.
+**Problem**: An older README said "No internet after install. Everything local." This was false. At the time, the default SentenceTransformer runtime downloaded `all-MiniLM-L6-v2` on first use. The current default uses the same 384d model through CPU FastEmbed/ONNX and still requires one explicit online provisioning step. This is the same class of overclaim gaby caught upstream in #524.
 
-**Fix**: `mempalace-code fetch-model [--model MODEL_NAME]` explicitly downloads or verifies the embedding model during setup, and `mempalace-code init` calls it unless `--skip-model-download` is passed. Current docs say: after a one-time model download during setup, indexing and search run locally without API calls. Cached model startup now tries `local_files_only=True` before any network-capable load, so a populated cache does not require HuggingFace metadata checks.
+**Fix**: `mempalace-code fetch-model [--model MODEL_NAME]` explicitly downloads or verifies the embedding model during setup, and `mempalace-code init` calls it unless `--skip-model-download` is passed. Current docs say: after a one-time model download during setup, indexing and search run locally without API calls. The canonical default validates immutable provenance under `$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/` before cached offline loading. Arbitrary names and local SentenceTransformer paths require the explicit `[custom-models]` extra.
 
 **Acceptance**:
-- `mempalace-code fetch-model` downloads the configured embedding model into the sentence-transformers cache, verifies it with local-only resolution on later runs, and works with `HF_HUB_OFFLINE=1` set
+- `mempalace-code fetch-model` downloads the canonical model into the MemPalace-owned FastEmbed cache, verifies provenance on later runs, and works with `HF_HUB_OFFLINE=1` set
 - `mempalace-code init <dir>` calls `fetch-model` automatically unless `--skip-model-download` is passed
 - README explains the one-time download plainly
-- `docs/OFFLINE_USAGE.md` explains how to run on an airgapped machine (pre-seed `~/.cache/huggingface/hub/`)
+- `docs/OFFLINE_USAGE.md` explains how to run on an airgapped machine by pre-seeding `$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/`
 - Offline verification is documented with `HF_HUB_OFFLINE=1 mempalace-code search "test"`
 
 **Why it mattered**: shipping a local-first tagline with a silent HuggingFace download on first use would repeat exactly upstream's mistake.
