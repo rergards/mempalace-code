@@ -1766,3 +1766,8 @@ items:
       resolution: '2026-08-29: Fresh depth-1 checkout now verifies the exact 43-commit public compare inventory through the existing fixed credential-free reader; focused tests, Ruff/format, actionlint, docs drift, scorecard, shallow-clone execution, and independent Rule Zero closure passed. Hosted exact-SHA evidence remains a release admission step after all blockers close.'
       archived_date: "2026-08-29"
       done_summary: Fresh depth-1 checkout now verifies the exact 43-commit public compare inventory through the existing fixed credential-free reader; focused tests, Ruff/format, actionlint, docs drift, scorecard, shallow-clone execution, and independent Rule Zero closure passed. Hosted exact-SHA evidence remains a release admission step after all blockers close.
+    - key: REL-WATCH-READY-SIGINT-RACE
+      summary: Close the watcher ready-to-SIGINT traceback race
+      resolution: '2026-08-29: completed in pipeline run (delivered: Moved both watch-ready emissions inside the existing interrupt and signal-restoration lifecycle and added a deterministic FIFO SIGINT regression., artifacts: mempalace_code/watcher.py, tests/test_watcher.py, phase_commit=b79c7b43, final_commit=a1026989, 3 files changed, 57 insertions(+), 4 deletions(-))'
+      archived_date: "2026-08-29"
+      done_summary: 'completed in pipeline run (delivered: Moved both watch-ready emissions inside the existing interrupt and signal-restoration lifecycle and added a deterministic FIFO SIGINT regression., artifacts: mempalace_code/watcher.py, tests/test_watcher.py, phase_commit=b79c7b43, final_commit=a1026989, 3 files changed, 57 insertions(+), 4 deletions(-))'
