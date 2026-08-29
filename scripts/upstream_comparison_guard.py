@@ -370,8 +370,8 @@ def _validate_delta_decisions(manifest: dict[str, Any]) -> list[str]:
         label = f"delta decision {identifier!r}"
         if identifier in seen:
             errors.append(f"delta-decision: {label} is declared more than once")
-            continue
-        seen.add(identifier)
+        else:
+            seen.add(identifier)
         merge_group = decision["merge_group"]
         if not isinstance(merge_group, str) or not COMMIT_RE.fullmatch(merge_group):
             errors.append(

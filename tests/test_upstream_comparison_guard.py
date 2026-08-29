@@ -437,11 +437,29 @@ def test_canonical_document_records_the_exact_commit_inventory():
     ]
     full_inventory = set(merge_groups) | set(constituent_commits)
     non_merge_constituents = set(constituent_commits) - {nested_merge}
-    inventory_lines = [
-        line
-        for line in document.splitlines()
-        if line.startswith("- `") and any(line.startswith(f"- `{sha[:8]}`:") for sha in merge_groups)
-    ]
+    document_lines = document.splitlines()
+    inventory_start = document_lines.index(
+        "26-commit non-merge constituent subset. Grouped by the top-level merge commits:"
+    )
+    inventory_lines: list[str] = []
+    for line in document_lines[inventory_start + 1 :]:
+        if not line:
+            if inventory_lines:
+                break
+            continue
+        inventory_lines.append(line)
+
+    expected_inventory_lines = []
+    for decision in decisions:
+        rendered_commits = []
+        for commit in decision["constituent_commits"]:
+            rendered = f"`{commit[:8]}`"
+            if commit == nested_merge:
+                rendered += " (nested merge)"
+            rendered_commits.append(rendered)
+        expected_inventory_lines.append(
+            f"- `{decision['merge_group'][:8]}`: {', '.join(rendered_commits)}"
+        )
 
     assert len(merge_groups) == len(set(merge_groups)) == 16
     assert len(full_inventory) == 43
@@ -449,14 +467,7 @@ def test_canonical_document_records_the_exact_commit_inventory():
     assert len(non_merge_constituents) == 26
     assert "exact 43-commit full-range inventory" in document
     assert "26-commit non-merge constituent subset" in document
-    assert len(inventory_lines) == 16
-    for decision in decisions:
-        group_prefix = f"- `{decision['merge_group'][:8]}`:"
-        line = next(line for line in inventory_lines if line.startswith(group_prefix))
-        for commit in decision["constituent_commits"]:
-            assert f"`{commit[:8]}`" in line
-    owner_line = next(line for line in inventory_lines if line.startswith("- `334c60e3`:"))
-    assert "`7641e637` (nested merge)" in owner_line
+    assert inventory_lines == expected_inventory_lines
 
 
 def test_evaluate_rejects_stale_review_date(tmp_path: Path):
@@ -619,9 +630,18 @@ def test_evaluate_rejects_a_duplicate_delta_decision_id(tmp_path: Path):
     decisions.append(copy.deepcopy(decisions[0]))
     root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
 
-    _, errors = guard.evaluate(root, today=date(2026, 7, 10))
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
 
-    assert any("declared more than once" in error for error in errors)
+    assert facts == {}
+    assert errors == [
+        "delta-decision: delta decision 'guarded-change' is declared more than once",
+        f"commit-inventory: commit {MERGE_ONE} is declared more than once: "
+        "delta decision 'guarded-change' merge_group, "
+        "delta decision 'guarded-change' merge_group",
+        f"commit-inventory: commit {CONSTITUENT_ONE} is declared more than once: "
+        "delta decision 'guarded-change' constituent_commits[0], "
+        "delta decision 'guarded-change' constituent_commits[0]",
+    ]
 
 
 def test_evaluate_rejects_a_document_missing_a_delta_decision(tmp_path: Path):
