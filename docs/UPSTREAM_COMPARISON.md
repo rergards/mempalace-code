@@ -14,14 +14,14 @@ document, and the README pointer consistent.
 
 | Field | Value |
 |---|---|
-| Reviewed date | `2026-08-24` |
+| Reviewed date | `2026-08-29` |
 | Canonical upstream repository | <https://github.com/MemPalace/mempalace> |
 | Branch reviewed | `develop` |
-| Commit reviewed | `dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0` |
-| Previous reviewed commit | `3e56979fb456c7478a4b57414027873bd78f2d37` |
+| Commit reviewed | `a9f345cc63254eb4dea7abad36963b85c9f8453a` |
+| Previous reviewed commit | `dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0` |
 | Previous reviewed date | `2026-08-24` |
 | Upstream release described by its changelog | `3.8.0` |
-| Upstream paths tracked for drift | `README.md`, `CHANGELOG.md`, `pyproject.toml`, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `.mcp.json`, `mempalace/split_mega_files.py`, RFCs 003–005 |
+| Upstream paths tracked for drift | `README.md`, `CHANGELOG.md`, `pyproject.toml`, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `.mcp.json`, `mempalace/config.py`, `mempalace/split_mega_files.py`, RFCs 003–005 |
 | Fork commit at review time | this repository, `main` |
 
 All upstream statements below are limited to the pinned public sources. Upstream
@@ -32,22 +32,23 @@ benchmarked, or independently compatibility-tested.
 
 Pinned primary upstream sources, all at the reviewed commit:
 
-- <https://github.com/MemPalace/mempalace/tree/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/README.md>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/CHANGELOG.md>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/pyproject.toml>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/.codex-plugin/plugin.json>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/.agents/plugins/marketplace.json>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/.mcp.json>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/mempalace/split_mega_files.py>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/docs/rfcs/003-agent-logstream-coordination.md>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/docs/rfcs/004-replicated-palace.md>
-- <https://github.com/MemPalace/mempalace/blob/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0/docs/rfcs/005-agent-identity-routing.md>
+- <https://github.com/MemPalace/mempalace/tree/a9f345cc63254eb4dea7abad36963b85c9f8453a>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/README.md>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/CHANGELOG.md>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/pyproject.toml>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/.codex-plugin/plugin.json>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/.agents/plugins/marketplace.json>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/.mcp.json>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/mempalace/config.py>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/mempalace/split_mega_files.py>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/docs/rfcs/003-agent-logstream-coordination.md>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/docs/rfcs/004-replicated-palace.md>
+- <https://github.com/MemPalace/mempalace/blob/a9f345cc63254eb4dea7abad36963b85c9f8453a/docs/rfcs/005-agent-identity-routing.md>
 
 The full range between the previous pin and this one is published as a single
 compare link:
 
-- <https://github.com/MemPalace/mempalace/compare/3e56979fb456c7478a4b57414027873bd78f2d37...dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0>
+- <https://github.com/MemPalace/mempalace/compare/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0...a9f345cc63254eb4dea7abad36963b85c9f8453a>
 
 ## Upstream Delta Since the Previous Pin
 
@@ -60,42 +61,56 @@ upstream's own choice.
 Release-critical rows must cite a tracked public upstream source. Rows whose
 only public evidence is the commit range itself cite `compare`.
 
-| Delta decision | Upstream change, as its sources describe it | Stance | Release-critical |
-|---|---|---|---|
-| `sync-deletion-corroboration` | `sync --apply` removes a missing-source drawer only when another known regular source file remains reachable in the same directory; unresolved paths are reported and kept | `irrelevant` | no |
-| `sync-fix-changelog-placement` | The deletion-corroboration fix moves from Unreleased into the upstream 3.8.0 bug-fix section | `irrelevant` | no |
-| `shared-brain-logstream-watch-guidance` | The shared-brain guide adds watcher wake filters, separate watcher and inbox cursors, batch replay, NDJSON envelopes, and event-id resume guidance | `deferred` | no |
-| `plugin-manifest-tool-count-correction` | Claude, Codex, and Cursor plugin descriptions correct their advertised MCP tool count from 36 to 44 | `irrelevant` | no |
-| `upstream-release-entrypoint-instructions` | Release checks now expect upstream's `mcp_proxy` entry point and root `.mcp.json` ownership instead of a plugin-local Codex MCP file | `irrelevant` | no |
+| Delta decision | Upstream change, as its sources describe it | Stance | Release-critical | Merge group |
+|---|---|---|---|---|
+| `logstream-watch-reply-filter` | Watchers wake for addressed replies while announcements remain silent | `irrelevant` | no | `334c60e3` |
+| `sqlite-integrity-absent-verdict` | Repair and MCP status distinguish an absent Chroma SQLite verdict from a clean result | `irrelevant` | no | `42a8e910` |
+| `contributing-branching-model` | CONTRIBUTING documents upstream's branch and pull-request model | `irrelevant` | no | `88247acf` |
+| `sqlite-exact-cache-and-id-filters` | `sqlite_exact` fixes cross-handle cache invalidation and filtered ID lookups | `irrelevant` | no | `fae7de0f` |
+| `closet-search-distinct-passages` | Closet-enriched search returns distinct rendered passages | `irrelevant` | no | `ff7abc2e` |
+| `palace-graph-stats-completeness` | Graph stats include general rooms, room instances, passive and explicit tunnels, and total connections | `equivalent-local` | no | `e4318d65` |
+| `shared-brain-rules-command` | CLI and MCP render canonical shared-brain coordination rules | `irrelevant` | no | `21ea8a73` |
+| `drawer-mutation-closet-purge` | Drawer update and delete purge associated stale closet entries | `irrelevant` | no | `86f2900c` |
+| `mcp-search-candidate-union` | Candidate union admits lexical hits under strict vector thresholds only after vector scoring | `irrelevant` | no | `98e6dfc2` |
+| `project-yaml-utf8` | Project YAML reads and writes use UTF-8 explicitly | `equivalent-local` | no | `4c1e6d0c` |
+| `skill-first-logstream-tasks` | Logstream-aware task CLI/MCP flows and task skills are packaged for Claude and Cursor | `irrelevant` | no | `a54921f1` |
+| `init-resolved-palace-path` | `init()` persists upstream's resolved palace path | `irrelevant` | no | `528732bf` |
+| `qdrant-versioned-user-agent` | Qdrant requests send a versioned user-agent | `irrelevant` | no | `f6987c60` |
+| `c-cpp-readable-extensions` | The miner recognizes C and C++ source/header suffixes | `equivalent-local` | no | `239ee519` |
+| `config-unreadable-write-preservation` | Configuration writes preserve unreadable inputs and refuse unsafe overwrite | `adopted` | yes | `abcdc464` |
+| `mcp-convos-single-file-source` | MCP mine accepts one conversation file for `mode=convos` | `irrelevant` | no | `a9f345cc` |
 
-**`sync-deletion-corroboration` — irrelevant.** The fork has no `sync_palace`,
-`sync --apply`, `removable_ids`, `unresolved_by_source`, or `_classify_drawer`
-owner under `mempalace_code/`, `tests/`, or `scripts/`. Its explicit
-drawer/wing deletion tools and Lance stale-fragment cleanup act on
-operator-selected targets; they do not infer deletion from source-file
-reachability. No speculative sync or prune implementation is planned.
+The table groups each merge with its constituent commits, so the 27 non-merge
+commits in `dfba59b0..a9f345cc` appear once under their owning merge group.
 
-**`sync-fix-changelog-placement` — irrelevant.** This is an upstream changelog
-correction for the same upstream-only sync lifecycle. It changes no fork
-runtime, release note, or capability claim.
+**Adopted.** `config-unreadable-write-preservation` is the applicable reproduced
+data-loss class. The completed `CONFIG-PEOPLE-MAP-MALFORMED-PRESERVE` predicate
+in `tests/test_config.py` refuses malformed or unreadable existing
+`people_map.json`, preserves the original bytes across retries, and gives a
+bounded repair-and-retry path. The row cites pinned `mempalace/config.py` as its
+release-critical upstream source.
 
-**`shared-brain-logstream-watch-guidance` — deferred.** The fork has no
-logstream, watcher cursor, inbox cursor, replication, or agent wake-up runtime
-owner. The upstream guidance therefore remains outside the fork's current
-local-first scope; no compatibility or monitoring claim is added.
+**Equivalent locally.** `c-cpp-readable-extensions` is covered by the canonical
+language catalog and its synchronization tests for `.c`, `.h`, `.cpp`, and
+`.hpp`. `project-yaml-utf8` is covered by explicit UTF-8 reads in
+`mempalace_code/mining/projects.py` and the UTF-8 atomic writer in
+`mempalace_code/room_detector_local.py`. `palace-graph-stats-completeness` is
+covered by exact and empty-store graph-stat predicates in
+`tests/test_palace_graph.py`. These rows reuse their current owners.
 
-**`plugin-manifest-tool-count-correction` — irrelevant.** The comparison records
-the upstream plugin wording as 44 tools. The fork has different plugin and
-registration contracts: direct stdio exposes 29 tools and the portable Agent
-Plugin defaults to four, so the upstream description-only correction does not
-map to a fork implementation.
+**Not applicable.** Qdrant and `sqlite_exact` belong to retired or unsupported
+backends. Chroma SQLite verdicts, closet enrichment, candidate union, and closet
+purges have no matching LanceDB owner. Upstream task skills, plugin packaging,
+notifications, logstream filters, shared-brain rules, coordination, and
+replication have no supported fork surface. Upstream's constructor-level init
+path persistence and hub-specific single-conversation-file mine contract do not
+match the fork's project-init and MCP mine contracts. The CONTRIBUTING change is
+upstream process documentation. None of these groups adds code or a capability
+claim to the fork.
 
-**`upstream-release-entrypoint-instructions` — irrelevant.** Upstream's
-`mempalace.mcp_proxy:main` and root `.mcp.json` layout do not match this fork's
-release contract. The fork retains `mempalace-code-mcp =
-mempalace_code.mcp_launcher:main` in `pyproject.toml` and its packaged minimal
-profile in `mempalace_code/agent_plugin/mcp.json`; no fork release instruction
-changes in this review.
+Every release-critical row is adopted with an existing local predicate. The
+manifest therefore records zero unresolved release-critical drift for the
+reviewed range.
 
 ## Capability Comparison
 
