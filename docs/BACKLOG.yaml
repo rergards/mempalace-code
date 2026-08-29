@@ -47,15 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: REL-SCHEDULE-SNIPPET-LINUX-MARKER
-    summary: "Accept Linux cron evidence in installed schedule-snippet qualification"
-    type: bug
-    status: open
-    priority: highest
-    size: XS
-    section_id: pre_release
-    assignee: bot
-    description: "## Symptom\n\nThe exact candidate hosted suite fails `test_installed_schedule_snippets_bind_to_invoked_launcher` on every supported Linux/Python job even though the invoked source console exits zero and renders the expected deterministic cron re-render and install guidance.\n\n## Steps to reproduce\n\nRun `python -m pytest tests/test_cli_golden_scenarios.py::test_installed_schedule_snippets_bind_to_invoked_launcher -q` on Linux. The release qualifier requires macOS `com.mempalace.*.plist` names in stderr for both platforms and rejects the valid cron output.\n\n## Scope\n\nCorrect only the existing installed schedule-snippet qualification in `scripts/release_readiness_gate.py` and its focused tests. Reuse the existing backup/watch renderers, invoked-launcher binding, quoting, determinism, mutation boundary, install refusal, sanitization, and recovery command. Do not add a scheduler renderer, platform abstraction, release row, workflow job, or user-facing behavior.\n\n## Expected vs actual\n\nExpected: Linux qualification requires the existing cron-specific install marker while Darwin qualification requires the existing plist name. Actual: both platforms require the Darwin plist name.\n\n## Root cause hypothesis\n\nThe qualifier stores one unconditional plist marker per case instead of selecting the existing platform-specific scheduler evidence.\n\n## Acceptance criteria\n\n- The focused source-console scenario passes on Linux only when backup and watch output retain the exact invoked launcher, target quoting, deterministic output, cron install guidance, clean stderr/stdout bounds, refusal behavior, unchanged state, and cleanup.\n- Darwin still requires the exact `com.mempalace.backup.plist` and `com.mempalace.watch.plist` evidence.\n- Removing either platform marker or substituting the ambient launcher makes the focused test fail closed.\n- Focused tests, Ruff, scorecard generation/check, public safety, and the hosted Python matrix pass. Recovery: revert only the platform-marker qualification hunk."
   - key: STORAGE-CREATE-FALSE-NONMUTATING
     summary: "Make create=False storage opens fail without filesystem mutation"
     type: bug
