@@ -34,6 +34,7 @@ from mempalace_code.cli_commands.watch import cmd_watch_schedule
 from mempalace_code.miner import ScanFilterRules
 from mempalace_code.operation_lock import OperationLock
 from mempalace_code.watcher import (
+    _emit_run_state,
     _invalidate_gitignore_cache,
     _is_relevant_change,
     _WatcherShutdownSignals,
@@ -612,6 +613,54 @@ class TestWatcherOperationLease:
 
 
 class TestWatcherShutdownSignals:
+    def test_watch_ready_sigint_exits_cleanly_and_restores_handlers(self, tmp_path, capsys):
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("os.mkfifo is unavailable")
+
+        project = tmp_path / "project"
+        project.mkdir()
+        fifo = project / "blocked.py"
+        os.mkfifo(fifo)
+
+        supported_signals = [signal.SIGTERM]
+        if hasattr(signal, "SIGHUP"):
+            supported_signals.append(signal.SIGHUP)
+        original_handlers = {
+            shutdown_signal: signal.getsignal(shutdown_signal)
+            for shutdown_signal in supported_signals
+        }
+
+        def emit_run_state_then_interrupt(run_id, state, extra=""):
+            _emit_run_state(run_id, state, extra)
+            if state == "watch-ready":
+                os.kill(os.getpid(), signal.SIGINT)
+
+        with (
+            patch(
+                "mempalace_code.watcher._emit_run_state",
+                side_effect=emit_run_state_then_interrupt,
+            ),
+            patch(
+                "watchfiles.watch",
+                side_effect=AssertionError("watch loop must not start after ready-to-SIGINT"),
+            ),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
+        assert "Rejected 1 non-regular source(s):" in output
+        assert f"{fifo} (fifo)" in output
+        assert "state=watch-ready" in output
+        assert "Watch stopped after" in output
+        assert "0 re-mine cycle(s), 0 file event(s)." in output
+        assert "Traceback" not in output
+        assert "KeyboardInterrupt" not in output
+        assert {
+            shutdown_signal: signal.getsignal(shutdown_signal)
+            for shutdown_signal in supported_signals
+        } == original_handlers
+
     @pytest.mark.parametrize("entrypoint", ["watch_and_mine", "watch_all"])
     def test_entrypoints_register_deliver_and_restore_supported_signals(self, tmp_path, entrypoint):
         project = tmp_path / "project"

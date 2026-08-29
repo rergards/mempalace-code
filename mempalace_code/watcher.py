@@ -509,9 +509,9 @@ def watch_and_mine(
     event_count = 0
     start_time = time.monotonic()
 
-    _emit_run_state(run_id, "watch-ready")
-
     try:
+        _emit_run_state(run_id, "watch-ready")
+
         for changes in watchfiles.watch(
             str(project_path),
             debounce=5000,
@@ -1083,9 +1083,9 @@ def watch_all(
             ignore_dirs=tuple(_default_ignore | frozenset(SKIP_DIRS))
         )
 
-    _emit_run_state(run_id, "watch-ready")
-
     try:
+        _emit_run_state(run_id, "watch-ready")
+
         for changes in watchfiles.watch(
             *watch_paths,
             watch_filter=commit_filter,
