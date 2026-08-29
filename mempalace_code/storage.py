@@ -23,6 +23,7 @@ import logging
 import math
 import os
 import shutil
+import stat
 import sys
 import uuid
 from abc import ABC, abstractmethod
@@ -540,11 +541,28 @@ def _write_canonical_provenance() -> None:
         temporary_config.unlink(missing_ok=True)
     path = canonical_fastembed_provenance_path()
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(canonical_fastembed_provenance(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        created = os.fstat(descriptor)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            json.dump(canonical_fastembed_provenance(), handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+        current = temporary.lstat()
+        if (
+            not stat.S_ISREG(current.st_mode)
+            or current.st_nlink != 1
+            or (current.st_dev, current.st_ino) != (created.st_dev, created.st_ino)
+            or not temporary.resolve(strict=True).is_relative_to(resolved_root)
+        ):
+            raise RuntimeError("FastEmbed provenance temporary changed before installation")
+        temporary.replace(path)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
     _require_owned_canonical_fastembed_cache(root)
 
 

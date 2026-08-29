@@ -19,6 +19,7 @@ from mempalace_code.storage import (
     DEFAULT_EMBED_MODEL,
     LanceStore,
     _FastEmbedder,
+    _write_canonical_provenance,
     canonical_fastembed_cache_owned,
     canonical_fastembed_cache_root,
     canonical_fastembed_provenance,
@@ -171,6 +172,25 @@ def test_owned_cache_rejects_hostile_nested_symlinks(tmp_path, monkeypatch, host
     with pytest.raises(RuntimeError, match="Refusing to remove unowned"):
         remove_owned_canonical_fastembed_cache()
     assert replacement.exists()
+
+
+def test_provenance_write_refuses_hostile_temporary_symlink(tmp_path, monkeypatch):
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    root = canonical_fastembed_cache_root()
+    _write_owned_provenance(root)
+    canonical_fastembed_provenance_path().unlink()
+    sentinel = tmp_path / "external-sentinel"
+    expected = b"external\x00\xffsentinel"
+    sentinel.write_bytes(expected)
+    temporary = canonical_fastembed_provenance_path().with_suffix(".tmp")
+    temporary.symlink_to(sentinel)
+
+    with pytest.raises(FileExistsError):
+        _write_canonical_provenance()
+
+    assert sentinel.read_bytes() == expected
+    assert not canonical_fastembed_provenance_path().exists()
+    assert not canonical_fastembed_cache_owned()
 
 
 def test_owned_cache_rejects_unpinned_refs_main(tmp_path, monkeypatch):
