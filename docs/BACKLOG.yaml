@@ -48,10 +48,53 @@ sections:
 # ============================================================
 items:
   - key: REL-LINUX-ARM-TORCH-CUDA-RESOLVER
-    summary: "Complete provenance hardening and native ARM qualification"
+    summary: "Qualify the minimal provenance fix on native ARM"
     type: bug
     status: open
     priority: highest
     size: S
     section_id: quality
-    description: "## Symptom\n\nCommit 91593424 fixes the original hostile pre-existing `.mempalace-model.tmp` symlink overwrite with exclusive creation and a focused regression. Review of the first exchange-hardening attempt found that its failure cleanup moved an unrelated final-path replacement into a hidden staging directory before checking identity. The same function also normalizes `tokenizer_config.json` through a path-based temporary whose inode is not retained across replacement. Both paths can therefore mutate or install an entry the writer did not create. Native ARM qualification still needs one complete exact-wheel receipt.\n\n## Steps to reproduce\n\nCreate a valid disposable canonical cache and exchange either the fixed provenance temporary, the published provenance path, or the tokenizer-normalization temporary at the injected publication or cleanup boundary. The operation must fail closed without installing, renaming, replacing, or unlinking the unrelated entry, whose path and bytes remain unchanged. Also exercise replacement of the validated cache directory entry where the platform permits it. For the remaining release receipt, run the exact 1.13.5 wheel through the existing Ubuntu 24 aarch64 Python 3.12 installed-application contour.\n\n## Scope\n\nExtend only `mempalace_code/storage.py::_write_canonical_provenance()` and its existing owner `tests/test_embedding_runtime.py`. Keep the landed exclusive-creation regression. Use one lowest-complexity directory-anchored publication lifecycle for the tokenizer normalization and provenance payload. Prefer direct creation in an invocation-owned private staging directory over capturing a public fixed temporary. Bind publication and failure cleanup to writer-created identities; never rename or unlink a mismatched public entry. Preserve the canonical payloads, final paths, atomic visibility, and recovery behavior.\n\nThe FastEmbed runtime migration, dependency graph, cache layout, optional custom-model boundary, compatibility fixture, ONNX warning classifier, workflows, release gates, generated evidence, and public documentation remain completion evidence and must not change. Add no helper module, cache mode, dependency, workflow, gate, task, migration, or public interface. A new product finding stops implementation for review in this same task.\n\n## Acceptance criteria\n\n- A pre-existing provenance temporary symlink, hardlink, FIFO, device, directory, or regular file is refused before content write; the original hostile-symlink sentinel remains byte-identical.\n- Exchanging a temporary or published entry cannot install, rename, replace, or unlink the replacement. Failure cleanup touches only writer-created identities; unrelated paths and bytes remain unchanged.\n- Tokenizer normalization publishes only the writer-created regular file and cannot follow or install an exchanged temporary.\n- Cache-directory replacement cannot redirect creation, publication, or cleanup outside the validated canonical cache on supported platforms; unsupported primitives fail closed rather than weaken the contract.\n- The complete embedding-runtime owner, public-safety scan, Ruff, format, both Pyright contours, and full non-network suite pass with only the same two implementation paths changed.\n- A fresh exact 1.13.5 wheel passes the existing local 26-row installed-golden application owner.\n- On native Ubuntu 24 aarch64 Python 3.12, the same exact wheel passes venv, bootstrap-venv, pipx, uv-tool, Linux systemd-user lifecycle, and all 26 installed-golden rows with terminal `ok: true`; real embedding, search, old-palace append, watcher exit, and disposable user/cache/root cleanup are observed.\n- The final candidate keeps FastEmbed/ONNX in the default graph and keeps Torch, CUDA, NVIDIA, Triton, Chroma extras, and ChromaDB absent. Existing compatibility, docs, security, and release gates pass at one final SHA.\n\n## Recovery\n\nRemove only an invocation-owned staging directory whose identity was recorded by the writer, rerun `python -m pytest tests/test_embedding_runtime.py -q`, rebuild the exact wheel, and rerun the existing installed-golden command. Never rename, unlink, or replace a path whose identity is no longer writer-owned."
+    description: |
+      ## Symptom
+
+      Commit 91593424 is the minimal product fix. Exclusive no-follow creation refuses every
+      pre-existing fixed provenance temporary before content write, including symlinks, hardlinks,
+      FIFOs, directories, devices, and regular files. This closes the reported external-overwrite
+      and irregular-entry class without changing the cache layout or supported runtime.
+
+      The broader same-user path-exchange design is rejected. An actor able to mutate this cache
+      can directly alter model, tokenizer, or provenance files after any validation, so hardening
+      one JSON writer does not create an integrity boundary. The rejected +700/-63 candidate still
+      had check-to-rename and check-to-unlink races, leaked a directory descriptor on exceptional
+      validation, could leave tokenizer and provenance in a mixed state, and broke unqualified
+      Windows provisioning. No part of that candidate is release material.
+
+      ## Steps to reproduce
+
+      Run the exact 1.13.5 wheel through the existing local installed-golden owner and the native
+      Ubuntu 24 aarch64 installer, systemd-user, and installed-golden owners. Any non-green row or
+      differing wheel hash leaves the task open.
+
+      ## Scope
+
+      Make no further source or test change. Build one fresh exact 1.13.5 wheel from the final
+      candidate SHA and qualify that identical wheel through the existing local and native Ubuntu
+      24 aarch64 release owners.
+
+      ## Acceptance criteria
+
+      - The complete embedding-runtime owner, public-safety scan, Ruff, format, both Pyright
+        contours, and full non-network suite pass at one final SHA.
+      - A fresh exact 1.13.5 wheel passes all 26 local installed-golden application rows.
+      - On native Ubuntu 24 aarch64 Python 3.12, the identical wheel passes venv,
+        bootstrap-venv, pipx, uv-tool, Linux systemd-user lifecycle, and all 26 installed-golden
+        rows with terminal ok true; real embedding, search, old-palace append, watcher exit, and
+        disposable user/cache/root cleanup are observed.
+      - The final default graph contains FastEmbed and ONNX and excludes Torch, CUDA, NVIDIA,
+        Triton, Chroma extras, and ChromaDB. Existing compatibility, docs, security, artifact, and
+        release gates pass at that SHA.
+
+      ## Recovery
+
+      Remove only disposable qualification roots, rebuild the exact wheel from the same SHA, and
+      rerun the failed existing owner. Do not resume the rejected provenance rewrite.
