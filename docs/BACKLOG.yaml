@@ -47,16 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: AUTOPILOT-COMMIT-ATTRIBUTION-REPO-BOUNDARY
-    summary: "Disable Autopilot commit attribution for this repository"
-    type: bug
-    status: done
-    priority: highest
-    size: XS
-    section_id: immediate
-    description: "## Symptom\n\n`autopilot config show --format json` resolves `commit_attribution.enabled=true` with a Claude Co-Authored-By trailer, while AGENTS.md forbids that trailer in every repository commit. Autopilot launch is unsafe until this is false.\n\n## Steps to reproduce\n\nFrom the exact v1.14.0 candidate checkout, run `autopilot config show --format json | jq .commit_attribution`.\n\n## Scope\n\nUse the existing Autopilot repository-config merge owner. Add only the smallest repo-local attribution override needed to disable trailers. Preserve the effective global profile and every phase model/effort route; add no model or profile override. This blocker may be repaired manually because Autopilot cannot safely commit its own enabling configuration.\n\n## Expected vs actual\n\nExpected: attribution disabled and no trailer instructions. Actual: default Claude co-author attribution is enabled.\n\n## Root cause hypothesis\n\nThe repository has no Autopilot config override, so the enabled default wins despite the public AGENTS.md boundary.\n\n## Acceptance criteria\n\n- AC-1: `autopilot config validate` passes and resolved `commit_attribution.enabled` is false.\n- AC-2: Resolved profile remains `operator-luna-sol` and the phase routing table is byte-equivalent before and after.\n- AC-3: No Claude Co-Authored-By trailer appears in new commits."
-    resolution: "2026-08-29: Installed the existing ignored repository-local Autopilot override with pipeline.commit_attribution.enabled=false. Resolved profile remains operator-luna-sol and the phase routing JSON matches the global profile; the public AGENTS.md remains the durable commit policy. No release file or model route changed."
-    done_summary: "Installed the existing ignored repository-local Autopilot override with pipeline.commit_attribution.enabled=false. Resolved profile remains operator-luna-sol and the phase routing JSON matches the global profile; the public AGENTS.md remains the durable commit policy. No release file or model route changed."
   - key: REL-CI-UPSTREAM-INVENTORY-CLEAN-CHECKOUT
     summary: "Make exact upstream inventory work in a public clean checkout"
     type: bug
