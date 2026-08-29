@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-29 · REL-WATCH-READY-SIGINT-RACE
+
+Watcher ready-to-SIGINT handling now exits cleanly without an uncaught traceback and restores signal handlers.
+
 ## Unreleased
 
 ## v1.14.0 — 2026-08-29
