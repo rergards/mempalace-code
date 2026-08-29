@@ -46,12 +46,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: UPSTREAM-COMMIT-INVENTORY-EXACT
-    summary: "Require exact upstream commit inventory coverage"
-    type: bug
-    status: open
-    priority: highest
-    size: S
-    section_id: quality
-    description: "## Symptom\n\nThe canonical comparison claims a full dfba59b0..a9f345cc inventory but omits nested merge 7641e63741908ac2c5772e7b52a82efa57e9a826.\n\n## Steps to reproduce\n\nRun git rev-list dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0..a9f345cc63254eb4dea7abad36963b85c9f8453a and compare its set with the union of merge_group plus constituent_commits in docs/quality/upstream-comparison.json. The Git range has 43 commits; the manifest accounts for 42.\n\n## Scope\n\nCorrect docs/quality/upstream-comparison.json and docs/UPSTREAM_COMPARISON.md. Extend the existing scripts/upstream_comparison_guard.py owner and its focused tests for exact commit-set coverage when the pinned objects are locally available. Do not add a new script, service, config, state owner, external client, or product decision.\n\nRule Zero evidence: the existing guard already owns manifest/document validation. This 2026-08-29 false full-inventory claim is the concrete incident justifying the check. Cheapest falsifier: the Git range set differs from the manifest union.\n\n## Acceptance criteria\n\n- The missing nested merge is accounted for without inventing a second product decision.\n- The existing guard rejects missing, extra, or duplicate commit inventory entries when the pinned Git objects are locally available.\n- Unavailable Git objects produce bounded status, one action, authority, and one recovery command without network or credential access.\n- Focused tests reproduce the omission and pass.\n- Live upstream guard, docs drift, public safety, and focused upstream tests pass."
+items: []
