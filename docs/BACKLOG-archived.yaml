@@ -1771,3 +1771,8 @@ items:
       resolution: '2026-08-30: CPU-only Linux custom-model install and bounded ENOSPC recovery landed; exact wheel 73c20235bce9918dc46cfde65590ab2aeb7bd544918cb609f35427d56e4913ef passed 26/26 direct app scenarios on macOS and Ubuntu 24.04 ARM64, all four Linux installer paths, real systemd-user lifecycle, artifact, docs, public-safety, static, and full non-network gates'
       archived_date: "2026-08-30"
       done_summary: CPU-only Linux custom-model install and bounded ENOSPC recovery landed; exact wheel 73c20235bce9918dc46cfde65590ab2aeb7bd544918cb609f35427d56e4913ef passed 26/26 direct app scenarios on macOS and Ubuntu 24.04 ARM64, all four Linux installer paths, real systemd-user lifecycle, artifact, docs, public-safety, static, and full non-network gates
+    - key: REL-CI-UPSTREAM-INVENTORY-CLEAN-CHECKOUT
+      summary: Make exact upstream inventory pass in a squash-candidate checkout
+      resolution: '2026-08-30: Static reviewed snapshot anchor now binds upstream identity, endpoints, count, and exact inventory without requiring local upstream Git objects; one-parent candidate and full non-network suite pass.'
+      archived_date: "2026-08-30"
+      done_summary: Static reviewed snapshot anchor now binds upstream identity, endpoints, count, and exact inventory without requiring local upstream Git objects; one-parent candidate and full non-network suite pass.

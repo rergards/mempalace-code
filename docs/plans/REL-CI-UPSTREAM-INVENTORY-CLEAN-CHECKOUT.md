@@ -1,6 +1,6 @@
 ---
 slug: REL-CI-UPSTREAM-INVENTORY-CLEAN-CHECKOUT
-status: active
+status: completed
 authority: non_authoritative
 goal: "Make exact upstream inventory and release preflight pass from a one-parent squash candidate using one reviewed static trust anchor."
 risk: medium

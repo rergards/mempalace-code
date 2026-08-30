@@ -47,16 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: REL-CI-UPSTREAM-INVENTORY-CLEAN-CHECKOUT
-    summary: "Make exact upstream inventory pass in a squash-candidate checkout"
-    type: bug
-    status: open
-    priority: highest
-    size: S
-    section_id: quality
-    assignee: bot
-    labels: [release-blocker, ci, rule-zero]
-    description: "## Symptom\n\nPublic candidate 5cc2da3a3ef7987bf78ec92035959ba27ee1c624 failed Tests run 33328559281 because the static upstream guard could not resolve dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0..a9f345cc63254eb4dea7abad36963b85c9f8453a from the intentional one-parent public squash history.\n\n## Steps to reproduce\n\nCreate a clean candidate whose sole parent is public main and whose tree equals the reviewed release tree, then run python scripts/upstream_comparison_guard.py --json.\n\n## Scope\n\nReuse scripts/upstream_comparison_guard.py and the existing package/preflight workflow owner. Compare the unmerged 371e22f0 implementation before writing; accept it only if it preserves the intended credential-free/static boundary and lower total complexity. Do not add AI clients, credentials, a second guard, or duplicate the same gate in multiple jobs.\n\nThe static reviewed trust anchor must bind the canonical repository, branch, previous/current full pins, inventory algorithm/version, and the sorted set of full inventory SHAs. A fingerprint of the inventory alone is insufficient because stale or mistaken range metadata could otherwise retain the old inventory and pass.\n\n## Expected vs actual\n\nExpected: the canonical squash release candidate proves the exact 43-commit inventory for the exact documented upstream repository, branch, and range. Actual: git rev-list exits 128 because upstream-only objects are absent.\n\n## Root cause hypothesis\n\nThe guard assumes pinned upstream Git objects exist locally while the canonical public candidate intentionally contains only fork history.\n\n## Acceptance criteria\n\n- A clean one-parent squash-candidate checkout passes the exact inventory and release preflight.\n- The reviewed static trust anchor covers repository, branch, both full endpoint pins, algorithm/version, count, and sorted full inventory SHAs.\n- Substituting repository, branch, either endpoint pin, count, or any inventory SHA while leaving the other fields unchanged fails closed.\n- Duplicate inventory entries fail closed; failure output gives one recovery command.\n- The solution has one gate owner and no credential, token, external AI client, or hidden authenticated dependency.\n- Focused upstream/preflight/workflow tests, the full non-network suite, docs drift, public safety, Ruff, and actionlint pass."
   - key: REL-MINILM-PUBLIC-CORPUS-PIN
     summary: "Make MiniLM compatibility self-contained in public squash candidates"
     type: bug
