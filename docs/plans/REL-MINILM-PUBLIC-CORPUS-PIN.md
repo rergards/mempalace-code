@@ -1,5 +1,7 @@
 ---
 slug: REL-MINILM-PUBLIC-CORPUS-PIN
+status: active
+authority: non_authoritative
 goal: "Make the existing MiniLM compatibility command run offline from the public fixture and the exact installed candidate distribution without Git-history inputs."
 risk: medium
 risk_note: "The change removes an unreachable release input, but import isolation, strict fixture validation, and actionable failures must remain correct in the required exact-wheel job."
