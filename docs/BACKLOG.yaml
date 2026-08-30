@@ -46,4 +46,14 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: REL-TAG-RULESET-CREATABLE-RELEASE-PATH
+    summary: "Reject a public v* tag ruleset that leaves no authorized creation path"
+    type: bug
+    status: open
+    priority: highest
+    size: S
+    section_id: pre_release
+    assignee: bot
+    labels: [release, security, drunk-llm]
+    description: "## Symptom\nThe active public v* ruleset restricts creation, update, and deletion while reporting zero bypass actors, so GitHub has no actor allowed to create v1.13.5 through the documented path.\n\n## Steps to reproduce\nRun the credential-free preflight with --check-tag-ruleset; it currently reports PASS and zero bypass actors. Compare that state with GitHub Restrict creations semantics.\n\n## Scope\nExtend the existing tag-ruleset admission predicate, its focused tests, and the canonical runbook. Keep release gates credential-free. Do not mutate the live ruleset or add a client, gate, service, or credential path.\n\n## Acceptance Criteria\n- Zero bypass actors fails with one bounded recovery action.\n- At least one valid auditable bypass actor passes.\n- Malformed state fails closed.\n- Existing focused release-admission and docs tests plus static gates pass."
