@@ -11,15 +11,15 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import importlib
 import importlib.metadata
 import json
+import math
 import os
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
-import textwrap
 import time
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -32,34 +32,150 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_PROJECT_ROOT))
+_COMPATIBILITY_MODE_REQUESTED = "--check-minilm-runtime-compatibility" in sys.argv[1:]
+if not _COMPATIBILITY_MODE_REQUESTED:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-import mempalace_code.miner as miner  # noqa: E402
-from mempalace_code.storage import DEFAULT_EMBED_MODEL, open_store  # noqa: E402
-from mempalace_code.version import __version__  # noqa: E402
+    import mempalace_code.miner as miner  # noqa: E402
+    from mempalace_code.storage import DEFAULT_EMBED_MODEL, open_store  # noqa: E402
+    from mempalace_code.version import __version__  # noqa: E402
 
 SUPPORTED_MODES = ("naive", "smart", "treesitter")
 DEFAULT_DATASET = Path(__file__).resolve().parent / "data" / "code_retrieval_queries.json"
 NAIVE_WINDOW_LINES = 80
 NAIVE_OVERLAP_LINES = 10
 RETRIEVAL_QUALITY_FACTS = Path(__file__).resolve().parent / "retrieval_quality_facts.json"
-MINILM_PUBLIC_REPOSITORY = "https://github.com/rergards/mempalace-code.git"
+MINILM_COMPATIBILITY_FIXTURE = (
+    Path(__file__).resolve().parent / "minilm_runtime_compatibility_fixture.json"
+)
+MINILM_FIXTURE_SHA256 = "52606c0cb541caa17f57e937e746057ff40355748935d8afa5cdaeb6d01eb245"
+MINILM_FIXTURE_RECOVERY = "git restore benchmarks/minilm_runtime_compatibility_fixture.json"
+MINILM_CACHE_RECOVERY = "mempalace-code fetch-model"
+MINILM_INSTALL_RECOVERY = "python -m pip install dist/*.whl"
+_MINILM_TEXTS = [
+    "MemPalace stores exact project context for later retrieval.",
+    "LanceDB keeps vector storage local and crash safe.",
+    "A release gate must fail closed when evidence is missing.",
+    "Offline search uses a cached embedding model without network access.",
+    "The miner chunks source code at structural boundaries.",
+]
 
 
 class BenchError(Exception):
     """Expected user-facing benchmark failure."""
 
 
-def _minilm_compatibility_contract() -> dict:
-    """Load the single public compatibility contract from retrieval facts."""
+def _fixture_error() -> BenchError:
+    return BenchError(
+        f"MiniLM compatibility fixture is invalid or drifted; recovery: {MINILM_FIXTURE_RECOVERY}"
+    )
+
+
+def _require_exact_keys(value: object, expected: set[str]) -> dict:
+    if not isinstance(value, dict) or set(value) != expected:
+        raise _fixture_error()
+    return value
+
+
+def _finite_number(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def _load_minilm_compatibility_fixture(path: Path = MINILM_COMPATIBILITY_FIXTURE) -> dict:
+    """Load and strictly validate the immutable former-runtime fixture."""
     try:
-        facts = json.loads(RETRIEVAL_QUALITY_FACTS.read_text(encoding="utf-8"))
-        contract = facts["code_minilm"]["public_reproducible_compatibility"]
-    except (KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise BenchError("MiniLM compatibility retrieval facts are malformed") from exc
-    if not isinstance(contract, dict):
-        raise BenchError("MiniLM compatibility retrieval facts are malformed")
-    return contract
+        raw = path.read_bytes()
+        fixture = json.loads(raw)
+        fixture = _require_exact_keys(
+            fixture,
+            {
+                "compatibility",
+                "dimensions",
+                "former_runtime",
+                "former_vectors",
+                "generation_command",
+                "model",
+                "normalized",
+                "schema_version",
+                "texts",
+            },
+        )
+        model = _require_exact_keys(
+            fixture["model"], {"alias", "identifier", "max_sequence_length", "revision"}
+        )
+        if model != {
+            "alias": "all-MiniLM-L6-v2",
+            "identifier": "sentence-transformers/all-MiniLM-L6-v2",
+            "max_sequence_length": 256,
+            "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+        }:
+            raise _fixture_error()
+        if (
+            fixture["schema_version"] != 1
+            or isinstance(fixture["schema_version"], bool)
+            or fixture["dimensions"] != 384
+            or isinstance(fixture["dimensions"], bool)
+            or fixture["normalized"] is not True
+            or fixture["texts"] != _MINILM_TEXTS
+            or not isinstance(fixture["generation_command"], str)
+            or not fixture["generation_command"]
+        ):
+            raise _fixture_error()
+        former_runtime = _require_exact_keys(
+            fixture["former_runtime"], {"device", "python", "sentence_transformers", "torch"}
+        )
+        if former_runtime["device"] != "cpu" or any(
+            not isinstance(value, str) or not value for value in former_runtime.values()
+        ):
+            raise _fixture_error()
+
+        vectors = fixture["former_vectors"]
+        if not isinstance(vectors, list) or len(vectors) != len(_MINILM_TEXTS):
+            raise _fixture_error()
+        for vector in vectors:
+            if (
+                not isinstance(vector, list)
+                or len(vector) != fixture["dimensions"]
+                or any(not _finite_number(value) for value in vector)
+                or not math.isclose(
+                    math.sqrt(sum(value * value for value in vector)),
+                    1.0,
+                    rel_tol=0.0,
+                    abs_tol=1e-6,
+                )
+            ):
+                raise _fixture_error()
+
+        compatibility = _require_exact_keys(
+            fixture["compatibility"],
+            {"maximum_similarity_matrix_delta", "minimum_paired_cosine", "neighbor_order"},
+        )
+        minimum_cosine = compatibility["minimum_paired_cosine"]
+        maximum_delta = compatibility["maximum_similarity_matrix_delta"]
+        if (
+            not _finite_number(minimum_cosine)
+            or not 0.0 <= minimum_cosine <= 1.0
+            or not _finite_number(maximum_delta)
+            or maximum_delta < 0.0
+        ):
+            raise _fixture_error()
+        expected_neighbors = set(range(len(_MINILM_TEXTS)))
+        orders = compatibility["neighbor_order"]
+        if not isinstance(orders, list) or len(orders) != len(_MINILM_TEXTS):
+            raise _fixture_error()
+        for index, order in enumerate(orders):
+            if (
+                not isinstance(order, list)
+                or any(isinstance(item, bool) or not isinstance(item, int) for item in order)
+                or set(order) != expected_neighbors - {index}
+                or len(order) != len(_MINILM_TEXTS) - 1
+            ):
+                raise _fixture_error()
+        if hashlib.sha256(raw).hexdigest() != MINILM_FIXTURE_SHA256:
+            raise _fixture_error()
+    except (KeyError, TypeError, OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise _fixture_error() from exc
+    return fixture
 
 
 def _active_distribution_package_root() -> Path:
@@ -67,7 +183,9 @@ def _active_distribution_package_root() -> Path:
     try:
         distribution = importlib.metadata.distribution("mempalace-code")
     except importlib.metadata.PackageNotFoundError as exc:
-        raise BenchError("active mempalace-code distribution is not installed") from exc
+        raise BenchError(
+            f"active mempalace-code distribution is not installed; recovery: {MINILM_INSTALL_RECOVERY}"
+        ) from exc
 
     direct_url_text = distribution.read_text("direct_url.json")
     if direct_url_text:
@@ -76,7 +194,10 @@ def _active_distribution_package_root() -> Path:
             parsed = urlparse(direct_url["url"])
             editable = direct_url.get("dir_info", {}).get("editable") is True
         except (KeyError, TypeError, json.JSONDecodeError) as exc:
-            raise BenchError("active mempalace-code distribution metadata is malformed") from exc
+            raise BenchError(
+                "active mempalace-code distribution metadata is malformed; "
+                f"recovery: {MINILM_INSTALL_RECOVERY}"
+            ) from exc
         if editable and parsed.scheme == "file":
             file_path = url2pathname(unquote(parsed.path))
             if parsed.netloc:
@@ -90,199 +211,111 @@ def _active_distribution_package_root() -> Path:
     try:
         package_root = package_root.resolve(strict=True)
     except OSError as exc:
-        raise BenchError("active mempalace-code package root is unavailable") from exc
+        raise BenchError(
+            f"active mempalace-code package root is unavailable; recovery: {MINILM_INSTALL_RECOVERY}"
+        ) from exc
     if not package_root.is_dir():
-        raise BenchError("active mempalace-code package root is unavailable")
+        raise BenchError(
+            f"active mempalace-code package root is unavailable; recovery: {MINILM_INSTALL_RECOVERY}"
+        )
     return package_root
 
 
-def _history_recovery(repo_dir: Path, commit: str) -> str:
-    """Return one truthful command that can make the pinned public commit available."""
-    shallow = subprocess.run(
-        ["git", "-C", str(repo_dir), "rev-parse", "--is-shallow-repository"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if shallow.returncode == 0 and shallow.stdout.strip() == "true":
-        return "git fetch --unshallow"
-    return f"git fetch {MINILM_PUBLIC_REPOSITORY} {commit}"
-
-
-def _compatibility_adapter_source() -> str:
-    """Return the disposable historical API adapter backed by the current owner."""
-    return textwrap.dedent(
-        """\
-        from __future__ import annotations
-
-        import os
-        from pathlib import Path
-
-        import numpy as np
-
-        import mempalace_code.storage as _storage
-
-
-        _expected_runtime_root = Path(os.environ["MEMPALACE_EXPECTED_RUNTIME_ROOT"]).resolve(
-            strict=True
-        )
-        _storage_file = Path(_storage.__file__).resolve(strict=True)
-        if not _storage_file.is_relative_to(_expected_runtime_root):
-            raise RuntimeError(
-                "compatibility runtime mismatch: "
-                f"{_storage_file} is outside {_expected_runtime_root}"
-            )
-
-
-        class SentenceTransformer:
-            def __init__(self, _model_name: str, **_kwargs: object) -> None:
-                self._embedder = _storage._FastEmbedder(local_files_only=True)
-
-            def encode(
-                self,
-                texts,
-                *,
-                convert_to_numpy: bool = True,
-                normalize_embeddings: bool = True,
-                **_kwargs: object,
-            ):
-                if not convert_to_numpy or not normalize_embeddings:
-                    raise RuntimeError("historical compatibility requires normalized numpy output")
-                return np.asarray(
-                    self._embedder.compute_source_embeddings(list(texts)), dtype=np.float32
-                )
-        """
-    )
-
-
-def _validate_minilm_compatibility_result(contract: dict, result: dict) -> None:
-    """Fail closed unless the executable result matches the committed compatibility contract."""
-    try:
-        model = result["models"]["minilm"]
-        actual = {
-            "query_count": result["query_count"],
-            "chunk_count": model["performance"]["embed_chunks"],
-            "r_at_5": model["code_retrieval"]["R@5"],
-            "r_at_10": model["code_retrieval"]["R@10"],
-        }
-        expected = {
-            "query_count": contract["query_count"],
-            "chunk_count": contract["chunk_count"],
-            "r_at_5": contract["minimum_r_at_5"],
-            "r_at_10": contract["minimum_r_at_10"],
-        }
-    except (KeyError, TypeError) as exc:
-        raise BenchError("MiniLM compatibility retrieval facts or result are malformed") from exc
-    for field in ("query_count", "chunk_count"):
-        if actual[field] != expected[field]:
-            raise BenchError(
-                f"MiniLM compatibility {field} mismatch: {actual[field]} != {expected[field]}"
-            )
-    for field in ("r_at_5", "r_at_10"):
-        if not isinstance(actual[field], (int, float)) or actual[field] < expected[field]:
-            raise BenchError(
-                f"MiniLM compatibility {field} regressed: {actual[field]} < {expected[field]}"
-            )
-
-
-def run_minilm_runtime_compatibility(repo_dir: Path) -> dict:
-    """Run the pinned historical miner through the current canonical embedding owner."""
-    contract = _minilm_compatibility_contract()
-    try:
-        commit = contract["commit"]
-        excluded_output = contract["excluded_output"]
-    except KeyError as exc:
-        raise BenchError("MiniLM compatibility retrieval facts are malformed") from exc
-    if not isinstance(commit, str) or not isinstance(excluded_output, str):
-        raise BenchError("MiniLM compatibility retrieval facts are malformed")
+def _import_installed_storage():
+    """Import storage from the active distribution, never from checkout shadowing."""
     runtime_root = _active_distribution_package_root()
-    recovery = _history_recovery(repo_dir, commit)
-    resolved = subprocess.run(
-        ["git", "-C", str(repo_dir), "rev-parse", f"{commit}^{{commit}}"],
-        capture_output=True,
-        text=True,
-        check=False,
+    sys.path.insert(0, str(runtime_root.parent))
+    try:
+        storage = importlib.import_module("mempalace_code.storage")
+    except Exception as exc:
+        raise BenchError(
+            f"installed MiniLM runtime is unavailable; recovery: {MINILM_INSTALL_RECOVERY}"
+        ) from exc
+    try:
+        storage_file = Path(storage.__file__).resolve(strict=True)
+    except (OSError, TypeError) as exc:
+        raise BenchError(
+            f"installed MiniLM runtime is unavailable; recovery: {MINILM_INSTALL_RECOVERY}"
+        ) from exc
+    if not storage_file.is_relative_to(runtime_root):
+        raise BenchError(
+            f"installed MiniLM runtime is shadowed; recovery: {MINILM_INSTALL_RECOVERY}"
+        )
+    return storage
+
+
+def _cosine(left: list[float], right: list[float]) -> float:
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    return dot / (left_norm * right_norm)
+
+
+def _validate_current_vectors(fixture: dict, current: object) -> dict:
+    dimensions = fixture["dimensions"]
+    if not isinstance(current, list) or len(current) != len(fixture["texts"]):
+        raise _fixture_error()
+    for vector in current:
+        if (
+            not isinstance(vector, list)
+            or len(vector) != dimensions
+            or any(not _finite_number(value) for value in vector)
+            or not math.isclose(
+                math.sqrt(sum(value * value for value in vector)),
+                1.0,
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            )
+        ):
+            raise _fixture_error()
+
+    former = fixture["former_vectors"]
+    paired = [_cosine(left, right) for left, right in zip(former, current, strict=True)]
+    maximum_delta = max(
+        abs(_cosine(former[i], former[j]) - _cosine(current[i], current[j]))
+        for i in range(len(current))
+        for j in range(len(current))
     )
-    if resolved.returncode != 0 or resolved.stdout.strip() != commit:
-        raise BenchError(f"pinned MiniLM compatibility commit is unavailable; recovery: {recovery}")
+    order = [
+        [
+            j
+            for j in sorted(
+                range(len(current)), key=lambda j: (-_cosine(current[i], current[j]), j)
+            )
+            if j != i
+        ]
+        for i in range(len(current))
+    ]
+    compatibility = fixture["compatibility"]
+    if (
+        min(paired) < compatibility["minimum_paired_cosine"]
+        or maximum_delta > compatibility["maximum_similarity_matrix_delta"]
+        or order != compatibility["neighbor_order"]
+    ):
+        raise _fixture_error()
+    return {
+        "fixture": MINILM_COMPATIBILITY_FIXTURE.name,
+        "model": fixture["model"]["alias"],
+        "texts": len(current),
+        "dimensions": dimensions,
+    }
 
-    with tempfile.TemporaryDirectory(prefix="mempalace-minilm-compatibility-") as temp:
-        temp_root = Path(temp)
-        archive_path = temp_root / "corpus.tar"
-        corpus = temp_root / "corpus"
-        corpus.mkdir()
-        archived = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "archive",
-                "--format=tar",
-                f"--output={archive_path}",
-                commit,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if archived.returncode != 0:
-            raise BenchError(f"could not extract pinned compatibility corpus; recovery: {recovery}")
-        with tarfile.open(archive_path) as archive:
-            for member in archive.getmembers():
-                destination = (corpus / member.name).resolve()
-                if not destination.is_relative_to(corpus.resolve()):
-                    raise BenchError("pinned compatibility archive contains an unsafe path")
-            archive.extractall(corpus)
 
-        excluded = corpus / excluded_output
-        if not excluded.is_file() or excluded.is_symlink():
-            raise BenchError("pinned compatibility output exclusion is missing or unsafe")
-        excluded.unlink()
-        (corpus / "mempalace.yaml").write_text(
-            "wing: mempalace\nrooms:\n  - name: general\n"
-            "    description: Historical benchmark corpus\n",
-            encoding="utf-8",
+def run_minilm_runtime_compatibility(_repo_dir: Path) -> dict:
+    """Compare the installed offline FastEmbed runtime with the public fixture."""
+    fixture = _load_minilm_compatibility_fixture()
+    storage = _import_installed_storage()
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    try:
+        current = storage._FastEmbedder(local_files_only=True).compute_source_embeddings(
+            fixture["texts"]
         )
-
-        adapter_root = temp_root / "adapter" / "sentence_transformers"
-        adapter_root.mkdir(parents=True)
-        (adapter_root / "__init__.py").write_text(_compatibility_adapter_source(), encoding="utf-8")
-        output = temp_root / "result.json"
-        env = os.environ.copy()
-        env.update(
-            {
-                "HF_HUB_OFFLINE": "1",
-                "MEMPALACE_EXPECTED_RUNTIME_ROOT": str(runtime_root),
-                "TRANSFORMERS_OFFLINE": "1",
-                "PYTHONPATH": os.pathsep.join(
-                    [str(adapter_root.parent), env.get("PYTHONPATH", "")]
-                ).rstrip(os.pathsep),
-            }
-        )
-        benchmark = subprocess.run(
-            [
-                sys.executable,
-                str(corpus / "benchmarks" / "embed_ab_bench.py"),
-                "--models",
-                "minilm",
-                "--project",
-                str(corpus),
-                "--skip-longmemeval",
-                "--out",
-                str(output),
-            ],
-            capture_output=True,
-            text=True,
-            env=env,
-            check=False,
-            timeout=600,
-        )
-        if benchmark.returncode != 0 or not output.is_file():
-            detail = (benchmark.stderr or benchmark.stdout or "no result")[-1200:]
-            raise BenchError(f"MiniLM compatibility benchmark failed: {detail}")
-        result = json.loads(output.read_text(encoding="utf-8"))
-        _validate_minilm_compatibility_result(contract, result)
-        return result
+    except Exception as exc:
+        raise BenchError(
+            f"MiniLM runtime cache is unavailable; recovery: {MINILM_CACHE_RECOVERY}"
+        ) from exc
+    return _validate_current_vectors(fixture, current)
 
 
 def load_dataset(path: Path, limit: int | None = None) -> list[dict]:
@@ -665,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-minilm-runtime-compatibility",
         action="store_true",
-        help="Run the pinned historical 466-chunk corpus through the current runtime owner",
+        help="Compare the installed offline MiniLM runtime with the public fixture",
     )
     args = parser.parse_args(argv)
 
@@ -673,13 +706,12 @@ def main(argv: list[str] | None = None) -> int:
         repo_dir = Path(args.repo_dir).expanduser().resolve()
         if args.check_minilm_runtime_compatibility:
             result = run_minilm_runtime_compatibility(repo_dir)
-            model = result["models"]["minilm"]
             print(
                 "PASS MiniLM runtime compatibility: "
-                f"queries={result['query_count']} "
-                f"chunks={model['performance']['embed_chunks']} "
-                f"R@5={model['code_retrieval']['R@5']:.3f} "
-                f"R@10={model['code_retrieval']['R@10']:.3f}"
+                f"fixture={result['fixture']} "
+                f"model={result['model']} "
+                f"texts={result['texts']} "
+                f"dimensions={result['dimensions']}"
             )
             return 0
         dataset_path = Path(args.dataset).expanduser().resolve()

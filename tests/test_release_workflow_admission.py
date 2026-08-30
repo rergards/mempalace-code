@@ -175,7 +175,9 @@ def test_installed_application_self_seeds_required_minilm_cache_on_miss():
     checkout = next(
         step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
     )
-    assert checkout["with"]["fetch-depth"] == "${{ matrix.arch == 'x64' && '0' || '1' }}"
+    assert checkout["with"]["fetch-depth"] == 1
+    assert "git fetch" not in compatibility["run"]
+    assert "git archive" not in compatibility["run"]
     assert (
         steps.index(cache)
         < bootstrap_index

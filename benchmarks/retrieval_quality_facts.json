@@ -7,18 +7,7 @@
     "query_count": 20,
     "chunk_count": 469,
     "r_at_5": 0.95,
-    "r_at_10": 1.0,
-    "public_reproducible_compatibility": {
-      "chunk_count": 466,
-      "commit": "3ad086bfd15bab032e86bef3e9deec207c13c17b",
-      "excluded_output": "benchmarks/results_embed_ab_2026-04-09.json",
-      "headline_469_corpus_rerun": false,
-      "minimum_r_at_10": 1.0,
-      "minimum_r_at_5": 0.95,
-      "query_count": 20,
-      "reproduction_command": "python benchmarks/code_retrieval_bench.py --check-minilm-runtime-compatibility",
-      "runtime_owner": "mempalace_code.storage._FastEmbedder(local_files_only=True)"
-    }
+    "r_at_10": 1.0
   },
   "dotnet_cleanarchitecture": {
     "source": "benchmarks/dotnet_bench.py",
