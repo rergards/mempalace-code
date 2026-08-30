@@ -60,18 +60,19 @@ supported recovery is to land that SHA through one of those events.
 
 Hosted `.github/workflows/publish.yml` evaluates the effective
 `refs/heads/main` rules and requires `non_fast_forward`, `deletion`, and
-`required_status_checks` containing `release-required`. It also evaluates the
-active `refs/tags/v*` ruleset with `creation`, `update`, and `deletion`. Both use
-the fixed credential-free public reader; admission receives no GitHub token.
+`required_status_checks` containing `release-required`. It also evaluates active
+`refs/tags/v*` rulesets and requires aggregated `creation`, `update`, and
+`deletion`. Both checks use the fixed credential-free public reader. The
+admission receives no GitHub token.
 
 ## Public version tags
 
-The public version-tag pattern is `refs/tags/v*`, held by an **active** ruleset
-with `target: tag`. Required rule types:
+The public version-tag pattern is `refs/tags/v*`, covered by one or more
+**active** rulesets with `target: tag`. Their aggregated contract is:
 
 | Rule type | Effect |
 |---|---|
-| `creation` | only the documented release path may create a `v*` tag |
+| `creation` | only the configured release bypass may create a `v*` tag |
 | `update` | a published `v*` tag cannot be moved |
 | `deletion` | a published `v*` tag cannot be deleted |
 
@@ -81,10 +82,13 @@ operator has reviewed the SHA, public `main` points at that SHA, and
 `.github/workflows/publish.yml`, which re-verifies admission **before** building
 or uploading any artifact.
 
-Any bypass is a **break-glass** action. Bypass actors stay minimal and must be
-visible in the organisation/repository audit log with actor, time, target ref,
-and reason; `public_v_tag_ruleset` reports how many bypass actors the ruleset
-carries so a silent widening is visible in release output.
+GitHub's credential-free ruleset response does not expose `bypass_actors`.
+Release admission therefore neither counts bypass actors nor infers that an
+omitted list is empty. The repository owner verifies the configured bypass actor
+in `rergards/mempalace-code` → Settings → Rules whenever the ruleset or release
+authority changes. Keep the actor set minimal and use the audit log for every
+break-glass tag creation. If the owner cannot verify the release actor, do not
+tag. After correcting the existing ruleset, rerun `python scripts/release_preflight.py --repo rergards/mempalace-code --check-tag-ruleset --json`.
 
 ## Acknowledged orphan public tags
 
@@ -145,7 +149,7 @@ recovery command.
 | `aggregate_required_check` | fixed GitHub check-runs GET for the exact SHA and `release-required` | none | `gh run list --repo rergards/mempalace-code --workflow Tests --json headSha,event,databaseId,conclusion`, then `gh run rerun <run-id> --repo rergards/mempalace-code --failed` for the run whose head SHA is the candidate SHA **and** whose event is `push` or `pull_request`; if that SHA has no such run — none at all, or only a `workflow_dispatch` run — land it through a `push` or `pull_request` event instead |
 | `dependency_audit_freshness` | fixed GitHub workflow-runs GET for `Dependency Audit` | none | `gh workflow run 'Dependency Audit' --repo rergards/mempalace-code` and wait for a fresh success |
 | `public_main_protection` | fixed GitHub effective branch-rules GET for `main` | none | apply the *Public main* table above in repository → Settings → Rules |
-| `public_v_tag_ruleset` | fixed GitHub ruleset list/detail GETs | none | apply the *Public version tags* table above in repository → Settings → Rules |
+| `public_v_tag_ruleset` | fixed GitHub ruleset list/detail GETs | none | apply the *Public version tags* table in `rergards/mempalace-code` → Settings → Rules, owner-verify the minimal release bypass, then run `python scripts/release_preflight.py --repo rergards/mempalace-code --check-tag-ruleset --json` |
 | `public_orphan_tags` | fixed GitHub matching-ref and release list/latest GETs plus fixed PyPI metadata GET | none | rerun `release_status_gate.py`; use its exact-job command only for the proven partial state, otherwise follow its bounded instruction; only a reviewed permanent gap enters `ACKNOWLEDGED_ORPHAN_TAGS` |
 
 Every `gh` recovery command names the public repository explicitly. An operator

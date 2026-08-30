@@ -25,6 +25,7 @@ validation.
 
 ### Fixed
 
+- Public version-tag admission now aggregates active rulesets and stops reporting omitted private bypass data as zero actors. Credential-free checks continue to require restricted creation, update, and deletion while bypass identity remains an owner-verified repository setting.
 - Explicit `version-check --check-now` now honors the process-level `MEMPALACE_VERSION_CHECK` kill switch: `0` and invalid values fail closed before PyPI access with a concrete recovery command; persisted opt-out remains overridable when the environment override is absent.
 - `mempalace-code init` now rejects symlink, FIFO, socket, and directory destinations for `mempalace.yaml` and enabled `entities.json` output before scanning, then writes regular outputs atomically without changing existing file modes or following a destination swapped after validation (`INIT-CONFIG-IRREGULAR-DESTINATION-GUARD`).
 - Split outputs now refuse FIFOs, symlinks, hardlinks, and other unsafe synthesized targets without hanging or following them; partial failure retains the source, reports created outputs, and exits nonzero (`UPSTREAM-POST-3-7-1-DRIFT-REVIEW`).

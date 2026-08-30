@@ -128,7 +128,6 @@ def _tag_ruleset_detail() -> dict[str, object]:
         "enforcement": "active",
         "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
         "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}],
-        "bypass_actors": [{"actor_type": "RepositoryRole", "bypass_mode": "always"}],
     }
 
 

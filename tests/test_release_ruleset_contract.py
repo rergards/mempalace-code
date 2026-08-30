@@ -79,7 +79,6 @@ def _ruleset_detail(
     enforcement: str = "active",
     rule_types: list[str] | None = None,
     include: list[str] | None = None,
-    bypass_actors: list[dict] | None = None,
 ) -> dict:
     """Shape of GET /repos/{repo}/rulesets/{id}: full rules and conditions."""
     if rule_types is None:
@@ -93,7 +92,6 @@ def _ruleset_detail(
         "enforcement": enforcement,
         "conditions": {"ref_name": {"include": include, "exclude": []}},
         "rules": [{"type": rule_type} for rule_type in rule_types],
-        "bypass_actors": bypass_actors if bypass_actors is not None else [],
     }
 
 
@@ -197,20 +195,91 @@ def test_unparseable_branch_rules_error_instead_of_passing():
 # ── Public v* tag ruleset ─────────────────────────────────────────────────────
 
 
-def test_compliant_tag_ruleset_passes_and_reports_bypass_actors():
+def test_compliant_tag_ruleset_restricts_creation_update_and_deletion():
     row = ADMISSION.check_tag_ruleset(
         "acme/tool",
         _gh(
             {
                 RULESET_LIST_PATH: [_ruleset_summary(7, "public-v-tags")],
-                RULESET_DETAIL_PATH: _ruleset_detail(
-                    bypass_actors=[{"actor_id": 1, "actor_type": "OrganizationAdmin"}]
-                ),
+                RULESET_DETAIL_PATH: _ruleset_detail(),
             }
         ),
     )
     assert row.status == ADMISSION.STATUS_OK
-    assert "1 auditable break-glass bypass actor" in row.detail
+    assert "restrict refs/tags/v* creation, update, and deletion" in row.detail
+    assert "bypass identity is owner-verified" in row.detail
+
+
+def test_public_gate_does_not_require_or_infer_omitted_bypass_actors():
+    detail = _ruleset_detail()
+    assert "bypass_actors" not in detail
+    row = ADMISSION.check_tag_ruleset(
+        "acme/tool",
+        _gh(
+            {
+                RULESET_LIST_PATH: [_ruleset_summary(7, "public-v-tags")],
+                RULESET_DETAIL_PATH: detail,
+            }
+        ),
+    )
+
+    assert row.status == ADMISSION.STATUS_OK
+    assert "0 auditable" not in row.detail
+
+
+def test_reordered_and_aggregated_tag_rules_keep_the_same_verdict():
+    summaries = [
+        _ruleset_summary(9, "public-v-tag-creation"),
+        _ruleset_summary(7, "public-v-tag-updates"),
+        _ruleset_summary(8, "public-v-tag-deletions"),
+    ]
+    details = {
+        7: _ruleset_detail(7, name="public-v-tag-updates", rule_types=["update"]),
+        8: _ruleset_detail(
+            8,
+            name="public-v-tag-deletions",
+            rule_types=["deletion"],
+            include=["refs/tags/v1.*", ADMISSION.TAG_RULESET_REF],
+        ),
+        9: _ruleset_detail(9, name="public-v-tag-creation", rule_types=["creation"]),
+    }
+
+    def public_read(query):
+        if query.endpoint == "github_rulesets":
+            return _fixture_result(list(reversed(summaries)))
+        if query.endpoint == "github_ruleset":
+            return _fixture_result(details[query.values[1]])
+        raise AssertionError(f"unexpected public query: {query.endpoint}")
+
+    row = ADMISSION.check_tag_ruleset("acme/tool", public_read)
+
+    assert row.status == ADMISSION.STATUS_OK
+    assert "3 active ruleset(s)" in row.detail
+
+
+def test_inactive_matching_ruleset_does_not_change_the_active_contract():
+    summaries = [
+        _ruleset_summary(7, "public-v-tags"),
+        _ruleset_summary(8, "inactive-malformed-rules"),
+    ]
+    details = {
+        7: _ruleset_detail(7, name="public-v-tags"),
+        8: {
+            **_ruleset_detail(8, name="inactive-malformed-rules", enforcement="evaluate"),
+            "rules": "malformed",
+        },
+    }
+
+    def public_read(query):
+        if query.endpoint == "github_rulesets":
+            return _fixture_result(summaries)
+        if query.endpoint == "github_ruleset":
+            return _fixture_result(details[query.values[1]])
+        raise AssertionError(f"unexpected public query: {query.endpoint}")
+
+    row = ADMISSION.check_tag_ruleset("acme/tool", public_read)
+
+    assert row.status == ADMISSION.STATUS_OK
 
 
 def test_ruleset_summary_without_detail_lookup_is_not_enough():
@@ -301,7 +370,8 @@ def test_ruleset_permission_error_is_an_error_row_with_a_scope_remediation():
         _gh({RULESET_LIST_PATH: (1, "", "HTTP 403: Must have admin rights to Repository")}),
     )
     assert row.status == ADMISSION.STATUS_ERROR
-    assert "read access to repository rulesets" in row.remediation
+    assert "credential-free public GitHub API" in row.remediation
+    assert "--repo rergards/mempalace-code --check-tag-ruleset --json" in row.remediation
 
 
 def test_ruleset_doc_assigns_hosted_branch_and_tag_checks_to_credential_free_reader():
@@ -313,6 +383,13 @@ def test_ruleset_doc_assigns_hosted_branch_and_tag_checks_to_credential_free_rea
     assert "`refs/tags/v*` ruleset" in text
     assert "credential-free public reader" in text
     assert "admission receives no GitHub token" in text
+    assert "does not expose `bypass_actors`" in text
+    assert "owner verifies the configured bypass actor" in text
+    assert "break-glass" in text
+    assert (
+        "python scripts/release_preflight.py --repo rergards/mempalace-code "
+        "--check-tag-ruleset --json"
+    ) in text
 
 
 def test_ruleset_doc_owns_the_exact_job_partial_publication_recovery():

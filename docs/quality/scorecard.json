@@ -4,7 +4,7 @@
     "package_files": 80,
     "package_total_lines": 28998,
     "test_files": 88,
-    "test_total_lines": 77900
+    "test_total_lines": 77975
   },
   "demo_gates": {
     "architecture_guard": {
@@ -276,7 +276,7 @@
   },
   "tests": {
     "test_files": 88,
-    "test_functions": 3643
+    "test_functions": 3646
   },
   "verification_commands": [
     {

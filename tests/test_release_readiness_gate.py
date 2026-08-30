@@ -2142,7 +2142,6 @@ def _ruleset_detail_ok() -> dict[str, object]:
         "enforcement": "active",
         "conditions": {"ref_name": {"include": ["refs/tags/v*"], "exclude": []}},
         "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}],
-        "bypass_actors": [],
     }
 
 

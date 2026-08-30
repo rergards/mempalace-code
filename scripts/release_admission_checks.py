@@ -73,8 +73,10 @@ MAIN_BRANCH_REQUIRED_RULE_TYPES: tuple[str, ...] = (
     "non_fast_forward",
     "required_status_checks",
 )
-# Public ``refs/tags/v*`` contract: creation, update, and deletion are all
-# restricted to the documented release path.
+# Public ``refs/tags/v*`` contract: only the configured release bypass may
+# create a version tag, and published tags cannot move or disappear. GitHub's
+# credential-free detail response omits bypass actors, so admission verifies the
+# observable rules and leaves bypass identity to repository-owner setup.
 TAG_RULESET_REF = "refs/tags/v*"
 TAG_RULESET_TARGET = "tag"
 TAG_RULESET_REQUIRED_RULE_TYPES: tuple[str, ...] = ("creation", "deletion", "update")
@@ -169,8 +171,9 @@ REMEDIATE_AUDIT = (
 REMEDIATE_MAIN_RULESET = f"Apply the public main branch-rule contract in {RULESET_DOC}."
 REMEDIATE_TAG_RULESET = f"Apply the public v* tag ruleset contract in {RULESET_DOC}."
 REMEDIATE_RULESET_SCOPE = (
-    "Rerun with a token that has read access to repository rulesets, or verify the "
-    f"ruleset by hand against {RULESET_DOC}."
+    f"Review {RULESET_DOC}, wait for the credential-free public GitHub API to become "
+    "readable, then run: "
+    f"python scripts/release_preflight.py --repo {DEFAULT_REPO} --check-tag-ruleset --json"
 )
 # Repair first: during the window between tag push and PyPI/Release completion an
 # orphan row is a race, not a permanent gap, and acknowledging it there would
@@ -604,7 +607,7 @@ def check_tag_ruleset(
     repo: str,
     public_read: Callable[[object], object],
 ) -> AdmissionRow:
-    """Report the public ``refs/tags/v*`` ruleset restricting create/update/delete.
+    """Report credential-free public ``refs/tags/v*`` immutability and creatability.
 
     The ruleset *list* endpoint returns summaries without ``conditions`` or
     ``rules``, so each candidate ruleset is read back by id. Any lookup failure
@@ -651,6 +654,8 @@ def check_tag_ruleset(
         )
 
     reasons: list[str] = []
+    active_names: list[str] = []
+    active_rule_types: set[str] = set()
     for ruleset_id in ruleset_ids:
         detail, detail_error = _public_data(
             public_read,
@@ -679,16 +684,22 @@ def check_tag_ruleset(
         if detail.get("enforcement") != RULESET_ACTIVE_ENFORCEMENT:
             reasons.append(f"{name}: enforcement is {str(detail.get('enforcement'))!r}")
             continue
-        missing = sorted(set(TAG_RULESET_REQUIRED_RULE_TYPES) - _rule_types(detail.get("rules")))
+        active_names.append(name)
+        active_rule_types.update(_rule_types(detail.get("rules")))
+
+    if active_names:
+        missing = sorted(set(TAG_RULESET_REQUIRED_RULE_TYPES) - active_rule_types)
         if missing:
-            reasons.append(f"{name}: missing rule types {', '.join(missing)}")
-            continue
-        bypass = detail.get("bypass_actors")
-        bypass_count = len(bypass) if isinstance(bypass, list) else 0
+            return fail_row(
+                row_name,
+                f"active {TAG_RULESET_REF} rulesets are missing rule types {', '.join(missing)}",
+                REMEDIATE_TAG_RULESET,
+            )
         return ok_row(
             row_name,
-            f"ruleset {name!r} restricts {TAG_RULESET_REF} creation, update, and deletion "
-            f"with {bypass_count} auditable break-glass bypass actor(s)",
+            f"{len(active_names)} active ruleset(s) restrict {TAG_RULESET_REF} creation, "
+            "update, and deletion; bypass identity is owner-verified outside "
+            "credential-free admission",
         )
 
     if reasons:
