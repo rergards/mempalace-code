@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## v1.13.5 — 2026-08-24
+## v1.13.5 — 2026-08-31
 
 Patch release for ingest source safety, ChromaDB runtime retirement, explicit
 update and install opt-ins, alias target containment, and stricter MCP argument
@@ -988,7 +988,6 @@ First public release of **mempalace-code**, a code-first fork of
 - `docs/UPSTREAM_HARDENING.md` — full audit of upstream claims vs fork status.
 - `docs/BACKUP_RESTORE.md` — backup workflow for manual drawers.
 - `docs/OFFLINE_USAGE.md` — offline operation guide.
-- `docs/STORAGE.md` — automatic schema migration documentation.
 - `benchmarks/BENCHMARKS.md` — methodology caveats for upstream benchmark numbers.
 
 ### Upstream issues addressed
