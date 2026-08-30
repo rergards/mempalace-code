@@ -841,8 +841,7 @@ def test_agents_optional_extras_report_missing_declared_extra_despite_section_pr
     _, errors = guard.evaluate(root)
 
     assert any(
-        error
-        == "AGENTS.md: 'Optional extras' section: drift (missing treesitter)"
+        error == "AGENTS.md: 'Optional extras' section: drift (missing treesitter)"
         for error in errors
     ), errors
 
@@ -861,8 +860,7 @@ def test_agents_optional_extras_report_stale_unknown_extra(tmp_path: Path):
     _, errors = guard.evaluate(root)
 
     assert any(
-        error == "AGENTS.md: 'Optional extras' section: drift (stale unknown)"
-        for error in errors
+        error == "AGENTS.md: 'Optional extras' section: drift (stale unknown)" for error in errors
     ), errors
 
 

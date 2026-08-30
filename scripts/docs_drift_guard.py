@@ -1504,9 +1504,7 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
         if stale_agent_extras:
             detail.append(f"stale {', '.join(stale_agent_extras)}")
         if detail:
-            errors.append(
-                f"AGENTS.md: 'Optional extras' section: drift ({'; '.join(detail)})"
-            )
+            errors.append(f"AGENTS.md: 'Optional extras' section: drift ({'; '.join(detail)})")
 
     for relative_path, markers in CHROMA_RUNTIME_SUPPORT_MARKERS.items():
         text = docs[relative_path]
