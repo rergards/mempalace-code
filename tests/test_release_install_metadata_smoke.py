@@ -671,6 +671,20 @@ def test_sanitize_redacts_known_values_credential_urls_and_explicit_local_paths(
     assert "[REDACTED-PATH]" in sanitized
 
 
+@pytest.mark.parametrize(
+    ("diagnostic", "expected"),
+    [
+        ("/tmp", "[REDACTED-PATH]"),
+        ("root=/tmp, retry", "root=[REDACTED-PATH], retry"),
+        ("root=/tmp/cache/model", "root=[REDACTED-PATH]/cache/model"),
+        ('TMPDIR="$HOME/.cache/mempalace/tmp"', 'TMPDIR="$HOME/.cache/mempalace/tmp"'),
+        ("candidate=/tmpish", "candidate=/tmpish"),
+    ],
+)
+def test_sanitize_explicit_local_paths_respect_path_token_boundaries(diagnostic, expected):
+    assert smoke.sanitize(diagnostic, local_paths=("/tmp",)) == expected
+
+
 # ── Agent Plugin sensitive-content scan ──────────────────────────────────────────
 
 

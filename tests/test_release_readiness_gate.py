@@ -4130,7 +4130,8 @@ def test_installed_custom_models_install_failure_is_bounded_and_sanitized():
     assert row["detail"].count(f"rerun: {rrg.INSTALLED_GOLDEN_COMMAND}") == 1
 
 
-def test_installed_custom_models_enospc_has_one_owned_tmpdir_retry():
+def test_installed_custom_models_enospc_has_one_owned_tmpdir_retry(monkeypatch):
+    monkeypatch.setattr(rrg.tempfile, "gettempdir", lambda: "/tmp")
     result = SimpleNamespace(
         returncode=1,
         stdout="",
@@ -4147,6 +4148,7 @@ def test_installed_custom_models_enospc_has_one_owned_tmpdir_retry():
     assert (
         "current status: custom-models CPU prerequisite failed with exit status 1" in row["detail"]
     )
+    assert row["detail"].count("current status:") == 1
     assert "/tmp/private-build" not in row["detail"]
     assert row["detail"].count(rrg.INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY) == 1
     assert row["detail"].count("TMPDIR=") == 1

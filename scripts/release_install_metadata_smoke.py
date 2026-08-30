@@ -211,7 +211,11 @@ def sanitize(
     for secret in sorted({value for value in known_secrets if value}, key=len, reverse=True):
         sanitized = sanitized.replace(secret, "[REDACTED-SECRET]")
     for path in sorted({str(value) for value in local_paths if str(value)}, key=len, reverse=True):
-        sanitized = sanitized.replace(path, "[REDACTED-PATH]")
+        sanitized = re.sub(
+            rf"(?<![\w./~$-]){re.escape(path)}(?![\w.~$-])",
+            "[REDACTED-PATH]",
+            sanitized,
+        )
 
     def redact_url(match: re.Match[str]) -> str:
         value = match.group(0)
