@@ -434,7 +434,7 @@ To disable: set `auto_backup_before_optimize: false` in `~/.mempalace/config.jso
 ### Retention (automatic pruning)
 
 **`pre_optimize` archives are bounded by default** to the newest 5.  A long-running
-`mempalace watch` daemon creates one archive before every compaction, so without a
+`mempalace-code watch` daemon creates one archive before every compaction, so without a
 bound the `backups/` directory can fill the local volume even when the palace itself
 is small.
 

@@ -66,7 +66,7 @@ Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized
 
 ### 9. Diary Write CLI (CLI-DIARY-WRITE)
 
-`mempalace diary write --agent claude-code "..."` lets agents append journal entries about a session without going through MCP. This matters for code workflows because the autopilot task runner writes per-task reports directly into memory.
+`mempalace-code diary write --agent claude-code --entry "..."` lets agents append journal entries about a session without going through MCP. This matters for code workflows because the autopilot task runner writes per-task reports directly into memory.
 
 ### 10. Storage Hygiene
 
@@ -86,7 +86,7 @@ Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized
 | Bulk delete wing      | none                  | `delete_wing()`                    |
 | Mine progress         | silent                | per-file + per-batch progress      |
 | Model choice          | hard-coded            | configurable + benchmark-gated     |
-| Diary from CLI        | MCP only              | `mempalace diary write`            |
+| Diary from CLI        | MCP only              | `mempalace-code diary write`       |
 | `status` aggregations | `limit=10000`         | PyArrow `group_by`, full coverage  |
 
 ## The Net Effect

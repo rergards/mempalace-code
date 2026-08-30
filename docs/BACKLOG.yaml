@@ -46,4 +46,12 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: DOC-RELEASE-PUBLIC-DRIFT-1-13-5
+    summary: "Align public command and token guidance with v1.13.5"
+    type: bug
+    status: open
+    priority: high
+    size: XS
+    section_id: pre_release
+    description: "## Symptom\nPublic docs contain stale wake-up token budgets, a non-working diary command, an unsupported retrieval claim, and a non-canonical watch executable.\n\n## Steps to reproduce\nCompare README and docs examples with the installed v1.13.5 parser and current L0/L1 runtime constants.\n\n## Scope\nUpdate only README.md, CONTRIBUTING.md, docs/WHY_THIS_FORK.md, and docs/BACKUP_RESTORE.md; preserve historical snapshot documents.\n\n## Acceptance criteria\n- README wake-up budgets match the L0/L1 runtime contract.\n- Diary and watch examples execute through the canonical mempalace-code CLI.\n- CONTRIBUTING makes no unsupported 34 percent retrieval claim.\n- Existing docs drift and public-safety gates pass.\n\n## Validation\nRun docs_drift_guard, public_safety_scan, and the exact installed CLI examples."

@@ -645,13 +645,13 @@ Set `enabled: false` to disable the pass entirely.
 
 | Layer | What | When |
 |-------|------|------|
-| **L0** | Identity — project, persona | Always loaded (~50 tokens) |
-| **L1** | Critical facts — team, decisions | Always loaded (~120 tokens) |
+| **L0** | Identity — project, persona | Always loaded (~100 tokens) |
+| **L1** | Critical facts — team, decisions | Always loaded (~500–800 tokens) |
 | **L2** | Room recall — current topic | On demand |
 | **L3** | Deep search — full semantic query | On demand |
 
 ```bash
-mempalace-code wake-up --wing myapp    # emit L0 + L1 context (~170 tokens)
+mempalace-code wake-up --wing myapp    # emit L0 + L1 context (~600–900 tokens)
 ```
 
 For local models (Llama, Mistral) that don't speak MCP, pipe `wake-up` into the system prompt.
