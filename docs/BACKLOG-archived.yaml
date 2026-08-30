@@ -1,4 +1,9 @@
 items:
+    - key: REL-TAG-RULESET-CREATABLE-RELEASE-PATH
+      summary: Reject a public v* tag ruleset that leaves no authorized creation path
+      resolution: '2026-08-30: Credential-free tag admission now aggregates creation/update/deletion without inferring omitted bypass actors; owner-authorized read-only verification confirmed the configured release actor, and focused/full/static/live preflight checks passed.'
+      archived_date: "2026-08-30"
+      done_summary: Credential-free tag admission now aggregates creation/update/deletion without inferring omitted bypass actors; owner-authorized read-only verification confirmed the configured release actor, and focused/full/static/live preflight checks passed.
     - key: RELEASE-DIRECT-INSTALLED-MCP-INVENTORY
       summary: Bind installed MCP profiles and tools to direct stdio evidence
       resolution: '2026-08-27: Qualified all five installed MCP profiles and 29 tools through the exact candidate launcher with semantic JSON-RPC evidence, protected-root isolation, bounded process I/O, and a fresh exact-wheel 26-row PASS; corrected MCP temporal KG storage to the configured palace and passed focused, full non-network, static, public-safety, secret, and three independent reviews.'

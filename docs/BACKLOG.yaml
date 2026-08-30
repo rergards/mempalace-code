@@ -46,14 +46,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: REL-TAG-RULESET-CREATABLE-RELEASE-PATH
-    summary: "Reject a public v* tag ruleset that leaves no authorized creation path"
-    type: bug
-    status: open
-    priority: highest
-    size: S
-    section_id: pre_release
-    assignee: bot
-    labels: [release, security, drunk-llm]
-    description: "## Symptom\nThe credential-free GitHub ruleset detail omits bypass_actors, but the release gate reported the omission as zero configured actors. It also returned after the first matching ruleset instead of evaluating the aggregate contract.\n\n## Steps to reproduce\nRun the credential-free preflight with --check-tag-ruleset against the active public v* ruleset. Compare its zero-actor claim with an owner-authorized read-only detail lookup, which confirms the configured release actor while the public payload omits the field.\n\n## Scope\nExtend the existing tag-ruleset admission predicate, its focused tests, and the canonical runbook. Require aggregated creation/update/deletion protection without reading or inferring bypass identity. Keep release gates credential-free. Do not mutate the live ruleset or add a client, gate, service, credential path, or authenticated release check.\n\n## Acceptance Criteria\n- Aggregated creation, update, and deletion rules pass when bypass_actors is omitted.\n- Release output makes no actor-count or actor-identity claim.\n- Reordered, split, and inactive rulesets remain deterministic.\n- Existing focused release-admission and docs tests plus static gates pass."
+items: []
