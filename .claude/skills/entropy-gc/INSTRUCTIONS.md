@@ -63,7 +63,7 @@ Grep: pattern="json\.loads|yaml\.safe_load" glob="*.py" path="mempalace_code/"
 Cross-reference docs against code reality:
 
 - Check `README.md` CLI commands against `cli.py`
-- Check `CLAUDE.md` Key Modules table against actual modules
+- Check the `AGENTS.md` Key Modules table against actual modules
 - Look for broken file path references in `docs/*.md`
 - `Grep: pattern="TODO|FIXME|HACK|DEPRECATED" glob="*.md" path="docs/"`
 

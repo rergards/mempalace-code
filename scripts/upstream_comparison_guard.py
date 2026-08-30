@@ -19,12 +19,11 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import json
 import re
+import subprocess
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,11 +34,10 @@ if TYPE_CHECKING:
 MANIFEST_PATH = "docs/quality/upstream-comparison.json"
 SUPPORTED_SCHEMA_VERSION = 2
 DEFAULT_MAX_AGE_DAYS = 30
-GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_REPOSITORY_ROOT = "https://github.com/"
-USER_AGENT = "mempalace-code-upstream-comparison-guard"
-LIVE_TIMEOUT_SECONDS = 20
 DEFAULT_RECOVERY_COMMAND = "python scripts/upstream_comparison_guard.py --check-live --json"
+INVENTORY_RECOVERY_COMMAND = "python scripts/upstream_comparison_guard.py --json"
+_PUBLIC_READ_MODULE = None
 
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -91,24 +89,30 @@ DECISION_REQUIRED_FIELDS = (
     "rationale",
     "local_predicates",
 )
+DECISION_INVENTORY_FIELDS = ("merge_group", "constituent_commits")
 # Stances that must carry a named local regression predicate: the fork claims a
 # guard exists, so the guard has to be nameable and present in the checkout.
 PREDICATE_REQUIRED_DECISIONS = ("adopted", "equivalent-local")
 
-# ChromaDB stays migration-bridge-only. The required identifier says so; the
-# forbidden ones are the runtime-backend claims this fork retired.
-REQUIRED_FORK_CAPABILITIES = ("backend-chromadb-migration-bridge-only",)
+# Current releases fully retire ChromaDB support. All Chroma capability claims
+# are forbidden from the fork-current set.
+REQUIRED_FORK_CAPABILITIES: tuple[str, ...] = ()
 FORBIDDEN_FORK_CAPABILITIES = (
     "backend-chromadb",
     "backend-chromadb-default",
     "backend-chromadb-optional",
     "backend-chromadb-optional-deprecated",
     "backend-chromadb-runtime",
+    "backend-chromadb-migration-bridge-only",
 )
 
 
 class LiveCheckError(RuntimeError):
     """Raised when the read-only upstream head lookup cannot be trusted."""
+
+
+class CommitInventoryError(RuntimeError):
+    """Raised when the pinned local Git revision set cannot be trusted."""
 
 
 def repo_root() -> Path:
@@ -304,7 +308,7 @@ def _validate_capability_sources(manifest: dict[str, Any]) -> list[str]:
 
 
 def _validate_chroma_stance(manifest: dict[str, Any]) -> list[str]:
-    """The fork may record ChromaDB only as a migration bridge, never as a runtime backend."""
+    """The current fork capability set must record no ChromaDB support."""
     capabilities = manifest.get("capabilities")
     if not isinstance(capabilities, dict):
         return []
@@ -318,13 +322,13 @@ def _validate_chroma_stance(manifest: dict[str, Any]) -> list[str]:
         if required not in present:
             errors.append(
                 f"chroma-stance: capabilities.fork_current must record {required!r}; "
-                "ChromaDB support is migration input only"
+                "current releases have retired ChromaDB support"
             )
     for forbidden in FORBIDDEN_FORK_CAPABILITIES:
         if forbidden in present:
             errors.append(
                 f"chroma-stance: capabilities.fork_current must not claim {forbidden!r}; "
-                "this fork has no ChromaDB runtime backend"
+                "current releases have retired ChromaDB support"
             )
     return errors
 
@@ -342,12 +346,17 @@ def _validate_delta_decisions(manifest: dict[str, Any]) -> list[str]:
 
     errors: list[str] = []
     seen: set[str] = set()
+    commit_occurrences: dict[str, list[str]] = {}
     for index, decision in enumerate(decisions):
         label = f"delta_decisions[{index}]"
         if not isinstance(decision, dict):
             errors.append(f"delta-decision: {label} must be an object")
             continue
-        missing = [field for field in DECISION_REQUIRED_FIELDS if field not in decision]
+        missing = [
+            field
+            for field in (*DECISION_REQUIRED_FIELDS, *DECISION_INVENTORY_FIELDS)
+            if field not in decision
+        ]
         if missing:
             errors.append(f"delta-decision: {label} is missing required fields {sorted(missing)}")
             continue
@@ -361,10 +370,82 @@ def _validate_delta_decisions(manifest: dict[str, Any]) -> list[str]:
         label = f"delta decision {identifier!r}"
         if identifier in seen:
             errors.append(f"delta-decision: {label} is declared more than once")
-            continue
-        seen.add(identifier)
+        else:
+            seen.add(identifier)
+        merge_group = decision["merge_group"]
+        if not isinstance(merge_group, str) or not COMMIT_RE.fullmatch(merge_group):
+            errors.append(
+                f"commit-inventory: {label} merge_group must be a full 40-character "
+                "lowercase hex sha"
+            )
+        else:
+            commit_occurrences.setdefault(merge_group, []).append(f"{label} merge_group")
+        constituent_commits = decision["constituent_commits"]
+        if not isinstance(constituent_commits, list) or not constituent_commits:
+            errors.append(f"commit-inventory: {label} constituent_commits must be a non-empty list")
+        else:
+            if not all(
+                isinstance(item, str) and COMMIT_RE.fullmatch(item) for item in constituent_commits
+            ):
+                errors.append(
+                    f"commit-inventory: {label} constituent_commits must contain only full "
+                    "40-character lowercase hex shas"
+                )
+            for commit_index, commit in enumerate(constituent_commits):
+                if isinstance(commit, str) and COMMIT_RE.fullmatch(commit):
+                    occurrence = f"{label} constituent_commits[{commit_index}]"
+                    commit_occurrences.setdefault(commit, []).append(occurrence)
         errors.extend(_validate_decision_body(decision, label, tracked_paths))
+    for commit, occurrences in commit_occurrences.items():
+        if len(occurrences) > 1:
+            errors.append(
+                f"commit-inventory: commit {commit} is declared more than once: "
+                f"{', '.join(occurrences)}"
+            )
     return errors
+
+
+def manifest_commit_inventory(manifest: dict[str, Any]) -> set[str]:
+    """Return all merge and constituent commits from a validated manifest."""
+    inventory: set[str] = set()
+    for decision in manifest["delta_decisions"]:
+        inventory.add(str(decision["merge_group"]))
+        inventory.update(str(commit) for commit in decision["constituent_commits"])
+    return inventory
+
+
+def collect_git_revision_set(
+    root: Path,
+    previous_commit: str,
+    commit: str,
+    *,
+    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> set[str]:
+    """Resolve the complete pinned Git range without first-parent filtering."""
+    revision = f"{previous_commit}..{commit}"
+    try:
+        result = run(
+            ["git", "rev-list", revision],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise CommitInventoryError(f"git rev-list {revision} could not run ({exc})") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit status {result.returncode}"
+        raise CommitInventoryError(f"git rev-list {revision} failed ({detail})")
+
+    lines = result.stdout.splitlines()
+    if not lines:
+        raise CommitInventoryError(f"git rev-list {revision} returned no commits")
+    malformed = sorted({line for line in lines if not COMMIT_RE.fullmatch(line)})
+    if malformed:
+        raise CommitInventoryError(
+            f"git rev-list {revision} returned malformed revision lines {malformed}"
+        )
+    return set(lines)
 
 
 def _validate_decision_body(
@@ -472,6 +553,7 @@ def evaluate(
     *,
     max_age_days: int = DEFAULT_MAX_AGE_DAYS,
     today: date | None = None,
+    revision_collector: Callable[[Path, str, str], set[str]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Return reviewed upstream facts and any static drift errors. No network access."""
     if max_age_days < 0:
@@ -598,6 +680,32 @@ def evaluate(
 
     errors.extend(_missing_predicate_errors(root, manifest["delta_decisions"]))
 
+    git_commits: set[str] | None = None
+    manifest_commits = manifest_commit_inventory(manifest)
+    collect_revisions = revision_collector or collect_git_revision_set
+    try:
+        git_commits = collect_revisions(root, previous_commit, commit)
+    except CommitInventoryError as exc:
+        errors.append(
+            f"commit-inventory: {exc}; rerun {INVENTORY_RECOVERY_COMMAND} from a checkout "
+            "containing the pinned history"
+        )
+
+    missing_commits: list[str] = []
+    extra_commits: list[str] = []
+    if git_commits is not None:
+        missing_commits = sorted(git_commits - manifest_commits)
+        extra_commits = sorted(manifest_commits - git_commits)
+        if missing_commits:
+            errors.append(
+                f"commit-inventory: manifest is missing Git-range commits {missing_commits}"
+            )
+        if extra_commits:
+            errors.append(
+                "commit-inventory: manifest has extra commits outside the Git range "
+                f"{extra_commits}"
+            )
+
     facts: dict[str, Any] = {
         "canonical_repository": repository,
         "branch": branch,
@@ -623,6 +731,13 @@ def evaluate(
             for decision in manifest["delta_decisions"]
             if decision["release_critical"]
         ),
+        "git_range_commit_count": len(git_commits) if git_commits is not None else None,
+        "manifest_inventory_commit_count": len(manifest_commits),
+        "missing_commits": missing_commits,
+        "extra_commits": extra_commits,
+        "commit_inventory_exact": git_commits is not None
+        and not missing_commits
+        and not extra_commits,
     }
     return facts, errors
 
@@ -702,44 +817,41 @@ def python_file_defines(path: Path, function_name: str) -> bool:
     )
 
 
-def _default_fetch(url: str) -> str:
-    request = urllib.request.Request(  # noqa: S310 - fixed https GitHub API endpoint
-        url,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=LIVE_TIMEOUT_SECONDS) as response:  # noqa: S310
-            payload = response.read()
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise LiveCheckError(f"live-response: upstream head request failed ({exc})") from exc
-    try:
-        return payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise LiveCheckError("live-response: upstream head reply was not valid UTF-8") from exc
-
-
-def head_commit_url(manifest: dict[str, Any]) -> str:
-    """Build the read-only GitHub API URL for the manifest branch head."""
-    owner, repo = repository_slug(str(manifest["canonical_repository"]))
-    branch = urllib.parse.quote(str(manifest["branch"]), safe="")
-    return f"{GITHUB_API_ROOT}/repos/{owner}/{repo}/commits/{branch}"
+def _load_public_read():
+    global _PUBLIC_READ_MODULE
+    if _PUBLIC_READ_MODULE is None:
+        module_name = "release_public_read"
+        path = Path(__file__).resolve().parent / f"{module_name}.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        _PUBLIC_READ_MODULE = module
+    return _PUBLIC_READ_MODULE
 
 
 def fetch_head_commit(
     manifest: dict[str, Any],
     *,
-    fetch: Callable[[str], str] = _default_fetch,
+    public_read: Callable[[object], object] | None = None,
 ) -> str:
     """Return the current head sha of the manifest branch using one read-only request."""
-    payload = fetch(head_commit_url(manifest))
+    public = _load_public_read()
+    reader = public_read or public.DEFAULT_READER
+    owner, name = repository_slug(str(manifest["canonical_repository"]))
+    repository = f"{owner}/{name}"
+    branch = str(manifest["branch"])
     try:
-        data = json.loads(payload)
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise LiveCheckError("live-response: upstream head reply was not valid JSON") from exc
-    if not isinstance(data, dict):
-        raise LiveCheckError("live-response: upstream head reply was not a JSON object")
-    sha = data.get("sha")
+        result = reader(public.reviewed_upstream_head(repository, branch))
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise LiveCheckError(f"live-response: upstream head request failed ({exc})") from exc
+    if getattr(result, "error", ""):
+        raise LiveCheckError(
+            f"live-response: upstream head request failed ({getattr(result, 'error', '')})"
+        )
+    sha = getattr(result, "data", None)
     if not isinstance(sha, str) or not COMMIT_RE.fullmatch(sha):
         raise LiveCheckError("live-response: upstream head reply carried no 40-hex commit sha")
     return sha
@@ -748,7 +860,7 @@ def fetch_head_commit(
 def check_live(
     manifest: dict[str, Any],
     *,
-    fetch: Callable[[str], str] = _default_fetch,
+    public_read: Callable[[object], object] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Compare the pinned commit against the live branch head. Read-only, no mutation."""
     pinned = str(manifest.get("commit", ""))
@@ -756,7 +868,7 @@ def check_live(
     repository = str(manifest.get("canonical_repository", ""))
     recovery = str(manifest.get("recovery_command") or DEFAULT_RECOVERY_COMMAND)
     try:
-        head = fetch_head_commit(manifest, fetch=fetch)
+        head = fetch_head_commit(manifest, public_read=public_read)
     except (LiveCheckError, ValueError) as exc:
         return {"live_head": None, "pinned_commit": pinned}, [str(exc)]
 
@@ -838,7 +950,10 @@ def main(argv: list[str] | None = None) -> int:
             f"previous={facts['previous_commit']} "
             f"reviewed={facts['reviewed_date']} age_days={facts['review_age_days']} "
             f"delta_decisions={len(decisions)} "
-            f"release_critical={len(facts['release_critical_decisions'])}{live_note}"
+            f"release_critical={len(facts['release_critical_decisions'])} "
+            f"git_range_commits={facts['git_range_commit_count']} "
+            f"manifest_inventory_commits={facts['manifest_inventory_commit_count']}"
+            f"{live_note}"
         )
     return 0 if not errors else 1
 

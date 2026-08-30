@@ -2,8 +2,8 @@
   "schema_version": 1,
   "status": "success",
   "slug": "v1.13.5-release",
-  "pyproject_hash": "sha256:367c900bb33bc00cab36220fa2ba03ca08fb64c0ce957d6e5e1f2d39fe51fb95",
-  "lockfile_hash": "sha256:32298a0becf47179a5ebb76979dc16d897456f2d11d93d4ceb1178e86d943577",
+  "pyproject_hash": "sha256:33c6a8ba61ae7044e3c3a7da428ba786ecae22a0c93d37358522c8b8067b0123",
+  "lockfile_hash": "sha256:896e921f44e7e22aafd6e4c0f40f74eabc647456569b0c058405fbadbec34a61",
   "dependencies": [
     {
       "name": "lancedb",
@@ -14,12 +14,28 @@
       "target_version": "0.33.0"
     },
     {
-      "name": "sentence-transformers",
-      "normalized_name": "sentence-transformers",
+      "name": "overrides",
+      "normalized_name": "overrides",
       "group": "runtime",
-      "specifier": ">=2.2",
-      "current_version": "5.5.1",
-      "target_version": "5.5.1"
+      "specifier": ">=7.7",
+      "current_version": "7.7.0",
+      "target_version": "7.7.0"
+    },
+    {
+      "name": "fastembed",
+      "normalized_name": "fastembed",
+      "group": "runtime",
+      "specifier": ">=0.8,<0.9",
+      "current_version": "0.8.0",
+      "target_version": "0.8.0"
+    },
+    {
+      "name": "onnxruntime",
+      "normalized_name": "onnxruntime",
+      "group": "runtime",
+      "specifier": ">=1.20,<2",
+      "current_version": "1.29.0",
+      "target_version": "1.29.0"
     },
     {
       "name": "pyyaml",
@@ -126,20 +142,12 @@
       "target_version": "0.0.30"
     },
     {
-      "name": "chromadb",
-      "normalized_name": "chromadb",
-      "group": "extra:chroma",
-      "specifier": ">=0.5.0,<1",
-      "current_version": "0.6.3",
-      "target_version": "0.6.3"
-    },
-    {
-      "name": "chromadb",
-      "normalized_name": "chromadb",
-      "group": "extra:chroma-migration",
-      "specifier": ">=0.5.0,<1",
-      "current_version": "0.6.3",
-      "target_version": "0.6.3"
+      "name": "sentence-transformers",
+      "normalized_name": "sentence-transformers",
+      "group": "extra:custom-models",
+      "specifier": ">=2.2",
+      "current_version": "5.5.1",
+      "target_version": "5.5.1"
     },
     {
       "name": "autocorrect",
@@ -147,7 +155,7 @@
       "group": "extra:spellcheck",
       "specifier": ">=2.0",
       "current_version": "2.6.1",
-      "target_version": null
+      "target_version": "2.6.1"
     },
     {
       "name": "tree-sitter",
@@ -155,7 +163,7 @@
       "group": "extra:treesitter",
       "specifier": ">=0.22,<0.26",
       "current_version": "0.25.2",
-      "target_version": null
+      "target_version": "0.25.2"
     },
     {
       "name": "tree-sitter-python",
@@ -163,7 +171,7 @@
       "group": "extra:treesitter",
       "specifier": ">=0.23,<0.26",
       "current_version": "0.25.0",
-      "target_version": null
+      "target_version": "0.25.0"
     },
     {
       "name": "tree-sitter-typescript",
@@ -171,7 +179,7 @@
       "group": "extra:treesitter",
       "specifier": ">=0.23,<0.26",
       "current_version": "0.23.2",
-      "target_version": null
+      "target_version": "0.23.2"
     },
     {
       "name": "tree-sitter-go",
@@ -179,7 +187,7 @@
       "group": "extra:treesitter",
       "specifier": ">=0.23,<0.26",
       "current_version": "0.25.0",
-      "target_version": null
+      "target_version": "0.25.0"
     },
     {
       "name": "tree-sitter-rust",
@@ -187,7 +195,7 @@
       "group": "extra:treesitter",
       "specifier": ">=0.23,<0.26",
       "current_version": "0.24.2",
-      "target_version": null
+      "target_version": "0.24.2"
     },
     {
       "name": "watchfiles",
@@ -214,15 +222,43 @@
       "status": "clean"
     },
     {
-      "name": "sentence-transformers",
-      "version": "5.5.1",
+      "name": "overrides",
+      "version": "7.7.0",
       "role": "current",
       "advisories": [],
       "status": "clean"
     },
     {
-      "name": "sentence-transformers",
-      "version": "5.5.1",
+      "name": "overrides",
+      "version": "7.7.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "fastembed",
+      "version": "0.8.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "fastembed",
+      "version": "0.8.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.29.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.29.0",
       "role": "target",
       "advisories": [],
       "status": "clean"
@@ -410,29 +446,15 @@
       "status": "clean"
     },
     {
-      "name": "chromadb",
-      "version": "0.6.3",
+      "name": "sentence-transformers",
+      "version": "5.5.1",
       "role": "current",
       "advisories": [],
       "status": "clean"
     },
     {
-      "name": "chromadb",
-      "version": "0.6.3",
-      "role": "target",
-      "advisories": [],
-      "status": "clean"
-    },
-    {
-      "name": "chromadb",
-      "version": "0.6.3",
-      "role": "current",
-      "advisories": [],
-      "status": "clean"
-    },
-    {
-      "name": "chromadb",
-      "version": "0.6.3",
+      "name": "sentence-transformers",
+      "version": "5.5.1",
       "role": "target",
       "advisories": [],
       "status": "clean"
@@ -445,9 +467,23 @@
       "status": "clean"
     },
     {
+      "name": "autocorrect",
+      "version": "2.6.1",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
       "name": "tree-sitter",
       "version": "0.25.2",
       "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter",
+      "version": "0.25.2",
+      "role": "target",
       "advisories": [],
       "status": "clean"
     },
@@ -459,9 +495,23 @@
       "status": "clean"
     },
     {
+      "name": "tree-sitter-python",
+      "version": "0.25.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
       "name": "tree-sitter-typescript",
       "version": "0.23.2",
       "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-typescript",
+      "version": "0.23.2",
+      "role": "target",
       "advisories": [],
       "status": "clean"
     },
@@ -473,9 +523,23 @@
       "status": "clean"
     },
     {
+      "name": "tree-sitter-go",
+      "version": "0.25.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
       "name": "tree-sitter-rust",
       "version": "0.24.2",
       "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-rust",
+      "version": "0.24.2",
+      "role": "target",
       "advisories": [],
       "status": "clean"
     },
@@ -509,17 +573,31 @@
     },
     {
       "extras": [
-        "chroma"
+        "custom-models"
       ],
       "status": "success",
-      "summary": "resolver audit for chroma: success"
+      "summary": "resolver audit for custom-models: success"
     },
     {
       "extras": [
-        "chroma-migration"
+        "spellcheck"
       ],
       "status": "success",
-      "summary": "resolver audit for chroma-migration: success"
+      "summary": "resolver audit for spellcheck: success"
+    },
+    {
+      "extras": [
+        "treesitter"
+      ],
+      "status": "success",
+      "summary": "resolver audit for treesitter: success"
+    },
+    {
+      "extras": [
+        "watch"
+      ],
+      "status": "success",
+      "summary": "resolver audit for watch: success"
     }
   ]
 }

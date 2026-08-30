@@ -46,10 +46,16 @@ class TestSearchMemories:
         result = search_memories("code", palace_path, n_results=2)
         assert len(result["results"]) <= 2
 
-    def test_no_palace_returns_error(self):
-        result = search_memories("anything", "/nonexistent/path")
-        assert "error" in result
-        assert result["error"] == "No palace found"
+    def test_no_palace_returns_error(self, tmp_path):
+        palace_path = tmp_path / "missing" / "palace"
+        expected = {
+            "error": "No palace found",
+            "hint": "Run: mempalace-code init <dir> && mempalace-code mine <dir>",
+        }
+
+        for _ in range(2):
+            assert search_memories("anything", str(palace_path)) == expected
+            assert not palace_path.exists()
 
     def test_result_fields(self, palace_path, seeded_collection):
         result = search_memories("authentication", palace_path)

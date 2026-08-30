@@ -32,17 +32,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pwd
 import re
 import shutil
+import signal
+import stat
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     RunSubprocess = Callable[..., tuple[int, str, str]]
 
@@ -54,6 +58,7 @@ CONSOLE_SCRIPT = "mempalace-code"
 ALIAS_INSTALLER_SCRIPT = "mempalace-code-alias"
 AGENT_PLUGIN_MCP_SCRIPT = "mempalace-code-mcp"
 DEFAULT_TIMEOUT_SECONDS = 300
+DEFAULT_INSTALL_TIMEOUT_SECONDS = 600
 
 INSTALLER_VENV = "venv"
 INSTALLER_PIPX = "pipx"
@@ -61,10 +66,14 @@ INSTALLER_UV_TOOL = "uv-tool"
 INSTALLER_BOOTSTRAP_VENV = "bootstrap-venv"
 INSTALLERS = (
     INSTALLER_VENV,
+    INSTALLER_BOOTSTRAP_VENV,
     INSTALLER_PIPX,
     INSTALLER_UV_TOOL,
-    INSTALLER_BOOTSTRAP_VENV,
 )
+MISSING_TOOL_RECOVERY = {
+    INSTALLER_PIPX: "python -m pip install pipx",
+    INSTALLER_UV_TOOL: "python -m pip install uv",
+}
 
 SURFACE_INSTALL = "install"
 SURFACE_METADATA = "package_metadata"
@@ -73,6 +82,21 @@ SURFACE_CLI = "cli_version_check"
 SURFACE_ALIAS_PROVENANCE = "alias_provenance"
 SURFACE_AGENT_PLUGIN = "agent_plugin"
 SURFACE_RUNTIME_NO_CHROMADB = "ordinary_runtime_no_chromadb"
+SURFACE_RECOVERY_SAFETY = "no_model_recovery"
+SURFACE_VERSION_CHECK_NETWORK = "version_check_no_network"
+SURFACE_UPDATE_PLATFORM = "unsupported_platform_updates"
+SURFACE_LINUX_SYSTEMD_LIFECYCLE = "linux_systemd_update_lifecycle"
+
+LIFECYCLE_STATUS_PASS = "pass"
+LIFECYCLE_STATUS_FAIL = "fail"
+LIFECYCLE_STATUS_UNRUN = "unrun"
+LIFECYCLE_AUTHORITY_ENV = "MEMPALACE_RELEASE_SYSTEMD_USER"
+LIFECYCLE_STAGING_ROOT_ENV = "MEMPALACE_RELEASE_STAGING_ROOT"
+LIFECYCLE_RECOVERY_COMMAND = (
+    "MEMPALACE_RELEASE_SYSTEMD_USER=1 python "
+    "scripts/release_install_metadata_smoke.py --all-installers "
+    "--install-spec dist/mempalace_code-*.whl --json"
+)
 
 REQUIRED_SURFACES = [
     SURFACE_METADATA,
@@ -120,8 +144,22 @@ _PROBE_SCRIPT = (
     "    print('MODULE-ERROR=' + str(exc))\n"
 )
 
+_EXTRA_METADATA_OUTPUT_LIMIT = 32 * 1024
+_EXTRA_METADATA_ENTRY_LIMIT = 32
+_EXTRA_METADATA_TOKEN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+_EXTRA_METADATA_PROBE_SCRIPT = (
+    "import importlib.metadata, json\n"
+    "dist = importlib.metadata.distribution('mempalace-code')\n"
+    "print(json.dumps({\n"
+    "    'version': dist.version,\n"
+    "    'root': str(dist.locate_file('')),\n"
+    "    'provides_extra': dist.metadata.get_all('Provides-Extra'),\n"
+    "}, separators=(',', ':')))\n"
+)
+
 _RUNTIME_NO_CHROMADB_PROBE_SCRIPT = (
     "import builtins\n"
+    "import importlib.metadata as _metadata\n"
     "import sys\n"
     "import tempfile\n"
     "_orig_import = builtins.__import__\n"
@@ -130,6 +168,10 @@ _RUNTIME_NO_CHROMADB_PROBE_SCRIPT = (
     "        raise RuntimeError('chromadb import blocked during ordinary runtime probe')\n"
     "    return _orig_import(name, globals, locals, fromlist, level)\n"
     "builtins.__import__ = _guard\n"
+    "_names = {d.metadata['Name'].lower().replace('_', '-') for d in _metadata.distributions()}\n"
+    "assert {'fastembed', 'onnxruntime'} <= _names, sorted(_names)\n"
+    "_forbidden = sorted(n for n in _names if n in {'torch','triton','chromadb'} or n.startswith(('nvidia-','cuda-')))\n"
+    "assert not _forbidden, _forbidden\n"
     "import mempalace_code\n"
     "from mempalace_code.storage import open_store\n"
     "with tempfile.TemporaryDirectory(prefix='mempalace-runtime-probe-') as palace:\n"
@@ -147,15 +189,41 @@ _TOKEN_RE = re.compile(
     r"\b(?:[g]hp_|[g]ithub_pat_|[p]ypi-)[A-Za-z0-9_\-]{4,}\S*",
     re.IGNORECASE,
 )
-_PATH_RE = re.compile(r"(/(?:Users|home|root|tmp)/[^\s:,\"']*|/var/folders/[^\s:,\"']*)")
+_PATH_RE = re.compile(
+    r"(/(?:Users|home|root|tmp)/[^\s:,\"']*|/(?:private/)?var/folders/[^\s:,\"']*)"
+)
 _PRIVATE_REMOTE_RE = re.compile(r"git@[a-zA-Z0-9._-]+:[^\s\"']+")
+_URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_SENSITIVE_QUERY_RE = re.compile(
+    r"(?:^|[?&])(?:access[_-]?token|api[_-]?key|auth|credential|password|secret|token)=[^&]*",
+    re.IGNORECASE,
+)
 
 
-def sanitize(text: str) -> str:
-    """Remove tokens, local paths, and private remotes from diagnostic text."""
+def sanitize(
+    text: str,
+    *,
+    known_secrets: Iterable[str] = (),
+    local_paths: Iterable[str | Path] = (),
+) -> str:
+    """Remove credentials and concrete local paths from retained diagnostics."""
+    sanitized = text
+    for secret in sorted({value for value in known_secrets if value}, key=len, reverse=True):
+        sanitized = sanitized.replace(secret, "[REDACTED-SECRET]")
+    for path in sorted({str(value) for value in local_paths if str(value)}, key=len, reverse=True):
+        sanitized = sanitized.replace(path, "[REDACTED-PATH]")
+
+    def redact_url(match: re.Match[str]) -> str:
+        value = match.group(0)
+        authority = value.split("://", 1)[1].split("/", 1)[0]
+        if "@" in authority or _SENSITIVE_QUERY_RE.search(value):
+            return "[REDACTED-URL]"
+        return value
+
+    sanitized = _URL_RE.sub(redact_url, sanitized)
     return _PRIVATE_REMOTE_RE.sub(
         "[REDACTED-REMOTE]",
-        _PATH_RE.sub("[REDACTED-PATH]", _TOKEN_RE.sub("[REDACTED-TOKEN]", text)),
+        _PATH_RE.sub("[REDACTED-PATH]", _TOKEN_RE.sub("[REDACTED-TOKEN]", sanitized)),
     )
 
 
@@ -186,6 +254,9 @@ class SmokeResult:
     install_spec: str
     surfaces: list[SurfaceResult] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
+    manager: str | None = None
+    update_eligible: bool | None = None
+    lifecycle: LinuxSystemdLifecycleResult | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -195,7 +266,63 @@ class SmokeResult:
             "install_spec": self.install_spec,
             "surfaces": [s.to_dict() for s in self.surfaces],
             "diagnostics": self.diagnostics,
+            "manager": self.manager,
+            "update_eligible": self.update_eligible,
         }
+
+
+@dataclass
+class LinuxSystemdLifecycleResult:
+    status: str
+    detail: str
+    evidence: dict[str, object] = field(default_factory=dict)
+    recovery_command: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == LIFECYCLE_STATUS_PASS
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": SURFACE_LINUX_SYSTEMD_LIFECYCLE,
+            "status": self.status,
+            "detail": self.detail,
+            "evidence": self.evidence,
+            "recovery_command": self.recovery_command,
+        }
+
+
+@dataclass
+class AggregateSmokeResult:
+    ok: bool
+    install_spec: str
+    results: list[SmokeResult] = field(default_factory=list)
+    diagnostics: list[str] = field(default_factory=list)
+    linux_systemd_update_lifecycle: LinuxSystemdLifecycleResult | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "ok": self.ok,
+            "install_spec": self.install_spec,
+            "installers": [result.to_dict() for result in self.results],
+            "diagnostics": self.diagnostics,
+            SURFACE_LINUX_SYSTEMD_LIFECYCLE: (
+                self.linux_systemd_update_lifecycle.to_dict()
+                if self.linux_systemd_update_lifecycle is not None
+                else None
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class CandidateExtraMetadata:
+    """Strict candidate-wheel optional-extra discovery for downstream release gates."""
+
+    ok: bool
+    extras: tuple[str, ...] = ()
+    runtime_extras: tuple[str, ...] = ()
+    version: str | None = None
+    detail: str = ""
 
 
 # ── Reinstall guidance ────────────────────────────────────────────────────────
@@ -220,13 +347,845 @@ def _path_is_relative_to(path: Path, root: Path) -> bool:
     return True
 
 
+def _credential_free_env() -> dict[str, str]:
+    """Return the small environment needed by disposable install probes."""
+    env = {
+        "PATH": os.environ.get("PATH", os.defpath),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+        "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+        "PIP_CONFIG_FILE": os.devnull,
+        "PIP_KEYRING_PROVIDER": "disabled",
+        "MEMPALACE_VERSION_CHECK": "0",
+    }
+    for name in ("LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "SYSTEMROOT", "WINDIR"):
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    return env
+
+
 def _env_with_script_dir(script_dir: Path, base: dict[str, str] | None = None) -> dict[str, str]:
-    env = dict(base or os.environ)
+    env = dict(_credential_free_env() if base is None else base)
     current_path = env.get("PATH", "")
     env["PATH"] = (
         str(script_dir) if not current_path else str(script_dir) + os.pathsep + current_path
     )
     return env
+
+
+def _isolate_probe_state(env: dict[str, str], root: Path, script_dir: Path) -> dict[str, str]:
+    """Confine all user and tool state while retaining system tools needed by installers."""
+    isolated = dict(env)
+    state_dirs = {
+        "HOME": root / "home",
+        "USERPROFILE": root / "home",
+        "XDG_CACHE_HOME": root / "xdg-cache",
+        "XDG_CONFIG_HOME": root / "xdg-config",
+        "XDG_DATA_HOME": root / "xdg-data",
+        "PIP_CACHE_DIR": root / "pip-cache",
+        "HF_HOME": root / "hf-cache",
+        "TRANSFORMERS_CACHE": root / "transformers-cache",
+    }
+    for name, path in state_dirs.items():
+        path.mkdir(parents=True, exist_ok=True)
+        isolated[name] = str(path)
+    isolated["PATH"] = os.pathsep.join((str(script_dir), os.defpath))
+    return isolated
+
+
+def _snapshot_tree(root: Path) -> tuple[tuple[str, str, bytes], ...]:
+    snapshot = []
+    for path in sorted(root.rglob("*")):
+        relative = str(path.relative_to(root))
+        if path.is_symlink():
+            snapshot.append((relative, "symlink", os.readlink(path).encode()))
+        elif path.is_file():
+            snapshot.append((relative, "file", path.read_bytes()))
+        elif path.is_dir():
+            snapshot.append((relative, "dir", b""))
+    return tuple(snapshot)
+
+
+def _snapshot_mutable_state(env: dict[str, str]) -> tuple[tuple[str, object], ...]:
+    names = (
+        "HOME",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "PIP_CACHE_DIR",
+        "HF_HOME",
+        "TRANSFORMERS_CACHE",
+        "PIPX_HOME",
+        "UV_CACHE_DIR",
+    )
+    snapshots = []
+    for name in names:
+        value = env.get(name)
+        if value:
+            snapshots.append((name, _snapshot_tree(Path(value))))
+    return tuple(snapshots)
+
+
+_RENDER_SCHEDULER_UNITS_SCRIPT = (
+    "import json; from mempalace_code.updater import UpdateManager; "
+    "print(json.dumps(UpdateManager().render_scheduler_units(), sort_keys=True))"
+)
+
+_CANDIDATE_INSTALL_SNAPSHOT_SCRIPT = """\
+import hashlib
+import json
+from importlib import metadata
+
+dist = metadata.distribution("mempalace-code")
+digest = hashlib.sha256()
+count = 0
+for item in sorted(dist.files or (), key=str):
+    path = dist.locate_file(item)
+    if path.is_file():
+        digest.update(str(item).encode("utf-8"))
+        digest.update(b"\\0")
+        digest.update(path.read_bytes())
+        count += 1
+print(json.dumps({"version": dist.version, "sha256": digest.hexdigest(), "files": count}))
+"""
+
+
+def _linux_systemd_boundary(
+    console_bin: str, env: dict[str, str]
+) -> tuple[dict[str, object] | None, str | None]:
+    """Admit only an explicit exact-console disposable-user contour."""
+    if not sys.platform.startswith("linux"):
+        return None, "supported Linux evidence is unavailable on this platform"
+    if env.get(LIFECYCLE_AUTHORITY_ENV) != "1":
+        return None, f"{LIFECYCLE_AUTHORITY_ENV}=1 disposable-user authority is required"
+    uid = os.geteuid()
+    try:
+        passwd_home = Path(pwd.getpwuid(uid).pw_dir).resolve(strict=True)
+        home = Path(env["HOME"]).resolve(strict=True)
+    except (KeyError, OSError) as exc:
+        return None, f"disposable-user HOME is unavailable: {sanitize(str(exc))}"
+    if home != passwd_home or home.stat().st_uid != uid or not home.is_dir():
+        return None, "HOME does not match the effective uid passwd directory"
+    console = Path(console_bin)
+    try:
+        console_stat = console.lstat()
+    except OSError:
+        return None, "the selected installed console is not an existing absolute path"
+    if (
+        not console.is_absolute()
+        or not stat.S_ISREG(console_stat.st_mode)
+        or console.is_symlink()
+        or console_stat.st_uid != uid
+        or console_stat.st_mode & 0o111 == 0
+    ):
+        return None, "the selected installed console is not an owned regular executable"
+    return {
+        "uid_match": True,
+        "home_match": True,
+        "absolute_installed_console": True,
+        "console_validated": True,
+        "uid": uid,
+        "home": home,
+    }, None
+
+
+def _validate_owned_staging_path(
+    value: str,
+    *,
+    staging_root: Path,
+    expected_uid: int,
+) -> tuple[Path | None, str | None]:
+    """Admit a missing or owned regular path below one real owned staging root."""
+    candidate = Path(value)
+    try:
+        root = staging_root.resolve(strict=True)
+        root_stat = root.lstat()
+        parent = candidate.parent.resolve(strict=True)
+    except OSError:
+        return None, "installed network guard staging contour is unavailable"
+    if (
+        not candidate.is_absolute()
+        or not staging_root.is_absolute()
+        or not stat.S_ISDIR(root_stat.st_mode)
+        or staging_root.is_symlink()
+        or staging_root != root
+        or root_stat.st_uid != expected_uid
+        or parent != root
+        or candidate.parent != root
+    ):
+        return None, "installed network guard path escaped the owned staging contour"
+    try:
+        candidate_stat = candidate.lstat()
+    except FileNotFoundError:
+        return candidate, None
+    except OSError:
+        return None, "installed network guard path is unavailable"
+    if (
+        candidate.is_symlink()
+        or not stat.S_ISREG(candidate_stat.st_mode)
+        or candidate_stat.st_uid != expected_uid
+    ):
+        return None, "installed network guard path is not an owned regular file"
+    return candidate, None
+
+
+def _emit_progress(phase: str, status: str) -> None:
+    """Emit one bounded stderr receipt while reserving stdout for terminal JSON."""
+    print(
+        json.dumps({"release_install_smoke": {"phase": phase, "status": status}}),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _lifecycle_snapshot(home: Path) -> tuple[object, object]:
+    return (
+        _snapshot_tree(home / ".mempalace"),
+        _snapshot_tree(home / ".config" / "systemd" / "user"),
+    )
+
+
+def _candidate_install_snapshot(
+    python_bin: str,
+    *,
+    env: dict[str, str],
+    cwd: str,
+    run_subprocess: RunSubprocess,
+) -> dict[str, object] | None:
+    rc, out, err = run_subprocess(
+        [python_bin, "-c", _CANDIDATE_INSTALL_SNAPSHOT_SCRIPT], env=env, cwd=cwd
+    )
+    if rc != 0 or err or len(out.encode("utf-8")) > 4096:
+        return None
+    try:
+        payload = json.loads(out)
+    except (json.JSONDecodeError, TypeError, UnicodeError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or not isinstance(payload.get("version"), str)
+        or not isinstance(payload.get("sha256"), str)
+        or len(payload["sha256"]) != 64
+        or not isinstance(payload.get("files"), int)
+        or payload["files"] <= 0
+    ):
+        return None
+    return payload
+
+
+def _json_command(
+    args: list[str],
+    *,
+    env: dict[str, str],
+    cwd: str,
+    run_subprocess: RunSubprocess,
+) -> tuple[int, dict[str, object] | None, str]:
+    rc, out, err = run_subprocess(args, env=env, cwd=cwd)
+    if len(out.encode("utf-8")) > 32 * 1024 or len(err.encode("utf-8")) > 8 * 1024:
+        return rc, None, "command returned oversized diagnostics"
+    try:
+        payload = json.loads(out)
+    except (json.JSONDecodeError, TypeError, UnicodeError):
+        payload = None
+    diagnostic = err if isinstance(payload, dict) else err or out
+    return rc, payload if isinstance(payload, dict) else None, sanitize(diagnostic.strip())
+
+
+def _systemd_properties(output: str) -> dict[str, str]:
+    return {
+        key: value
+        for line in output.splitlines()
+        if "=" in line
+        for key, value in (line.split("=", 1),)
+    }
+
+
+def run_linux_systemd_update_lifecycle(
+    console_bin: str,
+    python_bin: str,
+    expected_version: str | None,
+    probe_cwd: str,
+    run_subprocess: RunSubprocess,
+    env: dict[str, str],
+    *,
+    boundary_probe: Callable[
+        [str, dict[str, str]], tuple[dict[str, object] | None, str | None]
+    ] = _linux_systemd_boundary,
+) -> LinuxSystemdLifecycleResult:
+    """Qualify one exact installed manager and its real same-user systemd lifecycle."""
+    boundary, unavailable = boundary_probe(console_bin, env)
+    if boundary is None:
+        return LinuxSystemdLifecycleResult(
+            LIFECYCLE_STATUS_UNRUN,
+            sanitize(unavailable or "same-user systemd evidence is unavailable"),
+            recovery_command=LIFECYCLE_RECOVERY_COMMAND,
+        )
+    home_value = boundary.get("home")
+    if not isinstance(home_value, Path) or expected_version is None:
+        return LinuxSystemdLifecycleResult(
+            LIFECYCLE_STATUS_FAIL,
+            "candidate attribution or verified HOME is missing",
+        )
+    home = home_value
+    unit_dir = home / ".config" / "systemd" / "user"
+    marker_value = env.get("MEMPALACE_SOCKET_GUARD_LOADED")
+    attempts_value = env.get("MEMPALACE_SOCKET_ATTEMPTS")
+    staging_root_value = env.get(LIFECYCLE_STAGING_ROOT_ENV)
+    expected_uid = boundary.get("uid", os.geteuid())
+    if (
+        not marker_value
+        or not attempts_value
+        or not staging_root_value
+        or not isinstance(expected_uid, int)
+        or boundary.get("console_validated") is not True
+    ):
+        return LinuxSystemdLifecycleResult(
+            LIFECYCLE_STATUS_FAIL,
+            "installed lifecycle path ownership evidence is missing",
+        )
+    staging_root = Path(staging_root_value)
+    marker, marker_error = _validate_owned_staging_path(
+        marker_value, staging_root=staging_root, expected_uid=expected_uid
+    )
+    attempts, attempts_error = _validate_owned_staging_path(
+        attempts_value, staging_root=staging_root, expected_uid=expected_uid
+    )
+    if marker is None or attempts is None:
+        return LinuxSystemdLifecycleResult(
+            LIFECYCLE_STATUS_FAIL,
+            sanitize(marker_error or attempts_error or "installed lifecycle path refused"),
+        )
+    installed = False
+    cleanup_ok = False
+    evidence: dict[str, object] = {
+        key: value for key, value in boundary.items() if isinstance(value, bool)
+    }
+
+    def fail(detail: str) -> LinuxSystemdLifecycleResult:
+        return LinuxSystemdLifecycleResult(
+            LIFECYCLE_STATUS_FAIL, sanitize(detail), evidence=evidence
+        )
+
+    result: LinuxSystemdLifecycleResult | None = None
+    try:
+        baseline = _lifecycle_snapshot(home)
+        candidate_baseline = _candidate_install_snapshot(
+            python_bin, env=env, cwd=probe_cwd, run_subprocess=run_subprocess
+        )
+        if candidate_baseline is None or candidate_baseline.get("version") != expected_version:
+            return fail("installed candidate package snapshot is unavailable")
+        boundary_unit = f"mempalace-release-boundary-{os.getpid()}"
+        rc, manager_home, _ = run_subprocess(
+            [
+                "systemd-run",
+                "--user",
+                "--wait",
+                "--pipe",
+                "--collect",
+                f"--unit={boundary_unit}",
+                "/usr/bin/printenv",
+                "HOME",
+            ],
+            env=env,
+            cwd=probe_cwd,
+        )
+        if rc != 0 or manager_home.strip() != str(home):
+            return LinuxSystemdLifecycleResult(
+                LIFECYCLE_STATUS_UNRUN,
+                "systemd-user manager HOME does not match the disposable user",
+                evidence=evidence,
+                recovery_command=LIFECYCLE_RECOVERY_COMMAND,
+            )
+        evidence["manager_home_match"] = True
+        rc, status, detail = _json_command(
+            [console_bin, "update", "status", "--json"],
+            env=env,
+            cwd=probe_cwd,
+            run_subprocess=run_subprocess,
+        )
+        provenance = status.get("provenance") if isinstance(status, dict) else None
+        if (
+            rc != 0
+            or detail
+            or status is None
+            or status.get("ok") is not True
+            or status.get("stage") != "status"
+            or not isinstance(provenance, dict)
+            or provenance.get("current_version") != expected_version
+            or _lifecycle_snapshot(home) != baseline
+            or _candidate_install_snapshot(
+                python_bin, env=env, cwd=probe_cwd, run_subprocess=run_subprocess
+            )
+            != candidate_baseline
+        ):
+            return fail(detail or "update status failed exact-candidate read-only semantics")
+        evidence["candidate_version"] = expected_version
+        evidence["status_read_only"] = True
+
+        rc, refusal, detail = _json_command(
+            [console_bin, "update", "apply", "--json"],
+            env=env,
+            cwd=probe_cwd,
+            run_subprocess=run_subprocess,
+        )
+        if (
+            rc != 2
+            or detail
+            or refusal is None
+            or refusal.get("stage") != "confirmation"
+            or refusal.get("recovery_command") != "mempalace-code update apply --yes --json"
+            or _lifecycle_snapshot(home) != baseline
+            or _candidate_install_snapshot(
+                python_bin, env=env, cwd=probe_cwd, run_subprocess=run_subprocess
+            )
+            != candidate_baseline
+        ):
+            return fail(detail or "unconfirmed update apply was not an exact read-only refusal")
+        evidence["confirmation_read_only"] = True
+
+        rc, install, detail = _json_command(
+            [console_bin, "update", "scheduler", "install", "--yes", "--json"],
+            env=env,
+            cwd=probe_cwd,
+            run_subprocess=run_subprocess,
+        )
+        installed = (
+            rc == 0 and install is not None and install.get("stage") == "scheduler-installed"
+        )
+        if not installed:
+            return fail(detail or "scheduler install did not return scheduler-installed")
+
+        rc, rendered_out, rendered_err = run_subprocess(
+            [python_bin, "-c", _RENDER_SCHEDULER_UNITS_SCRIPT], env=env, cwd=probe_cwd
+        )
+        try:
+            rendered = json.loads(rendered_out)
+        except json.JSONDecodeError:
+            rendered = None
+        if rc != 0 or not isinstance(rendered, dict):
+            return fail(rendered_err or "installed scheduler renderer did not return JSON")
+        for name, content in rendered.items():
+            path = unit_dir / str(name)
+            if not isinstance(content, str) or not path.is_file() or path.read_text() != content:
+                return fail(f"manager unit content mismatch for {name}")
+            rc, shown, err = run_subprocess(
+                [
+                    "systemctl",
+                    "--user",
+                    "show",
+                    str(name),
+                    "--property=FragmentPath,LoadState,ActiveState,UnitFileState",
+                ],
+                env=env,
+                cwd=probe_cwd,
+            )
+            properties = _systemd_properties(shown)
+            if (
+                rc != 0
+                or properties.get("FragmentPath") != str(path)
+                or properties.get("LoadState") != "loaded"
+                or (
+                    name == "mempalace-update.timer"
+                    and (
+                        properties.get("ActiveState") != "active"
+                        or properties.get("UnitFileState") != "enabled"
+                    )
+                )
+            ):
+                return fail(err or f"systemd FragmentPath mismatch for {name}")
+        for command in (
+            ["systemctl", "--user", "is-enabled", "mempalace-update.timer"],
+            ["systemctl", "--user", "is-active", "mempalace-update.timer"],
+        ):
+            rc, _out, err = run_subprocess(command, env=env, cwd=probe_cwd)
+            if rc != 0:
+                return fail(err or f"manager state check failed: {' '.join(command)}")
+        evidence.update(
+            {"fragment_content_match": True, "timer_enabled": True, "timer_active": True}
+        )
+
+        before_repeat = {name: (unit_dir / name).read_bytes() for name in rendered}
+        rc, repeated, detail = _json_command(
+            [console_bin, "update", "scheduler", "install", "--yes", "--json"],
+            env=env,
+            cwd=probe_cwd,
+            run_subprocess=run_subprocess,
+        )
+        if (
+            rc != 0
+            or repeated is None
+            or repeated.get("stage") != "scheduler-installed"
+            or before_repeat != {name: (unit_dir / name).read_bytes() for name in rendered}
+        ):
+            return fail(detail or "repeated scheduler install changed the owned unit pair")
+        evidence["repeat_idempotent"] = True
+
+        rc, removed, detail = _json_command(
+            [console_bin, "update", "scheduler", "remove", "--yes", "--json"],
+            env=env,
+            cwd=probe_cwd,
+            run_subprocess=run_subprocess,
+        )
+        installed = False
+        if (
+            rc != 0
+            or removed is None
+            or removed.get("stage") != "scheduler-removed"
+            or any((unit_dir / name).exists() for name in rendered)
+        ):
+            return fail(detail or "scheduler removal did not remove the complete owned pair")
+        for command, allowed in (
+            (
+                ["systemctl", "--user", "is-enabled", "mempalace-update.timer"],
+                {"disabled", "not-found", ""},
+            ),
+            (
+                ["systemctl", "--user", "is-active", "mempalace-update.timer"],
+                {"inactive", "unknown", ""},
+            ),
+        ):
+            rc, out, err = run_subprocess(command, env=env, cwd=probe_cwd)
+            if rc == 0 or out.strip() not in allowed:
+                return fail(err or f"removed manager state remained live: {' '.join(command)}")
+        for name in rendered:
+            rc, shown, err = run_subprocess(
+                [
+                    "systemctl",
+                    "--user",
+                    "show",
+                    str(name),
+                    "--property=FragmentPath,LoadState",
+                ],
+                env=env,
+                cwd=probe_cwd,
+            )
+            properties = _systemd_properties(shown)
+            if (
+                rc != 0
+                or properties.get("FragmentPath", "") != ""
+                or properties.get("LoadState") != "not-found"
+            ):
+                return fail(err or f"removed manager unit remained loaded: {name}")
+        evidence["confirmed_removal"] = True
+
+        before_apply = _lifecycle_snapshot(home)
+        attempts, attempts_error = _validate_owned_staging_path(
+            attempts_value, staging_root=staging_root, expected_uid=expected_uid
+        )
+        if attempts is None:
+            return fail(attempts_error or "installed network guard attempts path refused")
+        attempts.unlink(missing_ok=True)
+        rc, applied, detail = _json_command(
+            [console_bin, "update", "apply", "--yes", "--json"],
+            env=env,
+            cwd=probe_cwd,
+            run_subprocess=run_subprocess,
+        )
+        verified_marker, marker_error = _validate_owned_staging_path(
+            marker_value, staging_root=staging_root, expected_uid=expected_uid
+        )
+        verified_attempts, attempts_error = _validate_owned_staging_path(
+            attempts_value, staging_root=staging_root, expected_uid=expected_uid
+        )
+        safe_preflight = (
+            rc == 2
+            and not detail
+            and applied is not None
+            and applied.get("ok") is False
+            and applied.get("stage") == "preflight"
+            and any(
+                marker in str(applied.get("message", ""))
+                for marker in (
+                    "PyPI provenance unavailable",
+                    "not proven current",
+                    "no newer stable compatible-major wheel",
+                )
+            )
+            and _lifecycle_snapshot(home) == before_apply
+            and _candidate_install_snapshot(
+                python_bin, env=env, cwd=probe_cwd, run_subprocess=run_subprocess
+            )
+            == candidate_baseline
+            and marker_error is None
+            and attempts_error is None
+            and verified_marker is not None
+            and verified_attempts is not None
+            and verified_marker.is_file()
+            and verified_attempts.is_file()
+            and "pypi.org" in verified_attempts.read_text(encoding="utf-8")
+        )
+        if not safe_preflight:
+            return fail(detail or "confirmed apply escaped the blocked-network preflight boundary")
+        evidence["apply_terminal_stage"] = applied.get("stage") if applied else None
+        evidence["package_snapshot_unchanged"] = True
+        evidence["network_attempt_blocked"] = True
+        evidence["unauthorized_mutation"] = False
+        result = LinuxSystemdLifecycleResult(
+            LIFECYCLE_STATUS_PASS,
+            "exact candidate scheduler and bounded update lifecycle passed",
+            evidence=evidence,
+        )
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        result = fail(f"lifecycle probe failed safely: {exc}")
+    finally:
+        if installed:
+            rc, cleanup, _detail = _json_command(
+                [console_bin, "update", "scheduler", "remove", "--yes", "--json"],
+                env=env,
+                cwd=probe_cwd,
+                run_subprocess=run_subprocess,
+            )
+            cleanup_ok = (
+                rc == 0 and cleanup is not None and cleanup.get("stage") == "scheduler-removed"
+            )
+        else:
+            cleanup_ok = not any(
+                (unit_dir / name).exists()
+                for name in ("mempalace-update.service", "mempalace-update.timer")
+            )
+        evidence["cleanup_complete"] = cleanup_ok
+    if not cleanup_ok:
+        return fail("scheduler cleanup was incomplete")
+    assert result is not None
+    return result
+
+
+def _probe_recovery_refusals(
+    console_bin: str,
+    probe_cwd: str,
+    run_subprocess: RunSubprocess,
+    env: dict[str, str],
+) -> SurfaceResult:
+    before = _snapshot_mutable_state(env)
+    actions = (
+        ("update apply", ["update", "apply", "--json"]),
+        ("update scheduler install", ["update", "scheduler", "install", "--json"]),
+        ("update scheduler remove", ["update", "scheduler", "remove", "--json"]),
+    )
+    for label, action in actions:
+        rc, out, err = run_subprocess([console_bin, *action], env=env, cwd=probe_cwd)
+        try:
+            payload = json.loads(out)
+        except json.JSONDecodeError:
+            payload = None
+        expected = f"mempalace-code {label} --yes --json"
+        if (
+            rc != 2
+            or err != ""
+            or not isinstance(payload, dict)
+            or payload.get("ok") is not False
+            or payload.get("stage") != "confirmation"
+            or payload.get("exit_code") != 2
+            or payload.get("recovery_command") != expected
+        ):
+            return SurfaceResult(
+                SURFACE_RECOVERY_SAFETY,
+                STATUS_FAIL,
+                f"{label} did not return the exact confirmation refusal",
+            )
+    if _snapshot_mutable_state(env) != before:
+        return SurfaceResult(
+            SURFACE_RECOVERY_SAFETY,
+            STATUS_FAIL,
+            "guarded update actions mutated disposable state",
+        )
+    return SurfaceResult(
+        SURFACE_RECOVERY_SAFETY,
+        STATUS_OK,
+        "all guarded update actions returned exact recovery JSON without mutation",
+    )
+
+
+def _probe_unsupported_platform_updates(
+    console_bin: str,
+    probe_cwd: str,
+    run_subprocess: RunSubprocess,
+    env: dict[str, str],
+) -> SurfaceResult:
+    platform_fields = {
+        "platform": sys.platform,
+        "required_platform": "linux",
+        "service_manager": "systemd-user",
+        "recovery_command": "mempalace-code update status --json",
+    }
+    expected_message = (
+        f"update mutations require Linux systemd-user; current platform is {sys.platform}"
+    )
+    before_status = _snapshot_mutable_state(env)
+    rc, out, err = run_subprocess(
+        [console_bin, "update", "status", "--json"], env=env, cwd=probe_cwd
+    )
+    try:
+        status = json.loads(out)
+    except json.JSONDecodeError:
+        status = None
+    if (
+        rc != 0
+        or err != ""
+        or not isinstance(status, dict)
+        or status.get("ok") is not True
+        or status.get("stage") != "status"
+        or any(status.get(key) != value for key, value in platform_fields.items())
+        or not isinstance(status.get("installation"), dict)
+        or not isinstance(status.get("provenance"), dict)
+        or not isinstance(status.get("watcher"), dict)
+        or not isinstance(status.get("scheduler"), dict)
+    ):
+        return SurfaceResult(
+            SURFACE_UPDATE_PLATFORM,
+            STATUS_FAIL,
+            "update status did not return the unsupported-host diagnostic contract",
+        )
+    if _snapshot_mutable_state(env) != before_status:
+        return SurfaceResult(
+            SURFACE_UPDATE_PLATFORM,
+            STATUS_FAIL,
+            "update status mutated disposable state",
+        )
+
+    before_mutations = _snapshot_mutable_state(env)
+    actions = (
+        ["update", "apply", "--yes", "--json"],
+        ["update", "scheduler", "install", "--yes", "--json"],
+        ["update", "scheduler", "remove", "--yes", "--json"],
+    )
+    forbidden_diagnostics = ("FileNotFoundError", "Errno", "systemctl")
+    for action in actions:
+        rc, out, err = run_subprocess([console_bin, *action], env=env, cwd=probe_cwd)
+        try:
+            payload = json.loads(out)
+        except json.JSONDecodeError:
+            payload = None
+        if (
+            rc != 2
+            or err != ""
+            or not isinstance(payload, dict)
+            or payload.get("ok") is not False
+            or payload.get("stage") != "unsupported-platform"
+            or payload.get("exit_code") != 2
+            or payload.get("message") != expected_message
+            or any(payload.get(key) != value for key, value in platform_fields.items())
+            or any(marker in out for marker in forbidden_diagnostics)
+        ):
+            return SurfaceResult(
+                SURFACE_UPDATE_PLATFORM,
+                STATUS_FAIL,
+                "confirmed update mutation did not return the unsupported-platform contract",
+            )
+    if _snapshot_mutable_state(env) != before_mutations:
+        return SurfaceResult(
+            SURFACE_UPDATE_PLATFORM,
+            STATUS_FAIL,
+            "confirmed update mutations changed disposable state",
+        )
+    return SurfaceResult(
+        SURFACE_UPDATE_PLATFORM,
+        STATUS_OK,
+        "status and all confirmed update mutations returned stable unsupported-platform JSON",
+    )
+
+
+_SITE_GUARD = """\
+import os
+import socket
+from pathlib import Path
+def _blocked(address, *args, **kwargs):
+    with open(os.environ["MEMPALACE_SOCKET_ATTEMPTS"], "a", encoding="utf-8") as handle:
+        handle.write(repr(address) + "\\n")
+    raise OSError("socket blocked by installed release smoke")
+_OriginalSocket = socket.socket
+class _GuardedSocket(_OriginalSocket):
+    def connect(self, address):
+        return _blocked(address)
+    def connect_ex(self, address):
+        return _blocked(address)
+socket.create_connection = _blocked
+socket.socket = _GuardedSocket
+Path(os.environ["MEMPALACE_SOCKET_GUARD_LOADED"]).write_text("loaded\\n", encoding="utf-8")
+"""
+
+_SITE_PACKAGES_SCRIPT = (
+    "import json, site, sys; "
+    "print(json.dumps([path for path in site.getsitepackages() if path in sys.path]))"
+)
+_SITE_GUARD_PTH = "_mempalace_release_smoke.pth"
+
+
+def _probe_version_check_no_network(
+    python_bin: str,
+    console_bin: str,
+    probe_cwd: str,
+    state_root: Path,
+    run_subprocess: RunSubprocess,
+    env: dict[str, str],
+) -> SurfaceResult:
+    rc, out, err = run_subprocess(
+        [python_bin, "-c", _SITE_PACKAGES_SCRIPT],
+        env=env,
+        cwd=probe_cwd,
+    )
+    try:
+        site_paths = json.loads(out)
+    except json.JSONDecodeError:
+        site_paths = None
+    if (
+        rc != 0
+        or err
+        or not isinstance(site_paths, list)
+        or len(site_paths) != 1
+        or not isinstance(site_paths[0], str)
+        or not Path(site_paths[0]).is_absolute()
+    ):
+        return SurfaceResult(
+            SURFACE_VERSION_CHECK_NETWORK, STATUS_ERROR, "installed site-packages discovery failed"
+        )
+    site_dir = Path(site_paths[0])
+    guard = site_dir / "sitecustomize.py"
+    guard_loader = site_dir / _SITE_GUARD_PTH
+    if guard.exists() or guard.is_symlink() or guard_loader.exists() or guard_loader.is_symlink():
+        return SurfaceResult(
+            SURFACE_VERSION_CHECK_NETWORK,
+            STATUS_FAIL,
+            "refused to overwrite an existing installed socket guard path",
+        )
+    marker = state_root / "socket-guard-loaded"
+    attempts = state_root / "socket-attempts.log"
+    guard.write_text(_SITE_GUARD, encoding="utf-8")
+    guard_loader.write_text(f"import runpy; runpy.run_path({str(guard)!r})\n", encoding="utf-8")
+    probe_env = dict(env)
+    probe_env.update(
+        {
+            "MEMPALACE_VERSION_CHECK": "0",
+            "MEMPALACE_SOCKET_GUARD_LOADED": str(marker),
+            "MEMPALACE_SOCKET_ATTEMPTS": str(attempts),
+        }
+    )
+    rc, out, err = run_subprocess(
+        [console_bin, "version-check", "--check-now"], env=probe_env, cwd=probe_cwd
+    )
+    attempts_text = attempts.read_text(encoding="utf-8") if attempts.exists() else ""
+    if rc != 2:
+        detail = f"version-check exited {rc}, expected 2"
+    elif not marker.is_file():
+        detail = "installed interpreter did not load the socket guard"
+    elif attempts_text:
+        detail = "version-check attempted a socket before honoring the kill switch"
+    elif "unset MEMPALACE_VERSION_CHECK" not in (out + err):
+        detail = "version-check omitted the bounded environment recovery command"
+    else:
+        detail = ""
+    if detail:
+        return SurfaceResult(
+            SURFACE_VERSION_CHECK_NETWORK,
+            STATUS_FAIL,
+            detail,
+        )
+    return SurfaceResult(
+        SURFACE_VERSION_CHECK_NETWORK,
+        STATUS_OK,
+        "installed interpreter guard loaded and version-check stopped before socket access",
+    )
 
 
 def _read_json(path: Path) -> tuple[dict | None, str | None]:
@@ -358,6 +1317,55 @@ def _validate_agent_plugin_files(
     return mcp_json, plugin_version, None
 
 
+def _decode_mcp_json_lines(
+    output: str, *, label: str, output_limit: int
+) -> tuple[list[dict] | None, str | None]:
+    """Decode bounded JSON-lines stdout for release-owned MCP probes."""
+    if len(output.encode("utf-8")) > output_limit:
+        return None, f"{label} output is oversized"
+    responses: list[dict] = []
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            value = json.loads(stripped)
+        except json.JSONDecodeError:
+            return None, f"{label} printed non-JSON stdout"
+        if not isinstance(value, dict):
+            return None, f"{label} printed non-object JSON stdout"
+        responses.append(value)
+    return responses, None
+
+
+def _validate_mcp_responses(
+    responses: list[dict],
+    expected: tuple[tuple[int | None, str], ...],
+    *,
+    label: str,
+) -> str | None:
+    """Validate ordered JSON-RPC envelopes, IDs, and result/error kinds."""
+    if len(responses) != len(expected):
+        return f"{label} returned {len(responses)} response lines"
+    for response, (expected_id, expected_kind) in zip(responses, expected, strict=True):
+        if response.get("jsonrpc") != "2.0":
+            return f"{label} response {expected_id} has invalid jsonrpc"
+        response_id = response.get("id")
+        if expected_id is None:
+            id_matches = response_id is None
+        else:
+            id_matches = type(response_id) is int and response_id == expected_id
+        if not id_matches:
+            return f"{label} returned reordered or mismatched response IDs"
+        has_result = "result" in response
+        has_error = "error" in response
+        if has_result == has_error:
+            return f"{label} response {expected_id} must contain exactly one of result or error"
+        if expected_kind not in response:
+            return f"{label} response {expected_id} returned the wrong response kind"
+    return None
+
+
 def _probe_declared_mcp_command(
     mcp_json: dict,
     probe_cwd: str,
@@ -369,6 +1377,16 @@ def _probe_declared_mcp_command(
     requests = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "mempalace_check_duplicate",
+                "arguments": {"content": "   \t"},
+            },
+        },
+        {"jsonrpc": "2.0", "id": 4, "method": "tools/list", "params": {}},
     ]
     stdin_data = "\n".join(json.dumps(request) for request in requests) + "\n"
     rc, out, err = run_subprocess(cmd, env=env, cwd=probe_cwd, input_text=stdin_data)
@@ -376,32 +1394,63 @@ def _probe_declared_mcp_command(
         detail = sanitize((err or out).strip()) or f"declared MCP command exited {rc}"
         return f"declared MCP command failed: {detail}"
 
-    responses: list[dict] = []
-    for line in out.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            value = json.loads(stripped)
-        except json.JSONDecodeError:
-            return "declared MCP command printed non-JSON stdout"
-        if isinstance(value, dict):
-            responses.append(value)
-
-    if len(responses) != 2:
-        return f"declared MCP command returned {len(responses)} response lines"
+    responses, error = _decode_mcp_json_lines(
+        out, label="declared MCP command", output_limit=1024 * 1024
+    )
+    if error is not None:
+        return error
+    assert responses is not None
+    error = _validate_mcp_responses(
+        responses,
+        ((1, "result"), (2, "result"), (3, "error"), (4, "result")),
+        label="declared MCP command",
+    )
+    if error is not None:
+        return error
     init_result = responses[0].get("result")
+    server_info = init_result.get("serverInfo") if isinstance(init_result, dict) else None
     if (
         not isinstance(init_result, dict)
-        or init_result.get("serverInfo", {}).get("name") != "mempalace-code"
+        or not isinstance(server_info, dict)
+        or not isinstance(server_info.get("name"), str)
+        or server_info["name"] != "mempalace-code"
     ):
         return "declared MCP command did not complete initialize"
     tools_result = responses[1].get("result")
     if not isinstance(tools_result, dict) or not isinstance(tools_result.get("tools"), list):
         return "declared MCP command did not return tools/list"
-    tool_names = tuple(tool.get("name") for tool in tools_result["tools"] if isinstance(tool, dict))
+    tool_names_list: list[str] = []
+    for tool in tools_result["tools"]:
+        if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
+            return "declared MCP command did not return tools/list"
+        tool_names_list.append(tool["name"])
+    tool_names = tuple(tool_names_list)
     if tool_names != _MINIMAL_TOOLS:
         return f"declared MCP command listed unexpected tools: {tool_names}"
+    blank_error = responses[2].get("error")
+    blank_message = blank_error.get("message") if isinstance(blank_error, dict) else None
+    if (
+        not isinstance(blank_error, dict)
+        or type(blank_error.get("code")) is not int
+        or blank_error["code"] != -32602
+        or not isinstance(blank_message, str)
+        or "content" not in blank_message
+        or "   \t" in blank_message
+    ):
+        return "declared MCP command did not reject blank required content safely"
+    continued_result = responses[3].get("result")
+    if not isinstance(continued_result, dict) or not isinstance(
+        continued_result.get("tools"), list
+    ):
+        return "declared MCP command did not continue after blank required content"
+    continued_names_list: list[str] = []
+    for tool in continued_result["tools"]:
+        if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
+            return "declared MCP command did not continue after blank required content"
+        continued_names_list.append(tool["name"])
+    continued_names = tuple(continued_names_list)
+    if continued_names != _MINIMAL_TOOLS:
+        return f"declared MCP command continuation listed unexpected tools: {continued_names}"
     return None
 
 
@@ -455,6 +1504,7 @@ def probe_metadata_and_module(
     run_subprocess: RunSubprocess,
     env: dict[str, str] | None = None,
     source_root: str | None = None,
+    expected_root: str | None = None,
 ) -> tuple[SurfaceResult, SurfaceResult]:
     """Probe importlib.metadata and the imported module's __version__ in one subprocess."""
     rc, out, err = run_subprocess([python_bin, "-c", _PROBE_SCRIPT], env=env, cwd=probe_cwd)
@@ -507,6 +1557,15 @@ def probe_metadata_and_module(
                 "mempalace_code imported from checkout source tree",
             )
             return metadata_result, module_result
+        if expected_root and (
+            not module_file or not _path_is_relative_to(Path(module_file), Path(expected_root))
+        ):
+            module_result = SurfaceResult(
+                SURFACE_MODULE,
+                STATUS_FAIL,
+                "mempalace_code did not import from the disposable installed contour",
+            )
+            return metadata_result, module_result
         module_result = SurfaceResult(
             SURFACE_MODULE,
             STATUS_OK,
@@ -518,6 +1577,71 @@ def probe_metadata_and_module(
         module_result = SurfaceResult(SURFACE_MODULE, STATUS_ERROR, detail)
 
     return metadata_result, module_result
+
+
+def probe_candidate_extra_metadata(
+    python_bin: str,
+    probe_cwd: str,
+    run_subprocess: RunSubprocess,
+    *,
+    env: dict[str, str] | None = None,
+    expected_root: str | None = None,
+    expected_version: str | None = None,
+) -> CandidateExtraMetadata:
+    """Discover canonical ``Provides-Extra`` entries from one installed candidate."""
+    rc, out, err = run_subprocess(
+        [python_bin, "-c", _EXTRA_METADATA_PROBE_SCRIPT], env=env, cwd=probe_cwd
+    )
+    if rc != 0:
+        detail = sanitize((err or out).strip()) or f"extra metadata probe exited {rc}"
+        return CandidateExtraMetadata(False, detail=f"extra metadata probe failed: {detail}")
+    if err.strip():
+        return CandidateExtraMetadata(False, detail="extra metadata probe wrote to stderr")
+    if len(out.encode("utf-8")) > _EXTRA_METADATA_OUTPUT_LIMIT:
+        return CandidateExtraMetadata(False, detail="extra metadata probe output exceeded limit")
+    try:
+        payload = json.loads(out)
+    except (json.JSONDecodeError, TypeError, UnicodeError):
+        return CandidateExtraMetadata(False, detail="extra metadata probe returned invalid JSON")
+    if not isinstance(payload, dict) or set(payload) != {"version", "root", "provides_extra"}:
+        return CandidateExtraMetadata(False, detail="extra metadata probe returned invalid shape")
+    version = payload["version"]
+    root = payload["root"]
+    raw_extras = payload["provides_extra"]
+    if not isinstance(version, str) or not version or not isinstance(root, str) or not root:
+        return CandidateExtraMetadata(False, detail="extra metadata provenance is malformed")
+    if expected_version is not None and version != expected_version:
+        return CandidateExtraMetadata(
+            False, detail="extra metadata version mismatched candidate wheel"
+        )
+    if expected_root is not None and not _path_is_relative_to(Path(root), Path(expected_root)):
+        return CandidateExtraMetadata(
+            False, detail="extra metadata resolved outside candidate contour"
+        )
+    if (
+        not isinstance(raw_extras, list)
+        or not raw_extras
+        or len(raw_extras) > _EXTRA_METADATA_ENTRY_LIMIT
+        or any(not isinstance(extra, str) or not extra for extra in raw_extras)
+    ):
+        return CandidateExtraMetadata(
+            False, detail="Provides-Extra entries are missing or malformed"
+        )
+    if any(_EXTRA_METADATA_TOKEN.fullmatch(extra) is None for extra in raw_extras):
+        return CandidateExtraMetadata(False, detail="Provides-Extra contains a non-canonical name")
+    if len(set(raw_extras)) != len(raw_extras):
+        return CandidateExtraMetadata(False, detail="Provides-Extra contains duplicate names")
+    extras = tuple(sorted(raw_extras))
+    runtime_extras = tuple(extra for extra in extras if extra != "dev")
+    if not runtime_extras:
+        return CandidateExtraMetadata(False, detail="Provides-Extra declares no non-dev extras")
+    return CandidateExtraMetadata(
+        True,
+        extras=extras,
+        runtime_extras=runtime_extras,
+        version=version,
+        detail="candidate Provides-Extra metadata is canonical and provenance-bound",
+    )
 
 
 def probe_cli_version_check(
@@ -822,6 +1946,12 @@ def evaluate_smoke(
     if not ok:
         diagnostics.extend(sanitize(cmd) for cmd in build_reinstall_commands(package, install_spec))
 
+    manager_by_installer = {
+        INSTALLER_VENV: "pip",
+        INSTALLER_PIPX: "pipx",
+        INSTALLER_UV_TOOL: "uv-tool",
+        INSTALLER_BOOTSTRAP_VENV: "bootstrap-venv",
+    }
     return SmokeResult(
         ok=ok,
         expected_version=expected_version,
@@ -829,25 +1959,79 @@ def evaluate_smoke(
         install_spec=install_spec,
         surfaces=surfaces,
         diagnostics=diagnostics,
+        manager=manager_by_installer.get(installer),
+        update_eligible=ok and installer != INSTALLER_VENV,
     )
 
 
 # ── Installer flows ─────────────────────────────────────────────────────────────
 
 
+def _append_recovery_safety(
+    surfaces: list[SurfaceResult],
+    *,
+    python_bin: str,
+    console_bin: str,
+    probe_cwd: str,
+    state_root: Path,
+    run_subprocess: RunSubprocess,
+    env: dict[str, str],
+) -> None:
+    resolved_console = Path(console_bin).resolve()
+    if not _path_is_relative_to(resolved_console, state_root):
+        surfaces.append(
+            SurfaceResult(
+                SURFACE_RECOVERY_SAFETY,
+                STATUS_FAIL,
+                "installed console resolves outside the disposable contour",
+            )
+        )
+        return
+    ambient_console = shutil.which(CONSOLE_SCRIPT, path=env.get("PATH"))
+    if ambient_console is None or Path(ambient_console).resolve() != resolved_console:
+        surfaces.append(
+            SurfaceResult(
+                SURFACE_RECOVERY_SAFETY,
+                STATUS_FAIL,
+                "PATH does not resolve uniquely to the disposable installed console",
+            )
+        )
+        return
+    surfaces.append(_probe_recovery_refusals(console_bin, probe_cwd, run_subprocess, env))
+    if not sys.platform.startswith("linux"):
+        surfaces.append(
+            _probe_unsupported_platform_updates(console_bin, probe_cwd, run_subprocess, env)
+        )
+    surfaces.append(
+        _probe_version_check_no_network(
+            python_bin, console_bin, probe_cwd, state_root, run_subprocess, env
+        )
+    )
+
+
 def run_venv_smoke(
     install_spec: str,
     package: str,
     run_subprocess: RunSubprocess,
+    *,
+    recovery_safety: bool = False,
 ) -> SmokeResult:
     """Install into a fresh disposable venv (non-editable) and probe all surfaces."""
     with tempfile.TemporaryDirectory(prefix="mempalace-install-smoke-") as tmpdir:
         tmp_root = Path(tmpdir)
         venv_dir = tmp_root / "venv"
         probe_cwd = tmp_root / "probe-cwd"
+        probe_home = tmp_root / "home"
+        probe_tmp = tmp_root / "tmp"
         probe_cwd.mkdir()
+        probe_home.mkdir()
+        probe_tmp.mkdir()
+        install_env = _credential_free_env()
+        install_env.update({"HOME": str(probe_home), "TMPDIR": str(probe_tmp)})
 
-        rc, _out, err = run_subprocess([sys.executable, "-m", "venv", str(venv_dir)])
+        rc, _out, err = run_subprocess(
+            [sys.executable, "-m", "venv", str(venv_dir)], env=install_env
+        )
         if rc != 0:
             detail = sanitize(err.strip()) or f"venv creation exited {rc}"
             surfaces = [
@@ -859,16 +2043,23 @@ def run_venv_smoke(
         python_bin = str(venv_dir / "bin" / "python")
         script_dir = venv_dir / "bin"
         console_bin = str(script_dir / CONSOLE_SCRIPT)
-        probe_env = _env_with_script_dir(script_dir)
+        probe_env = _isolate_probe_state(install_env, tmp_root, script_dir)
 
-        rc, out, err = run_subprocess([pip, "install", "--no-cache-dir", install_spec])
+        rc, out, err = run_subprocess(
+            [pip, "install", "--no-cache-dir", install_spec], env=install_env
+        )
         if rc != 0:
             detail = sanitize((err or out).strip()) or f"pip install exited {rc}"
             surfaces = [SurfaceResult(SURFACE_INSTALL, STATUS_FAIL, f"install failed: {detail}")]
             return SmokeResult(False, None, INSTALLER_VENV, install_spec, surfaces, [])
 
         metadata_result, module_result = probe_metadata_and_module(
-            python_bin, str(probe_cwd), run_subprocess, env=probe_env, source_root=str(_SOURCE_ROOT)
+            python_bin,
+            str(probe_cwd),
+            run_subprocess,
+            env=probe_env,
+            source_root=str(_SOURCE_ROOT),
+            expected_root=str(tmp_root) if recovery_safety else None,
         )
         cli_result = probe_cli_version_check(
             console_bin, str(probe_cwd), run_subprocess, env=probe_env
@@ -895,6 +2086,16 @@ def run_venv_smoke(
             agent_plugin_result,
             runtime_result,
         ]
+        if recovery_safety:
+            _append_recovery_safety(
+                surfaces,
+                python_bin=python_bin,
+                console_bin=console_bin,
+                probe_cwd=str(probe_cwd),
+                state_root=tmp_root,
+                run_subprocess=run_subprocess,
+                env=probe_env,
+            )
         return evaluate_smoke(surfaces, package, install_spec, INSTALLER_VENV)
 
 
@@ -902,6 +2103,8 @@ def run_bootstrap_venv_smoke(
     install_spec: str,
     package: str,
     run_subprocess: RunSubprocess,
+    *,
+    recovery_safety: bool = False,
 ) -> SmokeResult:
     """Exercise the documented ~/.mempalace/venv topology under a disposable HOME."""
     with tempfile.TemporaryDirectory(prefix="mempalace-bootstrap-smoke-") as tmpdir:
@@ -912,7 +2115,7 @@ def run_bootstrap_venv_smoke(
         probe_cwd = tmp_root / "probe-cwd"
         probe_cwd.mkdir()
 
-        env = dict(os.environ)
+        env = _credential_free_env()
         env["HOME"] = str(fake_home)
 
         rc, _out, err = run_subprocess([sys.executable, "-m", "venv", str(venv_dir)], env=env)
@@ -927,7 +2130,7 @@ def run_bootstrap_venv_smoke(
         pip = str(script_dir / "pip")
         python_bin = str(script_dir / "python")
         console_bin = str(script_dir / CONSOLE_SCRIPT)
-        probe_env = _env_with_script_dir(script_dir, env)
+        probe_env = _isolate_probe_state(env, tmp_root, script_dir)
 
         rc, out, err = run_subprocess(
             [pip, "install", "--no-cache-dir", install_spec], env=probe_env
@@ -943,6 +2146,7 @@ def run_bootstrap_venv_smoke(
             run_subprocess,
             env=probe_env,
             source_root=str(_SOURCE_ROOT),
+            expected_root=str(tmp_root) if recovery_safety else None,
         )
         cli_result = probe_cli_version_check(
             console_bin, str(probe_cwd), run_subprocess, env=probe_env
@@ -968,6 +2172,16 @@ def run_bootstrap_venv_smoke(
             agent_plugin_result,
             runtime_result,
         ]
+        if recovery_safety:
+            _append_recovery_safety(
+                surfaces,
+                python_bin=python_bin,
+                console_bin=console_bin,
+                probe_cwd=str(probe_cwd),
+                state_root=tmp_root,
+                run_subprocess=run_subprocess,
+                env=probe_env,
+            )
         return evaluate_smoke(surfaces, package, install_spec, INSTALLER_BOOTSTRAP_VENV)
 
 
@@ -975,6 +2189,8 @@ def run_pipx_smoke(
     install_spec: str,
     package: str,
     run_subprocess: RunSubprocess,
+    *,
+    recovery_safety: bool = False,
 ) -> SmokeResult:
     """Install via pipx into disposable PIPX_HOME/PIPX_BIN_DIR and probe all surfaces.
 
@@ -990,10 +2206,10 @@ def run_pipx_smoke(
         probe_cwd = tmp_root / "probe-cwd"
         probe_cwd.mkdir()
 
-        env = dict(os.environ)
+        env = _credential_free_env()
         env["PIPX_HOME"] = str(pipx_home)
         env["PIPX_BIN_DIR"] = str(pipx_bin)
-        env = _env_with_script_dir(pipx_bin, env)
+        env = _isolate_probe_state(env, tmp_root, pipx_bin)
 
         pipx_exe = find_pipx_executable()
         if pipx_exe is None:
@@ -1023,6 +2239,7 @@ def run_pipx_smoke(
             run_subprocess,
             env=env,
             source_root=str(_SOURCE_ROOT),
+            expected_root=str(tmp_root) if recovery_safety else None,
         )
         cli_result = probe_cli_version_check(console_bin, str(probe_cwd), run_subprocess, env=env)
         alias_result = probe_alias_provenance(console_bin, str(probe_cwd), run_subprocess, env=env)
@@ -1045,6 +2262,16 @@ def run_pipx_smoke(
             agent_plugin_result,
             runtime_result,
         ]
+        if recovery_safety:
+            _append_recovery_safety(
+                surfaces,
+                python_bin=venv_python,
+                console_bin=console_bin,
+                probe_cwd=str(probe_cwd),
+                state_root=tmp_root,
+                run_subprocess=run_subprocess,
+                env=env,
+            )
         return evaluate_smoke(surfaces, package, install_spec, INSTALLER_PIPX)
 
 
@@ -1052,6 +2279,9 @@ def run_uv_tool_smoke(
     install_spec: str,
     package: str,
     run_subprocess: RunSubprocess,
+    *,
+    recovery_safety: bool = False,
+    linux_lifecycle: bool = False,
 ) -> SmokeResult:
     """Install via uv tool into disposable tool, bin, and cache directories."""
     with tempfile.TemporaryDirectory(prefix="mempalace-uv-tool-smoke-") as tmpdir:
@@ -1063,11 +2293,11 @@ def run_uv_tool_smoke(
         for path in (tool_dir, bin_dir, cache_dir, probe_cwd):
             path.mkdir()
 
-        env = dict(os.environ)
+        env = _credential_free_env()
         env["UV_TOOL_DIR"] = str(tool_dir)
         env["UV_TOOL_BIN_DIR"] = str(bin_dir)
         env["UV_CACHE_DIR"] = str(cache_dir)
-        env = _env_with_script_dir(bin_dir, env)
+        env = _isolate_probe_state(env, tmp_root, bin_dir)
 
         uv_exe = find_uv_executable()
         if uv_exe is None:
@@ -1100,6 +2330,7 @@ def run_uv_tool_smoke(
             run_subprocess,
             env=env,
             source_root=str(_SOURCE_ROOT),
+            expected_root=str(tmp_root) if recovery_safety else None,
         )
         cli_result = probe_cli_version_check(console_bin, str(probe_cwd), run_subprocess, env=env)
         alias_result = probe_alias_provenance(console_bin, str(probe_cwd), run_subprocess, env=env)
@@ -1121,7 +2352,135 @@ def run_uv_tool_smoke(
             agent_plugin_result,
             runtime_result,
         ]
-        return evaluate_smoke(surfaces, package, install_spec, INSTALLER_UV_TOOL)
+        if recovery_safety:
+            _append_recovery_safety(
+                surfaces,
+                python_bin=str(python_path),
+                console_bin=console_bin,
+                probe_cwd=str(probe_cwd),
+                state_root=tmp_root,
+                run_subprocess=run_subprocess,
+                env=env,
+            )
+        result = evaluate_smoke(surfaces, package, install_spec, INSTALLER_UV_TOOL)
+        if linux_lifecycle and result.ok:
+            try:
+                lifecycle_console = Path(console_bin).resolve(strict=True)
+                resolved_tool_dir = tool_dir.resolve(strict=True)
+                lifecycle_console_stat = lifecycle_console.lstat()
+            except (OSError, RuntimeError):
+                lifecycle_console = None
+            if (
+                lifecycle_console is None
+                or resolved_tool_dir not in lifecycle_console.parents
+                or not stat.S_ISREG(lifecycle_console_stat.st_mode)
+                or lifecycle_console_stat.st_uid != os.geteuid()
+                or lifecycle_console_stat.st_mode & 0o111 == 0
+            ):
+                result.lifecycle = LinuxSystemdLifecycleResult(
+                    LIFECYCLE_STATUS_UNRUN,
+                    "uv tool lifecycle console did not resolve to an owned regular executable "
+                    "within UV_TOOL_DIR",
+                    recovery_command=LIFECYCLE_RECOVERY_COMMAND,
+                )
+                return result
+            lifecycle_env = dict(env)
+            lifecycle_env.update(
+                {
+                    "MEMPALACE_SOCKET_GUARD_LOADED": str(tmp_root / "socket-guard-loaded"),
+                    "MEMPALACE_SOCKET_ATTEMPTS": str(tmp_root / "socket-attempts.log"),
+                    LIFECYCLE_STAGING_ROOT_ENV: str(tmp_root),
+                    "PATH": os.pathsep.join(
+                        (str(bin_dir), str(Path(uv_exe).resolve().parent), os.defpath)
+                    ),
+                }
+            )
+            for name in (
+                "HOME",
+                "XDG_RUNTIME_DIR",
+                "DBUS_SESSION_BUS_ADDRESS",
+                LIFECYCLE_AUTHORITY_ENV,
+            ):
+                value = os.environ.get(name)
+                if value is not None:
+                    lifecycle_env[name] = value
+            result.lifecycle = run_linux_systemd_update_lifecycle(
+                str(lifecycle_console),
+                str(python_path),
+                result.expected_version,
+                str(probe_cwd),
+                run_subprocess,
+                lifecycle_env,
+            )
+        return result
+
+
+def run_all_installers_smoke(
+    install_spec: str,
+    package: str,
+    run_subprocess: RunSubprocess,
+) -> AggregateSmokeResult:
+    """Qualify one exact install spec through every canonical installer in order."""
+    runners = {
+        INSTALLER_VENV: run_venv_smoke,
+        INSTALLER_PIPX: run_pipx_smoke,
+        INSTALLER_UV_TOOL: run_uv_tool_smoke,
+        INSTALLER_BOOTSTRAP_VENV: run_bootstrap_venv_smoke,
+    }
+    results = []
+    diagnostics = []
+    for installer in INSTALLERS:
+        _emit_progress(f"installer:{installer}", "started")
+        if (
+            installer == INSTALLER_PIPX
+            and find_pipx_executable() is None
+            or installer == INSTALLER_UV_TOOL
+            and find_uv_executable() is None
+        ):
+            diagnostics.append(
+                f"{installer}: required tool unavailable; recovery: {MISSING_TOOL_RECOVERY[installer]}"
+            )
+        if installer == INSTALLER_UV_TOOL:
+            result = run_uv_tool_smoke(
+                install_spec,
+                package,
+                run_subprocess,
+                recovery_safety=True,
+                linux_lifecycle=True,
+            )
+        else:
+            result = runners[installer](install_spec, package, run_subprocess, recovery_safety=True)
+        results.append(result)
+        _emit_progress(f"installer:{installer}", "passed" if result.ok else "failed")
+        if not result.ok:
+            diagnostics.extend(f"{installer}: {item}" for item in result.diagnostics)
+    lifecycle = next((result.lifecycle for result in results if result.lifecycle is not None), None)
+    if lifecycle is None:
+        lifecycle = LinuxSystemdLifecycleResult(
+            LIFECYCLE_STATUS_UNRUN,
+            "no exact installed manager supplied Linux systemd-user lifecycle evidence",
+            recovery_command=LIFECYCLE_RECOVERY_COMMAND,
+        )
+    if not lifecycle.ok:
+        diagnostics.append(
+            f"{SURFACE_LINUX_SYSTEMD_LIFECYCLE}: {lifecycle.status}: {lifecycle.detail}; "
+            f"recovery: {lifecycle.recovery_command}"
+        )
+    _emit_progress(
+        SURFACE_LINUX_SYSTEMD_LIFECYCLE,
+        lifecycle.status,
+    )
+    aggregate_ok = (
+        len(results) == len(INSTALLERS) and all(result.ok for result in results) and lifecycle.ok
+    )
+    _emit_progress("aggregate", "passed" if aggregate_ok else "failed")
+    return AggregateSmokeResult(
+        ok=aggregate_ok,
+        install_spec=install_spec,
+        results=results,
+        diagnostics=diagnostics,
+        linux_systemd_update_lifecycle=lifecycle,
+    )
 
 
 # ── Output formatting ──────────────────────────────────────────────────────────
@@ -1147,7 +2506,152 @@ def render_human(result: SmokeResult) -> str:
     return "\n".join(lines)
 
 
+def render_aggregate_human(result: AggregateSmokeResult) -> str:
+    lines = [render_human(installer_result) for installer_result in result.results]
+    lines.append(
+        "All-installers smoke: OK"
+        if result.ok
+        else "All-installers smoke: FAILED\n" + "\n".join(result.diagnostics)
+    )
+    return "\n\n".join(lines)
+
+
 # ── Default subprocess callable ────────────────────────────────────────────────
+
+
+def _is_dependency_install(args: list[str]) -> bool:
+    if len(args) < 2:
+        return False
+    executable = Path(args[0]).name
+    return (
+        (executable in {"pip", "pip3"} and args[1] == "install")
+        or (executable == "pipx" and args[1] == "install")
+        or (executable == "uv" and args[1:3] == ["tool", "install"])
+    )
+
+
+def _owned_process_group_matches(pid: int, pgid: int, caller_pgid: int) -> bool:
+    """Revalidate the exact session retained from one child before signaling it."""
+    if pgid <= 1 or pgid != pid or pgid == caller_pgid or pgid == os.getpgrp():
+        return False
+    try:
+        current_pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        # A session leader may exit while its descendants retain our pipes.  Its
+        # process group cannot be reused while those descendants remain members,
+        # so the retained pid/pgid token still identifies exactly our session.
+        try:
+            os.killpg(pgid, 0)
+        except (ProcessLookupError, PermissionError):
+            return False
+        except OSError:
+            return False
+        return True
+    except OSError:
+        return False
+    return current_pgid == pgid
+
+
+def _owned_process_group_visibility(pgid: int, deadline: float, *, poll: bool = True) -> str:
+    """Confirm group disappearance, reporting visible, failed, or budget-exhausted states."""
+    while True:
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            return "gone"
+        except (PermissionError, OSError):
+            return "error"
+        if not poll:
+            return "visible"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "timeout"
+        time.sleep(min(0.01, remaining))
+
+
+def _settle_owned_process_group(
+    process: subprocess.Popen[str],
+    *,
+    pgid: int | None,
+    caller_pgid: int | None,
+) -> tuple[str, str, bool]:
+    """Apply finite TERM/KILL escalation and reap one previously admitted group."""
+    owned_group = (
+        pgid is not None
+        and caller_pgid is not None
+        and _owned_process_group_matches(process.pid, pgid, caller_pgid)
+    )
+    term_deadline = time.monotonic() + 2
+    try:
+        if owned_group and pgid is not None:
+            os.killpg(pgid, signal.SIGTERM)
+        else:
+            process.terminate()
+    except ProcessLookupError:
+        pass
+    except (PermissionError, OSError):
+        return "", "", False
+    stdout = ""
+    stderr = ""
+    try:
+        stdout, stderr = process.communicate(timeout=2)
+        if not owned_group or pgid is None:
+            return stdout, stderr, True
+        visibility = _owned_process_group_visibility(pgid, term_deadline, poll=False)
+        if visibility == "gone":
+            return stdout, stderr, True
+        if visibility != "visible" or time.monotonic() >= term_deadline:
+            return stdout, stderr, False
+        if caller_pgid is None or not _owned_process_group_matches(process.pid, pgid, caller_pgid):
+            return stdout, stderr, False
+        kill_deadline = time.monotonic() + 2
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except (PermissionError, OSError):
+            return stdout, stderr, False
+        try:
+            process.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            return stdout, stderr, False
+        return stdout, stderr, _owned_process_group_visibility(pgid, kill_deadline) == "gone"
+    except subprocess.TimeoutExpired:
+        group_owned = (
+            pgid is not None
+            and caller_pgid is not None
+            and _owned_process_group_matches(process.pid, pgid, caller_pgid)
+        )
+        kill_deadline = time.monotonic() + 2
+        try:
+            if group_owned and pgid is not None:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                process.kill()
+        except ProcessLookupError:
+            pass
+        except (PermissionError, OSError):
+            return stdout, stderr, False
+        try:
+            stdout, stderr = process.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            for pipe in (process.stdin, process.stdout, process.stderr):
+                if pipe is not None:
+                    try:
+                        pipe.close()
+                    except OSError:
+                        pass
+            try:
+                process.wait(timeout=1)
+            except (subprocess.TimeoutExpired, OSError):
+                return stdout, stderr, False
+            return stdout, stderr, False
+        settled = (
+            _owned_process_group_visibility(pgid, kill_deadline) == "gone"
+            if owned_group and pgid is not None
+            else pgid is None
+        )
+        return stdout, stderr, settled
 
 
 def _default_run_subprocess(
@@ -1155,27 +2659,84 @@ def _default_run_subprocess(
     env: dict[str, str] | None = None,
     cwd: str | None = None,
     input_text: str | None = None,
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    timeout_seconds: int | None = None,
 ) -> tuple[int, str, str]:
+    if timeout_seconds is None:
+        timeout_seconds = (
+            DEFAULT_INSTALL_TIMEOUT_SECONDS
+            if _is_dependency_install(args)
+            else DEFAULT_TIMEOUT_SECONDS
+        )
+    process: subprocess.Popen[str] | None = None
+    group_supported = os.name == "posix" and hasattr(os, "killpg")
+    caller_pgid = os.getpgrp() if group_supported else None
+    pgid: int | None = None
+    termination_started = False
+    previous_term_handler: object | None = None
+
+    def terminate_after_teardown(signum: int, _frame: object) -> None:
+        nonlocal termination_started
+        if termination_started:
+            return
+        termination_started = True
+        raise SystemExit(128 + signum)
+
     try:
-        r = subprocess.run(
+        previous_term_handler = signal.signal(signal.SIGTERM, terminate_after_teardown)
+    except (OSError, ValueError):
+        previous_term_handler = None
+    try:
+        process = subprocess.Popen(
             args,
-            input=input_text,
-            capture_output=True,
+            stdin=subprocess.PIPE if input_text is not None else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_seconds,
             env=env,
             cwd=cwd,
+            start_new_session=group_supported,
         )
+        if group_supported:
+            pgid = process.pid
+        stdout, stderr = process.communicate(input=input_text, timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
-        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        assert process is not None
+        stdout, stderr, _settled = _settle_owned_process_group(
+            process,
+            pgid=pgid,
+            caller_pgid=caller_pgid,
+        )
+        if not stdout and isinstance(exc.stdout, str):
+            stdout = exc.stdout
+        if not stderr and isinstance(exc.stderr, str):
+            stderr = exc.stderr
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode(errors="replace")
         command = Path(args[0]).name if args else "command"
-        detail = stderr.strip() or f"{command} timed out after {timeout_seconds}s"
+        detail = sanitize(stderr.strip()) or f"{command} timed out after {timeout_seconds}s"
+        if not _settled:
+            detail = sanitize(
+                f"{detail}; cleanup could not be confirmed; recovery: {LIFECYCLE_RECOVERY_COMMAND}"
+            )
         return 124, stdout, detail
     except OSError as exc:
+        if process is not None:
+            _settle_owned_process_group(process, pgid=pgid, caller_pgid=caller_pgid)
         return 1, "", str(exc)
-    return r.returncode, r.stdout, r.stderr
+    except BaseException:
+        if process is not None:
+            try:
+                _settle_owned_process_group(process, pgid=pgid, caller_pgid=caller_pgid)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        raise
+    finally:
+        if previous_term_handler is not None:
+            try:
+                signal.signal(signal.SIGTERM, previous_term_handler)
+            except (OSError, ValueError):
+                pass
+    return process.returncode, stdout, stderr
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -1198,17 +2759,27 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_PACKAGE,
         help=f"Distribution name to check metadata for (default: {DEFAULT_PACKAGE}).",
     )
-    parser.add_argument(
+    installer_mode = parser.add_mutually_exclusive_group()
+    installer_mode.add_argument(
         "--installer",
         choices=INSTALLERS,
         default=INSTALLER_VENV,
         help="Disposable environment kind to install into (default: venv).",
     )
+    installer_mode.add_argument(
+        "--all-installers",
+        action="store_true",
+        help="Run every required installer in canonical release order; incompatible with --installer.",
+    )
     parser.add_argument(
         "--timeout-seconds",
         type=int,
-        default=DEFAULT_TIMEOUT_SECONDS,
-        help=f"Per-subprocess timeout in seconds (default: {DEFAULT_TIMEOUT_SECONDS}).",
+        default=None,
+        help=(
+            "Override every subprocess timeout in seconds "
+            f"(defaults: probes {DEFAULT_TIMEOUT_SECONDS}, installs "
+            f"{DEFAULT_INSTALL_TIMEOUT_SECONDS})."
+        ),
     )
     parser.add_argument(
         "--json",
@@ -1239,12 +2810,23 @@ def main(argv: list[str] | None = None) -> int:
         INSTALLER_UV_TOOL: run_uv_tool_smoke,
         INSTALLER_BOOTSTRAP_VENV: run_bootstrap_venv_smoke,
     }
-    result = runners[args.installer](args.install_spec, args.package, run_subprocess)
+    if args.all_installers:
+        result = run_all_installers_smoke(args.install_spec, args.package, run_subprocess)
+    else:
+        result = runners[args.installer](
+            args.install_spec,
+            args.package,
+            run_subprocess,
+            recovery_safety=not sys.platform.startswith("linux"),
+        )
 
     if args.json_output:
         print(json.dumps(result.to_dict(), indent=2))
     else:
-        print(render_human(result))
+        if isinstance(result, AggregateSmokeResult):
+            print(render_aggregate_human(result))
+        else:
+            print(render_human(result))
 
     return 0 if result.ok else 1
 

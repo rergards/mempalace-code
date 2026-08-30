@@ -8,11 +8,11 @@ Builds a navigable graph from the palace structure:
   - Edge types = halls (the corridors)
 
 Enables queries like:
-  "Start at chromadb-setup in wing_code, walk to wing_myproject"
+  "Start at storage-setup in wing_code, walk to wing_myproject"
   "Find all rooms connected to riley-college-apps"
   "What topics bridge wing_hardware and wing_myproject?"
 
-No external graph DB needed — built from ChromaDB metadata.
+No external graph DB needed — built from LanceDB metadata.
 """
 
 from collections import Counter, defaultdict

@@ -227,9 +227,12 @@ def test_mcp_session_lifecycle(tmp_path, monkeypatch):
     status = tool_status()
     assert "error" in status, f"Expected no-palace error on lazy startup, got: {status}"
 
-    # Step 2: search on empty palace — must return results key without crashing
+    # Step 2: search on empty palace — must report the existing missing-palace contract
     search_empty = tool_search(query="authentication JWT tokens")
-    assert "results" in search_empty
+    assert search_empty == {
+        "error": "No palace found",
+        "hint": "Run: mempalace-code init <dir> && mempalace-code mine <dir>",
+    }
 
     # Step 3: add a drawer
     add_result = tool_add_drawer(

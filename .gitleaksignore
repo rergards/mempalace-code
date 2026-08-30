@@ -1,0 +1,3 @@
+# Reviewed false positives. Each line is one native Gitleaks fingerprint.
+fd9a87eeb1c4f905731f10e5cc1512f57355ae40:docs/BACKLOG.yaml:generic-api-key:1064
+cddbbbbcf812bc84def50bbea09e4c13629e810b:docs/BACKLOG-archived.yaml:generic-api-key:229

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## v1.13.5 — 2026-08-21
+## v1.13.5 — 2026-08-24
 
 Patch release for ingest source safety, ChromaDB runtime retirement, explicit
 update and install opt-ins, alias target containment, and stricter MCP argument
@@ -14,17 +14,23 @@ validation.
 
 ### Changed
 
-- ChromaDB runtime retired: configurations selecting the retired backend must run `mempalace-code migrate-storage SRC DST --verify` before upgrading. Migration-only extras `.[chroma-migration]` and the deprecated `.[chroma]` compatibility alias remain available; default LanceDB users require no action (`STORE-RETIRE-CHROMA-RUNTIME`).
+- Installed CLI paths now provide consistent project detection, confirmation output, and machine-reconcilable recovery commands.
+- ChromaDB runtime and migration bridge retired: current packages contain no Chroma extras. Retired backend or `migrate-storage` invocations stop before mutation and print the isolated 1.13.4 recovery command. Back up the Chroma source before upgrading; default LanceDB users require no action (`CHROMA-MIGRATION-ADVISORY-SUNSET`).
 - `mine-all`, `watch <dir>`, and `watch <dir> schedule` now ignore symlinked project and initialization markers, including `.git`. Replace the symlink with a supported in-project marker — a real `.git` directory or a regular marker file — then rerun the original command (`WATCH-ROOT-PROJECT-MARKER-CLASSIFICATION-REUSE`).
 - Update and install flows surface safe opt-in choices explicitly to agents and users (`AGENT-INSTALL-UPDATE-OPT-IN-FLOW`).
 - Alias target directory is now contained to the explicitly configured path (`INSTALL-ALIAS-TARGET-CONTAINMENT`).
 - Agent instruction rules are installed as a delimited managed block, so reinstalls update the block in place instead of appending a second copy.
+- Removed the redundant daily/manual GitHub `Upstream drift` workflow that produced recurring notifications; fail-closed live drift checks remain in the pre-tag and tag-publish release paths (`REL-REMOVE-SCHEDULED-UPSTREAM-DRIFT`).
 - Synchronized package, lockfile, README badge, Agent Plugin manifest, and generated quality scorecards on version 1.13.5.
 
 ### Fixed
 
+- Public version-tag admission now aggregates active rulesets and stops reporting omitted private bypass data as zero actors. Credential-free checks continue to require restricted creation, update, and deletion while bypass identity remains an owner-verified repository setting.
+- Explicit `version-check --check-now` now honors the process-level `MEMPALACE_VERSION_CHECK` kill switch: `0` and invalid values fail closed before PyPI access with a concrete recovery command; persisted opt-out remains overridable when the environment override is absent.
 - `mempalace-code init` now rejects symlink, FIFO, socket, and directory destinations for `mempalace.yaml` and enabled `entities.json` output before scanning, then writes regular outputs atomically without changing existing file modes or following a destination swapped after validation (`INIT-CONFIG-IRREGULAR-DESTINATION-GUARD`).
 - Split outputs now refuse FIFOs, symlinks, hardlinks, and other unsafe synthesized targets without hanging or following them; partial failure retains the source, reports created outputs, and exits nonzero (`UPSTREAM-POST-3-7-1-DRIFT-REVIEW`).
+- Forced restore now stages LanceDB replacement and restores the previous palace when later publication fails. If rollback ownership is lost, the prior Lance tree remains in a reported recovery directory instead of being deleted.
+- JSONL export/import now preserves `line_start` and `line_end`, so imported mined drawers remain readable through `mempalace-code read` instead of degrading to stale pointers.
 - `install-alias` now binds the legacy `mempalace` command to the actually invoked `mempalace-code` launcher, including pipx/uv symlink launchers and the dedicated `mempalace-code-alias` entry point, even when ambient `PATH` contains another same-named executable.
 - MCP tool calls reject non-object and undeclared arguments with JSON-RPC `-32602`, and a malformed request no longer ends the session — the next valid request is still served.
 - Degraded CLI and onboarding paths handle malformed or absent input safely.

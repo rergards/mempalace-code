@@ -35,7 +35,12 @@ FORBIDDEN_MEMBER_PREFIXES: tuple[str, ...] = (
     # the only place this is caught.
     ".codex/",
     ".codex-local/",
+    ".claude/",
+    ".github/",
+    "scripts/codex-review.sh",
     "docs/audits/",
+    "docs/dependency-upgrade-reports/",
+    "docs/plans/",
     ".verify-state",
     "__pycache__/",
     ".mypy_cache/",

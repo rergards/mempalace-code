@@ -46,14 +46,4 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items:
-  - key: REL-ADMISSION-EXACT-SHA-PROTECTED-REFS-APPLY-RULESETS
-    summary: "Apply the documented GitHub rulesets for public main and v* after the aggregate release-required check exists, then rerun read-only status against the public repo."
-    type: task
-    status: open
-    priority: highest
-    section_id: immediate
-    assignee: owner
-    labels: [deploy-prereq, owner-action]
-    blocks_deploy: true
-    description: "## Scope\n\nApply the exact-SHA branch and v* tag rulesets defined in docs/release-admission-rulesets.md to the public repository, then rerun the documented read-only status checks. Use the reviewed release candidate SHA and confirm the aggregate release-required check exists. This task authorizes only the owner to mutate GitHub rulesets; bot and release-preparation runs remain read-only.\n\n## Progress evidence\n\nApplied active rulesets on 2026-08-21: public main ruleset 21170747 and immutable v* tag ruleset 21170748. The read-only branch and tag ruleset checks pass. Exact-SHA admission remains pending until the reviewed candidate is present on the public repository and its release-required check has completed.\n\n## Acceptance criteria\n\n- The public main and v* rulesets match docs/release-admission-rulesets.md, the documented read-only checks pass against the reviewed candidate SHA, and publication remains blocked on any mismatch.\n\n## Recovery\n\nIf apply or verification fails, stop publication, preserve the ruleset response, and rerun the read-only commands in docs/release-admission-rulesets.md before any retry. Do not dispatch a replacement CI run for an SHA that did not receive the required push or pull-request checks."
+items: []

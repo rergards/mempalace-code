@@ -74,6 +74,63 @@ def test_json_normalize_spellcheck_disabled_preserves_user_text():
     assert "> please help" not in result
 
 
+def test_plain_spellcheck_preserves_marker_spacing(tmp_path):
+    cases = (
+        (">pleese help\nAssistant: pleese stays\n", ">please help\nAssistant: pleese stays\n"),
+        ("> pleese help\n", "> please help\n"),
+        (">  pleese help\n", ">  please help\n"),
+        ("\t>\tpleese help\n", "\t>\tplease help\n"),
+        ("\t> \tpleese help\n", "\t> \tplease help\n"),
+    )
+    with patch(
+        "mempalace_code.spellcheck.spellcheck_user_text",
+        side_effect=lambda text: text.replace("pleese", "please"),
+    ):
+        for index, (content, expected) in enumerate(cases):
+            path = tmp_path / f"transcript-{index}.txt"
+            path.write_text(content)
+            assert normalize(str(path), spellcheck=True) == expected
+
+
+def test_invalid_json_plain_fallback_spellchecks_user_turns(tmp_path):
+    content = '{"broken":\n>pleese help\nAssistant: pleese stays\n'
+    path = tmp_path / "broken.json"
+    path.write_text(content)
+
+    with patch(
+        "mempalace_code.spellcheck.spellcheck_user_text",
+        side_effect=lambda text: text.replace("pleese", "please"),
+    ):
+        result = normalize(str(path), spellcheck=True)
+
+    assert result == content.replace(">pleese", ">please", 1)
+
+
+def test_plain_spellcheck_disabled_preserves_content_exactly(tmp_path):
+    content = "# Notes\n\t>  pleese   check\nAssistant: pleese\n\n"
+    path = tmp_path / "transcript.md"
+    path.write_text(content)
+
+    assert normalize(str(path), spellcheck=False) == content
+
+
+def test_json_spellcheck_does_not_run_plain_transcript_spellcheck(tmp_path):
+    data = [{"role": "user", "content": "pleese help"}, {"role": "assistant", "content": "Ok"}]
+    path = tmp_path / "conversation.json"
+    path.write_text(json.dumps(data))
+    with (
+        patch(
+            "mempalace_code.spellcheck.spellcheck_user_text", return_value="please help"
+        ) as user_spell,
+        patch("mempalace_code.spellcheck.spellcheck_transcript") as transcript_spell,
+    ):
+        result = normalize(str(path), spellcheck=True)
+
+    assert "> please help" in result
+    user_spell.assert_called_once_with("pleese help")
+    transcript_spell.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Claude.ai JSON regression: tool_use_map=None must not change behavior
 # ---------------------------------------------------------------------------

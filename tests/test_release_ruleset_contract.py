@@ -14,6 +14,7 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -35,6 +36,7 @@ def _load(name: str, relative: str):
 
 ADMISSION = _load("release_admission_checks", "scripts/release_admission_checks.py")
 DRIFT_GUARD = _load("docs_drift_guard", "scripts/docs_drift_guard.py")
+ADMISSION._load_public_read().PUBLIC_REPOSITORY = "acme/tool"
 
 
 # ── Fixture payloads ──────────────────────────────────────────────────────────
@@ -77,7 +79,6 @@ def _ruleset_detail(
     enforcement: str = "active",
     rule_types: list[str] | None = None,
     include: list[str] | None = None,
-    bypass_actors: list[dict] | None = None,
 ) -> dict:
     """Shape of GET /repos/{repo}/rulesets/{id}: full rules and conditions."""
     if rule_types is None:
@@ -91,24 +92,45 @@ def _ruleset_detail(
         "enforcement": enforcement,
         "conditions": {"ref_name": {"include": include, "exclude": []}},
         "rules": [{"type": rule_type} for rule_type in rule_types],
-        "bypass_actors": bypass_actors if bypass_actors is not None else [],
     }
 
 
-def _gh(responses: dict[str, object]):
-    """Injected gh seam: maps an api path prefix to a payload or (code, out, err)."""
+def _query_path(query) -> str:
+    repo = query.values[0]
+    if query.endpoint == "github_branch_rules":
+        return f"repos/{repo}/rules/branches/{query.values[1]}"
+    if query.endpoint == "github_rulesets":
+        return f"repos/{repo}/rulesets?per_page={query.values[1]}"
+    if query.endpoint == "github_ruleset":
+        return f"repos/{repo}/rulesets/{query.values[1]}"
+    if query.endpoint == "github_check_runs":
+        return f"repos/{repo}/commits/{query.values[1]}/check-runs"
+    raise AssertionError(f"unexpected public query: {query.endpoint}")
 
-    def run_gh(args: list[str]) -> tuple[int, str, str]:
-        assert args[0] == "api", args
-        path = args[1]
+
+def _fixture_result(response: object):
+    if isinstance(response, tuple):
+        code, output, error = response
+        if code != 0:
+            return SimpleNamespace(data=None, error=error or output or "fixture error")
+        try:
+            return SimpleNamespace(data=json.loads(output), error="")
+        except json.JSONDecodeError as exc:
+            return SimpleNamespace(data=None, error=f"unparseable JSON: {exc}")
+    return SimpleNamespace(data=response, error="")
+
+
+def _gh(responses: dict[str, object]):
+    """Map a normalized public query to one hermetic payload fixture."""
+
+    def public_read(query):
+        path = _query_path(query)
         for prefix, response in responses.items():
             if path.startswith(prefix):
-                if isinstance(response, tuple):
-                    return response
-                return 0, json.dumps(response), ""
-        raise AssertionError(f"unexpected gh api path: {path}")
+                return _fixture_result(response)
+        raise AssertionError(f"unexpected public query path: {path}")
 
-    return run_gh
+    return public_read
 
 
 BRANCH_RULES_PATH = "repos/acme/tool/rules/branches/main"
@@ -173,20 +195,91 @@ def test_unparseable_branch_rules_error_instead_of_passing():
 # ── Public v* tag ruleset ─────────────────────────────────────────────────────
 
 
-def test_compliant_tag_ruleset_passes_and_reports_bypass_actors():
+def test_compliant_tag_ruleset_restricts_creation_update_and_deletion():
     row = ADMISSION.check_tag_ruleset(
         "acme/tool",
         _gh(
             {
                 RULESET_LIST_PATH: [_ruleset_summary(7, "public-v-tags")],
-                RULESET_DETAIL_PATH: _ruleset_detail(
-                    bypass_actors=[{"actor_id": 1, "actor_type": "OrganizationAdmin"}]
-                ),
+                RULESET_DETAIL_PATH: _ruleset_detail(),
             }
         ),
     )
     assert row.status == ADMISSION.STATUS_OK
-    assert "1 auditable break-glass bypass actor" in row.detail
+    assert "restrict refs/tags/v* creation, update, and deletion" in row.detail
+    assert "bypass identity is owner-verified" in row.detail
+
+
+def test_public_gate_does_not_require_or_infer_omitted_bypass_actors():
+    detail = _ruleset_detail()
+    assert "bypass_actors" not in detail
+    row = ADMISSION.check_tag_ruleset(
+        "acme/tool",
+        _gh(
+            {
+                RULESET_LIST_PATH: [_ruleset_summary(7, "public-v-tags")],
+                RULESET_DETAIL_PATH: detail,
+            }
+        ),
+    )
+
+    assert row.status == ADMISSION.STATUS_OK
+    assert "0 auditable" not in row.detail
+
+
+def test_reordered_and_aggregated_tag_rules_keep_the_same_verdict():
+    summaries = [
+        _ruleset_summary(9, "public-v-tag-creation"),
+        _ruleset_summary(7, "public-v-tag-updates"),
+        _ruleset_summary(8, "public-v-tag-deletions"),
+    ]
+    details = {
+        7: _ruleset_detail(7, name="public-v-tag-updates", rule_types=["update"]),
+        8: _ruleset_detail(
+            8,
+            name="public-v-tag-deletions",
+            rule_types=["deletion"],
+            include=["refs/tags/v1.*", ADMISSION.TAG_RULESET_REF],
+        ),
+        9: _ruleset_detail(9, name="public-v-tag-creation", rule_types=["creation"]),
+    }
+
+    def public_read(query):
+        if query.endpoint == "github_rulesets":
+            return _fixture_result(list(reversed(summaries)))
+        if query.endpoint == "github_ruleset":
+            return _fixture_result(details[query.values[1]])
+        raise AssertionError(f"unexpected public query: {query.endpoint}")
+
+    row = ADMISSION.check_tag_ruleset("acme/tool", public_read)
+
+    assert row.status == ADMISSION.STATUS_OK
+    assert "3 active ruleset(s)" in row.detail
+
+
+def test_inactive_matching_ruleset_does_not_change_the_active_contract():
+    summaries = [
+        _ruleset_summary(7, "public-v-tags"),
+        _ruleset_summary(8, "inactive-malformed-rules"),
+    ]
+    details = {
+        7: _ruleset_detail(7, name="public-v-tags"),
+        8: {
+            **_ruleset_detail(8, name="inactive-malformed-rules", enforcement="evaluate"),
+            "rules": "malformed",
+        },
+    }
+
+    def public_read(query):
+        if query.endpoint == "github_rulesets":
+            return _fixture_result(summaries)
+        if query.endpoint == "github_ruleset":
+            return _fixture_result(details[query.values[1]])
+        raise AssertionError(f"unexpected public query: {query.endpoint}")
+
+    row = ADMISSION.check_tag_ruleset("acme/tool", public_read)
+
+    assert row.status == ADMISSION.STATUS_OK
 
 
 def test_ruleset_summary_without_detail_lookup_is_not_enough():
@@ -197,14 +290,14 @@ def test_ruleset_summary_without_detail_lookup_is_not_enough():
 
     detail_paths: list[str] = []
 
-    def run_gh(args: list[str]) -> tuple[int, str, str]:
-        path = args[1]
+    def public_read(query):
+        path = _query_path(query)
         if path.startswith(RULESET_LIST_PATH):
-            return 0, json.dumps([summary_only]), ""
+            return _fixture_result([summary_only])
         detail_paths.append(path)
-        return 0, json.dumps(_ruleset_detail()), ""
+        return _fixture_result(_ruleset_detail())
 
-    row = ADMISSION.check_tag_ruleset("acme/tool", run_gh)
+    row = ADMISSION.check_tag_ruleset("acme/tool", public_read)
     assert row.status == ADMISSION.STATUS_OK
     assert detail_paths == ["repos/acme/tool/rulesets/7"]
 
@@ -277,18 +370,26 @@ def test_ruleset_permission_error_is_an_error_row_with_a_scope_remediation():
         _gh({RULESET_LIST_PATH: (1, "", "HTTP 403: Must have admin rights to Repository")}),
     )
     assert row.status == ADMISSION.STATUS_ERROR
-    assert "read access to repository rulesets" in row.remediation
+    assert "credential-free public GitHub API" in row.remediation
+    assert "--repo rergards/mempalace-code --check-tag-ruleset --json" in row.remediation
 
 
-def test_ruleset_doc_separates_hosted_branch_checks_from_operator_tag_ruleset():
+def test_ruleset_doc_assigns_hosted_branch_and_tag_checks_to_credential_free_reader():
     text = RULESET_DOC.read_text(encoding="utf-8")
 
     assert "Hosted `.github/workflows/publish.yml`" in text
     assert "`refs/heads/main`" in text
     assert all(rule in text for rule in ADMISSION.MAIN_BRANCH_REQUIRED_RULE_TYPES)
     assert "`refs/tags/v*` ruleset" in text
-    assert "operator-side" in text
-    assert "administration read" in text
+    assert "credential-free public reader" in text
+    assert "admission receives no GitHub token" in text
+    assert "does not expose `bypass_actors`" in text
+    assert "owner verifies the configured bypass actor" in text
+    assert "break-glass" in text
+    assert (
+        "python scripts/release_preflight.py --repo rergards/mempalace-code "
+        "--check-tag-ruleset --json"
+    ) in text
 
 
 def test_ruleset_doc_owns_the_exact_job_partial_publication_recovery():
@@ -329,11 +430,11 @@ def test_ruleset_list_requests_one_more_than_it_will_read_back():
     """
     requested: list[str] = []
 
-    def run_gh(args: list[str]) -> tuple[int, str, str]:
-        requested.append(args[1])
-        return 0, json.dumps([_ruleset_summary(7, "public-v-tags")]), ""
+    def public_read(query):
+        requested.append(_query_path(query))
+        return _fixture_result([_ruleset_summary(7, "public-v-tags")])
 
-    ADMISSION.check_tag_ruleset("acme/tool", run_gh)
+    ADMISSION.check_tag_ruleset("acme/tool", public_read)
 
     assert ADMISSION.RULESET_LIST_PAGE_SIZE > ADMISSION.MAX_RULESET_DETAIL_LOOKUPS
     assert f"per_page={ADMISSION.RULESET_LIST_PAGE_SIZE}" in requested[0]
@@ -359,19 +460,20 @@ def test_a_ruleset_list_that_fills_the_page_errors_instead_of_reporting_none_fou
 def test_a_full_but_not_overflowing_ruleset_list_is_still_evaluated():
     """Exactly the budget is readable in full, so it must not error spuriously."""
     summaries = [
-        _ruleset_summary(i, f"ruleset-{i}") for i in range(ADMISSION.MAX_RULESET_DETAIL_LOOKUPS - 1)
+        _ruleset_summary(i, f"ruleset-{i}") for i in range(1, ADMISSION.MAX_RULESET_DETAIL_LOOKUPS)
     ]
     summaries.append(_ruleset_summary(9001, "public-v-tags"))
 
-    def run_gh(args: list[str]) -> tuple[int, str, str]:
-        if args[1].startswith(RULESET_LIST_PATH):
-            return 0, json.dumps(summaries), ""
-        ruleset_id = int(args[1].rsplit("/", 1)[1])
+    def public_read(query):
+        path = _query_path(query)
+        if path.startswith(RULESET_LIST_PATH):
+            return _fixture_result(summaries)
+        ruleset_id = int(path.rsplit("/", 1)[1])
         if ruleset_id == 9001:
-            return 0, json.dumps(_ruleset_detail(9001)), ""
-        return 0, json.dumps(_ruleset_detail(ruleset_id, target="branch")), ""
+            return _fixture_result(_ruleset_detail(9001))
+        return _fixture_result(_ruleset_detail(ruleset_id, target="branch"))
 
-    row = ADMISSION.check_tag_ruleset("acme/tool", run_gh)
+    row = ADMISSION.check_tag_ruleset("acme/tool", public_read)
 
     assert len(summaries) == ADMISSION.MAX_RULESET_DETAIL_LOOKUPS
     assert row.status == ADMISSION.STATUS_OK
@@ -430,9 +532,9 @@ def test_each_documented_predicate_row_names_a_recovery_command():
     ):
         assert row_name in text, row_name
     for command in (
-        "gh api repos/<repo>/commits/<sha>/check-runs",
-        "gh api repos/<repo>/rules/branches/main",
-        "gh api repos/<repo>/rulesets",
+        "fixed GitHub check-runs GET",
+        "fixed GitHub effective branch-rules GET",
+        "fixed GitHub ruleset list/detail GETs",
         "gh workflow run 'Dependency Audit'",
     ):
         assert command in text, command
@@ -473,13 +575,11 @@ def _check_run(
 
 
 def _audit_gh(runs: list[dict] | tuple[int, str, str]):
-    def run_gh(args: list[str]) -> tuple[int, str, str]:
-        assert args[0] == "run", args
-        if isinstance(runs, tuple):
-            return runs
-        return 0, json.dumps(runs), ""
+    def public_read(query):
+        assert query.endpoint == "github_workflow_runs"
+        return _fixture_result(runs)
 
-    return run_gh
+    return public_read
 
 
 def test_yesterdays_sha_does_not_inherit_todays_green_check():

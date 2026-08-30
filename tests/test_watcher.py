@@ -4,30 +4,41 @@ Covers:
   - CLI flag mutual-exclusion validation (--watch + --dry-run/--full/--limit/convos)
   - _is_relevant_change() filtering semantics
   - watch_and_mine() integration: file change triggers re-mine, deletion handled
-  - SIGTERM handling (subprocess, slow)
+  - SIGTERM/SIGHUP handler installation, delivery, and restoration
   - ImportError message when watchfiles is missing
   - CLI dispatch: cmd_mine dispatches to watch_and_mine() with correct args
 """
 
 import json
 import os
+import plistlib
 import shlex
 import signal
 import subprocess
 import sys
 import time
+from argparse import Namespace
 from pathlib import Path
+from types import FrameType
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 
+import mempalace_code.watcher as watcher_module
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 from mempalace_code.cli import main
+from mempalace_code.cli_commands.watch import cmd_watch_schedule
 from mempalace_code.miner import ScanFilterRules
 from mempalace_code.operation_lock import OperationLock
 from mempalace_code.watcher import (
     _invalidate_gitignore_cache,
     _is_relevant_change,
+    _WatcherShutdownSignals,
     render_watch_schedule,
     watch_all,
     watch_and_mine,
@@ -598,41 +609,213 @@ class TestWatcherOperationLease:
 
 
 # ---------------------------------------------------------------------------
-# SIGTERM handling — subprocess (slow)
+# Graceful watcher shutdown signals
 # ---------------------------------------------------------------------------
 
 
-class TestSigterm:
-    @pytest.mark.slow
-    def test_watch_handles_sigterm(self, tmp_path):
-        """Watcher subprocess exits with code 0 on SIGTERM."""
-        import time
-
-        project = tmp_path / "proj"
+class TestWatcherShutdownSignals:
+    @pytest.mark.parametrize("entrypoint", ["watch_and_mine", "watch_all"])
+    def test_immediate_sigint_after_watch_ready_is_clean(self, tmp_path, capsys, entrypoint):
+        project = tmp_path / "project"
         _make_project(project)
-        palace = tmp_path / "palace"
+        supported_signals = [signal.SIGTERM]
+        if hasattr(signal, "SIGHUP"):
+            supported_signals.append(signal.SIGHUP)
 
-        script = "\n".join(
-            [
-                "from unittest.mock import patch",
-                "from mempalace_code.watcher import watch_and_mine",
-                "with patch('mempalace_code.watcher.mine'):",
-                f"    watch_and_mine({str(project)!r}, {str(palace)!r})",
-            ]
+        original_handlers = {
+            shutdown_signal: signal.SIG_DFL for shutdown_signal in supported_signals
+        }
+        current_handlers = dict(original_handlers)
+        signal_calls = []
+        emitted_states = []
+        original_emit_run_state = watcher_module._emit_run_state
+        watch_mock = MagicMock(side_effect=AssertionError("watch loop must not start"))
+
+        def fake_getsignal(shutdown_signal):
+            return current_handlers[shutdown_signal]
+
+        def fake_signal(shutdown_signal, handler):
+            signal_calls.append((shutdown_signal, handler))
+            current_handlers[shutdown_signal] = handler
+
+        def interrupt_after_ready(run_id, state, extra=""):
+            original_emit_run_state(run_id, state, extra)
+            emitted_states.append(state)
+            if state == "watch-ready":
+                raise KeyboardInterrupt
+
+        with (
+            patch("mempalace_code.watcher.signal.getsignal", side_effect=fake_getsignal),
+            patch("mempalace_code.watcher.signal.signal", side_effect=fake_signal),
+            patch("mempalace_code.watcher._emit_run_state", side_effect=interrupt_after_ready),
+            patch("mempalace_code.watcher.mine", return_value={}),
+            patch("mempalace_code.watcher.get_collection"),
+            patch("watchfiles.watch", new=watch_mock),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            if entrypoint == "watch_and_mine":
+                watch_and_mine(str(project), str(tmp_path / "palace"))
+            else:
+                watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
+
+        assert emitted_states[-1] == "watch-ready"
+        watch_mock.assert_not_called()
+        assert [call[0] for call in signal_calls[: len(supported_signals)]] == supported_signals
+        assert [call[0] for call in signal_calls[-len(supported_signals) :]] == list(
+            reversed(supported_signals)
         )
+        assert current_handlers == original_handlers
 
-        proc = subprocess.Popen([sys.executable, "-c", script])
-        time.sleep(1)
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            pytest.fail("watcher did not exit within 15s after SIGTERM")
+        captured = capsys.readouterr()
+        combined_output = captured.out + captured.err
+        assert "Watch stopped after" in captured.out
+        expected_summary = (
+            "0 re-mine cycle(s), 0 file event(s)."
+            if entrypoint == "watch_and_mine"
+            else "0 re-mine cycle(s), 0 event(s) across 1 project(s)."
+        )
+        assert expected_summary in captured.out
+        assert "Traceback" not in combined_output
 
-        # Accept clean exit (0) or killed-by-signal (-15) — on CI the signal
-        # may terminate the process before the handler sets the stop event.
-        assert proc.returncode in (0, -15, -signal.SIGTERM)
+    @pytest.mark.parametrize("entrypoint", ["watch_and_mine", "watch_all"])
+    def test_entrypoints_register_deliver_and_restore_supported_signals(self, tmp_path, entrypoint):
+        project = tmp_path / "project"
+        _make_project(project)
+        supported_signals = [signal.SIGTERM]
+        if hasattr(signal, "SIGHUP"):
+            supported_signals.append(signal.SIGHUP)
+
+        def original_sigterm_handler(_signum: int, _frame: FrameType | None) -> None:
+            pass
+
+        original_handlers: dict[int, Callable[[int, FrameType | None], object] | int | None] = {
+            shutdown_signal: (
+                original_sigterm_handler if shutdown_signal == signal.SIGTERM else signal.SIG_DFL
+            )
+            for shutdown_signal in supported_signals
+        }
+        current_handlers = dict(original_handlers)
+        signal_calls = []
+
+        def fake_getsignal(shutdown_signal):
+            return current_handlers[shutdown_signal]
+
+        def fake_signal(shutdown_signal, handler):
+            signal_calls.append((shutdown_signal, handler))
+            current_handlers[shutdown_signal] = handler
+
+        def fake_watch(*args, stop_event=None, **kwargs):
+            assert stop_event is not None
+            assert stop_event.is_set() is False
+            for shutdown_signal in supported_signals:
+                handler = current_handlers[shutdown_signal]
+                assert callable(handler)
+                handler(shutdown_signal, None)
+                handler(shutdown_signal, None)
+            assert stop_event.is_set() is True
+            return iter([])
+
+        with (
+            patch("mempalace_code.watcher.signal.getsignal", side_effect=fake_getsignal),
+            patch("mempalace_code.watcher.signal.signal", side_effect=fake_signal),
+            patch("mempalace_code.watcher.mine", return_value={}),
+            patch("mempalace_code.watcher.get_collection"),
+            patch("watchfiles.watch", side_effect=fake_watch),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+        ):
+            if entrypoint == "watch_and_mine":
+                watch_and_mine(str(project), str(tmp_path / "palace"))
+            else:
+                watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
+
+        assert [call[0] for call in signal_calls[: len(supported_signals)]] == supported_signals
+        assert [call[0] for call in signal_calls[-len(supported_signals) :]] == list(
+            reversed(supported_signals)
+        )
+        assert current_handlers == original_handlers
+        assert all(shutdown_signal != signal.SIGINT for shutdown_signal, _ in signal_calls)
+
+    def test_watch_iteration_error_restores_every_handler(self, tmp_path):
+        project = tmp_path / "project"
+        _make_project(project)
+        supported_signals = [signal.SIGTERM]
+        if hasattr(signal, "SIGHUP"):
+            supported_signals.append(signal.SIGHUP)
+        original_handlers: dict[int, Callable[[int, FrameType | None], object] | int | None] = {
+            shutdown_signal: signal.SIG_DFL for shutdown_signal in supported_signals
+        }
+        current_handlers = dict(original_handlers)
+
+        def fake_signal(shutdown_signal, handler):
+            current_handlers[shutdown_signal] = handler
+
+        with (
+            patch(
+                "mempalace_code.watcher.signal.getsignal",
+                side_effect=lambda shutdown_signal: current_handlers[shutdown_signal],
+            ),
+            patch("mempalace_code.watcher.signal.signal", side_effect=fake_signal),
+            patch("mempalace_code.watcher.mine", return_value={}),
+            patch("mempalace_code.watcher.get_collection"),
+            patch("watchfiles.watch", side_effect=RuntimeError("watch iteration failed")),
+            pytest.raises(RuntimeError, match="watch iteration failed"),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        assert current_handlers == original_handlers
+
+    def test_partial_registration_failure_restores_replaced_handler(self):
+        if not hasattr(signal, "SIGHUP"):
+            pytest.skip("SIGHUP is unavailable on this platform")
+
+        original_sigterm = signal.SIG_DFL
+        current_sigterm = original_sigterm
+
+        def fake_getsignal(shutdown_signal):
+            return original_sigterm if shutdown_signal == signal.SIGTERM else signal.SIG_IGN
+
+        def fake_signal(shutdown_signal, handler):
+            nonlocal current_sigterm
+            if shutdown_signal == signal.SIGHUP:
+                raise OSError("SIGHUP registration failed")
+            current_sigterm = handler
+
+        shutdown_signals = _WatcherShutdownSignals()
+        with (
+            patch("mempalace_code.watcher.signal.getsignal", side_effect=fake_getsignal),
+            patch("mempalace_code.watcher.signal.signal", side_effect=fake_signal),
+            pytest.raises(OSError, match="SIGHUP registration failed"),
+        ):
+            shutdown_signals.install()
+
+        assert current_sigterm is original_sigterm
+
+    def test_runtime_without_sighup_registers_only_sigterm(self):
+        original_sigterm = signal.SIG_DFL
+        signal_calls = []
+
+        with (
+            patch.object(signal, "SIGHUP", None),
+            patch("mempalace_code.watcher.signal.getsignal", return_value=original_sigterm),
+            patch(
+                "mempalace_code.watcher.signal.signal",
+                side_effect=lambda shutdown_signal, handler: signal_calls.append(
+                    (shutdown_signal, handler)
+                ),
+            ),
+        ):
+            shutdown_signals = _WatcherShutdownSignals()
+            shutdown_signals.install()
+            shutdown_signals.restore()
+            shutdown_signals.restore()
+
+        assert [shutdown_signal for shutdown_signal, _ in signal_calls] == [
+            signal.SIGTERM,
+            signal.SIGTERM,
+        ]
+        assert signal_calls[-1][1] is original_sigterm
 
 
 # ---------------------------------------------------------------------------
@@ -714,6 +897,108 @@ class TestRenderWatchSchedule:
         plist = render_watch_schedule(str(tmp_path), "darwin")
         assert "<key>ThrottleInterval</key>" in plist
         assert "<integer>60</integer>" in plist
+
+    def test_invoked_launcher_precedes_conflicting_path(self, tmp_path, monkeypatch):
+        (tmp_path / "mempalace.yaml").write_text("wing: test\n")
+        invoked_dir = tmp_path / "invoked bin"
+        ambient_dir = tmp_path / "ambient-bin"
+        invoked_dir.mkdir()
+        ambient_dir.mkdir()
+        invoked = invoked_dir / "mempalace-code"
+        ambient = ambient_dir / "mempalace-code"
+        for executable in (invoked, ambient):
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+        monkeypatch.setenv("PATH", str(ambient_dir))
+        monkeypatch.setattr(sys, "argv", [str(invoked), "watch", "schedule"])
+
+        out = render_watch_schedule(str(tmp_path), "linux")
+
+        assert shlex.quote(str(invoked)) in out
+        assert str(ambient) not in out
+
+    @pytest.mark.parametrize("platform", ["linux", "darwin"])
+    def test_rendered_command_executes_launcher_and_preserves_arguments(self, tmp_path, platform):
+        watch_root = tmp_path / "watch root ; path"
+        watch_root.mkdir()
+        (watch_root / "mempalace.yaml").write_text("wing: test\n", encoding="utf-8")
+        launcher = tmp_path / "launcher ; path" / "mempalace-code"
+        record = tmp_path / "recorded argv"
+        launcher.parent.mkdir()
+        launcher.write_text(
+            f"#!/bin/sh\nprintf '%s\\n' \"$@\" > {shlex.quote(str(record))}\n",
+            encoding="utf-8",
+        )
+        launcher.chmod(0o755)
+
+        snippet = render_watch_schedule(str(watch_root), platform, mempalace_bin=str(launcher))
+        if platform == "linux":
+            command = snippet.removeprefix("@reboot ").rstrip()
+            subprocess.run(["/bin/sh", "-c", command], check=True)
+        else:
+            arguments = plistlib.loads(snippet.encode())["ProgramArguments"]
+            subprocess.run(arguments, check=True)
+
+        assert record.read_text(encoding="utf-8").splitlines() == [
+            "watch",
+            str(watch_root.resolve()),
+        ]
+
+    def test_command_handler_reuses_selected_launcher_in_deterministic_guidance(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        watch_root = tmp_path / "watch root ; quoted"
+        watch_root.mkdir()
+        (watch_root / "mempalace.yaml").write_text("wing: test\n")
+        invoked = tmp_path / "invoked bin" / "mempalace-code"
+        ambient = tmp_path / "ambient-bin" / "mempalace-code"
+        home = tmp_path / "home with spaces"
+        for directory in (invoked.parent, ambient.parent, home):
+            directory.mkdir()
+        for executable in (invoked, ambient):
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+        args = Namespace(dir=str(watch_root), install=False)
+        monkeypatch.setenv("PATH", str(ambient.parent))
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(sys, "platform", "darwin")
+        monkeypatch.setattr(sys, "argv", [str(invoked), "watch", "schedule"])
+        before = tuple(sorted(tmp_path.rglob("*")))
+
+        cmd_watch_schedule(args)
+        first = capsys.readouterr()
+        cmd_watch_schedule(args)
+        second = capsys.readouterr()
+
+        assert first == second
+        assert shlex.quote(str(invoked)) in first.out
+        assert shlex.quote(str(invoked)) in first.err
+        assert str(ambient) not in first.out + first.err
+        assert shlex.quote(str(watch_root.resolve())) in first.out + first.err
+        assert (
+            shlex.quote(str(home / "Library/LaunchAgents/com.mempalace.watch.plist")) in first.err
+        )
+        assert tuple(sorted(tmp_path.rglob("*"))) == before
+
+    def test_install_refusal_names_selected_launcher_and_explicit_targets(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        invoked = tmp_path / "bin with spaces" / "mempalace-code"
+        invoked.parent.mkdir()
+        invoked.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        invoked.chmod(0o755)
+        watch_root = tmp_path / "watch root with spaces"
+        monkeypatch.setattr(sys, "argv", [str(invoked), "watch", "schedule"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_watch_schedule(Namespace(dir=str(watch_root), install=True))
+
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert shlex.quote(str(invoked)) in captured.err
+        assert shlex.quote(str(watch_root.resolve())) in captured.err
+        assert "com.mempalace.watch.plist" in captured.err
 
 
 # ---------------------------------------------------------------------------
@@ -1948,12 +2233,12 @@ class TestWatchInitialMineRecovery:
 
 
 # ---------------------------------------------------------------------------
-# Broken source symlink startup guard (WATCHER-BROKEN-SYMLINK-STARTUP-GUARD)
+# Non-regular source startup guard (INGEST-NONREGULAR-SOURCE-GUARD)
 # ---------------------------------------------------------------------------
 
 
-class TestWatcherStartupSourceSymlinkGuard:
-    """Tests for the watcher startup source-symlink guard."""
+class TestWatcherStartupSourceGuard:
+    """Tests for unconditional watcher startup source classification."""
 
     def test_invalid_source_symlink_is_diagnosed_before_backup_or_mine(self, tmp_path, capsys):
         """AC-1: guarded discovery diagnoses an invalid symlink before backup/mine run."""
@@ -1967,6 +2252,10 @@ class TestWatcherStartupSourceSymlinkGuard:
         (project / "app.py").write_text("print('ok')\n" * 20)
         dangling = project / "broken.py"
         dangling.symlink_to(project / "does_not_exist.py")
+        fifo = project / "blocked.py"
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("os.mkfifo is unavailable")
+        os.mkfifo(fifo)
 
         call_order = []
 
@@ -1988,10 +2277,12 @@ class TestWatcherStartupSourceSymlinkGuard:
         assert call_order == ["backup", "mine"], "backup and mine still run for a mixed project"
 
         out = capsys.readouterr().out
-        assert "Skipped 1 invalid source symlink(s):" in out
+        assert "Rejected 2 non-regular source(s):" in out
         assert str(dangling) in out
-        assert "dangling" in out
-        diagnostic_index = out.index("Skipped 1 invalid source symlink(s):")
+        assert f"{dangling} (symlink)" in out
+        assert f"{fifo} (fifo)" in out
+        assert "Remove or replace each path with a regular file" in out
+        diagnostic_index = out.index("Rejected 2 non-regular source(s):")
         backup_index = out.index("Pre-watch backup:")
         assert diagnostic_index < backup_index, (
             "guarded source discovery and its diagnostic must run before pre-watch backup"
@@ -2036,8 +2327,8 @@ class TestWatcherStartupSourceSymlinkGuard:
         out = capsys.readouterr().out
         assert out.count("reason=no-valid-sources") == 2
 
-    def test_valid_symlink_and_regular_file_startup_still_runs_initial_mine(self, tmp_path):
-        """AC-3: valid symlinks and regular files keep current initial-mine behavior."""
+    def test_symlink_and_regular_file_startup_runs_mine_for_regular_only(self, tmp_path):
+        """A rejected symlink does not prevent a sibling regular source from mining."""
         palace = tmp_path / "palace"
         project = tmp_path / "proj"
         project.mkdir()
@@ -2059,7 +2350,9 @@ class TestWatcherStartupSourceSymlinkGuard:
             watch_and_mine(str(project), str(palace))
 
         assert len(mine_calls) == 1, "initial mine must still run for valid sources"
-        assert mine_calls[0]["skip_invalid_source_symlinks"] is True
+        assert mine_calls[0]["incremental"] is True
+        assert mine_calls[0]["limit"] == 0
+        assert "skip_invalid_source_symlinks" not in mine_calls[0]
 
     def test_watch_all_invalid_only_startup_enters_watch_without_backup_or_mine(
         self, tmp_path, capsys
@@ -2116,7 +2409,7 @@ class TestWatcherStartupSourceSymlinkGuard:
         assert watch_calls == [1], "watcher must still reach the watch loop"
 
         out = capsys.readouterr().out
-        assert out.count("Skipped 1 invalid source symlink(s):") == 2, (
+        assert out.count("Rejected 1 non-regular source(s):") == 2, (
             "each invalid-only project prints its own bounded diagnostic"
         )
         assert "[wing_proj_a]" in out
@@ -2179,7 +2472,7 @@ class TestWatcherStartupSourceSymlinkGuard:
         assert watch_calls == [1], "watcher must still reach the watch loop"
 
         out = capsys.readouterr().out
-        assert out.count("Skipped 1 invalid source symlink(s):") == 1, (
+        assert out.count("Rejected 1 non-regular source(s):") == 1, (
             "only the invalid-only project prints a diagnostic"
         )
         assert "[wing_proj_b]" in out
