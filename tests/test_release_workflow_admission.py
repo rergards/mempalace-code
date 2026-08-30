@@ -255,7 +255,11 @@ def test_installed_application_uses_disposable_systemd_user_lifecycle():
     assert 'test "$(stat -c %u "$2")" = "$(id -u)"' in command
     assert 'test "$(stat -c %a "$2")" = 600' in command
     assert 'mv -- "$2" "$1"' in command
-    assert command.index('printf "%s %s %s %s\\n"') < command.index('mv -- "$2" "$1"')
+    write_index = command.index('printf "%s %s %s %s\\n"')
+    chmod_index = command.index('chmod 0600 -- "$2"')
+    mode_check_index = command.index('test "$(stat -c %a "$2")" = 600')
+    publish_index = command.index('mv -- "$2" "$1"')
+    assert write_index < chmod_index < mode_check_index < publish_index
     assert command.count("read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra") == 2
     assert (
         'test -n "$smoke_pid" && test -n "$smoke_pgid" && test -n "$smoke_uid" && test -n "$smoke_command"'

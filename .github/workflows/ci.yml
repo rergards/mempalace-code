@@ -483,6 +483,7 @@ jobs:
               test ! -L "$2"
               trap '\''rm -f -- "$2"'\'' EXIT
               printf "%s %s %s %s\n" "$$" "$$" "$(id -u)" "$3" > "$2"
+              chmod 0600 -- "$2"
               test -f "$2" && test ! -L "$2"
               test "$(stat -c %u "$2")" = "$(id -u)"
               test "$(stat -c %a "$2")" = 600
