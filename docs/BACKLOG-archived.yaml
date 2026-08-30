@@ -1776,3 +1776,8 @@ items:
       resolution: '2026-08-30: Static reviewed snapshot anchor now binds upstream identity, endpoints, count, and exact inventory without requiring local upstream Git objects; one-parent candidate and full non-network suite pass.'
       archived_date: "2026-08-30"
       done_summary: Static reviewed snapshot anchor now binds upstream identity, endpoints, count, and exact inventory without requiring local upstream Git objects; one-parent candidate and full non-network suite pass.
+    - key: REL-MINILM-PUBLIC-CORPUS-PIN
+      summary: Make MiniLM compatibility self-contained in public squash candidates
+      resolution: '2026-08-30: Made the installed MiniLM compatibility gate squash-safe and history-independent, bound it to one strict five-text fixture, rejected duplicate JSON keys, kept generation provenance inert, and verified direct runtime PASS plus 116 focused and 4322 full tests.'
+      archived_date: "2026-08-30"
+      done_summary: Made the installed MiniLM compatibility gate squash-safe and history-independent, bound it to one strict five-text fixture, rejected duplicate JSON keys, kept generation provenance inert, and verified direct runtime PASS plus 116 focused and 4322 full tests.
