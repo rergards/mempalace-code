@@ -107,6 +107,44 @@ def test_evaluate_default_keeps_upstream_comparison_static_and_network_free(tmp_
     ] in commands
 
 
+def test_default_preflight_executes_static_upstream_guard_successfully():
+    upstream_command = [preflight.sys.executable, "scripts/upstream_comparison_guard.py"]
+
+    def run(command, root):
+        if command == upstream_command:
+            return preflight._run(command, root)
+        if command[:2] == ["git", "rev-parse"]:
+            return 1, "absent"
+        return 0, "passed"
+
+    _, checks = preflight.evaluate(ROOT, tag=None, require_clean=False, run=run)
+
+    upstream = next(check for check in checks if check["name"] == "upstream_comparison")
+    assert upstream["status"] == "ok"
+    assert "manifest_inventory_commits=43" in upstream["detail"]
+
+
+def test_default_preflight_propagates_static_inventory_failure(tmp_path: Path):
+    root = _root(tmp_path)
+    upstream_command = [preflight.sys.executable, "scripts/upstream_comparison_guard.py"]
+
+    def run(command, _root):
+        if command == upstream_command:
+            return 1, "commit-inventory: trust-anchor digest mismatch"
+        if command[:2] == ["git", "rev-parse"]:
+            return 1, "absent"
+        return 0, "passed"
+
+    _, checks = preflight.evaluate(root, tag=None, require_clean=False, run=run)
+
+    upstream = next(check for check in checks if check["name"] == "upstream_comparison")
+    assert upstream["status"] == "fail"
+    assert upstream["detail"] == "commit-inventory: trust-anchor digest mismatch"
+    assert upstream["remediation"] == (
+        f"Run {' '.join(upstream_command)} locally and fix the reported release blocker."
+    )
+
+
 def test_evaluate_opt_in_runs_gitleaks_history_gate_and_surfaces_failure(tmp_path: Path):
     root = _root(tmp_path)
     commands: list[list[str]] = []

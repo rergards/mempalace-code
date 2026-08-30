@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
-import re
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -24,7 +24,6 @@ def _load_module(name: str, path: Path):
 
 
 guard = _load_module("upstream_comparison_guard", ROOT / "scripts" / "upstream_comparison_guard.py")
-REAL_COLLECT_GIT_REVISION_SET = guard.collect_git_revision_set
 guard._load_public_read().REVIEWED_UPSTREAM_REPOSITORY = "Example/example"
 guard._load_public_read().REVIEWED_UPSTREAM_BRANCH = "main"
 
@@ -98,18 +97,16 @@ def _manifest(**overrides) -> dict:
             },
         ],
     }
+    inventory = guard.manifest_commit_inventory(manifest)
+    manifest["inventory_anchor"] = {
+        "algorithm": "sha256",
+        "version": 1,
+        "count": len(inventory),
+        "digest": "0" * 64,
+    }
+    manifest["inventory_anchor"]["digest"] = guard.inventory_anchor_digest(manifest, inventory)
     manifest.update(overrides)
     return manifest
-
-
-@pytest.fixture(autouse=True)
-def _use_fixture_commit_inventory(monkeypatch):
-    """Keep static fixture tests independent from temporary Git repositories."""
-
-    def collect(root: Path, _previous_commit: str, _commit: str) -> set[str]:
-        return guard.manifest_commit_inventory(guard.load_manifest(root))
-
-    monkeypatch.setattr(guard, "collect_git_revision_set", collect)
 
 
 def _decisions(manifest: dict) -> list[dict]:
@@ -194,43 +191,55 @@ def test_evaluate_accepts_valid_static_snapshot(tmp_path: Path):
     }
     assert facts["release_critical_decisions"] == ["guarded-change"]
     assert facts["review_age_days"] == 9
-    assert facts["git_range_commit_count"] == 4
-    assert facts["manifest_inventory_commit_count"] == 4
-    assert facts["missing_commits"] == []
-    assert facts["extra_commits"] == []
+    assert not (root / ".git").exists()
+    assert facts["inventory_anchor_declared_count"] == 4
+    assert facts["inventory_anchor_derived_count"] == 4
+    assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
     assert facts["commit_inventory_exact"] is True
 
 
-def test_evaluate_rejects_nested_merge_missing_from_manifest(tmp_path: Path):
-    nested_merge = "7641e63741908ac2c5772e7b52a82efa57e9a826"
-    root = _root(tmp_path)
-    expected = guard.manifest_commit_inventory(guard.load_manifest(root)) | {nested_merge}
+def test_evaluate_rejects_missing_reviewed_commit(tmp_path: Path):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions.pop()
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
 
-    facts, errors = guard.evaluate(
-        root,
-        today=date(2026, 7, 10),
-        revision_collector=lambda _root, _previous, _commit: expected,
-    )
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
 
-    assert facts["missing_commits"] == [nested_merge]
+    assert facts["inventory_anchor_derived_count"] == 2
     assert facts["commit_inventory_exact"] is False
-    assert any("commit-inventory" in error and nested_merge in error for error in errors)
+    assert any("trust-anchor count mismatch" in error for error in errors)
+    assert any("trust-anchor digest mismatch" in error for error in errors)
 
 
 def test_evaluate_rejects_extra_manifest_commit(tmp_path: Path):
-    extra_commit = CONSTITUENT_TWO
-    root = _root(tmp_path)
-    expected = guard.manifest_commit_inventory(guard.load_manifest(root)) - {extra_commit}
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0]["constituent_commits"].append("9" * 40)
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
 
-    facts, errors = guard.evaluate(
-        root,
-        today=date(2026, 7, 10),
-        revision_collector=lambda _root, _previous, _commit: expected,
-    )
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
 
-    assert facts["extra_commits"] == [extra_commit]
+    assert facts["inventory_anchor_derived_count"] == 5
     assert facts["commit_inventory_exact"] is False
-    assert any("commit-inventory" in error and extra_commit in error for error in errors)
+    assert any("trust-anchor count mismatch" in error for error in errors)
+
+
+def test_evaluate_rejects_equal_count_inventory_substitution(tmp_path: Path):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0]["constituent_commits"] = ["9" * 40]
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts["inventory_anchor_declared_count"] == facts["inventory_anchor_derived_count"]
+    assert facts["inventory_anchor_digest"] != facts["inventory_anchor_computed_digest"]
+    assert facts["commit_inventory_exact"] is False
+    assert errors == [
+        "commit-inventory: trust-anchor digest mismatch: expected "
+        f"{facts['inventory_anchor_digest']}, computed {facts['inventory_anchor_computed_digest']}"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -290,100 +299,151 @@ def test_evaluate_rejects_duplicate_commit_inventory_ownership(
 
 
 @pytest.mark.parametrize(
-    "reason",
-    ["git rev-list could not run", "git rev-list returned malformed revision lines ['bad']"],
+    "anchor",
+    [
+        None,
+        {"algorithm": "sha512", "version": 1, "count": 4, "digest": "0" * 64},
+        {"algorithm": "sha256", "version": True, "count": 4, "digest": "0" * 64},
+        {"algorithm": "sha256", "version": 1, "count": True, "digest": "0" * 64},
+        {"algorithm": "sha256", "version": 1, "count": 4, "digest": "A" * 64},
+        {
+            "algorithm": "sha256",
+            "version": 1,
+            "count": 4,
+            "digest": "0" * 64,
+            "unexpected": "field",
+        },
+    ],
+    ids=["missing", "algorithm", "boolean-version", "boolean-count", "digest", "extra-field"],
 )
-def test_evaluate_fails_closed_when_git_range_is_unavailable_or_invalid(
-    tmp_path: Path, reason: str
-):
-    root = _root(tmp_path)
+def test_evaluate_rejects_malformed_inventory_anchor(tmp_path: Path, anchor):
+    root = _root(tmp_path, manifest=_manifest(inventory_anchor=anchor))
 
-    def fail(_root: Path, _previous: str, _commit: str) -> set[str]:
-        raise guard.CommitInventoryError(reason)
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
 
-    facts, errors = guard.evaluate(
-        root,
-        today=date(2026, 7, 10),
-        revision_collector=fail,
-    )
-
-    assert facts["git_range_commit_count"] is None
-    assert facts["commit_inventory_exact"] is False
-    assert errors == [
-        f"commit-inventory: {reason}; rerun {guard.INVENTORY_RECOVERY_COMMAND} "
-        "from a checkout containing the pinned history"
-    ]
-
-
-def test_collect_git_revision_set_rejects_malformed_output(tmp_path: Path):
-    result = type(
-        "Result",
-        (),
-        {"returncode": 0, "stdout": f"{MERGE_ONE}\nnot-a-sha\n", "stderr": ""},
-    )()
-
-    with pytest.raises(guard.CommitInventoryError, match="malformed revision lines"):
-        REAL_COLLECT_GIT_REVISION_SET(
-            tmp_path,
-            PREVIOUS_COMMIT,
-            COMMIT,
-            run=lambda *_args, **_kwargs: result,
-        )
-
-
-def test_collect_git_revision_set_returns_exact_unique_commits(tmp_path: Path):
-    result = type(
-        "Result",
-        (),
-        {"returncode": 0, "stdout": f"{MERGE_ONE}\n{MERGE_TWO}\n{MERGE_ONE}\n", "stderr": ""},
-    )()
-
-    commits = REAL_COLLECT_GIT_REVISION_SET(
-        tmp_path,
-        PREVIOUS_COMMIT,
-        COMMIT,
-        run=lambda *_args, **_kwargs: result,
-    )
-
-    assert commits == {MERGE_ONE, MERGE_TWO}
+    assert facts == {}
+    assert any("inventory_anchor" in error for error in errors)
 
 
 @pytest.mark.parametrize(
-    ("result", "message"),
+    ("field", "value"),
     [
-        (
-            type("Result", (), {"returncode": 128, "stdout": "", "stderr": "bad revision"})(),
-            "failed (bad revision)",
-        ),
-        (
-            type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})(),
-            "returned no commits",
-        ),
+        ("canonical_repository", "https://github.com/Other/example"),
+        ("branch", "release"),
+        ("previous_commit", "1" * 40),
+        ("commit", "2" * 40),
     ],
 )
-def test_collect_git_revision_set_rejects_failed_or_empty_revision_walk(
-    tmp_path: Path, result, message: str
+def test_evaluate_rejects_bound_identity_or_endpoint_substitution(
+    tmp_path: Path, field: str, value: str
 ):
-    with pytest.raises(guard.CommitInventoryError, match=re.escape(message)):
-        REAL_COLLECT_GIT_REVISION_SET(
-            tmp_path,
-            PREVIOUS_COMMIT,
-            COMMIT,
-            run=lambda *_args, **_kwargs: result,
-        )
+    manifest = _manifest()
+    manifest[field] = value
+    manifest["compare_ref"] = (
+        f"{manifest['canonical_repository']}/compare/"
+        f"{manifest['previous_commit']}...{manifest['commit']}"
+    )
+    manifest["source_refs"] = {
+        "README.md": (f"{manifest['canonical_repository']}/blob/{manifest['commit']}/README.md")
+    }
+    root = _root(tmp_path, manifest=manifest)
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts["commit_inventory_exact"] is False
+    assert any("trust-anchor digest mismatch" in error for error in errors)
 
 
-def test_collect_git_revision_set_rejects_missing_git_executable(tmp_path: Path):
-    def unavailable(*_args, **_kwargs):
-        raise FileNotFoundError("git")
+def test_inventory_anchor_payload_binds_algorithm_version_count_and_sorted_inventory():
+    manifest = _manifest()
+    inventory = guard.manifest_commit_inventory(manifest)
+    baseline = guard.inventory_anchor_payload(manifest, inventory)
 
-    with pytest.raises(guard.CommitInventoryError, match="could not run"):
-        REAL_COLLECT_GIT_REVISION_SET(
-            tmp_path,
-            PREVIOUS_COMMIT,
-            COMMIT,
-            run=unavailable,
-        )
+    for field, value in (("algorithm", "sha512"), ("version", 2), ("count", 5)):
+        changed = copy.deepcopy(manifest)
+        changed["inventory_anchor"][field] = value
+        assert guard.inventory_anchor_payload(changed, inventory) != baseline
+
+    assert guard.inventory_anchor_payload(manifest, set(reversed(sorted(inventory)))) == baseline
+
+
+def test_cli_duplicate_inventory_prints_one_recovery_command(tmp_path: Path, capsys):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0]["constituent_commits"].append(CONSTITUENT_ONE)
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    exit_code = guard.main(["--root", str(root), "--max-age-days", "10000"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "declared more than once" in captured.err
+    assert captured.err.count(f"recovery: {RECOVERY_COMMAND}") == 1
+
+
+def test_static_guard_accepts_one_parent_candidate_without_pinned_objects(tmp_path: Path):
+    root = _root(tmp_path)
+
+    subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "public main",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    public_main = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    (root / "candidate.txt").write_text("squash candidate\n", encoding="utf-8")
+    subprocess.run(["git", "add", "candidate.txt"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "candidate",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+
+    parents = subprocess.run(
+        ["git", "show", "-s", "--format=%P", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert parents == [public_main]
+    assert (
+        subprocess.run(["git", "cat-file", "-e", COMMIT], cwd=root, capture_output=True).returncode
+        != 0
+    )
+    assert (
+        subprocess.run(
+            ["git", "cat-file", "-e", PREVIOUS_COMMIT], cwd=root, capture_output=True
+        ).returncode
+        != 0
+    )
+    assert errors == []
+    assert facts["commit_inventory_exact"] is True
 
 
 @pytest.mark.parametrize(
@@ -846,11 +906,12 @@ def test_evaluate_rejects_negative_max_age_days(tmp_path: Path):
 
 def test_repository_manifest_and_document_agree():
     """The shipped manifest and document must pass the guard they are checked by."""
-    _, errors = guard.evaluate(
-        ROOT,
-        max_age_days=10_000,
-        today=date(2026, 12, 31),
-        revision_collector=REAL_COLLECT_GIT_REVISION_SET,
-    )
+    facts, errors = guard.evaluate(ROOT, max_age_days=10_000, today=date(2026, 12, 31))
 
     assert errors == []
+    assert facts["inventory_anchor_algorithm"] == "sha256"
+    assert facts["inventory_anchor_version"] == 1
+    assert facts["inventory_anchor_declared_count"] == 43
+    assert facts["inventory_anchor_derived_count"] == 43
+    assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
+    assert facts["commit_inventory_exact"] is True

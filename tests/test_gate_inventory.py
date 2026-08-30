@@ -111,6 +111,16 @@ def test_workflow_security_gates_are_canonical_and_wired_into_ci():
     assert ".github/actions/" in gi.ZIZMOR_COMMAND
 
 
+def test_ci_has_one_upstream_gate_owner_through_package_preflight():
+    ci_text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    preflight_text = (ROOT / "scripts" / "release_preflight.py").read_text(encoding="utf-8")
+
+    assert ci_text.count("run: python scripts/release_preflight.py") == 1
+    assert "run: python scripts/upstream_comparison_guard.py" not in ci_text
+    assert preflight_text.count('"scripts/upstream_comparison_guard.py"') == 2
+    assert "release_public_read.py" not in ci_text
+
+
 def _pinned_version(deps: list, name: str) -> str | None:
     """Return the exactly-pinned version of ``name`` in a dependency list."""
     for dep in deps:

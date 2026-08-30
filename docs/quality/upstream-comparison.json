@@ -5,6 +5,12 @@
   "branch": "develop",
   "commit": "a9f345cc63254eb4dea7abad36963b85c9f8453a",
   "previous_commit": "dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0",
+  "inventory_anchor": {
+    "algorithm": "sha256",
+    "version": 1,
+    "count": 43,
+    "digest": "e954c3bc03fa68d310ba6897dcf1a520f74ae5c67a5ceb339aeeff0e00282046"
+  },
   "previous_reviewed_date": "2026-08-24",
   "compare_ref": "https://github.com/MemPalace/mempalace/compare/dfba59b0f3b1c5b57a3d606317b2fd37a4fef6f0...a9f345cc63254eb4dea7abad36963b85c9f8453a",
   "canonical_document": "docs/UPSTREAM_COMPARISON.md",

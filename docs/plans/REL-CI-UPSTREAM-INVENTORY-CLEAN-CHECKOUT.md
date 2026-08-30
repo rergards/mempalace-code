@@ -1,5 +1,7 @@
 ---
 slug: REL-CI-UPSTREAM-INVENTORY-CLEAN-CHECKOUT
+status: active
+authority: non_authoritative
 goal: "Make exact upstream inventory and release preflight pass from a one-parent squash candidate using one reviewed static trust anchor."
 risk: medium
 risk_note: "The change repairs a release-blocking CI gate; weak anchor coverage could admit stale inventory, while a history or network dependency would keep squash candidates broken."

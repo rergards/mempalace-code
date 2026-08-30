@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
+import hmac
 import importlib.util
 import json
 import re
-import subprocess
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -36,10 +37,15 @@ SUPPORTED_SCHEMA_VERSION = 2
 DEFAULT_MAX_AGE_DAYS = 30
 GITHUB_REPOSITORY_ROOT = "https://github.com/"
 DEFAULT_RECOVERY_COMMAND = "python scripts/upstream_comparison_guard.py --check-live --json"
-INVENTORY_RECOVERY_COMMAND = "python scripts/upstream_comparison_guard.py --json"
 _PUBLIC_READ_MODULE = None
 
+INVENTORY_ANCHOR_FIELD = "inventory_anchor"
+INVENTORY_ANCHOR_ALGORITHM = "sha256"
+INVENTORY_ANCHOR_VERSION = 1
+INVENTORY_ANCHOR_FIELDS = {"algorithm", "version", "count", "digest"}
+
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+DIGEST_RE = re.compile(r"[0-9a-f]{64}")
 ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 IDENTIFIER_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
@@ -109,10 +115,6 @@ FORBIDDEN_FORK_CAPABILITIES = (
 
 class LiveCheckError(RuntimeError):
     """Raised when the read-only upstream head lookup cannot be trusted."""
-
-
-class CommitInventoryError(RuntimeError):
-    """Raised when the pinned local Git revision set cannot be trusted."""
 
 
 def repo_root() -> Path:
@@ -205,7 +207,43 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
     errors.extend(_validate_capability_sources(manifest))
     errors.extend(_validate_chroma_stance(manifest))
     errors.extend(_validate_delta_decisions(manifest))
+    errors.extend(_validate_inventory_anchor(manifest))
 
+    return errors
+
+
+def _validate_inventory_anchor(manifest: dict[str, Any]) -> list[str]:
+    """Validate the reviewed anchor shape before comparing its derived digest."""
+    anchor = manifest.get(INVENTORY_ANCHOR_FIELD)
+    if not isinstance(anchor, dict):
+        return [f"manifest-shape: {INVENTORY_ANCHOR_FIELD} must be an object"]
+
+    errors: list[str] = []
+    fields = set(anchor)
+    if fields != INVENTORY_ANCHOR_FIELDS:
+        errors.append(
+            f"manifest-shape: {INVENTORY_ANCHOR_FIELD} fields must be exactly "
+            f"{sorted(INVENTORY_ANCHOR_FIELDS)}, found {sorted(fields)}"
+        )
+    if anchor.get("algorithm") != INVENTORY_ANCHOR_ALGORITHM:
+        errors.append(
+            f"manifest-shape: {INVENTORY_ANCHOR_FIELD}.algorithm must be "
+            f"{INVENTORY_ANCHOR_ALGORITHM!r}"
+        )
+    version = anchor.get("version")
+    if isinstance(version, bool) or version != INVENTORY_ANCHOR_VERSION:
+        errors.append(
+            f"manifest-shape: {INVENTORY_ANCHOR_FIELD}.version must be {INVENTORY_ANCHOR_VERSION}"
+        )
+    count = anchor.get("count")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        errors.append(f"manifest-shape: {INVENTORY_ANCHOR_FIELD}.count must be a positive integer")
+    digest = anchor.get("digest")
+    if not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest):
+        errors.append(
+            f"manifest-shape: {INVENTORY_ANCHOR_FIELD}.digest must be a lowercase "
+            "64-character hex sha256"
+        )
     return errors
 
 
@@ -414,38 +452,25 @@ def manifest_commit_inventory(manifest: dict[str, Any]) -> set[str]:
     return inventory
 
 
-def collect_git_revision_set(
-    root: Path,
-    previous_commit: str,
-    commit: str,
-    *,
-    run: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
-) -> set[str]:
-    """Resolve the complete pinned Git range without first-parent filtering."""
-    revision = f"{previous_commit}..{commit}"
-    try:
-        result = run(
-            ["git", "rev-list", revision],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError as exc:
-        raise CommitInventoryError(f"git rev-list {revision} could not run ({exc})") from exc
-    if result.returncode != 0:
-        detail = result.stderr.strip() or f"exit status {result.returncode}"
-        raise CommitInventoryError(f"git rev-list {revision} failed ({detail})")
+def inventory_anchor_payload(manifest: dict[str, Any], commits: set[str]) -> bytes:
+    """Return canonical bytes binding the reviewed range identity and full inventory."""
+    anchor = manifest[INVENTORY_ANCHOR_FIELD]
+    payload = {
+        "algorithm": anchor["algorithm"],
+        "version": anchor["version"],
+        "canonical_repository": manifest["canonical_repository"],
+        "branch": manifest["branch"],
+        "previous_commit": manifest["previous_commit"],
+        "commit": manifest["commit"],
+        "count": anchor["count"],
+        "inventory": sorted(commits),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
-    lines = result.stdout.splitlines()
-    if not lines:
-        raise CommitInventoryError(f"git rev-list {revision} returned no commits")
-    malformed = sorted({line for line in lines if not COMMIT_RE.fullmatch(line)})
-    if malformed:
-        raise CommitInventoryError(
-            f"git rev-list {revision} returned malformed revision lines {malformed}"
-        )
-    return set(lines)
+
+def inventory_anchor_digest(manifest: dict[str, Any], commits: set[str]) -> str:
+    """Return the SHA-256 digest of the canonical reviewed inventory payload."""
+    return hashlib.sha256(inventory_anchor_payload(manifest, commits)).hexdigest()
 
 
 def _validate_decision_body(
@@ -553,7 +578,6 @@ def evaluate(
     *,
     max_age_days: int = DEFAULT_MAX_AGE_DAYS,
     today: date | None = None,
-    revision_collector: Callable[[Path, str, str], set[str]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Return reviewed upstream facts and any static drift errors. No network access."""
     if max_age_days < 0:
@@ -680,31 +704,22 @@ def evaluate(
 
     errors.extend(_missing_predicate_errors(root, manifest["delta_decisions"]))
 
-    git_commits: set[str] | None = None
     manifest_commits = manifest_commit_inventory(manifest)
-    collect_revisions = revision_collector or collect_git_revision_set
-    try:
-        git_commits = collect_revisions(root, previous_commit, commit)
-    except CommitInventoryError as exc:
+    anchor: dict[str, Any] = manifest[INVENTORY_ANCHOR_FIELD]
+    derived_count = len(manifest_commits)
+    computed_digest = inventory_anchor_digest(manifest, manifest_commits)
+    count_exact = anchor["count"] == derived_count
+    digest_exact = hmac.compare_digest(anchor["digest"], computed_digest)
+    if not count_exact:
         errors.append(
-            f"commit-inventory: {exc}; rerun {INVENTORY_RECOVERY_COMMAND} from a checkout "
-            "containing the pinned history"
+            "commit-inventory: trust-anchor count mismatch: expected "
+            f"{anchor['count']}, derived {derived_count}"
         )
-
-    missing_commits: list[str] = []
-    extra_commits: list[str] = []
-    if git_commits is not None:
-        missing_commits = sorted(git_commits - manifest_commits)
-        extra_commits = sorted(manifest_commits - git_commits)
-        if missing_commits:
-            errors.append(
-                f"commit-inventory: manifest is missing Git-range commits {missing_commits}"
-            )
-        if extra_commits:
-            errors.append(
-                "commit-inventory: manifest has extra commits outside the Git range "
-                f"{extra_commits}"
-            )
+    if not digest_exact:
+        errors.append(
+            "commit-inventory: trust-anchor digest mismatch: expected "
+            f"{anchor['digest']}, computed {computed_digest}"
+        )
 
     facts: dict[str, Any] = {
         "canonical_repository": repository,
@@ -731,13 +746,13 @@ def evaluate(
             for decision in manifest["delta_decisions"]
             if decision["release_critical"]
         ),
-        "git_range_commit_count": len(git_commits) if git_commits is not None else None,
-        "manifest_inventory_commit_count": len(manifest_commits),
-        "missing_commits": missing_commits,
-        "extra_commits": extra_commits,
-        "commit_inventory_exact": git_commits is not None
-        and not missing_commits
-        and not extra_commits,
+        "inventory_anchor_algorithm": anchor["algorithm"],
+        "inventory_anchor_version": anchor["version"],
+        "inventory_anchor_declared_count": anchor["count"],
+        "inventory_anchor_derived_count": derived_count,
+        "inventory_anchor_digest": anchor["digest"],
+        "inventory_anchor_computed_digest": computed_digest,
+        "commit_inventory_exact": count_exact and digest_exact,
     }
     return facts, errors
 
@@ -951,8 +966,7 @@ def main(argv: list[str] | None = None) -> int:
             f"reviewed={facts['reviewed_date']} age_days={facts['review_age_days']} "
             f"delta_decisions={len(decisions)} "
             f"release_critical={len(facts['release_critical_decisions'])} "
-            f"git_range_commits={facts['git_range_commit_count']} "
-            f"manifest_inventory_commits={facts['manifest_inventory_commit_count']}"
+            f"manifest_inventory_commits={facts['inventory_anchor_derived_count']}"
             f"{live_note}"
         )
     return 0 if not errors else 1
