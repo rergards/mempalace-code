@@ -47,14 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: REL-DEPENDENCY-REPORT-CURRENT-HASH
-    summary: "Refresh the v1.13.5 dependency report after final dependency changes"
-    type: task
-    status: open
-    priority: highest
-    size: XS
-    section_id: quality
-    description: "## Scope\n\nRegenerate the existing v1.13.5 dependency report through scripts/dependency_upgrade_gate.py after the final custom-model/default dependency changes. Current public candidate run 33328559281 reports no document matching pyproject.toml SHA-256 9c9af191fb23aa109d957d92b0f146c257ef69b7146ad385be04c00c988daa30 and uv.lock SHA-256 896e921f44e7e22aafd6e4c0f40f74eabc647456569b0c058405fbadbec34a61. Reuse the existing report owner; do not create a second report format or change the gate.\n\n## Acceptance criteria\n\n- The canonical v1.13.5 report matches current pyproject.toml and uv.lock hashes.\n- Audit evidence covers default, dev, and every remaining optional extra; removed Chroma dependencies remain absent.\n- verify-report and ci-check --base-ref publish/main pass.\n- Public-safety, docs drift, Ruff, and dependency-focused tests pass."
   - key: REL-LINUX-ARM-INSTALLER-HANDSHAKE
     summary: "Make hosted ARM installer smoke establish its owned identity"
     type: bug

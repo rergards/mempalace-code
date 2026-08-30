@@ -1781,3 +1781,8 @@ items:
       resolution: '2026-08-30: Made the installed MiniLM compatibility gate squash-safe and history-independent, bound it to one strict five-text fixture, rejected duplicate JSON keys, kept generation provenance inert, and verified direct runtime PASS plus 116 focused and 4322 full tests.'
       archived_date: "2026-08-30"
       done_summary: Made the installed MiniLM compatibility gate squash-safe and history-independent, bound it to one strict five-text fixture, rejected duplicate JSON keys, kept generation provenance inert, and verified direct runtime PASS plus 116 focused and 4322 full tests.
+    - key: REL-DEPENDENCY-REPORT-CURRENT-HASH
+      summary: Refresh the v1.13.5 dependency report after final dependency changes
+      resolution: '2026-08-30: completed in pipeline run (delivered: Regenerated the canonical v1.13.5 dependency report with the final pyproject.toml hash and successful current install-surface evidence., artifacts: docs/dependency-upgrade-reports/v1.13.5-release.json, verified: VER-1, VER-2, VER-3 (+5), phase_commit=827b1637, final_commit=28743f16, 1 file changed, 1 insertion(+), 1 deletion(-))'
+      archived_date: "2026-08-30"
+      done_summary: 'completed in pipeline run (delivered: Regenerated the canonical v1.13.5 dependency report with the final pyproject.toml hash and successful current install-surface evidence., artifacts: docs/dependency-upgrade-reports/v1.13.5-release.json, verified: VER-1, VER-2, VER-3 (+5), phase_commit=827b1637, final_commit=28743f16, 1 file changed, 1 insertion(+), 1 deletion(-))'
