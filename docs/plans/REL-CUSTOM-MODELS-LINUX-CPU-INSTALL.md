@@ -1,6 +1,6 @@
 ---
 slug: REL-CUSTOM-MODELS-LINUX-CPU-INSTALL
-status: active
+status: completed
 authority: non_authoritative
 goal: "Make Linux custom-model installation use the official CPU PyTorch contour and return bounded ENOSPC recovery from the existing exact-wheel gate."
 risk: medium

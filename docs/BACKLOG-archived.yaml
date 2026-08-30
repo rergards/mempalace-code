@@ -1766,3 +1766,8 @@ items:
       resolution: '2026-08-30: completed in pipeline run (delivered: Synchronized the bounded AGENTS.md optional-extra inventory with package metadata and added complete, missing, and stale drift coverage., artifacts: AGENTS.md, scripts/docs_drift_guard.py, tests/test_docs_drift_guard.py, phase_commit=1078c10c, final_commit=4d494f8a, 3 files changed, 84 insertions(+), 8 deletions(-))'
       archived_date: "2026-08-30"
       done_summary: 'completed in pipeline run (delivered: Synchronized the bounded AGENTS.md optional-extra inventory with package metadata and added complete, missing, and stale drift coverage., artifacts: AGENTS.md, scripts/docs_drift_guard.py, tests/test_docs_drift_guard.py, phase_commit=1078c10c, final_commit=4d494f8a, 3 files changed, 84 insertions(+), 8 deletions(-))'
+    - key: REL-CUSTOM-MODELS-LINUX-CPU-INSTALL
+      summary: Make CPU-only Linux custom-model installation bounded and recoverable
+      resolution: '2026-08-30: CPU-only Linux custom-model install and bounded ENOSPC recovery landed; exact wheel 73c20235bce9918dc46cfde65590ab2aeb7bd544918cb609f35427d56e4913ef passed 26/26 direct app scenarios on macOS and Ubuntu 24.04 ARM64, all four Linux installer paths, real systemd-user lifecycle, artifact, docs, public-safety, static, and full non-network gates'
+      archived_date: "2026-08-30"
+      done_summary: CPU-only Linux custom-model install and bounded ENOSPC recovery landed; exact wheel 73c20235bce9918dc46cfde65590ab2aeb7bd544918cb609f35427d56e4913ef passed 26/26 direct app scenarios on macOS and Ubuntu 24.04 ARM64, all four Linux installer paths, real systemd-user lifecycle, artifact, docs, public-safety, static, and full non-network gates
