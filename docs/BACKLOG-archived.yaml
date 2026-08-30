@@ -1761,3 +1761,8 @@ items:
       resolution: '2026-08-30: completed in pipeline run (delivered: Added exact Hatch sdist exclusions for local Playwright residue and operational records, with focused packaging-contract coverage., artifacts: pyproject.toml, tests/test_release_artifact_gate.py, verified: VER-1, VER-2, REG-1, phase_commit=09ce8f33, final_commit=4f0b63e8, 2 files changed, 13 insertions(+))'
       archived_date: "2026-08-30"
       done_summary: 'completed in pipeline run (delivered: Added exact Hatch sdist exclusions for local Playwright residue and operational records, with focused packaging-contract coverage., artifacts: pyproject.toml, tests/test_release_artifact_gate.py, verified: VER-1, VER-2, REG-1, phase_commit=09ce8f33, final_commit=4f0b63e8, 2 files changed, 13 insertions(+))'
+    - key: DOC-AGENT-EXTRAS-INVENTORY
+      summary: Synchronize the agent-facing optional-extra inventory
+      resolution: '2026-08-30: completed in pipeline run (delivered: Synchronized the bounded AGENTS.md optional-extra inventory with package metadata and added complete, missing, and stale drift coverage., artifacts: AGENTS.md, scripts/docs_drift_guard.py, tests/test_docs_drift_guard.py, phase_commit=1078c10c, final_commit=4d494f8a, 3 files changed, 84 insertions(+), 8 deletions(-))'
+      archived_date: "2026-08-30"
+      done_summary: 'completed in pipeline run (delivered: Synchronized the bounded AGENTS.md optional-extra inventory with package metadata and added complete, missing, and stale drift coverage., artifacts: AGENTS.md, scripts/docs_drift_guard.py, tests/test_docs_drift_guard.py, phase_commit=1078c10c, final_commit=4d494f8a, 3 files changed, 84 insertions(+), 8 deletions(-))'
