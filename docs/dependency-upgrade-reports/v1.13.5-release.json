@@ -2,7 +2,7 @@
   "schema_version": 1,
   "status": "success",
   "slug": "v1.13.5-release",
-  "pyproject_hash": "sha256:33c6a8ba61ae7044e3c3a7da428ba786ecae22a0c93d37358522c8b8067b0123",
+  "pyproject_hash": "sha256:9c9af191fb23aa109d957d92b0f146c257ef69b7146ad385be04c00c988daa30",
   "lockfile_hash": "sha256:896e921f44e7e22aafd6e4c0f40f74eabc647456569b0c058405fbadbec34a61",
   "dependencies": [
     {
