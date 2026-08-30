@@ -134,8 +134,10 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+custom-models = ["sentence-transformers>=2.2"]
 dev = ["pytest>=7.0"]
-chroma-migration = ["chromadb>=0.5.0,<1"]
+spellcheck = ["autocorrect>=2.0"]
+watch = ["watchfiles>=1.0"]
 treesitter = ["tree-sitter>=0.22"]
 """,
     )
@@ -212,9 +214,11 @@ mempalace-code repair --rollback --dry-run
 **Optional extras:**
 
 ```bash
+# mempalace-code[custom-models]  # CPU-only Linux: docs/OFFLINE_USAGE.md
 pip install "mempalace-code[dev]"
-pip install "mempalace-code[chroma-migration]"
+pip install "mempalace-code[spellcheck]"
 pip install "mempalace-code[treesitter]"
+pip install "mempalace-code[watch]"
 ```
 
 <details>
@@ -239,7 +243,7 @@ mempalace-code diary write --agent <name> --entry "<text>"
         tmp_path / "AGENTS.md",
         """## Running Tests
 
-Optional extras: .[dev], .[chroma-migration], .[treesitter]
+Optional extras: .[custom-models], .[dev], .[spellcheck], .[treesitter], .[watch]
 
 ```bash
 python -m pytest tests/ -x -q
@@ -764,7 +768,13 @@ def test_optional_extras_and_release_gate_docs_match_metadata_and_workflows(tmp_
     root = _make_repo(tmp_path)
     facts, errors = guard.evaluate(root)
     assert errors == []
-    assert facts["optional_extras"] == ["chroma-migration", "dev", "treesitter"]
+    assert facts["optional_extras"] == [
+        "custom-models",
+        "dev",
+        "spellcheck",
+        "treesitter",
+        "watch",
+    ]
     assert facts["workflow_names"] == {
         "tests": "Tests",
         "publish": "Publish to PyPI",
@@ -1086,12 +1096,12 @@ def test_stale_document_fixtures_fail_with_file_and_section_diagnostics(tmp_path
     extras_root = _make_repo(tmp_path / "extras")
     pyproject_path = extras_root / "pyproject.toml"
     pyproject_path.write_text(
-        pyproject_path.read_text(encoding="utf-8") + 'spellcheck = ["autocorrect>=2.0"]\n',
+        pyproject_path.read_text(encoding="utf-8") + 'new-extra = ["example>=1.0"]\n',
         encoding="utf-8",
     )
     _, extras_errors = guard.evaluate(extras_root)
     assert any(
-        e.startswith("README.md:") and "Optional extras" in e and "spellcheck" in e
+        e.startswith("README.md:") and "Optional extras" in e and "new-extra" in e
         for e in extras_errors
     ), extras_errors
 
@@ -1951,6 +1961,15 @@ def test_custom_models_linux_cpu_install_and_recovery_authority_contract():
         assert "docs/OFFLINE_USAGE.md" in entry_point
         assert cpu_install not in entry_point
         assert extra_install not in entry_point
+
+    assert "mempalace-code[custom-models]" in readme
+    optional_extras = readme.split("**Optional extras:**", 1)[1].split("```", 2)[1]
+    assert "docs/OFFLINE_USAGE.md" in optional_extras
+    custom_model_rows = [
+        line for line in optional_extras.splitlines() if "mempalace-code[custom-models]" in line
+    ]
+    assert len(custom_model_rows) == 1
+    assert custom_model_rows[0].lstrip().startswith("#")
 
     assert all(token in releasing for token in (mkdir, free_space, cpu_install, extra_install))
     assert releasing.index(mkdir) < releasing.index(free_space) < releasing.index(cpu_install)

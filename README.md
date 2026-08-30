@@ -1017,6 +1017,7 @@ BOOTSTRAP_FILE="$(mktemp -t mempalace-bootstrap.XXXXXX)" || exit 1
 **Optional extras:**
 
 ```bash
+# mempalace-code[custom-models]            # CPU-only Linux: docs/OFFLINE_USAGE.md
 pip install "mempalace-code[treesitter]"  # AST parsing
 pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[watch]"       # optional watcher (auto-mine on file changes)
