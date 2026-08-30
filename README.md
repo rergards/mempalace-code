@@ -1020,9 +1020,12 @@ BOOTSTRAP_FILE="$(mktemp -t mempalace-bootstrap.XXXXXX)" || exit 1
 pip install "mempalace-code[treesitter]"  # AST parsing
 pip install "mempalace-code[spellcheck]"  # autocorrect for room/wing names
 pip install "mempalace-code[watch]"       # optional watcher (auto-mine on file changes)
-pip install "mempalace-code[custom-models]" # arbitrary SentenceTransformer names/paths
 pip install "mempalace-code[dev]"         # pytest + ruff + pyright
 ```
+
+CPU-only Linux custom models require the ordered CPU PyTorch contour and bounded recovery
+in [Using a Custom Model Offline](docs/OFFLINE_USAGE.md#3-using-a-custom-model-offline).
+That guide also covers arbitrary SentenceTransformer names and local paths.
 
 **Requirements:** Python 3.11+. Use `mempalace-code init <dir> --skip-model-download` for an
 offline-safe init. Run `mempalace-code fetch-model` later only after explicit consent to cache

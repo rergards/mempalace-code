@@ -149,8 +149,10 @@ Line length: 100. Target: py311. Quote style: double.
   immutable `.mempalace-model.json` provenance. Recovery is
   `mempalace-code fetch-model` while online.
 - **Custom-model boundary**: arbitrary Hugging Face names and local
-  SentenceTransformer paths require `python -m pip install 'mempalace-code[custom-models]'`.
-  Only that explicit path may use `trust_remote_code=True`; canonical MiniLM aliases never do.
+  SentenceTransformer paths use the explicit `[custom-models]` extra. On CPU-only Linux,
+  follow the ordered installation and recovery contour in `docs/OFFLINE_USAGE.md`; only
+  that explicit custom-model path may use `trust_remote_code=True`, and canonical MiniLM
+  aliases never do.
 - **No-regression rule**: any embedding model change must match or beat MiniLM on LongMemEval R@5 (text retrieval). Text quality is non-negotiable — this is a code-first fork but natural language search (conversations, commits, decisions) must not degrade.
 - **No code-only models**: CodeBERT, UniXcoder, etc. improve code at the expense of prose. Only general-purpose sentence-transformers that handle both are candidates.
 - **Gate**: model upgrades are gated behind A/B benchmark results.

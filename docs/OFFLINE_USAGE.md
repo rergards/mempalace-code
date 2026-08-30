@@ -75,6 +75,30 @@ If the command exits with a connection error, the model is not fully cached.  Ru
 If you want to use a different embedding model (see `docs/UPSTREAM_HARDENING.md` for
 the model upgrade policy):
 
+On CPU-only Linux, create an owner-private scratch directory on a filesystem with
+adequate free space, inspect that filesystem, and keep both ordered install stages on the
+same `TMPDIR`:
+
+```bash
+install -d -m 700 "$HOME/.cache/mempalace/tmp"
+df -h "$HOME/.cache/mempalace/tmp"
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install 'mempalace-code[custom-models]'
+```
+
+An `Errno 28` or `No space left on device` result leaves the current CPU prerequisite or
+custom-model extra stage incomplete. Free space on that filesystem, then recover from any
+directory by repeating the complete ordered install on the same scratch directory:
+
+```bash
+install -d -m 700 "$HOME/.cache/mempalace/tmp"
+df -h "$HOME/.cache/mempalace/tmp"
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install 'mempalace-code[custom-models]'
+```
+
+On other supported platforms, install the custom-model extra directly:
+
 ```bash
 # 1. Install the explicit custom-model compatibility boundary:
 python -m pip install 'mempalace-code[custom-models]'

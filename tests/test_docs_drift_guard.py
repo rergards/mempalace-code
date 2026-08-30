@@ -1909,8 +1909,11 @@ def test_releasing_names_exact_wheel_installed_golden_cache_and_provenance_contr
     assert "manager matrix" in text
 
 
-def test_custom_models_linux_cpu_install_and_recovery_contract():
+def test_custom_models_linux_cpu_install_and_recovery_authority_contract():
+    offline = (ROOT / "docs" / "OFFLINE_USAGE.md").read_text(encoding="utf-8")
     agent = (ROOT / "docs" / "AGENT_INSTALL.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     releasing = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
     mkdir = 'install -d -m 700 "$HOME/.cache/mempalace/tmp"'
     free_space = 'df -h "$HOME/.cache/mempalace/tmp"'
@@ -1927,12 +1930,33 @@ def test_custom_models_linux_cpu_install_and_recovery_contract():
         '--installed-golden-wheel "$WHEEL" --json'
     )
 
-    for text in (agent, releasing):
-        assert all(token in text for token in (mkdir, free_space, cpu_install, extra_install))
-        assert text.index(mkdir) < text.index(free_space) < text.index(cpu_install)
-        assert text.index(cpu_install) < text.index(extra_install)
-        assert text.count(recovery) == 1
-        assert "adequate free space" in text
+    assert all(token in offline for token in (mkdir, free_space, cpu_install, extra_install))
+    assert offline.index(mkdir) < offline.index(free_space) < offline.index(cpu_install)
+    assert offline.index(cpu_install) < offline.index(extra_install)
+    assert offline.count(cpu_install) == 2
+    assert offline.count(extra_install) == 2
+    assert "from any\ndirectory" in offline
+    assert "incomplete" in offline
+
+    for user_surface in (offline, agent, readme, agents):
+        assert "scripts/release_readiness_gate.py" not in user_surface
+        assert '"$WHEEL"' not in user_surface
+
+    assert "ask for authority" in agent
+    assert "docs/OFFLINE_USAGE.md" in agent
+    assert cpu_install not in agent
+    assert extra_install not in agent
+
+    for entry_point in (readme, agents):
+        assert "docs/OFFLINE_USAGE.md" in entry_point
+        assert cpu_install not in entry_point
+        assert extra_install not in entry_point
+
+    assert all(token in releasing for token in (mkdir, free_space, cpu_install, extra_install))
+    assert releasing.index(mkdir) < releasing.index(free_space) < releasing.index(cpu_install)
+    assert releasing.index(cpu_install) < releasing.index(extra_install)
+    assert releasing.count(recovery) == 1
+    assert "adequate free space" in releasing
 
 
 def test_releasing_agent_plugin_locator_is_machine_readable():
