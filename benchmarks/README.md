@@ -145,9 +145,15 @@ python benchmarks/code_retrieval_bench.py --check-minilm-runtime-compatibility
 The command is self-contained in a one-parent checkout. It requires the
 canonical cache prepared by `mempalace-code fetch-model`, forces local-only
 embedding, and rejects checkout source that shadows the installed distribution.
-Success and failure each print one bounded status line; a failure includes one
-recovery command. The 469-chunk result in `results_embed_ab_2026-04-09.json`
-remains historical evidence and is not rerun by this fixture check.
+The fixture's `generation_command` is digest-bound provenance recording how the
+former vectors were produced; the release gate validates it as inert data and
+never executes it. The compatibility claim covers exactly the fixture's five
+texts, their paired cosine values, similarity matrix, and neighbor ordering. It
+does not rerun or make a claim about the historical 469-chunk retrieval
+benchmark. Success and failure each print one bounded status line; a failure
+includes exactly one recovery command: restore the fixture, install the exact
+candidate wheel, or run `mempalace-code fetch-model` while online to prepare the
+cache before retrying offline.
 
 ## Benchmark 5: .NET Code Retrieval
 

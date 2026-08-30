@@ -246,6 +246,9 @@ def test_minilm_compatibility_fixture_is_the_single_strict_contract():
     }
     assert fixture["dimensions"] == 384
     assert len(fixture["texts"]) == len(fixture["former_vectors"]) == 5
+    assert all(isinstance(text, str) and text.strip() for text in fixture["texts"])
+    assert isinstance(fixture["generation_command"], str)
+    assert fixture["generation_command"].strip()
 
 
 def _write_mutated_fixture(tmp_path, mutate):
@@ -263,6 +266,7 @@ def _write_mutated_fixture(tmp_path, mutate):
         lambda fixture: fixture.update(schema_version=True),
         lambda fixture: fixture["model"].update(alias="other"),
         lambda fixture: fixture.update(dimensions=383),
+        lambda fixture: fixture.update(generation_command=""),
         lambda fixture: fixture["texts"].append("extra"),
         lambda fixture: fixture["former_vectors"][0].__setitem__(0, float("nan")),
         lambda fixture: fixture["former_vectors"][0].pop(),
@@ -275,6 +279,34 @@ def test_minilm_compatibility_fixture_rejects_schema_and_bound_fact_drift(tmp_pa
 
     with pytest.raises(bench.BenchError, match="git restore"):
         bench._load_minilm_compatibility_fixture(path)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"schema_version": 1, "schema_version": 1}',
+        b'{"model": {"alias": "first", "alias": "second"}}',
+    ],
+)
+def test_minilm_compatibility_fixture_rejects_duplicate_keys(tmp_path, raw):
+    path = tmp_path / "fixture.json"
+    path.write_bytes(raw)
+
+    with pytest.raises(bench.BenchError, match="git restore"):
+        bench._load_minilm_compatibility_fixture(path)
+
+
+def test_minilm_generation_command_is_bound_inert_provenance(tmp_path):
+    marker = tmp_path / "generation-command-ran"
+    path = _write_mutated_fixture(
+        tmp_path,
+        lambda fixture: fixture.update(generation_command=f"touch {marker}"),
+    )
+
+    with pytest.raises(bench.BenchError, match="git restore"):
+        bench._load_minilm_compatibility_fixture(path)
+
+    assert not marker.exists()
 
 
 def test_minilm_compatibility_vectors_pass_and_fail_closed_on_metric_drift():

@@ -52,13 +52,6 @@ MINILM_FIXTURE_SHA256 = "52606c0cb541caa17f57e937e746057ff40355748935d8afa5cdaeb
 MINILM_FIXTURE_RECOVERY = "git restore benchmarks/minilm_runtime_compatibility_fixture.json"
 MINILM_CACHE_RECOVERY = "mempalace-code fetch-model"
 MINILM_INSTALL_RECOVERY = "python -m pip install dist/*.whl"
-_MINILM_TEXTS = [
-    "MemPalace stores exact project context for later retrieval.",
-    "LanceDB keeps vector storage local and crash safe.",
-    "A release gate must fail closed when evidence is missing.",
-    "Offline search uses a cached embedding model without network access.",
-    "The miner chunks source code at structural boundaries.",
-]
 
 
 class BenchError(Exception):
@@ -77,6 +70,15 @@ def _require_exact_keys(value: object, expected: set[str]) -> dict:
     return value
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise _fixture_error()
+        value[key] = item
+    return value
+
+
 def _finite_number(value: object) -> bool:
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
 
@@ -85,7 +87,7 @@ def _load_minilm_compatibility_fixture(path: Path = MINILM_COMPATIBILITY_FIXTURE
     """Load and strictly validate the immutable former-runtime fixture."""
     try:
         raw = path.read_bytes()
-        fixture = json.loads(raw)
+        fixture = json.loads(raw, object_pairs_hook=_reject_duplicate_keys)
         fixture = _require_exact_keys(
             fixture,
             {
@@ -116,9 +118,15 @@ def _load_minilm_compatibility_fixture(path: Path = MINILM_COMPATIBILITY_FIXTURE
             or fixture["dimensions"] != 384
             or isinstance(fixture["dimensions"], bool)
             or fixture["normalized"] is not True
-            or fixture["texts"] != _MINILM_TEXTS
             or not isinstance(fixture["generation_command"], str)
-            or not fixture["generation_command"]
+            or not fixture["generation_command"].strip()
+        ):
+            raise _fixture_error()
+        texts = fixture["texts"]
+        if (
+            not isinstance(texts, list)
+            or len(texts) != 5
+            or any(not isinstance(text, str) or not text.strip() for text in texts)
         ):
             raise _fixture_error()
         former_runtime = _require_exact_keys(
@@ -130,7 +138,7 @@ def _load_minilm_compatibility_fixture(path: Path = MINILM_COMPATIBILITY_FIXTURE
             raise _fixture_error()
 
         vectors = fixture["former_vectors"]
-        if not isinstance(vectors, list) or len(vectors) != len(_MINILM_TEXTS):
+        if not isinstance(vectors, list) or len(vectors) != len(texts):
             raise _fixture_error()
         for vector in vectors:
             if (
@@ -159,16 +167,16 @@ def _load_minilm_compatibility_fixture(path: Path = MINILM_COMPATIBILITY_FIXTURE
             or maximum_delta < 0.0
         ):
             raise _fixture_error()
-        expected_neighbors = set(range(len(_MINILM_TEXTS)))
+        expected_neighbors = set(range(len(texts)))
         orders = compatibility["neighbor_order"]
-        if not isinstance(orders, list) or len(orders) != len(_MINILM_TEXTS):
+        if not isinstance(orders, list) or len(orders) != len(texts):
             raise _fixture_error()
         for index, order in enumerate(orders):
             if (
                 not isinstance(order, list)
                 or any(isinstance(item, bool) or not isinstance(item, int) for item in order)
                 or set(order) != expected_neighbors - {index}
-                or len(order) != len(_MINILM_TEXTS) - 1
+                or len(order) != len(texts) - 1
             ):
                 raise _fixture_error()
         if hashlib.sha256(raw).hexdigest() != MINILM_FIXTURE_SHA256:

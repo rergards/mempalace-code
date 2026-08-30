@@ -1,5 +1,7 @@
 ---
 slug: REL-MINILM-PUBLIC-CORPUS-PIN
+status: active
+authority: non_authoritative
 goal: "Make the existing MiniLM compatibility gate self-contained in public squash candidates, with the fixture as its sole semantic authority."
 risk: medium
 risk_note: "This release-blocking runtime gate already has the correct owner, but fixture parsing and installed-runtime evidence must fail closed without reintroducing Git-history or package-shadow dependencies."
