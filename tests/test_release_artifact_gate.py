@@ -768,6 +768,15 @@ def test_pyproject_excludes_repository_only_release_configuration_from_the_sdist
     assert ".claude/**" in exclude
     assert "/.gitleaksignore" in exclude
     assert exclude.count("scripts/codex-review.sh") == 1
+    for repository_only_path in (
+        ".playwright-mcp/",
+        "docs/BACKLOG.yaml",
+        "docs/BACKLOG-archived.yaml",
+        "docs/task-evidence/",
+    ):
+        assert exclude.count(repository_only_path) == 1
+    assert "docs/" not in exclude
+    assert "docs/quality/" not in exclude
 
 
 def test_wheel_with_tasks_dir_fails(tmp_path):
