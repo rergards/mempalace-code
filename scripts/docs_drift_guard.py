@@ -1269,7 +1269,13 @@ def _agents_optional_extras(text: str) -> set[str] | None:
     match = re.search(r"^Optional extras:\s*\n(.*?)(?=^## |\Z)", text, re.DOTALL | re.MULTILINE)
     if match is None:
         return None
-    return set(re.findall(r"\.\[([a-z][a-z0-9-]*)\]", match.group(1)))
+    return set(
+        re.findall(
+            r"^[ \t]*-[ \t]+`\.\[([a-z][a-z0-9-]*)\]`",
+            match.group(1),
+            re.MULTILINE,
+        )
+    )
 
 
 def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:

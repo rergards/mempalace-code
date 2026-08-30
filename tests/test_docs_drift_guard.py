@@ -823,12 +823,18 @@ def test_optional_extras_and_release_gate_docs_match_metadata_and_workflows(tmp_
     assert any("docs/RELEASING.md" in error and "Ship to PyPI" in error for error in errors), errors
 
 
-def test_agents_optional_extras_report_missing_declared_extra(tmp_path: Path):
+def test_agents_optional_extras_report_missing_declared_extra_despite_section_prose(
+    tmp_path: Path,
+):
     root = _make_repo(tmp_path)
     agents_path = root / "AGENTS.md"
     agents_path.write_text(
-        agents_path.read_text(encoding="utf-8").replace("- `.[treesitter]` — AST parsing\n", "")
-        + "\nAn unrelated example still mentions `.[treesitter]`.\n",
+        agents_path.read_text(encoding="utf-8")
+        .replace("- `.[treesitter]` — AST parsing\n", "")
+        .replace(
+            "\n## Running Tests\n",
+            "\nA prose note still mentions `.[treesitter]`.\n\n## Running Tests\n",
+        ),
         encoding="utf-8",
     )
 
