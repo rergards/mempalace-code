@@ -73,6 +73,6 @@ items:
     status: open
     priority: low
     size: XS
-    section_id: pre_release
+    section_id: future
     labels: [release-blocker, documentation, drunk-llm]
     description: "## Scope\n\nImmediately before the final public candidate, update the existing v1.13.5 CHANGELOG.md header to the actual publication date, remove the v1.0.0 bullet that names docs/STORAGE.md which is absent from tracked history, and delete the completed non-authoritative docs/plans/REL-DEPENDENCY-AUDIT-1-13-5.md whose executable-looking contract still requires retired Chroma extras. Reuse CHANGELOG.md and the backlog archive as the historical owner; do not create replacement documents or change historical feature claims.\n\n## Acceptance criteria\n\n- The v1.13.5 header contains the actual local publication date and remains the only header for that version.\n- The nonexistent docs/STORAGE.md path is absent while the rest of the v1.0.0 historical entry is unchanged.\n- The superseded Chroma dependency plan is absent, with its completed task history retained in docs/BACKLOG-archived.yaml.\n- Changelog and plan lifecycle contract tests, docs drift, public safety, and git diff checks pass.\n- The final Git tree, wheel, and sdist expose the corrected documentation and contain no private or local-only paths."
