@@ -46,4 +46,12 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: REL-CUSTOM-MODELS-LINUX-CPU-INSTALL
+    summary: "Make CPU-only Linux custom-model installation bounded and recoverable"
+    type: bug
+    status: open
+    priority: high
+    size: S
+    section_id: pre_release
+    description: "## Symptom\n\nOn Ubuntu 24.04 ARM64 CPU-only, a fresh install of the exact wheel with [custom-models] resolved PyTorch plus multi-gigabyte CUDA/NVIDIA dependencies, filled a 7.1 GiB temporary filesystem, and failed with Errno 28. The installed-golden gate reported only that the custom-models contour installation failed.\n\n## Steps to reproduce\n\nRun the exact candidate wheel installed-golden gate on Ubuntu ARM64 with TMPDIR on a constrained filesystem, or install the wheel [custom-models] extra with fresh pip resolution from PyPI.\n\n## Scope\n\nExtend the existing custom-model documentation and installed-golden owner. Keep the default FastEmbed dependency graph unchanged. Add no external AI client, credential access, service, mode, or second release gate.\n\n## Expected vs actual\n\nExpected: CPU-only Linux users and release operators get a documented CPU PyTorch install contour, an explicit scratch-space requirement, and one bounded recovery command. Actual: the one-step extra may select accelerator dependencies and the gate discards the decisive pip error.\n\n## Root cause hypothesis\n\nSentence Transformers requires PyTorch; the default PyPI Linux resolver may choose a build with CUDA/NVIDIA dependencies. Public instructions do not name the official CPU wheel index or scratch-space recovery, and install_extra replaces pip stderr with a generic exception.\n\n## Acceptance criteria\n\n- Canonical public custom-model and release guidance names the official CPU-only PyTorch prerequisite on Linux and a spacious Linux-owned TMPDIR recovery before installing mempalace-code[custom-models].\n- The existing installed-golden gate uses or enforces the documented CPU-only Linux contour without changing macOS behavior or the default dependency graph.\n- Optional-extra installation failures preserve a bounded, sanitized decisive diagnostic; Errno 28 emits current status and one exact retry command.\n- Focused tests cover CPU-contour selection, ENOSPC recovery, output bounds, and private-path redaction.\n- The exact rebuilt wheel passes installed-golden on macOS and Ubuntu ARM64; the default graph still excludes Torch, CUDA, NVIDIA, Triton, and Chroma.\n- Existing documentation, public-safety, artifact, static, and full non-network gates pass; no new gate is added."
