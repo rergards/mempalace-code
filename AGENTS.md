@@ -74,7 +74,12 @@ pip install -e ".[dev]"
 No Docker required. Everything runs locally in a venv or with pipx.
 
 Optional extras:
+
+- `.[custom-models]` — arbitrary SentenceTransformer models; follow `docs/OFFLINE_USAGE.md`
+- `.[dev]` — test, lint, type-check, build, and release tooling
 - `.[spellcheck]` — autocorrect support for room/wing names
+- `.[treesitter]` — Tree-sitter AST parsing
+- `.[watch]` — automatic mining on file changes
 
 ## Running Tests
 

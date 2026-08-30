@@ -243,7 +243,13 @@ mempalace-code diary write --agent <name> --entry "<text>"
         tmp_path / "AGENTS.md",
         """## Running Tests
 
-Optional extras: .[custom-models], .[dev], .[spellcheck], .[treesitter], .[watch]
+Optional extras:
+
+- `.[custom-models]` — custom models
+- `.[dev]` — development tools
+- `.[spellcheck]` — spellcheck
+- `.[treesitter]` — AST parsing
+- `.[watch]` — file watching
 
 ```bash
 python -m pytest tests/ -x -q
@@ -815,6 +821,43 @@ def test_optional_extras_and_release_gate_docs_match_metadata_and_workflows(tmp_
     publish3.write_text("name: Ship to PyPI\n\non: [push]\n", encoding="utf-8")
     _, errors = guard.evaluate(root3)
     assert any("docs/RELEASING.md" in error and "Ship to PyPI" in error for error in errors), errors
+
+
+def test_agents_optional_extras_report_missing_declared_extra(tmp_path: Path):
+    root = _make_repo(tmp_path)
+    agents_path = root / "AGENTS.md"
+    agents_path.write_text(
+        agents_path.read_text(encoding="utf-8").replace("- `.[treesitter]` — AST parsing\n", "")
+        + "\nAn unrelated example still mentions `.[treesitter]`.\n",
+        encoding="utf-8",
+    )
+
+    _, errors = guard.evaluate(root)
+
+    assert any(
+        error
+        == "AGENTS.md: 'Optional extras' section: drift (missing treesitter)"
+        for error in errors
+    ), errors
+
+
+def test_agents_optional_extras_report_stale_unknown_extra(tmp_path: Path):
+    root = _make_repo(tmp_path)
+    agents_path = root / "AGENTS.md"
+    agents_path.write_text(
+        agents_path.read_text(encoding="utf-8").replace(
+            "- `.[watch]` — file watching\n",
+            "- `.[watch]` — file watching\n- `.[unknown]` — unsupported\n",
+        ),
+        encoding="utf-8",
+    )
+
+    _, errors = guard.evaluate(root)
+
+    assert any(
+        error == "AGENTS.md: 'Optional extras' section: drift (stale unknown)"
+        for error in errors
+    ), errors
 
 
 # ── AC-4: Canonical verification command documentation ─────────────────────────

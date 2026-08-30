@@ -1265,6 +1265,13 @@ def _readme_optional_extras(text: str) -> set[str] | None:
     return set(re.findall(r"mempalace-code\[([a-z][a-z0-9-]*)\]", match.group(1)))
 
 
+def _agents_optional_extras(text: str) -> set[str] | None:
+    match = re.search(r"^Optional extras:\s*\n(.*?)(?=^## |\Z)", text, re.DOTALL | re.MULTILINE)
+    if match is None:
+        return None
+    return set(re.findall(r"\.\[([a-z][a-z0-9-]*)\]", match.group(1)))
+
+
 def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
     """Return public facts and any documentation drift errors."""
     errors: list[str] = []
@@ -1478,13 +1485,22 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
         if detail:
             errors.append(f"README.md: 'Optional extras' block: drift ({'; '.join(detail)})")
 
-    agent_extras = set(re.findall(r"\.\[([a-z][a-z0-9-]*)\]", docs["AGENTS.md"]))
-    stale_agent_extras = sorted(agent_extras - set(extras))
-    if stale_agent_extras:
-        errors.append(
-            "AGENTS.md: 'Optional extras' section: references unknown extras: "
-            + ", ".join(stale_agent_extras)
-        )
+    agent_extras = _agents_optional_extras(docs["AGENTS.md"])
+    if agent_extras is None:
+        errors.append("AGENTS.md: 'Optional extras' section: section not found")
+    else:
+        extras_set = set(extras)
+        missing_agent_extras = sorted(extras_set - agent_extras)
+        stale_agent_extras = sorted(agent_extras - extras_set)
+        detail = []
+        if missing_agent_extras:
+            detail.append(f"missing {', '.join(missing_agent_extras)}")
+        if stale_agent_extras:
+            detail.append(f"stale {', '.join(stale_agent_extras)}")
+        if detail:
+            errors.append(
+                f"AGENTS.md: 'Optional extras' section: drift ({'; '.join(detail)})"
+            )
 
     for relative_path, markers in CHROMA_RUNTIME_SUPPORT_MARKERS.items():
         text = docs[relative_path]
