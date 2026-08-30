@@ -47,14 +47,6 @@ sections:
 # OPEN ITEMS
 # ============================================================
 items:
-  - key: REL-SDIST-EXCLUDE-LOCAL-OPS
-    summary: "Exclude local and operational artifacts from the public sdist"
-    type: bug
-    status: open
-    priority: highest
-    size: XS
-    section_id: pre_release
-    description: "## Symptom\n\nA fresh v1.13.5 sdist built from the reconciled release branch contains untracked .playwright-mcp logs plus tracked docs/BACKLOG.yaml, docs/BACKLOG-archived.yaml, and docs/task-evidence files. The existing artifact gate rejects the untracked browser residue, while the tracked operational documents still pass.\n\n## Steps to reproduce\n\nBuild a fresh wheel and sdist while the user-owned .playwright-mcp directory exists, run scripts/release_artifact_gate.py against the artifacts, and inspect the sdist tar members for the four named surfaces.\n\n## Evidence\n\nThe exact fresh build under /private/tmp/mempalace-reconcile-sdist.9eqfNd contains all four surfaces. Equivalent bounded fixes exist on release/v1.13.5-rc3 in commits 556dc5a9 and 2e163d47.\n\n## Scope\n\nExtend the existing Hatch sdist exclusion list and the existing packaging contract assertion only. Do not add a gate, helper, dependency, external AI client, credential access, or second packaging owner. Leave the user-owned untracked .playwright-mcp directory untouched.\n\n## Acceptance criteria\n\n- pyproject.toml excludes .playwright-mcp/, docs/BACKLOG.yaml, docs/BACKLOG-archived.yaml, and docs/task-evidence/ from sdists exactly once.\n- The existing packaging contract test asserts all four exclusions.\n- A fresh build performed while .playwright-mcp/ exists contains none of the four forbidden surfaces.\n- The existing artifact gate and Twine check pass for the fresh wheel and sdist.\n- Public docs such as docs/quality remain present in the sdist.\n- No unrelated release-gate, dependency, documentation, or runtime behavior changes."
   - key: REL-CUSTOM-MODELS-LINUX-CPU-INSTALL
     summary: "Make CPU-only Linux custom-model installation bounded and recoverable"
     type: bug
