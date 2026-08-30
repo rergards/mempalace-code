@@ -1899,7 +1899,7 @@ def test_releasing_names_exact_wheel_installed_golden_cache_and_provenance_contr
     text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
     command = 'python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json'
 
-    assert text.count(command) == 2
+    assert text.count(command) == 3
     assert "`watch` extra" in text
     assert 'HF_HOME="$MEMPALACE_TEST_HF_HOME" mempalace-code fetch-model' in text
     assert "mempalace-fastembed/all-MiniLM-L6-v2-v1/.mempalace-model.json" in text
@@ -1907,6 +1907,32 @@ def test_releasing_names_exact_wheel_installed_golden_cache_and_provenance_contr
     assert "neutral cwd" in text
     assert "outside the checkout and ambient PATH" in text
     assert "manager matrix" in text
+
+
+def test_custom_models_linux_cpu_install_and_recovery_contract():
+    agent = (ROOT / "docs" / "AGENT_INSTALL.md").read_text(encoding="utf-8")
+    releasing = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+    mkdir = 'install -d -m 700 "$HOME/.cache/mempalace/tmp"'
+    free_space = 'df -h "$HOME/.cache/mempalace/tmp"'
+    cpu_install = (
+        'TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install torch '
+        "--index-url https://download.pytorch.org/whl/cpu"
+    )
+    extra_install = (
+        'TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install '
+        "'mempalace-code[custom-models]'"
+    )
+    recovery = (
+        'TMPDIR="$HOME/.cache/mempalace/tmp" python scripts/release_readiness_gate.py '
+        '--installed-golden-wheel "$WHEEL" --json'
+    )
+
+    for text in (agent, releasing):
+        assert all(token in text for token in (mkdir, free_space, cpu_install, extra_install))
+        assert text.index(mkdir) < text.index(free_space) < text.index(cpu_install)
+        assert text.index(cpu_install) < text.index(extra_install)
+        assert text.count(recovery) == 1
+        assert "adequate free space" in text
 
 
 def test_releasing_agent_plugin_locator_is_machine_readable():

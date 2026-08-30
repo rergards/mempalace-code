@@ -517,6 +517,25 @@ For an explicit custom model or local SentenceTransformer path, ask for authorit
 running `python -m pip install 'mempalace-code[custom-models]'`; only that path may execute
 trusted remote model code.
 
+On CPU-only Linux, use the official PyTorch CPU wheel contour in this order. Create an
+owner-private scratch directory on a filesystem with adequate free space, verify that
+filesystem before installation, then keep every install stage on the same `TMPDIR`:
+
+```bash
+install -d -m 700 "$HOME/.cache/mempalace/tmp"
+df -h "$HOME/.cache/mempalace/tmp"
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install 'mempalace-code[custom-models]'
+```
+
+An `Errno 28` or `No space left on device` result means the current CPU prerequisite or
+custom-model extra stage is incomplete. Free space on the selected filesystem, then rerun
+the complete exact-wheel qualification with this single recovery command:
+
+```bash
+TMPDIR="$HOME/.cache/mempalace/tmp" python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
+```
+
 Exit code 0 = success. Set `MODEL_READY=true`. Continue to Step 4d.
 
 **Fail →** Retry once with `"$MEMPALACE_BIN" fetch-model`. If it still fails, **ASK HUMAN:**

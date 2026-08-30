@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import email
+import errno
 import hashlib
 import importlib.util
 import json
@@ -49,6 +50,11 @@ INSTALLED_MODEL_CACHE_PROBE = (
     "print(json.dumps(canonical_fastembed_cache_status(), separators=(',', ':')))"
 )
 INSTALLED_GOLDEN_COMMAND = (
+    'python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json'
+)
+INSTALLED_CUSTOM_MODELS_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
+INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY = (
+    'TMPDIR="$HOME/.cache/mempalace/tmp" '
     'python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json'
 )
 INSTALLED_GOLDEN_ONNX_CPU_WARNING = (
@@ -5952,6 +5958,67 @@ def _parse_single_marked_json(output: str, marker: str, label: str) -> object:
         raise ValueError(f"{label} returned invalid JSON") from None
 
 
+def _installed_extra_install_commands(
+    python_bin: Path, wheel: Path, extra: str, platform_name: str
+) -> list[tuple[str, list[str]]]:
+    """Return the ordered pip stages for one optional-extra contour."""
+    commands: list[tuple[str, list[str]]] = []
+    if extra == "custom-models" and platform_name.startswith("linux"):
+        commands.append(
+            (
+                "custom-models CPU prerequisite",
+                [
+                    str(python_bin),
+                    "-m",
+                    "pip",
+                    "install",
+                    "torch",
+                    "--index-url",
+                    INSTALLED_CUSTOM_MODELS_CPU_INDEX,
+                ],
+            )
+        )
+    commands.append(
+        (
+            f"{extra} candidate extra",
+            [str(python_bin), "-m", "pip", "install", f"{wheel}[{extra}]"],
+        )
+    )
+    return commands
+
+
+def _installed_extra_install_failure(stage: str, result) -> str:
+    """Retain one bounded decisive diagnostic and one recovery action."""
+    diagnostic = (
+        getattr(result, "stderr", None)
+        or getattr(result, "stdout", None)
+        or str(result)
+        or "pip produced no diagnostic output"
+    )
+    full_diagnostic = " ".join(str(diagnostic).split())
+    normalized = full_diagnostic[:800]
+    returncode = getattr(result, "returncode", "launch error")
+    prefix = f"current status: {stage} failed with exit status {returncode}"
+    is_enospc = (
+        getattr(result, "errno", None) == errno.ENOSPC
+        or "errno 28" in full_diagnostic.lower()
+        or "no space left on device" in full_diagnostic.lower()
+    )
+    if is_enospc:
+        return (
+            f"{prefix}: {normalized}; error: No space left on device; "
+            f"recovery: {INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY}"
+        )
+    return f"{prefix}: {normalized}"
+
+
+def _installed_extra_suite_failure(detail: str) -> str:
+    """Add the ordinary rerun unless the ENOSPC formatter already owns recovery."""
+    if INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY in detail:
+        return detail
+    return f"{detail}; rerun: {INSTALLED_GOLDEN_COMMAND}"
+
+
 def _run_installed_extra_and_export_reconciliation(
     *,
     root: Path,
@@ -5966,6 +6033,7 @@ def _run_installed_extra_and_export_reconciliation(
     hf_home: Path,
     watch_receipt: bool,
     export_receipts: dict[str, bool],
+    platform_name: str,
     smoke,
     run_subprocess,
 ) -> str | None:
@@ -6023,13 +6091,15 @@ def _run_installed_extra_and_export_reconciliation(
         create = completed([sys.executable, "-m", "venv", str(contour_venv)], env=setup_env)
         if create.returncode != 0:
             raise RuntimeError(f"{extra} contour creation failed")
-        install = completed(
-            [str(python_bin), "-m", "pip", "install", f"{wheel}[{extra}]"],
-            env=setup_env,
-            timeout=INSTALLED_GOLDEN_TIMEOUT,
-        )
-        if install.returncode != 0:
-            raise RuntimeError(f"{extra} contour installation failed")
+        for stage, command in _installed_extra_install_commands(
+            python_bin, wheel, extra, platform_name
+        ):
+            try:
+                install = completed(command, env=setup_env, timeout=INSTALLED_GOLDEN_TIMEOUT)
+            except OSError as exc:
+                raise RuntimeError(_installed_extra_install_failure(stage, exc)) from None
+            if install.returncode != 0:
+                raise RuntimeError(_installed_extra_install_failure(stage, install))
         site = completed([str(python_bin), "-c", smoke._SITE_PACKAGES_SCRIPT], env=setup_env)
         try:
             site_paths = json.loads(site.stdout)
@@ -6828,6 +6898,7 @@ def _run_installed_golden_wheel(
                 "export:mempalace_code.mcp:handle_request": mcp_failure is None,
                 "export:mempalace_code.mcp:main": mcp_failure is None,
             },
+            platform_name=platform_name,
             smoke=smoke,
             run_subprocess=underlying_run_subprocess,
         )
@@ -6837,7 +6908,7 @@ def _run_installed_golden_wheel(
                     "installed_golden_suite",
                     INSTALLED_GOLDEN_COMMAND,
                     "fail",
-                    f"{direct_claim_failure}; rerun: {INSTALLED_GOLDEN_COMMAND}",
+                    _installed_extra_suite_failure(direct_claim_failure),
                 )
             ]
 

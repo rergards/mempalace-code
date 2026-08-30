@@ -134,6 +134,26 @@ The exact same owner runs inside `release_readiness_gate.py --check` and the
 required `installed-application` CI job; missing or failing evidence therefore
 blocks `release-required`.
 
+On CPU-only Linux, the same owner qualifies `[custom-models]` by installing PyTorch from
+the official CPU wheel index before installing the exact candidate wheel extra. Prepare an
+owner-private scratch directory on a filesystem with adequate free space and preserve one
+`TMPDIR` across the ordered contour:
+
+```bash
+install -d -m 700 "$HOME/.cache/mempalace/tmp"
+df -h "$HOME/.cache/mempalace/tmp"
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install 'mempalace-code[custom-models]'
+```
+
+An `Errno 28` or `No space left on device` result identifies the failed prerequisite or
+candidate-extra stage in bounded sanitized output. Free adequate space on the selected
+filesystem and repeat the complete owner from that scratch directory:
+
+```bash
+TMPDIR="$HOME/.cache/mempalace/tmp" python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
+```
+
 The default tag preflight is deterministic, local, and non-mutating. It checks
 tag/version agreement, the documentation contract, the committed-tree
 public-safety scan, and optionally a clean worktree. The explicit

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import io
 import json
@@ -3783,6 +3784,7 @@ def test_installed_golden_uses_watch_extra_provenance_neutral_cwd_and_safe_env(
     assert "PYTHONPATH" not in golden_kwargs["env"]
     assert len(extra_calls) == 1
     assert extra_calls[0]["hf_home"] == Path(golden_kwargs["env"]["HF_HOME"])
+    assert extra_calls[0]["platform_name"] == sys.platform
     assert len(recovery_calls) == 1
     recovery_args, recovery_kwargs = recovery_calls[0]
     assert Path(recovery_args[0][0]).is_absolute()
@@ -4067,6 +4069,97 @@ def test_installed_golden_uses_watch_extra_provenance_neutral_cwd_and_safe_env(
         str(tmp_path / "tests/test_cli_golden_scenarios.py") in command
         for command, _kwargs in failure_calls
     )
+
+
+def test_installed_custom_models_platform_contours(tmp_path):
+    python_bin = tmp_path / "venv" / "bin" / "python"
+    wheel = tmp_path / "mempalace_code-1.13.5-py3-none-any.whl"
+
+    linux = rrg._installed_extra_install_commands(python_bin, wheel, "custom-models", "linux")
+    assert linux == [
+        (
+            "custom-models CPU prerequisite",
+            [
+                str(python_bin),
+                "-m",
+                "pip",
+                "install",
+                "torch",
+                "--index-url",
+                "https://download.pytorch.org/whl/cpu",
+            ],
+        ),
+        (
+            "custom-models candidate extra",
+            [str(python_bin), "-m", "pip", "install", f"{wheel}[custom-models]"],
+        ),
+    ]
+    assert rrg._installed_extra_install_commands(python_bin, wheel, "custom-models", "darwin") == [
+        (
+            "custom-models candidate extra",
+            [str(python_bin), "-m", "pip", "install", f"{wheel}[custom-models]"],
+        )
+    ]
+    assert rrg._installed_extra_install_commands(python_bin, wheel, "spellcheck", "linux") == [
+        (
+            "spellcheck candidate extra",
+            [str(python_bin), "-m", "pip", "install", f"{wheel}[spellcheck]"],
+        )
+    ]
+
+
+def test_installed_custom_models_install_failure_is_bounded_and_sanitized():
+    result = SimpleNamespace(
+        returncode=17,
+        stdout="ignored stdout",
+        stderr="/home/private-user/build/wheel " + "resolver detail " * 200,
+    )
+    failure = rrg._installed_extra_install_failure("custom-models candidate extra", result)
+    row = rrg._make_row(
+        "installed_golden_suite",
+        rrg.INSTALLED_GOLDEN_COMMAND,
+        "fail",
+        rrg._installed_extra_suite_failure(failure),
+    )
+
+    assert row["status"] == "fail"
+    assert "custom-models candidate extra failed with exit status 17" in row["detail"]
+    assert "resolver detail" in row["detail"]
+    assert "ignored stdout" not in row["detail"]
+    assert "/home/private-user" not in row["detail"]
+    assert len(row["detail"]) <= rrg._DETAIL_LIMIT
+    assert row["detail"].count(f"rerun: {rrg.INSTALLED_GOLDEN_COMMAND}") == 1
+
+
+def test_installed_custom_models_enospc_has_one_owned_tmpdir_retry():
+    result = SimpleNamespace(
+        returncode=1,
+        stdout="",
+        stderr="full " * 300 + "/tmp/private-build: [Errno 28] No space left on device",
+    )
+    failure = rrg._installed_extra_install_failure("custom-models CPU prerequisite", result)
+    row = rrg._make_row(
+        "installed_golden_suite",
+        rrg.INSTALLED_GOLDEN_COMMAND,
+        "fail",
+        rrg._installed_extra_suite_failure(failure),
+    )
+
+    assert (
+        "current status: custom-models CPU prerequisite failed with exit status 1" in row["detail"]
+    )
+    assert "/tmp/private-build" not in row["detail"]
+    assert row["detail"].count(rrg.INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY) == 1
+    assert row["detail"].count("TMPDIR=") == 1
+    assert "error: No space left on device" in row["detail"]
+    assert "rerun:" not in row["detail"]
+    assert len(row["detail"]) <= rrg._DETAIL_LIMIT
+
+    launch_failure = rrg._installed_extra_install_failure(
+        "custom-models candidate extra", OSError(errno.ENOSPC, "disk full")
+    )
+    assert "exit status launch error" in launch_failure
+    assert launch_failure.count(rrg.INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY) == 1
 
 
 @pytest.mark.parametrize("machine", ["AARCH64", "arm64"], ids=("aarch64", "arm64"))
