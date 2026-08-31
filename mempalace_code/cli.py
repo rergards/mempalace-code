@@ -337,6 +337,11 @@ def main():
     p_search.add_argument(
         "--results", type=_positive_int, default=5, help="Number of results (minimum 1)"
     )
+    p_search.add_argument(
+        "--compact",
+        action="store_true",
+        help="Print bounded 300-character previews with read recovery commands",
+    )
 
     # read
     p_read = sub.add_parser(

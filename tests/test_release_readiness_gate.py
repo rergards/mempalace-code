@@ -1216,7 +1216,7 @@ def _stub_direct_golden_scenarios(monkeypatch):
     )
     search_rows = [
         rrg._make_row(f"installed_golden_search_results_{case}", "search", "pass", "complete")
-        for case in ("zero", "negative_one")
+        for case in ("zero", "negative_one", "compact", "unknown_wing")
     ]
     monkeypatch.setattr(
         rrg, "_run_installed_search_results_scenarios", lambda *args, **kwargs: search_rows
@@ -1231,6 +1231,91 @@ def _stub_direct_golden_scenarios(monkeypatch):
         "_run_installed_non_regular_source_scenario",
         lambda *args, **kwargs: non_regular,
     )
+
+
+def test_installed_search_results_scenario_covers_compact_success_and_unknown_wing(tmp_path):
+    scenario_root = tmp_path / "scenario"
+    project = scenario_root / "project"
+    compact_source = project / "COMPACT.md"
+
+    def completed(command, returncode=0, stdout="", stderr=""):
+        return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr=stderr)
+
+    def successful_run(command, **_kwargs):
+        args = command[1:]
+        if args[-2:] in (["--results", "0"], ["--results", "-1"]):
+            value = args[-1]
+            return completed(
+                command,
+                2,
+                stderr=f"mempalace-code search: error: argument --results: must be at least 1, got {value}\n",
+            )
+        if args[0] == "init":
+            return completed(command, stdout="Config saved:\n")
+        if "mine" in args:
+            return completed(command, stdout="Drawers filed: 1\n")
+        if "does-not-exist" in args:
+            return completed(
+                command,
+                2,
+                stderr="Unknown wing 'does-not-exist'.\nNext: choose an existing wing.\n",
+            )
+        preview = "compact_boundary_marker_9182 " + "v" * 267 + "..."
+        source_arg = shlex.quote(str(compact_source))
+        return completed(
+            command,
+            stdout=(
+                "\n============================================================\n"
+                '  Results for: "compact_boundary_marker_9182"\n'
+                "  Wing: project\n"
+                "============================================================\n\n"
+                "  [1] project / documentation\n"
+                f"      Source: {compact_source}\n"
+                "      Match:  0.875\n"
+                "      Lines:  1-4\n\n"
+                f"      {preview}\n"
+                f"      Recovery: mempalace-code read {source_arg} --start 1 --end 4 --wing project\n\n"
+                "  ────────────────────────────────────────────────────────\n\n"
+            ),
+        )
+
+    rows = rrg._run_installed_search_results_scenarios(
+        ["mempalace-code"],
+        {},
+        scenario_root,
+        tmp_path,
+        run_subprocess=successful_run,
+    )
+
+    assert [row["id"] for row in rows] == [
+        "installed_golden_search_results_zero",
+        "installed_golden_search_results_negative_one",
+        "installed_golden_search_results_compact",
+        "installed_golden_search_results_unknown_wing",
+    ]
+    assert all(row["status"] == "pass" for row in rows)
+
+    def oversized_unknown(command, **kwargs):
+        result = successful_run(command, **kwargs)
+        if "does-not-exist" in command:
+            return completed(
+                command, 2, stderr="Unknown wing does-not-exist. Next: retry. " + "x" * 3000
+            )
+        return result
+
+    failed_rows = rrg._run_installed_search_results_scenarios(
+        ["mempalace-code"],
+        {},
+        tmp_path / "failure-scenario",
+        tmp_path,
+        run_subprocess=oversized_unknown,
+    )
+
+    unknown_row = next(
+        row for row in failed_rows if row["id"] == "installed_golden_search_results_unknown_wing"
+    )
+    assert unknown_row["status"] == "fail"
+    assert len(unknown_row["detail"]) <= 1200
 
 
 @pytest.mark.parametrize(

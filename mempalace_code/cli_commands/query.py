@@ -25,6 +25,7 @@ def cmd_search(args):
             wing=args.wing,
             room=args.room,
             n_results=args.results,
+            compact=args.compact,
         )
     except TaxonomyValidationError as e:
         for line in format_cli_lines(e.payload):

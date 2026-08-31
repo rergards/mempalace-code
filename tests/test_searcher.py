@@ -4,6 +4,8 @@ test_searcher.py — Tests for the programmatic search_memories API.
 Tests the library-facing search interface (not the CLI print variant).
 """
 
+import shlex
+
 import pytest
 
 from mempalace_code.language_catalog import sorted_searchable_languages
@@ -193,6 +195,120 @@ class TestCodeSearch:
         result = code_search(palace_path, "authenticate JWT", n_results=1)
 
         assert result["results"][0]["source_file"] == "/project/src/auth.py"
+
+
+class TestSearchCompactCLI:
+    class FakeStore:
+        def __init__(self, documents, metadatas):
+            self.documents = documents
+            self.metadatas = metadatas
+            self.query_kwargs = None
+
+        def query(self, **kwargs):
+            self.query_kwargs = kwargs
+            limit = kwargs["n_results"]
+            return {
+                "documents": [self.documents[:limit]],
+                "metadatas": [self.metadatas[:limit]],
+                "distances": [[0.125] * min(limit, len(self.documents))],
+            }
+
+    @staticmethod
+    def _render(monkeypatch, capsys, documents, metadatas, **kwargs):
+        store = TestSearchCompactCLI.FakeStore(documents, metadatas)
+        monkeypatch.setattr("mempalace_code.searcher.os.path.isdir", lambda _path: True)
+        monkeypatch.setattr(
+            "mempalace_code.searcher.validate_taxonomy_filters", lambda *_args, **_kwargs: None
+        )
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_args, **_kwargs: store)
+        search("needle", "/fake/palace", **kwargs)
+        return capsys.readouterr().out, store
+
+    def test_compact_bounds_previews_and_preserves_exact_metadata(self, monkeypatch, capsys):
+        long_document = "first line\n" + "x" * 400
+        source = "/project/odd path/o'hare.py"
+        wing = "project wing"
+        metadata = {
+            "wing": wing,
+            "room": "backend",
+            "source_file": source,
+            "line_start": "12",
+            "line_end": 18,
+        }
+
+        output, store = self._render(
+            monkeypatch,
+            capsys,
+            [long_document] * 4,
+            [metadata] * 4,
+            compact=True,
+            n_results=3,
+        )
+
+        previews = [
+            line.removeprefix("      ") for line in output.splitlines() if "first line" in line
+        ]
+        assert store.query_kwargs["n_results"] == 3
+        assert len(previews) == 3
+        assert all(len(preview) == 300 and preview.endswith("...") for preview in previews)
+        assert output.count("Source: /project/odd path/o'hare.py") == 3
+        assert output.count("Lines:  12-18") == 3
+        assert output.count("Match:  0.875") == 3
+        command = (
+            f"mempalace-code read {shlex.quote(source)} --start 12 --end 18 "
+            f"--wing {shlex.quote(wing)}"
+        )
+        assert output.count(f"Recovery: {command}") == 3
+
+    @pytest.mark.parametrize(
+        "metadata",
+        [
+            {},
+            {"source_file": "", "wing": "project", "line_start": 1, "line_end": 2},
+            {"source_file": [], "wing": "project", "line_start": 1, "line_end": 2},
+            {"source_file": "?", "wing": "project", "line_start": 1, "line_end": 2},
+            {"source_file": "a.py", "wing": " ", "line_start": 1, "line_end": 2},
+            {"source_file": "a.py", "wing": "project", "line_start": 0, "line_end": 2},
+            {"source_file": "a.py", "wing": "project", "line_start": 3, "line_end": 2},
+            {"source_file": "a.py", "wing": "project", "line_start": "x", "line_end": 2},
+            {"source_file": "a.py", "wing": "project", "line_start": True, "line_end": 2},
+        ],
+    )
+    def test_compact_malformed_metadata_never_invents_recovery(self, monkeypatch, capsys, metadata):
+        output, _store = self._render(monkeypatch, capsys, ["document"], [metadata], compact=True)
+
+        assert output.count("Recovery: unavailable") == 1
+        assert "mempalace-code read" not in output
+
+    def test_compact_empty_document_and_equal_range_are_safe(self, monkeypatch, capsys):
+        metadata = {
+            "source_file": "a.py",
+            "wing": "project",
+            "room": "backend",
+            "line_start": 7,
+            "line_end": 7,
+        }
+
+        output, _store = self._render(monkeypatch, capsys, [None], [metadata], compact=True)
+
+        assert "Lines:  7-7" in output
+        assert "Recovery: mempalace-code read a.py --start 7 --end 7 --wing project" in output
+
+    def test_default_output_remains_full_text(self, monkeypatch, capsys):
+        document = "first line\n" + "x" * 400
+        metadata = {
+            "wing": "project",
+            "room": "backend",
+            "source_file": "/project/app.py",
+            "line_start": 1,
+            "line_end": 2,
+        }
+
+        output, _store = self._render(monkeypatch, capsys, [document], [metadata])
+
+        assert f"      {document.splitlines()[1]}" in output
+        assert "Lines:" not in output
+        assert "Recovery:" not in output
 
 
 class TestTaxonomyFilterValidation:
