@@ -1216,7 +1216,7 @@ def _stub_direct_golden_scenarios(monkeypatch):
     )
     search_rows = [
         rrg._make_row(f"installed_golden_search_results_{case}", "search", "pass", "complete")
-        for case in ("zero", "negative_one", "compact", "unknown_wing")
+        for case in ("zero", "negative_one")
     ]
     monkeypatch.setattr(
         rrg, "_run_installed_search_results_scenarios", lambda *args, **kwargs: search_rows
@@ -1231,91 +1231,6 @@ def _stub_direct_golden_scenarios(monkeypatch):
         "_run_installed_non_regular_source_scenario",
         lambda *args, **kwargs: non_regular,
     )
-
-
-def test_installed_search_results_scenario_covers_compact_success_and_unknown_wing(tmp_path):
-    scenario_root = tmp_path / "scenario"
-    project = scenario_root / "project"
-    compact_source = project / "COMPACT.md"
-
-    def completed(command, returncode=0, stdout="", stderr=""):
-        return subprocess.CompletedProcess(command, returncode, stdout=stdout, stderr=stderr)
-
-    def successful_run(command, **_kwargs):
-        args = command[1:]
-        if args[-2:] in (["--results", "0"], ["--results", "-1"]):
-            value = args[-1]
-            return completed(
-                command,
-                2,
-                stderr=f"mempalace-code search: error: argument --results: must be at least 1, got {value}\n",
-            )
-        if args[0] == "init":
-            return completed(command, stdout="Config saved:\n")
-        if "mine" in args:
-            return completed(command, stdout="Drawers filed: 1\n")
-        if "does-not-exist" in args:
-            return completed(
-                command,
-                2,
-                stderr="Unknown wing 'does-not-exist'.\nNext: choose an existing wing.\n",
-            )
-        preview = "compact_boundary_marker_9182 " + "v" * 267 + "..."
-        source_arg = shlex.quote(str(compact_source))
-        return completed(
-            command,
-            stdout=(
-                "\n============================================================\n"
-                '  Results for: "compact_boundary_marker_9182"\n'
-                "  Wing: project\n"
-                "============================================================\n\n"
-                "  [1] project / documentation\n"
-                f"      Source: {compact_source}\n"
-                "      Match:  0.875\n"
-                "      Lines:  1-4\n\n"
-                f"      {preview}\n"
-                f"      Recovery: mempalace-code read {source_arg} --start 1 --end 4 --wing project\n\n"
-                "  ────────────────────────────────────────────────────────\n\n"
-            ),
-        )
-
-    rows = rrg._run_installed_search_results_scenarios(
-        ["mempalace-code"],
-        {},
-        scenario_root,
-        tmp_path,
-        run_subprocess=successful_run,
-    )
-
-    assert [row["id"] for row in rows] == [
-        "installed_golden_search_results_zero",
-        "installed_golden_search_results_negative_one",
-        "installed_golden_search_results_compact",
-        "installed_golden_search_results_unknown_wing",
-    ]
-    assert all(row["status"] == "pass" for row in rows)
-
-    def oversized_unknown(command, **kwargs):
-        result = successful_run(command, **kwargs)
-        if "does-not-exist" in command:
-            return completed(
-                command, 2, stderr="Unknown wing does-not-exist. Next: retry. " + "x" * 3000
-            )
-        return result
-
-    failed_rows = rrg._run_installed_search_results_scenarios(
-        ["mempalace-code"],
-        {},
-        tmp_path / "failure-scenario",
-        tmp_path,
-        run_subprocess=oversized_unknown,
-    )
-
-    unknown_row = next(
-        row for row in failed_rows if row["id"] == "installed_golden_search_results_unknown_wing"
-    )
-    assert unknown_row["status"] == "fail"
-    assert len(unknown_row["detail"]) <= 1200
 
 
 @pytest.mark.parametrize(
@@ -3520,12 +3435,16 @@ def test_installed_schedule_snippet_scenario_rejects_unsupported_platform(tmp_pa
         "watcher-launch",
         "watcher-exit",
         "watcher-stop",
+        "unknown-wing",
     ],
 )
 def test_installed_workflow_happy_path_fails_closed(tmp_path, fault):
     repository_root = tmp_path / "repository"
     repository_root.mkdir()
+    canonical_scenario_root = tmp_path / "canonical-scenario"
+    canonical_scenario_root.mkdir()
     scenario_root = tmp_path / "scenario"
+    scenario_root.symlink_to(canonical_scenario_root, target_is_directory=True)
     neutral = tmp_path / "neutral"
     attempts = tmp_path / "socket-attempts.log"
     console = tmp_path / "candidate" / "bin" / "mempalace-code"
@@ -3574,7 +3493,44 @@ def test_installed_workflow_happy_path_fails_closed(tmp_path, fault):
         if args[-1] == "status":
             return result(stdout="MemPalace Status\nWING: project\n")
         if "search" in args:
-            return result(stdout="Results for: xylophonic_glyph_9182\nSource: app.py\n")
+            if "does-not-exist" in args:
+                stderr = "Unknown wing 'does-not-exist'.\nNext: choose an existing wing.\n"
+                if fault == "unknown-wing":
+                    stderr += "x" * (rrg.INSTALLED_COMPACT_SEARCH_ERROR_LIMIT + 1)
+                return result(returncode=2, stderr=stderr)
+            if "--compact" not in args:
+                return result(stdout="Results for: xylophonic_glyph_9182\nSource: app.py\n")
+            palace = args[args.index("--palace") + 1]
+            source = str((scenario_root / "project" / "app.py").resolve())
+            recovery = shlex.join(
+                [
+                    "mempalace-code",
+                    "--palace",
+                    palace,
+                    "read",
+                    source,
+                    "--start",
+                    "4",
+                    "--end",
+                    "6",
+                    "--wing",
+                    "project",
+                ]
+            )
+            return result(
+                stdout=(
+                    "\n============================================================\n"
+                    "  Search results\n"
+                    "============================================================\n\n"
+                    "  [1] project / code\n"
+                    f"      Source: {source}\n"
+                    "      Match:  0.875\n"
+                    "      Lines:  4-6\n\n"
+                    "      def compute_xylophonic_glyph_9182(value): ...\n"
+                    f"      Recovery: {recovery}\n\n"
+                    "  ────────────────────────────────────────────────────────\n\n"
+                )
+            )
         if "read" in args:
             return result(stdout="\n".join(rrg._PY_LINES))
         if "export" in args:
@@ -3694,6 +3650,50 @@ def test_installed_workflow_happy_path_fails_closed(tmp_path, fault):
         watcher.signals == ([] if fault == "watcher-exit" else [signal.SIGTERM])
         for watcher in watchers
     )
+    if fault == "success":
+        search_calls = [command for command, _kwargs in calls if "search" in command]
+        default_search_calls = [command for command in search_calls if "--compact" not in command]
+        compact_search_calls = [
+            command
+            for command in search_calls
+            if "--compact" in command and "does-not-exist" not in command
+        ]
+        unknown_search_calls = [command for command in search_calls if "does-not-exist" in command]
+        read_calls = [command for command, _kwargs in calls if "read" in command]
+        legacy_read_calls = [command for command in read_calls if "--wing" not in command]
+        recovery_calls = [command for command in read_calls if "--wing" in command]
+        assert len(search_calls) == 7
+        assert len(default_search_calls) == 3
+        assert all(command[-2:] == ["--results", "10"] for command in default_search_calls)
+        assert len(compact_search_calls) == 3
+        assert all(
+            command[-3:] == ["--compact", "--results", "3"] for command in compact_search_calls
+        )
+        assert len(unknown_search_calls) == 1
+        assert sum("does-not-exist" in command for command in search_calls) == 1
+        assert unknown_search_calls[0][-3:] == ["--compact", "--results", "3"]
+        assert len(legacy_read_calls) == 3
+        assert all(
+            command[1:3] == ["--palace", str(scenario_root / f"palace-{suffix}")]
+            and command[3:] == ["read", "app.py", "--start", "1", "--end", str(len(rrg._PY_LINES))]
+            for command, suffix in zip(legacy_read_calls, ("a", "b", "c"))
+        )
+        assert len(recovery_calls) == 3
+        assert all(
+            command[1:3] == ["--palace", str(scenario_root / f"palace-{suffix}")]
+            and command[3:]
+            == [
+                "read",
+                str((scenario_root / "project" / "app.py").resolve()),
+                "--start",
+                "4",
+                "--end",
+                "6",
+                "--wing",
+                "project",
+            ]
+            for command, suffix in zip(recovery_calls, ("a", "b", "c"))
+        )
 
 
 def test_installed_golden_uses_watch_extra_provenance_neutral_cwd_and_safe_env(

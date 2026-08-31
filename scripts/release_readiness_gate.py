@@ -2728,7 +2728,7 @@ def _run_installed_search_results_scenarios(
     *,
     run_subprocess=subprocess.run,
 ) -> list[dict]:
-    """Prove result bounds plus compact success and unknown-wing behavior."""
+    """Prove non-positive search result counts fail before storage access."""
     scenario_root.mkdir(parents=True)
     palace = scenario_root / "palace"
     rows = []
@@ -2759,121 +2759,6 @@ def _run_installed_search_results_scenarios(
             )
         )
 
-    project = _write_fixture_project(scenario_root / "project")
-    compact_source = project / "COMPACT.md"
-    compact_source.write_text(
-        "# Compact fixture\n\ncompact_boundary_marker_9182 " + "verbatim " * 100 + "\n",
-        encoding="utf-8",
-    )
-
-    def run(args: list[str]):
-        return _run_installed_cli(run_subprocess, command_prefix, args, env, neutral_cwd)
-
-    init = run(["init", str(project), "--skip-model-download"])
-    mine = run(["--palace", str(palace), "mine", str(project)])
-    setup_ok = (
-        init.returncode == 0
-        and mine.returncode == 0
-        and _installed_output_is_clean(init)
-        and _installed_output_is_clean(mine)
-    )
-
-    compact = run(
-        [
-            "--palace",
-            str(palace),
-            "search",
-            "compact_boundary_marker_9182",
-            "--wing",
-            project.name,
-            "--compact",
-            "--results",
-            "3",
-        ]
-    )
-    compact_output = compact.stdout or ""
-    blocks = re.findall(r"(?ms)^  \[\d+\] .*?^  ─{56}$", compact_output)
-    hit_count = len(blocks)
-    previews = [
-        match.group(1)
-        for block in blocks
-        if (match := re.search(r"(?m)^      (?!Source:|Match:|Lines:|Recovery:)(\S.*)$", block))
-    ]
-
-    def recovery_matches_metadata(block: str) -> bool:
-        source_match = re.search(r"(?m)^      Source: (.+)$", block)
-        range_match = re.search(r"(?m)^      Lines:  (\d+)-(\d+)$", block)
-        recovery_match = re.search(r"(?m)^      Recovery: (.+)$", block)
-        if source_match is None or range_match is None or recovery_match is None:
-            return False
-        start, end = range_match.groups()
-        expected = (
-            f"mempalace-code read {shlex.quote(source_match.group(1))} "
-            f"--start {start} --end {end} --wing {shlex.quote(project.name)}"
-        )
-        return recovery_match.group(1) == expected
-
-    compact_ok = (
-        setup_ok
-        and compact.returncode == 0
-        and not compact.stderr
-        and _installed_output_is_clean(compact)
-        and len(compact_output.encode("utf-8")) <= INSTALLED_COMPACT_SEARCH_OUTPUT_LIMIT
-        and 1 <= hit_count <= 3
-        and len(previews) == hit_count
-        and all(len(preview) <= 300 for preview in previews)
-        and any(preview.endswith("...") for preview in previews)
-        and str(compact_source) in compact_output
-        and all(recovery_matches_metadata(block) for block in blocks)
-    )
-    compact_detail = (
-        f"compact search returned {hit_count} bounded hit(s) with exact recovery metadata"
-        if compact_ok
-        else (compact.stderr or compact.stdout or f"exit {compact.returncode}")[:1200]
-    )
-    rows.append(
-        _make_row(
-            "installed_golden_search_results_compact",
-            INSTALLED_SEARCH_RESULTS_COMMAND,
-            "pass" if compact_ok else "fail",
-            compact_detail,
-        )
-    )
-
-    unknown = run(
-        [
-            "--palace",
-            str(palace),
-            "search",
-            "compact_boundary_marker_9182",
-            "--wing",
-            "does-not-exist",
-            "--compact",
-            "--results",
-            "3",
-        ]
-    )
-    unknown_stderr = unknown.stderr or ""
-    unknown_ok = (
-        setup_ok
-        and unknown.returncode == 2
-        and not unknown.stdout
-        and _installed_output_is_clean(unknown)
-        and len(unknown_stderr.encode("utf-8")) <= INSTALLED_COMPACT_SEARCH_ERROR_LIMIT
-        and "Unknown wing" in unknown_stderr
-        and "does-not-exist" in unknown_stderr
-        and "Next:" in unknown_stderr
-    )
-    rows.append(
-        _make_row(
-            "installed_golden_search_results_unknown_wing",
-            INSTALLED_SEARCH_RESULTS_COMMAND,
-            "pass" if unknown_ok else "fail",
-            "unknown wing exited 2 with bounded actionable stderr"
-            if unknown_ok
-            else unknown_stderr[:1200] or f"exit {unknown.returncode}",
-        )
-    )
     return rows
 
 
@@ -4271,6 +4156,68 @@ def _run_installed_workflow_happy_path_scenario(
             if snippet not in read_stdout:
                 raise RuntimeError(f"{label} read lost expected fixture content")
 
+        compact_search = run(
+            [
+                "--palace",
+                str(palace),
+                "search",
+                "xylophonic_glyph_9182",
+                "--compact",
+                "--results",
+                "3",
+            ]
+        )
+        compact_stdout = require_ok(
+            compact_search, f"{label} compact search", "Search results", "app.py"
+        )
+        if len(compact_stdout.encode("utf-8")) > INSTALLED_COMPACT_SEARCH_OUTPUT_LIMIT:
+            raise RuntimeError(f"{label} compact search output was unbounded")
+        blocks = re.findall(r"(?ms)^  \[\d+\] .*?^  ─{56}$", compact_stdout)
+        if not 1 <= len(blocks) <= 3:
+            raise RuntimeError(f"{label} compact search returned {len(blocks)} result blocks")
+        recovery_args = None
+        for block in blocks:
+            source_match = re.search(r"(?m)^      Source: (.+)$", block)
+            range_match = re.search(r"(?m)^      Lines:  (\d+)-(\d+)$", block)
+            wing_match = re.search(r"(?m)^  \[\d+\] ([^ /]+) / ", block)
+            recovery_match = re.search(r"(?m)^      Recovery: (.+)$", block)
+            if not all((source_match, range_match, wing_match, recovery_match)):
+                continue
+            start, end = (int(value) for value in range_match.groups())
+            parsed = shlex.split(recovery_match.group(1))
+            expected = [
+                "mempalace-code",
+                "--palace",
+                str(palace),
+                "read",
+                source_match.group(1),
+                "--start",
+                str(start),
+                "--end",
+                str(end),
+                "--wing",
+                wing_match.group(1),
+            ]
+            if (
+                parsed == expected
+                and Path(source_match.group(1)).resolve() == (project / "app.py").resolve()
+                and wing_match.group(1) == project.name
+                and 0 < start <= end
+            ):
+                recovery_args = parsed[1:]
+                break
+        if recovery_args is None:
+            raise RuntimeError(f"{label} compact search omitted a valid recovery command")
+        recovery_read = run(recovery_args)
+        recovery_stdout = require_ok(recovery_read, f"{label} recovery read")
+        for snippet in (
+            "def compute_xylophonic_glyph_9182(value):",
+            "xylophonic_glyph_9182",
+            "return value * 2",
+        ):
+            if snippet not in recovery_stdout:
+                raise RuntimeError(f"{label} recovery read lost expected fixture content")
+
     def read_output(stream, lines: queue.Queue[str]) -> None:
         for line in iter(stream.readline, ""):
             lines.put(line)
@@ -4374,6 +4321,32 @@ def _run_installed_workflow_happy_path_scenario(
         status = run(["--palace", str(palace_a), "status"])
         require_ok(status, "status", "MemPalace Status", "WING: project")
         prove_roundtrip("mined", palace_a)
+
+        unknown = run(
+            [
+                "--palace",
+                str(palace_a),
+                "search",
+                "xylophonic_glyph_9182",
+                "--wing",
+                "does-not-exist",
+                "--compact",
+                "--results",
+                "3",
+            ]
+        )
+        unknown_stderr = unknown.stderr or ""
+        if (
+            unknown.returncode != 2
+            or unknown.stdout
+            or not _installed_output_is_clean(unknown)
+            or len(unknown_stderr.encode("utf-8")) > INSTALLED_COMPACT_SEARCH_ERROR_LIMIT
+            or "Unknown wing" not in unknown_stderr
+            or "does-not-exist" not in unknown_stderr
+            or "Next:" not in unknown_stderr
+            or "Traceback" in unknown_stderr
+        ):
+            raise RuntimeError("compact unknown-wing refusal was not bounded and actionable")
 
         exported = run(["--palace", str(palace_a), "export", "--out", str(export_file)])
         if (

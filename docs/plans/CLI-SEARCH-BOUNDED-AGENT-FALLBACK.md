@@ -1,5 +1,7 @@
 ---
 slug: CLI-SEARCH-BOUNDED-AGENT-FALLBACK
+status: active
+authority: non_authoritative
 goal: "Add an explicit compact CLI search format with bounded verbatim previews, exact source metadata, and safe read recovery while preserving default and MCP contracts."
 risk: medium
 risk_note: "The product change is local and reversible, but malformed legacy metadata or incomplete exact-wheel coverage could emit an unsafe recovery command or admit an unbounded agent fallback."
@@ -15,11 +17,15 @@ files:
   - path: tests/test_searcher.py
     change: "Cover compact output bounds, exact metadata, safe and unavailable recovery cases, hostile legacy metadata, and unchanged full default output."
   - path: scripts/release_readiness_gate.py
-    change: "Extend the existing installed search scenario with compact success and unknown-wing checks through the exact candidate-wheel console."
+    change: "Extend the existing installed workflow roundtrip with compact success and one unknown-wing check while preserving its default full-search/full-read proof through the exact candidate-wheel console."
   - path: tests/test_release_readiness_gate.py
-    change: "Cover the installed compact-search scenario predicates, row orchestration, bounded diagnostics, and failure behavior."
+    change: "Cover the shared installed workflow predicates for legacy full search/read, compact recovery, bounded diagnostics, and failure behavior."
   - path: tests/test_cli_golden_scenarios.py
-    change: "Exercise the shared installed compact-search success and unknown-wing scenario through the existing thin source-mode consumer."
+    change: "Exercise the shared installed workflow, including compact search and recovery, through the existing thin source-mode consumer."
+  - path: docs/quality/scorecard.md
+    change: "Regenerate the existing public quality scorecard after required source and test line changes."
+  - path: docs/quality/scorecard.json
+    change: "Regenerate the existing machine-readable quality scorecard after required source and test line changes."
 acceptance:
   - id: AC-1
     when: "an installed `mempalace-code search` is run with compact mode and `--results 3` against seeded hits containing long documents and usable metadata"
@@ -79,7 +85,7 @@ task_contract:
     - name: "exact-wheel compact search qualification"
       kind: internal
       paths: ["scripts/release_readiness_gate.py"]
-      expected_behavior: "Exercise installed compact success and unknown-wing failure through the candidate-wheel console inside the existing isolated golden contour."
+      expected_behavior: "Exercise legacy full search/read plus compact search/recovery for mined, imported, and restored palaces, with one unknown-wing failure, inside the existing isolated candidate-wheel contour."
   invariants:
     - id: INV-1
       statement: "Search without compact mode continues to print the complete stored document with the existing headings, source path, similarity, and exit behavior."
@@ -112,7 +118,7 @@ task_contract:
   verification:
     - id: VER-1
       owner: provider
-      command: "python -m pytest tests/test_searcher.py::TestSearchCompactCLI tests/test_cli.py::TestSearchCompactMode tests/test_release_readiness_gate.py::test_installed_search_results_scenario_covers_compact_success_and_unknown_wing tests/test_cli_golden_scenarios.py::test_degraded_search_results_below_one_rejected -q"
+      command: "python -m pytest tests/test_searcher.py::TestSearchCompactCLI tests/test_cli.py::TestSearchCompactMode tests/test_release_readiness_gate.py::test_installed_workflow_happy_path_fails_closed tests/test_cli_golden_scenarios.py::test_cli_golden_workflow_happy_path -q"
       proves: "Focused source and installed-seam evidence covers bounded compact success, metadata guards, default preservation, parser wiring, and unknown-wing failure."
       acceptance_ids: [AC-1, AC-2, AC-3, AC-4, AC-5]
     - id: VER-2
@@ -162,8 +168,8 @@ task_contract:
 - Reuse Layer3's preview boundary exactly: strip the document, replace embedded newlines with spaces, and when length exceeds 300 characters emit the first 297 characters plus `...`. Preserve document text verbatim apart from this whitespace flattening and truncation.
 - Compact-mode safety depends on the caller's existing `--results` bound. The linked global owner uses `--compact --results 3`; do not add a second result-limit policy or silently rewrite `--results`.
 - Print the exact stored `source_file` value for valid strings; do not reduce it to a basename. Print a line range only when both endpoints are integer-like positive values and `end >= start`. Malformed values must not escape the formatter.
-- Emit exactly one copyable recovery command per eligible hit: `mempalace-code read <source_file> --start <start> --end <end> --wing <wing>`. Shell-quote source and wing arguments. Eligibility requires source_file and wing to be strings whose stripped values are non-empty and not `?`, plus the usable range predicate. Emit a fixed `Recovery: unavailable` line otherwise.
+- Emit exactly one copyable recovery command per eligible hit: `mempalace-code --palace <palace> read <source_file> --start <start> --end <end> --wing <wing>`. Shell-quote palace, source, and wing arguments. Eligibility requires source_file and wing to be strings whose stripped values are non-empty and not `?`, plus the usable range predicate. Emit a fixed `Recovery: unavailable` line otherwise.
 - Keep the default formatter byte-compatible for representative full-text fixtures. Do not route default output through compact helpers, change the programmatic result dictionaries, or touch MCP files.
-- Extend `_run_installed_search_results_scenarios` rather than adding another release-gate owner. Seed a disposable palace through the installed contour, prove compact success stays within the fixture payload budget with at most three hits, then prove an unknown wing exits 2 with clean bounded stderr and no traceback. Preserve the existing non-positive `--results` rows.
+- Extend `_run_installed_workflow_happy_path_scenario` rather than adding another release-gate owner or setup. Preserve its default `--results 10` search and full read proof, then add compact search and executable recovery for mined, imported, and restored palaces. Prove one unknown wing exits 2 with clean bounded stderr and no traceback. Preserve the existing non-positive `--results` rows.
 - The installed-golden command comes from `scripts/gate_inventory.py`; the full non-network, public-safety, Ruff, and format commands are the repository's configured verification surface. The focused provider command targets only the new search and installed-scenario cases.
 - Exact-wheel PASS is the repository handoff boundary. The linked owner task may then update the installed global fallback; this implementation neither reads nor writes that global file.

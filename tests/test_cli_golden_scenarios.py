@@ -773,15 +773,10 @@ def test_degraded_search_results_below_one_rejected(tmp_path, fake_pkg_root):
     )
 
     assert all(row["status"] == "pass" for row in rows), rows
-    by_id = {row["id"]: row for row in rows}
-    assert (
-        "bounded hit(s) with exact recovery metadata"
-        in by_id["installed_golden_search_results_compact"]["detail"]
-    )
-    assert (
-        "exited 2 with bounded actionable stderr"
-        in by_id["installed_golden_search_results_unknown_wing"]["detail"]
-    )
+    assert [row["id"] for row in rows] == [
+        "installed_golden_search_results_zero",
+        "installed_golden_search_results_negative_one",
+    ]
 
 
 def test_degraded_import_missing_file(tmp_path, fake_pkg_root):

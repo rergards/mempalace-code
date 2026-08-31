@@ -3345,57 +3345,6 @@ class TestSearchCompactMode:
 
         assert mock_search.call_args.kwargs["n_results"] == 3
 
-    def test_compact_blank_query_keeps_bounded_error(self, tmp_path, capsys):
-        with patch.object(
-            sys,
-            "argv",
-            [
-                "mempalace-code",
-                "--palace",
-                str(tmp_path / "palace"),
-                "search",
-                " ",
-                "--compact",
-            ],
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-
-        captured = capsys.readouterr()
-        assert exc_info.value.code == 2
-        assert captured.out == ""
-        assert captured.err == (
-            "Error: query must not be blank.\nTry: mempalace-code search 'your search query'\n"
-        )
-
-    def test_compact_unknown_wing_keeps_exit_2(self, tmp_path, capsys, monkeypatch):
-        monkeypatch.setenv("HOME", str(tmp_path))
-        palace_path = str(tmp_path / "palace")
-        TestSearchCommandTaxonomyValidation()._seed(palace_path)
-
-        with patch.object(
-            sys,
-            "argv",
-            [
-                "mempalace-code",
-                "--palace",
-                palace_path,
-                "search",
-                "query",
-                "--compact",
-                "--wing",
-                "does-not-exist",
-            ],
-        ):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-
-        captured = capsys.readouterr()
-        assert exc_info.value.code == 2
-        assert captured.out == ""
-        assert "Unknown wing" in captured.err
-        assert "Next:" in captured.err
-
 
 class TestSearchCommandTaxonomyValidation:
     """search_command: explicit --wing/--room filters are validated against the taxonomy."""

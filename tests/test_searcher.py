@@ -214,14 +214,23 @@ class TestSearchCompactCLI:
             }
 
     @staticmethod
-    def _render(monkeypatch, capsys, documents, metadatas, **kwargs):
+    def _render(
+        monkeypatch,
+        capsys,
+        documents,
+        metadatas,
+        *,
+        query="needle",
+        palace_path="/fake/palace",
+        **kwargs,
+    ):
         store = TestSearchCompactCLI.FakeStore(documents, metadatas)
         monkeypatch.setattr("mempalace_code.searcher.os.path.isdir", lambda _path: True)
         monkeypatch.setattr(
             "mempalace_code.searcher.validate_taxonomy_filters", lambda *_args, **_kwargs: None
         )
         monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_args, **_kwargs: store)
-        search("needle", "/fake/palace", **kwargs)
+        search(query, palace_path, **kwargs)
         return capsys.readouterr().out, store
 
     def test_compact_bounds_previews_and_preserves_exact_metadata(self, monkeypatch, capsys):
@@ -243,11 +252,13 @@ class TestSearchCompactCLI:
             [metadata] * 4,
             compact=True,
             n_results=3,
+            palace_path="/fake/palace path",
         )
 
         previews = [
             line.removeprefix("      ") for line in output.splitlines() if "first line" in line
         ]
+        assert store.query_kwargs is not None
         assert store.query_kwargs["n_results"] == 3
         assert len(previews) == 3
         assert all(len(preview) == 300 and preview.endswith("...") for preview in previews)
@@ -255,10 +266,41 @@ class TestSearchCompactCLI:
         assert output.count("Lines:  12-18") == 3
         assert output.count("Match:  0.875") == 3
         command = (
-            f"mempalace-code read {shlex.quote(source)} --start 12 --end 18 "
+            f"mempalace-code --palace {shlex.quote('/fake/palace path')} read "
+            f"{shlex.quote(source)} --start 12 --end 18 "
             f"--wing {shlex.quote(wing)}"
         )
         assert output.count(f"Recovery: {command}") == 3
+
+    def test_compact_success_does_not_echo_long_query(self, monkeypatch, capsys):
+        query = "caller-secret-" + "q" * 5000
+        metadata = {
+            "wing": "project",
+            "room": "backend",
+            "source_file": "app.py",
+            "line_start": 1,
+            "line_end": 2,
+        }
+
+        output, _store = self._render(
+            monkeypatch,
+            capsys,
+            ["unrelated result"],
+            [metadata],
+            query=query,
+            compact=True,
+        )
+
+        assert "Search results" in output
+        assert query not in output
+
+    def test_compact_no_results_does_not_echo_long_query(self, monkeypatch, capsys):
+        query = "caller-secret-" + "q" * 5000
+
+        output, _store = self._render(monkeypatch, capsys, [], [], query=query, compact=True)
+
+        assert output == "\n  No search results found.\n"
+        assert query not in output
 
     @pytest.mark.parametrize(
         "metadata",
@@ -292,7 +334,10 @@ class TestSearchCompactCLI:
         output, _store = self._render(monkeypatch, capsys, [None], [metadata], compact=True)
 
         assert "Lines:  7-7" in output
-        assert "Recovery: mempalace-code read a.py --start 7 --end 7 --wing project" in output
+        assert (
+            "Recovery: mempalace-code --palace /fake/palace read a.py "
+            "--start 7 --end 7 --wing project"
+        ) in output
 
     def test_default_output_remains_full_text(self, monkeypatch, capsys):
         document = "first line\n" + "x" * 400
@@ -306,9 +351,15 @@ class TestSearchCompactCLI:
 
         output, _store = self._render(monkeypatch, capsys, [document], [metadata])
 
+        assert 'Results for: "needle"' in output
         assert f"      {document.splitlines()[1]}" in output
         assert "Lines:" not in output
         assert "Recovery:" not in output
+
+    def test_default_no_results_message_is_unchanged(self, monkeypatch, capsys):
+        output, _store = self._render(monkeypatch, capsys, [], [])
+
+        assert output == '\n  No results found for: "needle"\n'
 
 
 class TestTaxonomyFilterValidation:

@@ -9,10 +9,10 @@ Schema version: 4
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 80 |
-| Package total lines | 28998 |
-| Package code lines | 23828 |
+| Package total lines | 29069 |
+| Package code lines | 23895 |
 | Test files (`tests/`) | 88 |
-| Test total lines | 78439 |
+| Test total lines | 78777 |
 
 ## Largest Modules (top 10)
 
@@ -24,7 +24,7 @@ Schema version: 4
 | `mempalace_code/watcher.py` | 1333 |
 | `mempalace_code/dialect.py` | 1074 |
 | `mempalace_code/backup.py` | 987 |
-| `mempalace_code/cli.py` | 942 |
+| `mempalace_code/cli.py` | 947 |
 | `mempalace_code/mining/symbols.py` | 904 |
 | `mempalace_code/entity_detector.py` | 885 |
 | `mempalace_code/mining/orchestrator.py` | 860 |
@@ -123,7 +123,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | Test files | 88 |
-| Test functions | 3656 |
+| Test functions | 3666 |
 
 ## Available Suites
 

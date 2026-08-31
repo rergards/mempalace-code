@@ -11,6 +11,7 @@ import logging
 import os
 import shlex
 import sys
+from typing import TypeGuard
 
 from .language_catalog import searchable_languages
 from .storage import open_store
@@ -91,11 +92,17 @@ def search(
     dists = results["distances"][0]
 
     if not docs:
-        print(f'\n  No results found for: "{query}"')
+        if compact:
+            print("\n  No search results found.")
+        else:
+            print(f'\n  No results found for: "{query}"')
         return
 
     print(f"\n{'=' * 60}")
-    print(f'  Results for: "{query}"')
+    if compact:
+        print("  Search results")
+    else:
+        print(f'  Results for: "{query}"')
     if wing:
         print(f"  Wing: {wing}")
     if room:
@@ -130,8 +137,9 @@ def search(
                 and _usable_recovery_value(wing_value)
             ):
                 print(
-                    "      Recovery: mempalace-code read "
-                    f"{shlex.quote(source_file)} --start {line_range[0]} "
+                    "      Recovery: mempalace-code --palace "
+                    f"{shlex.quote(palace_path)} read {shlex.quote(source_file)} "
+                    f"--start {line_range[0]} "
                     f"--end {line_range[1]} --wing {shlex.quote(wing_value)}"
                 )
             else:
@@ -173,7 +181,7 @@ def _compact_line_range(meta: dict) -> tuple[int, int] | None:
     return values[0], values[1]
 
 
-def _usable_recovery_value(value: object) -> bool:
+def _usable_recovery_value(value: object) -> TypeGuard[str]:
     """Accept only nonblank, non-placeholder strings as recovery arguments."""
     return isinstance(value, str) and bool(value.strip()) and value.strip() != "?"
 
