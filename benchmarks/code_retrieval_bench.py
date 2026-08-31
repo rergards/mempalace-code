@@ -50,17 +50,18 @@ MINILM_COMPATIBILITY_FIXTURE = (
 )
 MINILM_FIXTURE_SHA256 = "52606c0cb541caa17f57e937e746057ff40355748935d8afa5cdaeb6d01eb245"
 MINILM_FIXTURE_RECOVERY = "git restore benchmarks/minilm_runtime_compatibility_fixture.json"
-MINILM_CACHE_RECOVERY = "mempalace-code fetch-model"
+MINILM_CACHE_RECOVERY = "mempalace-code fetch-model --model all-MiniLM-L6-v2 --force"
 MINILM_INSTALL_RECOVERY = "python -m pip install dist/*.whl"
+MINILM_RUNTIME_BLOCKER = "persistent failure is a runtime/dependency compatibility blocker"
 
 
 class BenchError(Exception):
     """Expected user-facing benchmark failure."""
 
 
-def _fixture_error() -> BenchError:
+def _fixture_error(predicate: str = "fixture_schema") -> BenchError:
     return BenchError(
-        f"MiniLM compatibility fixture is invalid or drifted; recovery: {MINILM_FIXTURE_RECOVERY}"
+        f"MiniLM compatibility {predicate} failed; recovery: {MINILM_FIXTURE_RECOVERY}"
     )
 
 
@@ -180,7 +181,7 @@ def _load_minilm_compatibility_fixture(path: Path = MINILM_COMPATIBILITY_FIXTURE
             ):
                 raise _fixture_error()
         if hashlib.sha256(raw).hexdigest() != MINILM_FIXTURE_SHA256:
-            raise _fixture_error()
+            raise _fixture_error("fixture_hash")
     except (KeyError, TypeError, OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise _fixture_error() from exc
     return fixture
@@ -262,20 +263,35 @@ def _cosine(left: list[float], right: list[float]) -> float:
 def _validate_current_vectors(fixture: dict, current: object) -> dict:
     dimensions = fixture["dimensions"]
     if not isinstance(current, list) or len(current) != len(fixture["texts"]):
-        raise _fixture_error()
-    for vector in current:
-        if (
-            not isinstance(vector, list)
-            or len(vector) != dimensions
-            or any(not _finite_number(value) for value in vector)
-            or not math.isclose(
-                math.sqrt(sum(value * value for value in vector)),
-                1.0,
-                rel_tol=0.0,
-                abs_tol=1e-6,
+        observed_count = len(current) if isinstance(current, list) else "not-a-list"
+        raise BenchError(
+            "MiniLM compatibility current_vector_shape failed: "
+            f"observed_vector_count={observed_count} "
+            f"expected_vector_count={len(fixture['texts'])}; "
+            f"cache refresh-and-retry: {MINILM_CACHE_RECOVERY}; {MINILM_RUNTIME_BLOCKER}"
+        )
+    for index, vector in enumerate(current):
+        if not isinstance(vector, list) or len(vector) != dimensions:
+            observed_dimensions = len(vector) if isinstance(vector, list) else "not-a-list"
+            raise BenchError(
+                "MiniLM compatibility current_vector_shape failed: "
+                f"vector_index={index} observed_dimensions={observed_dimensions} "
+                f"expected_dimensions={dimensions}; "
+                f"cache refresh-and-retry: {MINILM_CACHE_RECOVERY}; {MINILM_RUNTIME_BLOCKER}"
             )
+        if any(not _finite_number(value) for value in vector):
+            observed_norm = "non-finite"
+        else:
+            observed_norm = f"{math.sqrt(sum(value * value for value in vector)):.17g}"
+        if observed_norm == "non-finite" or not math.isclose(
+            float(observed_norm), 1.0, rel_tol=0.0, abs_tol=1e-6
         ):
-            raise _fixture_error()
+            raise BenchError(
+                "MiniLM compatibility current_vector_norm failed: "
+                f"vector_index={index} observed_norm={observed_norm} "
+                "expected_norm=1 absolute_tolerance=1e-06; "
+                f"cache refresh-and-retry: {MINILM_CACHE_RECOVERY}; {MINILM_RUNTIME_BLOCKER}"
+            )
 
     former = fixture["former_vectors"]
     paired = [_cosine(left, right) for left, right in zip(former, current, strict=True)]
@@ -295,12 +311,30 @@ def _validate_current_vectors(fixture: dict, current: object) -> dict:
         for i in range(len(current))
     ]
     compatibility = fixture["compatibility"]
-    if (
-        min(paired) < compatibility["minimum_paired_cosine"]
-        or maximum_delta > compatibility["maximum_similarity_matrix_delta"]
-        or order != compatibility["neighbor_order"]
+    minimum_paired = min(paired)
+    if minimum_paired < compatibility["minimum_paired_cosine"]:
+        raise BenchError(
+            "MiniLM compatibility minimum_paired_cosine failed: "
+            f"observed={minimum_paired:.17g} "
+            f"expected_minimum={compatibility['minimum_paired_cosine']:.17g}; "
+            f"cache refresh-and-retry: {MINILM_CACHE_RECOVERY}; {MINILM_RUNTIME_BLOCKER}"
+        )
+    if maximum_delta > compatibility["maximum_similarity_matrix_delta"]:
+        raise BenchError(
+            "MiniLM compatibility maximum_similarity_matrix_delta failed: "
+            f"observed={maximum_delta:.17g} "
+            f"expected_maximum={compatibility['maximum_similarity_matrix_delta']:.17g}; "
+            f"cache refresh-and-retry: {MINILM_CACHE_RECOVERY}; {MINILM_RUNTIME_BLOCKER}"
+        )
+    for index, (observed_order, expected_order) in enumerate(
+        zip(order, compatibility["neighbor_order"], strict=True)
     ):
-        raise _fixture_error()
+        if observed_order != expected_order:
+            raise BenchError(
+                "MiniLM compatibility neighbor_order failed: "
+                f"row_index={index} observed={observed_order} expected={expected_order}; "
+                f"cache refresh-and-retry: {MINILM_CACHE_RECOVERY}; {MINILM_RUNTIME_BLOCKER}"
+            )
     return {
         "fixture": MINILM_COMPATIBILITY_FIXTURE.name,
         "model": fixture["model"]["alias"],

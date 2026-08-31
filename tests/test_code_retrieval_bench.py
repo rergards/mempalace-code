@@ -277,7 +277,7 @@ def _write_mutated_fixture(tmp_path, mutate):
 def test_minilm_compatibility_fixture_rejects_schema_and_bound_fact_drift(tmp_path, mutate):
     path = _write_mutated_fixture(tmp_path, mutate)
 
-    with pytest.raises(bench.BenchError, match="git restore"):
+    with pytest.raises(bench.BenchError, match="fixture_schema failed"):
         bench._load_minilm_compatibility_fixture(path)
 
 
@@ -292,7 +292,7 @@ def test_minilm_compatibility_fixture_rejects_duplicate_keys(tmp_path, raw):
     path = tmp_path / "fixture.json"
     path.write_bytes(raw)
 
-    with pytest.raises(bench.BenchError, match="git restore"):
+    with pytest.raises(bench.BenchError, match="fixture_schema failed"):
         bench._load_minilm_compatibility_fixture(path)
 
 
@@ -303,7 +303,7 @@ def test_minilm_generation_command_is_bound_inert_provenance(tmp_path):
         lambda fixture: fixture.update(generation_command=f"touch {marker}"),
     )
 
-    with pytest.raises(bench.BenchError, match="git restore"):
+    with pytest.raises(bench.BenchError, match="fixture_hash failed"):
         bench._load_minilm_compatibility_fixture(path)
 
     assert not marker.exists()
@@ -323,8 +323,113 @@ def test_minilm_compatibility_vectors_pass_and_fail_closed_on_metric_drift():
     drifted[0][0], drifted[0][1] = drifted[0][1], drifted[0][0]
     norm = sum(value * value for value in drifted[0]) ** 0.5
     drifted[0] = [value / norm for value in drifted[0]]
-    with pytest.raises(bench.BenchError, match="git restore"):
+    with pytest.raises(bench.BenchError, match="minimum_paired_cosine failed"):
         bench._validate_current_vectors(fixture, drifted)
+
+
+def _runtime_contract(*, minimum=0.9, maximum=0.1, neighbor_order=None):
+    diagonal = 2**-0.5
+    return {
+        "dimensions": 2,
+        "texts": ["first", "second", "third"],
+        "former_vectors": [[1.0, 0.0], [0.0, 1.0], [diagonal, diagonal]],
+        "model": {"alias": "all-MiniLM-L6-v2"},
+        "compatibility": {
+            "minimum_paired_cosine": minimum,
+            "maximum_similarity_matrix_delta": maximum,
+            "neighbor_order": neighbor_order or [[2, 1], [2, 0], [0, 1]],
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("fixture", "current", "expected"),
+    [
+        (
+            _runtime_contract(),
+            [[1.0, 0.0], [0.0, 1.0]],
+            "current_vector_shape failed: observed_vector_count=2 expected_vector_count=3",
+        ),
+        (
+            _runtime_contract(),
+            ([1.0, 0.0], [0.0, 1.0], [2**-0.5, 2**-0.5]),
+            "current_vector_shape failed: observed_vector_count=not-a-list expected_vector_count=3",
+        ),
+        (
+            _runtime_contract(),
+            [[1.0], [0.0, 1.0], [2**-0.5, 2**-0.5]],
+            "current_vector_shape failed: vector_index=0 observed_dimensions=1 "
+            "expected_dimensions=2",
+        ),
+        (
+            _runtime_contract(),
+            [[2.0, 0.0], [0.0, 1.0], [2**-0.5, 2**-0.5]],
+            "current_vector_norm failed: vector_index=0 observed_norm=2 "
+            "expected_norm=1 absolute_tolerance=1e-06",
+        ),
+        (
+            _runtime_contract(),
+            [[float("nan"), 0.0], [0.0, 1.0], [2**-0.5, 2**-0.5]],
+            "current_vector_norm failed: vector_index=0 observed_norm=non-finite "
+            "expected_norm=1 absolute_tolerance=1e-06",
+        ),
+        (
+            _runtime_contract(),
+            [[-1.0, 0.0], [0.0, 1.0], [2**-0.5, 2**-0.5]],
+            "minimum_paired_cosine failed: observed=-1 expected_minimum=0.90000000000000002",
+        ),
+        (
+            _runtime_contract(minimum=-1.0),
+            [[0.0, 1.0], [0.0, 1.0], [2**-0.5, 2**-0.5]],
+            "maximum_similarity_matrix_delta failed: observed=1 "
+            "expected_maximum=0.10000000000000001",
+        ),
+        (
+            _runtime_contract(minimum=-1.0, maximum=2.0, neighbor_order=[[1, 2], [2, 0], [0, 1]]),
+            [[1.0, 0.0], [0.0, 1.0], [2**-0.5, 2**-0.5]],
+            "neighbor_order failed: row_index=0 observed=[2, 1] expected=[1, 2]",
+        ),
+    ],
+)
+def test_runtime_predicate_cli_diagnostics_are_stable_and_bounded(
+    monkeypatch, tmp_path, capsys, fixture, current, expected
+):
+    class FakeEmbedder:
+        def __init__(self, *, local_files_only):
+            assert local_files_only is True
+
+        def compute_source_embeddings(self, texts):
+            assert texts == fixture["texts"]
+            return deepcopy(current)
+
+    monkeypatch.setattr(bench, "_load_minilm_compatibility_fixture", lambda: deepcopy(fixture))
+    monkeypatch.setattr(
+        bench,
+        "_import_installed_storage",
+        lambda: SimpleNamespace(_FastEmbedder=FakeEmbedder),
+    )
+    outputs = []
+    for _ in range(2):
+        assert (
+            bench.main(["--repo-dir", str(tmp_path), "--check-minilm-runtime-compatibility"]) == 2
+        )
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        outputs.append(captured.err)
+
+    assert outputs[0] == outputs[1]
+    assert outputs[0] == (
+        f"ERROR: MiniLM compatibility {expected}; "
+        "cache refresh-and-retry: "
+        "mempalace-code fetch-model --model all-MiniLM-L6-v2 --force; "
+        "persistent failure is a runtime/dependency compatibility blocker\n"
+    )
+    assert len(outputs[0].splitlines()) == 1
+    assert outputs[0].count(bench.MINILM_CACHE_RECOVERY) == 1
+    assert str(tmp_path) not in outputs[0]
+    assert str(fixture["former_vectors"][0][0]) not in outputs[0]
+    assert "Traceback" not in outputs[0]
+    assert "will repair" not in outputs[0]
 
 
 def test_minilm_compatibility_uses_local_only_storage_owner(monkeypatch, tmp_path):
@@ -430,7 +535,7 @@ def _write_fake_installed_runtime(root, *, fail=False):
     )
 
 
-def _run_compatibility_script(tmp_path, *, fail=False, malformed=False):
+def _run_compatibility_script(tmp_path, *, fail=False, malformed=False, drifted_hash=False):
     checkout = tmp_path / "checkout"
     benchmarks = checkout / "benchmarks"
     benchmarks.mkdir(parents=True)
@@ -441,6 +546,10 @@ def _run_compatibility_script(tmp_path, *, fail=False, malformed=False):
     if malformed:
         value = json.loads(fixture.read_text(encoding="utf-8"))
         value["dimensions"] = 383
+        fixture.write_text(json.dumps(value), encoding="utf-8")
+    if drifted_hash:
+        value = json.loads(fixture.read_text(encoding="utf-8"))
+        value["generation_command"] += " "
         fixture.write_text(json.dumps(value), encoding="utf-8")
     checkout_package = checkout / "mempalace_code"
     checkout_package.mkdir()
@@ -475,8 +584,9 @@ def test_compatibility_subprocess_prefers_installed_root_over_checkout_source(tm
 @pytest.mark.parametrize(
     ("kwargs", "recovery"),
     [
-        ({"fail": True}, "mempalace-code fetch-model"),
-        ({"malformed": True}, "git restore benchmarks/minilm_runtime_compatibility_fixture.json"),
+        ({"fail": True}, "mempalace-code fetch-model --model all-MiniLM-L6-v2 --force"),
+        ({"malformed": True}, "fixture_schema failed"),
+        ({"drifted_hash": True}, "fixture_hash failed"),
     ],
 )
 def test_compatibility_subprocess_failures_are_bounded_and_actionable(tmp_path, kwargs, recovery):
