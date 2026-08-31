@@ -1,6 +1,6 @@
 ---
 slug: CLI-SEARCH-BOUNDED-AGENT-FALLBACK
-status: active
+status: completed
 authority: non_authoritative
 goal: "Add an explicit compact CLI search format with bounded verbatim previews, exact source metadata, and safe read recovery while preserving default and MCP contracts."
 risk: medium

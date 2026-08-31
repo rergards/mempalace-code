@@ -1806,3 +1806,13 @@ items:
       resolution: '2026-08-31: completed in pipeline run (delivered: Regenerated and verified both quality scorecards; the final release tree already matched the committed deterministic artifacts, so the implementation diff is empty., phase_commit=aa9cdb55, final_commit=96e9ee96)'
       archived_date: "2026-08-31"
       done_summary: 'completed in pipeline run (delivered: Regenerated and verified both quality scorecards; the final release tree already matched the committed deterministic artifacts, so the implementation diff is empty., phase_commit=aa9cdb55, final_commit=96e9ee96)'
+    - key: CLI-SEARCH-BOUNDED-AGENT-FALLBACK
+      summary: Bound CLI search output for agent fallback
+      resolution: '2026-09-01: Delivered explicit bounded CLI search and exact recovery while preserving default full-text and MCP contracts; commit 09d93d13, 4,379 non-network tests, both Pyright contours, Ruff, Gitleaks changed-range/full-history, public safety, and all 26 exact-wheel installed rows passed.'
+      archived_date: "2026-09-01"
+      done_summary: Delivered explicit bounded CLI search and exact recovery while preserving default full-text and MCP contracts; commit 09d93d13, 4,379 non-network tests, both Pyright contours, Ruff, Gitleaks changed-range/full-history, public safety, and all 26 exact-wheel installed rows passed.
+    - key: CLI-SEARCH-BOUNDED-AGENT-FALLBACK-GLOBAL-SKILL
+      summary: After exact-wheel proof, update the owner-managed installed global MemPalace fallback to search directly with --compact --results 3, keep status --summary diagnostic-only, and remove the ten-result full search.
+      resolution: '2026-09-01: Updated the owner-managed installed MemPalace fallback to search directly with --compact --results 3, retained status --summary for diagnostics only, and validated the skill with its canonical validator after exact-wheel proof.'
+      archived_date: "2026-09-01"
+      done_summary: Updated the owner-managed installed MemPalace fallback to search directly with --compact --results 3, retained status --summary for diagnostics only, and validated the skill with its canonical validator after exact-wheel proof.
