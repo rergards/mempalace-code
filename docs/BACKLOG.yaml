@@ -93,9 +93,11 @@ items:
   - key: CLI-SEARCH-BOUNDED-AGENT-FALLBACK-GLOBAL-SKILL
     summary: "After exact-wheel proof, update the owner-managed installed global MemPalace fallback to search directly with --compact --results 3, keep status --summary diagnostic-only, and remove the ten-result full search."
     type: task
-    status: open
+    status: done
     priority: high
     section_id: immediate
     assignee: owner
     labels: [deploy-prereq, owner-action]
     blocks_deploy: true
+    resolution: "2026-09-01: Updated the owner-managed installed MemPalace fallback to search directly with --compact --results 3, retained status --summary for diagnostics only, and validated the skill with its canonical validator after exact-wheel proof."
+    done_summary: "Updated the owner-managed installed MemPalace fallback to search directly with --compact --results 3, retained status --summary for diagnostics only, and validated the skill with its canonical validator after exact-wheel proof."
