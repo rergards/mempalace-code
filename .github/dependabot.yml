@@ -1,6 +1,6 @@
 # Weekly maintenance for the immutable Action pins in .github/workflows/.
 # Dependabot opens PRs that bump each pinned commit SHA and rewrites the adjacent
-# version comment; scripts/workflow_security_gate.py keeps both invariants blocking.
+# version comment; actionlint and zizmor enforce the workflow invariants in CI.
 version: 2
 updates:
   - package-ecosystem: github-actions

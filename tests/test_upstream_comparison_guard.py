@@ -5,9 +5,11 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
-import urllib.error
+import subprocess
 from datetime import date
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).parent.parent
 
@@ -22,9 +24,20 @@ def _load_module(name: str, path: Path):
 
 
 guard = _load_module("upstream_comparison_guard", ROOT / "scripts" / "upstream_comparison_guard.py")
+guard._load_public_read().REVIEWED_UPSTREAM_REPOSITORY = "Example/example"
+guard._load_public_read().REVIEWED_UPSTREAM_BRANCH = "main"
+
+
+def _public_result(data=None, error=""):
+    return type("Result", (), {"data": data, "error": error})()
+
 
 COMMIT = "a" * 40
 PREVIOUS_COMMIT = "b" * 40
+MERGE_ONE = "c" * 40
+MERGE_TWO = "d" * 40
+CONSTITUENT_ONE = "e" * 40
+CONSTITUENT_TWO = "f" * 40
 REPOSITORY = "https://github.com/Example/example"
 BRANCH = "main"
 REVIEWED_DATE = "2026-07-01"
@@ -56,12 +69,14 @@ def _manifest(**overrides) -> dict:
         "comparison_markers": ["## Snapshot"],
         "capabilities": {
             "upstream_advertised": ["some-capability"],
-            "fork_current": [BRIDGE_CAPABILITY, "other-capability"],
+            "fork_current": ["other-capability"],
         },
         "capability_sources": {"some-capability": ["README.md"]},
         "delta_decisions": [
             {
                 "id": "guarded-change",
+                "merge_group": MERGE_ONE,
+                "constituent_commits": [CONSTITUENT_ONE],
                 "upstream_change": "upstream tightened a documented guard",
                 "source_refs": ["README.md"],
                 "release_critical": True,
@@ -71,6 +86,8 @@ def _manifest(**overrides) -> dict:
             },
             {
                 "id": "repository-metadata-change",
+                "merge_group": MERGE_TWO,
+                "constituent_commits": [CONSTITUENT_TWO],
                 "upstream_change": "upstream changed repository review routing",
                 "source_refs": ["compare"],
                 "release_critical": False,
@@ -80,6 +97,14 @@ def _manifest(**overrides) -> dict:
             },
         ],
     }
+    inventory = guard.manifest_commit_inventory(manifest)
+    manifest["inventory_anchor"] = {
+        "algorithm": "sha256",
+        "version": 1,
+        "count": len(inventory),
+        "digest": "0" * 64,
+    }
+    manifest["inventory_anchor"]["digest"] = guard.inventory_anchor_digest(manifest, inventory)
     manifest.update(overrides)
     return manifest
 
@@ -166,6 +191,344 @@ def test_evaluate_accepts_valid_static_snapshot(tmp_path: Path):
     }
     assert facts["release_critical_decisions"] == ["guarded-change"]
     assert facts["review_age_days"] == 9
+    assert not (root / ".git").exists()
+    assert facts["inventory_anchor_declared_count"] == 4
+    assert facts["inventory_anchor_derived_count"] == 4
+    assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
+    assert facts["commit_inventory_exact"] is True
+
+
+def test_evaluate_rejects_missing_reviewed_commit(tmp_path: Path):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions.pop()
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts["inventory_anchor_derived_count"] == 2
+    assert facts["commit_inventory_exact"] is False
+    assert any("trust-anchor count mismatch" in error for error in errors)
+    assert any("trust-anchor digest mismatch" in error for error in errors)
+
+
+def test_evaluate_rejects_extra_manifest_commit(tmp_path: Path):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0]["constituent_commits"].append("9" * 40)
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts["inventory_anchor_derived_count"] == 5
+    assert facts["commit_inventory_exact"] is False
+    assert any("trust-anchor count mismatch" in error for error in errors)
+
+
+def test_evaluate_rejects_equal_count_inventory_substitution(tmp_path: Path):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0]["constituent_commits"] = ["9" * 40]
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts["inventory_anchor_declared_count"] == facts["inventory_anchor_derived_count"]
+    assert facts["inventory_anchor_digest"] != facts["inventory_anchor_computed_digest"]
+    assert facts["commit_inventory_exact"] is False
+    assert errors == [
+        "commit-inventory: trust-anchor digest mismatch: expected "
+        f"{facts['inventory_anchor_digest']}, computed {facts['inventory_anchor_computed_digest']}"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mutate", "commit", "owners"),
+    [
+        (
+            lambda decisions: decisions[0].update(
+                constituent_commits=[CONSTITUENT_ONE, CONSTITUENT_ONE]
+            ),
+            CONSTITUENT_ONE,
+            [
+                "delta decision 'guarded-change' constituent_commits[0]",
+                "delta decision 'guarded-change' constituent_commits[1]",
+            ],
+        ),
+        (
+            lambda decisions: decisions[0].update(constituent_commits=[CONSTITUENT_ONE, MERGE_ONE]),
+            MERGE_ONE,
+            [
+                "delta decision 'guarded-change' merge_group",
+                "delta decision 'guarded-change' constituent_commits[1]",
+            ],
+        ),
+        (
+            lambda decisions: decisions[1].update(constituent_commits=[CONSTITUENT_ONE]),
+            CONSTITUENT_ONE,
+            [
+                "delta decision 'guarded-change' constituent_commits[0]",
+                "delta decision 'repository-metadata-change' constituent_commits[0]",
+            ],
+        ),
+        (
+            lambda decisions: decisions[1].update(constituent_commits=[MERGE_ONE]),
+            MERGE_ONE,
+            [
+                "delta decision 'guarded-change' merge_group",
+                "delta decision 'repository-metadata-change' constituent_commits[0]",
+            ],
+        ),
+    ],
+    ids=["within-list", "merge-to-constituent", "across-constituents", "across-fields"],
+)
+def test_evaluate_rejects_duplicate_commit_inventory_ownership(
+    tmp_path: Path, mutate, commit: str, owners: list[str]
+):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    mutate(decisions)
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts == {}
+    assert errors == [
+        f"commit-inventory: commit {commit} is declared more than once: {', '.join(owners)}"
+    ]
+
+
+@pytest.mark.parametrize(
+    "anchor",
+    [
+        None,
+        {"algorithm": "sha512", "version": 1, "count": 4, "digest": "0" * 64},
+        {"algorithm": "sha256", "version": True, "count": 4, "digest": "0" * 64},
+        {"algorithm": "sha256", "version": 1, "count": True, "digest": "0" * 64},
+        {"algorithm": "sha256", "version": 1, "count": 4, "digest": "A" * 64},
+        {
+            "algorithm": "sha256",
+            "version": 1,
+            "count": 4,
+            "digest": "0" * 64,
+            "unexpected": "field",
+        },
+    ],
+    ids=["missing", "algorithm", "boolean-version", "boolean-count", "digest", "extra-field"],
+)
+def test_evaluate_rejects_malformed_inventory_anchor(tmp_path: Path, anchor):
+    root = _root(tmp_path, manifest=_manifest(inventory_anchor=anchor))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts == {}
+    assert any("inventory_anchor" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("canonical_repository", "https://github.com/Other/example"),
+        ("branch", "release"),
+        ("previous_commit", "1" * 40),
+        ("commit", "2" * 40),
+    ],
+)
+def test_evaluate_rejects_bound_identity_or_endpoint_substitution(
+    tmp_path: Path, field: str, value: str
+):
+    manifest = _manifest()
+    manifest[field] = value
+    manifest["compare_ref"] = (
+        f"{manifest['canonical_repository']}/compare/"
+        f"{manifest['previous_commit']}...{manifest['commit']}"
+    )
+    manifest["source_refs"] = {
+        "README.md": (f"{manifest['canonical_repository']}/blob/{manifest['commit']}/README.md")
+    }
+    root = _root(tmp_path, manifest=manifest)
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts["commit_inventory_exact"] is False
+    assert any("trust-anchor digest mismatch" in error for error in errors)
+
+
+def test_inventory_anchor_payload_binds_algorithm_version_count_and_sorted_inventory():
+    manifest = _manifest()
+    inventory = guard.manifest_commit_inventory(manifest)
+    baseline = guard.inventory_anchor_payload(manifest, inventory)
+
+    for field, value in (("algorithm", "sha512"), ("version", 2), ("count", 5)):
+        changed = copy.deepcopy(manifest)
+        changed["inventory_anchor"][field] = value
+        assert guard.inventory_anchor_payload(changed, inventory) != baseline
+
+    assert guard.inventory_anchor_payload(manifest, set(reversed(sorted(inventory)))) == baseline
+
+
+def test_cli_duplicate_inventory_prints_one_recovery_command(tmp_path: Path, capsys):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0]["constituent_commits"].append(CONSTITUENT_ONE)
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    exit_code = guard.main(["--root", str(root), "--max-age-days", "10000"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "declared more than once" in captured.err
+    assert captured.err.count(f"recovery: {RECOVERY_COMMAND}") == 1
+
+
+def test_static_guard_accepts_one_parent_candidate_without_pinned_objects(tmp_path: Path):
+    root = _root(tmp_path)
+
+    subprocess.run(["git", "init", "-b", "main"], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "public main",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    public_main = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    (root / "candidate.txt").write_text("squash candidate\n", encoding="utf-8")
+    subprocess.run(["git", "add", "candidate.txt"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "candidate",
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+
+    parents = subprocess.run(
+        ["git", "show", "-s", "--format=%P", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert parents == [public_main]
+    assert (
+        subprocess.run(["git", "cat-file", "-e", COMMIT], cwd=root, capture_output=True).returncode
+        != 0
+    )
+    assert (
+        subprocess.run(
+            ["git", "cat-file", "-e", PREVIOUS_COMMIT], cwd=root, capture_output=True
+        ).returncode
+        != 0
+    )
+    assert errors == []
+    assert facts["commit_inventory_exact"] is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("merge_group", "NOT-A-SHA", "merge_group"),
+        ("constituent_commits", [], "non-empty list"),
+        ("constituent_commits", ["NOT-A-SHA"], "lowercase hex shas"),
+    ],
+)
+def test_evaluate_rejects_malformed_commit_inventory_fields(
+    tmp_path: Path, field: str, value, message: str
+):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0][field] = value
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts == {}
+    assert any("commit-inventory" in error and message in error for error in errors)
+
+
+def test_malformed_commits_do_not_produce_duplicate_ownership_errors(tmp_path: Path):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0]["constituent_commits"] = ["NOT-A-SHA", "NOT-A-SHA"]
+    root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert facts == {}
+    assert errors == [
+        "commit-inventory: delta decision 'guarded-change' constituent_commits must contain "
+        "only full 40-character lowercase hex shas"
+    ]
+
+
+def test_canonical_document_records_the_exact_commit_inventory():
+    manifest = guard.load_manifest(ROOT)
+    document = (ROOT / "docs" / "UPSTREAM_COMPARISON.md").read_text(encoding="utf-8")
+    decisions = manifest["delta_decisions"]
+    nested_merges = {
+        "359c579d2028fd5f4964984297abf67417e7c105",
+        "87e6f38377b4bee0666374b05df6e14ffd154245",
+        "98a0f824c84dd46b98230acf6ac990800797e570",
+        "c044acdaed50fd474709080fc8cd3978cf230315",
+    }
+
+    merge_groups = [decision["merge_group"] for decision in decisions]
+    constituent_commits = [
+        commit for decision in decisions for commit in decision["constituent_commits"]
+    ]
+    full_inventory = set(merge_groups) | set(constituent_commits)
+    non_merge_constituents = set(constituent_commits) - nested_merges
+    document_lines = document.splitlines()
+    inventory_start = document_lines.index("Grouped by the top-level merge commits:")
+    inventory_lines: list[str] = []
+    for line in document_lines[inventory_start + 1 :]:
+        if not line:
+            if inventory_lines:
+                break
+            continue
+        inventory_lines.append(line)
+
+    expected_inventory_lines = []
+    for decision in decisions:
+        rendered_commits = []
+        for commit in decision["constituent_commits"]:
+            rendered = f"`{commit[:8]}`"
+            if commit in nested_merges:
+                rendered += " (nested merge)"
+            rendered_commits.append(rendered)
+        expected_inventory_lines.append(
+            f"- `{decision['merge_group'][:8]}`: {', '.join(rendered_commits)}"
+        )
+
+    assert len(merge_groups) == len(set(merge_groups)) == 12
+    assert len(full_inventory) == 47
+    assert nested_merges < set(constituent_commits)
+    assert len(non_merge_constituents) == 31
+    assert "exact 47-commit full-range inventory" in document
+    assert "31-commit non-merge constituent subset" in document
+    assert inventory_lines == expected_inventory_lines
 
 
 def test_evaluate_rejects_stale_review_date(tmp_path: Path):
@@ -328,9 +691,18 @@ def test_evaluate_rejects_a_duplicate_delta_decision_id(tmp_path: Path):
     decisions.append(copy.deepcopy(decisions[0]))
     root = _root(tmp_path, manifest=_manifest(delta_decisions=decisions))
 
-    _, errors = guard.evaluate(root, today=date(2026, 7, 10))
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
 
-    assert any("declared more than once" in error for error in errors)
+    assert facts == {}
+    assert errors == [
+        "delta-decision: delta decision 'guarded-change' is declared more than once",
+        f"commit-inventory: commit {MERGE_ONE} is declared more than once: "
+        "delta decision 'guarded-change' merge_group, "
+        "delta decision 'guarded-change' merge_group",
+        f"commit-inventory: commit {CONSTITUENT_ONE} is declared more than once: "
+        "delta decision 'guarded-change' constituent_commits[0], "
+        "delta decision 'guarded-change' constituent_commits[0]",
+    ]
 
 
 def test_evaluate_rejects_a_document_missing_a_delta_decision(tmp_path: Path):
@@ -382,7 +754,7 @@ def test_evaluate_rejects_a_chromadb_runtime_backend_claim(tmp_path: Path):
     manifest = _manifest(
         capabilities={
             "upstream_advertised": ["some-capability"],
-            "fork_current": [BRIDGE_CAPABILITY, "backend-chromadb-runtime"],
+            "fork_current": ["backend-chromadb-runtime"],
         }
     )
     root = _root(tmp_path, manifest=manifest)
@@ -392,11 +764,11 @@ def test_evaluate_rejects_a_chromadb_runtime_backend_claim(tmp_path: Path):
     assert any("chroma-stance" in error for error in errors)
 
 
-def test_evaluate_requires_the_chromadb_migration_bridge_stance(tmp_path: Path):
+def test_evaluate_rejects_the_retired_chromadb_migration_bridge_stance(tmp_path: Path):
     manifest = _manifest(
         capabilities={
             "upstream_advertised": ["some-capability"],
-            "fork_current": ["other-capability"],
+            "fork_current": [BRIDGE_CAPABILITY, "other-capability"],
         }
     )
     root = _root(tmp_path, manifest=manifest)
@@ -436,10 +808,10 @@ def test_check_live_accepts_matching_sha_from_injected_fetcher(tmp_path: Path):
         "readme": (root / "README.md").read_bytes(),
     }
 
-    def fetch(_url: str) -> str:
-        return json.dumps({"sha": COMMIT})
+    def public_read(_query):
+        return _public_result(COMMIT)
 
-    facts, errors = guard.check_live(manifest, fetch=fetch)
+    facts, errors = guard.check_live(manifest, public_read=public_read)
 
     assert errors == []
     assert facts["live_head"] == COMMIT
@@ -455,10 +827,10 @@ def test_check_live_rejects_mismatching_sha(tmp_path: Path):
     manifest = guard.load_manifest(root)
     other_sha = "b" * 40
 
-    def fetch(_url: str) -> str:
-        return json.dumps({"sha": other_sha})
+    def public_read(_query):
+        return _public_result(other_sha)
 
-    facts, errors = guard.check_live(manifest, fetch=fetch)
+    facts, errors = guard.check_live(manifest, public_read=public_read)
 
     assert facts["live_head"] == other_sha
     assert any("upstream-drift" in error for error in errors)
@@ -469,10 +841,10 @@ def test_check_live_drift_error_names_the_range_and_the_recovery_command(tmp_pat
     manifest = guard.load_manifest(root)
     other_sha = "c" * 40
 
-    def fetch(_url: str) -> str:
-        return json.dumps({"sha": other_sha})
+    def public_read(_query):
+        return _public_result(other_sha)
 
-    _, errors = guard.check_live(manifest, fetch=fetch)
+    _, errors = guard.check_live(manifest, public_read=public_read)
 
     assert len(errors) == 1
     assert f"{REPOSITORY}/compare/{COMMIT}...{other_sha}" in errors[0]
@@ -483,10 +855,10 @@ def test_check_live_rejects_invalid_json(tmp_path: Path):
     root = _root(tmp_path)
     manifest = guard.load_manifest(root)
 
-    def fetch(_url: str) -> str:
-        return "not json"
+    def public_read(_query):
+        return _public_result(error="response was not valid UTF-8 JSON")
 
-    facts, errors = guard.check_live(manifest, fetch=fetch)
+    facts, errors = guard.check_live(manifest, public_read=public_read)
 
     assert facts["live_head"] is None
     assert any("live-response" in error for error in errors)
@@ -496,36 +868,33 @@ def test_check_live_fails_closed_on_fetch_failure(tmp_path: Path):
     root = _root(tmp_path)
     manifest = guard.load_manifest(root)
 
-    def fetch(_url: str) -> str:
-        raise guard.LiveCheckError("live-response: upstream head request failed (offline)")
+    def public_read(_query):
+        return _public_result(error="offline")
 
-    facts, errors = guard.check_live(manifest, fetch=fetch)
+    facts, errors = guard.check_live(manifest, public_read=public_read)
 
     assert facts["live_head"] is None
     assert errors == ["live-response: upstream head request failed (offline)"]
 
 
-def test_default_fetch_wraps_network_failure_as_untrusted_live_response(monkeypatch):
-    def urlopen(*_args, **_kwargs):
-        raise urllib.error.URLError("offline")
-
-    monkeypatch.setattr(guard.urllib.request, "urlopen", urlopen)
-
-    try:
-        guard._default_fetch("https://api.github.com/example")
-    except guard.LiveCheckError as exc:
-        assert "live-response" in str(exc)
-        assert "offline" in str(exc)
-    else:
-        raise AssertionError("network failure must fail closed")
+def test_default_public_reader_error_is_an_untrusted_live_response(tmp_path: Path):
+    manifest = guard.load_manifest(_root(tmp_path))
+    with pytest.raises(guard.LiveCheckError, match="offline"):
+        guard.fetch_head_commit(
+            manifest,
+            public_read=lambda _query: _public_result(error="offline"),
+        )
 
 
 def test_check_live_rejects_empty_or_malformed_head_resolution(tmp_path: Path):
     root = _root(tmp_path)
     manifest = guard.load_manifest(root)
 
-    for payload in ("{}", '{"sha": ""}', '{"sha": "not-a-commit"}'):
-        facts, errors = guard.check_live(manifest, fetch=lambda _url, payload=payload: payload)
+    for payload in (None, "", "not-a-commit"):
+        facts, errors = guard.check_live(
+            manifest,
+            public_read=lambda _query, payload=payload: _public_result(payload),
+        )
         assert facts["live_head"] is None
         assert errors == ["live-response: upstream head reply carried no 40-hex commit sha"]
 
@@ -540,6 +909,12 @@ def test_evaluate_rejects_negative_max_age_days(tmp_path: Path):
 
 def test_repository_manifest_and_document_agree():
     """The shipped manifest and document must pass the guard they are checked by."""
-    _, errors = guard.evaluate(ROOT, max_age_days=10_000, today=date(2026, 12, 31))
+    facts, errors = guard.evaluate(ROOT, max_age_days=10_000, today=date(2026, 12, 31))
 
     assert errors == []
+    assert facts["inventory_anchor_algorithm"] == "sha256"
+    assert facts["inventory_anchor_version"] == 1
+    assert facts["inventory_anchor_declared_count"] == 47
+    assert facts["inventory_anchor_derived_count"] == 47
+    assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
+    assert facts["commit_inventory_exact"] is True

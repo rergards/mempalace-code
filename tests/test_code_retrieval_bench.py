@@ -1,6 +1,13 @@
 import importlib.util
 import json
+import os
+import subprocess
+import sys
+from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 _BENCH_FILE = Path(__file__).resolve().parent.parent / "benchmarks" / "code_retrieval_bench.py"
 _spec = importlib.util.spec_from_file_location("code_retrieval_bench", _BENCH_FILE)
@@ -220,3 +227,276 @@ def test_run_benchmark_json_shape_without_embeddings(monkeypatch, tmp_path):
     assert set(report["modes"]) == {"smart", "treesitter"}
     assert report["modes"]["smart"]["per_query"][0]["top5_files"] == ["/repo/miner.py"]
     assert report["comparison"]["treesitter"]["chunk_count"] == 2
+
+
+def test_minilm_compatibility_fixture_is_the_single_strict_contract():
+    facts = json.loads(bench.RETRIEVAL_QUALITY_FACTS.read_text(encoding="utf-8"))
+    assert "public_reproducible_compatibility" not in facts["code_minilm"]
+    assert {key: facts["code_minilm"][key] for key in ("chunk_count", "r_at_5", "r_at_10")} == {
+        "chunk_count": 469,
+        "r_at_5": 0.95,
+        "r_at_10": 1.0,
+    }
+    fixture = bench._load_minilm_compatibility_fixture()
+    assert fixture["model"] == {
+        "alias": "all-MiniLM-L6-v2",
+        "identifier": "sentence-transformers/all-MiniLM-L6-v2",
+        "max_sequence_length": 256,
+        "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    }
+    assert fixture["dimensions"] == 384
+    assert len(fixture["texts"]) == len(fixture["former_vectors"]) == 5
+    assert all(isinstance(text, str) and text.strip() for text in fixture["texts"])
+    assert isinstance(fixture["generation_command"], str)
+    assert fixture["generation_command"].strip()
+
+
+def _write_mutated_fixture(tmp_path, mutate):
+    fixture = json.loads(bench.MINILM_COMPATIBILITY_FIXTURE.read_text(encoding="utf-8"))
+    mutate(fixture)
+    path = tmp_path / "fixture.json"
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda fixture: fixture.update(extra=True),
+        lambda fixture: fixture.update(schema_version=True),
+        lambda fixture: fixture["model"].update(alias="other"),
+        lambda fixture: fixture.update(dimensions=383),
+        lambda fixture: fixture.update(generation_command=""),
+        lambda fixture: fixture["texts"].append("extra"),
+        lambda fixture: fixture["former_vectors"][0].__setitem__(0, float("nan")),
+        lambda fixture: fixture["former_vectors"][0].pop(),
+        lambda fixture: fixture["compatibility"].update(minimum_paired_cosine=True),
+        lambda fixture: fixture["compatibility"]["neighbor_order"][0].__setitem__(0, 1),
+    ],
+)
+def test_minilm_compatibility_fixture_rejects_schema_and_bound_fact_drift(tmp_path, mutate):
+    path = _write_mutated_fixture(tmp_path, mutate)
+
+    with pytest.raises(bench.BenchError, match="git restore"):
+        bench._load_minilm_compatibility_fixture(path)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b'{"schema_version": 1, "schema_version": 1}',
+        b'{"model": {"alias": "first", "alias": "second"}}',
+    ],
+)
+def test_minilm_compatibility_fixture_rejects_duplicate_keys(tmp_path, raw):
+    path = tmp_path / "fixture.json"
+    path.write_bytes(raw)
+
+    with pytest.raises(bench.BenchError, match="git restore"):
+        bench._load_minilm_compatibility_fixture(path)
+
+
+def test_minilm_generation_command_is_bound_inert_provenance(tmp_path):
+    marker = tmp_path / "generation-command-ran"
+    path = _write_mutated_fixture(
+        tmp_path,
+        lambda fixture: fixture.update(generation_command=f"touch {marker}"),
+    )
+
+    with pytest.raises(bench.BenchError, match="git restore"):
+        bench._load_minilm_compatibility_fixture(path)
+
+    assert not marker.exists()
+
+
+def test_minilm_compatibility_vectors_pass_and_fail_closed_on_metric_drift():
+    fixture = bench._load_minilm_compatibility_fixture()
+    result = bench._validate_current_vectors(fixture, deepcopy(fixture["former_vectors"]))
+
+    assert result == {
+        "fixture": "minilm_runtime_compatibility_fixture.json",
+        "model": "all-MiniLM-L6-v2",
+        "texts": 5,
+        "dimensions": 384,
+    }
+    drifted = deepcopy(fixture["former_vectors"])
+    drifted[0][0], drifted[0][1] = drifted[0][1], drifted[0][0]
+    norm = sum(value * value for value in drifted[0]) ** 0.5
+    drifted[0] = [value / norm for value in drifted[0]]
+    with pytest.raises(bench.BenchError, match="git restore"):
+        bench._validate_current_vectors(fixture, drifted)
+
+
+def test_minilm_compatibility_uses_local_only_storage_owner(monkeypatch, tmp_path):
+    fixture = bench._load_minilm_compatibility_fixture()
+    calls = []
+
+    class FakeEmbedder:
+        def __init__(self, *, local_files_only):
+            calls.append(local_files_only)
+
+        def compute_source_embeddings(self, texts):
+            assert texts == fixture["texts"]
+            return deepcopy(fixture["former_vectors"])
+
+    monkeypatch.setattr(
+        bench,
+        "_import_installed_storage",
+        lambda: SimpleNamespace(_FastEmbedder=FakeEmbedder),
+    )
+
+    result = bench.run_minilm_runtime_compatibility(tmp_path)
+
+    assert result["dimensions"] == 384
+    assert calls == [True]
+    assert os.environ["HF_HUB_OFFLINE"] == "1"
+    assert os.environ["TRANSFORMERS_OFFLINE"] == "1"
+
+
+def test_installed_storage_import_rejects_an_already_shadowed_checkout_module(
+    monkeypatch, tmp_path
+):
+    installed = tmp_path / "installed" / "mempalace_code"
+    installed.mkdir(parents=True)
+    shadowed = tmp_path / "checkout" / "mempalace_code" / "storage.py"
+    shadowed.parent.mkdir(parents=True)
+    shadowed.write_text("", encoding="utf-8")
+    monkeypatch.setattr(bench, "_active_distribution_package_root", lambda: installed)
+    monkeypatch.setattr(
+        bench.importlib, "import_module", lambda _name: SimpleNamespace(__file__=str(shadowed))
+    )
+
+    with pytest.raises(bench.BenchError, match="installed MiniLM runtime is shadowed"):
+        bench._import_installed_storage()
+
+
+def test_main_compatibility_mode_prints_one_bounded_status(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(
+        bench,
+        "run_minilm_runtime_compatibility",
+        lambda _repo: {
+            "fixture": "minilm_runtime_compatibility_fixture.json",
+            "model": "all-MiniLM-L6-v2",
+            "texts": 5,
+            "dimensions": 384,
+        },
+    )
+
+    assert (
+        bench.main(
+            [
+                "--repo-dir",
+                str(tmp_path),
+                "--dataset",
+                str(tmp_path / "missing.json"),
+                "--check-minilm-runtime-compatibility",
+            ]
+        )
+        == 0
+    )
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out.splitlines() == [
+        "PASS MiniLM runtime compatibility: "
+        "fixture=minilm_runtime_compatibility_fixture.json "
+        "model=all-MiniLM-L6-v2 texts=5 dimensions=384"
+    ]
+
+
+def _write_fake_installed_runtime(root, *, fail=False):
+    package = root / "mempalace_code"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    body = (
+        "raise RuntimeError('cache missing')"
+        if fail
+        else (
+            "import json, os\n"
+            "return json.load(open(os.environ['MINILM_TEST_FIXTURE']))['former_vectors']"
+        )
+    )
+    (package / "storage.py").write_text(
+        "class _FastEmbedder:\n"
+        "    def __init__(self, *, local_files_only):\n"
+        "        assert local_files_only is True\n"
+        "    def compute_source_embeddings(self, texts):\n"
+        f"        {body.replace(chr(10), chr(10) + '        ')}\n",
+        encoding="utf-8",
+    )
+    metadata = root / "mempalace_code-99.0.dist-info"
+    metadata.mkdir()
+    (metadata / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: mempalace-code\nVersion: 99.0\n", encoding="utf-8"
+    )
+
+
+def _run_compatibility_script(tmp_path, *, fail=False, malformed=False):
+    checkout = tmp_path / "checkout"
+    benchmarks = checkout / "benchmarks"
+    benchmarks.mkdir(parents=True)
+    script = benchmarks / "code_retrieval_bench.py"
+    script.write_bytes(_BENCH_FILE.read_bytes())
+    fixture = benchmarks / "minilm_runtime_compatibility_fixture.json"
+    fixture.write_bytes(bench.MINILM_COMPATIBILITY_FIXTURE.read_bytes())
+    if malformed:
+        value = json.loads(fixture.read_text(encoding="utf-8"))
+        value["dimensions"] = 383
+        fixture.write_text(json.dumps(value), encoding="utf-8")
+    checkout_package = checkout / "mempalace_code"
+    checkout_package.mkdir()
+    (checkout_package / "__init__.py").write_text("", encoding="utf-8")
+    (checkout_package / "storage.py").write_text(
+        "raise RuntimeError('checkout source shadowed installed package')\n", encoding="utf-8"
+    )
+    installed = tmp_path / "installed"
+    _write_fake_installed_runtime(installed, fail=fail)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join([str(checkout), str(installed)])
+    env["MINILM_TEST_FIXTURE"] = str(fixture)
+    return subprocess.run(
+        [sys.executable, str(script), "--check-minilm-runtime-compatibility"],
+        cwd=checkout,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_compatibility_subprocess_prefers_installed_root_over_checkout_source(tmp_path):
+    result = _run_compatibility_script(tmp_path)
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout.count("PASS MiniLM runtime compatibility") == 1
+    assert "checkout source shadowed" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "recovery"),
+    [
+        ({"fail": True}, "mempalace-code fetch-model"),
+        ({"malformed": True}, "git restore benchmarks/minilm_runtime_compatibility_fixture.json"),
+    ],
+)
+def test_compatibility_subprocess_failures_are_bounded_and_actionable(tmp_path, kwargs, recovery):
+    result = _run_compatibility_script(tmp_path, **kwargs)
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert len(result.stderr.splitlines()) == 1
+    assert result.stderr.startswith("ERROR: MiniLM")
+    assert result.stderr.count(recovery) == 1
+    assert "Traceback" not in result.stderr
+
+
+def test_compatibility_implementation_has_no_git_history_or_generated_result_owner():
+    source = _BENCH_FILE.read_text(encoding="utf-8")
+    compatibility_source = source[
+        source.index("def _fixture_error") : source.index("def load_dataset")
+    ]
+
+    assert "git archive" not in compatibility_source
+    assert "git fetch" not in compatibility_source
+    assert "TemporaryDirectory" not in compatibility_source
+    assert "write_text" not in compatibility_source

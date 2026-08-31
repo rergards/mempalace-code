@@ -6,11 +6,13 @@ scanning, KG emission, mining integration, stale-fact invalidation, and
 malformed-rule robustness.
 """
 
+import multiprocessing
 import os
 import shutil
 import tempfile
 from pathlib import Path
 
+import pytest
 import yaml
 
 from mempalace_code.architecture import (
@@ -37,6 +39,13 @@ def _active_triples(kg):
     ).fetchall()
     conn.close()
     return {(r[0], r[1], r[2]) for r in rows}
+
+
+def _extract_inventory_child(paths, project_root, connection):
+    try:
+        connection.send(extract_type_inventory([Path(path) for path in paths], Path(project_root)))
+    finally:
+        connection.close()
 
 
 # ── load_arch_config ──────────────────────────────────────────────────────────
@@ -328,6 +337,71 @@ class TestExtractTypeInventory:
     def test_unreadable_file_skipped(self):
         inv = extract_type_inventory([self.tmpdir / "nonexistent.cs"], self.tmpdir)
         assert inv == []
+
+    def test_regular_reader_oserror_skipped(self, monkeypatch):
+        f = self.tmpdir / "raced.py"
+        calls = []
+
+        def fail_read(path, *, encoding, errors):
+            calls.append((path, encoding, errors))
+            raise OSError("raced source")
+
+        monkeypatch.setattr("mempalace_code.architecture.read_regular_text", fail_read)
+
+        inv = extract_type_inventory([f], self.tmpdir)
+
+        assert inv == []
+        assert calls == [(f, "utf-8", "ignore")]
+
+    @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="platform has no FIFO support")
+    def test_raced_fifo_returns_without_blocking(self):
+        control = self.tmpdir / "control.py"
+        control.write_text("class RegularControl:\n    pass\n", encoding="utf-8")
+        f = self.tmpdir / "raced.py"
+        f.write_text("class BeforeRace:\n    pass\n", encoding="utf-8")
+        source_files = [control, f]
+        f.unlink()
+        try:
+            os.mkfifo(f)
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"FIFO creation is unavailable: {exc}")
+
+        try:
+            context = multiprocessing.get_context("spawn")
+        except ValueError as exc:
+            pytest.skip(f"spawn multiprocessing is unavailable: {exc}")
+        parent_connection, child_connection = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_extract_inventory_child,
+            args=([str(path) for path in source_files], str(self.tmpdir), child_connection),
+        )
+        started = False
+        try:
+            try:
+                process.start()
+                started = True
+            except (OSError, RuntimeError) as exc:
+                pytest.skip(f"spawn multiprocessing is unavailable: {exc}")
+            child_connection.close()
+            process.join(timeout=3)
+            assert not process.is_alive(), "architecture extraction blocked on a raced FIFO"
+            assert process.exitcode == 0
+            assert parent_connection.poll(1)
+            assert parent_connection.recv() == [
+                {
+                    "type_name": "RegularControl",
+                    "namespace": "",
+                    "source_file": str(control),
+                }
+            ]
+        finally:
+            child_connection.close()
+            if started and process.is_alive():
+                process.terminate()
+                process.join(timeout=1)
+            if started:
+                assert not process.is_alive(), "architecture extraction child did not terminate"
+            parent_connection.close()
 
     def test_lowercase_type_ignored(self):
         f = self.tmpdir / "helpers.cs"

@@ -7,15 +7,15 @@ import os
 import sys
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Literal, NamedTuple, TypeAlias, TypedDict
+from typing import NamedTuple, TypeAlias, TypedDict
 
 from ..config import MempalaceConfig
 from ..language_catalog import known_filenames, readable_extensions
 from ..source_io import (
     is_regular_source_path,
-    read_regular_bytes,
     read_regular_text,
     regular_source_diagnostic,
+    source_path_kind,
 )
 
 KNOWN_FILENAMES: set[str] = known_filenames()
@@ -411,43 +411,24 @@ def _subtree_glob_prefix(pattern: str) -> str | None:
     return "/".join(parts[:star_idx]).strip("/")
 
 
-SymlinkSkipReason: TypeAlias = Literal["dangling", "not-a-file", "unreadable", "not a regular file"]
-
-
-class SymlinkDiagnostic(TypedDict):
-    """One dropped source-file symlink, recorded when skip_invalid_source_symlinks is on."""
+class SourceDiagnostic(TypedDict):
+    """One rejected source candidate and its non-following filesystem kind."""
 
     path: str
-    reason: SymlinkSkipReason
+    reason: str
 
 
-def invalid_source_symlink_reason(path: Path) -> SymlinkSkipReason | None:
-    """Return a reason string when *path* is a symlinked source file that fails the guard.
-
-    Returns None for non-symlinks and for symlinks that resolve to a readable file.
-    Otherwise returns one of ``"dangling"`` (missing target), ``"not-a-file"``
-    (target is a directory or other non-file), or ``"unreadable"`` (target exists
-    and is a file but cannot be opened for a small read).
-    """
-    if not path.is_symlink():
-        return None
-    try:
-        if not path.exists():
-            return "dangling"
-        if not is_regular_source_path(path):
-            return "not-a-file"
-        read_regular_bytes(path, max_bytes=1)
-    except OSError:
-        return "unreadable"
-    return None
-
-
-def _record_non_regular_source(path: Path, diagnostics: list[SymlinkDiagnostic] | None) -> None:
-    message = regular_source_diagnostic(path)
+def _record_non_regular_source(path: Path, diagnostics: list[SourceDiagnostic] | None) -> None:
+    kind = source_path_kind(path)
+    message = regular_source_diagnostic(path, kind)
     if diagnostics is not None:
-        diagnostics.append({"path": str(path), "reason": "not a regular file"})
+        diagnostics.append({"path": str(path), "reason": kind})
     else:
         print(message, file=sys.stderr)
+
+
+def _looks_like_source_name(path: Path) -> bool:
+    return path.suffix.lower() in READABLE_EXTENSIONS or path.name in KNOWN_FILENAMES
 
 
 def is_dir_subtree_excluded(dir_path: Path, project_path: Path, rules: ScanFilterRules) -> bool:
@@ -485,16 +466,13 @@ def scan_project(
     scan_rules: ScanFilterRules | None = None,
     hard_exclude_dirs: Iterable[str | Path] | None = None,
     skip_invalid_source_symlinks: bool = False,
-    symlink_diagnostics: list[SymlinkDiagnostic] | None = None,
+    symlink_diagnostics: list[SourceDiagnostic] | None = None,
 ) -> list[Path]:
-    """Return list of all readable file paths.
+    """Return ordinary regular source paths selected by the project rules.
 
-    When *skip_invalid_source_symlinks* is True (opt-in, default disabled), a selected
-    source-file symlink is dropped when its target is missing, is not a file, or cannot
-    be read through the symlink path. Valid symlinks keep their symlink path (not resolved
-    to their target) and regular files are never affected by this guard. When
-    *symlink_diagnostics* is provided, each dropped symlink appends a
-    ``{"path": str, "reason": str}`` entry.
+    ``skip_invalid_source_symlinks`` remains for call compatibility and has no behavioral
+    effect: every symlink and non-regular node is rejected. When ``symlink_diagnostics``
+    is provided, each rejection appends its path and non-following filesystem kind.
     """
     project_path = Path(project_dir).expanduser().resolve()
     hard_exclude_paths = normalize_hard_exclude_dirs(hard_exclude_dirs)
@@ -548,6 +526,15 @@ def scan_project(
                 )
             ]
 
+        accepted_dirs: list[str] = []
+        for dirname in dirs:
+            dirpath = root_path / dirname
+            if _looks_like_source_name(dirpath):
+                _record_non_regular_source(dirpath, symlink_diagnostics)
+            else:
+                accepted_dirs.append(dirname)
+        dirs[:] = accepted_dirs
+
         for filename in filenames:
             filepath = root_path / filename
             if is_hard_excluded_dir(filepath.parent, hard_exclude_paths):
@@ -559,17 +546,10 @@ def scan_project(
                 continue
             if not force_include and is_scan_excluded(filepath, project_path, scan_rules):
                 continue
-            if filepath.suffix.lower() not in READABLE_EXTENSIONS and not exact_force_include:
-                if filename not in KNOWN_FILENAMES:
-                    continue
+            if not _looks_like_source_name(filepath) and not exact_force_include:
+                continue
             if respect_gitignore and active_matchers and not force_include:
                 if is_gitignored(filepath, active_matchers, is_dir=False):
-                    continue
-            if skip_invalid_source_symlinks:
-                reason = invalid_source_symlink_reason(filepath)
-                if reason is not None:
-                    if symlink_diagnostics is not None:
-                        symlink_diagnostics.append({"path": str(filepath), "reason": reason})
                     continue
             if not is_regular_source_path(filepath):
                 _record_non_regular_source(filepath, symlink_diagnostics)

@@ -7,6 +7,7 @@ argparse → dispatch → storage path for the diary write subcommand.
 
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -16,12 +17,31 @@ import pytest
 import yaml
 
 from mempalace_code.cli import _hoist_palace_before_subcommand, install_legacy_alias, main
+from mempalace_code.cli_commands.alias import resolve_invoked_canonical_cli
 from mempalace_code.storage import CHROMA_RUNTIME_RETIRED_MESSAGE, LanceStore, open_store
 
 
 def run_mine_cli(argv):
     with patch.object(sys, "argv", argv):
         main()
+
+
+def _snapshot_paths(*roots):
+    entries = []
+    for index, root in enumerate(map(Path, roots)):
+        if not root.exists():
+            entries.append((index, ".", "missing", b""))
+            continue
+        entries.append((index, ".", "dir" if root.is_dir() else "file", b""))
+        for entry in sorted(root.rglob("*")):
+            relative = entry.relative_to(root).as_posix()
+            if entry.is_symlink():
+                entries.append((index, relative, "symlink", os.readlink(entry).encode()))
+            elif entry.is_dir():
+                entries.append((index, relative, "dir", b""))
+            else:
+                entries.append((index, relative, "file", entry.read_bytes()))
+    return tuple(entries)
 
 
 class TestInitModelChoiceContract:
@@ -118,6 +138,80 @@ class TestLegacyAlias:
         assert alias.is_symlink()
         assert alias.resolve() == invoked.resolve()
         assert alias.resolve() != ambient.resolve()
+
+    @pytest.mark.parametrize(
+        "argv0", ["invoked-bin/mempalace-code", "./invoked-bin/mempalace-code"]
+    )
+    def test_reusable_resolver_preserves_relative_invocation(self, tmp_path, monkeypatch, argv0):
+        invoked_bin = tmp_path / "invoked-bin"
+        ambient_bin = tmp_path / "ambient-bin"
+        invoked_bin.mkdir()
+        ambient_bin.mkdir()
+        invoked = invoked_bin / "mempalace-code"
+        ambient = ambient_bin / "mempalace-code"
+        self._write_executable(invoked)
+        self._write_executable(ambient)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PATH", str(ambient_bin))
+
+        with patch.object(sys, "argv", [argv0, "backup", "schedule"]):
+            selected = resolve_invoked_canonical_cli()
+
+        assert selected == invoked
+        assert selected != ambient
+
+    def test_reusable_resolver_preserves_symlinked_launcher_path(self, tmp_path, monkeypatch):
+        managed_bin = tmp_path / "managed" / "bin"
+        invoked_bin = tmp_path / "invoked bin"
+        managed_bin.mkdir(parents=True)
+        invoked_bin.mkdir()
+        managed = managed_bin / "mempalace-code"
+        invoked = invoked_bin / "mempalace-code"
+        self._write_executable(managed)
+        invoked.symlink_to(managed)
+
+        with patch.object(sys, "argv", [str(invoked), "watch", "schedule"]):
+            selected = resolve_invoked_canonical_cli()
+
+        assert selected is not None
+        assert selected == invoked
+        assert selected.resolve() == managed.resolve()
+
+    def test_reusable_resolver_maps_dedicated_entry_point_to_sibling(self, tmp_path):
+        bin_dir = tmp_path / "dedicated bin"
+        bin_dir.mkdir()
+        canonical = bin_dir / "mempalace-code"
+        installer = bin_dir / "mempalace-code-alias"
+        self._write_executable(canonical)
+        self._write_executable(installer)
+
+        with patch.object(sys, "argv", [str(installer)]):
+            selected = resolve_invoked_canonical_cli()
+
+        assert selected == canonical
+
+    def test_reusable_resolver_rejects_missing_dedicated_sibling_before_path_fallback(
+        self, tmp_path, monkeypatch
+    ):
+        invoked_bin = tmp_path / "invoked-bin"
+        ambient_bin = tmp_path / "ambient-bin"
+        invoked_bin.mkdir()
+        ambient_bin.mkdir()
+        installer = invoked_bin / "mempalace-code-alias"
+        ambient = ambient_bin / "mempalace-code"
+        self._write_executable(installer)
+        self._write_executable(ambient)
+        monkeypatch.setenv("PATH", str(ambient_bin))
+
+        with patch.object(sys, "argv", [str(installer)]):
+            with pytest.raises(RuntimeError, match="cannot find executable sibling"):
+                resolve_invoked_canonical_cli()
+
+    def test_reusable_resolver_leaves_bare_canonical_command_to_path_fallback(self, monkeypatch):
+        monkeypatch.setenv("PATH", "/ambient/bin")
+
+        with patch.object(sys, "argv", ["mempalace-code", "backup", "schedule"]):
+            assert resolve_invoked_canonical_cli() is None
 
     def test_symlinked_invocation_keeps_default_alias_beside_launcher(self, tmp_path, monkeypatch):
         managed_bin = tmp_path / "managed" / "bin"
@@ -360,6 +454,79 @@ class TestInitEntityDetection:
         saved = json.loads(entities_path.read_text(encoding="utf-8"))
         assert saved == confirmed
         assert entities_path.stat().st_mode & 0o777 == 0o640
+
+    def test_init_entities_write_failure_restores_config_and_entities(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        (project_dir / "src").mkdir()
+        config_path = project_dir / "mempalace.yaml"
+        entities_path = project_dir / "entities.json"
+        config_path.write_text("wing: old\nrooms: []\n", encoding="utf-8")
+        entities_path.write_text('{"people": ["old"]}', encoding="utf-8")
+        before = {path: path.read_bytes() for path in (config_path, entities_path)}
+        detected = {"people": [{"name": "Alice"}], "projects": [], "uncertain": []}
+        confirmed = {"people": ["Alice"], "projects": []}
+
+        from mempalace_code.room_detector_local import write_regular_destination as real_write
+
+        failed = False
+
+        def fail_entities_once(destination, content):
+            nonlocal failed
+            if destination == entities_path and not failed:
+                failed = True
+                raise OSError("simulated entities write failure")
+            return real_write(destination, content)
+
+        with (
+            patch("mempalace_code.entity_detector.scan_for_detection", return_value=["source"]),
+            patch("mempalace_code.entity_detector.detect_entities", return_value=detected),
+            patch("mempalace_code.entity_detector.confirm_entities", return_value=confirmed),
+            patch(
+                "mempalace_code.room_detector_local.write_regular_destination",
+                side_effect=fail_entities_once,
+            ),
+            pytest.raises(SystemExit),
+        ):
+            run_mine_cli(
+                [
+                    "mempalace",
+                    "init",
+                    str(project_dir),
+                    "--detect-entities",
+                    "--skip-model-download",
+                ]
+            )
+
+        assert {path: path.read_bytes() for path in before} == before
+
+    def test_init_global_config_failure_restores_project_and_global_state(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        config_path = project_dir / "mempalace.yaml"
+        prior_config = b"wing: prior\nrooms: []\n"
+        config_path.write_bytes(prior_config)
+        global_dir = tmp_path / ".mempalace"
+
+        def write_partial_then_fail(config):
+            config._config_dir.mkdir(parents=True, exist_ok=True)
+            config._config_file.write_text("partial", encoding="utf-8")
+            raise OSError("simulated global config failure")
+
+        with patch(
+            "mempalace_code.cli_commands.ingest.MempalaceConfig.init",
+            autospec=True,
+            side_effect=write_partial_then_fail,
+        ):
+            with pytest.raises(SystemExit):
+                run_mine_cli(["mempalace", "init", str(project_dir), "--skip-model-download"])
+
+        assert config_path.read_bytes() == prior_config
+        assert not global_dir.exists()
 
     def test_init_yes_without_detect_entities_skips_scan(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -670,6 +837,13 @@ class TestMineSpellcheckFlags:
             run_mine_cli(["mempalace", "mine", str(tmp_path), "--mode", "convos"])
 
         assert mock_mine_convos.call_args.kwargs["spellcheck"] is True
+        assert mock_mine_convos.call_args.kwargs["incremental"] is True
+
+    def test_convos_full_disables_incremental_mining(self, tmp_path):
+        with patch("mempalace_code.convo_miner.mine_convos") as mock_mine_convos:
+            run_mine_cli(["mempalace", "mine", str(tmp_path), "--mode", "convos", "--full"])
+
+        assert mock_mine_convos.call_args.kwargs["incremental"] is False
 
     def test_spellcheck_flag_overrides_project_default(self, tmp_path):
         with patch("mempalace_code.mining.orchestrator.mine") as mock_mine:
@@ -771,7 +945,49 @@ class TestMineGeneralEmotionalFlag:
 
 
 class TestDiaryWrite:
-    def test_diary_write_success(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("option", "value", "other_option", "other_value"),
+        [
+            ("--agent", "", "--entry", "valid entry"),
+            ("--agent", " \t\n", "--entry", "valid entry"),
+            ("--entry", "", "--agent", "valid-agent"),
+            ("--entry", " \t\n", "--agent", "valid-agent"),
+        ],
+    )
+    def test_diary_write_rejects_blank_required_fields_before_palace_access(
+        self, tmp_path, capsys, option, value, other_option, other_value
+    ):
+        palace = tmp_path / "absent-palace"
+        argv = [
+            "mempalace",
+            "--palace",
+            str(palace),
+            "diary",
+            "write",
+            option,
+            value,
+            other_option,
+            other_value,
+            "--topic",
+            "",
+        ]
+
+        for _attempt in range(2):
+            with patch.object(sys, "argv", argv):
+                with pytest.raises(SystemExit) as exc:
+                    main()
+
+            captured = capsys.readouterr()
+            assert exc.value.code == 2
+            assert captured.out == ""
+            assert captured.err == (
+                f"Error: {option} must not be blank.\n"
+                "Try: mempalace-code diary write --agent agent-name "
+                "--entry 'your diary entry'\n"
+            )
+            assert not palace.exists()
+
+    def test_diary_write_success(self, tmp_path, capsys):
         palace = str(tmp_path / "palace")
         with patch.object(
             sys,
@@ -800,6 +1016,42 @@ class TestDiaryWrite:
         assert meta["wing"] == "wing_test"
         assert meta["room"] == "diary"
         assert meta["type"] == "diary_entry"
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert "Diary entry stored." in captured.out
+        assert f"ID: {results['ids'][0]}" in captured.out
+        assert "Wing: wing_test" in captured.out
+        assert "Room: diary" in captured.out
+        assert "Topic: general" in captured.out
+        assert "Verify before retry:" in captured.out
+        assert "mempalace-code --palace" in captured.out
+        assert "search hell --wing wing_test --room diary --results 10" in captured.out
+        assert "hello" not in captured.out
+        assert len(captured.out) < 1024
+
+    def test_diary_write_single_character_uses_topic_as_recovery_clue(self, tmp_path, capsys):
+        palace = str(tmp_path / "palace")
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace",
+                "--palace",
+                palace,
+                "diary",
+                "write",
+                "--agent",
+                "test",
+                "--entry",
+                "x",
+                "--topic",
+                "recovery-topic",
+            ],
+        ):
+            main()
+
+        output = capsys.readouterr().out
+        assert "search recovery-topic --wing wing_test --room diary --results 10" in output
 
     def test_diary_write_missing_agent(self, tmp_path):
         palace = str(tmp_path / "palace")
@@ -950,6 +1202,7 @@ class TestDiaryWrite:
                     main()
         assert exc.value.code != 0
         captured = capsys.readouterr()
+        assert captured.out == ""
         assert "boom" in captured.err
 
 
@@ -1084,8 +1337,15 @@ class TestRepairRollbackCommand:
         assert "mine <dir>" in captured.err
         assert "--palace" in captured.err
 
-    def test_repair_rollback_live_no_candidate_exits_1(self, tmp_path, capsys):
-        """F-2 regression: --rollback live mode exits 1 when no candidate version found."""
+    @pytest.mark.parametrize(
+        ("dry_run", "expected_exit", "active_stream"),
+        [(True, 0, "stdout"), (False, 1, "stderr")],
+        ids=["dry-run", "live"],
+    )
+    def test_repair_rollback_no_candidate_output_contract(
+        self, tmp_path, capsys, dry_run, expected_exit, active_stream
+    ):
+        """No-candidate rollback emits one ordered summary on the outcome stream."""
         from mempalace_code.storage import LanceStore
 
         palace = str(tmp_path / "palace")
@@ -1096,9 +1356,10 @@ class TestRepairRollbackCommand:
             metadatas=[{"wing": "test", "room": "general"}],
         )
         assert isinstance(store, LanceStore)
+        recover_calls = []
 
-        # Simulate the case where all prior versions are also corrupt (no candidate)
-        def _no_candidate(dry_run=True):
+        def _no_candidate(_store, *, dry_run):
+            recover_calls.append(dry_run)
             return {
                 "recovered": False,
                 "candidate_version": None,
@@ -1106,15 +1367,53 @@ class TestRepairRollbackCommand:
                 "message": "no healthy prior version found",
             }
 
+        argv = ["mempalace", "--palace", palace, "repair", "--rollback"]
+        if dry_run:
+            argv.append("--dry-run")
         with patch.object(
             sys,
             "argv",
-            ["mempalace", "--palace", palace, "repair", "--rollback"],
+            argv,
         ):
             with patch.object(LanceStore, "recover_to_last_working_version", _no_candidate):
-                with pytest.raises(SystemExit) as exc:
+                if expected_exit:
+                    with pytest.raises(SystemExit) as exc:
+                        main()
+                    assert exc.value.code == expected_exit
+                else:
                     main()
-        assert exc.value.code == 1, "must exit 1 when no candidate found in live mode"
+
+        assert recover_calls == [dry_run]
+        captured = capsys.readouterr()
+        output = captured.out if active_stream == "stdout" else captured.err
+        inactive_output = captured.err if active_stream == "stdout" else captured.out
+        assert inactive_output == ""
+
+        mutation = (
+            "Mutation: preview completed; no changes were made; no restore or full rebuild occurred."
+            if dry_run
+            else "Mutation: rollback attempted; no restore or full rebuild occurred; "
+            "palace remained unchanged."
+        )
+        exit_meaning = (
+            "Exit status: 0 (completed non-mutating preview)."
+            if dry_run
+            else "Exit status: 1 (rollback failed because no candidate was found)."
+        )
+        ordered_markers = [
+            "MemPalace Repair — Version Rollback",
+            "Mode: dry-run" if dry_run else "Mode: live",
+            "No candidate version: no healthy prior version found",
+            mutation,
+            exit_meaning,
+            "Try: mempalace-code repair (full rebuild)",
+        ]
+        positions = [output.index(marker) for marker in ordered_markers]
+        assert positions == sorted(positions)
+        separator = "=" * 55
+        assert output.count(separator) == 3
+        assert not re.search(rf"{separator}\s*{separator}", output)
+        assert output.rstrip().endswith(separator)
 
     def test_repair_rollback_live_restore_exception_exits_1(self, tmp_path, capsys):
         """F-3 regression: --rollback exits 1 with clean message when restore() raises."""
@@ -2043,6 +2342,25 @@ class TestMineAllCommand:
         assert "proj_a" in out
         assert "Dry run" in out or "dry run" in out.lower()
 
+    def test_mine_all_dry_run_discovers_init_marker_only_project(self, tmp_path, capsys):
+        palace = str(tmp_path / "palace")
+        dev = tmp_path / "dev"
+        project = dev / "initialized-only"
+        project.mkdir(parents=True)
+        (project / "mempalace.yaml").write_text(
+            "wing: initialized_only\nrooms: []\n", encoding="utf-8"
+        )
+
+        with patch("mempalace_code.mining.orchestrator.mine") as mock_mine:
+            with patch("mempalace_code.storage.open_store") as mock_open_store:
+                self._run_mine_all(palace, str(dev), ["--dry-run"])
+
+        mock_mine.assert_not_called()
+        mock_open_store.assert_not_called()
+        output = capsys.readouterr().out
+        assert "initialized-only" in output
+        assert "initialized_only" in output
+
     def test_mine_all_skip_existing(self, tmp_path):
         """--new-only: wing already in palace -> skipped; others still mined."""
         palace = str(tmp_path / "palace")
@@ -2538,8 +2856,9 @@ class TestChromaRuntimeRetiredCli:
         captured = capsys.readouterr()
         assert captured.out == ""
         assert captured.err == f"Error: {CHROMA_RUNTIME_RETIRED_MESSAGE}\n"
-        assert "mempalace-code[chroma-migration]" in captured.err
-        assert "mempalace-code migrate-storage SRC DST --verify" in captured.err
+        assert "Back up the source palace before upgrading" in captured.err
+        assert captured.err.count("mempalace-code[chroma]==1.13.4") == 1
+        assert CHROMA_RUNTIME_RETIRED_MESSAGE in captured.err
         assert "Traceback" not in captured.err
         assert marker.exists()
         assert not (palace / "lance").exists()
@@ -2582,128 +2901,63 @@ class TestChromaRuntimeRetiredCli:
 
 
 class TestMigrateStorageCommand:
-    """CLI-level tests for migrate-storage argparse wiring and dispatch."""
+    """CLI tombstone accepts stale invocation shapes and never touches their paths."""
 
     def _run(self, argv):
         with patch.object(sys, "argv", argv):
             main()
 
-    def test_migrate_storage_cli_happy_path(self, tmp_path, capsys):
-        """AC-1: happy path calls migrate_chroma_to_lance with expected defaults and prints counts."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        # Use distinct counts so a src/dst swap in the print statement is detectable.
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(10, 7)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst])
-
-        mock_migrate.assert_called_once_with(
-            src_path=src,
-            dst_path=dst,
-            backup_dir=None,
-            force=False,
-            embed_model=None,
-            verify=False,
-            no_backup=False,
-        )
-        captured = capsys.readouterr()
-        assert "Source drawers: 10" in captured.out
-        assert "Destination drawers: 7" in captured.out
-
-    def test_migrate_storage_help_names_migration_bridge_extra(self, capsys):
-        """AC-1: help points users to the migration-only extra."""
+    def test_help_names_retirement_backup_and_one_recovery_command(self, capsys):
         with pytest.raises(SystemExit) as exc:
             self._run(["mempalace", "migrate-storage", "--help"])
 
         assert exc.value.code == 0
         captured = capsys.readouterr()
-        assert "legacy ChromaDB palace to LanceDB" in captured.out
-        assert "mempalace-code[chroma-migration]" in captured.out
+        assert "Back up the source palace before upgrading" in captured.out
+        assert captured.out.count("mempalace-code[chroma]==1.13.4") == 1
+        assert CHROMA_RUNTIME_RETIRED_MESSAGE in captured.out
 
-    def test_migrate_storage_cli_verify_fail(self, tmp_path, capsys):
-        """AC-2: VerificationError exits with code 1, stderr includes 'Verification failed:'."""
-        from mempalace_code.migrate import VerificationError
-
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance",
-            side_effect=VerificationError("wing count mismatch"),
-        ):
-            with pytest.raises(SystemExit) as exc:
-                self._run(["mempalace", "migrate-storage", src, dst])
-
-        assert exc.value.code == 1
-        captured = capsys.readouterr()
-        assert "Verification failed: wing count mismatch" in captured.err
-
-    def test_migrate_storage_cli_backup_dir_passthrough(self, tmp_path, capsys):
-        """AC-3: --backup-dir <dir> reaches migrate_chroma_to_lance as backup_dir."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-        backup = str(tmp_path / "backups")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(5, 5)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst, "--backup-dir", backup])
-
-        assert mock_migrate.call_args.kwargs["backup_dir"] == backup
-
-    def test_migrate_storage_cli_force_passthrough(self, tmp_path, capsys):
-        """AC-4: --force reaches migrate_chroma_to_lance with force=True."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(3, 3)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst, "--force"])
-
-        assert mock_migrate.call_args.kwargs["force"] is True
-
-    def test_migrate_storage_cli_verify_passthrough(self, tmp_path):
-        """AC-1: --verify flag reaches migrate_chroma_to_lance as verify=True."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(0, 0)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst, "--verify"])
-
-        assert mock_migrate.call_args.kwargs["verify"] is True
-
-    def test_migrate_storage_cli_embed_model_passthrough(self, tmp_path):
-        """AC-2: --embed-model VALUE reaches migrate_chroma_to_lance as embed_model='VALUE'."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance", return_value=(0, 0)
-        ) as mock_migrate:
-            self._run(["mempalace", "migrate-storage", src, dst, "--embed-model", "test-model"])
-
-        assert mock_migrate.call_args.kwargs["embed_model"] == "test-model"
-
-    def test_migrate_storage_cli_runtime_error_exits_1(self, tmp_path, capsys):
-        """AC-3: RuntimeError from migrator exits with code 1 and writes 'Error:' to stderr."""
-        src = str(tmp_path / "src")
-        dst = str(tmp_path / "dst")
-
-        with patch(
-            "mempalace_code.migrate.migrate_chroma_to_lance",
-            side_effect=RuntimeError("boom"),
-        ):
-            with pytest.raises(SystemExit) as exc:
-                self._run(["mempalace", "migrate-storage", src, dst])
+    @pytest.mark.parametrize(
+        "arguments",
+        [
+            [],
+            ["source-only"],
+            ["source", "destination"],
+            [
+                "source",
+                "destination",
+                "--backup-dir",
+                "backups",
+                "--force",
+                "--embed-model",
+                "old-model",
+                "--verify",
+            ],
+        ],
+    )
+    def test_every_accepted_legacy_shape_returns_exact_tombstone(self, arguments, capsys):
+        with pytest.raises(SystemExit) as exc:
+            self._run(["mempalace", "migrate-storage", *arguments])
 
         assert exc.value.code == 1
         captured = capsys.readouterr()
-        assert "Error: boom" in captured.err
+        assert captured.out == ""
+        assert captured.err == f"Error: {CHROMA_RUNTIME_RETIRED_MESSAGE}\n"
+
+    def test_legacy_paths_are_never_created_or_inspected(self, tmp_path, capsys):
+        source = tmp_path / "missing-source"
+        destination = tmp_path / "missing-destination"
+        before = sorted(tmp_path.rglob("*"))
+
+        for _ in range(2):
+            with pytest.raises(SystemExit) as exc:
+                self._run(
+                    ["mempalace", "migrate-storage", str(source), str(destination), "--force"]
+                )
+            assert exc.value.code == 1
+            assert capsys.readouterr().err == f"Error: {CHROMA_RUNTIME_RETIRED_MESSAGE}\n"
+
+        assert sorted(tmp_path.rglob("*")) == before
 
 
 class TestVersionCheckCLIHook:
@@ -2729,7 +2983,11 @@ class TestVersionCheckCLIHook:
             metadatas=[{"wing": "test", "room": "general"}],
         )
 
-        self._run(["mempalace", "--palace", palace, "health", "--json"])
+        with patch(
+            "mempalace_code.version_check.fetch_latest_version",
+            side_effect=AssertionError("default CLI path must not fetch version metadata"),
+        ):
+            self._run(["mempalace", "--palace", palace, "health", "--json"])
 
         captured = capsys.readouterr()
         data = json.loads(captured.out)
@@ -2805,6 +3063,32 @@ class TestVersionCheckCLIHook:
             assert "version_check_enabled" not in cfg, (
                 "config.json must not be written by --enable/--disable"
             )
+
+    @pytest.mark.parametrize("env_value", ["0", "invalid\n" + "x" * 10_000])
+    def test_check_now_honors_environment_kill_switch(
+        self, env_value, tmp_path, capsys, monkeypatch
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("MEMPALACE_VERSION_CHECK", env_value)
+        fetch_calls = []
+
+        with patch(
+            "mempalace_code.cli_commands.version_check.fetch_latest_version",
+            side_effect=lambda: fetch_calls.append(True) or "99.0.0",
+        ):
+            with pytest.raises(SystemExit) as exc:
+                self._run(["mempalace", "version-check", "--check-now"])
+
+        captured = capsys.readouterr()
+        assert exc.value.code == 2
+        assert fetch_calls == []
+        assert captured.out == ""
+        assert captured.err == (
+            "mempalace-code: version check blocked by MEMPALACE_VERSION_CHECK. "
+            "Run 'unset MEMPALACE_VERSION_CHECK' (or set it to 1) before retrying.\n"
+        )
+        assert env_value not in captured.out + captured.err
+        assert "Traceback" not in captured.out + captured.err
 
     def test_no_prompt_on_non_tty_in_cli(self, tmp_path, capsys, monkeypatch):
         """Non-TTY CLI invocations must not call run_first_run_prompt.
@@ -2981,6 +3265,46 @@ def test_status_summary_help_and_agent_docs(capsys):
 # ─── CLI read command tests ───────────────────────────────────────────────────
 
 
+class TestSearchCommandBlankQuery:
+    @pytest.mark.parametrize("query", ["", " \t\n"])
+    def test_rejects_blank_query_before_lazy_search_import(self, tmp_path, capsys, query):
+        palace = tmp_path / "absent-palace"
+
+        with patch.dict(sys.modules, {"mempalace_code.searcher": None}):
+            with patch.object(
+                sys,
+                "argv",
+                ["mempalace-code", "--palace", str(palace), "search", query],
+            ):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+
+        captured = capsys.readouterr()
+        assert exc_info.value.code == 2
+        assert captured.out == ""
+        assert captured.err == (
+            "Error: query must not be blank.\nTry: mempalace-code search 'your search query'\n"
+        )
+        assert "Traceback" not in captured.err
+        assert not palace.exists()
+
+    def test_valid_query_preserves_surrounding_whitespace(self, tmp_path, capsys):
+        query = "  configure settings \t"
+
+        with patch("mempalace_code.searcher.search") as mock_search:
+            with patch.object(
+                sys,
+                "argv",
+                ["mempalace-code", "--palace", str(tmp_path / "palace"), "search", query],
+            ):
+                main()
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+        assert mock_search.call_args.kwargs["query"] == query
+
+
 class TestSearchCommandTaxonomyValidation:
     """search_command: explicit --wing/--room filters are validated against the taxonomy."""
 
@@ -3074,6 +3398,152 @@ class TestSearchCommandTaxonomyValidation:
         captured = capsys.readouterr()
         assert "No results found" in captured.out
         assert captured.err == ""
+
+
+class TestWakeupCommandTaxonomyValidation:
+    """wake-up validates explicit wings before constructing the memory stack."""
+
+    @staticmethod
+    def _seed(palace_path):
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["wu_project", "wu_archive"],
+            documents=["current project wake-up memory", "archived wake-up memory"],
+            metadatas=[
+                {"wing": "proj", "room": "current", "source_file": "project.md"},
+                {"wing": "archive", "room": "history", "source_file": "archive.md"},
+            ],
+        )
+
+    @staticmethod
+    def _isolated_config(tmp_path, monkeypatch):
+        home = tmp_path / "home"
+        config_path = home / ".mempalace" / "config.json"
+        config_path.parent.mkdir(parents=True)
+        config_path.write_bytes(b'{"palace_path": "/must-not-be-used"}\n')
+        monkeypatch.setenv("HOME", str(home))
+        return config_path.parent
+
+    @staticmethod
+    def _guard_embedder(monkeypatch):
+        def fail_embedder(_store):
+            raise AssertionError("wake-up taxonomy validation must not initialize the embedder")
+
+        monkeypatch.setattr(LanceStore, "_get_embedder", fail_embedder)
+
+    @pytest.mark.parametrize(
+        ("wing", "suggestion_line"),
+        [("does-not-exist", None), ("pro-j", "  Did you mean: proj?\n")],
+    )
+    def test_unknown_wing_exits_2_without_startup_or_state_change(
+        self, tmp_path, capsys, monkeypatch, wing, suggestion_line
+    ):
+        palace = tmp_path / "palace"
+        self._seed(str(palace))
+        config_root = self._isolated_config(tmp_path, monkeypatch)
+        self._guard_embedder(monkeypatch)
+        baseline = _snapshot_paths(palace, config_root)
+
+        with (
+            patch("mempalace_code.layers.MemoryStack") as memory_stack,
+            patch.object(
+                sys,
+                "argv",
+                ["mempalace-code", "--palace", str(palace), "wake-up", "--wing", wing],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        expected = f"\n  Unknown wing: {wing!r}\n"
+        if suggestion_line:
+            expected += suggestion_line
+        expected += (
+            "  Next: run mempalace-code status, or check mempalace_list_wings / "
+            "mempalace_list_rooms / mempalace_get_taxonomy for valid taxonomy identifiers "
+            "— filters are validated against the palace taxonomy and suggestions are "
+            "advisory only.\n"
+        )
+        assert exc_info.value.code == 2
+        assert captured.out == ""
+        assert captured.err == expected
+        assert wing in captured.err
+        assert "Traceback" not in captured.err
+        memory_stack.assert_not_called()
+        assert _snapshot_paths(palace, config_root) == baseline
+
+    def test_valid_populated_wing_keeps_filtered_wakeup_behavior(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        palace = tmp_path / "palace"
+        self._seed(str(palace))
+        config_root = self._isolated_config(tmp_path, monkeypatch)
+        self._guard_embedder(monkeypatch)
+        baseline = _snapshot_paths(palace, config_root)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", str(palace), "wake-up", "--wing", "proj"],
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        assert "L1 — ESSENTIAL STORY" in captured.out
+        assert "current project wake-up memory" in captured.out
+        assert "archived wake-up memory" not in captured.out
+        assert captured.err == ""
+        assert _snapshot_paths(palace, config_root) == baseline
+
+    def test_valid_taxonomy_wing_with_no_l1_match_stays_successful(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        palace = tmp_path / "palace"
+        self._seed(str(palace))
+        config_root = self._isolated_config(tmp_path, monkeypatch)
+        self._guard_embedder(monkeypatch)
+        baseline = _snapshot_paths(palace, config_root)
+
+        with (
+            patch.object(
+                LanceStore,
+                "get",
+                return_value={"ids": [], "documents": [], "metadatas": []},
+            ),
+            patch.object(
+                sys,
+                "argv",
+                ["mempalace-code", "--palace", str(palace), "wake-up", "--wing", "proj"],
+            ),
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        assert "L1 — No memories yet." in captured.out
+        assert captured.err == ""
+        assert _snapshot_paths(palace, config_root) == baseline
+
+    def test_genuinely_empty_palace_keeps_existing_wakeup_behavior(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        palace = tmp_path / "palace"
+        open_store(str(palace), create=True)
+        config_root = self._isolated_config(tmp_path, monkeypatch)
+        self._guard_embedder(monkeypatch)
+        baseline = _snapshot_paths(palace, config_root)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", str(palace), "wake-up", "--wing", "unmined"],
+        ):
+            main()
+
+        captured = capsys.readouterr()
+        assert "L1 — No memories yet." in captured.out
+        assert captured.err == ""
+        assert _snapshot_paths(palace, config_root) == baseline
 
 
 class TestReadCommand:
@@ -3439,7 +3909,7 @@ class TestReadCommandSourcePathDiscovery:
 # ─── export --out - stdout cleanliness tests ─────────────────────────────────
 
 
-class TestExportStdoutClean:
+class TestJsonlStdoutContract:
     """AC-1..AC-4: export --out - emits only JSONL on stdout; progress goes to stderr."""
 
     def _seed_manual_drawer(self, palace_path: str):
@@ -3457,6 +3927,43 @@ class TestExportStdoutClean:
                 }
             ],
         )
+
+    def test_export_help_omits_removed_pretty_option(self, capsys):
+        with patch.object(sys, "argv", ["mempalace-code", "export", "--help"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert " export [-h]" in captured.out
+        assert "--out FILE" in captured.out
+        assert "--pretty" not in captured.out
+
+    @pytest.mark.parametrize("existing_output", [False, True])
+    def test_removed_pretty_option_exits_before_touching_output(
+        self, tmp_path, capsys, existing_output
+    ):
+        out_file = tmp_path / "export.jsonl"
+        sentinel = b"existing export sentinel\n"
+        if existing_output:
+            out_file.write_bytes(sentinel)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "export", "--out", str(out_file), "--pretty"],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+
+        assert exc.value.code == 2
+        if existing_output:
+            assert out_file.read_bytes() == sentinel
+        else:
+            assert not out_file.exists()
+        captured = capsys.readouterr()
+        assert "export" in captured.err
+        assert "unrecognized arguments: --pretty" in captured.err
 
     def test_export_stdout_contains_only_jsonl(self, tmp_path, capsys):
         """AC-1: stdout begins with valid JSONL export_header; no human progress lines appear."""
@@ -3612,6 +4119,359 @@ class TestExportStdoutClean:
         assert "correct --palace path" in captured.err
         assert "health" in captured.err
         assert "repair --rollback --dry-run" in captured.err
+
+
+# ─── Compress token accounting ───────────────────────────────────────────────
+
+
+class TestCompressTokenAccounting:
+    class _Store:
+        def __init__(self, documents):
+            self.documents = documents
+            self.metadatas = [
+                {"wing": "wing", "room": "room", "source_file": f"doc-{index}.md"}
+                for index, _document in enumerate(self.documents)
+            ]
+            self.ids = [f"drawer-{index}" for index, _document in enumerate(self.documents)]
+            self.upserts = []
+
+        def get(self, ids=None, limit=10000, offset=0, **kwargs):
+            selected = range(len(self.ids))
+            if ids is not None:
+                selected = [self.ids.index(doc_id) for doc_id in ids if doc_id in self.ids]
+            else:
+                selected = list(selected)[offset : offset + limit]
+            return {
+                "documents": [self.documents[index] for index in selected],
+                "metadatas": [self.metadatas[index] for index in selected],
+                "ids": [self.ids[index] for index in selected],
+            }
+
+        def upsert(self, **kwargs):
+            self.upserts.append(kwargs)
+            index = self.ids.index(kwargs["ids"][0])
+            self.documents[index] = kwargs["documents"][0]
+            self.metadatas[index] = kwargs["metadatas"][0]
+
+    def _run_compress(self, capsys, documents, stats_by_document, *, dry_run):
+        from mempalace_code.dialect import Dialect
+
+        store = self._Store(documents)
+
+        def fake_compress(_dialect, document, metadata=None):
+            return f"summary:{document}"
+
+        def fake_stats(_dialect, original, summary):
+            return stats_by_document[original]
+
+        argv = ["mempalace", "--palace", "/unused-palace", "compress"]
+        if dry_run:
+            argv.append("--dry-run")
+        with (
+            patch("mempalace_code.storage.open_store", return_value=store),
+            patch(
+                "mempalace_code.backup.create_backup",
+                return_value=({}, "/tmp/mempalace-compress-test.tar.gz"),
+            ),
+            patch.object(Dialect, "compress", autospec=True, side_effect=fake_compress),
+            patch.object(Dialect, "compression_stats", autospec=True, side_effect=fake_stats),
+            patch.object(sys, "argv", argv),
+        ):
+            main()
+
+        return capsys.readouterr().out, store
+
+    def test_two_drawer_totals_match_rows_in_dry_run_and_live_modes(self, capsys):
+        stats = {
+            "alpha": {
+                "original_chars": 124,
+                "summary_chars": 44,
+                "original_tokens_est": 31,
+                "summary_tokens_est": 11,
+                "size_ratio": 2.8,
+            },
+            "beta": {
+                "original_chars": 132,
+                "summary_chars": 24,
+                "original_tokens_est": 33,
+                "summary_tokens_est": 6,
+                "size_ratio": 5.5,
+            },
+        }
+
+        dry_output, dry_store = self._run_compress(capsys, ["alpha", "beta"], stats, dry_run=True)
+        live_output, live_store = self._run_compress(
+            capsys, ["alpha", "beta"], stats, dry_run=False
+        )
+
+        assert "    31t -> 11t (2.8x)" in dry_output
+        assert "    33t -> 6t (5.5x)" in dry_output
+        assert "Total: 64t -> 17t (3.8x compression)" in dry_output
+        assert "Total: 64t -> 17t (3.8x compression)" in live_output
+        assert dry_store.upserts == []
+        assert len(live_store.upserts) == 2
+        assert [call["metadatas"][0]["original_tokens"] for call in live_store.upserts] == [
+            31,
+            33,
+        ]
+
+    def test_no_drawers_keeps_existing_guidance(self, capsys):
+        output, store = self._run_compress(capsys, [], {}, dry_run=True)
+
+        assert "No drawers found" in output
+        assert "Next: check --wing/--room filters" in output
+        assert "Total:" not in output
+        assert store.upserts == []
+
+    def test_zero_token_drawer_has_finite_zero_total(self, capsys):
+        stats = {
+            "": {
+                "original_chars": 0,
+                "summary_chars": 0,
+                "original_tokens_est": 0,
+                "summary_tokens_est": 0,
+                "size_ratio": 0.0,
+            }
+        }
+
+        output, store = self._run_compress(capsys, [""], stats, dry_run=True)
+
+        assert "    0t -> 0t (0.0x)" in output
+        assert "Total: 0t -> 0t (0.0x compression)" in output
+        assert store.upserts == []
+
+
+class TestCompressRetryIdempotentRecovery:
+    class _Store:
+        def __init__(self, rows, *, trace=None):
+            self.rows = {row[0]: [row[1], dict(row[2])] for row in rows}
+            self.order = [row[0] for row in rows]
+            self.trace = trace if trace is not None else []
+            self.upserts = []
+            self.fail_on: str | None = None
+            self.mismatch_readback = False
+
+        def get(self, ids=None, where=None, limit=10000, offset=0, **kwargs):
+            if ids is None:
+                selected = [
+                    doc_id
+                    for doc_id in self.order
+                    if where is None or self.rows[doc_id][1].get("wing") == where.get("wing")
+                ][offset : offset + limit]
+            else:
+                self.trace.append("verify")
+                selected = [doc_id for doc_id in ids if doc_id in self.rows]
+            documents = [self.rows[doc_id][0] for doc_id in selected]
+            metadatas = [dict(self.rows[doc_id][1]) for doc_id in selected]
+            if ids is not None and self.mismatch_readback and documents:
+                documents[0] = "divergent stored value"
+            return {"ids": selected, "documents": documents, "metadatas": metadatas}
+
+        def upsert(self, **kwargs):
+            doc_id = kwargs["ids"][0]
+            self.trace.append(f"upsert:{doc_id}")
+            if doc_id == self.fail_on:
+                raise RuntimeError("injected upsert failure")
+            self.upserts.append(kwargs)
+            self.rows[doc_id] = [kwargs["documents"][0], dict(kwargs["metadatas"][0])]
+
+    @staticmethod
+    def _stats(document):
+        return {
+            "original_chars": len(document),
+            "summary_chars": len(f"summary:{document}"),
+            "original_tokens_est": max(1, len(document) // 4),
+            "summary_tokens_est": max(1, len(f"summary:{document}") // 4),
+            "size_ratio": 2.0,
+        }
+
+    def _run(self, capsys, store, *, dry_run=False, wing=None, backup_effect=None):
+        from mempalace_code.dialect import Dialect
+
+        compressed_inputs = []
+
+        def fake_compress(_dialect, document, metadata=None):
+            compressed_inputs.append(document)
+            return f"summary:{document}"
+
+        def fake_stats(_dialect, original, summary):
+            return self._stats(original)
+
+        def default_backup(*args, **kwargs):
+            store.trace.append("backup")
+            return {}, "/tmp/recovery archive.tar.gz"
+
+        argv = ["mempalace", "--palace", "/tmp/palace root", "compress"]
+        if wing:
+            argv.extend(["--wing", wing])
+        if dry_run:
+            argv.append("--dry-run")
+        with (
+            patch("mempalace_code.storage.open_store", return_value=store),
+            patch("mempalace_code.taxonomy_filters.validate_taxonomy_filters", return_value=None),
+            patch(
+                "mempalace_code.backup.create_backup",
+                side_effect=backup_effect or default_backup,
+            ) as backup,
+            patch.object(Dialect, "compress", autospec=True, side_effect=fake_compress),
+            patch.object(Dialect, "compression_stats", autospec=True, side_effect=fake_stats),
+            patch.object(sys, "argv", argv),
+        ):
+            main()
+        return capsys.readouterr(), compressed_inputs, backup
+
+    @staticmethod
+    def _row(doc_id, document, *, completed=False, wing="source"):
+        metadata: dict[str, object] = {
+            "wing": wing,
+            "room": "code",
+            "source_file": f"{doc_id}.py",
+        }
+        if completed:
+            metadata.update({"compression_ratio": 2.0, "original_tokens": 10})
+        return doc_id, document, metadata
+
+    def test_identical_retry_is_byte_stable_and_creates_no_second_backup(self, capsys):
+        store = self._Store([self._row("one", "ordinary source text")])
+
+        first, first_inputs, first_backup = self._run(capsys, store, wing="source")
+        stored_after_first = store.rows["one"][0]
+        second, second_inputs, second_backup = self._run(capsys, store, wing="source")
+
+        assert first_inputs == ["ordinary source text"]
+        assert first_backup.call_count == 1
+        assert "Stored and verified 1 compressed drawers" in first.out
+        assert second_inputs == []
+        assert second_backup.call_count == 0
+        assert store.rows["one"][0] == stored_after_first
+        assert "Pending: 0; skipped already compressed: 1" in second.out
+
+    def test_mixed_dry_run_previews_only_pending_without_writes(self, capsys):
+        store = self._Store(
+            [
+                self._row("done", "summary:stable", completed=True),
+                self._row("todo", "ordinary pending text"),
+            ]
+        )
+        before = {doc_id: (row[0], dict(row[1])) for doc_id, row in store.rows.items()}
+
+        captured, compressed_inputs, backup = self._run(capsys, store, dry_run=True, wing="source")
+
+        assert compressed_inputs == ["ordinary pending text"]
+        assert backup.call_count == 0
+        assert store.upserts == []
+        assert store.rows == {doc_id: [row[0], row[1]] for doc_id, row in before.items()}
+        assert "Pending: 1; skipped already compressed: 1" in captured.out
+        assert "summary:ordinary pending text" in captured.out
+        assert "summary:stable" not in captured.out
+        assert "dry run -- nothing stored" in captured.out
+
+    def test_backup_precedes_upsert_and_output_exposes_shell_safe_restore(self, capsys):
+        trace = []
+        store = self._Store([self._row("one", "ordinary source text")], trace=trace)
+
+        captured, _inputs, _backup = self._run(capsys, store, wing="source")
+
+        assert trace == ["backup", "upsert:one", "verify"]
+        assert "Recovery archive: /tmp/recovery archive.tar.gz" in captured.out
+        assert (
+            "Recovery command: mempalace-code --palace '/tmp/palace root' restore "
+            "'/tmp/recovery archive.tar.gz' --force"
+        ) in captured.out
+
+    def test_backup_failure_exits_before_upsert(self, capsys):
+        store = self._Store([self._row("one", "ordinary source text")])
+
+        with pytest.raises(SystemExit) as exc:
+            self._run(
+                capsys,
+                store,
+                wing="source",
+                backup_effect=RuntimeError("backup unavailable"),
+            )
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert "Error creating pre-compression backup" in captured.err
+        assert store.upserts == []
+
+    def test_partial_reordered_retry_processes_only_remaining_drawer(self, capsys):
+        store = self._Store(
+            [self._row("first", "first original"), self._row("second", "second original")]
+        )
+        store.fail_on = "second"
+
+        with pytest.raises(SystemExit) as exc:
+            self._run(capsys, store, wing="source")
+        assert exc.value.code == 1
+        capsys.readouterr()
+        first_completed_bytes = store.rows["first"][0]
+        store.fail_on = None
+        store.order.reverse()
+
+        captured, compressed_inputs, backup = self._run(capsys, store, wing="source")
+
+        assert compressed_inputs == ["second original"]
+        assert backup.call_count == 1
+        assert store.rows["first"][0] == first_completed_bytes
+        assert "Pending: 1; skipped already compressed: 1" in captured.out
+
+    def test_readback_mismatch_fails_with_recovery_command(self, capsys):
+        store = self._Store([self._row("one", "ordinary source text")])
+        store.mismatch_readback = True
+
+        with pytest.raises(SystemExit) as exc:
+            self._run(capsys, store, wing="source")
+
+        assert exc.value.code == 1
+        captured = capsys.readouterr()
+        assert "Error verifying stored compressed drawers" in captured.err
+        assert "Recover with: mempalace-code" in captured.err
+
+    def test_unknown_wing_fails_before_store_or_backup_and_empty_scope_is_noop(self, capsys):
+        payload = {
+            "error": "unknown_wing",
+            "filter": "wing",
+            "value": "definitely-missing",
+            "suggestions": [],
+        }
+        with (
+            patch(
+                "mempalace_code.taxonomy_filters.validate_taxonomy_filters",
+                return_value=payload,
+            ),
+            patch("mempalace_code.storage.open_store") as open_store_mock,
+            patch("mempalace_code.backup.create_backup") as backup,
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "mempalace",
+                    "--palace",
+                    "/tmp/palace",
+                    "compress",
+                    "--wing",
+                    "definitely-missing",
+                ],
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc:
+                main()
+
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert "Unknown wing: 'definitely-missing'" in captured.err
+        assert "mempalace-code status" in captured.err
+        open_store_mock.assert_not_called()
+        backup.assert_not_called()
+
+        empty_store = self._Store([])
+        captured, compressed_inputs, backup = self._run(
+            capsys, empty_store, dry_run=True, wing="valid-empty"
+        )
+        assert compressed_inputs == []
+        assert backup.call_count == 0
+        assert "No drawers found in wing 'valid-empty'" in captured.out
 
 
 # ─── No-embedder regression: read-only non-search CLI paths ──────────────────
@@ -4044,24 +4904,6 @@ class TestImportDryRunReadOnly:
         )
 
     @staticmethod
-    def _snapshot(*roots):
-        entries = []
-        for index, root in enumerate(map(Path, roots)):
-            if not root.exists():
-                entries.append((index, ".", "missing", b""))
-                continue
-            entries.append((index, ".", "dir" if root.is_dir() else "file", b""))
-            for entry in sorted(root.rglob("*")):
-                relative = entry.relative_to(root).as_posix()
-                if entry.is_symlink():
-                    entries.append((index, relative, "symlink", os.readlink(entry).encode()))
-                elif entry.is_dir():
-                    entries.append((index, relative, "dir", b""))
-                else:
-                    entries.append((index, relative, "file", entry.read_bytes()))
-        return tuple(entries)
-
-    @staticmethod
     def _records(drawer_id="drawer-1", text="unique import preview text"):
         return [
             {"type": "export_header"},
@@ -4083,8 +4925,9 @@ class TestImportDryRunReadOnly:
     def test_absent_state_repeated_preview_and_skip_kg_create_nothing(
         self, tmp_path, capsys, monkeypatch
     ):
-        kg_path, process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
+        global_kg_path, process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
         palace = tmp_path / "absent-palace"
+        local_kg_path = palace / "knowledge_graph.sqlite3"
         jsonl = tmp_path / "import.jsonl"
         self._write_records(jsonl, self._records())
 
@@ -4092,7 +4935,7 @@ class TestImportDryRunReadOnly:
             raise AssertionError("absent-state dry-run must not initialize the embedder")
 
         monkeypatch.setattr(LanceStore, "_get_embedder", fail_embedder)
-        baseline = self._snapshot(tmp_path, process_tmp)
+        baseline = _snapshot_paths(tmp_path, process_tmp)
 
         for _ in range(2):
             with patch.object(
@@ -4106,7 +4949,7 @@ class TestImportDryRunReadOnly:
             assert "Imported drawers:   1" in out
             assert "Skipped duplicates: 0" in out
             assert "Imported KG triples:1" in out
-            assert self._snapshot(tmp_path, process_tmp) == baseline
+            assert _snapshot_paths(tmp_path, process_tmp) == baseline
 
         with patch.object(
             sys,
@@ -4127,9 +4970,10 @@ class TestImportDryRunReadOnly:
         assert "Imported drawers:   1" in out
         assert "Skipped duplicates: 0" in out
         assert "Imported KG triples:0" in out
-        assert self._snapshot(tmp_path, process_tmp) == baseline
+        assert _snapshot_paths(tmp_path, process_tmp) == baseline
         assert not palace.exists()
-        assert not kg_path.exists()
+        assert not local_kg_path.exists()
+        assert not global_kg_path.exists()
 
     @pytest.mark.parametrize("source", ["file", "stdin"])
     def test_malformed_input_exits_before_store_or_kg_initialization(
@@ -4141,7 +4985,7 @@ class TestImportDryRunReadOnly:
         palace = tmp_path / "absent-palace"
         jsonl = tmp_path / "malformed.jsonl"
         jsonl.write_text('{"type": "drawer"\n', encoding="utf-8")
-        baseline = self._snapshot(tmp_path)
+        baseline = _snapshot_paths(tmp_path)
         input_arg = str(jsonl)
         if source == "stdin":
             input_arg = "-"
@@ -4165,13 +5009,14 @@ class TestImportDryRunReadOnly:
         store_open.assert_not_called()
         kg_open.assert_not_called()
         lazy_kg_open.assert_not_called()
-        assert self._snapshot(tmp_path) == baseline
+        assert _snapshot_paths(tmp_path) == baseline
 
     def test_existing_state_preview_keeps_counts_health_and_bytes_stable(
         self, tmp_path, capsys, monkeypatch
     ):
-        kg_path, _process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
+        global_kg_path, _process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
         palace = tmp_path / "palace"
+        local_kg_path = palace / "knowledge_graph.sqlite3"
         duplicate_text = "existing drawer text for deterministic duplicate detection"
         store = open_store(str(palace), create=True)
         assert isinstance(store, LanceStore)
@@ -4183,7 +5028,7 @@ class TestImportDryRunReadOnly:
 
         from mempalace_code.knowledge_graph import KnowledgeGraph
 
-        kg = KnowledgeGraph()
+        kg = KnowledgeGraph(db_path=str(local_kg_path))
         kg.add_triple("Existing Subject", "relates_to", "Existing Object")
 
         jsonl = tmp_path / "import.jsonl"
@@ -4203,7 +5048,7 @@ class TestImportDryRunReadOnly:
         kg_stats_before = kg.stats()
         # Lance may retain empty process-scoped scratch directories until process
         # exit. The user-facing dry-run contract covers persistent palace and KG state.
-        baseline = self._snapshot(palace, kg_path)
+        baseline = _snapshot_paths(palace, local_kg_path, global_kg_path)
 
         for _ in range(2):
             with patch.object(
@@ -4217,16 +5062,18 @@ class TestImportDryRunReadOnly:
             assert "Imported drawers:   1" in out
             assert "Skipped duplicates: 1" in out
             assert "Imported KG triples:1" in out
-            assert self._snapshot(palace, kg_path) == baseline
+            assert _snapshot_paths(palace, local_kg_path, global_kg_path) == baseline
             assert store.health_check() == health_before
             assert kg.stats() == kg_stats_before
-            assert kg_path.is_file()
+            assert local_kg_path.is_file()
+            assert not global_kg_path.exists()
 
     def test_live_import_still_creates_and_writes_palace_and_kg(
         self, tmp_path, capsys, monkeypatch
     ):
-        kg_path, _process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
+        global_kg_path, _process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
         palace = tmp_path / "live-palace"
+        local_kg_path = palace / "knowledge_graph.sqlite3"
         jsonl = tmp_path / "live-import.jsonl"
         text = "live import drawer content"
         self._write_records(jsonl, self._records("live-drawer", text))
@@ -4243,7 +5090,8 @@ class TestImportDryRunReadOnly:
         assert "Skipped duplicates: 0" in out
         assert "Imported KG triples:1" in out
         assert palace.is_dir()
-        assert kg_path.is_file()
+        assert local_kg_path.is_file()
+        assert not global_kg_path.exists()
 
         stored = open_store(str(palace), create=False, read_only=True).get(
             ids=["live-drawer"], include=["documents"]
@@ -4253,7 +5101,100 @@ class TestImportDryRunReadOnly:
 
         from mempalace_code.knowledge_graph import KnowledgeGraph
 
+        assert KnowledgeGraph(db_path=str(local_kg_path)).stats()["triples"] == 1
+
+    def test_omitted_palace_keeps_home_global_kg_default(self, tmp_path, capsys, monkeypatch):
+        global_kg_path, _process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
+        default_palace = tmp_path / "default-palace"
+        local_kg_path = default_palace / "knowledge_graph.sqlite3"
+        jsonl = tmp_path / "global-import.jsonl"
+        self._write_records(jsonl, self._records("global-drawer", "global import content"))
+
+        with (
+            patch("mempalace_code.cli_commands.export_import.MempalaceConfig") as config,
+            patch.object(sys, "argv", ["mempalace-code", "import", str(jsonl)]),
+        ):
+            config.return_value.palace_path = str(default_palace)
+            main()
+
+        assert "Imported KG triples:1" in capsys.readouterr().out
+        assert global_kg_path.is_file()
+        assert not local_kg_path.exists()
+
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
         assert KnowledgeGraph().stats()["triples"] == 1
+
+    def test_explicit_two_palaces_isolate_file_stdin_and_skip_kg(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        import io
+
+        global_kg_path, _process_tmp = self._configure_isolated_state(tmp_path, monkeypatch)
+        palace_file = tmp_path / "palace-file"
+        palace_stdin = tmp_path / "palace-stdin"
+        palace_skip = tmp_path / "palace-skip"
+        file_kg_path = palace_file / "knowledge_graph.sqlite3"
+        stdin_kg_path = palace_stdin / "knowledge_graph.sqlite3"
+        skip_kg_path = palace_skip / "knowledge_graph.sqlite3"
+        jsonl = tmp_path / "file-import.jsonl"
+        file_records = self._records("file-drawer", "file import content")
+        file_records[-1]["subject"] = "File Subject"
+        stdin_records = self._records("stdin-drawer", "stdin import content")
+        stdin_records[-1]["subject"] = "Stdin Subject"
+        self._write_records(jsonl, file_records)
+
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", str(palace_file), "import", str(jsonl)],
+        ):
+            main()
+        capsys.readouterr()
+
+        stdin_payload = "".join(
+            f"{json.dumps(record, sort_keys=True)}\n" for record in stdin_records
+        )
+        monkeypatch.setattr(sys, "stdin", io.StringIO(stdin_payload))
+        with patch.object(
+            sys,
+            "argv",
+            ["mempalace-code", "--palace", str(palace_stdin), "import", "-"],
+        ):
+            main()
+        capsys.readouterr()
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "mempalace-code",
+                "--palace",
+                str(palace_skip),
+                "import",
+                str(jsonl),
+                "--skip-kg",
+            ],
+        ):
+            main()
+        assert "Imported KG triples:0" in capsys.readouterr().out
+
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        file_subjects = {
+            triple["subject"]
+            for batch in KnowledgeGraph(db_path=str(file_kg_path)).iter_all_triples()
+            for triple in batch
+        }
+        stdin_subjects = {
+            triple["subject"]
+            for batch in KnowledgeGraph(db_path=str(stdin_kg_path)).iter_all_triples()
+            for triple in batch
+        }
+        assert file_subjects == {"File Subject"}
+        assert stdin_subjects == {"Stdin Subject"}
+        assert not skip_kg_path.exists()
+        assert not global_kg_path.exists()
 
 
 class TestImportMissingFile:
