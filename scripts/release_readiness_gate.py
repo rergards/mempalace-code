@@ -60,6 +60,17 @@ INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY = (
 INSTALLED_GOLDEN_ONNX_CPU_WARNING = (
     "onnxruntime cpuid_info warning: Unknown CPU vendor. cpuinfo_vendor value: 0"
 )
+INSTALLED_GOLDEN_ONNX_PCI_WARNING = re.compile(
+    r"\x1b\[0;93m"
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{9} "
+    r"\[W:onnxruntime:Default, device_discovery\.cc:146 GetPciBusId\] "
+    r'Skipping pci_bus_id for PCI path at "'
+    r"/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/MSFT1000:00/"
+    r'(?P<pci_filename>[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})" '
+    r'because filename "(?P=pci_filename)" did not match expected pattern of '
+    r"\[0-9a-f\]\+:\[0-9a-f\]\+:\[0-9a-f\]\+\[\.\]\[0-9a-f\]\+"
+    r"\x1b\[m\n"
+)
 INSTALLED_CLI_INVENTORY_PROBE_NAME = "installed-cli-inventory-probe.py"
 INSTALLED_CLI_INVENTORY_OUTPUT_LIMIT = 64 * 1024
 INSTALLED_CLI_INVENTORY_MEMBER_LIMIT = 128
@@ -785,12 +796,15 @@ def _run_golden_subprocess(run_subprocess, command: list[str], **kwargs):
 
 
 def _classify_installed_golden_diagnostic(result, *, platform_name: str, machine: str):
-    """Consume the one proven-safe ONNX diagnostic on successful native Linux ARM."""
+    """Consume proven-safe ONNX diagnostics on successful native Linux ARM."""
     if (
         result.returncode == 0
         and platform_name == "linux"
         and machine.strip().lower() in {"aarch64", "arm64"}
-        and result.stderr == f"{INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"
+        and (
+            result.stderr == f"{INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"
+            or INSTALLED_GOLDEN_ONNX_PCI_WARNING.fullmatch(result.stderr) is not None
+        )
     ):
         result.stderr = ""
     return result

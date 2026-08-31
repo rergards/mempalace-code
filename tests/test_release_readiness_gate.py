@@ -4163,16 +4163,37 @@ def test_installed_custom_models_enospc_has_one_owned_tmpdir_retry(monkeypatch):
     assert launch_failure.count(rrg.INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY) == 1
 
 
-@pytest.mark.parametrize("machine", ["AARCH64", "arm64"], ids=("aarch64", "arm64"))
+_ONNX_PCI_FILENAME = "5620e0c7-8062-4dce-aeb7-520c7ef76171"
+_ONNX_PCI_WARNING = (
+    "\x1b[0;93m2026-08-31 13:57:08.504718570 "
+    "[W:onnxruntime:Default, device_discovery.cc:146 GetPciBusId] "
+    "Skipping pci_bus_id for PCI path at "
+    '"/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/MSFT1000:00/'
+    f'{_ONNX_PCI_FILENAME}" because filename "{_ONNX_PCI_FILENAME}" did not match '
+    "expected pattern of [0-9a-f]+:[0-9a-f]+:[0-9a-f]+[.][0-9a-f]+\x1b[m\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("machine", "warning"),
+    [
+        ("AARCH64", f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
+        ("arm64", f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
+        ("AARCH64", _ONNX_PCI_WARNING),
+        (
+            "arm64",
+            _ONNX_PCI_WARNING.replace(_ONNX_PCI_FILENAME, "7a642fc3-c8af-4f1e-985c-71d5ee0f2c90"),
+        ),
+    ],
+    ids=("cpuid-aarch64", "cpuid-arm64", "pci-aarch64", "pci-arm64"),
+)
 def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_suite(
-    tmp_path, monkeypatch, machine
+    tmp_path, monkeypatch, machine, warning
 ):
     wheel = _write_candidate_wheel(tmp_path)
     cache = _write_model_cache(tmp_path / "hf")
     calls = []
     _stub_direct_golden_scenarios(monkeypatch)
-    warning = f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"
-
     rows = rrg._run_installed_golden_wheel(
         tmp_path,
         wheel,
@@ -4199,6 +4220,27 @@ def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_sui
 @pytest.mark.parametrize(
     ("platform_name", "machine", "returncode", "stderr"),
     [
+        ("linux", "x86_64", 0, _ONNX_PCI_WARNING),
+        ("darwin", "arm64", 0, _ONNX_PCI_WARNING),
+        ("linux", "unknown", 0, _ONNX_PCI_WARNING),
+        ("linux", "arm64", 1, _ONNX_PCI_WARNING),
+        ("linux", "arm64", 0, _ONNX_PCI_WARNING.removesuffix("\n")),
+        ("linux", "arm64", 0, f" {_ONNX_PCI_WARNING}"),
+        ("linux", "arm64", 0, f"{_ONNX_PCI_WARNING} "),
+        ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace("GetPciBusId", "getpcibusid")),
+        ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace("because filename", "because filename:")),
+        ("linux", "arm64", 0, _ONNX_PCI_WARNING.removeprefix("\x1b[0;93m")),
+        ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace("\x1b[m", "\x1b[0m")),
+        ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace(_ONNX_PCI_FILENAME, "")),
+        ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace(_ONNX_PCI_FILENAME, "a" * 65)),
+        (
+            "linux",
+            "arm64",
+            0,
+            _ONNX_PCI_WARNING.replace(_ONNX_PCI_FILENAME, "5620e0c7_8062-4dce-aeb7-520c7ef76171"),
+        ),
+        ("linux", "arm64", 0, f"{_ONNX_PCI_WARNING}{_ONNX_PCI_WARNING}"),
+        ("linux", "arm64", 0, f"{_ONNX_PCI_WARNING}unexpected stderr\n"),
         ("linux", "x86_64", 0, f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
         ("darwin", "arm64", 0, f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
         ("linux", "unknown", 0, f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
@@ -4220,6 +4262,22 @@ def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_sui
         ),
     ],
     ids=(
+        "pci-linux-x64",
+        "pci-darwin-arm64",
+        "pci-linux-unknown",
+        "pci-nonzero-exit",
+        "pci-missing-terminal-newline",
+        "pci-leading-content",
+        "pci-trailing-byte",
+        "pci-case-drift",
+        "pci-punctuation-drift",
+        "pci-missing-ansi-prefix",
+        "pci-malformed-ansi-reset",
+        "pci-empty-path-filename",
+        "pci-overlong-path-filename",
+        "pci-invalid-path-character",
+        "pci-duplicate",
+        "pci-additional-stderr",
         "linux-x64",
         "darwin-arm64",
         "linux-unknown",
