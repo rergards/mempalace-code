@@ -1,6 +1,7 @@
 # Weekly maintenance for the immutable Action pins in .github/workflows/.
 # Dependabot opens PRs that bump each pinned commit SHA and rewrites the adjacent
-# version comment; actionlint and zizmor enforce the workflow invariants in CI.
+# version comment. Repository workflow admission tests enforce repository-specific
+# shape and comment predicates; actionlint and zizmor remain generic analyzers.
 version: 2
 updates:
   - package-ecosystem: github-actions

@@ -22,6 +22,8 @@ CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "publish.yml"
 UPSTREAM_DRIFT_WORKFLOW = ROOT / ".github" / "workflows" / "upstream-drift.yml"
 DOTNET_BENCH_WORKFLOW = ROOT / ".github" / "workflows" / "dotnet-bench.yml"
+WORKFLOW_DIR = ROOT / ".github" / "workflows"
+WORKFLOWS = sorted((*WORKFLOW_DIR.glob("*.yml"), *WORKFLOW_DIR.glob("*.yaml")))
 
 
 def _load_admission():
@@ -43,6 +45,20 @@ def _workflow(path: Path) -> dict:
     # PyYAML parses the bare `on:` key as the boolean True; that is fine here
     # because every trigger assertion looks the key up explicitly.
     return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _uses_nodes(node):
+    matches = []
+    if isinstance(node, yaml.MappingNode):
+        for key, value in node.value:
+            if isinstance(key, yaml.ScalarNode) and key.value == "uses":
+                matches.append(value)
+            matches.extend(_uses_nodes(key))
+            matches.extend(_uses_nodes(value))
+    elif isinstance(node, yaml.SequenceNode):
+        for value in node.value:
+            matches.extend(_uses_nodes(value))
+    return matches
 
 
 def _publish_build_job() -> dict:
@@ -591,19 +607,44 @@ def test_publish_workflow_default_permissions_stay_read_only():
     assert workflow["permissions"] == {"contents": "read"}
 
 
-def test_every_release_action_stays_pinned_to_an_immutable_commit_sha():
-    workflow = _workflow(PUBLISH_WORKFLOW)
-    uses = [
-        str(step["uses"])
-        for job in workflow["jobs"].values()
-        for step in job.get("steps", [])
-        if "uses" in step
-    ]
+def test_publish_has_exactly_the_approved_jobs():
+    assert set(_workflow(PUBLISH_WORKFLOW)["jobs"]) == {
+        "build",
+        "publish",
+        "github-release",
+    }
 
-    external = [value for value in uses if not value.startswith("./")]
-    local = [value for value in uses if value.startswith("./")]
+
+def test_every_external_workflow_action_has_an_immutable_sha_and_version_comment():
+    external = []
+    local = []
+    for workflow in WORKFLOWS:
+        source = workflow.read_text(encoding="utf-8")
+        root = yaml.compose(source)
+        assert root is not None, f"{workflow.name} is empty"
+        lines = source.splitlines()
+        for node in _uses_nodes(root):
+            line_number = node.start_mark.line + 1
+            assert isinstance(node, yaml.ScalarNode), (
+                f"{workflow.name}:{line_number}: uses must be a scalar"
+            )
+            reference = node.value
+            if reference.startswith("./"):
+                if workflow == PUBLISH_WORKFLOW:
+                    local.append(reference)
+                continue
+
+            version = None
+            if node.start_mark.line == node.end_mark.line:
+                suffix = lines[node.end_mark.line][node.end_mark.column :]
+                comment = re.fullmatch(r"\s+#(.*)", suffix)
+                if comment is not None:
+                    version = comment.group(1).strip()
+            external.append((workflow.name, line_number, reference, version))
+
     assert external
-    assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", value) for value in external), external
+    assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", item[2]) for item in external), external
+    assert all(item[3] for item in external), external
     assert local == ["./.github/actions/gitleaks-gate"]
 
 
