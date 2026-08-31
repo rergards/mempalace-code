@@ -80,7 +80,7 @@ items:
   - key: CLI-SEARCH-BOUNDED-AGENT-FALLBACK
     summary: "Bound CLI search output for agent fallback"
     type: bug
-    status: open
+    status: done
     priority: high
     size: S
     section_id: quality
@@ -90,6 +90,8 @@ items:
     links:
       - type: deploy-blocked-by
         key: CLI-SEARCH-BOUNDED-AGENT-FALLBACK-GLOBAL-SKILL
+    resolution: "2026-09-01: Delivered explicit bounded CLI search and exact recovery while preserving default full-text and MCP contracts; commit 09d93d13, 4,379 non-network tests, both Pyright contours, Ruff, Gitleaks changed-range/full-history, public safety, and all 26 exact-wheel installed rows passed."
+    done_summary: "Delivered explicit bounded CLI search and exact recovery while preserving default full-text and MCP contracts; commit 09d93d13, 4,379 non-network tests, both Pyright contours, Ruff, Gitleaks changed-range/full-history, public safety, and all 26 exact-wheel installed rows passed."
   - key: CLI-SEARCH-BOUNDED-AGENT-FALLBACK-GLOBAL-SKILL
     summary: "After exact-wheel proof, update the owner-managed installed global MemPalace fallback to search directly with --compact --results 3, keep status --summary diagnostic-only, and remove the ten-result full search."
     type: task
