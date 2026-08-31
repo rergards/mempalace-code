@@ -1,4 +1,9 @@
 items:
+    - key: REL-DIRECT-APPLICATION-COMPLETE-GATE
+      summary: Restore exact publish workflow security predicates
+      resolution: '2026-08-31: Extended the existing workflow admission test owner with exact publish job-set coverage, fail-closed PyYAML traversal of all yml/yaml uses nodes, full 40-hex SHA and same-line comment predicates, and preserved the exact publish local-action contract; corrected the Dependabot ownership comment without restoring the deleted standalone gate. Focused tests passed 94 checks, Ruff and format passed, Actionlint and Zizmor passed, four disposable mutation falsifiers failed as required, public-safety scans passed, changed-range and full-history Gitleaks passed, and independent Rule Zero plus Fable reviews passed. Landed in 195eb393.'
+      archived_date: "2026-08-31"
+      done_summary: Extended the existing workflow admission test owner with exact publish job-set coverage, fail-closed PyYAML traversal of all yml/yaml uses nodes, full 40-hex SHA and same-line comment predicates, and preserved the exact publish local-action contract; corrected the Dependabot ownership comment without restoring the deleted standalone gate. Focused tests passed 94 checks, Ruff and format passed, Actionlint and Zizmor passed, four disposable mutation falsifiers failed as required, public-safety scans passed, changed-range and full-history Gitleaks passed, and independent Rule Zero plus Fable reviews passed. Landed in 195eb393.
     - key: REL-TAG-RULESET-CREATABLE-RELEASE-PATH
       summary: Reject a public v* tag ruleset that leaves no authorized creation path
       resolution: '2026-08-30: Credential-free tag admission now aggregates creation/update/deletion without inferring omitted bypass actors; owner-authorized read-only verification confirmed the configured release actor, and focused/full/static/live preflight checks passed.'
