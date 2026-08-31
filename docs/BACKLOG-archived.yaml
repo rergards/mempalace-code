@@ -1271,11 +1271,6 @@ items:
       resolution: '2026-08-15: Implemented by 6998c1ca and 35d33059; independent review passed after required fixes; actionlint, Zizmor medium, workflow gate, public safety, dependency report, and full offline suite (3199 passed) are green.'
       archived_date: "2026-08-15"
       done_summary: Implemented by 6998c1ca and 35d33059; independent review passed after required fixes; actionlint, Zizmor medium, workflow gate, public safety, dependency report, and full offline suite (3199 passed) are green.
-    - key: SEC-GITLEAKS-HISTORY-GATE
-      summary: Add maintained secret scanning for changes and Git history
-      resolution: '2026-08-16: Implemented by 1723af3c, 33a37754, f70fd164, and b5b374a7. Independent review found and the recovery passes fixed production-runner, public-safety, shallow-history, clean-worktree, immutable toolchain, suppression-governance, failure-reporting, workflow-order, and hashed dependency gaps. Independent validation: 190 focused tests and full offline suite 3237 passed, 6 skipped, 2 deselected; Ruff, Actionlint, Zizmor medium, workflow security, Go module verification, gate inventory, scorecard, public safety, and backlog validation passed.'
-      archived_date: "2026-08-16"
-      done_summary: 'Implemented by 1723af3c, 33a37754, f70fd164, and b5b374a7. Independent review found and the recovery passes fixed production-runner, public-safety, shallow-history, clean-worktree, immutable toolchain, suppression-governance, failure-reporting, workflow-order, and hashed dependency gaps. Independent validation: 190 focused tests and full offline suite 3237 passed, 6 skipped, 2 deselected; Ruff, Actionlint, Zizmor medium, workflow security, Go module verification, gate inventory, scorecard, public safety, and backlog validation passed.'
     - key: UPSTREAM-POST-3-7-1-DRIFT-REVIEW
       summary: Review and reconcile upstream drift after the 3.7.1 snapshot
       resolution: '2026-08-16: Pinned and verified upstream develop at 639c69a1d6be41a04964ceb72a3d29d6f45629e9; adopted descriptor-validated split-output refusal for FIFO, symlink, hardlink, and fallback platforms; added nonzero partial-failure recovery, machine-verifiable decision/source/test provenance, public docs, and changelog; 3548 offline tests and three fresh Opus reviews passed; committed as 19a08b9b.'
