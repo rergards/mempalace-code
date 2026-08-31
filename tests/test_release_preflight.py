@@ -121,7 +121,7 @@ def test_default_preflight_executes_static_upstream_guard_successfully():
 
     upstream = next(check for check in checks if check["name"] == "upstream_comparison")
     assert upstream["status"] == "ok"
-    assert "manifest_inventory_commits=43" in upstream["detail"]
+    assert "manifest_inventory_commits=47" in upstream["detail"]
 
 
 def test_default_preflight_propagates_static_inventory_failure(tmp_path: Path):
