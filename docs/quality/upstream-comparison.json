@@ -208,7 +208,7 @@
       "decision": "equivalent-local",
       "rationale": "The fork already provides disabled-by-default version checks, explicit read-only update status and check paths, confirmed update apply with supported-installer selection, and safe refusal defaults. This outcome equivalence does not claim compatibility with upstream's MCP cached-status response shape.",
       "local_predicates": [
-        "tests/test_version_check.py::test_fresh_non_tty_automatic_check_does_not_run",
+        "tests/test_cli.py::TestVersionCheckCLIHook::test_health_json_stdout_unchanged_with_no_opt_in",
         "tests/test_version_check.py::test_invalid_env_var_fails_closed",
         "tests/test_updater.py::TestUpdateStatus::test_status_reports_eligibility_provenance_and_next_run_without_mutation",
         "tests/test_updater.py::TestUnsupportedPlatformDiagnostics::test_confirmed_mutations_refuse_before_effects",

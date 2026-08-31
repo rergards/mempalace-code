@@ -2983,7 +2983,11 @@ class TestVersionCheckCLIHook:
             metadatas=[{"wing": "test", "room": "general"}],
         )
 
-        self._run(["mempalace", "--palace", palace, "health", "--json"])
+        with patch(
+            "mempalace_code.version_check.fetch_latest_version",
+            side_effect=AssertionError("default CLI path must not fetch version metadata"),
+        ):
+            self._run(["mempalace", "--palace", palace, "health", "--json"])
 
         captured = capsys.readouterr()
         data = json.loads(captured.out)
