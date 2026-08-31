@@ -425,6 +425,7 @@ def test_runtime_predicate_cli_diagnostics_are_stable_and_bounded(
         "persistent failure is a runtime/dependency compatibility blocker\n"
     )
     assert len(outputs[0].splitlines()) == 1
+    assert len(outputs[0]) < 512
     assert outputs[0].count(bench.MINILM_CACHE_RECOVERY) == 1
     assert str(tmp_path) not in outputs[0]
     assert str(fixture["former_vectors"][0][0]) not in outputs[0]
