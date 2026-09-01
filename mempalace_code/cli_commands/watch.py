@@ -1,7 +1,9 @@
 """Watch command handlers: watch, watch schedule, watch status."""
 
 import os
+import shlex
 import sys
+from pathlib import Path
 
 from ..config import MempalaceConfig
 
@@ -34,11 +36,27 @@ def cmd_watch(args):
 
 
 def cmd_watch_schedule(args):
+    from .alias import resolve_invoked_canonical_cli
+
+    try:
+        invoked_launcher = resolve_invoked_canonical_cli()
+    except RuntimeError as exc:
+        print(f"  Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    selected_launcher = str(invoked_launcher) if invoked_launcher is not None else None
+    safe_launcher = shlex.quote(selected_launcher or "mempalace-code")
+    watch_root = str(Path(args.dir).expanduser().resolve())
+    safe_watch_root = shlex.quote(watch_root)
+    plist_path = os.path.expanduser("~/Library/LaunchAgents/com.mempalace.watch.plist")
+    safe_plist = shlex.quote(plist_path)
+    render_command = f"{safe_launcher} watch {safe_watch_root} schedule"
+
     if getattr(args, "install", False):
         print(
             "  owner action required: --install is not supported.\n"
-            "  Print the snippet with 'mempalace-code watch <dir> schedule'\n"
-            "  then install it yourself with: launchctl load <plist> (macOS)\n"
+            f"  Print the snippet with: {render_command}\n"
+            f"  Save it with: {render_command} > {safe_plist} (macOS)\n"
+            f"  then install it yourself with: launchctl load {safe_plist} (macOS)\n"
             "  or: crontab -e (Linux).",
             file=sys.stderr,
         )
@@ -60,21 +78,25 @@ def cmd_watch_schedule(args):
     from ..watcher import render_watch_schedule
 
     try:
-        snippet = render_watch_schedule(args.dir, platform)
+        snippet = render_watch_schedule(args.dir, platform, mempalace_bin=selected_launcher)
     except ValueError as exc:
         print(f"  Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     print(snippet, end="")
     if platform == "darwin":
-        plist_path = "~/Library/LaunchAgents/com.mempalace.watch.plist"
+        print(f"\n  # Re-render: {render_command}", file=sys.stderr)
         print("\n  # To install:", file=sys.stderr)
-        print(f"  #   mempalace-code watch {args.dir} schedule > {plist_path}", file=sys.stderr)
-        print(f"  #   launchctl load {plist_path}", file=sys.stderr)
+        print(f"  #   {render_command} > {safe_plist}", file=sys.stderr)
+        print(f"  #   launchctl load {safe_plist}", file=sys.stderr)
         print("  # To stop:", file=sys.stderr)
-        print(f"  #   launchctl unload {plist_path}", file=sys.stderr)
+        print(f"  #   launchctl unload {safe_plist}", file=sys.stderr)
     else:
-        print("\n  # To install: crontab -e  (paste the line above)", file=sys.stderr)
+        print(
+            f"\n  # Re-render: {render_command}\n"
+            "  # To install: crontab -e  (paste the line above)",
+            file=sys.stderr,
+        )
 
 
 def cmd_watch_status(args):

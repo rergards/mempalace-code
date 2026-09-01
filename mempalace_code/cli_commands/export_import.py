@@ -8,7 +8,7 @@ from ..config import MempalaceConfig
 
 def cmd_export(args):
     from ..export import write_jsonl
-    from ..knowledge_graph import KnowledgeGraph
+    from ..knowledge_graph import KnowledgeGraph, palace_kg_path
     from ..storage import open_store
 
     palace_path = args.palace or MempalaceConfig().palace_path
@@ -31,7 +31,8 @@ def cmd_export(args):
             file=sys.stderr,
         )
         sys.exit(1)
-    kg = KnowledgeGraph() if args.with_kg else None
+    kg_path = palace_kg_path(palace_path) if args.palace is not None else None
+    kg = KnowledgeGraph(db_path=kg_path) if args.with_kg else None
 
     print(f"  Exporting from: {palace_path}", file=sys.stderr)
     summary = write_jsonl(
@@ -44,7 +45,6 @@ def cmd_export(args):
         since=args.since,
         include_vectors=args.with_embeddings,
         include_kg=args.with_kg,
-        pretty=args.pretty,
         palace_path=palace_path,
     )
     print(
@@ -61,7 +61,7 @@ def cmd_export(args):
 
 def cmd_import(args):
     from ..export import JsonlInputError, import_jsonl, read_jsonl
-    from ..knowledge_graph import KnowledgeGraph, LazyKnowledgeGraph
+    from ..knowledge_graph import KnowledgeGraph, LazyKnowledgeGraph, palace_kg_path
     from ..storage import open_store
 
     palace_path = args.palace or MempalaceConfig().palace_path
@@ -85,12 +85,13 @@ def cmd_import(args):
         print(f"  Error: malformed JSONL input: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    kg_path = palace_kg_path(palace_path) if args.palace is not None else None
     if args.dry_run:
         store = open_store(palace_path, create=False, read_only=True)
-        kg = None if args.skip_kg else LazyKnowledgeGraph()
+        kg = None if args.skip_kg else LazyKnowledgeGraph(db_path=kg_path)
     else:
         store = open_store(palace_path, create=True)
-        kg = None if args.skip_kg else KnowledgeGraph()
+        kg = None if args.skip_kg else KnowledgeGraph(db_path=kg_path)
 
     print(f"  Importing into: {palace_path}")
     if args.dry_run:

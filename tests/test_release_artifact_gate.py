@@ -349,6 +349,28 @@ def test_sdist_with_codex_config_fails(tmp_path):
     assert result["ok"] is False
 
 
+def test_sdist_with_repository_only_codex_review_script_has_bounded_diagnostic(tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    _make_sdist(
+        dist_dir,
+        [
+            "mempalace_code/__init__.py",
+            "scripts/codex-review.sh",
+        ],
+    )
+
+    result = rag.inspect_dist(dist_dir, run_twine=False)
+
+    sdist_row = next(r for r in result["rows"] if r["check"] == "sdist-members")
+    assert sdist_row == {
+        "check": "sdist-members",
+        "status": "fail",
+        "detail": ("rejected members: ['sdist:mempalace_code-1.0.0/scripts/codex-review.sh']"),
+    }
+    assert result["ok"] is False
+
+
 def test_sdist_with_untracked_member_fails_without_a_named_prefix(tmp_path):
     """Any member git does not track is rejected, prefix list or not.
 
@@ -738,6 +760,25 @@ def test_pyproject_excludes_codex_from_the_sdist():
     assert ".codex/" in exclude
 
 
+def test_pyproject_excludes_repository_only_release_configuration_from_the_sdist():
+    import tomllib
+
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    exclude = config["tool"]["hatch"]["build"]["targets"]["sdist"]["exclude"]
+    assert ".claude/**" in exclude
+    assert "/.gitleaksignore" in exclude
+    assert exclude.count("scripts/codex-review.sh") == 1
+    for repository_only_path in (
+        ".playwright-mcp/",
+        "docs/BACKLOG.yaml",
+        "docs/BACKLOG-archived.yaml",
+        "docs/task-evidence/",
+    ):
+        assert exclude.count(repository_only_path) == 1
+    assert "docs/" not in exclude
+    assert "docs/quality/" not in exclude
+
+
 def test_wheel_with_tasks_dir_fails(tmp_path):
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
@@ -781,6 +822,27 @@ def test_sdist_with_docs_audits_fails(tmp_path):
         ],
     )
     result = rag.inspect_dist(dist_dir, run_twine=False)
+    sdist_row = next(r for r in result["rows"] if r["check"] == "sdist-members")
+    assert sdist_row["status"] == "fail"
+    assert result["ok"] is False
+
+
+@pytest.mark.parametrize(
+    "internal_member",
+    [
+        ".claude/skills/release/SKILL.md",
+        ".github/workflows/ci.yml",
+        "docs/dependency-upgrade-reports/internal.json",
+        "docs/plans/internal-plan.md",
+    ],
+)
+def test_sdist_with_internal_repository_surface_fails(tmp_path, internal_member):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    _make_sdist(dist_dir, ["mempalace_code/__init__.py", internal_member])
+
+    result = rag.inspect_dist(dist_dir, run_twine=False)
+
     sdist_row = next(r for r in result["rows"] if r["check"] == "sdist-members")
     assert sdist_row["status"] == "fail"
     assert result["ok"] is False

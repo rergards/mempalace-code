@@ -7,11 +7,26 @@ import hashlib
 import os
 import stat
 from pathlib import Path
+from typing import Literal, TypeAlias
 
 _READ_CHUNK_SIZE = 1024 * 1024
 _HAS_O_NONBLOCK = bool(getattr(os, "O_NONBLOCK", 0))
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_BINARY = getattr(os, "O_BINARY", 0)
 _EAGAIN_ERRNOS = {errno.EAGAIN, getattr(errno, "EWOULDBLOCK", errno.EAGAIN)}
+
+SourceKind: TypeAlias = Literal[
+    "regular file",
+    "symlink",
+    "directory",
+    "fifo",
+    "socket",
+    "character device",
+    "block device",
+    "missing",
+    "unreadable",
+    "other",
+]
 
 
 class RegularSourceError(OSError):
@@ -23,18 +38,40 @@ class RegularSourceError(OSError):
         super().__init__(f"{self.path}: {reason}")
 
 
-def regular_source_diagnostic(path: str | os.PathLike[str]) -> str:
+def source_path_kind(path: str | os.PathLike[str]) -> SourceKind:
+    """Classify a source candidate without following symlinks."""
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        return "missing"
+    except OSError:
+        return "unreadable"
+
+    if stat.S_ISLNK(mode):
+        return "symlink"
+    if stat.S_ISREG(mode):
+        return "regular file"
+    if stat.S_ISDIR(mode):
+        return "directory"
+    if stat.S_ISFIFO(mode):
+        return "fifo"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    if stat.S_ISCHR(mode):
+        return "character device"
+    if stat.S_ISBLK(mode):
+        return "block device"
+    return "other"
+
+
+def regular_source_diagnostic(path: str | os.PathLike[str], kind: SourceKind | None = None) -> str:
     """Return the bounded diagnostic text used when discovery skips a source."""
-    return f"{Path(path)}: not a regular file"
+    return f"{Path(path)}: not a regular file ({kind or source_path_kind(path)})"
 
 
 def is_regular_source_path(path: str | os.PathLike[str]) -> bool:
     """Discovery-only regular-source check; actual reads revalidate the descriptor."""
-    try:
-        st = Path(path).stat()
-    except OSError:
-        return False
-    return stat.S_ISREG(st.st_mode)
+    return source_path_kind(path) == "regular file"
 
 
 def stat_regular_source(path: str | os.PathLike[str]) -> os.stat_result:
@@ -90,25 +127,47 @@ def hash_regular_bytes(
 
 
 def _open_regular_descriptor(path: Path, *, nonblocking: bool) -> tuple[int, os.stat_result]:
+    path_st = _lstat_regular_source(path)
     flags = os.O_RDONLY | _O_BINARY
     if nonblocking and _HAS_O_NONBLOCK:
         flags |= os.O_NONBLOCK
+    if _O_NOFOLLOW:
+        flags |= _O_NOFOLLOW
 
     try:
         fd = os.open(path, flags)
     except OSError as exc:
-        if not is_regular_source_path(path):
-            raise RegularSourceError(path) from exc
+        kind = source_path_kind(path)
+        if kind != "regular file":
+            raise RegularSourceError(path, f"not a regular file ({kind})") from exc
         raise
 
     try:
         st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode):
-            raise RegularSourceError(path)
+        if not stat.S_ISREG(st.st_mode) or not _same_file(path_st, st):
+            kind = source_path_kind(path)
+            raise RegularSourceError(path, f"not a regular file ({kind})")
         return fd, st
     except Exception:
         os.close(fd)
         raise
+
+
+def _lstat_regular_source(path: Path) -> os.stat_result:
+    try:
+        st = os.lstat(path)
+    except OSError as exc:
+        kind = source_path_kind(path)
+        raise RegularSourceError(path, f"not a regular file ({kind})") from exc
+    if not stat.S_ISREG(st.st_mode):
+        kind = source_path_kind(path)
+        raise RegularSourceError(path, f"not a regular file ({kind})")
+    return st
+
+
+def _same_file(before: os.stat_result, after: os.stat_result) -> bool:
+    """Return whether path metadata and the opened descriptor identify one file."""
+    return before.st_dev == after.st_dev and before.st_ino == after.st_ino
 
 
 def _make_fd_blocking(fd: int) -> None:

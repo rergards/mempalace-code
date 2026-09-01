@@ -28,6 +28,29 @@ def _build_registry(tmp_path: Path) -> EntityRegistry:
     return reg
 
 
+def test_summary_omits_empty_people_name_list(tmp_path):
+    reg = EntityRegistry.load(config_dir=tmp_path)
+
+    assert reg.summary().splitlines()[1] == "People: 0"
+
+
+def test_summary_includes_populated_people_name_list(tmp_path):
+    reg = _build_registry(tmp_path)
+
+    assert reg.summary().splitlines()[1] == "People: 1 (Alice)"
+
+
+def test_summary_truncates_people_name_list_after_eight(tmp_path):
+    reg = EntityRegistry.load(config_dir=tmp_path)
+    for index in range(1, 10):
+        reg._data["people"][f"Person {index}"] = {}
+
+    assert reg.summary().splitlines()[1] == (
+        "People: 9 (Person 1, Person 2, Person 3, Person 4, "
+        "Person 5, Person 6, Person 7, Person 8...)"
+    )
+
+
 def test_save_writes_valid_json_and_loads_existing_data(tmp_path):
     reg = _build_registry(tmp_path)
     reg.save()

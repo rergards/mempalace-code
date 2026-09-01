@@ -1,25 +1,10 @@
-"""
-Integration test: offline operation after fetch_model.
+"""FastEmbed-native subprocess coverage for cached and recovery behavior."""
 
-This file now contains two sections:
-
-  1. Non-network subprocess guards (run under the default test selection) — prove that
-     cached fetch-model and search paths use only local model resolution, make no
-     HuggingFace metadata or socket calls, and emit no token-warning output in a real
-     subprocess spawned with fake sentence_transformers and socket-blocking modules.
-
-  2. Network-required integration tests (marked @pytest.mark.needs_network) — download
-     the real ~80 MB HuggingFace model.  CI skips these by default:
-
-         pytest -m "not needs_network"
-
-     Run explicitly when a connection is available:
-
-         pytest tests/test_offline.py -v
-"""
+from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -27,481 +12,255 @@ from pathlib import Path
 
 import pytest
 
-
-def _configure_hf_home(tmp_path: Path, monkeypatch) -> str:
-    """Select and configure HF_HOME, mirroring the CI-cache/tmp-cache branch logic.
-
-    Returns the resolved HF_HOME string after setting it via monkeypatch.
-    """
-    ci_hf_home = os.environ.get("MEMPALACE_TEST_HF_HOME")
-    if ci_hf_home:
-        hf_home = ci_hf_home
-    else:
-        hf_home = str(tmp_path / "hf")
-        Path(hf_home).mkdir()
-    monkeypatch.setenv("HF_HOME", hf_home)
-    return hf_home
-
-
-@pytest.mark.parametrize(
-    "use_ci_cache",
-    [True, False],
-    ids=["ci_cache", "tmp_cache"],
+from mempalace_code.storage import (
+    CANONICAL_EMBED_MODEL,
+    CANONICAL_EMBED_MODEL_REVISION,
+    canonical_fastembed_provenance,
 )
-def test_hf_home_selection(tmp_path, monkeypatch, use_ci_cache):
-    """Branch-selection unit test: no model download, runs without needs_network."""
-    if use_ci_cache:
-        ci_path = str(tmp_path / "shared_hf")
-        monkeypatch.setenv("MEMPALACE_TEST_HF_HOME", ci_path)
-    else:
-        monkeypatch.delenv("MEMPALACE_TEST_HF_HOME", raising=False)
 
-    result = _configure_hf_home(tmp_path, monkeypatch)
-
-    if use_ci_cache:
-        assert result == str(tmp_path / "shared_hf")
-        assert os.environ["HF_HOME"] == str(tmp_path / "shared_hf")
-        assert not (tmp_path / "hf").exists()
-    else:
-        assert result == str(tmp_path / "hf")
-        assert os.environ["HF_HOME"] == str(tmp_path / "hf")
-        assert (tmp_path / "hf").is_dir()
-
-
-@pytest.mark.needs_network
-def test_search_works_offline_after_fetch(tmp_path, monkeypatch):
-    """After fetch_model, querying the store must succeed with HF offline flags set."""
-    # Use a CI-provided shared cache when available; otherwise isolate to a fresh temp dir.
-    # MEMPALACE_TEST_HF_HOME is set by the model-backed CI job so the downloaded model
-    # survives across test runs without being re-downloaded into a throwaway directory.
-    _configure_hf_home(tmp_path, monkeypatch)
-
-    # Step 1 — download the model (network allowed here)
-    from mempalace_code.cli import fetch_model
-    from mempalace_code.storage import DEFAULT_EMBED_MODEL
-
-    fetch_model(DEFAULT_EMBED_MODEL)
-
-    # Step 2 — go offline
-    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
-    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
-
-    # Step 3 — open a store and query; must not touch the network
-    from mempalace_code.storage import LanceStore
-
-    palace_path = str(tmp_path / "palace")
-    store = LanceStore(palace_path=palace_path, create=True)
-    results = store.query(["test"], n_results=1)
-
-    # An empty palace returns a dict with list-of-list ids — no error means offline works
-    assert isinstance(results, dict)
-    assert "ids" in results
-
-
-# ── Subprocess guard helpers ───────────────────────────────────────────────────
-#
-# The four tests below spawn a real `python -m mempalace_code.cli` subprocess and
-# inject fake sentence_transformers/huggingface_hub packages plus a sitecustomize
-# socket blocker via PYTHONPATH.  A JSONL event log records every constructor,
-# encode, online_load, socket_attempt, and metadata_attempt event so the parent
-# process can assert the offline contract was honoured.
-#
-# Precise token-warning markers written by the fake SentenceTransformer constructor
-# — production _quiet_hf_model_output() must redirect fd 1/2 to /dev/null during
-# construction so these never reach captured output.
-_HF_TOKEN_WARNING_MARKERS = [
-    "The token has not been saved",
-    "hf.co/settings/tokens",
-    "Token is valid",
-]
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def _write_sitecustomize(pkg_root: Path, event_log: Path) -> None:
-    """Socket blocker loaded before any app import via PYTHONPATH prepend."""
     (pkg_root / "sitecustomize.py").write_text(
         textwrap.dedent(
             f"""\
-            import json, os, socket as _socket
-
+            import json, socket as _socket
             _log = {str(event_log)!r}
-
             def _record(event):
-                with open(_log, "a") as _f:
-                    _f.write(json.dumps(event) + "\\n")
-
-            _orig_create_connection = _socket.create_connection
-            def _fake_create_connection(address, *args, **kwargs):
-                _record({{"type": "socket_attempt", "via": "create_connection", "address": str(address)}})
-                raise OSError("socket blocked by subprocess guard")
-            _socket.create_connection = _fake_create_connection
-
+                with open(_log, "a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(event) + "\\n")
+            def _blocked(address, *args, **kwargs):
+                _record({{"type": "socket_attempt", "address": str(address)}})
+                raise OSError("socket blocked by FastEmbed offline guard")
+            _socket.create_connection = _blocked
             _OrigSocket = _socket.socket
-            _orig_connect = _OrigSocket.connect
-            def _fake_connect(self, address):
-                _record({{"type": "socket_attempt", "via": "socket.connect", "address": str(address)}})
-                raise OSError("socket blocked by subprocess guard")
-            _OrigSocket.connect = _fake_connect
+            def _blocked_connect(self, address):
+                return _blocked(address)
+            _OrigSocket.connect = _blocked_connect
             """
-        )
+        ),
+        encoding="utf-8",
     )
 
 
-def _write_fake_sentence_transformers(pkg_root: Path, event_log: Path) -> None:
-    st_dir = pkg_root / "sentence_transformers"
-    st_dir.mkdir()
-    (st_dir / "__init__.py").write_text(
+def _write_fake_fastembed(pkg_root: Path, event_log: Path) -> None:
+    package = pkg_root / "fastembed"
+    package.mkdir()
+    (package / "__init__.py").write_text(
         textwrap.dedent(
             f"""\
-            import json, os, sys
-
+            import hashlib, json, math, os
+            from pathlib import Path
             _log = {str(event_log)!r}
-
+            _revision = {CANONICAL_EMBED_MODEL_REVISION!r}
             def _record(event):
-                with open(_log, "a") as _f:
-                    _f.write(json.dumps(event) + "\\n")
-
-            class SentenceTransformer:
-                def __init__(self, model_name_or_path, **kwargs):
-                    local_files_only = bool(kwargs.get("local_files_only", False))
-                    event_type = "constructor" if local_files_only else "online_load"
-                    _record({{"type": event_type, "model_name": model_name_or_path, "local_files_only": local_files_only}})
-
-                    # Write token-warning text that real HF hub emits during construction.
-                    # Production _quiet_hf_model_output() redirects fd 1/2 to /dev/null
-                    # while the constructor runs, so these must be flushed there — not to
-                    # the captured pipe.
-                    sys.stdout.write("The token has not been saved to the git credentials helper.\\n")
-                    sys.stderr.write(
-                        "Token is valid (permission: read). "
-                        "Your token has been saved to hf.co/settings/tokens.\\n"
-                    )
-                    sys.stdout.flush()
-                    sys.stderr.flush()
-
-                    if not local_files_only and os.environ.get("MEMPALACE_FAKE_ST_DISALLOW_ONLINE", "0") == "1":
-                        raise RuntimeError("online ST load disallowed by subprocess guard")
-
-                    if local_files_only and os.environ.get("MEMPALACE_FAKE_ST_FAIL_LOCAL", "0") == "1":
-                        raise OSError("cached model incomplete (fake local-load failure)")
-
-                    self._ndims = 384
-
-                def encode(self, texts, **kwargs):
-                    _record({{"type": "encode", "count": len(texts)}})
-                    import numpy as _np
-                    return _np.zeros((len(texts), self._ndims), dtype=_np.float32)
+                with open(_log, "a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(event) + "\\n")
+            def _download(cache):
+                repository = cache / "models--qdrant--all-MiniLM-L6-v2-onnx"
+                refs = repository / "refs"
+                refs.mkdir(parents=True, exist_ok=True)
+                (refs / "main").write_text(_revision, encoding="utf-8")
+                snapshot = repository / "snapshots" / _revision
+                snapshot.mkdir(parents=True, exist_ok=True)
+                for name in ("config.json", "model.onnx", "special_tokens_map.json", "tokenizer.json", "tokenizer_config.json"):
+                    (snapshot / name).write_bytes(b"fixture")
+                (snapshot / "tokenizer_config.json").write_text(json.dumps({{"max_length": 128, "model_max_length": 512}}), encoding="utf-8")
+            class TextEmbedding:
+                def __init__(self, **kwargs):
+                    _record({{"type": "init", "local_files_only": bool(kwargs.get("local_files_only")), "providers": kwargs.get("providers")}})
+                    if not kwargs.get("local_files_only"):
+                        cache = Path(kwargs["cache_dir"])
+                        if os.environ.get("MEMPALACE_FAKE_FASTEMBED_FAIL_DOWNLOAD") == "1":
+                            cache.mkdir(parents=True, exist_ok=True)
+                            (cache / "interrupted.bin").write_bytes(b"partial")
+                            raise RuntimeError("fake interrupted download")
+                        _download(cache)
+                def embed(self, texts):
+                    texts = list(texts)
+                    _record({{"type": "embed", "count": len(texts)}})
+                    for text in texts:
+                        digest = hashlib.sha256(text.encode("utf-8")).digest()
+                        vector = [0.0] * 384
+                        for index, value in enumerate(digest):
+                            vector[index] = (value - 127.5) / 127.5
+                        norm = math.sqrt(sum(value * value for value in vector))
+                        yield [value / norm for value in vector]
             """
-        )
+        ),
+        encoding="utf-8",
     )
 
 
-def _write_fake_huggingface_hub(pkg_root: Path, event_log: Path) -> None:
-    hf_dir = pkg_root / "huggingface_hub"
-    hf_dir.mkdir()
-    (hf_dir / "__init__.py").write_text(
-        textwrap.dedent(
-            f"""\
-            import json, os
-
-            _log = {str(event_log)!r}
-
-            def _record(event):
-                with open(_log, "a") as _f:
-                    _f.write(json.dumps(event) + "\\n")
-
-            def model_info(*args, **kwargs):
-                _record({{"type": "metadata_attempt", "fn": "model_info"}})
-                raise OSError("huggingface_hub blocked by subprocess guard")
-
-            def hf_hub_download(*args, **kwargs):
-                _record({{"type": "metadata_attempt", "fn": "hf_hub_download"}})
-                raise OSError("huggingface_hub blocked by subprocess guard")
-
-            def snapshot_download(*args, **kwargs):
-                _record({{"type": "metadata_attempt", "fn": "snapshot_download"}})
-                raise OSError("huggingface_hub blocked by subprocess guard")
-
-            def login(*args, **kwargs):
-                pass
-
-            def whoami(*args, **kwargs):
-                return {{}}
-            """
-        )
+def _write_owned_cache(hf_home: Path) -> Path:
+    root = hf_home / "mempalace-fastembed" / "all-MiniLM-L6-v2-v1"
+    repository = root / "models--qdrant--all-MiniLM-L6-v2-onnx"
+    refs = repository / "refs"
+    refs.mkdir(parents=True)
+    (refs / "main").write_text(CANONICAL_EMBED_MODEL_REVISION, encoding="utf-8")
+    snapshot = repository / "snapshots" / CANONICAL_EMBED_MODEL_REVISION
+    snapshot.mkdir(parents=True)
+    for name in (
+        "config.json",
+        "model.onnx",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+    ):
+        (snapshot / name).write_bytes(b"fixture")
+    (snapshot / "tokenizer_config.json").write_text(
+        json.dumps({"max_length": 256, "model_max_length": 512}), encoding="utf-8"
     )
-
-
-def _build_fake_pkg_root(tmp_path: Path, event_log: Path) -> Path:
-    root = tmp_path / "fake_pkgs"
-    root.mkdir()
-    _write_sitecustomize(root, event_log)
-    _write_fake_sentence_transformers(root, event_log)
-    _write_fake_huggingface_hub(root, event_log)
+    (root / ".mempalace-model.json").write_text(
+        json.dumps(canonical_fastembed_provenance()), encoding="utf-8"
+    )
     return root
 
 
-def _make_subprocess_env(
-    fake_pkg_root: Path,
-    event_log: Path,
-    *,
-    hf_home: Path | None = None,
-    extra: dict[str, str] | None = None,
-    unset: list[str] | None = None,
-) -> dict[str, str]:
+def _fake_runtime(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
+    event_log = tmp_path / "events.jsonl"
+    packages = tmp_path / "packages"
+    packages.mkdir()
+    _write_sitecustomize(packages, event_log)
+    _write_fake_fastembed(packages, event_log)
+    hf_home = tmp_path / "hf-home"
     env = os.environ.copy()
-    existing_pp = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(fake_pkg_root) + (":" + existing_pp if existing_pp else "")
-    env["MEMPALACE_TEST_EVENT_LOG"] = str(event_log)
-    if hf_home is not None:
-        env["HF_HOME"] = str(hf_home)
-    if extra:
-        env.update(extra)
-    for var in unset or []:
-        env.pop(var, None)
-    return env
+    env["PYTHONPATH"] = os.pathsep.join([str(packages), str(ROOT)])
+    env["HF_HOME"] = str(hf_home)
+    env["MEMPALACE_VERSION_CHECK"] = "0"
+    return env, hf_home, event_log
 
 
-def _run_subprocess(cmd: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:  # type: ignore[type-arg]  # reason: test helper; CompletedProcess generic param unimportant here
-    return subprocess.run(cmd, capture_output=True, text=True, env=env)
+def _run(arguments: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, *arguments], capture_output=True, text=True, env=env, timeout=30
+    )
 
 
-def _read_events(event_log: Path) -> list[dict]:  # type: ignore[type-arg]  # reason: event dicts are dynamic JSON with unconstrained key/value types
-    if not event_log.exists():
+def _events(path: Path) -> list[dict[str, object]]:
+    if not path.exists():
         return []
-    events = []
-    for line in event_log.read_text().splitlines():
-        line = line.strip()
-        if line:
-            events.append(json.loads(line))
-    return events
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
-def _seed_palace(palace_path: Path) -> None:
-    from mempalace_code.storage import open_store
-
-    store = open_store(str(palace_path), create=True)
-    store.add(
-        ids=["offline_guard_d1"],
-        documents=["embedding model local search test drawer for offline guard"],
-        metadatas=[
-            {
-                "wing": "test",
-                "room": "general",
-                "source_file": "guard.py",
-                "chunk_index": 0,
-                "added_by": "test",
-                "filed_at": "2026-01-01T00:00:00",
-            }
-        ],
+def _seed_palace(palace: Path, env: dict[str, str]) -> None:
+    code = (
+        "from mempalace_code.storage import LanceStore; import sys; "
+        "store=LanceStore(sys.argv[1]); "
+        "store.add(['d1'], ['offline cached search drawer'], "
+        "[{'wing':'test','room':'general','source_file':'fixture.py'}])"
     )
+    result = _run(["-c", code, str(palace)], env)
+    assert result.returncode == 0, result.stderr
 
 
-# ── AC-1: Cached fetch-model uses only local resolution ───────────────────────
+def test_cached_fetch_uses_fastembed_local_only_without_network(tmp_path: Path) -> None:
+    env, hf_home, event_log = _fake_runtime(tmp_path)
+    _write_owned_cache(hf_home)
+    env.pop("HF_HUB_OFFLINE", None)
+    env.pop("TRANSFORMERS_OFFLINE", None)
+
+    result = _run(["-m", "mempalace_code.cli", "fetch-model"], env)
+
+    assert result.returncode == 0, result.stderr
+    assert "already available locally" in result.stdout
+    events = _events(event_log)
+    assert [event["local_files_only"] for event in events if event["type"] == "init"] == [True]
+    assert not any(event["type"] == "socket_attempt" for event in events)
 
 
-def test_cached_fetch_model_subprocess_guard(tmp_path: Path) -> None:
-    """Cached fetch-model: local-only model load, no network calls, no HF token warnings."""
-    event_log = tmp_path / "events.jsonl"
-    hf_home = tmp_path / "hf_home"
-    hf_home.mkdir()
+def test_cached_search_uses_fastembed_local_only_without_network(tmp_path: Path) -> None:
+    env, hf_home, event_log = _fake_runtime(tmp_path)
+    _write_owned_cache(hf_home)
+    env["HF_HUB_OFFLINE"] = "1"
+    env["TRANSFORMERS_OFFLINE"] = "1"
+    palace = tmp_path / "palace"
+    _seed_palace(palace, env)
+    before = len(_events(event_log))
 
-    # Represent a post-setup cache: snapshots dir exists so _model_cache_dir reports it
-    model_cache = (
-        hf_home / "hub" / "models--sentence-transformers--all-MiniLM-L6-v2" / "snapshots" / "fake"
-    )
-    model_cache.mkdir(parents=True)
-
-    fake_pkg_root = _build_fake_pkg_root(tmp_path, event_log)
-    env = _make_subprocess_env(
-        fake_pkg_root,
-        event_log,
-        hf_home=hf_home,
-        extra={"MEMPALACE_FAKE_ST_DISALLOW_ONLINE": "1"},
-        # Unset offline env flags to prove the cached path is chosen by code logic,
-        # not by environment coercion.
-        unset=["HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"],
-    )
-
-    result = _run_subprocess(
-        [sys.executable, "-m", "mempalace_code.cli", "fetch-model"],
+    result = _run(
+        ["-m", "mempalace_code.cli", "--palace", str(palace), "search", "cached search"],
         env,
     )
 
-    events = _read_events(event_log)
-    event_types = [e["type"] for e in events]
-
-    assert result.returncode == 0, (
-        f"fetch-model exited {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-
-    constructor_events = [e for e in events if e["type"] == "constructor"]
-    assert len(constructor_events) == 1, f"Expected 1 constructor event; got {event_types}"
-    assert constructor_events[0]["local_files_only"] is True, (
-        f"Constructor called without local_files_only=True: {constructor_events[0]}"
-    )
-    assert "online_load" not in event_types, f"Unexpected online load: {events}"
-    assert "socket_attempt" not in event_types, f"Unexpected socket attempt: {events}"
-    assert "metadata_attempt" not in event_types, f"Unexpected metadata attempt: {events}"
-
-    combined = result.stdout + result.stderr
-    for marker in _HF_TOKEN_WARNING_MARKERS:
-        assert marker not in combined, (
-            f"HF warning marker {marker!r} leaked to captured output.\n"
-            f"stdout: {result.stdout}\nstderr: {result.stderr}"
-        )
+    assert result.returncode == 0, result.stderr
+    events = _events(event_log)[before:]
+    assert any(event["type"] == "embed" for event in events)
+    assert all(event.get("local_files_only") is True for event in events if event["type"] == "init")
+    assert not any(event["type"] == "socket_attempt" for event in events)
 
 
-# ── AC-2: Cached search initialises query embedder locally ────────────────────
+def test_corrupt_offline_cache_fails_before_fastembed_or_online_retry(tmp_path: Path) -> None:
+    env, hf_home, event_log = _fake_runtime(tmp_path)
+    root = _write_owned_cache(hf_home)
+    env["HF_HUB_OFFLINE"] = "1"
+    env["TRANSFORMERS_OFFLINE"] = "1"
+    palace = tmp_path / "palace"
+    _seed_palace(palace, env)
+    (root / ".mempalace-model.json").unlink()
+    before = len(_events(event_log))
+
+    result = _run(["-m", "mempalace_code.cli", "--palace", str(palace), "search", "offline"], env)
+
+    assert result.returncode != 0
+    assert "not owned" in result.stderr
+    events = _events(event_log)[before:]
+    assert not any(event["type"] in {"init", "socket_attempt"} for event in events)
+    assert root.is_dir()
 
 
-def test_cached_search_subprocess_guard(tmp_path: Path) -> None:
-    """Cached search: local embedder init, encode called, no network, no HF token warnings."""
-    palace_path = tmp_path / "palace"
-    palace_path.mkdir()
-    _seed_palace(palace_path)
+def test_force_partial_failure_and_retry_preserve_each_interruption(tmp_path: Path) -> None:
+    env, hf_home, event_log = _fake_runtime(tmp_path)
+    root = hf_home / "mempalace-fastembed" / "all-MiniLM-L6-v2-v1"
+    root.mkdir(parents=True)
+    (root / "original.bin").write_bytes(b"original")
+    env["MEMPALACE_FAKE_FASTEMBED_FAIL_DOWNLOAD"] = "1"
 
+    failed = _run(["-m", "mempalace_code.cli", "fetch-model", "--force"], env)
+
+    assert failed.returncode == 1
+    assert "Preserved partial cache at:" in failed.stdout
+    assert "Retry exactly: `mempalace-code fetch-model --model all-MiniLM-L6-v2`" in failed.stderr
+    env.pop("MEMPALACE_FAKE_FASTEMBED_FAIL_DOWNLOAD")
+    recovered = _run(["-m", "mempalace_code.cli", "fetch-model"], env)
+    assert recovered.returncode == 0, recovered.stderr
+    assert "Preserved partial cache at:" in recovered.stdout
+    quarantines = sorted(root.parent.glob(f"{root.name}.quarantine-*"))
+    assert len(quarantines) == 2
+    assert any((path / "original.bin").exists() for path in quarantines)
+    assert any((path / "interrupted.bin").exists() for path in quarantines)
+    cached = _run(["-m", "mempalace_code.cli", "fetch-model"], env)
+    assert cached.returncode == 0
+    assert "already available locally" in cached.stdout
+    assert not any(event["type"] == "socket_attempt" for event in _events(event_log))
+
+
+def test_real_fastembed_cached_search_subprocess_guard(tmp_path: Path) -> None:
+    """Direct real-runtime evidence when the qualification cache is supplied."""
+    shared = os.environ.get("MEMPALACE_TEST_HF_HOME")
+    if not shared:
+        pytest.skip("MEMPALACE_TEST_HF_HOME is required for real FastEmbed qualification")
+    source = Path(shared) / "mempalace-fastembed" / "all-MiniLM-L6-v2-v1"
+    if not source.is_dir():
+        pytest.fail("MEMPALACE_TEST_HF_HOME lacks the canonical FastEmbed cache")
     event_log = tmp_path / "events.jsonl"
-    fake_pkg_root = _build_fake_pkg_root(tmp_path, event_log)
-    env = _make_subprocess_env(
-        fake_pkg_root,
-        event_log,
-        extra={
-            "HF_HUB_OFFLINE": "1",
-            "TRANSFORMERS_OFFLINE": "1",
-            "MEMPALACE_FAKE_ST_DISALLOW_ONLINE": "1",
-        },
-    )
+    guard = tmp_path / "guard"
+    guard.mkdir()
+    _write_sitecustomize(guard, event_log)
+    hf_home = tmp_path / "hf-home"
+    shutil.copytree(source, hf_home / "mempalace-fastembed" / source.name, symlinks=True)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join([str(guard), str(ROOT)])
+    env["HF_HOME"] = str(hf_home)
+    env["HF_HUB_OFFLINE"] = "1"
+    env["TRANSFORMERS_OFFLINE"] = "1"
+    env["MEMPALACE_VERSION_CHECK"] = "0"
+    palace = tmp_path / "real-palace"
+    _seed_palace(palace, env)
 
-    result = _run_subprocess(
-        [
-            sys.executable,
-            "-m",
-            "mempalace_code.cli",
-            "--palace",
-            str(palace_path),
-            "search",
-            "embedding model",
-        ],
-        env,
-    )
+    result = _run(["-m", "mempalace_code.cli", "--palace", str(palace), "search", "offline"], env)
 
-    events = _read_events(event_log)
-    event_types = [e["type"] for e in events]
-
-    assert result.returncode == 0, (
-        f"search exited {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-
-    constructor_events = [e for e in events if e["type"] == "constructor"]
-    assert len(constructor_events) == 1, f"Expected 1 constructor event; got {event_types}"
-    assert constructor_events[0]["local_files_only"] is True, (
-        f"Constructor called without local_files_only=True: {constructor_events[0]}"
-    )
-    assert "encode" in event_types, f"No encode event — query embedding did not run: {event_types}"
-    assert "online_load" not in event_types, f"Unexpected online load: {events}"
-    assert "socket_attempt" not in event_types, f"Unexpected socket attempt: {events}"
-    assert "metadata_attempt" not in event_types, f"Unexpected metadata attempt: {events}"
-
-    combined = result.stdout + result.stderr
-    for marker in _HF_TOKEN_WARNING_MARKERS:
-        assert marker not in combined, (
-            f"HF warning marker {marker!r} leaked to captured output.\n"
-            f"stdout: {result.stdout}\nstderr: {result.stderr}"
-        )
-
-
-# ── AC-3: Offline local-cache failure does not fall through to online retry ───
-
-
-def test_offline_search_subprocess_no_online_retry_on_local_cache_error(tmp_path: Path) -> None:
-    """Offline search with broken local cache: fails without retrying online."""
-    palace_path = tmp_path / "palace"
-    palace_path.mkdir()
-    _seed_palace(palace_path)  # table must exist so _SentenceTransformerEmbedder is invoked
-
-    event_log = tmp_path / "events.jsonl"
-    fake_pkg_root = _build_fake_pkg_root(tmp_path, event_log)
-    env = _make_subprocess_env(
-        fake_pkg_root,
-        event_log,
-        extra={
-            "HF_HUB_OFFLINE": "1",
-            "TRANSFORMERS_OFFLINE": "1",
-            "MEMPALACE_FAKE_ST_FAIL_LOCAL": "1",
-        },
-    )
-
-    result = _run_subprocess(
-        [
-            sys.executable,
-            "-m",
-            "mempalace_code.cli",
-            "--palace",
-            str(palace_path),
-            "search",
-            "test",
-        ],
-        env,
-    )
-
-    events = _read_events(event_log)
-    event_types = [e["type"] for e in events]
-
-    assert result.returncode != 0, (
-        f"Expected non-zero exit (local cache failure should not retry); got 0.\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "constructor" in event_types, (
-        f"No constructor event — embedder was not reached before subprocess exited: {event_types}\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    assert "online_load" not in event_types, (
-        f"online_load event recorded — no-retry contract violated: {events}"
-    )
-    assert "socket_attempt" not in event_types, f"Unexpected socket attempt: {events}"
-    assert "metadata_attempt" not in event_types, f"Unexpected metadata attempt: {events}"
-
-
-# ── AC-4: --force setup boundary remains online-capable; warnings still quiet ─
-
-
-def test_force_fetch_model_subprocess_setup_boundary_allows_online_load(tmp_path: Path) -> None:
-    """fetch-model --force: one online-capable load allowed; HF warnings still suppressed."""
-    event_log = tmp_path / "events.jsonl"
-    hf_home = tmp_path / "hf_home"
-    hf_home.mkdir()
-
-    fake_pkg_root = _build_fake_pkg_root(tmp_path, event_log)
-    env = _make_subprocess_env(
-        fake_pkg_root,
-        event_log,
-        hf_home=hf_home,
-        # Unset offline flags so --force path is unambiguously online-capable.
-        unset=["HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE"],
-    )
-
-    result = _run_subprocess(
-        [sys.executable, "-m", "mempalace_code.cli", "fetch-model", "--force"],
-        env,
-    )
-
-    events = _read_events(event_log)
-    event_types = [e["type"] for e in events]
-
-    assert result.returncode == 0, (
-        f"fetch-model --force exited {result.returncode}\n"
-        f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-
-    online_events = [e for e in events if e["type"] == "online_load"]
-    assert len(online_events) == 1, (
-        f"Expected exactly 1 online_load event for --force; got {event_types}"
-    )
-    assert "socket_attempt" not in event_types, f"Unexpected socket attempt: {events}"
-
-    combined = result.stdout + result.stderr
-    for marker in _HF_TOKEN_WARNING_MARKERS:
-        assert marker not in combined, (
-            f"HF warning marker {marker!r} leaked in --force path.\n"
-            f"stdout: {result.stdout}\nstderr: {result.stderr}"
-        )
+    assert result.returncode == 0, result.stderr
+    assert not any(event["type"] == "socket_attempt" for event in _events(event_log))
+    assert CANONICAL_EMBED_MODEL == "sentence-transformers/all-MiniLM-L6-v2"

@@ -115,6 +115,8 @@ def export_drawers(
                 "source_hash",
                 "extractor_version",
                 "chunker_strategy",
+                "line_start",
+                "line_end",
             ):
                 record[key] = row.get(key, "")
             # `type` is overloaded — store drawer metadata `type` under `drawer_type`
@@ -163,15 +165,12 @@ def write_jsonl(
     since: Optional[str] = None,
     include_vectors: bool = False,
     include_kg: bool = False,
-    pretty: bool = False,
     palace_path: str = "",
 ) -> Dict[str, int]:
     """Write export JSONL to *path* (use '-' for stdout).
 
     Returns summary dict: {drawer_count, kg_count}.
     """
-    indent = 2 if pretty else None
-
     filters: Dict[str, Any] = {}
     if only_manual:
         filters["only_manual"] = True
@@ -199,7 +198,7 @@ def write_jsonl(
 
     fh = sys.stdout if path == "-" else open(path, "w", encoding="utf-8")
     try:
-        fh.write(json.dumps(header, indent=indent) + "\n")
+        fh.write(json.dumps(header) + "\n")
 
         for record in export_drawers(
             store,
@@ -209,11 +208,11 @@ def write_jsonl(
             since=since,
             include_vectors=include_vectors,
         ):
-            fh.write(json.dumps(record, indent=indent) + "\n")
+            fh.write(json.dumps(record) + "\n")
 
         if include_kg and kg is not None:
             for record in export_kg(kg, since=since):
-                fh.write(json.dumps(record, indent=indent) + "\n")
+                fh.write(json.dumps(record) + "\n")
     finally:
         if fh is not sys.stdout:
             fh.close()
@@ -373,6 +372,8 @@ def import_jsonl(
                 "source_hash",
                 "extractor_version",
                 "chunker_strategy",
+                "line_start",
+                "line_end",
             )
             meta: Dict[str, Any] = {"wing": wing, "room": room}
             for k in meta_keys:
