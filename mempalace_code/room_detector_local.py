@@ -360,6 +360,50 @@ def write_regular_destination(destination: Path, content: str) -> None:
                 pass
 
 
+def snapshot_regular_destinations(
+    destinations: list[Path],
+) -> dict[Path, tuple[bytes | None, int | None]]:
+    """Capture regular destination bytes and modes before a multi-file write."""
+    from .source_io import read_regular_bytes
+
+    snapshots: dict[Path, tuple[bytes | None, int | None]] = {}
+    for destination in destinations:
+        mode = validate_regular_destination(destination)
+        snapshots[destination] = (
+            None if mode is None else read_regular_bytes(destination),
+            mode,
+        )
+    return snapshots
+
+
+def restore_regular_destinations(
+    snapshots: dict[Path, tuple[bytes | None, int | None]],
+) -> None:
+    """Restore a failed multi-file write to its captured regular-file state."""
+    from .source_io import read_regular_bytes
+
+    for destination, (content, mode) in reversed(list(snapshots.items())):
+        if content is None:
+            try:
+                current_mode = os.lstat(destination).st_mode
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(current_mode):
+                raise RegularSourceError(destination, "changed during rollback")
+            destination.unlink()
+            continue
+        current_mode = validate_regular_destination(destination)
+        if (
+            current_mode is not None
+            and current_mode == mode
+            and read_regular_bytes(destination) == content
+        ):
+            continue
+        write_regular_destination(destination, content.decode("utf-8"))
+        if mode is not None:
+            os.chmod(destination, mode)
+
+
 def save_config(project_dir: str, project_name: str, rooms: list, dotnet_structure: bool = False):
     config = {
         "wing": project_name,

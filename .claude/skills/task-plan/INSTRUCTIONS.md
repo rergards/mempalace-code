@@ -7,19 +7,9 @@ amend, ordinary push, or publication.
 
 ## 1. Admit Existing State Before Initialization
 
-Follow `.claude/skills/_shared/task-state.md` before any state or artifact write:
-
-1. resolve and read the exact task-state path if it exists;
-2. inspect Git root, Git directory, `HEAD`, branch, and status;
-3. run `autopilot doctor --json` before `autopilot status`;
-4. inside the owning provider require `phase_write_allowed=true`; for an
-   operator require `safe_to_edit=true`;
-5. initialize only an absent admitted state path. Resume valid matching state.
-   Preserve and stop on active-owner, blocked, resumable, stale, malformed,
-   unknown, mismatched, or contradictory state.
-
-Never overwrite evidence to restart planning. The bounded recovery command is
-`autopilot doctor --json`.
+Follow `.claude/skills/_shared/task-state.md` in full before any state or
+artifact write. It is the sole owner of admission, persistence, resume, and
+recovery behavior. Recovery: `autopilot doctor --json`.
 
 ## 2. Classify and Research
 

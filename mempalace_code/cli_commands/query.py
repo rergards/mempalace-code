@@ -1,6 +1,7 @@
 """Query command handlers: search, wake-up, compress, read."""
 
 import os
+import shlex
 import sys
 from pathlib import Path
 
@@ -8,6 +9,11 @@ from ..config import MempalaceConfig
 
 
 def cmd_search(args):
+    if not args.query.strip():
+        print("Error: query must not be blank.", file=sys.stderr)
+        print("Try: mempalace-code search 'your search query'", file=sys.stderr)
+        sys.exit(2)
+
     from ..searcher import SearchError, search
     from ..taxonomy_filters import TaxonomyValidationError, format_cli_lines
 
@@ -19,6 +25,7 @@ def cmd_search(args):
             wing=args.wing,
             room=args.room,
             n_results=args.results,
+            compact=args.compact,
         )
     except TaxonomyValidationError as e:
         for line in format_cli_lines(e.payload):
@@ -31,8 +38,17 @@ def cmd_search(args):
 def cmd_wakeup(args):
     """Show L0 (identity) + L1 (essential story) — the wake-up context."""
     from ..layers import MemoryStack
+    from ..taxonomy_filters import format_cli_lines, validate_taxonomy_filters
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+
+    if args.wing is not None:
+        taxonomy_error = validate_taxonomy_filters(palace_path, wing=args.wing)
+        if taxonomy_error:
+            for line in format_cli_lines(taxonomy_error):
+                print(line, file=sys.stderr)
+            sys.exit(2)
+
     stack = MemoryStack(palace_path=palace_path)
 
     text = stack.wake_up(wing=args.wing)
@@ -44,10 +60,20 @@ def cmd_wakeup(args):
 
 def cmd_compress(args):
     """Compress drawers in a wing using AAAK Dialect."""
+    from ..backup import create_backup
     from ..dialect import Dialect
+    from ..knowledge_graph import palace_kg_path
     from ..storage import open_store
+    from ..taxonomy_filters import format_cli_lines, validate_taxonomy_filters
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+
+    if args.wing:
+        taxonomy_error = validate_taxonomy_filters(palace_path, wing=args.wing)
+        if taxonomy_error:
+            for line in format_cli_lines(taxonomy_error):
+                print(line, file=sys.stderr)
+            sys.exit(2)
 
     # Load dialect (with optional entity config)
     config_path = args.config
@@ -102,23 +128,45 @@ def cmd_compress(args):
         print("  Next: check --wing/--room filters, or run mempalace-code mine <project-dir>.")
         return
 
+    pending = []
+    already_compressed = []
+    for doc, meta, doc_id in zip(docs, metas, ids):
+        original_tokens = meta.get("original_tokens", 0) or 0
+        compression_ratio = meta.get("compression_ratio", 0.0) or 0.0
+        entry = (doc, meta, doc_id)
+        if original_tokens > 0 or compression_ratio != 0.0:
+            already_compressed.append(entry)
+        else:
+            pending.append(entry)
+
     print(
-        f"\n  Compressing {len(docs)} drawers"
-        + (f" in wing '{args.wing}'" if args.wing else "")
-        + "..."
+        f"\n  Selected {len(docs)} drawers" + (f" in wing '{args.wing}'" if args.wing else "") + "."
     )
+    print(f"  Pending: {len(pending)}; skipped already compressed: {len(already_compressed)}.")
+
+    if not pending:
+        print("  No pending drawers; nothing stored.")
+        if args.dry_run:
+            print("  (dry run -- nothing stored)")
+        return
+
+    print(f"  Compressing {len(pending)} pending drawers...")
     print()
 
     total_original = 0
     total_compressed = 0
+    total_original_tokens = 0
+    total_compressed_tokens = 0
     compressed_entries = []
 
-    for doc, meta, doc_id in zip(docs, metas, ids):
+    for doc, meta, doc_id in pending:
         compressed = dialect.compress(doc, metadata=meta)
         stats = dialect.compression_stats(doc, compressed)
 
         total_original += stats["original_chars"]
         total_compressed += stats["summary_chars"]
+        total_original_tokens += stats["original_tokens_est"]
+        total_compressed_tokens += stats["summary_tokens_est"]
 
         compressed_entries.append((doc_id, compressed, meta, stats))
 
@@ -135,6 +183,26 @@ def cmd_compress(args):
 
     # Store compressed versions (unless dry-run)
     if not args.dry_run:
+        kg_path = palace_kg_path(palace_path) if args.palace else None
+        try:
+            _, archive_path = create_backup(palace_path, kind="manual", kg_path=kg_path)
+        except Exception as e:
+            print(f"  Error creating pre-compression backup: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        recovery_command = shlex.join(
+            [
+                "mempalace-code",
+                "--palace",
+                os.path.abspath(palace_path),
+                "restore",
+                str(archive_path),
+                "--force",
+            ]
+        )
+        print(f"  Recovery archive: {archive_path}")
+        print(f"  Recovery command: {recovery_command}")
+
         try:
             # Upsert compressed drawers back into the main store
             for doc_id, compressed, meta, stats in compressed_entries:
@@ -146,16 +214,60 @@ def cmd_compress(args):
                     documents=[compressed],
                     metadatas=[comp_meta],
                 )
-            print(f"  Stored {len(compressed_entries)} compressed drawers.")
         except Exception as e:
-            print(f"  Error storing compressed drawers: {e}")
+            print(f"  Error storing compressed drawers: {e}", file=sys.stderr)
+            print(f"  Recover with: {recovery_command}", file=sys.stderr)
             sys.exit(1)
+
+        expected = {
+            doc_id: (
+                compressed,
+                round(stats["size_ratio"], 1),
+                stats["original_tokens_est"],
+            )
+            for doc_id, compressed, _meta, stats in compressed_entries
+        }
+        try:
+            stored = store.get(
+                ids=list(expected),
+                include=["documents", "metadatas"],
+                limit=len(expected),
+            )
+            stored_rows = list(
+                zip(
+                    stored.get("ids", []),
+                    stored.get("documents", []),
+                    stored.get("metadatas", []),
+                )
+            )
+            verified = (
+                len(stored_rows) == len(expected)
+                and len({row[0] for row in stored_rows}) == len(expected)
+                and all(
+                    doc_id in expected
+                    and document == expected[doc_id][0]
+                    and round(float(metadata.get("compression_ratio", 0.0)), 1)
+                    == expected[doc_id][1]
+                    and metadata.get("original_tokens") == expected[doc_id][2]
+                    for doc_id, document, metadata in stored_rows
+                )
+            )
+        except Exception:
+            verified = False
+
+        if not verified:
+            print("  Error verifying stored compressed drawers.", file=sys.stderr)
+            print(f"  Recover with: {recovery_command}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"  Stored and verified {len(compressed_entries)} compressed drawers.")
 
     # Summary
     ratio = total_original / max(total_compressed, 1)
-    orig_tokens = Dialect.count_tokens("x" * total_original)
-    comp_tokens = Dialect.count_tokens("x" * total_compressed)
-    print(f"  Total: {orig_tokens:,}t -> {comp_tokens:,}t ({ratio:.1f}x compression)")
+    print(
+        f"  Total: {total_original_tokens:,}t -> {total_compressed_tokens:,}t "
+        f"({ratio:.1f}x compression)"
+    )
     if args.dry_run:
         print("  (dry run -- nothing stored)")
 

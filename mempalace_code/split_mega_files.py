@@ -46,7 +46,8 @@ _HAS_O_NOFOLLOW = bool(getattr(os, "O_NOFOLLOW", 0))
 _O_BINARY = getattr(os, "O_BINARY", 0)
 _OUTPUT_MODE = 0o644
 _OUTPUT_TARGET_REASON = "not a regular output target"
-_OUTPUT_REPLACE_REASON = "cannot safely replace an existing output target on this platform"
+_OUTPUT_REPLACE_REASON = "output target already exists; retry with a new empty --output-dir"
+_OUTPUT_DIR_REASON = "not a safe output directory; retry with a new empty --output-dir"
 LUMI_DIR = Path(os.environ.get("MEMPALACE_SOURCE_DIR", str(HOME / "Desktop/transcripts")))
 
 # People explicitly configured for name detection in content.
@@ -207,7 +208,7 @@ def extract_subject(lines):
     return "session"
 
 
-def _reject_non_regular_output_entry(out_path: Path) -> None:
+def _reject_non_regular_output_entry(out_path: Path, *, dir_fd: int | None = None) -> None:
     """Refuse a synthesized output name that already exists as a non-regular entry.
 
     ``os.lstat`` is deliberate: ``Path.exists`` follows links and answers False for a
@@ -215,39 +216,42 @@ def _reject_non_regular_output_entry(out_path: Path) -> None:
     outside the requested output directory.
     """
     try:
-        st = os.lstat(out_path)
+        if dir_fd is None:
+            st = os.lstat(out_path)
+        else:
+            st = os.stat(out_path.name, dir_fd=dir_fd, follow_symlinks=False)
     except FileNotFoundError:
         return
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
         raise RegularSourceError(out_path, _OUTPUT_TARGET_REASON)
 
 
-def _open_regular_output_descriptor(out_path: Path) -> int:
+def _open_regular_output_descriptor(out_path: Path, *, dir_fd: int | None = None) -> int:
     """Open a validated regular-file descriptor for a generated split chunk.
 
     O_NOFOLLOW refuses a symlink at the synthesized name and O_NONBLOCK keeps a
     reader-less FIFO from blocking the open forever; ``fstat`` re-validates the
     descriptor that will actually be written.
     """
-    _reject_non_regular_output_entry(out_path)
+    _reject_non_regular_output_entry(out_path, dir_fd=dir_fd)
 
-    flags = os.O_WRONLY | os.O_CREAT | _O_BINARY
+    # Every synthesized chunk is new. Exclusive creation prevents a repeated or
+    # raced apply from truncating an operator-owned regular file.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _O_BINARY
     if _HAS_O_NOFOLLOW:
         flags |= os.O_NOFOLLOW
     if _HAS_O_NONBLOCK:
         flags |= os.O_NONBLOCK
-    protected_reopen = _HAS_O_NOFOLLOW and _HAS_O_NONBLOCK
-    if not protected_reopen:
-        # O_CREAT|O_EXCL refuses every raced-in object without following or opening it.
-        # Existing regular outputs are deliberately fail-closed on this fallback path.
-        flags |= os.O_EXCL
 
     try:
-        fd = os.open(out_path, flags, _OUTPUT_MODE)
+        if dir_fd is None:
+            fd = os.open(out_path, flags, _OUTPUT_MODE)
+        else:
+            fd = os.open(out_path.name, flags, _OUTPUT_MODE, dir_fd=dir_fd)
     except OSError as exc:
-        if _output_entry_is_unsafe(out_path):
+        if _output_entry_is_unsafe(out_path, dir_fd=dir_fd):
             raise RegularSourceError(out_path, _OUTPUT_TARGET_REASON) from exc
-        if not protected_reopen and exc.errno == errno.EEXIST:
+        if exc.errno == errno.EEXIST:
             raise RegularSourceError(out_path, _OUTPUT_REPLACE_REASON) from exc
         raise
 
@@ -264,10 +268,13 @@ def _open_regular_output_descriptor(out_path: Path) -> int:
     return fd
 
 
-def _output_entry_is_unsafe(out_path: Path) -> bool:
+def _output_entry_is_unsafe(out_path: Path, *, dir_fd: int | None = None) -> bool:
     """Report whether a failed open was caused by a hostile entry rather than plain I/O."""
     try:
-        st = os.lstat(out_path)
+        if dir_fd is None:
+            st = os.lstat(out_path)
+        else:
+            st = os.stat(out_path.name, dir_fd=dir_fd, follow_symlinks=False)
     except OSError:
         return False
     return not stat.S_ISREG(st.st_mode) or st.st_nlink != 1
@@ -284,10 +291,10 @@ def _clear_nonblocking(fd: int) -> None:
     fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
 
 
-def _write_regular_output(out_path: Path, text: str) -> None:
+def _write_regular_output(out_path: Path, text: str, *, dir_fd: int | None = None) -> None:
     """Write a generated chunk through a descriptor validated as a regular file."""
     payload = memoryview(text.encode("utf-8"))
-    fd = _open_regular_output_descriptor(out_path)
+    fd = _open_regular_output_descriptor(out_path, dir_fd=dir_fd)
     try:
         offset = 0
         while offset < len(payload):
@@ -297,6 +304,102 @@ def _write_regular_output(out_path: Path, text: str) -> None:
             offset += written
     finally:
         os.close(fd)
+
+
+def _acquire_explicit_output_directory(out_dir: Path):
+    """Return an anchored directory descriptor when the platform can provide one.
+
+    The fallback validates or creates only the requested leaf, then relies on the
+    universal O_EXCL file writer. It does not close parent-path TOCTOU races.
+    """
+    supports_dir_fd = getattr(os, "supports_dir_fd", set())
+    supports_follow_symlinks = getattr(os, "supports_follow_symlinks", set())
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    can_anchor = (
+        _HAS_O_NOFOLLOW
+        and directory_flag
+        and os.open in supports_dir_fd
+        and os.mkdir in supports_dir_fd
+        and os.stat in supports_dir_fd
+        and os.stat in supports_follow_symlinks
+    )
+    if not can_anchor:
+        try:
+            output_stat = os.lstat(out_dir)
+        except FileNotFoundError:
+            try:
+                out_dir.mkdir()
+            except FileExistsError:
+                output_stat = os.lstat(out_dir)
+            else:
+                output_stat = os.lstat(out_dir)
+        if not stat.S_ISDIR(output_stat.st_mode):
+            raise RegularSourceError(out_dir, _OUTPUT_DIR_REASON)
+        return None, None
+
+    explicit_dir = Path(os.path.abspath(out_dir))
+    output_dir_fd = None
+    parent_fd = None
+    try:
+        try:
+            expected_parent = os.stat(explicit_dir.parent, follow_symlinks=False)
+        except OSError as exc:
+            raise RegularSourceError(out_dir, _OUTPUT_DIR_REASON) from exc
+        if not stat.S_ISDIR(expected_parent.st_mode):
+            raise RegularSourceError(out_dir, _OUTPUT_DIR_REASON)
+        parent_fd = os.open(
+            explicit_dir.parent,
+            os.O_RDONLY | directory_flag | os.O_NOFOLLOW,
+        )
+        opened_parent = os.fstat(parent_fd)
+        if not stat.S_ISDIR(opened_parent.st_mode) or (
+            opened_parent.st_dev,
+            opened_parent.st_ino,
+        ) != (expected_parent.st_dev, expected_parent.st_ino):
+            raise RegularSourceError(out_dir, _OUTPUT_DIR_REASON)
+
+        try:
+            expected_output = os.stat(
+                explicit_dir.name,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            os.mkdir(explicit_dir.name, dir_fd=parent_fd)
+            expected_output = os.stat(
+                explicit_dir.name,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+        if not stat.S_ISDIR(expected_output.st_mode):
+            raise RegularSourceError(out_dir, _OUTPUT_DIR_REASON)
+
+        output_dir_fd = os.open(
+            explicit_dir.name,
+            os.O_RDONLY | directory_flag | os.O_NOFOLLOW,
+            dir_fd=parent_fd,
+        )
+        output_dir_stat = os.fstat(output_dir_fd)
+        current_output = os.stat(
+            explicit_dir.name,
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+        expected_identity = (expected_output.st_dev, expected_output.st_ino)
+        if (
+            not stat.S_ISDIR(output_dir_stat.st_mode)
+            or (output_dir_stat.st_dev, output_dir_stat.st_ino) != expected_identity
+            or (current_output.st_dev, current_output.st_ino) != expected_identity
+        ):
+            raise RegularSourceError(out_dir, _OUTPUT_DIR_REASON)
+        return output_dir_fd, output_dir_stat
+    except Exception:
+        if output_dir_fd is not None:
+            os.close(output_dir_fd)
+        raise
+    finally:
+        if parent_fd is not None:
+            os.close(parent_fd)
 
 
 def split_file(filepath, output_dir, dry_run=False, *, _progress=None):
@@ -316,36 +419,59 @@ def split_file(filepath, output_dir, dry_run=False, *, _progress=None):
 
     out_dir = Path(output_dir) if output_dir else path.parent
     written = _progress if _progress is not None else []
+    output_dir_fd = None
+    output_dir_stat = None
+    output_dir_acquired = False
 
-    for i, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
-        chunk = lines[start:end]
-        if len(chunk) < 10:
-            continue  # Skip tiny fragments
+    try:
+        for i, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
+            chunk = lines[start:end]
+            if len(chunk) < 10:
+                continue  # Skip tiny fragments
 
-        ts_human, ts_iso = extract_timestamp(chunk)
-        people = extract_people(chunk)
-        subject = extract_subject(chunk)
+            ts_human, ts_iso = extract_timestamp(chunk)
+            people = extract_people(chunk)
+            subject = extract_subject(chunk)
 
-        # Build filename: SOURCESTEM__DATE_TIME_People_subject.txt
-        # Source stem prefix prevents collisions when multiple mega-files
-        # produce sessions with the same timestamp/people/subject.
-        ts_part = ts_human or f"part{i + 1:02d}"
-        people_part = "-".join(people[:3]) if people else "unknown"
-        src_stem = re.sub(r"[^\w-]", "_", path.stem)[:40]
-        name = f"{src_stem}__{ts_part}_{people_part}_{subject}.txt"
-        # Sanitize
-        name = re.sub(r"[^\w\.\-]", "_", name)
-        name = re.sub(r"_+", "_", name)
+            # Build filename: SOURCESTEM__DATE_TIME_People_subject.txt
+            # Source stem prefix prevents collisions when multiple mega-files
+            # produce sessions with the same timestamp/people/subject.
+            ts_part = ts_human or f"part{i + 1:02d}"
+            people_part = "-".join(people[:3]) if people else "unknown"
+            src_stem = re.sub(r"[^\w-]", "_", path.stem)[:40]
+            name = f"{src_stem}__{ts_part}_{people_part}_{subject}.txt"
+            # Sanitize
+            name = re.sub(r"[^\w\.\-]", "_", name)
+            name = re.sub(r"_+", "_", name)
 
-        out_path = out_dir / name
+            out_path = out_dir / name
 
-        if dry_run:
-            print(f"  [{i + 1}/{len(boundaries) - 1}] {name}  ({len(chunk)} lines)")
-        else:
-            _write_regular_output(out_path, "".join(chunk))
-            print(f"  ✓ {name}  ({len(chunk)} lines)")
+            if dry_run:
+                print(f"  [{i + 1}/{len(boundaries) - 1}] {name}  ({len(chunk)} lines)")
+            else:
+                if output_dir and not output_dir_acquired:
+                    output_dir_fd, output_dir_stat = _acquire_explicit_output_directory(out_dir)
+                    output_dir_acquired = True
 
-        written.append(out_path)
+                if output_dir_fd is not None:
+                    assert output_dir_stat is not None
+                    try:
+                        current_output = os.stat(out_dir, follow_symlinks=False)
+                    except OSError as exc:
+                        raise RegularSourceError(out_dir, _OUTPUT_DIR_REASON) from exc
+                    if (current_output.st_dev, current_output.st_ino) != (
+                        output_dir_stat.st_dev,
+                        output_dir_stat.st_ino,
+                    ):
+                        raise RegularSourceError(out_dir, _OUTPUT_DIR_REASON)
+
+                _write_regular_output(out_path, "".join(chunk), dir_fd=output_dir_fd)
+                print(f"  ✓ {name}  ({len(chunk)} lines)")
+
+            written.append(out_path)
+    finally:
+        if output_dir_fd is not None:
+            os.close(output_dir_fd)
 
     return written
 

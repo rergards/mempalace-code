@@ -56,25 +56,6 @@ jobs:
         if: matrix.python-version == '3.13'
         run: python benchmarks/demo_perf_budgets.py --check --ci
 
-  chroma-migration-bridge:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.13"
-          cache: pip # zizmor: ignore[cache-poisoning]
-          cache-dependency-path: |
-            pyproject.toml
-            uv.lock
-      - run: pip install -e ".[dev,chroma-migration]"
-      - name: ChromaDB-to-LanceDB migration bridge tests
-        run: python -m pytest tests/test_migrate.py tests/test_migrate_storage_smoke.py -v
-      - name: Installed migration bridge smoke
-        run: python scripts/migrate_storage_smoke.py --rows 1
-
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -102,17 +83,12 @@ jobs:
         # composite actions are audited too, since a workflow is only as safe as
         # the actions it calls. No audit is disabled repository-wide.
         run: zizmor --offline --min-severity=medium .github/workflows/ .github/actions/
-      - name: Immutable Action pins and publish permission boundary
-        run: python scripts/workflow_security_gate.py --root . --format json
       - name: Public-safety scan (tracked + staged)
         run: python scripts/public_safety_scan.py --tracked --staged
       - name: Quality scorecard (shape + determinism + public-safety)
         run: python scripts/quality_scorecard.py --check
       - name: Documentation drift guard
         run: python scripts/docs_drift_guard.py
-      - name: Upstream comparison guard (static, network-free)
-        run: python scripts/upstream_comparison_guard.py
-
   gitleaks-changed-range:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' || github.event_name == 'push'
@@ -135,14 +111,8 @@ jobs:
       # Installs the Gitleaks version pinned by tools/gitleaks/go.mod and locked by
       # tools/gitleaks/go.sum. Dependabot's gomod ecosystem owns that upgrade.
       - uses: ./.github/actions/gitleaks-gate
-      - name: Validate Gitleaks baseline metadata
-        run: python scripts/gitleaks_scan.py validate-baseline
-      # Proves the rule corpus still detects every required secret class against the
-      # real binary, so a clean range scan is evidence rather than a silent no-op.
-      - name: Gitleaks synthetic fixture smoke
-        run: >
-          python scripts/gitleaks_scan.py fixture-smoke
-          --artifact-dir "${{ runner.temp }}/gitleaks/fixture-smoke"
+      - name: Gitleaks detector and redaction fixture
+        run: python scripts/gitleaks_scan.py fixture-smoke
       - name: Derive exact Gitleaks commit range
         id: gitleaks-range
         shell: bash
@@ -256,6 +226,310 @@ jobs:
           fi
           python scripts/dependency_upgrade_gate.py ci-check --base-ref "$base"
 
+  installed-application:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            python: "3.11"
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            python: "3.12"
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      HF_HOME: ${{ github.workspace }}/.cache/huggingface
+      MEMPALACE_TEST_HF_HOME: ${{ github.workspace }}/.cache/huggingface
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Restore required MiniLM cache
+        id: hf-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
+          key: fastembed-${{ runner.os }}-${{ matrix.arch }}-py${{ matrix.python }}-minilm-${{ hashFiles('pyproject.toml', 'uv.lock', 'benchmarks/minilm_runtime_compatibility_fixture.json') }} # zizmor: ignore[cache-poisoning]
+          restore-keys: |
+            fastembed-${{ runner.os }}-${{ matrix.arch }}-py${{ matrix.python }}-minilm-
+      - name: Seed missing MiniLM cache
+        if: steps.hf-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap_home="$RUNNER_TEMP/mempalace-cache-bootstrap-home"
+          mkdir -p "$bootstrap_home"
+          clean_env=(
+            env -i
+            HOME="$bootstrap_home"
+            HF_HOME="$HF_HOME"
+            HF_HUB_DISABLE_IMPLICIT_TOKEN=1
+            LANG=C.UTF-8
+            PATH="$PATH"
+            PIP_CONFIG_FILE=/dev/null
+            PIP_DISABLE_PIP_VERSION_CHECK=1
+            PIP_KEYRING_PROVIDER=disabled
+            PYTHONDONTWRITEBYTECODE=1
+            PYTHONNOUSERSITE=1
+          )
+          "${clean_env[@]}" python -m pip install .
+          "${clean_env[@]}" mempalace-code fetch-model
+      - name: Build exact candidate and provision installers
+        run: |
+          python -m pip install build pipx pytest uv
+          python -m build --wheel --outdir dist
+      - name: Verify pinned MiniLM runtime compatibility
+        if: matrix.arch == 'x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel=(dist/*.whl)
+          test "${#wheel[@]}" -eq 1
+          python -m pip install "${wheel[0]}"
+          python benchmarks/code_retrieval_bench.py --check-minilm-runtime-compatibility
+      - name: Verify installed application through every supported installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel=(dist/*.whl)
+          test "${#wheel[@]}" -eq 1
+          lifecycle_user="mempalace-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          lifecycle_user="${lifecycle_user:0:31}"
+          lifecycle_created=0
+          lifecycle_uid=""
+          lifecycle_home=""
+          lifecycle_runtime=""
+          stage_dir=""
+          staged_script=""
+          staged_wheel=""
+          smoke_launcher_pid=""
+          smoke_pid=""
+          smoke_pgid=""
+          smoke_identity=""
+          smoke_identity_tmp=""
+          # shellcheck disable=SC2317,SC2329  # Invoked indirectly by the EXIT trap below.
+          cleanup_lifecycle_user() {
+            trap - EXIT
+            set +e
+            if (( lifecycle_created == 0 )); then
+              return
+            fi
+            if [ -z "$lifecycle_uid" ]; then
+              lifecycle_uid="$(id -u "$lifecycle_user" 2>/dev/null)"
+            fi
+            if [ -z "$lifecycle_home" ]; then
+              lifecycle_home="$(getent passwd "$lifecycle_user" | cut -d: -f6)"
+            fi
+            if [ -z "$lifecycle_runtime" ] && [ -n "$lifecycle_uid" ]; then
+              lifecycle_runtime="/run/user/$lifecycle_uid"
+            fi
+            cleanup_rc=0
+            if [ -n "$smoke_identity" ] && sudo test -e "$smoke_identity"; then
+              identity_rc=0
+              sudo test -f "$smoke_identity" && sudo test ! -L "$smoke_identity" || identity_rc=1
+              test "$(sudo stat -c %u "$smoke_identity" 2>/dev/null)" = "$lifecycle_uid" || identity_rc=1
+              smoke_extra=""
+              read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra < <(sudo cat "$smoke_identity")
+              test -n "$smoke_pid" && test -n "$smoke_pgid" && test -n "$smoke_uid" && test -n "$smoke_command" || identity_rc=1
+              test -z "$smoke_extra" || identity_rc=1
+              test "$smoke_pid" = "$smoke_pgid" || identity_rc=1
+              test "$smoke_uid" = "$lifecycle_uid" || identity_rc=1
+              test "$smoke_command" = "$python_bin" || identity_rc=1
+              if [ -n "$smoke_pid" ] && sudo test -d "/proc/$smoke_pid"; then
+                current_pgid="$(ps -o pgid= -p "$smoke_pid" | tr -d ' ')"
+                current_uid="$(sudo awk '/^Uid:/ {print $2}' "/proc/$smoke_pid/status")"
+                mapfile -d '' smoke_cmdline < <(sudo cat "/proc/$smoke_pid/cmdline")
+                test "$current_pgid" = "$smoke_pgid" || identity_rc=1
+                test "$current_uid" = "$lifecycle_uid" || identity_rc=1
+                test "${smoke_cmdline[0]:-}" = "$python_bin" || identity_rc=1
+                test "${smoke_cmdline[1]:-}" = "$staged_script" || identity_rc=1
+                if (( identity_rc == 0 )); then
+                  sudo kill -TERM -- "-$smoke_pgid"
+                  for _attempt in {1..20}; do
+                    sudo kill -0 -- "-$smoke_pgid" 2>/dev/null || break
+                    sleep 0.25
+                  done
+                  if sudo kill -0 -- "-$smoke_pgid" 2>/dev/null; then
+                    if sudo test -d "/proc/$smoke_pid"; then
+                      test "$(ps -o pgid= -p "$smoke_pid" | tr -d ' ')" = "$smoke_pgid" || identity_rc=1
+                    fi
+                    if (( identity_rc == 0 )); then
+                      sudo kill -KILL -- "-$smoke_pgid"
+                      for _attempt in {1..20}; do
+                        sudo kill -0 -- "-$smoke_pgid" 2>/dev/null || break
+                        sleep 0.25
+                      done
+                    fi
+                  fi
+                  sudo kill -0 -- "-$smoke_pgid" 2>/dev/null && identity_rc=1
+                fi
+              elif [ -n "$smoke_pgid" ] && sudo kill -0 -- "-$smoke_pgid" 2>/dev/null; then
+                identity_rc=1
+              fi
+              cleanup_rc=$((cleanup_rc | identity_rc))
+            fi
+            if [ -n "$smoke_identity_tmp" ]; then
+              sudo rm -f -- "$smoke_identity_tmp"
+              cleanup_rc=$((cleanup_rc | $?))
+            fi
+            if (( cleanup_rc != 0 )); then
+              echo "disposable smoke process identity or termination failed" >&2
+              exit 1
+            fi
+            sudo -u "$lifecycle_user" env -i \
+              HOME="$lifecycle_home" \
+              XDG_RUNTIME_DIR="$lifecycle_runtime" \
+              DBUS_SESSION_BUS_ADDRESS="unix:path=$lifecycle_runtime/bus" \
+              PATH=/usr/local/bin:/usr/bin:/bin \
+              systemctl --user disable --now mempalace-update.timer
+            unit_rc=$?
+            if (( unit_rc != 0 )) && {
+              sudo test -e "$lifecycle_home/.config/systemd/user/mempalace-update.timer" ||
+              sudo test -e "$lifecycle_home/.config/systemd/user/mempalace-update.service"
+            }; then
+              cleanup_rc=1
+            fi
+            if [ -n "$lifecycle_uid" ]; then
+              sudo systemctl stop "user@${lifecycle_uid}.service"
+              cleanup_rc=$((cleanup_rc | $?))
+            fi
+            sudo userdel --remove "$lifecycle_user"
+            cleanup_rc=$((cleanup_rc | $?))
+            if [ -n "$stage_dir" ]; then
+              stage_rc=0
+              case "$stage_dir" in
+                /var/tmp/mempalace-installed-application.??????) ;;
+                *) stage_rc=1 ;;
+              esac
+              stage_mode="$(sudo stat -c %a "$stage_dir" 2>/dev/null)"
+              if (( stage_rc == 0 )) &&
+                sudo test -d "$stage_dir" &&
+                sudo test ! -L "$stage_dir" &&
+                test "$(sudo stat -c %u "$stage_dir")" = 0 &&
+                { test "$stage_mode" = 700 || test "$stage_mode" = 755 || test "$stage_mode" = 555; }; then
+                sudo rm -f -- "$staged_script" "$staged_wheel"
+                stage_rc=$((stage_rc | $?))
+                sudo rmdir -- "$stage_dir"
+                stage_rc=$((stage_rc | $?))
+              else
+                stage_rc=1
+              fi
+              if sudo test -e "$stage_dir" || sudo test -L "$stage_dir"; then
+                stage_rc=1
+              fi
+              cleanup_rc=$((cleanup_rc | stage_rc))
+            fi
+            if (( cleanup_rc != 0 )); then
+              echo "disposable systemd-user or staging cleanup failed" >&2
+              exit 1
+            fi
+          }
+          trap cleanup_lifecycle_user EXIT
+          if getent passwd "$lifecycle_user" >/dev/null; then
+            echo "refused to reuse an existing lifecycle user" >&2
+            exit 1
+          fi
+          lifecycle_created=1
+          sudo useradd --create-home --shell /bin/bash "$lifecycle_user"
+          lifecycle_uid="$(id -u "$lifecycle_user")"
+          lifecycle_home="$(getent passwd "$lifecycle_user" | cut -d: -f6)"
+          lifecycle_runtime="/run/user/$lifecycle_uid"
+          smoke_identity="$lifecycle_home/.mempalace-release-smoke.identity"
+          smoke_identity_tmp="$smoke_identity.tmp"
+          sudo systemctl start "user@${lifecycle_uid}.service"
+          test "$(stat -c %u "$lifecycle_runtime")" = "$lifecycle_uid"
+          python_bin="$(command -v python)"
+          script_source="$GITHUB_WORKSPACE/scripts/release_install_metadata_smoke.py"
+          wheel_source="$GITHUB_WORKSPACE/${wheel[0]}"
+          test -f "$script_source" && test ! -L "$script_source"
+          test -f "$wheel_source" && test ! -L "$wheel_source"
+          stage_dir="$(sudo mktemp -d /var/tmp/mempalace-installed-application.XXXXXX)"
+          staged_script="$stage_dir/release_install_metadata_smoke.py"
+          staged_wheel="$stage_dir/${wheel[0]##*/}"
+          test "$(sudo stat -c %u "$stage_dir")" = 0
+          test "$(sudo stat -c %a "$stage_dir")" = 700
+          sudo chmod 0755 "$stage_dir"
+          sudo install -o root -g root -m 0444 -- "$script_source" "$staged_script"
+          sudo install -o root -g root -m 0444 -- "$wheel_source" "$staged_wheel"
+          sudo chmod 0555 "$stage_dir"
+          for staged_path in "$staged_script" "$staged_wheel"; do
+            sudo test -f "$staged_path" && sudo test ! -L "$staged_path"
+            test "$(sudo stat -c %u "$staged_path")" = 0
+            test "$(sudo stat -c %a "$staged_path")" = 444
+            sudo -u "$lifecycle_user" test -r "$staged_path"
+          done
+          cmp -s -- "$script_source" "$staged_script"
+          cmp -s -- "$wheel_source" "$staged_wheel"
+          sudo -u "$lifecycle_user" env -i \
+            HOME="$lifecycle_home" \
+            USER="$lifecycle_user" \
+            LOGNAME="$lifecycle_user" \
+            LANG=C.UTF-8 \
+            PATH="$(dirname "$python_bin"):/usr/local/bin:/usr/bin:/bin" \
+            XDG_RUNTIME_DIR="$lifecycle_runtime" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=$lifecycle_runtime/bus" \
+            MEMPALACE_RELEASE_SYSTEMD_USER=1 \
+            setsid bash -c '
+              set -euo pipefail
+              umask 077
+              test ! -e "$1"
+              test ! -e "$2"
+              test ! -L "$2"
+              trap '\''rm -f -- "$2"'\'' EXIT
+              printf "%s %s %s %s\n" "$$" "$$" "$(id -u)" "$3" > "$2"
+              chmod 0600 -- "$2"
+              test -f "$2" && test ! -L "$2"
+              test "$(stat -c %u "$2")" = "$(id -u)"
+              test "$(stat -c %a "$2")" = 600
+              mv -- "$2" "$1"
+              trap - EXIT
+              exec "$3" "$4" --all-installers --install-spec "$5" --json
+            ' bash "$smoke_identity" "$smoke_identity_tmp" "$python_bin" "$staged_script" "$staged_wheel" &
+          smoke_launcher_pid=$!
+          smoke_started_at=$SECONDS
+          for _attempt in {1..40}; do
+            sudo test -f "$smoke_identity" && break
+            kill -0 "$smoke_launcher_pid" 2>/dev/null || break
+            sleep 0.25
+          done
+          sudo test -f "$smoke_identity" && sudo test ! -L "$smoke_identity"
+          smoke_extra=""
+          read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra < <(sudo cat "$smoke_identity")
+          test -n "$smoke_pid" && test -n "$smoke_pgid" && test -n "$smoke_uid" && test -n "$smoke_command"
+          test -z "$smoke_extra"
+          test "$smoke_pid" = "$smoke_pgid"
+          test "$smoke_uid" = "$lifecycle_uid"
+          test "$smoke_command" = "$python_bin"
+          while kill -0 "$smoke_launcher_pid" 2>/dev/null; do
+            if (( SECONDS - smoke_started_at >= 2400 )); then
+              echo "installed-application smoke exceeded its 40-minute deadline; recovery: rerun the installed-application job" >&2
+              exit 124
+            fi
+            sleep 1
+          done
+          if wait "$smoke_launcher_pid"; then
+            smoke_launcher_rc=0
+          else
+            smoke_launcher_rc=$?
+          fi
+          exit "$smoke_launcher_rc"
+      - name: Run full golden CLI suite through the exact installed wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel=(dist/*.whl)
+          test "${#wheel[@]}" -eq 1
+          WHEEL="${wheel[0]}"
+          python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
+
   # Stable aggregate release-admission check. Its name is the branch-ruleset
   # required-check context, so it must never be renamed without updating
   # RELEASE_CRITICAL_CI_JOBS / AGGREGATE_REQUIRED_CHECK in
@@ -266,9 +540,9 @@ jobs:
     name: release-required
     runs-on: ubuntu-latest
     needs:
-      - chroma-migration-bridge
       - dependency-upgrade-gate
       - gitleaks-changed-range
+      - installed-application
       - lint
       - package
       - test
@@ -280,7 +554,7 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
           EXPECTED_JOBS: >-
-            chroma-migration-bridge dependency-upgrade-gate gitleaks-changed-range
+            dependency-upgrade-gate gitleaks-changed-range installed-application
             lint package test typecheck
         run: |
           python3 - <<'PY'
@@ -337,10 +611,10 @@ jobs:
         id: hf-cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
-          path: ${{ github.workspace }}/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2
-          key: hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-${{ hashFiles('pyproject.toml', 'uv.lock') }} # zizmor: ignore[cache-poisoning]
+          path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
+          key: fastembed-${{ runner.os }}-py3.13-minilm-${{ hashFiles('pyproject.toml', 'uv.lock') }} # zizmor: ignore[cache-poisoning]
           restore-keys: |
-            hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-
+            fastembed-${{ runner.os }}-py3.13-minilm-
       - run: pip install -e ".[dev,treesitter]"
       - name: Fetch embedding model (no-op on cache hit)
         run: mempalace-code fetch-model

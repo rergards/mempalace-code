@@ -9,7 +9,9 @@ Returns verbatim text — the actual words, never summaries.
 import fnmatch
 import logging
 import os
+import shlex
 import sys
+from typing import TypeGuard
 
 from .language_catalog import searchable_languages
 from .storage import open_store
@@ -28,6 +30,7 @@ def search(
     wing: str | None = None,
     room: str | None = None,
     n_results: int = 5,
+    compact: bool = False,
 ):
     """
     Search the palace. Returns verbatim drawer content.
@@ -89,11 +92,17 @@ def search(
     dists = results["distances"][0]
 
     if not docs:
-        print(f'\n  No results found for: "{query}"')
+        if compact:
+            print("\n  No search results found.")
+        else:
+            print(f'\n  No results found for: "{query}"')
         return
 
     print(f"\n{'=' * 60}")
-    print(f'  Results for: "{query}"')
+    if compact:
+        print("  Search results")
+    else:
+        print(f'  Results for: "{query}"')
     if wing:
         print(f"  Wing: {wing}")
     if room:
@@ -111,6 +120,33 @@ def search(
         print(f"  [{i}] {wing_name} / {room_name}")
         print(f"      Source: {source}")
         print(f"      Match:  {similarity}")
+        if compact:
+            line_range = _compact_line_range(meta)
+            if line_range is not None:
+                print(f"      Lines:  {line_range[0]}-{line_range[1]}")
+            print()
+            preview = doc.strip().replace("\n", " ")
+            if len(preview) > 300:
+                preview = f"{preview[:297]}..."
+            print(f"      {preview}")
+            source_file = meta.get("source_file")
+            wing_value = meta.get("wing")
+            if (
+                line_range is not None
+                and _usable_recovery_value(source_file)
+                and _usable_recovery_value(wing_value)
+            ):
+                print(
+                    "      Recovery: mempalace-code --palace "
+                    f"{shlex.quote(palace_path)} read {shlex.quote(source_file)} "
+                    f"--start {line_range[0]} "
+                    f"--end {line_range[1]} --wing {shlex.quote(wing_value)}"
+                )
+            else:
+                print("      Recovery: unavailable")
+            print()
+            print(f"  {'─' * 56}")
+            continue
         print()
         # Print the verbatim text, indented
         for line in doc.strip().split("\n"):
@@ -119,6 +155,35 @@ def search(
         print(f"  {'─' * 56}")
 
     print()
+
+
+def _compact_line_range(meta: dict) -> tuple[int, int] | None:
+    """Return a positive ordered line range without coercing malformed metadata."""
+    values = []
+    for key in ("line_start", "line_end"):
+        value = meta.get(key)
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            parsed = value
+        elif isinstance(value, str):
+            try:
+                parsed = int(value.strip())
+            except ValueError:
+                return None
+        else:
+            return None
+        if parsed <= 0:
+            return None
+        values.append(parsed)
+    if values[1] < values[0]:
+        return None
+    return values[0], values[1]
+
+
+def _usable_recovery_value(value: object) -> TypeGuard[str]:
+    """Accept only nonblank, non-placeholder strings as recovery arguments."""
+    return isinstance(value, str) and bool(value.strip()) and value.strip() != "?"
 
 
 def search_memories(

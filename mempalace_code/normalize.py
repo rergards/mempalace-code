@@ -3,14 +3,14 @@
 normalize.py — Convert any chat export format to MemPalace transcript format.
 
 Supported:
-    - Plain text with > markers (pass through)
+    - Plain text with > markers (spellcheck user turns when enabled)
     - Claude.ai JSON export
     - ChatGPT conversations.json
     - Claude Code JSONL
     - OpenAI Codex CLI JSONL
     - Gemini CLI JSONL
     - Slack JSON export
-    - Plain text (pass through for paragraph chunking)
+    - Plain text (spellcheck marked user turns when enabled)
 
 No API key. No internet. Everything local.
 """
@@ -48,7 +48,7 @@ _BASH_CMD_CAP = 80
 def normalize(filepath: str, spellcheck: bool = True) -> str:
     """
     Load a file and normalize to transcript format if it's a chat export.
-    Plain text files pass through unchanged.
+    Plain text files spellcheck marked user turns when enabled.
     """
     try:
         content = read_regular_text(filepath, encoding="utf-8", errors="replace")
@@ -58,11 +58,6 @@ def normalize(filepath: str, spellcheck: bool = True) -> str:
     if not content.strip():
         return content
 
-    # Already has > markers — pass through
-    lines = content.split("\n")
-    if sum(1 for line in lines if line.strip().startswith(">")) >= 3:
-        return content
-
     # Try JSON normalization
     ext = Path(filepath).suffix.lower()
     if ext in (".json", ".jsonl") or content.strip()[:1] in ("{", "["):
@@ -70,6 +65,10 @@ def normalize(filepath: str, spellcheck: bool = True) -> str:
         if normalized:
             return normalized
 
+    if spellcheck:
+        from mempalace_code.spellcheck import spellcheck_transcript
+
+        return spellcheck_transcript(content)
     return content
 
 

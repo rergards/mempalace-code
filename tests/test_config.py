@@ -1,6 +1,9 @@
 import json
 import os
 import tempfile
+from pathlib import Path
+
+import pytest
 
 from mempalace_code.config import (
     DEFAULT_HALL_KEYWORDS,
@@ -18,7 +21,6 @@ def test_malformed_config_json_falls_back_to_empty_file_config():
         f.write("{not valid json,,,")
     cfg = MempalaceConfig(config_dir=tmpdir)
     assert cfg.palace_path == DEFAULT_PALACE_PATH
-    assert cfg.collection_name == "mempalace_drawers"
     assert cfg.hall_keywords == DEFAULT_HALL_KEYWORDS
     assert cfg.topic_wings == DEFAULT_TOPIC_WINGS
 
@@ -76,10 +78,126 @@ def test_people_map_malformed_dedicated_file_falls_back_to_config_key():
     assert cfg.people_map == {"fallback": "value"}
 
 
+@pytest.mark.parametrize("original", [b'{"broken": ???\n', b"\xff\xfe"])
+def test_save_people_map_refuses_malformed_existing_file(tmp_path: Path, original: bytes):
+    people_map_path = tmp_path / "people_map.json"
+    people_map_path.write_bytes(original)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        MempalaceConfig(config_dir=tmp_path).save_people_map({"new": "mapping"})
+
+    message = str(exc_info.value)
+    assert str(people_map_path) in message
+    assert "existing path is the recovery source" in message
+    assert "Repair or move it" in message
+    assert "retry save_people_map()" in message
+    assert people_map_path.read_bytes() == original
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="os.mkfifo is unavailable")
+def test_save_people_map_rejects_non_regular_entries_before_open(tmp_path: Path, monkeypatch):
+    cases: list[Path] = []
+
+    fifo_path = tmp_path / "fifo" / "people_map.json"
+    fifo_path.parent.mkdir()
+    os.mkfifo(fifo_path)
+    cases.append(fifo_path)
+
+    symlink_fifo_path = tmp_path / "symlink-fifo" / "people_map.json"
+    symlink_fifo_path.parent.mkdir()
+    symlink_fifo_path.symlink_to(fifo_path)
+    cases.append(symlink_fifo_path)
+
+    directory_path = tmp_path / "directory" / "people_map.json"
+    directory_path.mkdir(parents=True)
+    cases.append(directory_path)
+
+    broken_symlink_path = tmp_path / "broken-symlink" / "people_map.json"
+    broken_symlink_path.parent.mkdir()
+    broken_symlink_path.symlink_to(tmp_path / "missing-target.json")
+    cases.append(broken_symlink_path)
+
+    real_open = open
+
+    def reject_target_open(file, mode="r", *args, **kwargs):
+        if Path(file) in cases:
+            raise AssertionError("non-regular people_map entry reached open()")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", reject_target_open)
+
+    for people_map_path in cases:
+        with pytest.raises(RuntimeError) as exc_info:
+            MempalaceConfig(config_dir=people_map_path.parent).save_people_map({"new": "mapping"})
+        assert isinstance(exc_info.value.__cause__, OSError)
+        assert str(people_map_path) in str(exc_info.value)
+
+
+def test_save_people_map_preserves_valid_symlink_behavior(tmp_path: Path):
+    target = tmp_path / "managed-people-map.json"
+    target.write_text(json.dumps({"old": "mapping"}))
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    people_map_path = config_dir / "people_map.json"
+    people_map_path.symlink_to(target)
+
+    mapping = {"new": "mapping"}
+    assert MempalaceConfig(config_dir=config_dir).save_people_map(mapping) == people_map_path
+    assert people_map_path.is_symlink()
+    assert json.loads(target.read_text()) == mapping
+
+
+def test_save_people_map_refuses_unreadable_existing_file(tmp_path: Path, monkeypatch):
+    people_map_path = tmp_path / "people_map.json"
+    original = b'{"existing": "mapping"}\n'
+    people_map_path.write_bytes(original)
+    real_open = open
+
+    def fail_target_read(file, mode="r", *args, **kwargs):
+        if Path(file) == people_map_path and mode == "r":
+            raise OSError("simulated read failure")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", fail_target_read)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        MempalaceConfig(config_dir=tmp_path).save_people_map({"new": "mapping"})
+
+    assert isinstance(exc_info.value.__cause__, OSError)
+    assert str(people_map_path) in str(exc_info.value)
+    assert people_map_path.read_bytes() == original
+
+
+def test_save_people_map_repeated_refusal_preserves_file_without_artifacts(tmp_path: Path):
+    people_map_path = tmp_path / "people_map.json"
+    original = b'{"broken": [}\n'
+    people_map_path.write_bytes(original)
+    config = MempalaceConfig(config_dir=tmp_path)
+
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            config.save_people_map({"new": "mapping"})
+        assert people_map_path.read_bytes() == original
+        assert list(tmp_path.iterdir()) == [people_map_path]
+
+
+def test_save_people_map_writes_absent_and_replaces_valid_file(tmp_path: Path):
+    people_map_path = tmp_path / "people_map.json"
+    config = MempalaceConfig(config_dir=tmp_path)
+
+    absent_mapping = {"alias": "canonical"}
+    assert config.save_people_map(absent_mapping) == people_map_path
+    assert json.loads(people_map_path.read_text()) == absent_mapping
+
+    valid_mapping = {"replacement": "person"}
+    people_map_path.write_text(json.dumps(["valid", "non-mapping", "json"]))
+    assert config.save_people_map(valid_mapping) == people_map_path
+    assert json.loads(people_map_path.read_text()) == valid_mapping
+
+
 def test_default_config():
     cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
     assert "palace" in cfg.palace_path
-    assert cfg.collection_name == "mempalace_drawers"
 
 
 def test_config_from_file():

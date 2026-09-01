@@ -35,6 +35,24 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def test_embedding_manifest_rejects_torch_and_requires_custom_owner(tmp_path: Path):
+    _write(tmp_path / "mempalace_code" / "storage.py", "")
+    _write(
+        tmp_path / "pyproject.toml",
+        """[project]
+dependencies = ["fastembed>=0.8", "onnxruntime>=1.20", "torch>=2"]
+[project.optional-dependencies]
+custom-models = []
+""",
+    )
+
+    result = guard.evaluate(tmp_path)
+
+    assert result.ok is False
+    assert "forbidden default runtime dependency: torch" in result.manifest_violations
+    assert "custom-models must own sentence-transformers" in result.manifest_violations
+
+
 # ── AC-1: clean graph exits 0 ───────────────────────────────────────────────────
 
 
@@ -97,7 +115,6 @@ def test_layer_names_are_explicit_and_public():
         "mining",
         "cli",
         "mcp",
-        "legacy_optional",
         "scripts",
     )
 
@@ -109,7 +126,6 @@ def test_print_layers_lists_matched_files(tmp_path: Path):
     _write(tmp_path / "mempalace_code" / "miner.py", "")
     _write(tmp_path / "mempalace_code" / "cli.py", "")
     _write(tmp_path / "mempalace_code" / "mcp_server.py", "")
-    _write(tmp_path / "mempalace_code" / "_chroma_store.py", "")
     _write(tmp_path / "scripts" / "some_tool.py", "")
 
     result = guard.evaluate(tmp_path)
@@ -122,7 +138,6 @@ def test_print_layers_lists_matched_files(tmp_path: Path):
     assert "mempalace_code/miner.py" in output
     assert "mempalace_code/cli.py" in output
     assert "mempalace_code/mcp_server.py" in output
-    assert "mempalace_code/_chroma_store.py" in output
     assert "scripts/some_tool.py" in output
 
 
@@ -153,22 +168,6 @@ def test_direct_forbidden_import_from_storage_to_cli(tmp_path: Path):
     assert violation.source_layer == "storage"
     assert violation.target_layer == "cli"
     assert violation.path == ("mempalace_code/storage.py", "mempalace_code/cli.py")
-
-
-def test_direct_forbidden_import_from_config_to_legacy_optional(tmp_path: Path):
-    _write(
-        tmp_path / "mempalace_code" / "config.py",
-        "from ._chroma_store import ChromaStore\n",
-    )
-    _write(tmp_path / "mempalace_code" / "_chroma_store.py", "")
-
-    result = guard.evaluate(tmp_path)
-
-    assert result.ok is False
-    assert any(
-        v.source_layer == "storage" and v.target_layer == "legacy_optional"
-        for v in result.violations
-    )
 
 
 def test_direct_forbidden_import_from_mining_to_mcp(tmp_path: Path):
@@ -237,11 +236,11 @@ def test_allowed_edges_are_not_flagged(tmp_path: Path):
     assert result.ok is True
 
 
-def test_storage_config_and_mining_cannot_reach_cli_mcp_or_legacy_optional(tmp_path: Path):
-    """AC-2: storage, config, miner, and mining/ each fail against every forbidden layer."""
+def test_storage_config_and_mining_cannot_reach_cli_or_mcp(tmp_path: Path):
+    """AC-2: storage, config, miner, and mining/ fail against active forbidden layers."""
     _write(tmp_path / "mempalace_code" / "storage.py", "from .cli import main\n")
     _write(tmp_path / "mempalace_code" / "config.py", "from .mcp_server import serve\n")
-    _write(tmp_path / "mempalace_code" / "miner.py", "from ._chroma_store import ChromaStore\n")
+    _write(tmp_path / "mempalace_code" / "miner.py", "from .mcp_server import serve\n")
     _write(tmp_path / "mempalace_code" / "mining" / "__init__.py", "")
     _write(
         tmp_path / "mempalace_code" / "mining" / "orchestrator.py",
@@ -249,7 +248,6 @@ def test_storage_config_and_mining_cannot_reach_cli_mcp_or_legacy_optional(tmp_p
     )
     _write(tmp_path / "mempalace_code" / "cli.py", "")
     _write(tmp_path / "mempalace_code" / "mcp_server.py", "")
-    _write(tmp_path / "mempalace_code" / "_chroma_store.py", "")
 
     result = guard.evaluate(tmp_path)
 
@@ -257,7 +255,7 @@ def test_storage_config_and_mining_cannot_reach_cli_mcp_or_legacy_optional(tmp_p
     offenders = {(v.source, v.target_layer) for v in result.violations}
     assert ("mempalace_code/storage.py", "cli") in offenders
     assert ("mempalace_code/config.py", "mcp") in offenders
-    assert ("mempalace_code/miner.py", "legacy_optional") in offenders
+    assert ("mempalace_code/miner.py", "mcp") in offenders
     assert ("mempalace_code/mining/orchestrator.py", "cli") in offenders
 
 
@@ -490,8 +488,5 @@ def test_classify_layer_matches_expected_files():
     assert guard.classify_layer("mempalace_code/cli_commands/watch.py") == "cli"
     assert guard.classify_layer("mempalace_code/mcp_server.py") == "mcp"
     assert guard.classify_layer("mempalace_code/mcp/dispatch.py") == "mcp"
-    assert guard.classify_layer("mempalace_code/_chroma_store.py") == "legacy_optional"
-    assert guard.classify_layer("mempalace_code/migrate.py") == "legacy_optional"
-    assert guard.classify_layer("mempalace_code/legacy_optional/chroma.py") == "legacy_optional"
     assert guard.classify_layer("scripts/quality_scorecard.py") == "scripts"
     assert guard.classify_layer("mempalace_code/searcher.py") == "core"

@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -37,6 +39,27 @@ DEFAULT_SERVICE_UNIT = "mempalace-update.service"
 MIN_FREE_BYTES = 100 * 1024 * 1024
 DEFAULT_COMMAND_TIMEOUT = 15 * 60
 SYSTEMD_BASELINE_PATH = ("/usr/local/bin", "/usr/bin", "/bin")
+REQUIRED_UPDATE_PLATFORM = "linux"
+UPDATE_SERVICE_MANAGER = "systemd-user"
+UNSUPPORTED_PLATFORM_RECOVERY_COMMAND = "mempalace-code update status --json"
+SCHEDULER_UNSET_ENVIRONMENT = (
+    "ANTHROPIC_API_KEY",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CODEX_API_KEY",
+    "GEMINI_API_KEY",
+    "GITHUB_TOKEN",
+    "GOOGLE_API_KEY",
+    "HF_TOKEN",
+    "OPENAI_API_KEY",
+    "PIP_EXTRA_INDEX_URL",
+    "PIP_INDEX_URL",
+    "PYPI_TOKEN",
+    "SSH_AUTH_SOCK",
+    "UV_EXTRA_INDEX_URL",
+    "UV_INDEX_URL",
+)
 _CUSTOM_WATCHER_UNIT = re.compile(r"^mempalace-watch-[A-Za-z0-9][A-Za-z0-9_.@-]*\.service$")
 _PYTHON_EXECUTABLE = re.compile(r"^python(?:3(?:\.\d+)?t?)?$")
 _ASCII_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
@@ -46,6 +69,7 @@ CommandRunner = Callable[[list[str]], tuple[int, str, str]]
 PypiFetcher = Callable[[], dict[str, Any]]
 PalaceValidator = Callable[[str], tuple[bool, str]]
 BackupPreflight = Callable[[], tuple[bool, str]]
+SchedulerContext = Callable[[], tuple[Path, str | None]]
 
 
 class WatcherService(Protocol):
@@ -342,7 +366,6 @@ def detect_installed_extras() -> frozenset[str]:
         "watch": "watchfiles",
         "treesitter": "tree_sitter",
         "spellcheck": "autocorrect",
-        "chroma": "chromadb",
     }
     return frozenset(extra for extra, module in modules.items() if find_spec(module) is not None)
 
@@ -359,7 +382,17 @@ def _has_editable_metadata() -> bool:
         data = json.loads(direct_url)
     except ValueError:
         return True
-    return bool(data.get("dir_info", {}).get("editable", True))
+    if not isinstance(data, dict):
+        return True
+    dir_info = data.get("dir_info")
+    if dir_info is None:
+        return False
+    if not isinstance(dir_info, dict):
+        return True
+    editable = dir_info.get("editable")
+    if not isinstance(editable, bool):
+        return True
+    return editable
 
 
 def detect_installation(
@@ -548,7 +581,7 @@ def _default_palace_validator(palace_path: str) -> tuple[bool, str]:
     try:
         from .storage import open_store
 
-        report = open_store(str(palace), create=False, read_only=True).health_check()  # type: ignore[reportAttributeAccessIssue]  # reason: health checks are a LanceStore-only update validation surface
+        report = open_store(str(palace), create=False, read_only=True).health_check()
     except Exception as exc:
         return False, str(exc)
     return bool(report.get("ok")), str(report.get("summary", report))
@@ -578,6 +611,7 @@ class UpdateManager:
         service: WatcherService | None = None,
         palace_validator: PalaceValidator = _default_palace_validator,
         backup_preflight: BackupPreflight = _default_backup_preflight,
+        scheduler_context: SchedulerContext | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         minimum_free_bytes: int = MIN_FREE_BYTES,
     ) -> None:
@@ -591,6 +625,7 @@ class UpdateManager:
         self.service = service or SystemdUserService(runner)
         self.palace_validator = palace_validator
         self.backup_preflight = backup_preflight
+        self.scheduler_context = scheduler_context or self._scheduler_context
         self.now = now
         self.minimum_free_bytes = minimum_free_bytes
 
@@ -606,37 +641,61 @@ class UpdateManager:
         """Inspect eligibility and service/scheduler state without creating or changing files."""
         installation = self._get_installation()
         provenance = self._resolve_provenance() if refresh else self._cached_provenance()
-        watcher = self._watcher_status()
-        scheduler = self.scheduler_status()
         state = self._read_state()
-        required_missing = self._required_extra_missing(installation, watcher.active)
-        if not watcher.safe:
-            eligibility_reason = watcher.detail
-        elif required_missing:
-            eligibility_reason = required_missing
-        elif not installation.supported:
-            eligibility_reason = installation.reason
-        else:
-            eligibility_reason = provenance.reason
-        data = {
-            "installation": installation.as_dict(),
-            "provenance": provenance.as_dict(),
-            "eligible": (
-                installation.supported
-                and provenance.eligible
-                and required_missing is None
-                and watcher.safe
-            ),
-            "watcher": {
+        platform_boundary = self._unsupported_platform_data()
+        if platform_boundary is None:
+            watcher = self._watcher_status()
+            watcher_data = {
                 "unit": watcher.unit,
                 "active": watcher.active,
                 "detail": watcher.detail,
                 "safe": watcher.safe,
-            },
+            }
+            scheduler = self.scheduler_status()
+            required_missing = self._required_extra_missing(installation, watcher.active)
+            if not watcher.safe:
+                eligibility_reason = watcher.detail
+            elif required_missing:
+                eligibility_reason = required_missing
+            elif not installation.supported:
+                eligibility_reason = installation.reason
+            else:
+                eligibility_reason = provenance.reason
+        else:
+            detail = self._unsupported_platform_message()
+            watcher_data = {
+                "unit": DEFAULT_WATCHER_UNIT,
+                "active": False,
+                "detail": detail,
+                "safe": False,
+                "supported": False,
+                **platform_boundary,
+            }
+            scheduler = {
+                "supported": False,
+                "enabled": False,
+                "detail": detail,
+                "next_run": None,
+                **platform_boundary,
+            }
+            required_missing = None
+            eligibility_reason = detail
+        data = {
+            "installation": installation.as_dict(),
+            "provenance": provenance.as_dict(),
+            "eligible": (
+                platform_boundary is None
+                and installation.supported
+                and provenance.eligible
+                and required_missing is None
+                and watcher_data["safe"]
+            ),
+            "watcher": watcher_data,
             "scheduler": scheduler,
             "next_run": scheduler.get("next_run"),
             "last_update": state,
             "reason": eligibility_reason,
+            **(platform_boundary or {}),
         }
         return UpdateResult(
             True, "status", "update status inspected without mutation", 0, data=data
@@ -648,6 +707,9 @@ class UpdateManager:
 
     def apply(self, *, scheduled: bool = False) -> UpdateResult:
         """Run the explicit, compensating update transaction for a supported installation."""
+        platform_error = self._unsupported_platform_result()
+        if platform_error is not None:
+            return platform_error
         installation = self._get_installation()
         provenance = self._resolve_provenance()
         if scheduled and provenance.current_release:
@@ -793,6 +855,15 @@ class UpdateManager:
 
     def scheduler_status(self) -> dict[str, object]:
         """Read current systemd-user timer state; unavailable systems remain diagnostic only."""
+        platform_boundary = self._unsupported_platform_data()
+        if platform_boundary is not None:
+            return {
+                "supported": False,
+                "enabled": False,
+                "detail": self._unsupported_platform_message(),
+                "next_run": None,
+                **platform_boundary,
+            }
         try:
             rc, out, err = self.runner(["systemctl", "--user", "is-enabled", DEFAULT_TIMER_UNIT])
         except (OSError, subprocess.SubprocessError) as exc:
@@ -829,6 +900,10 @@ class UpdateManager:
                 "[Service]",
                 "Type=oneshot",
                 f"Environment={_systemd_quoted_value(f'PATH={environment_path}')}",
+                f"Environment={_systemd_quoted_value('PIP_CONFIG_FILE=/dev/null')}",
+                f"Environment={_systemd_quoted_value('PIP_KEYRING_PROVIDER=disabled')}",
+                f"Environment={_systemd_quoted_value('PYTHONNOUSERSITE=1')}",
+                "UnsetEnvironment=" + " ".join(SCHEDULER_UNSET_ENVIRONMENT),
                 f"ExecStart={command}",
                 "",
             ]
@@ -852,6 +927,9 @@ class UpdateManager:
 
     def install_scheduler(self) -> UpdateResult:
         """Explicitly write and enable the supported systemd-user update timer."""
+        platform_error = self._unsupported_platform_result()
+        if platform_error is not None:
+            return platform_error
         installation = self._get_installation()
         if not installation.supported:
             return UpdateResult(False, "scheduler-preflight", installation.reason, 2)
@@ -859,30 +937,260 @@ class UpdateManager:
             units = self.render_scheduler_units()
         except ValueError as exc:
             return UpdateResult(False, "scheduler-preflight", str(exc), 2)
-        unit_dir = Path.home() / ".config" / "systemd" / "user"
+        unit_dir, existing, boundary_error = self._scheduler_units_preflight(
+            units, require_present=False
+        )
+        if boundary_error:
+            return UpdateResult(False, "scheduler-preflight", boundary_error, 2)
+        created: list[Path] = []
         try:
-            unit_dir.mkdir(parents=True, exist_ok=True)
-            for name, content in units.items():
-                self._atomic_write_text(unit_dir / name, content)
+            if not existing:
+                unit_dir.mkdir(parents=True, exist_ok=True)
+                for name, content in units.items():
+                    path = unit_dir / name
+                    self._atomic_write_text(path, content)
+                    created.append(path)
             for command in (
                 ["systemctl", "--user", "daemon-reload"],
                 ["systemctl", "--user", "enable", "--now", DEFAULT_TIMER_UNIT],
             ):
                 ok, detail = self._run_plain(command)
                 if not ok:
+                    if created:
+                        cleanup_ok, cleanup_detail = self._rollback_scheduler_install(created)
+                        if not cleanup_ok:
+                            detail = f"{detail}; scheduler cleanup failed: {cleanup_detail}"
                     return UpdateResult(False, "scheduler-install", detail, 1)
         except OSError as exc:
-            return UpdateResult(False, "scheduler-install", str(exc), 1)
+            detail = str(exc)
+            if created:
+                cleanup_ok, cleanup_detail = self._rollback_scheduler_install(created)
+                if not cleanup_ok:
+                    detail = f"{detail}; scheduler cleanup failed: {cleanup_detail}"
+            return UpdateResult(False, "scheduler-install", detail, 1)
         return UpdateResult(True, "scheduler-installed", "systemd-user update timer enabled", 0)
 
     def remove_scheduler(self) -> UpdateResult:
-        """Explicitly disable the supported timer without touching package state."""
+        """Explicitly disable the supported timer and remove its owned user units."""
+        platform_error = self._unsupported_platform_result()
+        if platform_error is not None:
+            return platform_error
+        try:
+            units = self.render_scheduler_units()
+        except ValueError as exc:
+            return UpdateResult(False, "scheduler-preflight", str(exc), 2)
+        unit_dir, _existing, boundary_error = self._scheduler_units_preflight(
+            units, require_present=True
+        )
+        if boundary_error:
+            return UpdateResult(False, "scheduler-preflight", boundary_error, 2)
         ok, detail = self._run_plain(
             ["systemctl", "--user", "disable", "--now", DEFAULT_TIMER_UNIT]
         )
         if not ok:
             return UpdateResult(False, "scheduler-remove", detail, 1)
+        ok, detail = self._run_plain(["systemctl", "--user", "stop", DEFAULT_SERVICE_UNIT])
+        if not ok:
+            return UpdateResult(False, "scheduler-remove", detail, 1)
+        removed: list[str] = []
+        try:
+            for name in (DEFAULT_TIMER_UNIT, DEFAULT_SERVICE_UNIT):
+                (unit_dir / name).unlink(missing_ok=True)
+                removed.append(name)
+        except OSError as exc:
+            detail = str(exc)
+            rollback_ok, rollback_detail = self._rollback_scheduler_removal(
+                unit_dir, units, removed
+            )
+            if not rollback_ok:
+                detail += f"; scheduler rollback failed: {rollback_detail}"
+            return UpdateResult(False, "scheduler-remove", detail, 1)
+        ok, detail = self._run_plain(["systemctl", "--user", "daemon-reload"])
+        if not ok:
+            rollback_ok, rollback_detail = self._rollback_scheduler_removal(
+                unit_dir, units, removed
+            )
+            if not rollback_ok:
+                detail += f"; scheduler rollback failed: {rollback_detail}"
+            return UpdateResult(False, "scheduler-remove", detail, 1)
         return UpdateResult(True, "scheduler-removed", "systemd-user update timer disabled", 0)
+
+    def _rollback_scheduler_install(self, created: list[Path]) -> tuple[bool, str]:
+        """Disable any partial install, remove only paths created here, and reload."""
+        failures: list[str] = []
+        ok, detail = self._run_plain(
+            ["systemctl", "--user", "disable", "--now", DEFAULT_TIMER_UNIT]
+        )
+        if not ok and "not loaded" not in detail and "does not exist" not in detail:
+            failures.append(detail)
+        for path in reversed(created):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                failures.append(f"{path.name}: {exc}")
+        ok, detail = self._run_plain(["systemctl", "--user", "daemon-reload"])
+        if not ok:
+            failures.append(detail)
+        return not failures, "; ".join(failures)
+
+    def _rollback_scheduler_removal(
+        self, unit_dir: Path, units: dict[str, str], removed: list[str]
+    ) -> tuple[bool, str]:
+        """Restore the owned unit pair and enabled timer after a failed removal."""
+        failures: list[str] = []
+        for name in removed:
+            try:
+                self._atomic_write_text(unit_dir / name, units[name])
+            except OSError as exc:
+                failures.append(f"{name}: {exc}")
+        if failures:
+            return False, "; ".join(failures)
+        for command in (
+            ["systemctl", "--user", "daemon-reload"],
+            ["systemctl", "--user", "enable", "--now", DEFAULT_TIMER_UNIT],
+        ):
+            ok, detail = self._run_plain(command)
+            if not ok:
+                failures.append(detail)
+                break
+        return not failures, "; ".join(failures)
+
+    def _scheduler_units_preflight(
+        self, units: dict[str, str], *, require_present: bool
+    ) -> tuple[Path, bool, str | None]:
+        """Validate the same-user systemd boundary and the complete canonical unit pair."""
+        unit_dir, boundary_error = self.scheduler_context()
+        if boundary_error:
+            return unit_dir, False, boundary_error
+
+        states: list[tuple[Path, os.stat_result | None]] = []
+        for name in (DEFAULT_SERVICE_UNIT, DEFAULT_TIMER_UNIT):
+            path = unit_dir / name
+            try:
+                metadata = path.lstat()
+            except FileNotFoundError:
+                metadata = None
+            except OSError as exc:
+                return unit_dir, False, f"cannot inspect scheduler unit {name}: {exc}"
+            states.append((path, metadata))
+
+        present = [metadata is not None for _path, metadata in states]
+        if any(present) and not all(present):
+            return unit_dir, False, "scheduler unit pair is partial"
+        if not any(present):
+            if require_present:
+                return unit_dir, False, "scheduler unit pair is absent"
+            return unit_dir, False, None
+
+        uid = os.geteuid()
+        for path, metadata in states:
+            assert metadata is not None
+            if not stat.S_ISREG(metadata.st_mode):
+                return unit_dir, False, f"scheduler unit {path.name} is not a regular file"
+            if metadata.st_uid != uid:
+                return unit_dir, False, f"scheduler unit {path.name} has a foreign owner"
+            try:
+                content = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                return unit_dir, False, f"cannot read scheduler unit {path.name}: {exc}"
+            if content != units[path.name]:
+                return unit_dir, False, f"scheduler unit {path.name} content does not match"
+        return unit_dir, True, None
+
+    @staticmethod
+    def _scheduler_context() -> tuple[Path, str | None]:
+        """Return the canonical unit directory only for one coherent user-manager identity."""
+        uid = os.geteuid()
+        try:
+            passwd_home = Path(pwd.getpwuid(uid).pw_dir).resolve(strict=True)
+        except (KeyError, OSError) as exc:
+            return Path("."), f"cannot resolve passwd HOME for uid {uid}: {exc}"
+
+        configured_home = os.environ.get("HOME")
+        if not configured_home:
+            return passwd_home, "HOME is not set"
+        try:
+            home = Path(configured_home).resolve(strict=True)
+            home_metadata = home.stat()
+        except OSError as exc:
+            return passwd_home, f"cannot resolve HOME: {exc}"
+        if (
+            home != passwd_home
+            or home_metadata.st_uid != uid
+            or not stat.S_ISDIR(home_metadata.st_mode)
+        ):
+            return passwd_home, "HOME does not match the effective uid passwd directory"
+
+        expected_runtime = Path("/run/user") / str(uid)
+        configured_runtime = os.environ.get("XDG_RUNTIME_DIR")
+        if not configured_runtime:
+            return home, "XDG_RUNTIME_DIR is not set"
+        try:
+            runtime = Path(configured_runtime).resolve(strict=True)
+            runtime_metadata = runtime.stat()
+            bus_metadata = (runtime / "bus").stat()
+        except OSError as exc:
+            return home, f"systemd-user runtime boundary is unavailable: {exc}"
+        if (
+            runtime != expected_runtime
+            or runtime_metadata.st_uid != uid
+            or not stat.S_ISDIR(runtime_metadata.st_mode)
+            or bus_metadata.st_uid != uid
+            or not stat.S_ISSOCK(bus_metadata.st_mode)
+        ):
+            return home, "XDG runtime and bus do not match the effective uid"
+
+        expected_bus = f"unix:path={runtime / 'bus'}"
+        if os.environ.get("DBUS_SESSION_BUS_ADDRESS") != expected_bus:
+            return home, "DBUS session bus does not match XDG_RUNTIME_DIR"
+
+        unit_dir = home / ".config" / "systemd" / "user"
+        try:
+            unit_dir.resolve(strict=False).relative_to(home)
+        except (OSError, ValueError):
+            return unit_dir, "scheduler unit directory escapes HOME"
+        current = home
+        for part in (".config", "systemd", "user"):
+            current /= part
+            try:
+                metadata = current.lstat()
+            except FileNotFoundError:
+                break
+            except OSError as exc:
+                return unit_dir, f"cannot inspect scheduler unit directory: {exc}"
+            if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != uid:
+                return unit_dir, "scheduler unit directory is not an owned regular directory"
+        return unit_dir, None
+
+    @staticmethod
+    def _unsupported_platform_data() -> dict[str, object] | None:
+        if sys.platform.startswith(REQUIRED_UPDATE_PLATFORM):
+            return None
+        return {
+            "platform": sys.platform,
+            "required_platform": REQUIRED_UPDATE_PLATFORM,
+            "service_manager": UPDATE_SERVICE_MANAGER,
+            "recovery_command": UNSUPPORTED_PLATFORM_RECOVERY_COMMAND,
+        }
+
+    @staticmethod
+    def _unsupported_platform_message() -> str:
+        return (
+            f"update mutations require Linux {UPDATE_SERVICE_MANAGER}; "
+            f"current platform is {sys.platform}"
+        )
+
+    def _unsupported_platform_result(self) -> UpdateResult | None:
+        data = self._unsupported_platform_data()
+        if data is None:
+            return None
+        return UpdateResult(
+            False,
+            "unsupported-platform",
+            self._unsupported_platform_message(),
+            2,
+            data=data,
+        )
 
     def _get_installation(self) -> Installation:
         return self._installation or self.installation_detector()
@@ -1134,13 +1442,19 @@ class UpdateManager:
     @staticmethod
     def _atomic_write_text(path: Path, content: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=path.parent, delete=False, prefix=f".{path.name}."
-        ) as handle:
-            handle.write(content)
-            temp_path = Path(handle.name)
-        os.chmod(temp_path, 0o600)
-        os.replace(temp_path, path)
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", dir=path.parent, delete=False, prefix=f".{path.name}."
+            ) as handle:
+                handle.write(content)
+                temp_path = Path(handle.name)
+            os.chmod(temp_path, 0o600)
+            os.replace(temp_path, path)
+            temp_path = None
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
 
     @staticmethod
     def _scheduler_path(installation: Installation) -> str:
