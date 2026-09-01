@@ -1811,3 +1811,8 @@ items:
       resolution: '2026-09-01: Updated the owner-managed installed MemPalace fallback to search directly with --compact --results 3, retained status --summary for diagnostics only, and validated the skill with its canonical validator after exact-wheel proof.'
       archived_date: "2026-09-01"
       done_summary: Updated the owner-managed installed MemPalace fallback to search directly with --compact --results 3, retained status --summary for diagnostics only, and validated the skill with its canonical validator after exact-wheel proof.
+    - key: REL-X64-MINILM-COMPATIBILITY-DIAGNOSTIC
+      summary: Report the exact hosted x64 MiniLM compatibility predicate
+      resolution: '2026-09-01: Exact rc6 run 33456968750 job 99698892809 passed the pinned MiniLM compatibility step with the new bounded diagnostics in place. The later installed-golden failure is a distinct diary runtime failure tracked by REL-LINUX-X64-DIARY-SIGSEGV.'
+      archived_date: "2026-09-01"
+      done_summary: Exact rc6 run 33456968750 job 99698892809 passed the pinned MiniLM compatibility step with the new bounded diagnostics in place. The later installed-golden failure is a distinct diary runtime failure tracked by REL-LINUX-X64-DIARY-SIGSEGV.
