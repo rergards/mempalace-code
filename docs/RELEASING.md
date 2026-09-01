@@ -50,9 +50,10 @@ python scripts/docs_drift_guard.py
 python scripts/public_safety_scan.py --tracked --staged
 python scripts/quality_scorecard.py --check
 python scripts/release_preflight.py --tag vX.Y.Z --require-clean
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --candidate-ref publish/main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset
-python scripts/release_install_metadata_smoke.py --install-spec . --json
-python scripts/release_readiness_gate.py --check --json
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --check-public-main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset
+python scripts/release_install_metadata_smoke.py --all-installers --install-spec . --json
+WHEEL=dist/mempalace_code-X.Y.Z-py3-none-any.whl
+python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
 python -m pytest tests/ -x -q -m "not needs_network"
 python -m pytest tests/test_mcp_protocol_compat.py -q
 python -m pytest tests/test_cli_golden_scenarios.py -q
@@ -70,16 +71,88 @@ check. It is the canonical pre-tag command and fails closed when upstream
 python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream
 ```
 
-`release_install_metadata_smoke.py` installs the current checkout into a
-disposable venv (non-editable) and proves `importlib.metadata.version`,
+`release_install_metadata_smoke.py --all-installers` installs the current checkout through
+the canonical `venv`, `bootstrap-venv`, `pipx`, and `uv-tool` contours and proves
+`importlib.metadata.version`,
 `mempalace_code.__version__`, and `mempalace-code version-check --status`
 agree on one version before the release commit lands. It also resolves
 `mempalace-code agent-plugin path --json` from a neutral directory, parses the
 JSON `path` field, rejects checkout shadowing, validates the Agent Plugin
 manifests against the installed vendored schema IDs, and starts the manifest-declared
-`mempalace-code-mcp --profile=minimal` launcher. Pass `--installer pipx` for a
-disposable pipx-style tool-environment run if the operator's real install method
-is pipx or `uv tool`.
+`mempalace-code-mcp --profile=minimal` launcher. Every contour also checks the
+three update confirmation refusals without state mutation and loads an
+interpreter-site socket guard before proving that disabled
+`version-check --check-now` stops before network access. Missing `pipx` or `uv` fails closed;
+run `python -m pip install pipx` or `python -m pip install uv`, then retry the
+same aggregate command. Use `--installer pipx` only for bounded diagnostics.
+
+The aggregate also requires one supported Linux systemd-user lifecycle receipt. Run it as
+a disposable Linux OS user whose passwd `HOME`, effective uid, `/run/user/<uid>`, and user
+bus agree, and set `MEMPALACE_RELEASE_SYSTEMD_USER=1`. Other platforms and unavailable or
+incongruent user managers return blocking `UNRUN`; the passing manager rows remain partial
+evidence. Recovery: rerun the same aggregate command in the disposable Ubuntu job shape:
+
+```bash
+MEMPALACE_RELEASE_SYSTEMD_USER=1 python scripts/release_install_metadata_smoke.py \
+  --all-installers --install-spec dist/mempalace_code-*.whl --json
+```
+
+The manager matrix above remains a lightweight metadata, recovery, plugin, and
+network-guard check across `venv`, `bootstrap-venv`, `pipx`, and `uv-tool`. The
+full application gate runs once against the exact candidate wheel with its
+`watch` extra:
+
+```bash
+WHEEL=dist/mempalace_code-X.Y.Z-py3-none-any.whl
+python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
+```
+
+Set `MEMPALACE_TEST_HF_HOME` to a pre-populated cache root before running that
+command. The gate requires the CPU FastEmbed artifact and exact MemPalace
+provenance at `mempalace-fastembed/all-MiniLM-L6-v2-v1/.mempalace-model.json`
+and stops before venv creation when either is absent, foreign, or stale.
+Provision the cache outside qualification, then retry:
+
+```bash
+HF_HOME="$MEMPALACE_TEST_HF_HOME" mempalace-code fetch-model
+```
+
+The installed-golden owner creates one disposable venv, installs only the
+explicit wheel with `[watch]`, installs and positively loads an interpreter-site
+socket guard, and runs direct release-owned scenarios through the venv's absolute
+`mempalace-code` executable before returning the aggregate `installed_golden_suite`
+result. After provenance passes, the candidate venv interpreter introspects the
+installed argparse object to discover its command/subcommand tree. Only later
+direct-scenario launches of that exact console count as execution evidence. A
+missing member fails the existing aggregate row with the sanitized member list
+and the canonical installed-golden rerun command. The owner uses a neutral cwd,
+disposable HOME/XDG directories, `HF_HUB_OFFLINE=1`, and
+`TRANSFORMERS_OFFLINE=1`. Passing provenance requires the wheel version,
+distribution metadata, imported `mempalace_code` path, venv interpreter, and
+console executable to agree and remain outside the checkout and ambient PATH.
+The exact same owner runs inside `release_readiness_gate.py --check` and the
+required `installed-application` CI job; missing or failing evidence therefore
+blocks `release-required`.
+
+On CPU-only Linux, the same owner qualifies `[custom-models]` by installing PyTorch from
+the official CPU wheel index before installing the exact candidate wheel extra. Prepare an
+owner-private scratch directory on a filesystem with adequate free space and preserve one
+`TMPDIR` across the ordered contour:
+
+```bash
+install -d -m 700 "$HOME/.cache/mempalace/tmp"
+df -h "$HOME/.cache/mempalace/tmp"
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install 'mempalace-code[custom-models]'
+```
+
+An `Errno 28` or `No space left on device` result identifies the failed prerequisite or
+candidate-extra stage in bounded sanitized output. Free adequate space on the selected
+filesystem and repeat the complete owner from that scratch directory:
+
+```bash
+TMPDIR="$HOME/.cache/mempalace/tmp" python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
+```
 
 The default tag preflight is deterministic, local, and non-mutating. It checks
 tag/version agreement, the documentation contract, the committed-tree
@@ -96,10 +169,15 @@ python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <4
 ```
 
 This command binds `HEAD`, the intended `vX.Y.Z` tag target, the
-operator-reviewed candidate SHA, and the public candidate ref. It also uses
+operator-reviewed candidate SHA, and the fixed public `main` head. It also uses
 `scripts/release_admission_checks.py` to query the `release-required` aggregate
 check, public `main` branch rules, `refs/tags/v*` ruleset state, orphan public
-tags, and **Dependency Audit** freshness through read-only GitHub APIs. Missing,
+tags, and **Dependency Audit** freshness through the credential-free public-read transport.
+The transport performs bounded GETs only to the fixed `rergards/mempalace-code`
+GitHub API shapes, `mempalace-code` PyPI metadata and provenance, validated
+`files.pythonhosted.org` distributions, and the manifest-owned reviewed upstream.
+It ignores ambient proxies, credentials, cookies, netrc, redirects, and retry
+configuration. Missing,
 failed, stale, cancelled, skipped, or unqueryable evidence blocks publication and
 prints one bounded remediation per row; the recovery command for each row is
 tabulated in `docs/release-admission-rulesets.md`.
@@ -107,12 +185,12 @@ tabulated in `docs/release-admission-rulesets.md`.
 read-only public rows before artifact checks when the operator passes
 `--candidate-sha`.
 
-`--check-tag-ruleset` needs a token with repository administration read, which a
-workflow `GITHUB_TOKEN` cannot be granted, so it is operator-only.
 `.github/workflows/publish.yml` re-verifies the exact SHA, the aggregate check,
-**Dependency Audit** freshness, and the public `main` branch rules with
-`contents: read`, `checks: read`, and `actions: read` — before any distribution is
-built or uploaded.
+**Dependency Audit** freshness, and public ref state without `GH_TOKEN` or a
+network Git fetch before any distribution is built or uploaded. Tag creation,
+push, GitHub Release reconciliation, settings changes, and PyPI publication each
+require separate explicit authorization; mutation credentials stay confined to
+their existing publication owner.
 
 The MCP protocol compatibility suite (`tests/test_mcp_protocol_compat.py`) is
 part of this boundary: it proves the stable **2026-07-28** revision
@@ -202,6 +280,21 @@ candidate branch. Set `CANDIDATE_BRANCH=release/vX.Y.Z-rc2` (then `-rc3`, …) a
 run this section again from `git fetch publish main`. Every attempt keeps its own
 public check evidence, and the failed one stays readable.
 
+### Installed-wheel acceptance
+
+Build and validate the reviewed candidate without forwarding credentials or invoking
+AI clients:
+
+```bash
+python -m build --wheel --outdir dist
+python scripts/release_readiness_gate.py --check --candidate-sha "$CANDIDATE_SHA" --json
+```
+
+The readiness gate builds in a disposable environment, inspects the wheel and
+source distribution, then installs the exact wheel in a clean virtual environment.
+It exercises package metadata and public CLI surfaces only. A successful run is
+required before the candidate branch is pushed.
+
 ## 3a. Push the candidate branch and prove it green
 
 Publish the candidate as its own public branch **before** it touches `main`.
@@ -222,19 +315,12 @@ which is all-zeros when a push creates a branch, and fall back to `origin/main`;
 gates, and `release-required` fails closed on a skipped job.
 
 Wait for the hosted checks to complete for `$CANDIDATE_SHA` itself, then confirm
-both are green for that exact SHA — **Tests** and the `release-required`
-aggregate check:
+the exact candidate from a clean checkout with the credential-free admission
+owner:
 
 ```bash
-gh run list --repo rergards/mempalace-code --commit "$CANDIDATE_SHA" --workflow Tests
-gh api "repos/rergards/mempalace-code/commits/$CANDIDATE_SHA/check-runs" --jq '.check_runs[] | select(.name=="release-required") | .conclusion'
-```
-
-Then run read-only admission against the candidate branch, before `main` moves:
-
-```bash
-git fetch publish "$CANDIDATE_BRANCH"
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --candidate-ref "publish/$CANDIDATE_BRANCH" --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset
+test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+python scripts/release_preflight.py --require-clean --expect-sha "$CANDIDATE_SHA" --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset
 ```
 
 A non-zero exit means the release is not admissible. Fix the reported row and
@@ -279,14 +365,12 @@ The tag-only publish workflow verifies that the tag names the package version,
 targets current public `main`, and matches the exact candidate SHA before any
 wheel, sdist, PyPI artifact, or GitHub Release is created. It requires
 `release-required` to be green for that SHA, requires a fresh **Dependency
-Audit**, and queries the effective rules for `refs/heads/main`. Hosted admission
-requires `non_fast_forward`, `deletion`, and `required_status_checks` with
-`release-required`. The workflow token has `contents: read`, `checks: read`, and
-`actions: read` for these checks. The operator separately verifies the active
-`refs/tags/v*` ruleset with `creation`, `update`, and `deletion`; that API needs
-repository administration read, which `GITHUB_TOKEN` cannot receive. The
-workflow also retains a direct live upstream comparison as defense in depth;
-that post-tag check does not replace the canonical pre-tag command above.
+Audit**, and queries the effective rules for `refs/heads/main` plus the active
+`refs/tags/v*` ruleset. Hosted admission requires `non_fast_forward`, `deletion`,
+and `required_status_checks` with `release-required`, plus tag `creation`,
+`update`, and `deletion`. These public reads use no GitHub token. The workflow
+also retains a direct live upstream comparison as defense in depth; that
+post-tag check does not replace the canonical pre-tag command above.
 Do not trigger PyPI publishing by a workflow dispatch or a release event.
 
 ## 4. Verify the public release
@@ -371,9 +455,9 @@ shipped only after every surface is green.
 The status gate also checks exact-SHA workflow evidence, the `release-required`
 check-run, read-only public ref protection, public orphan tags, and **Dependency
 Audit** freshness. A public `v*` tag without a matching non-draft GitHub
-Release and PyPI identity is reported as orphan evidence. Historical tag
-`v1.13.2` remains immutable evidence until a maintainer repairs the missing
-public surfaces or records an explicit release-blocking exception.
+Release and PyPI identity is reported as orphan evidence. Reviewed permanent
+exceptions are owned and documented by `scripts/release_admission_checks.py` and
+`docs/release-admission-rulesets.md`; this runbook does not duplicate them.
 
 The install smoke checks version-metadata agreement and alias provenance. Its
 other CLI-specific surfaces are the Agent Plugin locator and declared MCP

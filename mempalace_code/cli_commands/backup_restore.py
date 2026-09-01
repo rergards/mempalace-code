@@ -1,6 +1,7 @@
 """Backup and restore command handlers."""
 
 import os
+import shlex
 import sys
 
 from ..config import MempalaceConfig
@@ -84,18 +85,33 @@ def cmd_backup_list(args):
 
 def cmd_backup_schedule(args):
     from ..backup import render_schedule
+    from .alias import resolve_invoked_canonical_cli
+
+    palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
+    try:
+        invoked_launcher = resolve_invoked_canonical_cli()
+    except RuntimeError as exc:
+        print(f"  Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    selected_launcher = str(invoked_launcher) if invoked_launcher is not None else None
+    safe_launcher = shlex.quote(selected_launcher or "mempalace-code")
+    safe_palace = shlex.quote(os.path.abspath(palace_path))
+    safe_freq = shlex.quote(args.freq)
+    plist_path = os.path.expanduser("~/Library/LaunchAgents/com.mempalace.backup.plist")
+    safe_plist = shlex.quote(plist_path)
+    render_command = f"{safe_launcher} --palace {safe_palace} backup schedule --freq {safe_freq}"
 
     if getattr(args, "install", False):
         print(
             "  owner action required: --install is not supported.\n"
-            "  Print the snippet with 'mempalace-code backup schedule --freq <freq>'\n"
-            "  then install it yourself with: launchctl load <plist> (macOS)\n"
+            f"  Print the snippet with: {render_command}\n"
+            f"  Save it with: {render_command} > {safe_plist} (macOS)\n"
+            f"  then install it yourself with: launchctl load {safe_plist} (macOS)\n"
             "  or: crontab -e (Linux).",
             file=sys.stderr,
         )
         sys.exit(2)
 
-    palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
     platform = sys.platform
     if platform.startswith("darwin"):
         platform = "darwin"
@@ -110,7 +126,7 @@ def cmd_backup_schedule(args):
         sys.exit(1)
 
     try:
-        snippet = render_schedule(args.freq, palace_path, platform)
+        snippet = render_schedule(args.freq, palace_path, platform, mempalace_bin=selected_launcher)
     except ValueError as exc:
         print(f"  Error: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -118,11 +134,17 @@ def cmd_backup_schedule(args):
     print(snippet, end="")
     if platform == "darwin":
         print(
-            "\n  # To install: launchctl load ~/Library/LaunchAgents/com.mempalace.backup.plist",
+            f"\n  # Re-render: {render_command}\n"
+            f"  # Save: {render_command} > {safe_plist}\n"
+            f"  # To install: launchctl load {safe_plist}",
             file=sys.stderr,
         )
     else:
-        print("\n  # To install: crontab -e  (paste the line above)", file=sys.stderr)
+        print(
+            f"\n  # Re-render: {render_command}\n"
+            "  # To install: crontab -e  (paste the line above)",
+            file=sys.stderr,
+        )
 
 
 def cmd_backup(args):
@@ -139,7 +161,7 @@ def cmd_backup(args):
 
 
 def cmd_restore(args):
-    from ..backup import restore_backup
+    from ..backup import BackupArchiveError, restore_backup
 
     palace_path = os.path.expanduser(args.palace) if args.palace else MempalaceConfig().palace_path
 
@@ -163,11 +185,26 @@ def cmd_restore(args):
             file=sys.stderr,
         )
         sys.exit(1)
+    except BackupArchiveError as exc:
+        print(f"  Error: {exc}", file=sys.stderr)
+        print(
+            "  Next: create a valid backup with: "
+            "mempalace-code backup create --out mempalace-backup.tar.gz",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     except Exception as exc:
         print(f"  Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"  Restored palace to: {palace_path}")
+    restored_lance = getattr(meta, "has_lance", os.path.isdir(os.path.join(palace_path, "lance")))
+    restored_kg = getattr(meta, "has_kg", kg_path is not None and os.path.isfile(kg_path))
+    if restored_lance:
+        print(f"  Restored palace to: {palace_path}")
+    elif restored_kg:
+        print(f"  Restored knowledge graph to: {kg_path}")
+    else:
+        print("  Restored empty backup: no palace or knowledge graph state was declared.")
     if meta:
         print(f"  Drawers: {meta.get('drawer_count', '?')}")
         print(f"  Wings: {', '.join(meta.get('wings', [])) or '(none)'}")

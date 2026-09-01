@@ -53,6 +53,14 @@ def cmd_version_check(args):
         return
 
     if getattr(args, "check_now", False):
+        effective = resolve_config(config_dir)
+        if effective.source == "env" and effective.enabled is False:
+            print(
+                "mempalace-code: version check blocked by MEMPALACE_VERSION_CHECK. "
+                "Run 'unset MEMPALACE_VERSION_CHECK' (or set it to 1) before retrying.",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
         run_check_now(
             current_version=__version__,
             fetch_fn=fetch_latest_version,

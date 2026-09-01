@@ -2,7 +2,7 @@
 
 Quick environment check and context load. Run at session start and after every context compression.
 
-**Do NOT restate rules from CLAUDE.md** — they are always loaded. This skill verifies environment state and loads work context only.
+**Do not restate rules from `AGENTS.md`.** This skill verifies environment state and loads work context only.
 
 ## Steps
 

@@ -51,7 +51,7 @@ def _split_worker(mega: str, out_dir: str, bypass_precheck: bool, result_queue) 
     from mempalace_code import split_mega_files as child_smf
 
     if bypass_precheck:
-        child_smf._reject_non_regular_output_entry = lambda _out_path: None
+        child_smf._reject_non_regular_output_entry = lambda _out_path, **_kwargs: None
 
     try:
         written = child_smf.split_file(mega, out_dir)
@@ -96,13 +96,24 @@ def test_split_file_writes_regular_chunks(tmp_path):
 def test_split_file_dry_run_creates_no_output_files(tmp_path):
     mega = _write_mega(tmp_path)
     out_dir = tmp_path / "out"
-    out_dir.mkdir()
 
     planned = smf.split_file(mega, out_dir, dry_run=True)
 
     assert len(planned) == 2
-    assert list(out_dir.iterdir()) == []
+    assert not out_dir.exists()
     assert mega.exists()
+
+
+def test_split_file_with_only_tiny_fragments_leaves_output_dir_absent(tmp_path):
+    mega = tmp_path / "mega.txt"
+    mega.write_text("Claude Code v1\nshort\nClaude Code v1\nshort", encoding="utf-8")
+    out_dir = tmp_path / "out"
+
+    written = smf.split_file(mega, out_dir)
+
+    assert written == []
+    assert not out_dir.exists()
+    assert mega.read_text(encoding="utf-8") == "Claude Code v1\nshort\nClaude Code v1\nshort"
 
 
 def test_split_file_refuses_a_fifo_at_a_synthesized_output_name(tmp_path):
@@ -148,7 +159,11 @@ def test_split_output_descriptor_refuses_a_fifo_with_a_live_reader(tmp_path, mon
     out_dir.mkdir()
     blocked = _planned_outputs(mega, out_dir)[0]
     os.mkfifo(blocked)
-    monkeypatch.setattr(smf, "_reject_non_regular_output_entry", lambda _out_path: None)
+    monkeypatch.setattr(
+        smf,
+        "_reject_non_regular_output_entry",
+        lambda _out_path, **_kwargs: None,
+    )
 
     reader_fd = os.open(blocked, os.O_RDWR | getattr(os, "O_NONBLOCK", 0))
     try:
@@ -199,6 +214,63 @@ def test_split_file_refuses_a_redirecting_symlink_output_target(tmp_path):
     assert victim.read_text(encoding="utf-8") == "pre-existing content"
 
 
+def test_main_refuses_a_symlink_explicit_output_directory(tmp_path, monkeypatch, capsys):
+    mega = _write_mega(tmp_path)
+    original = mega.read_text(encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    out_dir = tmp_path / "out"
+    if not _try_symlink(out_dir, outside):
+        pytest.skip("symlink creation is not available for this user/platform")
+    monkeypatch.setattr(sys, "argv", ["split", "--file", str(mega), "--output-dir", str(out_dir)])
+
+    with pytest.raises(SystemExit) as raised:
+        smf.main()
+
+    assert raised.value.code == 1
+    assert mega.read_text(encoding="utf-8") == original
+    assert not mega.with_suffix(".mega_backup").exists()
+    assert list(outside.iterdir()) == []
+    combined = capsys.readouterr()
+    assert "not a safe output directory" in combined.err
+    assert combined.err.count("retry with a new empty --output-dir") == 1
+
+
+def test_main_fails_closed_when_explicit_output_directory_is_replaced(
+    tmp_path, monkeypatch, capsys
+):
+    mega = _write_mega(tmp_path)
+    original = mega.read_text(encoding="utf-8")
+    out_dir = tmp_path / "out"
+    anchored_dir = tmp_path / "anchored-output"
+    original_write = smf._write_regular_output
+    write_count = 0
+
+    def replace_after_first_write(out_path, text, *, dir_fd=None):
+        nonlocal write_count
+        original_write(out_path, text, dir_fd=dir_fd)
+        write_count += 1
+        if write_count == 1:
+            out_dir.rename(anchored_dir)
+            out_dir.mkdir()
+
+    monkeypatch.setattr(smf, "_write_regular_output", replace_after_first_write)
+    monkeypatch.setattr(sys, "argv", ["split", "--file", str(mega), "--output-dir", str(out_dir)])
+
+    with pytest.raises(SystemExit) as raised:
+        smf.main()
+
+    assert raised.value.code == 1
+    assert mega.read_text(encoding="utf-8") == original
+    assert not mega.with_suffix(".mega_backup").exists()
+    assert len(list(anchored_dir.iterdir())) == 1
+    assert list(out_dir.iterdir()) == []
+    captured = capsys.readouterr()
+    assert "not a safe output directory" in captured.err
+    assert captured.err.count("retry with a new empty --output-dir") == 1
+    assert "created 1 files; failed 1 of 1 mega-files" in captured.out
+
+
 def test_split_file_refuses_a_hardlinked_output_target(tmp_path):
     if not hasattr(os, "link"):
         pytest.skip("hardlink creation is not available on this platform")
@@ -230,7 +302,7 @@ def test_split_file_fallback_refuses_to_replace_an_existing_regular_output(tmp_p
     monkeypatch.setattr(smf, "_HAS_O_NOFOLLOW", False)
     monkeypatch.setattr(smf, "_HAS_O_NONBLOCK", False)
 
-    with pytest.raises(RegularSourceError, match="cannot safely replace"):
+    with pytest.raises(RegularSourceError, match="retry with a new empty --output-dir"):
         smf.split_file(mega, out_dir)
 
     assert blocked.read_text(encoding="utf-8") == "pre-existing content"
@@ -239,7 +311,6 @@ def test_split_file_fallback_refuses_to_replace_an_existing_regular_output(tmp_p
 def test_split_file_fallback_creates_new_regular_outputs(tmp_path, monkeypatch):
     mega = _write_mega(tmp_path)
     out_dir = tmp_path / "out"
-    out_dir.mkdir()
     monkeypatch.setattr(smf, "_HAS_O_NOFOLLOW", False)
     monkeypatch.setattr(smf, "_HAS_O_NONBLOCK", False)
 
@@ -266,7 +337,6 @@ def test_split_file_refuses_a_directory_output_target(tmp_path):
 def test_main_renames_the_source_only_after_a_successful_split(tmp_path, monkeypatch, capsys):
     mega = _write_mega(tmp_path)
     out_dir = tmp_path / "out"
-    out_dir.mkdir()
     monkeypatch.setattr(sys, "argv", ["split", "--file", str(mega), "--output-dir", str(out_dir)])
 
     smf.main()
@@ -277,6 +347,47 @@ def test_main_renames_the_source_only_after_a_successful_split(tmp_path, monkeyp
     ) + "\n" + _session("prompt two")
     assert len(list(out_dir.iterdir())) == 2
     assert "renamed to mega.mega_backup" in capsys.readouterr().out
+
+
+def test_main_repeated_apply_preserves_existing_outputs_and_source(tmp_path, monkeypatch, capsys):
+    mega = _write_mega(tmp_path)
+    original = mega.read_text(encoding="utf-8")
+    out_dir = tmp_path / "out"
+    monkeypatch.setattr(sys, "argv", ["split", "--file", str(mega), "--output-dir", str(out_dir)])
+
+    smf.main()
+    output_bytes = {path.name: path.read_bytes() for path in out_dir.iterdir()}
+    mega.write_text(original, encoding="utf-8")
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as raised:
+        smf.main()
+
+    assert raised.value.code == 1
+    assert mega.read_text(encoding="utf-8") == original
+    assert {path.name: path.read_bytes() for path in out_dir.iterdir()} == output_bytes
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+    assert combined.count("retry with a new empty --output-dir") == 1
+    assert "created 0 files; failed 1 of 1 mega-files" in captured.out
+
+
+def test_main_missing_output_parent_preserves_source(tmp_path, monkeypatch, capsys):
+    mega = _write_mega(tmp_path)
+    original = mega.read_text(encoding="utf-8")
+    out_dir = tmp_path / "missing-parent" / "out"
+    monkeypatch.setattr(sys, "argv", ["split", "--file", str(mega), "--output-dir", str(out_dir)])
+
+    with pytest.raises(SystemExit) as raised:
+        smf.main()
+
+    assert raised.value.code == 1
+    assert mega.read_text(encoding="utf-8") == original
+    assert not out_dir.parent.exists()
+    assert not mega.with_suffix(".mega_backup").exists()
+    captured = capsys.readouterr()
+    assert "original left in place as mega.txt" in captured.out
+    assert str(out_dir) in captured.err
 
 
 def test_main_keeps_the_source_when_an_output_target_is_refused(tmp_path, monkeypatch, capsys):

@@ -2,5 +2,5 @@
 
 Each module owns a focused group of command handlers.  Import handler
 functions from the relevant sub-module; do NOT import heavy runtime
-dependencies (sentence-transformers, LanceDB, watcher) at module level.
+dependencies (FastEmbed, ONNX Runtime, LanceDB, watcher) at module level.
 """

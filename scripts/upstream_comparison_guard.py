@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
+import hmac
+import importlib.util
 import json
 import re
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,13 +35,17 @@ if TYPE_CHECKING:
 MANIFEST_PATH = "docs/quality/upstream-comparison.json"
 SUPPORTED_SCHEMA_VERSION = 2
 DEFAULT_MAX_AGE_DAYS = 30
-GITHUB_API_ROOT = "https://api.github.com"
 GITHUB_REPOSITORY_ROOT = "https://github.com/"
-USER_AGENT = "mempalace-code-upstream-comparison-guard"
-LIVE_TIMEOUT_SECONDS = 20
 DEFAULT_RECOVERY_COMMAND = "python scripts/upstream_comparison_guard.py --check-live --json"
+_PUBLIC_READ_MODULE = None
+
+INVENTORY_ANCHOR_FIELD = "inventory_anchor"
+INVENTORY_ANCHOR_ALGORITHM = "sha256"
+INVENTORY_ANCHOR_VERSION = 1
+INVENTORY_ANCHOR_FIELDS = {"algorithm", "version", "count", "digest"}
 
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+DIGEST_RE = re.compile(r"[0-9a-f]{64}")
 ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 IDENTIFIER_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
@@ -91,19 +95,21 @@ DECISION_REQUIRED_FIELDS = (
     "rationale",
     "local_predicates",
 )
+DECISION_INVENTORY_FIELDS = ("merge_group", "constituent_commits")
 # Stances that must carry a named local regression predicate: the fork claims a
 # guard exists, so the guard has to be nameable and present in the checkout.
 PREDICATE_REQUIRED_DECISIONS = ("adopted", "equivalent-local")
 
-# ChromaDB stays migration-bridge-only. The required identifier says so; the
-# forbidden ones are the runtime-backend claims this fork retired.
-REQUIRED_FORK_CAPABILITIES = ("backend-chromadb-migration-bridge-only",)
+# Current releases fully retire ChromaDB support. All Chroma capability claims
+# are forbidden from the fork-current set.
+REQUIRED_FORK_CAPABILITIES: tuple[str, ...] = ()
 FORBIDDEN_FORK_CAPABILITIES = (
     "backend-chromadb",
     "backend-chromadb-default",
     "backend-chromadb-optional",
     "backend-chromadb-optional-deprecated",
     "backend-chromadb-runtime",
+    "backend-chromadb-migration-bridge-only",
 )
 
 
@@ -201,7 +207,43 @@ def validate_manifest(manifest: dict[str, Any]) -> list[str]:
     errors.extend(_validate_capability_sources(manifest))
     errors.extend(_validate_chroma_stance(manifest))
     errors.extend(_validate_delta_decisions(manifest))
+    errors.extend(_validate_inventory_anchor(manifest))
 
+    return errors
+
+
+def _validate_inventory_anchor(manifest: dict[str, Any]) -> list[str]:
+    """Validate the reviewed anchor shape before comparing its derived digest."""
+    anchor = manifest.get(INVENTORY_ANCHOR_FIELD)
+    if not isinstance(anchor, dict):
+        return [f"manifest-shape: {INVENTORY_ANCHOR_FIELD} must be an object"]
+
+    errors: list[str] = []
+    fields = set(anchor)
+    if fields != INVENTORY_ANCHOR_FIELDS:
+        errors.append(
+            f"manifest-shape: {INVENTORY_ANCHOR_FIELD} fields must be exactly "
+            f"{sorted(INVENTORY_ANCHOR_FIELDS)}, found {sorted(fields)}"
+        )
+    if anchor.get("algorithm") != INVENTORY_ANCHOR_ALGORITHM:
+        errors.append(
+            f"manifest-shape: {INVENTORY_ANCHOR_FIELD}.algorithm must be "
+            f"{INVENTORY_ANCHOR_ALGORITHM!r}"
+        )
+    version = anchor.get("version")
+    if isinstance(version, bool) or version != INVENTORY_ANCHOR_VERSION:
+        errors.append(
+            f"manifest-shape: {INVENTORY_ANCHOR_FIELD}.version must be {INVENTORY_ANCHOR_VERSION}"
+        )
+    count = anchor.get("count")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        errors.append(f"manifest-shape: {INVENTORY_ANCHOR_FIELD}.count must be a positive integer")
+    digest = anchor.get("digest")
+    if not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest):
+        errors.append(
+            f"manifest-shape: {INVENTORY_ANCHOR_FIELD}.digest must be a lowercase "
+            "64-character hex sha256"
+        )
     return errors
 
 
@@ -304,7 +346,7 @@ def _validate_capability_sources(manifest: dict[str, Any]) -> list[str]:
 
 
 def _validate_chroma_stance(manifest: dict[str, Any]) -> list[str]:
-    """The fork may record ChromaDB only as a migration bridge, never as a runtime backend."""
+    """The current fork capability set must record no ChromaDB support."""
     capabilities = manifest.get("capabilities")
     if not isinstance(capabilities, dict):
         return []
@@ -318,13 +360,13 @@ def _validate_chroma_stance(manifest: dict[str, Any]) -> list[str]:
         if required not in present:
             errors.append(
                 f"chroma-stance: capabilities.fork_current must record {required!r}; "
-                "ChromaDB support is migration input only"
+                "current releases have retired ChromaDB support"
             )
     for forbidden in FORBIDDEN_FORK_CAPABILITIES:
         if forbidden in present:
             errors.append(
                 f"chroma-stance: capabilities.fork_current must not claim {forbidden!r}; "
-                "this fork has no ChromaDB runtime backend"
+                "current releases have retired ChromaDB support"
             )
     return errors
 
@@ -342,12 +384,17 @@ def _validate_delta_decisions(manifest: dict[str, Any]) -> list[str]:
 
     errors: list[str] = []
     seen: set[str] = set()
+    commit_occurrences: dict[str, list[str]] = {}
     for index, decision in enumerate(decisions):
         label = f"delta_decisions[{index}]"
         if not isinstance(decision, dict):
             errors.append(f"delta-decision: {label} must be an object")
             continue
-        missing = [field for field in DECISION_REQUIRED_FIELDS if field not in decision]
+        missing = [
+            field
+            for field in (*DECISION_REQUIRED_FIELDS, *DECISION_INVENTORY_FIELDS)
+            if field not in decision
+        ]
         if missing:
             errors.append(f"delta-decision: {label} is missing required fields {sorted(missing)}")
             continue
@@ -361,10 +408,69 @@ def _validate_delta_decisions(manifest: dict[str, Any]) -> list[str]:
         label = f"delta decision {identifier!r}"
         if identifier in seen:
             errors.append(f"delta-decision: {label} is declared more than once")
-            continue
-        seen.add(identifier)
+        else:
+            seen.add(identifier)
+        merge_group = decision["merge_group"]
+        if not isinstance(merge_group, str) or not COMMIT_RE.fullmatch(merge_group):
+            errors.append(
+                f"commit-inventory: {label} merge_group must be a full 40-character "
+                "lowercase hex sha"
+            )
+        else:
+            commit_occurrences.setdefault(merge_group, []).append(f"{label} merge_group")
+        constituent_commits = decision["constituent_commits"]
+        if not isinstance(constituent_commits, list) or not constituent_commits:
+            errors.append(f"commit-inventory: {label} constituent_commits must be a non-empty list")
+        else:
+            if not all(
+                isinstance(item, str) and COMMIT_RE.fullmatch(item) for item in constituent_commits
+            ):
+                errors.append(
+                    f"commit-inventory: {label} constituent_commits must contain only full "
+                    "40-character lowercase hex shas"
+                )
+            for commit_index, commit in enumerate(constituent_commits):
+                if isinstance(commit, str) and COMMIT_RE.fullmatch(commit):
+                    occurrence = f"{label} constituent_commits[{commit_index}]"
+                    commit_occurrences.setdefault(commit, []).append(occurrence)
         errors.extend(_validate_decision_body(decision, label, tracked_paths))
+    for commit, occurrences in commit_occurrences.items():
+        if len(occurrences) > 1:
+            errors.append(
+                f"commit-inventory: commit {commit} is declared more than once: "
+                f"{', '.join(occurrences)}"
+            )
     return errors
+
+
+def manifest_commit_inventory(manifest: dict[str, Any]) -> set[str]:
+    """Return all merge and constituent commits from a validated manifest."""
+    inventory: set[str] = set()
+    for decision in manifest["delta_decisions"]:
+        inventory.add(str(decision["merge_group"]))
+        inventory.update(str(commit) for commit in decision["constituent_commits"])
+    return inventory
+
+
+def inventory_anchor_payload(manifest: dict[str, Any], commits: set[str]) -> bytes:
+    """Return canonical bytes binding the reviewed range identity and full inventory."""
+    anchor = manifest[INVENTORY_ANCHOR_FIELD]
+    payload = {
+        "algorithm": anchor["algorithm"],
+        "version": anchor["version"],
+        "canonical_repository": manifest["canonical_repository"],
+        "branch": manifest["branch"],
+        "previous_commit": manifest["previous_commit"],
+        "commit": manifest["commit"],
+        "count": anchor["count"],
+        "inventory": sorted(commits),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def inventory_anchor_digest(manifest: dict[str, Any], commits: set[str]) -> str:
+    """Return the SHA-256 digest of the canonical reviewed inventory payload."""
+    return hashlib.sha256(inventory_anchor_payload(manifest, commits)).hexdigest()
 
 
 def _validate_decision_body(
@@ -598,6 +704,23 @@ def evaluate(
 
     errors.extend(_missing_predicate_errors(root, manifest["delta_decisions"]))
 
+    manifest_commits = manifest_commit_inventory(manifest)
+    anchor: dict[str, Any] = manifest[INVENTORY_ANCHOR_FIELD]
+    derived_count = len(manifest_commits)
+    computed_digest = inventory_anchor_digest(manifest, manifest_commits)
+    count_exact = anchor["count"] == derived_count
+    digest_exact = hmac.compare_digest(anchor["digest"], computed_digest)
+    if not count_exact:
+        errors.append(
+            "commit-inventory: trust-anchor count mismatch: expected "
+            f"{anchor['count']}, derived {derived_count}"
+        )
+    if not digest_exact:
+        errors.append(
+            "commit-inventory: trust-anchor digest mismatch: expected "
+            f"{anchor['digest']}, computed {computed_digest}"
+        )
+
     facts: dict[str, Any] = {
         "canonical_repository": repository,
         "branch": branch,
@@ -623,6 +746,13 @@ def evaluate(
             for decision in manifest["delta_decisions"]
             if decision["release_critical"]
         ),
+        "inventory_anchor_algorithm": anchor["algorithm"],
+        "inventory_anchor_version": anchor["version"],
+        "inventory_anchor_declared_count": anchor["count"],
+        "inventory_anchor_derived_count": derived_count,
+        "inventory_anchor_digest": anchor["digest"],
+        "inventory_anchor_computed_digest": computed_digest,
+        "commit_inventory_exact": count_exact and digest_exact,
     }
     return facts, errors
 
@@ -702,44 +832,41 @@ def python_file_defines(path: Path, function_name: str) -> bool:
     )
 
 
-def _default_fetch(url: str) -> str:
-    request = urllib.request.Request(  # noqa: S310 - fixed https GitHub API endpoint
-        url,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"},
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=LIVE_TIMEOUT_SECONDS) as response:  # noqa: S310
-            payload = response.read()
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise LiveCheckError(f"live-response: upstream head request failed ({exc})") from exc
-    try:
-        return payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise LiveCheckError("live-response: upstream head reply was not valid UTF-8") from exc
-
-
-def head_commit_url(manifest: dict[str, Any]) -> str:
-    """Build the read-only GitHub API URL for the manifest branch head."""
-    owner, repo = repository_slug(str(manifest["canonical_repository"]))
-    branch = urllib.parse.quote(str(manifest["branch"]), safe="")
-    return f"{GITHUB_API_ROOT}/repos/{owner}/{repo}/commits/{branch}"
+def _load_public_read():
+    global _PUBLIC_READ_MODULE
+    if _PUBLIC_READ_MODULE is None:
+        module_name = "release_public_read"
+        path = Path(__file__).resolve().parent / f"{module_name}.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        _PUBLIC_READ_MODULE = module
+    return _PUBLIC_READ_MODULE
 
 
 def fetch_head_commit(
     manifest: dict[str, Any],
     *,
-    fetch: Callable[[str], str] = _default_fetch,
+    public_read: Callable[[object], object] | None = None,
 ) -> str:
     """Return the current head sha of the manifest branch using one read-only request."""
-    payload = fetch(head_commit_url(manifest))
+    public = _load_public_read()
+    reader = public_read or public.DEFAULT_READER
+    owner, name = repository_slug(str(manifest["canonical_repository"]))
+    repository = f"{owner}/{name}"
+    branch = str(manifest["branch"])
     try:
-        data = json.loads(payload)
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise LiveCheckError("live-response: upstream head reply was not valid JSON") from exc
-    if not isinstance(data, dict):
-        raise LiveCheckError("live-response: upstream head reply was not a JSON object")
-    sha = data.get("sha")
+        result = reader(public.reviewed_upstream_head(repository, branch))
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise LiveCheckError(f"live-response: upstream head request failed ({exc})") from exc
+    if getattr(result, "error", ""):
+        raise LiveCheckError(
+            f"live-response: upstream head request failed ({getattr(result, 'error', '')})"
+        )
+    sha = getattr(result, "data", None)
     if not isinstance(sha, str) or not COMMIT_RE.fullmatch(sha):
         raise LiveCheckError("live-response: upstream head reply carried no 40-hex commit sha")
     return sha
@@ -748,7 +875,7 @@ def fetch_head_commit(
 def check_live(
     manifest: dict[str, Any],
     *,
-    fetch: Callable[[str], str] = _default_fetch,
+    public_read: Callable[[object], object] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Compare the pinned commit against the live branch head. Read-only, no mutation."""
     pinned = str(manifest.get("commit", ""))
@@ -756,7 +883,7 @@ def check_live(
     repository = str(manifest.get("canonical_repository", ""))
     recovery = str(manifest.get("recovery_command") or DEFAULT_RECOVERY_COMMAND)
     try:
-        head = fetch_head_commit(manifest, fetch=fetch)
+        head = fetch_head_commit(manifest, public_read=public_read)
     except (LiveCheckError, ValueError) as exc:
         return {"live_head": None, "pinned_commit": pinned}, [str(exc)]
 
@@ -838,7 +965,9 @@ def main(argv: list[str] | None = None) -> int:
             f"previous={facts['previous_commit']} "
             f"reviewed={facts['reviewed_date']} age_days={facts['review_age_days']} "
             f"delta_decisions={len(decisions)} "
-            f"release_critical={len(facts['release_critical_decisions'])}{live_note}"
+            f"release_critical={len(facts['release_critical_decisions'])} "
+            f"manifest_inventory_commits={facts['inventory_anchor_derived_count']}"
+            f"{live_note}"
         )
     return 0 if not errors else 1
 

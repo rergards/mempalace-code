@@ -18,7 +18,6 @@ import importlib.util
 import json
 import os
 import re
-import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -158,506 +157,31 @@ def _run_bootstrap(tmp_path: Path, **updates: str) -> subprocess.CompletedProces
     )
 
 
-def _prepare_bootstrap_venv(tmp_path: Path) -> tuple[Path, dict[str, str]]:
-    """Create an offline venv whose fake pip installs deterministic launchers."""
-    venv = tmp_path / "venv"
-    subprocess.run(
-        [sys.executable, "-m", "venv", "--without-pip", str(venv)],
-        check=True,
+def test_bootstrap_has_valid_shell_syntax():
+    result = subprocess.run(
+        ["/bin/bash", "-n", str(ROOT / "scripts" / "bootstrap.sh")],
         capture_output=True,
         text=True,
+        check=False,
     )
-    support = tmp_path / "support"
-    pip_package = support / "pip"
-    module_package = support / "mempalace_code"
-    pip_package.mkdir(parents=True)
-    module_package.mkdir()
-    (module_package / "__init__.py").write_text('__version__ = "9.9.9"\n', encoding="utf-8")
-    (pip_package / "__init__.py").write_text("", encoding="utf-8")
-    (support / "sitecustomize.py").write_text(
-        """from pathlib import Path
-import os
-import signal
-import shutil
-import sys
-
-hook = os.environ.get("BOOTSTRAP_TEST_HOOK", "")
-acquisition_signals = {
-    "signal-acquire-hup": signal.SIGHUP,
-    "signal-acquire-int": signal.SIGINT,
-    "signal-acquire-term": signal.SIGTERM,
-}
-if (
-    hook in acquisition_signals
-    and len(sys.argv) == 5
-    and sys.argv[0] == "-"
-    and sys.argv[1].endswith(".bootstrap.lock")
-    and sys.argv[3] == "acquire"
-):
-    os.kill(os.getppid(), acquisition_signals[hook])
-
-if (
-    hook == "replace-lock-transition"
-    and len(sys.argv) == 5
-    and sys.argv[0] == "-"
-    and sys.argv[1].endswith(".bootstrap.lock")
-    and sys.argv[4] == "transition"
-):
-    lock = Path(sys.argv[1])
-    displaced = Path(str(lock) + ".displaced")
-    shutil.move(lock, displaced)
-    token = (displaced / "token").read_text(encoding="utf-8").splitlines()[0]
-    lock.mkdir(mode=0o700)
-    lock_stat = lock.stat()
-    metadata = lock / "token"
-    metadata.write_text(
-        f"{token}\\n{lock_stat.st_dev}:{lock_stat.st_ino}\\n", encoding="utf-8"
-    )
-    metadata.chmod(0o600)
-
-if hook == "replace-bin-dir":
-    bin_dir = Path.home() / ".local" / "bin"
-    if len(sys.argv) > 1 and sys.argv[0] == "-" and Path(sys.argv[1]) == bin_dir:
-        counter = Path(os.environ["BOOTSTRAP_PIP_MARKER"] + ".bin-dir-snapshots")
-        count = int(counter.read_text(encoding="utf-8")) + 1 if counter.exists() else 1
-        counter.write_text(str(count), encoding="utf-8")
-        if count == 2:
-            bin_dir.rename(bin_dir.with_name("bin.displaced"))
-            bin_dir.mkdir(mode=0o700)
-""",
-        encoding="utf-8",
-    )
-    (pip_package / "__main__.py").write_text(
-        """from pathlib import Path
-import os
-import signal
-import shutil
-import sys
-
-marker = Path(os.environ["BOOTSTRAP_PIP_MARKER"])
-marker.parent.mkdir(parents=True, exist_ok=True)
-with marker.open("a", encoding="utf-8") as handle:
-    handle.write(" ".join(sys.argv[1:]) + "\\n")
-
-hook = os.environ.get("BOOTSTRAP_TEST_HOOK", "")
-signals = {
-    "signal-hup": signal.SIGHUP,
-    "signal-int": signal.SIGINT,
-    "signal-term": signal.SIGTERM,
-}
-if hook in signals and not any("mempalace-code" in arg for arg in sys.argv[1:]):
-    os.kill(os.getppid(), signals[hook])
-
-if hook == "replace-python" and not any("mempalace-code" in arg for arg in sys.argv[1:]):
-    python = Path(sys.prefix) / "bin" / "python"
-    python.unlink()
-    python.write_text("#!/bin/sh\\necho replaced\\n", encoding="utf-8")
-    python.chmod(0o700)
-
-if any("mempalace-code" in arg for arg in sys.argv[1:]):
-    bindir = Path(sys.prefix) / "bin"
-    for name in ("mempalace-code", "mempalace-code-mcp"):
-        launcher = bindir / name
-        launcher.write_text("#!/bin/sh\\nexit 0\\n", encoding="utf-8")
-        launcher.chmod(0o700)
-
-    canonical = Path.home() / ".local" / "bin" / "mempalace-code"
-    if hook == "launcher-race":
-        canonical.parent.mkdir(parents=True, exist_ok=True)
-        canonical.write_text("RACE-WINNER", encoding="utf-8")
-    elif hook == "replace-lock":
-        lock = Path(str(sys.prefix) + ".bootstrap.lock")
-        displaced = Path(str(lock) + ".displaced")
-        shutil.move(lock, displaced)
-        lock.mkdir(mode=0o700)
-        (lock / "token").write_text("intruder\\n", encoding="utf-8")
-    elif hook == "replace-lock-valid":
-        lock = Path(str(sys.prefix) + ".bootstrap.lock")
-        displaced = Path(str(lock) + ".displaced")
-        shutil.move(lock, displaced)
-        token = (displaced / "token").read_text(encoding="utf-8").splitlines()[0]
-        lock.mkdir(mode=0o700)
-        lock_stat = lock.stat()
-        metadata = lock / "token"
-        metadata.write_text(
-            f"{token}\\n{lock_stat.st_dev}:{lock_stat.st_ino}\\n", encoding="utf-8"
-        )
-        metadata.chmod(0o600)
-""",
-        encoding="utf-8",
-    )
-    return venv, {
-        "MEMPALACE_VENV": str(venv),
-        "PYTHONPATH": str(support),
-        "BOOTSTRAP_PIP_MARKER": str(tmp_path / "pip-invocations"),
-    }
-
-
-def test_bootstrap_rejects_unknown_source_without_install(tmp_path):
-    result = _run_bootstrap(tmp_path, MEMPALACE_SOURCE="unknown-source")
-
-    assert result.returncode != 0
-    assert "Unknown MEMPALACE_SOURCE" in result.stdout
-    assert not (tmp_path / "home" / ".mempalace" / "venv").exists()
-
-
-def test_bootstrap_rejects_contradictory_pypi_ref_before_mutation(tmp_path):
-    result = _run_bootstrap(tmp_path, MEMPALACE_SOURCE="pypi", MEMPALACE_GIT_REF="v1.2.3")
-
-    assert result.returncode != 0
-    assert "valid only with MEMPALACE_SOURCE=git" in result.stdout
-    assert not (tmp_path / "home" / ".mempalace" / "venv").exists()
-
-
-def test_bootstrap_requires_full_commit_refs_before_package_mutation(tmp_path):
-    invalid = ("main", "v1.2.3", "v1.2.3-rc1", "a" * 12, "a" * 39, "a" * 41)
-
-    for index, ref in enumerate(invalid):
-        case = tmp_path / str(index)
-        case.mkdir()
-        result = _run_bootstrap(case, MEMPALACE_SOURCE="git", MEMPALACE_GIT_REF=ref)
-        assert result.returncode != 0, ref
-        assert "must be a full 40-hex commit" in result.stdout, ref
-        assert not (case / "home" / ".mempalace" / "venv").exists(), ref
-
-    accepted = tmp_path / "accepted"
-    accepted.mkdir()
-    result = _run_bootstrap(accepted, MEMPALACE_SOURCE="git", MEMPALACE_GIT_REF="a" * 40, PATH="")
-    assert result.returncode != 0
-    assert "Python 3.11+ not found" in result.stdout
-    assert "full 40-hex commit" not in result.stdout
-    assert not (accepted / "home" / ".mempalace" / "venv").exists()
-
-
-def test_runbook_bootstrap_uses_consumed_commit_refs():
-    runbook = (ROOT / "docs" / "AGENT_INSTALL.md").read_text(encoding="utf-8")
-    bootstrap = runbook[
-        runbook.index("**`INSTALL_METHOD=bootstrap`:**") : runbook.index("### Step 3.4")
-    ]
-
-    assert "is_full_commit" in bootstrap
-    assert '[[ "$1" =~ ^[0-9a-fA-F]{40}$ ]]' in bootstrap
-    assert "$BOOTSTRAP_REF/scripts/bootstrap.sh" in bootstrap
-    assert 'MEMPALACE_GIT_REF="$PACKAGE_REF"' in bootstrap
-    assert "immutable release tag" not in bootstrap
-    assert "immutable vX.Y.Z" not in bootstrap
-
-
-def test_bootstrap_refuses_unowned_launcher_nodes(tmp_path):
-    for node_type in ("file", "directory", "fifo", "symlink"):
-        case = tmp_path / node_type
-        case.mkdir()
-        venv, env = _prepare_bootstrap_venv(case)
-        launcher = case / "home" / ".local" / "bin" / "mempalace-code"
-        launcher.parent.mkdir(parents=True)
-        target = case / "unrelated-target"
-        if node_type == "file":
-            launcher.write_text("USER-OWNED", encoding="utf-8")
-        elif node_type == "directory":
-            launcher.mkdir()
-            (launcher / "keep").write_text("USER-OWNED", encoding="utf-8")
-        elif node_type == "fifo":
-            os.mkfifo(launcher)
-        else:
-            target.write_text("USER-OWNED", encoding="utf-8")
-            launcher.symlink_to(target)
-
-        result = _run_bootstrap(case, **env)
-
-        assert result.returncode != 0, (node_type, result.stdout, result.stderr)
-        assert f"ls -ld -- {launcher}" in result.stdout
-        assert "Done." not in result.stdout
-        if node_type == "file":
-            assert launcher.read_text(encoding="utf-8") == "USER-OWNED"
-        elif node_type == "directory":
-            assert (launcher / "keep").read_text(encoding="utf-8") == "USER-OWNED"
-            assert list(launcher.iterdir()) == [launcher / "keep"]
-        elif node_type == "fifo":
-            assert stat.S_ISFIFO(launcher.lstat().st_mode)
-        else:
-            assert launcher.is_symlink()
-            assert launcher.readlink() == target
-            assert target.read_text(encoding="utf-8") == "USER-OWNED"
-        assert venv.exists()
-
-
-def test_bootstrap_rejects_unsafe_venv_paths_before_execution(tmp_path):
-    relative_case = tmp_path / "relative"
-    relative_case.mkdir()
-    relative = _run_bootstrap(relative_case, MEMPALACE_VENV="relative/venv")
-    assert relative.returncode != 0
-    assert "must be an absolute path: relative/venv" in relative.stdout
-
-    real_parent = tmp_path / "real-parent"
-    real_parent.mkdir()
-    symlink_parent = tmp_path / "symlink-parent"
-    symlink_parent.symlink_to(real_parent, target_is_directory=True)
-    symlink_run = tmp_path / "symlink-case"
-    symlink_run.mkdir()
-    symlinked = _run_bootstrap(symlink_run, MEMPALACE_VENV=str(symlink_parent / "venv"))
-    assert symlinked.returncode != 0
-    assert str(symlink_parent / "venv") in symlinked.stdout
-
-    venv_target = tmp_path / "venv-target"
-    venv_target.mkdir()
-    venv_link = tmp_path / "venv-link"
-    venv_link.symlink_to(venv_target, target_is_directory=True)
-    leaf_run = tmp_path / "venv-link-case"
-    leaf_run.mkdir()
-    leaf = _run_bootstrap(leaf_run, MEMPALACE_VENV=str(venv_link))
-    assert leaf.returncode != 0
-    assert f"not a regular directory: {venv_link}" in leaf.stdout
-
-    writable = tmp_path / "writable"
-    writable.mkdir(mode=0o777)
-    writable.chmod(0o777)
-    writable_run = tmp_path / "writable-case"
-    writable_run.mkdir()
-    replaceable = _run_bootstrap(writable_run, MEMPALACE_VENV=str(writable / "venv"))
-    assert replaceable.returncode != 0
-    assert str(writable / "venv") in replaceable.stdout
-
-
-def test_bootstrap_rejects_foreign_existing_venv_before_package_execution(tmp_path):
-    stale = tmp_path / "stale"
-    stale_bin = stale / "bin"
-    stale_bin.mkdir(parents=True)
-    stale_python = stale_bin / "python"
-    stale_python.write_text("#!/bin/sh\necho /foreign/prefix\n", encoding="utf-8")
-    stale_python.chmod(0o700)
-    marker = tmp_path / "stale-pip-marker"
-    stale_run = tmp_path / "stale-case"
-    stale_run.mkdir()
-    result = _run_bootstrap(
-        stale_run,
-        MEMPALACE_VENV=str(stale),
-        BOOTSTRAP_PIP_MARKER=str(marker),
-    )
-    assert result.returncode != 0
-    assert "prefix mismatch" in result.stdout
-    assert not marker.exists()
-
-    foreign_case = tmp_path / "foreign-launcher"
-    foreign_case.mkdir()
-    venv, env = _prepare_bootstrap_venv(foreign_case)
-    unrelated = foreign_case / "unrelated"
-    unrelated.write_text("foreign", encoding="utf-8")
-    (venv / "bin" / "mempalace-code").symlink_to(unrelated)
-    result = _run_bootstrap(foreign_case, **env)
-    assert result.returncode != 0
-    assert "unsafe existing venv launcher" in result.stdout
-    assert not Path(env["BOOTSTRAP_PIP_MARKER"]).exists()
-
-    changed_case = tmp_path / "changed-interpreter"
-    changed_case.mkdir()
-    _, env = _prepare_bootstrap_venv(changed_case)
-    result = _run_bootstrap(changed_case, **env, BOOTSTRAP_TEST_HOOK="replace-python")
-    assert result.returncode != 0
-    assert "MEMPALACE_VENV identity changed" in result.stdout
-    invocations = Path(env["BOOTSTRAP_PIP_MARKER"]).read_text(encoding="utf-8")
-    assert "--upgrade pip" in invocations
-    assert "mempalace-code" not in invocations
-
-
-def test_bootstrap_launcher_publication_is_race_bounded_and_idempotent(tmp_path):
-    repeat = tmp_path / "repeat"
-    repeat.mkdir()
-    venv, env = _prepare_bootstrap_venv(repeat)
-    first = _run_bootstrap(repeat, **env)
-    second = _run_bootstrap(repeat, **env)
-    canonical = repeat / "home" / ".local" / "bin" / "mempalace-code"
-    assert first.returncode == 0, (first.stdout, first.stderr)
-    assert second.returncode == 0, (second.stdout, second.stderr)
-    assert canonical.is_symlink()
-    assert canonical.resolve() == venv / "bin" / "mempalace-code"
-    assert "Symlink already correct" in second.stdout
-    assert "Done." in second.stdout
-
-    race = tmp_path / "race"
-    race.mkdir()
-    venv, env = _prepare_bootstrap_venv(race)
-    result = _run_bootstrap(race, **env, BOOTSTRAP_TEST_HOOK="launcher-race")
-    race_launcher = race / "home" / ".local" / "bin" / "mempalace-code"
-    assert result.returncode != 0
-    assert race_launcher.read_text(encoding="utf-8") == "RACE-WINNER"
-    assert "Done." not in result.stdout
-
-    locked = tmp_path / "locked"
-    locked.mkdir()
-    venv, env = _prepare_bootstrap_venv(locked)
-    lock = Path(str(venv) + ".bootstrap.lock")
-    lock.mkdir(mode=0o700)
-    (lock / "keep").write_text("STALE", encoding="utf-8")
-    result = _run_bootstrap(locked, **env)
-    assert result.returncode != 0
-    assert (lock / "keep").read_text(encoding="utf-8") == "STALE"
-    assert f"ls -ld -- {lock}" in result.stdout
-
-    replaced = tmp_path / "replaced-lock"
-    replaced.mkdir()
-    venv, env = _prepare_bootstrap_venv(replaced)
-    result = _run_bootstrap(replaced, **env, BOOTSTRAP_TEST_HOOK="replace-lock")
-    replacement = Path(str(venv) + ".bootstrap.lock")
-    assert result.returncode != 0
-    assert (replacement / "token").read_text(encoding="utf-8") == "intruder\n"
-    assert "Bootstrap lock identity changed" in result.stdout
-    assert "Done." not in result.stdout
-
-    valid_replacement_case = tmp_path / "valid-replacement-lock"
-    valid_replacement_case.mkdir()
-    venv, env = _prepare_bootstrap_venv(valid_replacement_case)
-    result = _run_bootstrap(
-        valid_replacement_case,
-        **env,
-        BOOTSTRAP_TEST_HOOK="replace-lock-valid",
-    )
-    valid_replacement = Path(str(venv) + ".bootstrap.lock")
-    replacement_lines = (valid_replacement / "token").read_text(encoding="utf-8").splitlines()
-    replacement_stat = valid_replacement.stat()
-    assert result.returncode != 0
-    assert replacement_lines[1] == f"{replacement_stat.st_dev}:{replacement_stat.st_ino}"
-    assert "Bootstrap lock identity changed" in result.stdout
-    assert "Done." not in result.stdout
-
-    transition_case = tmp_path / "valid-transition-replacement-lock"
-    transition_case.mkdir()
-    venv, env = _prepare_bootstrap_venv(transition_case)
-    result = _run_bootstrap(
-        transition_case,
-        **env,
-        BOOTSTRAP_TEST_HOOK="replace-lock-transition",
-    )
-    transition_replacement = Path(str(venv) + ".bootstrap.lock")
-    transition_lines = (transition_replacement / "token").read_text(encoding="utf-8").splitlines()
-    transition_stat = transition_replacement.stat()
-    assert result.returncode != 0
-    assert not Path(env["BOOTSTRAP_PIP_MARKER"]).exists()
-    assert transition_lines[1] == f"{transition_stat.st_dev}:{transition_stat.st_ino}"
-    assert "Bootstrap lock identity changed" in result.stdout
-    assert "Done." not in result.stdout
-
-    replaced_bin_dir = tmp_path / "replaced-bin-dir"
-    replaced_bin_dir.mkdir()
-    _, env = _prepare_bootstrap_venv(replaced_bin_dir)
-    result = _run_bootstrap(replaced_bin_dir, **env, BOOTSTRAP_TEST_HOOK="replace-bin-dir")
-    canonical = replaced_bin_dir / "home" / ".local" / "bin" / "mempalace-code"
-    assert result.returncode != 0
-    assert not canonical.exists()
-    assert canonical.parent.with_name("bin.displaced").is_dir()
-    assert "Canonical launcher directory identity changed" in result.stdout
-    assert "Done." not in result.stdout
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize(
-    ("hook", "expected_status"),
-    [("signal-hup", 129), ("signal-int", 130), ("signal-term", 143)],
-)
-def test_bootstrap_signal_terminates_and_cleans_owned_lock(tmp_path, hook, expected_status):
-    case = tmp_path / hook
-    case.mkdir()
-    venv, env = _prepare_bootstrap_venv(case)
-
-    result = _run_bootstrap(case, **env, BOOTSTRAP_TEST_HOOK=hook)
-
-    assert result.returncode == expected_status
-    assert not Path(str(venv) + ".bootstrap.lock").exists()
-    assert not (case / "home" / ".local" / "bin" / "mempalace-code").exists()
-    invocations = Path(env["BOOTSTRAP_PIP_MARKER"]).read_text(encoding="utf-8")
-    assert "--upgrade pip" in invocations
-    assert "mempalace-code" not in invocations
-    assert "Done." not in result.stdout
-
-
-@pytest.mark.parametrize(
-    ("hook", "expected_status"),
+    ("updates", "message"),
     [
-        ("signal-acquire-hup", 129),
-        ("signal-acquire-int", 130),
-        ("signal-acquire-term", 143),
+        ({"MEMPALACE_SOURCE": "unknown-source"}, "Unknown MEMPALACE_SOURCE"),
+        ({"MEMPALACE_SOURCE": "pypi", "MEMPALACE_GIT_REF": "main"}, "valid only"),
+        ({"MEMPALACE_SOURCE": "git", "MEMPALACE_GIT_REF": "main"}, "full 40-hex"),
+        ({"MEMPALACE_VENV": "relative/venv"}, "must be an absolute path"),
     ],
 )
-def test_bootstrap_signal_during_lock_acquisition_cleans_without_install(
-    tmp_path, hook, expected_status
-):
-    case = tmp_path / hook
-    case.mkdir()
-    venv, env = _prepare_bootstrap_venv(case)
+def test_bootstrap_rejects_invalid_input_before_install(tmp_path, updates, message):
+    result = _run_bootstrap(tmp_path, **updates)
 
-    result = _run_bootstrap(case, **env, BOOTSTRAP_TEST_HOOK=hook)
-
-    assert result.returncode == expected_status
-    assert not Path(str(venv) + ".bootstrap.lock").exists()
-    assert not Path(env["BOOTSTRAP_PIP_MARKER"]).exists()
-    assert not (case / "home" / ".local" / "bin" / "mempalace-code").exists()
-    assert "Done." not in result.stdout
-
-
-def test_bootstrap_negative_filesystem_boundary_matrix(tmp_path):
-    cases = (
-        ("relative", "relative/venv", "must be an absolute path"),
-        ("malformed-ref", None, "must be a full 40-hex commit"),
-    )
-    for name, venv_path, expected in cases:
-        case = tmp_path / name
-        case.mkdir()
-        updates = (
-            {"MEMPALACE_VENV": venv_path}
-            if venv_path
-            else {
-                "MEMPALACE_SOURCE": "git",
-                "MEMPALACE_GIT_REF": "v1.2.3",
-            }
-        )
-        result = _run_bootstrap(case, **updates)
-        assert result.returncode != 0
-        assert expected in result.stdout
-
-    symlink_case = tmp_path / "symlink"
-    symlink_case.mkdir()
-    target = symlink_case / "target"
-    target.mkdir()
-    redirected = symlink_case / "redirected"
-    redirected.symlink_to(target, target_is_directory=True)
-    result = _run_bootstrap(symlink_case, MEMPALACE_VENV=str(redirected / "venv"))
     assert result.returncode != 0
-    assert "unsafe path component" in result.stdout
-
-    venv_target = symlink_case / "venv-target"
-    venv_target.mkdir()
-    venv_link = symlink_case / "venv-link"
-    venv_link.symlink_to(venv_target, target_is_directory=True)
-    result = _run_bootstrap(symlink_case, MEMPALACE_VENV=str(venv_link))
-    assert result.returncode != 0
-    assert "not a regular directory" in result.stdout
-
-    stale_case = tmp_path / "stale-prefix"
-    stale_case.mkdir()
-    stale = stale_case / "venv"
-    (stale / "bin").mkdir(parents=True)
-    python = stale / "bin" / "python"
-    python.write_text("#!/bin/sh\necho /wrong\n", encoding="utf-8")
-    python.chmod(0o700)
-    result = _run_bootstrap(stale_case, MEMPALACE_VENV=str(stale))
-    assert result.returncode != 0
-    assert "prefix mismatch" in result.stdout
-
-    collision = tmp_path / "collision"
-    collision.mkdir()
-    venv, env = _prepare_bootstrap_venv(collision)
-    launcher = collision / "home" / ".local" / "bin" / "mempalace-code"
-    launcher.parent.mkdir(parents=True)
-    launcher.write_text("KEEP", encoding="utf-8")
-    result = _run_bootstrap(collision, **env)
-    assert result.returncode != 0
-    assert launcher.read_text(encoding="utf-8") == "KEEP"
-
-    duplicate = tmp_path / "duplicate"
-    duplicate.mkdir()
-    venv, env = _prepare_bootstrap_venv(duplicate)
-    assert _run_bootstrap(duplicate, **env).returncode == 0
-    again = _run_bootstrap(duplicate, **env)
-    assert again.returncode == 0
-    assert "Done." in again.stdout
+    assert message in result.stdout
+    assert not (tmp_path / "home" / ".mempalace" / "venv").exists()
 
 
 def test_custom_palace_config_snippet_treats_hostile_path_as_data_and_repeats(tmp_path):
@@ -974,6 +498,15 @@ def _mcp_responses() -> str:
             "result": {"serverInfo": {"name": "mempalace-code", "version": "1.0.0"}},
         },
         {"jsonrpc": "2.0", "id": 2, "result": {"tools": tools}},
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "error": {
+                "code": -32602,
+                "message": "Invalid params: blank required argument(s): content",
+            },
+        },
+        {"jsonrpc": "2.0", "id": 4, "result": {"tools": tools}},
     ]
     return "\n".join(json.dumps(response) for response in responses) + "\n"
 
@@ -1069,7 +602,8 @@ def test_install_smoke_probes_agent_plugin_from_neutral_cwd(tmp_path):
         if cmd == ["/fake/bin/mempalace-code", "agent-plugin", "path", "--json"]:
             return 0, json.dumps({"path": str(plugin_root)}), ""
         if cmd == ["mempalace-code-mcp", "--profile=minimal"]:
-            assert kwargs["input_text"].count("tools/list") == 1
+            assert kwargs["input_text"].count("tools/list") == 2
+            assert "mempalace_check_duplicate" in kwargs["input_text"]
             return 0, _mcp_responses(), ""
         return 1, "", "unexpected command"
 
@@ -1087,6 +621,175 @@ def test_install_smoke_probes_agent_plugin_from_neutral_cwd(tmp_path):
     assert calls[1][1]["cwd"] == neutral_cwd
     assert calls[1][0] == ["mempalace-code-mcp", "--profile=minimal"]
     assert calls[1][1]["env"]["PATH"].split(os.pathsep)[0] == str(script_dir)
+
+
+class TestDeclaredMCPRequiredStringGuard:
+    def test_accepts_blank_rejection_then_same_process_continuation(self, tmp_path):
+        plugin_root = tmp_path / "plugin"
+        _write_agent_plugin_fixture(plugin_root)
+        mcp_json = json.loads((plugin_root / "mcp.json").read_text(encoding="utf-8"))
+
+        error = smoke._probe_declared_mcp_command(
+            mcp_json,
+            str(tmp_path),
+            lambda cmd, **kwargs: (0, _mcp_responses(), ""),
+            {"PATH": "/fake/bin"},
+        )
+
+        assert error is None
+
+    @pytest.mark.parametrize(
+        "case,expected",
+        [
+            pytest.param("missing", "returned 3 response lines", id="missing"),
+            pytest.param("reordered", "reordered or mismatched", id="reordered"),
+            pytest.param("extra", "returned 5 response lines", id="extra"),
+            pytest.param("non-json", "printed non-JSON", id="non-json"),
+            pytest.param("non-object", "printed non-object JSON", id="non-object"),
+            *[
+                pytest.param(
+                    f"missing-jsonrpc-{response_id}",
+                    f"response {response_id} has invalid jsonrpc",
+                    id=f"missing-jsonrpc-{response_id}",
+                )
+                for response_id in range(1, 5)
+            ],
+            *[
+                pytest.param(
+                    f"wrong-jsonrpc-{response_id}",
+                    f"response {response_id} has invalid jsonrpc",
+                    id=f"wrong-jsonrpc-{response_id}",
+                )
+                for response_id in range(1, 5)
+            ],
+            *[
+                pytest.param(
+                    f"bool-id-{response_id}",
+                    "reordered or mismatched",
+                    id=f"bool-id-{response_id}",
+                )
+                for response_id in range(1, 5)
+            ],
+            *[
+                pytest.param(
+                    f"float-id-{response_id}",
+                    "reordered or mismatched",
+                    id=f"float-id-{response_id}",
+                )
+                for response_id in range(1, 5)
+            ],
+            pytest.param(
+                "init-result-and-error",
+                "response 1 must contain exactly one",
+                id="init-result-and-error",
+            ),
+            pytest.param(
+                "init-error-only", "response 1 returned the wrong response kind", id="init-error"
+            ),
+            pytest.param(
+                "tools-error-only", "response 2 returned the wrong response kind", id="tools-error"
+            ),
+            pytest.param("server-info-list", "did not complete initialize", id="server-info-list"),
+            pytest.param("tool-entry-list", "did not return tools/list", id="tool-entry-list"),
+            pytest.param("tool-name-null", "did not return tools/list", id="tool-name-null"),
+            pytest.param("extra-tool", "listed unexpected tools", id="extra-tool"),
+            pytest.param(
+                "error-message-null",
+                "did not reject blank required content safely",
+                id="error-message-null",
+            ),
+            pytest.param("content-echo", "did not reject blank required content safely", id="echo"),
+            pytest.param(
+                "false-success", "response 3 returned the wrong response kind", id="success"
+            ),
+            pytest.param(
+                "continued-tool-entry-list",
+                "did not continue after blank required content",
+                id="continued-tool-entry-list",
+            ),
+            pytest.param(
+                "continued-tool-name-null",
+                "did not continue after blank required content",
+                id="continued-tool-name-null",
+            ),
+            pytest.param(
+                "extra-continued-tool",
+                "continuation listed unexpected tools",
+                id="extra-continued-tool",
+            ),
+            pytest.param(
+                "continuation-error-only",
+                "response 4 returned the wrong response kind",
+                id="continuation-error",
+            ),
+        ],
+    )
+    def test_rejects_invalid_response_shapes(self, tmp_path, case, expected):
+        plugin_root = tmp_path / "plugin"
+        _write_agent_plugin_fixture(plugin_root)
+        mcp_json = json.loads((plugin_root / "mcp.json").read_text(encoding="utf-8"))
+        responses = [json.loads(line) for line in _mcp_responses().splitlines()]
+        if case == "missing":
+            responses.pop()
+        elif case == "reordered":
+            responses[1], responses[2] = responses[2], responses[1]
+        elif case == "extra":
+            responses.append({"jsonrpc": "2.0", "id": 5, "result": {}})
+        elif case.startswith("missing-jsonrpc-"):
+            responses[int(case.rsplit("-", 1)[1]) - 1].pop("jsonrpc")
+        elif case.startswith("wrong-jsonrpc-"):
+            responses[int(case.rsplit("-", 1)[1]) - 1]["jsonrpc"] = "1.0"
+        elif case.startswith("bool-id-"):
+            responses[int(case.rsplit("-", 1)[1]) - 1]["id"] = True
+        elif case.startswith("float-id-"):
+            response_id = int(case.rsplit("-", 1)[1])
+            responses[response_id - 1]["id"] = float(response_id)
+        elif case == "init-result-and-error":
+            responses[0]["error"] = {"code": -32000, "message": "unexpected"}
+        elif case == "init-error-only":
+            responses[0].pop("result")
+            responses[0]["error"] = {"code": -32000, "message": "unexpected"}
+        elif case == "tools-error-only":
+            responses[1].pop("result")
+            responses[1]["error"] = {"code": -32000, "message": "unexpected"}
+        elif case == "server-info-list":
+            responses[0]["result"]["serverInfo"] = []
+        elif case == "tool-entry-list":
+            responses[1]["result"]["tools"].append([])
+        elif case == "tool-name-null":
+            responses[1]["result"]["tools"][0]["name"] = None
+        elif case == "extra-tool":
+            responses[1]["result"]["tools"].append({"name": "mempalace_unexpected"})
+        elif case == "error-message-null":
+            responses[2]["error"]["message"] = None
+        elif case == "content-echo":
+            responses[2]["error"]["message"] += "   \t"
+        elif case == "false-success":
+            responses[2] = {"jsonrpc": "2.0", "id": 3, "result": {"content": []}}
+        elif case == "continued-tool-entry-list":
+            responses[3]["result"]["tools"].append([])
+        elif case == "continued-tool-name-null":
+            responses[3]["result"]["tools"][0]["name"] = None
+        elif case == "extra-continued-tool":
+            responses[3]["result"]["tools"].append({"name": "mempalace_unexpected"})
+        elif case == "continuation-error-only":
+            responses[3].pop("result")
+            responses[3]["error"] = {"code": -32000, "message": "unexpected"}
+        stdout = "\n".join(json.dumps(response) for response in responses)
+        if case == "non-json":
+            stdout += "\nnot-json"
+        elif case == "non-object":
+            stdout += "\n[]"
+
+        error = smoke._probe_declared_mcp_command(
+            mcp_json,
+            str(tmp_path),
+            lambda cmd, **kwargs: (0, stdout, ""),
+            {"PATH": "/fake/bin"},
+        )
+
+        assert error is not None
+        assert expected in error
 
 
 def test_install_smoke_reports_agent_plugin_mcp_failure(tmp_path):

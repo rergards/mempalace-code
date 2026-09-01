@@ -17,6 +17,7 @@ import pytest
 from mempalace_code.onboarding import (
     _AbortOnboarding,
     _ask_mode,
+    _run_onboarding_inner,
     _yn,
     quick_setup,
     run_onboarding,
@@ -260,6 +261,45 @@ def test_safe_rerun_no_duplicate_projects(tmp_path):
     assert "ProjectB" not in reg3.projects
 
 
+def test_write_failure_restores_all_prior_onboarding_files(tmp_path):
+    people = [{"name": "Alice", "relationship": "colleague", "context": "work"}]
+    quick_setup("work", people, projects=["OldProject"], config_dir=tmp_path)
+    paths = {
+        "registry": tmp_path / "entity_registry.json",
+        "aaak": tmp_path / "aaak_entities.md",
+        "facts": tmp_path / "critical_facts.md",
+    }
+    paths["aaak"].write_text("old aaak", encoding="utf-8")
+    paths["facts"].write_text("old facts", encoding="utf-8")
+    before = {name: path.read_bytes() for name, path in paths.items()}
+
+    from mempalace_code.room_detector_local import write_regular_destination as real_write
+
+    failed = False
+
+    def fail_once(destination, content):
+        nonlocal failed
+        if destination.name == "critical_facts.md" and not failed:
+            failed = True
+            raise OSError("simulated facts write failure")
+        return real_write(destination, content)
+
+    with (
+        patch("mempalace_code.onboarding._ask_mode", return_value="personal"),
+        patch("mempalace_code.onboarding._ask_people", return_value=(people, {})),
+        patch("mempalace_code.onboarding._ask_projects", return_value=["NewProject"]),
+        patch("mempalace_code.onboarding._ask_wings", return_value=["notes"]),
+        patch("mempalace_code.onboarding._warn_ambiguous", return_value=[]),
+        patch(
+            "mempalace_code.room_detector_local.write_regular_destination", side_effect=fail_once
+        ),
+    ):
+        with pytest.raises(OSError, match="simulated facts write failure"):
+            _run_onboarding_inner(str(tmp_path), tmp_path, auto_detect=False)
+
+    assert {name: path.read_bytes() for name, path in paths.items()} == before
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AC-7: Mode selection bounded retries (unit)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -292,13 +332,13 @@ def test_ask_mode_eof_raises_abort():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_minimal_flow_exits_zero_and_writes_artifacts(tmp_path):
-    """Work-mode minimal flow: mode=1, no people, no projects, default wings, skip scan."""
+def test_malformed_mode_then_minimal_flow_prints_clean_summary(tmp_path):
+    """Malformed mode is retried before a zero-person work-mode flow completes."""
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
 
-    # "1"=work, ""=people done, ""=projects done, ""=wings keep defaults, ""=skip scan (default n)
-    stdin = "1\n\n\n\n\n"
+    # "bad"=retry, "1"=work, then empty people/projects and default wings/scan answers.
+    stdin = "bad\n1\n\n\n\n\n"
     result = _run_onboarding_subprocess(stdin, home=tmp_path, project_dir=project_dir)
 
     _no_traceback(result)
@@ -306,6 +346,10 @@ def test_minimal_flow_exits_zero_and_writes_artifacts(tmp_path):
         f"expected exit 0 on completion, got {result.returncode}\n"
         f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
     )
+    assert "Please enter 1, 2, or 3." in result.stdout
+    assert "Setup Complete" in result.stdout
+    assert "People: 0" in result.stdout
+    assert "People: 0 (" not in result.stdout
 
     mempalace = tmp_path / ".mempalace"
     assert (mempalace / "entity_registry.json").exists(), "entity_registry.json not written"

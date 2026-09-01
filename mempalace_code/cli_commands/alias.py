@@ -18,7 +18,8 @@ def _same_command_path(left: Path, right: Path) -> bool:
         return left.resolve(strict=False) == right.resolve(strict=False)
 
 
-def _resolve_invoked_canonical_cli() -> Path | None:
+def resolve_invoked_canonical_cli() -> Path | None:
+    """Return the invocation-preserving canonical CLI path when it can be proven."""
     argv0_text = sys.argv[0] if sys.argv else ""
     if not argv0_text:
         return None
@@ -51,7 +52,7 @@ def _resolve_invoked_canonical_cli() -> Path | None:
 
 
 def _resolve_canonical_cli() -> Path:
-    invoked = _resolve_invoked_canonical_cli()
+    invoked = resolve_invoked_canonical_cli()
     if invoked is not None:
         return invoked
 

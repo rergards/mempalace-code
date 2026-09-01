@@ -28,7 +28,7 @@ Every chunk stores `symbol_name` and `symbol_type` (function / class / method). 
 
 ### 5. LanceDB Instead of ChromaDB
 
-The original backend was ChromaDB (SQLite + Python). It had no bulk operations, was slow on large repositories, and was fragile under interruption. This fork moved the runtime backend to **LanceDB** (Rust + Arrow, columnar, crash-safe). ChromaDB remains only as input to the one-way `migrate-storage` bridge through `.[chroma-migration]`; `.[chroma]` is a deprecated install alias. The migration dependency stays capped below ChromaDB 1.x while GHSA-f4j7-r4q5-qw2c affects the available 1.x line.
+The original backend was ChromaDB (SQLite + Python). It had no bulk operations, was slow on large repositories, and was fragile under interruption. This fork moved the runtime backend to **LanceDB** (Rust + Arrow, columnar, crash-safe). Current packages fully retire ChromaDB support and carry no ChromaDB dependency.
 
 Direct effects:
 
@@ -58,15 +58,15 @@ A code-first fork should not upgrade its embedding model on vibes. This fork shi
 
 `all-MiniLM-L6-v2` was compared against `all-mpnet-base-v2` and `nomic-embed-text-v1.5`. MiniLM stays the default: R@5 = 0.950, fastest, 80 MB model. Any future model upgrade must pass both the code gate **and** the LongMemEval text gate — prose retrieval quality is non-negotiable.
 
-Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized in the project `CLAUDE.md`.
+Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized in the project `AGENTS.md`.
 
 ### 8. Configurable Embedding Model
 
-`open_store(..., embed_model="nomic")` — you can now run several palaces side by side with different models. Previously the model was a hard-coded constant.
+`open_store(..., embed_model="nomic")` can run palaces with explicit alternative Hugging Face models or local SentenceTransformer paths when `mempalace-code[custom-models]` is installed. The ordinary install keeps the canonical MiniLM FastEmbed/ONNX runtime and does not load trusted remote code.
 
 ### 9. Diary Write CLI (CLI-DIARY-WRITE)
 
-`mempalace diary write --agent claude-code "..."` lets agents append journal entries about a session without going through MCP. This matters for code workflows because the autopilot task runner writes per-task reports directly into memory.
+`mempalace-code diary write --agent claude-code --entry "..."` lets agents append journal entries about a session without going through MCP. This matters for code workflows because the autopilot task runner writes per-task reports directly into memory.
 
 ### 10. Storage Hygiene
 
@@ -86,7 +86,7 @@ Full results are in `benchmarks/results_embed_ab_2026-04-09.json` and summarized
 | Bulk delete wing      | none                  | `delete_wing()`                    |
 | Mine progress         | silent                | per-file + per-batch progress      |
 | Model choice          | hard-coded            | configurable + benchmark-gated     |
-| Diary from CLI        | MCP only              | `mempalace diary write`            |
+| Diary from CLI        | MCP only              | `mempalace-code diary write`       |
 | `status` aggregations | `limit=10000`         | PyArrow `group_by`, full coverage  |
 
 ## The Net Effect

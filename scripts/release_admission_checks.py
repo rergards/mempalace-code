@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
 """Shared read-only release-admission predicates.
 
-Stdlib-only helpers used by release preflight, readiness, status, workflow-shape
-tests, and the documentation drift guard. Every live lookup is read-only, fails
-closed, bounds the diagnostics it echoes, and names exactly one remediation.
+Stdlib-only predicates used by release preflight, readiness, and status gates.
+Every live input arrives through the sibling endpoint-specific public-read seam.
 
 Nothing here creates, edits, or deletes a GitHub ruleset, branch protection
-entry, tag, release, or package. The GitHub surfaces are queried through an
-injected ``run_gh``/``run_git``/``http_get`` seam so every predicate is testable
-without network access.
+entry, tag, release, or package. Remediation command text is inert output and is
+never passed to a process seam.
 """
 
 from __future__ import annotations
 
-import json
+import importlib.util
 import re
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
-from urllib.parse import quote
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -37,30 +35,9 @@ RULESET_DOC = "docs/release-admission-rulesets.md"
 # workflow-shape test compares the ``needs:`` list against this tuple, so adding
 # a release-critical job to ci.yml without widening the aggregate check fails.
 RELEASE_CRITICAL_CI_JOBS: tuple[str, ...] = (
-    "chroma-migration-bridge",
     "dependency-upgrade-gate",
     "gitleaks-changed-range",
-    "lint",
-    "package",
-    "test",
-    "typecheck",
-)
-
-# The floor under RELEASE_CRITICAL_CI_JOBS, spelled out rather than derived from
-# it. The classification below is a *reviewed exemption* design, so the obvious
-# way to weaken it is to move a real gate out of RELEASE_CRITICAL_CI_JOBS and
-# into AGGREGATE_EXEMPT_CI_JOBS with a plausible-sounding reason. Deriving this
-# tuple from the one above would make that a single-line edit; duplicating it
-# makes a demotion a two-place edit that also has to defeat the workflow-derived
-# contract test. This copy is not independent evidence — the binding guarantee is
-# ``test_the_floor_covers_every_ci_gate_except_the_one_reasoned_exemption``,
-# which reads ci.yml and requires every job except AGGREGATE_EXEMPT_CI_JOBS and
-# the aggregate check itself to be inside this floor, so editing both tuples
-# together still fails.
-RELEASE_CRITICAL_MINIMUM_CI_JOBS: tuple[str, ...] = (
-    "chroma-migration-bridge",
-    "dependency-upgrade-gate",
-    "gitleaks-changed-range",
+    "installed-application",
     "lint",
     "package",
     "test",
@@ -72,7 +49,7 @@ RELEASE_CRITICAL_MINIMUM_CI_JOBS: tuple[str, ...] = (
 # release. ``test_no_ci_job_escapes_the_release_critical_classification``
 # compares the workflow's job set against exactly these three groups, so a new
 # job added to ci.yml fails until someone classifies it. Nothing in
-# RELEASE_CRITICAL_MINIMUM_CI_JOBS may ever appear here.
+# RELEASE_CRITICAL_CI_JOBS may ever appear here.
 AGGREGATE_EXEMPT_CI_JOBS: dict[str, str] = {
     "model-tests": (
         "manual workflow_dispatch-only needs_network suite: it never runs on push or "
@@ -96,8 +73,10 @@ MAIN_BRANCH_REQUIRED_RULE_TYPES: tuple[str, ...] = (
     "non_fast_forward",
     "required_status_checks",
 )
-# Public ``refs/tags/v*`` contract: creation, update, and deletion are all
-# restricted to the documented release path.
+# Public ``refs/tags/v*`` contract: only the configured release bypass may
+# create a version tag, and published tags cannot move or disappear. GitHub's
+# credential-free detail response omits bypass actors, so admission verifies the
+# observable rules and leaves bypass identity to repository-owner setup.
 TAG_RULESET_REF = "refs/tags/v*"
 TAG_RULESET_TARGET = "tag"
 TAG_RULESET_REQUIRED_RULE_TYPES: tuple[str, ...] = ("creation", "deletion", "update")
@@ -139,6 +118,7 @@ MAX_RULESET_DETAIL_LOOKUPS = 50
 # ruleset covers refs/tags/v*" instead of "this lookup could not see them all".
 RULESET_LIST_PAGE_SIZE = MAX_RULESET_DETAIL_LOOKUPS + 1
 MAX_RELEASE_LIST = 200
+PUBLIC_RELEASE_FIELDS = "tagName,isDraft,isPrerelease,isLatest,publishedAt"
 MAX_CHECK_RUN_PAGE = 100
 MAX_WORKFLOW_RUN_LIST = 30
 MAX_DETAIL_CHARS = 320
@@ -149,6 +129,7 @@ STATUS_FAIL = "fail"
 STATUS_ERROR = "error"
 
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+_PUBLIC_READ_MODULE = None
 
 # Every failed predicate names one concrete command, so an operator resuming with
 # lost context never has to reconstruct the next step from prose.
@@ -190,8 +171,9 @@ REMEDIATE_AUDIT = (
 REMEDIATE_MAIN_RULESET = f"Apply the public main branch-rule contract in {RULESET_DOC}."
 REMEDIATE_TAG_RULESET = f"Apply the public v* tag ruleset contract in {RULESET_DOC}."
 REMEDIATE_RULESET_SCOPE = (
-    "Rerun with a token that has read access to repository rulesets, or verify the "
-    f"ruleset by hand against {RULESET_DOC}."
+    f"Review {RULESET_DOC}, wait for the credential-free public GitHub API to become "
+    "readable, then run: "
+    f"python scripts/release_preflight.py --repo {DEFAULT_REPO} --check-tag-ruleset --json"
 )
 # Repair first: during the window between tag push and PyPI/Release completion an
 # orphan row is a race, not a permanent gap, and acknowledging it there would
@@ -276,23 +258,38 @@ def compare_sha_row(
     )
 
 
-def _gh_json(
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
-    args: list[str],
+def _load_public_read():
+    global _PUBLIC_READ_MODULE
+    if _PUBLIC_READ_MODULE is None:
+        module_name = "release_public_read"
+        path = __import__("pathlib").Path(__file__).resolve().parent / f"{module_name}.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        _PUBLIC_READ_MODULE = module
+    return _PUBLIC_READ_MODULE
+
+
+def _public_data(
+    public_read: Callable[[object], object],
+    query: object,
     *,
     row_name: str,
     remediation: str,
     what: str,
 ) -> tuple[object | None, AdmissionRow | None]:
-    """Run one read-only ``gh`` call and parse its JSON, failing closed on both."""
-    exit_code, stdout, stderr = run_gh(args)
-    if exit_code != 0:
-        diagnostic = stderr.strip() or stdout.strip() or "no output"
-        return None, error_row(row_name, f"{what} failed: {diagnostic}", remediation)
+    """Read one normalized endpoint result and fail closed on transport errors."""
     try:
-        return json.loads(stdout), None
-    except json.JSONDecodeError as exc:
-        return None, error_row(row_name, f"{what} returned unparseable JSON: {exc}", remediation)
+        result = public_read(query)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        return None, error_row(row_name, f"{what} failed: {exc}", remediation)
+    error = getattr(result, "error", "")
+    if error:
+        return None, error_row(row_name, f"{what} failed: {error}", remediation)
+    return getattr(result, "data", None), None
 
 
 def parse_iso_timestamp(value: object) -> datetime | None:
@@ -325,7 +322,7 @@ def _summarize(items: Sequence[str]) -> str:
 def check_aggregate_required_check(
     candidate_sha: str | None,
     repo: str,
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
+    public_read: Callable[[object], object],
     *,
     check_name: str = AGGREGATE_REQUIRED_CHECK,
 ) -> AdmissionRow:
@@ -347,15 +344,14 @@ def check_aggregate_required_check(
         )
         return fail_row(row_name, detail, REMEDIATE_EXPECT_SHA)
 
-    # `gh api` switches to POST as soon as a `-f`/`-F` parameter is added, so the
-    # filter has to travel in the query string for this to stay a GET.
-    path = (
-        f"repos/{repo}/commits/{normalized}/check-runs"
-        f"?check_name={quote(check_name, safe='')}&per_page={MAX_CHECK_RUN_PAGE}"
-    )
-    data, error = _gh_json(
-        run_gh,
-        ["api", path],
+    public = _load_public_read()
+    try:
+        query = public.check_runs(repo, normalized, check_name, MAX_CHECK_RUN_PAGE)
+    except ValueError as exc:
+        return error_row(row_name, str(exc), REMEDIATE_CHECK)
+    data, error = _public_data(
+        public_read,
+        query,
         row_name=row_name,
         remediation=REMEDIATE_CHECK,
         what=f"check-runs lookup for {normalized}",
@@ -439,30 +435,24 @@ def check_aggregate_required_check(
 
 def check_dependency_audit_freshness(
     repo: str,
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
+    public_read: Callable[[object], object],
     *,
     max_age_hours: int = DEFAULT_AUDIT_MAX_AGE_HOURS,
     now: datetime | None = None,
 ) -> AdmissionRow:
     """Require a recent successful scheduled or dispatched Dependency Audit run."""
     row_name = "dependency_audit_freshness"
-    data, error = _gh_json(
-        run_gh,
-        [
-            "run",
-            "list",
-            "--repo",
-            repo,
-            "--workflow",
-            DEPENDENCY_AUDIT_WORKFLOW,
-            "--json",
-            "status,conclusion,event,createdAt,updatedAt",
-            "--limit",
-            str(MAX_WORKFLOW_RUN_LIST),
-        ],
+    public = _load_public_read()
+    try:
+        query = public.workflow_runs(repo, DEPENDENCY_AUDIT_WORKFLOW, MAX_WORKFLOW_RUN_LIST)
+    except ValueError as exc:
+        return error_row(row_name, str(exc), REMEDIATE_AUDIT)
+    data, error = _public_data(
+        public_read,
+        query,
         row_name=row_name,
         remediation=REMEDIATE_AUDIT,
-        what=f"gh run list for {DEPENDENCY_AUDIT_WORKFLOW!r}",
+        what=f"public workflow-runs lookup for {DEPENDENCY_AUDIT_WORKFLOW!r}",
     )
     if error is not None:
         return error
@@ -569,20 +559,24 @@ def _required_check_contexts(rules: object) -> set[str]:
 def check_main_branch_rules(
     repo: str,
     branch: str,
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
+    public_read: Callable[[object], object],
     *,
     check_name: str = AGGREGATE_REQUIRED_CHECK,
 ) -> AdmissionRow:
     """Report the effective repository rules protecting the public release branch.
 
-    Uses ``repos/{repo}/rules/branches/{branch}``, which returns the rules that
-    actually apply to the ref and needs only metadata read access, so it works
-    from a workflow ``GITHUB_TOKEN`` as well as from an operator shell.
+    Uses the fixed public branch-rules query, which returns the rules that
+    actually apply to the ref without credentials.
     """
     row_name = "public_main_protection"
-    data, error = _gh_json(
-        run_gh,
-        ["api", f"repos/{repo}/rules/branches/{quote(branch, safe='')}"],
+    public = _load_public_read()
+    try:
+        query = public.branch_rules(repo, branch)
+    except ValueError as exc:
+        return error_row(row_name, str(exc), REMEDIATE_MAIN_RULESET)
+    data, error = _public_data(
+        public_read,
+        query,
         row_name=row_name,
         remediation=REMEDIATE_MAIN_RULESET,
         what=f"branch rules lookup for {branch!r}",
@@ -611,19 +605,23 @@ def check_main_branch_rules(
 
 def check_tag_ruleset(
     repo: str,
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
+    public_read: Callable[[object], object],
 ) -> AdmissionRow:
-    """Report the public ``refs/tags/v*`` ruleset restricting create/update/delete.
+    """Report credential-free public ``refs/tags/v*`` immutability and creatability.
 
     The ruleset *list* endpoint returns summaries without ``conditions`` or
-    ``rules``, so each candidate ruleset is read back by id. Both endpoints need
-    repository administration read access; a permission or lookup failure is an
-    error row, never a silent pass.
+    ``rules``, so each candidate ruleset is read back by id. Any lookup failure
+    is an error row, never a silent pass.
     """
     row_name = "public_v_tag_ruleset"
-    summaries, error = _gh_json(
-        run_gh,
-        ["api", f"repos/{repo}/rulesets?per_page={RULESET_LIST_PAGE_SIZE}"],
+    public = _load_public_read()
+    try:
+        list_query = public.rulesets(repo, RULESET_LIST_PAGE_SIZE)
+    except ValueError as exc:
+        return error_row(row_name, str(exc), REMEDIATE_RULESET_SCOPE)
+    summaries, error = _public_data(
+        public_read,
+        list_query,
         row_name=row_name,
         remediation=REMEDIATE_RULESET_SCOPE,
         what="repository ruleset list",
@@ -656,10 +654,12 @@ def check_tag_ruleset(
         )
 
     reasons: list[str] = []
+    active_names: list[str] = []
+    active_rule_types: set[str] = set()
     for ruleset_id in ruleset_ids:
-        detail, detail_error = _gh_json(
-            run_gh,
-            ["api", f"repos/{repo}/rulesets/{ruleset_id}"],
+        detail, detail_error = _public_data(
+            public_read,
+            public.ruleset(repo, ruleset_id),
             row_name=row_name,
             remediation=REMEDIATE_RULESET_SCOPE,
             what=f"ruleset {ruleset_id} lookup",
@@ -684,16 +684,22 @@ def check_tag_ruleset(
         if detail.get("enforcement") != RULESET_ACTIVE_ENFORCEMENT:
             reasons.append(f"{name}: enforcement is {str(detail.get('enforcement'))!r}")
             continue
-        missing = sorted(set(TAG_RULESET_REQUIRED_RULE_TYPES) - _rule_types(detail.get("rules")))
+        active_names.append(name)
+        active_rule_types.update(_rule_types(detail.get("rules")))
+
+    if active_names:
+        missing = sorted(set(TAG_RULESET_REQUIRED_RULE_TYPES) - active_rule_types)
         if missing:
-            reasons.append(f"{name}: missing rule types {', '.join(missing)}")
-            continue
-        bypass = detail.get("bypass_actors")
-        bypass_count = len(bypass) if isinstance(bypass, list) else 0
+            return fail_row(
+                row_name,
+                f"active {TAG_RULESET_REF} rulesets are missing rule types {', '.join(missing)}",
+                REMEDIATE_TAG_RULESET,
+            )
         return ok_row(
             row_name,
-            f"ruleset {name!r} restricts {TAG_RULESET_REF} creation, update, and deletion "
-            f"with {bypass_count} auditable break-glass bypass actor(s)",
+            f"{len(active_names)} active ruleset(s) restrict {TAG_RULESET_REF} creation, "
+            "update, and deletion; bypass identity is owner-verified outside "
+            "credential-free admission",
         )
 
     if reasons:
@@ -708,7 +714,7 @@ def check_tag_ruleset(
 def check_public_ref_protection(
     repo: str,
     branch: str,
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
+    public_read: Callable[[object], object],
     *,
     check_name: str = AGGREGATE_REQUIRED_CHECK,
 ) -> list[AdmissionRow]:
@@ -718,8 +724,8 @@ def check_public_ref_protection(
     so a caller that treats these names as required surfaces can never lose one.
     """
     return [
-        check_main_branch_rules(repo, branch, run_gh, check_name=check_name),
-        check_tag_ruleset(repo, run_gh),
+        check_main_branch_rules(repo, branch, public_read, check_name=check_name),
+        check_tag_ruleset(repo, public_read),
     ]
 
 
@@ -727,36 +733,40 @@ def check_public_ref_protection(
 
 
 def list_public_version_tags(
-    remote: str,
-    run_git: Callable[[list[str]], tuple[int, str, str]],
+    repo: str,
+    public_read: Callable[[object], object],
 ) -> tuple[list[str], AdmissionRow | None]:
-    exit_code, stdout, stderr = run_git(["ls-remote", "--tags", "--refs", remote, "refs/tags/v*"])
-    if exit_code != 0:
+    public = _load_public_read()
+    try:
+        query = public.matching_version_tags(repo)
+    except ValueError as exc:
+        return [], error_row("public_orphan_tags", str(exc), REMEDIATE_ORPHAN)
+    data, error = _public_data(
+        public_read,
+        query,
+        row_name="public_orphan_tags",
+        remediation=REMEDIATE_ORPHAN,
+        what="public matching-tag lookup",
+    )
+    if error is not None:
+        return [], error
+    if not isinstance(data, list):
         return [], error_row(
-            "public_orphan_tags",
-            f"git ls-remote failed while listing public v* tags: "
-            f"{stderr.strip() or stdout.strip() or 'no output'}",
-            REMEDIATE_ORPHAN,
+            "public_orphan_tags", "unexpected matching-tag response shape", REMEDIATE_ORPHAN
         )
-    tags: set[str] = set()
-    for line in stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 2:
-            continue
-        ref = parts[1]
-        if ref.startswith("refs/tags/v"):
-            tags.add(ref.removeprefix("refs/tags/"))
+    tags = {
+        str(item["ref"]).removeprefix("refs/tags/")
+        for item in data
+        if isinstance(item, dict) and str(item.get("ref", "")).startswith("refs/tags/v")
+    }
     return sorted(tags), None
 
 
 def check_public_orphan_tags(
     version: str,
     repo: str,
-    remote: str,
     package: str,
-    run_git: Callable[[list[str]], tuple[int, str, str]],
-    run_gh: Callable[[list[str]], tuple[int, str, str]],
-    http_get: Callable[[str], tuple[int, bytes, str]],
+    public_read: Callable[[object], object],
     *,
     require_expected_tag: bool = False,
 ) -> AdmissionRow:
@@ -768,25 +778,22 @@ def check_public_orphan_tags(
     gate, where ``v{version}`` must already exist publicly.
     """
     row_name = "public_orphan_tags"
-    tags, tag_error = list_public_version_tags(remote, run_git)
+    tags, tag_error = list_public_version_tags(repo, public_read)
     if tag_error is not None:
         return tag_error
 
-    releases_data, release_error = _gh_json(
-        run_gh,
-        [
-            "release",
-            "list",
-            "--repo",
-            repo,
-            "--limit",
-            str(MAX_RELEASE_LIST),
-            "--json",
-            "tagName,isDraft",
-        ],
+    public = _load_public_read()
+    try:
+        releases_query = public.releases(repo, MAX_RELEASE_LIST)
+        pypi_query = public.pypi_metadata(package)
+    except ValueError as exc:
+        return error_row(row_name, str(exc), REMEDIATE_ORPHAN)
+    releases_data, release_error = _public_data(
+        public_read,
+        releases_query,
         row_name=row_name,
         remediation=REMEDIATE_ORPHAN,
-        what="gh release list",
+        what="public GitHub release list",
     )
     if release_error is not None:
         return release_error
@@ -807,17 +814,15 @@ def check_public_orphan_tags(
         if isinstance(item, dict) and isinstance(item.get("tagName"), str)
     }
 
-    status_code, body, error = http_get(f"https://pypi.org/pypi/{package}/json")
-    if status_code != 200:
-        return error_row(
-            row_name,
-            f"PyPI JSON fetch failed while checking public tags: {error or f'HTTP {status_code}'}",
-            REMEDIATE_ORPHAN,
-        )
-    try:
-        pypi_data = json.loads(body.decode("utf-8", errors="replace"))
-    except json.JSONDecodeError as exc:
-        return error_row(row_name, f"could not parse PyPI JSON response: {exc}", REMEDIATE_ORPHAN)
+    pypi_data, pypi_error = _public_data(
+        public_read,
+        pypi_query,
+        row_name=row_name,
+        remediation=REMEDIATE_ORPHAN,
+        what="public PyPI metadata lookup",
+    )
+    if pypi_error is not None:
+        return pypi_error
     if not isinstance(pypi_data, dict) or not isinstance(pypi_data.get("releases"), dict):
         return error_row(
             row_name,
@@ -847,7 +852,7 @@ def check_public_orphan_tags(
 
     expected_tag = f"v{version}"
     if require_expected_tag and expected_tag not in tags:
-        blocking.append(f"{expected_tag}: expected public tag not found on remote {remote!r}")
+        blocking.append(f"{expected_tag}: expected public tag not found")
 
     evidence = (
         f" acknowledged immutable orphan evidence: {_summarize(acknowledged)}"

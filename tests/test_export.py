@@ -45,6 +45,8 @@ def _add_code_drawer(store, wing="project", room="backend"):
                 "filed_at": "2026-01-01T00:00:00",
                 "chunker_strategy": "regex_structural_v1",
                 "extractor_version": "3.0.0",
+                "line_start": 7,
+                "line_end": 7,
             }
         ],
     )
@@ -104,6 +106,30 @@ def _add_diary_drawer(
     return drawer_id
 
 
+def test_every_export_record_is_one_complete_json_object_per_physical_line(tmp_path):
+    palace = str(tmp_path / "palace")
+    store = _store(palace)
+    kg = KnowledgeGraph(db_path=str(tmp_path / "kg.sqlite3"))
+    output = tmp_path / "export.jsonl"
+    _add_manual_drawer(store, content="One drawer with an embedded newline.\nStill one record.")
+    kg.add_triple("Alice", "works_on", "mempalace", valid_from="2026-01-01")
+
+    summary = write_jsonl(
+        path=str(output),
+        store=store,
+        kg=kg,
+        include_vectors=True,
+        include_kg=True,
+        palace_path=palace,
+    )
+
+    lines = [line for line in output.read_text(encoding="utf-8").splitlines() if line.strip()]
+    independently_parsed = [json.loads(line) for line in lines]
+    assert len(lines) == 1 + summary["drawer_count"] + summary["kg_count"]
+    assert all(isinstance(record, dict) for record in independently_parsed)
+    assert independently_parsed == list(read_jsonl(str(output)))
+
+
 # ── AC-5: Full round-trip, --only-manual ──────────────────────────────────────
 
 
@@ -156,6 +182,23 @@ class TestExportImportRoundtripManualOnly:
         # Verify manual and diary IDs exist
         result = store2.get(ids=[manual_id, diary_id], include=["documents"])
         assert len(result["ids"]) == 2
+
+
+def test_code_line_range_survives_jsonl_roundtrip(tmp_path):
+    source = _store(str(tmp_path / "source"))
+    _add_code_drawer(source)
+    export_file = str(tmp_path / "code.jsonl")
+    write_jsonl(path=export_file, store=source, palace_path=str(tmp_path / "source"))
+
+    destination = _store(str(tmp_path / "destination"))
+    summary = import_jsonl(path=export_file, store=destination, skip_kg=True)
+
+    assert summary["imported_drawers"] == 1
+    metadata = destination.get(ids=["miner_project_backend_001"], include=["metadatas"])[
+        "metadatas"
+    ][0]
+    assert metadata["line_start"] == 7
+    assert metadata["line_end"] == 7
 
 
 # ── AC-7: KG round-trip ───────────────────────────────────────────────────────
