@@ -1,6 +1,6 @@
 ---
 slug: SEC-GITLEAKS-HISTORY-GATE
-status: revised
+status: active
 authority: non_authoritative
 goal: "Restore compact machine-checked suppression governance and real-binary detector/redaction assurance without changing the native Gitleaks scan owner."
 risk: high
