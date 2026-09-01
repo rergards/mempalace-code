@@ -4766,6 +4766,143 @@ def test_main_json_all_green(tmp_path, capsys):
         assert "rows" in data
 
 
+def test_main_github_installed_golden_failure_emits_one_safe_bounded_annotation(
+    tmp_path, monkeypatch, capsys
+):
+    hostile_detail = (
+        f"progress=100%\r\n::warning title=inject::unsafe "
+        f"ghp_Abcd1234 {tmp_path}/private " + "%" * rrg._DETAIL_LIMIT
+    )
+    rows = [
+        rrg._make_row(
+            "installed_golden_diary",
+            rrg.INSTALLED_GOLDEN_COMMAND,
+            "fail",
+            hostile_detail,
+        )
+    ]
+    expected = {"ok": False, "completion": "failed", "rows": rows}
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(rrg, "_run_installed_golden_wheel", lambda root, wheel: rows)
+
+    exit_code = rrg.main(["--installed-golden-wheel", str(tmp_path / "candidate.whl"), "--json"])
+
+    captured = capsys.readouterr()
+    annotation, json_output = captured.out.split("\n", 1)
+    assert exit_code == 1
+    assert captured.err == ""
+    assert annotation.startswith("::error title=Installed golden wheel failure::")
+    assert annotation.count("::error ") == 1
+    assert "installed_golden_diary" in annotation
+    assert rrg.INSTALLED_GOLDEN_COMMAND in annotation
+    assert "%25" in annotation
+    assert "\r" not in annotation
+    assert "\n" not in annotation
+    assert "ghp_Abcd1234" not in annotation
+    assert str(tmp_path) not in annotation
+    assert "[REDACTED-TOKEN]" in annotation
+    assert "[REDACTED-PATH]" in annotation
+    assert len(annotation) <= len("::error title=Installed golden wheel failure::") + (
+        rrg._DETAIL_LIMIT * 3
+    )
+    assert json.loads(json_output) == expected
+
+
+def test_main_github_installed_golden_annotation_selects_first_failure(
+    tmp_path, monkeypatch, capsys
+):
+    rows = [
+        rrg._make_row("installed_golden_setup", "setup", "pass", "complete"),
+        rrg._make_row("installed_golden_first", "first", "fail", "first failure"),
+        rrg._make_row("installed_golden_second", "second", "fail", "second failure"),
+    ]
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(rrg, "_run_installed_golden_wheel", lambda root, wheel: rows)
+
+    exit_code = rrg.main(["--installed-golden-wheel", str(tmp_path / "candidate.whl"), "--json"])
+
+    output = capsys.readouterr().out
+    annotation = output.splitlines()[0]
+    assert exit_code == 1
+    assert output.count("::error title=Installed golden wheel failure::") == 1
+    assert "installed_golden_first" in annotation
+    assert "first failure" in annotation
+    assert "installed_golden_second" not in annotation
+    assert "second failure" not in annotation
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        None,
+        [],
+        [{}],
+        [{"id": "row", "command": "command", "status": "fail"}],
+        [{"id": "", "command": "command", "status": "fail", "detail": "failure"}],
+        [{"id": "row", "command": 1, "status": "fail", "detail": "failure"}],
+        [{"id": "row", "command": "command", "status": "fail", "detail": ""}],
+    ],
+)
+def test_installed_golden_failure_annotation_rejects_empty_or_malformed_rows(rows):
+    assert rrg._installed_golden_failure_annotation(rows) is None
+
+
+def test_installed_golden_failure_annotation_skips_malformed_row():
+    valid = rrg._make_row("installed_golden_valid", "command", "fail", "valid failure")
+
+    annotation = rrg._installed_golden_failure_annotation([{"status": "fail"}, valid])
+
+    assert annotation is not None
+    assert "installed_golden_valid" in annotation
+
+
+@pytest.mark.parametrize("github_actions", [None, "false", "True", "1"])
+def test_main_local_installed_golden_failure_preserves_json_output(
+    tmp_path, monkeypatch, capsys, github_actions
+):
+    rows = [rrg._make_row("installed_golden_failure", "command", "fail", "failed")]
+    expected = {"ok": False, "completion": "failed", "rows": rows}
+    if github_actions is None:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_ACTIONS", github_actions)
+    monkeypatch.setattr(rrg, "_run_installed_golden_wheel", lambda root, wheel: rows)
+
+    exit_code = rrg.main(["--installed-golden-wheel", str(tmp_path / "candidate.whl"), "--json"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert captured.err == ""
+    assert captured.out == json.dumps(expected, indent=2) + "\n"
+
+
+def test_main_github_installed_golden_success_emits_no_annotation(tmp_path, monkeypatch, capsys):
+    rows = [rrg._make_row("installed_golden_suite", "command", "pass", "complete")]
+    expected = {"ok": True, "completion": "complete", "rows": rows}
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(rrg, "_run_installed_golden_wheel", lambda root, wheel: rows)
+
+    exit_code = rrg.main(["--installed-golden-wheel", str(tmp_path / "candidate.whl"), "--json"])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == json.dumps(expected, indent=2) + "\n"
+
+
+def test_main_github_other_mode_failure_emits_no_annotation(monkeypatch, capsys):
+    result = {
+        "ok": False,
+        "completion": "failed",
+        "rows": [rrg._make_row("artifact_build", "command", "fail", "failed")],
+    }
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(rrg, "run_readiness", lambda root, **kwargs: result)
+
+    exit_code = rrg.main(["--artifact-only", "--json"])
+
+    assert exit_code == 1
+    assert capsys.readouterr().out == json.dumps(result, indent=2) + "\n"
+
+
 def test_main_single_canonical_failure_exits_1(tmp_path):
     """Any canonical gate failure causes exit code 1."""
     with (

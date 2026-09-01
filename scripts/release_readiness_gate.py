@@ -544,6 +544,28 @@ def _make_row(gate_id: str, command: str, status: str, detail: str) -> dict:
     }
 
 
+def _installed_golden_failure_annotation(rows: object) -> str | None:
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if not isinstance(row, dict) or row.get("status") != "fail":
+            continue
+        fields = (row.get("id"), row.get("command"), row.get("detail"))
+        if not all(isinstance(value, str) and value for value in fields):
+            continue
+        body = _make_row(
+            "installed_golden_annotation",
+            INSTALLED_GOLDEN_COMMAND,
+            "fail",
+            f"failed row {row['id']}; rerun: {INSTALLED_GOLDEN_COMMAND}; detail: {row['detail']}",
+        )["detail"]
+        body = body.replace("%", "%25")
+        body = body.replace("\r", "%0D")
+        body = body.replace("\n", "%0A")
+        return f"::error title=Installed golden wheel failure::{body}"
+    return None
+
+
 def _admission_row_to_gate_row(row, command: str) -> dict:
     status = "pass" if row.status == "ok" else row.status
     result = _make_row(row.name, command, status, row.detail)
@@ -7329,6 +7351,15 @@ def main(argv: list[str] | None = None) -> int:
             required_check_name=args.required_check_name,
             audit_max_age_hours=args.audit_max_age_hours,
         )
+
+    if (
+        os.environ.get("GITHUB_ACTIONS") == "true"
+        and args.installed_golden_wheel
+        and not result["ok"]
+    ):
+        annotation = _installed_golden_failure_annotation(result["rows"])
+        if annotation is not None:
+            print(annotation)
 
     if args.json:
         print(json.dumps(result, indent=2))
