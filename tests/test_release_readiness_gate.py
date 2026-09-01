@@ -4264,15 +4264,24 @@ _ONNX_PCI_WARNING = (
     [
         ("AARCH64", f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
         ("arm64", f"{rrg.INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"),
+        ("x86_64", _ONNX_PCI_WARNING),
+        ("AMD64", _ONNX_PCI_WARNING),
         ("AARCH64", _ONNX_PCI_WARNING),
         (
             "arm64",
             _ONNX_PCI_WARNING.replace(_ONNX_PCI_FILENAME, "7a642fc3-c8af-4f1e-985c-71d5ee0f2c90"),
         ),
     ],
-    ids=("cpuid-aarch64", "cpuid-arm64", "pci-aarch64", "pci-arm64"),
+    ids=(
+        "cpuid-aarch64",
+        "cpuid-arm64",
+        "pci-x86-64",
+        "pci-amd64",
+        "pci-aarch64",
+        "pci-arm64",
+    ),
 )
-def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_suite(
+def test_installed_golden_accepts_exact_linux_onnx_warning_and_completes_suite(
     tmp_path, monkeypatch, machine, warning
 ):
     merged_result = SimpleNamespace(returncode=0, stdout="merged output", stderr=None)
@@ -4312,7 +4321,6 @@ def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_sui
 @pytest.mark.parametrize(
     ("platform_name", "machine", "returncode", "stderr"),
     [
-        ("linux", "x86_64", 0, _ONNX_PCI_WARNING),
         ("darwin", "arm64", 0, _ONNX_PCI_WARNING),
         ("linux", "unknown", 0, _ONNX_PCI_WARNING),
         ("linux", "arm64", 1, _ONNX_PCI_WARNING),
@@ -4320,6 +4328,33 @@ def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_sui
         ("linux", "arm64", 0, f" {_ONNX_PCI_WARNING}"),
         ("linux", "arm64", 0, f"{_ONNX_PCI_WARNING} "),
         ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace("GetPciBusId", "getpcibusid")),
+        (
+            "linux",
+            "x86_64",
+            0,
+            _ONNX_PCI_WARNING.replace("device_discovery.cc", "device-discovery.cc"),
+        ),
+        (
+            "linux",
+            "amd64",
+            0,
+            _ONNX_PCI_WARNING.replace("/sys/devices/", "/sys/device/"),
+        ),
+        (
+            "linux",
+            "x86_64",
+            0,
+            _ONNX_PCI_WARNING.replace(
+                f'because filename "{_ONNX_PCI_FILENAME}"',
+                'because filename "7a642fc3-c8af-4f1e-985c-71d5ee0f2c90"',
+            ),
+        ),
+        (
+            "linux",
+            "amd64",
+            0,
+            _ONNX_PCI_WARNING.replace("expected pattern of", "expected PCI pattern of"),
+        ),
         ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace("because filename", "because filename:")),
         ("linux", "arm64", 0, _ONNX_PCI_WARNING.removeprefix("\x1b[0;93m")),
         ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace("\x1b[m", "\x1b[0m")),
@@ -4354,7 +4389,6 @@ def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_sui
         ),
     ],
     ids=(
-        "pci-linux-x64",
         "pci-darwin-arm64",
         "pci-linux-unknown",
         "pci-nonzero-exit",
@@ -4362,6 +4396,10 @@ def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_sui
         "pci-leading-content",
         "pci-trailing-byte",
         "pci-case-drift",
+        "pci-source-drift",
+        "pci-path-drift",
+        "pci-uuid-mismatch",
+        "pci-pattern-text-drift",
         "pci-punctuation-drift",
         "pci-missing-ansi-prefix",
         "pci-malformed-ansi-reset",

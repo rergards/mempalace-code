@@ -820,15 +820,19 @@ def _run_golden_subprocess(run_subprocess, command: list[str], **kwargs):
 
 
 def _classify_installed_golden_diagnostic(result, *, platform_name: str, machine: str):
-    """Consume proven-safe ONNX diagnostics on successful native Linux ARM."""
+    """Consume proven-safe ONNX diagnostics on supported native Linux machines."""
+    normalized_machine = machine.strip().lower()
     if (
         result.returncode == 0
         and platform_name == "linux"
-        and machine.strip().lower() in {"aarch64", "arm64"}
         and (
-            result.stderr == f"{INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"
+            (
+                normalized_machine in {"aarch64", "arm64"}
+                and result.stderr == f"{INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"
+            )
             or (
-                result.stderr is not None
+                normalized_machine in {"x86_64", "amd64", "aarch64", "arm64"}
+                and result.stderr is not None
                 and INSTALLED_GOLDEN_ONNX_PCI_WARNING.fullmatch(result.stderr) is not None
             )
         )
