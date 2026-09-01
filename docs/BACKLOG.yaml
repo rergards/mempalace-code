@@ -72,13 +72,15 @@ items:
   - key: REL-LINUX-ARM-INSTALLER-HANDSHAKE
     summary: "Make hosted ARM installer smoke establish its owned identity"
     type: bug
-    status: open
+    status: done
     priority: highest
     size: S
     section_id: quality
     assignee: bot
     labels: [release-blocker, linux-arm, installer, rule-zero]
     description: "## Symptom\n\nPublic candidate run 33328559281 failed before installer execution because the disposable child wrote its temporary identity with a mode that did not satisfy the immediate 0600 postcondition. The later missing-identity and cleanup messages were secondary.\n\n## Steps to reproduce\n\nRun the installed-application job on ubuntu-24.04-arm for the exact candidate wheel and observe the embedded launcher fail at test \"$(stat -c %a \"$2\")\" = 600 before atomic identity publication.\n\n## Expected vs actual\n\nExpected: the temporary identity passes its existing 0600 check, publishes atomically, and the job reaches all-installers and installed-golden execution. Actual: the child exits at the mode check and the outer job reports missing identity.\n\n## Root cause hypothesis\n\nConfirmed by hosted x64 and ARM output: the embedded launcher relies on umask alone, while the exact post-write mode observed by the hosted shell does not equal 600. Existing native ARM evidence completed every installer, the 26-row golden suite, systemd lifecycle, and cleanup, so product installers and the downstream smoke are not the first failing owner.\n\n## Scope\n\nExtend the existing embedded launcher in .github/workflows/ci.yml with an explicit chmod 0600 -- \"$2\" immediately after the identity write and before the existing regular-file, owner, mode, and atomic mv checks. Extend the smallest existing workflow admission assertion for this ordering. Inspect prior attempt b660e2bd as evidence only; do not merge it wholesale. Do not add a deadline protocol, diagnostic receipt, new cleanup behavior, blind sleep, helper, or second handshake owner.\n\n## Acceptance criteria\n\n- The temporary identity is explicitly mode 0600 after write and before existing validation and same-directory atomic publication.\n- Existing identity, PGID, interpreter, signal, cleanup, exact-wheel, installer, and golden behavior is otherwise byte-for-byte unchanged.\n- The smallest existing workflow admission test proves write then chmod then mode check then mv; focused workflow tests, Actionlint, diff checks, and public safety pass.\n- One exact-SHA public candidate run reaches and completes the hosted Ubuntu 24.04 ARM64 installed-application job and release-required. Record that receipt when closing this task; do not create a second evidence task."
+    resolution: "2026-09-01: The existing explicit chmod handshake and classifier fix were qualified end to end; exact rc7 a8b675e1 hosted ARM completed cache provisioning, all installers, systemd lifecycle, and the complete installed golden matrix successfully."
+    done_summary: "The existing explicit chmod handshake and classifier fix were qualified end to end; exact rc7 a8b675e1 hosted ARM completed cache provisioning, all installers, systemd lifecycle, and the complete installed golden matrix successfully."
   - key: SEC-GITLEAKS-HISTORY-GATE
     summary: "Restore compact Gitleaks assurance guarantees"
     type: bug
