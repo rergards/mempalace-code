@@ -38,7 +38,7 @@ This fork (`rergards/mempalace-code`) is a code-first rewrite that inherited the
 | "Local, no network after install" is false (ChromaDB ONNX model downloads from AWS S3 on first use) | #524 `@gaby` | **Resolved in fork docs and CLI** — `mempalace-code init` and `mempalace-code fetch-model` make the one-time `all-MiniLM-L6-v2` download explicit; cached indexing/search use local-only model resolution first | None |
 | LongMemEval benchmark game: `n_results=min(n_results, len(corpus))` degenerates R@k into ranking over a fully-retrieved set when corpus ≤ 50 | #524 `@jtatum` | **Inherited** — `benchmarks/longmemeval_bench.py:225,303,456,606,689` use the same pattern | **FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT** |
 | LongMemEval benchmark drops assistant turns at line 189-190 | #242 `@bobmatnyc` | **Partially addressed** — fork's `longmemeval_bench.py` has a `Full-turn mode` (line 641) that indexes user+assistant turns; needs audit to confirm upstream bias is fully removed | Fold into `FORK-BENCH-LONGMEMEVAL-CORPUS-AUDIT` |
-| v3.0.0 → v3.1.0 silently tightens ChromaDB version and deletes users' palace data (no migration path) | #469 | **Already negated by architecture** — LanceDB is now the default backend with crash-safe columnar Arrow storage. ChromaDB is opt-in `.[chroma]` extra, marked deprecated. Upgrade path for existing LanceDB palaces is tracked by `STORE-MIGRATION-CLI` already in pre_release | Document the chroma-extra caveat in FORK-DOCS-CLEANUP |
+| v3.0.0 → v3.1.0 silently tightens ChromaDB version and deletes users' palace data (no migration path) | #469 | **Resolved in current runtime** — LanceDB is the only runtime backend. Current releases reject ChromaDB input without mutating it. | Follow the isolated historical recovery procedure in `docs/BACKUP_RESTORE.md` |
 | "Highest-scoring AI memory system ever benchmarked" tagline | #27, #524 repeatedly | **Already negated** — fork tagline is "Crash-safe LanceDB memory for developers — code-first, local-first, no API key" — no superlative, no "highest", no "ever" | None |
 | AAAK encoding benchmark regresses LongMemEval 96.6 → 84.2% | #27 `@lhl` measurement | **Inherited in benchmark code** — fork keeps the AAAK path in `longmemeval_bench.py`. Not claimed as lossless in our README. Decision: inherit without claim | Out of scope — not a launch blocker |
 | Community rage about marketing framing, celebrity endorsement, "vibe code + publicity stunt" concerns | #524 comment thread | **Out of scope** — the fork distances itself from upstream marketing in the README's "This Fork vs Upstream" section | None |
@@ -54,15 +54,15 @@ No action required. These are listed here for auditability so a future contribut
 
 ### FORK-MODEL-OFFLINE-HANDOFF — **completed before v1.0**
 
-**Problem**: An older README said "No internet after install. Everything local." This was false. On first mine or first search, `sentence-transformers` downloads `all-MiniLM-L6-v2` (80 MB) from HuggingFace Hub. This is the same class of overclaim gaby caught upstream in #524.
+**Problem**: An older README said "No internet after install. Everything local." This was false. At the time, the default SentenceTransformer runtime downloaded `all-MiniLM-L6-v2` on first use. The current default uses the same 384d model through CPU FastEmbed/ONNX and still requires one explicit online provisioning step. This is the same class of overclaim gaby caught upstream in #524.
 
-**Fix**: `mempalace-code fetch-model [--model MODEL_NAME]` explicitly downloads or verifies the embedding model during setup, and `mempalace-code init` calls it unless `--skip-model-download` is passed. Current docs say: after a one-time model download during setup, indexing and search run locally without API calls. Cached model startup now tries `local_files_only=True` before any network-capable load, so a populated cache does not require HuggingFace metadata checks.
+**Fix**: `mempalace-code fetch-model [--model MODEL_NAME]` explicitly downloads or verifies the embedding model during setup, and `mempalace-code init` calls it unless `--skip-model-download` is passed. Current docs say: after a one-time model download during setup, indexing and search run locally without API calls. The canonical default validates immutable provenance under `$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/` before cached offline loading. Arbitrary names and local SentenceTransformer paths require the explicit `[custom-models]` extra.
 
 **Acceptance**:
-- `mempalace-code fetch-model` downloads the configured embedding model into the sentence-transformers cache, verifies it with local-only resolution on later runs, and works with `HF_HUB_OFFLINE=1` set
+- `mempalace-code fetch-model` downloads the canonical model into the MemPalace-owned FastEmbed cache, verifies provenance on later runs, and works with `HF_HUB_OFFLINE=1` set
 - `mempalace-code init <dir>` calls `fetch-model` automatically unless `--skip-model-download` is passed
 - README explains the one-time download plainly
-- `docs/OFFLINE_USAGE.md` explains how to run on an airgapped machine (pre-seed `~/.cache/huggingface/hub/`)
+- `docs/OFFLINE_USAGE.md` explains how to run on an airgapped machine by pre-seeding `$HF_HOME/mempalace-fastembed/all-MiniLM-L6-v2-v1/`
 - Offline verification is documented with `HF_HUB_OFFLINE=1 mempalace-code search "test"`
 
 **Why it mattered**: shipping a local-first tagline with a silent HuggingFace download on first use would repeat exactly upstream's mistake.
@@ -103,7 +103,7 @@ No action required. These are listed here for auditability so a future contribut
 
 ### FORK-DOCS-CLEANUP — **already in pre_release**
 
-**Fold in**: add a subsection to CONTRIBUTING.md or the installation docs warning users who opt into `.[chroma]` extra that ChromaDB v0.5→v0.6 migrations can silently delete palace data (upstream #469), and that the only safe upgrade paths are (a) pin `chromadb` yourself, (b) export drawers to JSONL before upgrading, (c) use `chroma-migrate` at your own risk. Link upstream #469 so users have the full context.
+**Current resolution**: runtime ChromaDB support and its package extras were removed. Current releases detect ChromaDB input and stop before mutation. Back up the source, then follow the isolated historical recovery procedure in `docs/BACKUP_RESTORE.md`; verify the LanceDB destination before removing the source.
 
 **Note**: LanceDB default users are not affected by this. The warning is specifically for the opt-in legacy path.
 
@@ -147,6 +147,6 @@ Of the three upstream issues this audit tracks:
 
 - **#27 punch list** — resolved or negated in release-facing docs. Inherited benchmark details are retained only with caveats.
 - **#524 "baldfaced lies"** — the one-time model download is now explicit in CLI and docs; indexing/search are local after model setup.
-- **#469 data loss on chromadb upgrade** — architecturally immune because LanceDB is the default backend. The opt-in chroma legacy path inherits the risk and gets a documentation warning.
+- **#469 data loss on chromadb upgrade** — closed by the LanceDB-only runtime, fail-closed ChromaDB detection, and the isolated historical recovery procedure in `docs/BACKUP_RESTORE.md`.
 
 No upstream issue is ignored without justification. This document remains as the audit trail; current install, privacy, and benchmark positioning should be read from the README and release-facing docs.

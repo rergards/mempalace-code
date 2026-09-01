@@ -238,9 +238,9 @@ def detect_room(
 def detect_projects(parent_dir: str) -> list:
     """Scan immediate subdirectories of *parent_dir* for software projects.
 
-    A directory is considered a project if it contains at least one file or
-    directory matching PROJECT_MARKERS or PROJECT_MARKER_GLOBS.  Hidden
-    directories (names starting with ``"."``) are skipped as candidates.
+    A directory is considered a project if it contains at least one safe
+    PROJECT_MARKERS / PROJECT_MARKER_GLOBS match or a safe INIT_MARKERS file.
+    Hidden directories (names starting with ``"."``) are skipped as candidates.
 
     Returns a list of dicts sorted by folder name::
 
@@ -270,7 +270,7 @@ def detect_projects(parent_dir: str) -> list:
             continue
 
         root_kind, found_markers = classify_project_root(candidate)
-        if not found_markers:
+        if root_kind == "parent":
             continue
 
         results.append(

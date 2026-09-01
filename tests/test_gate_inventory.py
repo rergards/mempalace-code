@@ -78,7 +78,8 @@ def test_required_quality_gates_present():
         "typecheck",
         "typecheck_strict_slice",
         "public_safety",
-        "gitleaks_baseline",
+        "gitleaks_fixture_smoke",
+        "gitleaks_validate_baseline",
         "gitleaks_changed_range",
         "scorecard",
         "architecture_guard",
@@ -92,7 +93,6 @@ def test_workflow_security_gates_are_canonical_and_wired_into_ci():
     expected = {
         "workflow_lint": gi.ACTIONLINT_COMMAND,
         "workflow_audit": gi.ZIZMOR_COMMAND,
-        "workflow_security": gi.WORKFLOW_SECURITY_GATE_COMMAND,
     }
     gates = gi.gates_by_id()
     ci_text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
@@ -111,6 +111,16 @@ def test_workflow_security_gates_are_canonical_and_wired_into_ci():
     # composite actions stay inside the audited scope.
     assert ".github/workflows/" in gi.ZIZMOR_COMMAND
     assert ".github/actions/" in gi.ZIZMOR_COMMAND
+
+
+def test_ci_has_one_upstream_gate_owner_through_package_preflight():
+    ci_text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    preflight_text = (ROOT / "scripts" / "release_preflight.py").read_text(encoding="utf-8")
+
+    assert ci_text.count("run: python scripts/release_preflight.py") == 1
+    assert "run: python scripts/upstream_comparison_guard.py" not in ci_text
+    assert preflight_text.count('"scripts/upstream_comparison_guard.py"') == 2
+    assert "release_public_read.py" not in ci_text
 
 
 def _pinned_version(deps: list, name: str) -> str | None:
@@ -175,7 +185,7 @@ def test_verify_surface_ids_cover_core_quality_gates():
         "typecheck",
         "typecheck_strict_slice",
         "public_safety",
-        "gitleaks_baseline",
+        "gitleaks_fixture_smoke",
         "gitleaks_changed_range",
         "scorecard",
         "architecture_guard",
@@ -191,23 +201,26 @@ def test_gitleaks_gates_are_canonical_and_wired_into_ci():
     history_text = (ROOT / ".github" / "workflows" / "gitleaks-history.yml").read_text(
         encoding="utf-8"
     )
+    verify_text = (ROOT / ".claude" / "skills" / "verify" / "INSTRUCTIONS.md").read_text(
+        encoding="utf-8"
+    )
 
     # The CLI version is read from the checksum-locked tool module, never restated
     # here, so a Dependabot bump of tools/gitleaks/go.mod needs no test edit.
     assert gi.gitleaks_cli_version(ROOT).startswith("v8.")
-    assert gates["gitleaks_baseline"]["command"] == gi.GITLEAKS_BASELINE_COMMAND
     assert gates["gitleaks_changed_range"]["command"] == gi.GITLEAKS_CHANGED_RANGE_COMMAND
     assert gates["gitleaks_full_history"]["command"] == gi.GITLEAKS_FULL_HISTORY_COMMAND
     assert gates["gitleaks_fixture_smoke"]["command"] == gi.GITLEAKS_FIXTURE_SMOKE_COMMAND
+    assert gates["gitleaks_validate_baseline"]["command"] == gi.GITLEAKS_VALIDATE_BASELINE_COMMAND
     assert gates["gitleaks_install"]["command"] == gi.GITLEAKS_INSTALL_COMMAND
-    assert gates["gitleaks_baseline"]["category"] == "quality"
     assert gates["gitleaks_changed_range"]["category"] == "quality"
-    assert gates["gitleaks_fixture_smoke"]["category"] == "quality"
     assert gates["gitleaks_full_history"]["category"] == "release"
+    assert gates["gitleaks_fixture_smoke"]["category"] == "quality"
+    assert gates["gitleaks_validate_baseline"]["category"] == "quality"
+    assert gates["gitleaks_validate_baseline"]["surfaces"] == []
     assert gates["gitleaks_install"]["category"] == "install"
 
     assert gi.GITLEAKS_INSTALL_COMMAND in ci_text
-    assert gi.GITLEAKS_BASELINE_COMMAND in ci_text
     assert "python scripts/gitleaks_scan.py changed-range" in ci_text
     assert "--base-ref" in ci_text
     assert "--head-ref" in ci_text
@@ -215,8 +228,11 @@ def test_gitleaks_gates_are_canonical_and_wired_into_ci():
     assert gi.GITLEAKS_INSTALL_COMMAND in history_text
     assert gi.GITLEAKS_FULL_HISTORY_COMMAND in publish_text
     assert gi.GITLEAKS_FULL_HISTORY_COMMAND in history_text
+    assert gi.GITLEAKS_FIXTURE_SMOKE_COMMAND in verify_text
+    assert "gitleaks_fixture_smoke" in gi.VERIFY_SURFACE_IDS
     for text in (ci_text, publish_text, history_text):
         assert gi.GITLEAKS_FIXTURE_SMOKE_COMMAND in text
+        assert gi.GITLEAKS_VALIDATE_BASELINE_COMMAND not in text
         # A mutable `go install ...@tag` must never come back into a workflow.
         assert f"{gi.GITLEAKS_GO_MODULE}@" not in text
         assert "gitleaks/v8@" not in text
@@ -416,7 +432,10 @@ def test_check_parity_no_surfaces_no_errors(tmp_path):
         {
             "id": "release_readiness",
             "name": "Release readiness",
-            "command": "python scripts/release_readiness_gate.py --check --json",
+            "command": (
+                "python scripts/release_readiness_gate.py --check "
+                '--candidate-sha "$CANDIDATE_SHA" --json'
+            ),
             "category": "release",
             "surfaces": [],
         }
@@ -634,3 +653,30 @@ def test_artifact_release_gate_deps_declared_in_both_dev_surfaces():
         assert pkg in dep_group_names, (
             f"'{pkg}' missing from [dependency-groups].dev — required by {source}"
         )
+
+
+def test_release_readiness_command_binds_candidate_sha_on_declared_surfaces():
+    assert gi.RELEASE_READINESS_COMMAND == (
+        'python scripts/release_readiness_gate.py --check --candidate-sha "$CANDIDATE_SHA" --json'
+    )
+    row = next(gate for gate in gi.CANONICAL_GATES if gate["id"] == "release_readiness")
+    assert row["command"] == gi.RELEASE_READINESS_COMMAND
+    assert row["surfaces"] == ["docs/RELEASING.md", ".claude/skills/release/SKILL.md"]
+
+
+def test_install_smoke_inventory_uses_canonical_aggregate_owner():
+    row = next(gate for gate in gi.CANONICAL_GATES if gate["id"] == "install_smoke")
+    assert row["command"] == (
+        "python scripts/release_install_metadata_smoke.py --all-installers --install-spec . --json"
+    )
+
+
+def test_installed_golden_inventory_has_distinct_readiness_owner_and_surfaces():
+    manager = next(gate for gate in gi.CANONICAL_GATES if gate["id"] == "install_smoke")
+    golden = next(gate for gate in gi.CANONICAL_GATES if gate["id"] == "installed_golden")
+
+    assert golden["command"] == gi.INSTALLED_GOLDEN_COMMAND
+    assert golden["command"] != manager["command"]
+    assert "release_readiness_gate.py" in golden["command"]
+    assert "release_install_metadata_smoke.py" in manager["command"]
+    assert golden["surfaces"] == ["docs/RELEASING.md", ".github/workflows/ci.yml"]

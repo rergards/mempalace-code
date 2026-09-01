@@ -50,4 +50,4 @@ User → MCP Server → searcher → results
                   → diary    → agent journal
 ```
 
-The palace (LanceDB) stores verbatim drawer content and vector metadata. The knowledge graph (SQLite) stores structured relationships. The MCP server exposes both to any AI tool with 29 tools by default; startup profiles reduce the surface. ChromaDB appears only as input to the one-way `migrate-storage` bridge.
+The palace uses LanceDB for verbatim drawer content and vector metadata. The knowledge graph uses SQLite for structured relationships. The MCP server exposes both to any AI tool with 29 tools by default; startup profiles reduce the surface. Current packages contain no ChromaDB bridge or dependency.

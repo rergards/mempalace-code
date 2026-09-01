@@ -181,6 +181,22 @@ with a null id. For an unknown method (`-32601`), refresh `tools/list` at most o
 that operation if the method remains absent. Do not restart the server, invent or repeat the
 method, choose a nearby tool, remove a filter, or broaden scope after a rejected call.
 
+## Direct CLI recovery
+
+After `mempalace-code diary write` reports `Diary entry stored.`, it prints stable `ID`, `Wing`,
+`Room`, and `Topic` poststate plus a bounded `Verify before retry` search command. If that output is
+retained after an ambiguous result, run the printed search before considering a retry. An exact hit
+means success; do not repeat the write. If the response or printed command is unavailable, do not
+retry; inspect recent same-agent entries with exposed `mempalace_diary_read`, or stop for owner
+reconciliation. The direct diary command has no stable deduplication identity, so do not invent a
+retry.
+
+`update apply`, `update scheduler install`, and `update scheduler remove` require `--yes`. Without
+it, the command exits 2 before mutation and emits the guarded recovery path as `Recovery: <command>`
+in human mode or `recovery_command` in the single JSON object on stdout. Review the current scope,
+target, and mutation authority before using the exact emitted command. Do not add flags, change the
+action, or invent a nearby retry.
+
 ## Ambiguous Write Outcome
 
 On timeout, lost response, restart, or context loss after calling `mempalace_add_drawer`, `mempalace_kg_add`, `mempalace_kg_invalidate`, or `mempalace_diary_write`, do not immediately repeat the write. Reconcile observable poststate before any retry.

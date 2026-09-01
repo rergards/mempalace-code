@@ -1,17 +1,17 @@
 {
   "code_size": {
-    "package_code_lines": 22508,
-    "package_files": 84,
-    "package_total_lines": 27627,
-    "test_files": 89,
-    "test_total_lines": 69686
+    "package_code_lines": 23895,
+    "package_files": 80,
+    "package_total_lines": 29069,
+    "test_files": 88,
+    "test_total_lines": 79584
   },
   "demo_gates": {
     "architecture_guard": {
       "status": "present"
     },
     "cli_golden_scenarios": {
-      "count": 14,
+      "count": 20,
       "status": "present"
     },
     "dependency_audit": {
@@ -33,10 +33,12 @@
     }
   },
   "gitleaks": {
-    "commands": {
-      "baseline": "python scripts/gitleaks_scan.py validate-baseline",
-      "changed_range": "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD",
+    "assurance_commands": {
       "fixture_smoke": "python scripts/gitleaks_scan.py fixture-smoke",
+      "validate_baseline": "python scripts/gitleaks_scan.py validate-baseline"
+    },
+    "commands": {
+      "changed_range": "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD",
       "full_history": "python scripts/gitleaks_scan.py full-history"
     },
     "coverage": [
@@ -44,39 +46,43 @@
       "entropy_rule",
       "changed_commit_range",
       "full_git_history",
-      "reviewed_baseline_metadata",
-      "redacted_json_sarif_summary"
+      "native_fingerprint_ignores",
+      "reviewed_suppression_metadata",
+      "redacted_sarif_report",
+      "runtime_five_class_fixture"
     ],
     "modes": [
-      "baseline",
       "changed_range",
-      "fixture_smoke",
       "full_history"
     ]
   },
   "largest_modules": [
     {
-      "lines": 1628,
+      "lines": 2071,
       "path": "mempalace_code/storage.py"
+    },
+    {
+      "lines": 1476,
+      "path": "mempalace_code/updater.py"
     },
     {
       "lines": 1466,
       "path": "mempalace_code/mining/chunkers.py"
     },
     {
-      "lines": 1308,
+      "lines": 1333,
       "path": "mempalace_code/watcher.py"
-    },
-    {
-      "lines": 1162,
-      "path": "mempalace_code/updater.py"
     },
     {
       "lines": 1074,
       "path": "mempalace_code/dialect.py"
     },
     {
-      "lines": 940,
+      "lines": 987,
+      "path": "mempalace_code/backup.py"
+    },
+    {
+      "lines": 947,
       "path": "mempalace_code/cli.py"
     },
     {
@@ -88,12 +94,8 @@
       "path": "mempalace_code/entity_detector.py"
     },
     {
-      "lines": 854,
+      "lines": 860,
       "path": "mempalace_code/mining/orchestrator.py"
-    },
-    {
-      "lines": 778,
-      "path": "mempalace_code/knowledge_graph.py"
     }
   ],
   "performance_budgets": {
@@ -261,12 +263,6 @@
       "present": true
     },
     {
-      "description": "migrate-storage disposable smoke",
-      "name": "migrate_storage_smoke",
-      "path": "scripts/migrate_storage_smoke.py",
-      "present": true
-    },
-    {
       "description": "Code-intelligence demo packet generation and validation tests",
       "name": "code_intelligence_packet",
       "path": "tests/test_code_intelligence_packet.py",
@@ -275,18 +271,18 @@
   ],
   "suppressions": {
     "noqa_blanket": 0,
-    "noqa_total": 42,
+    "noqa_total": 39,
     "scope": [
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 153,
+    "type_pyright_total": 157,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 89,
-    "test_functions": 3457
+    "test_files": 88,
+    "test_functions": 3698
   },
   "verification_commands": [
     {
@@ -314,8 +310,8 @@
       "name": "public_safety"
     },
     {
-      "command": "python scripts/gitleaks_scan.py validate-baseline",
-      "name": "gitleaks_baseline"
+      "command": "python scripts/gitleaks_scan.py fixture-smoke",
+      "name": "gitleaks_fixture_smoke"
     },
     {
       "command": "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD",

@@ -32,7 +32,7 @@ Classify the combined file list into these categories (a change can trigger mult
 
 - **core**: `mempalace_code/**/*.py`, `mempalace/*.py` (storage, miner, searcher, mcp_server, compatibility shims)
 - **tests**: `tests/*.py`
-- **docs**: `docs/*.md`, `README.md`, `CLAUDE.md`
+- **docs**: `docs/*.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`
 - **config**: `pyproject.toml`, `uv.lock`, `setup.py`, `.claude/`, `.github/workflows/`
 
 If no changes detected (clean tree, no baseline delta), run all checks — this is a health check invocation.
@@ -51,7 +51,7 @@ Run in parallel:
 | Typecheck | `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"` | 120s |
 | Strict slice typecheck | `python -m pyright -p pyrightconfig.strict.json` | 60s |
 | Public safety | `python scripts/public_safety_scan.py --tracked --staged` | 30s |
-| Gitleaks baseline metadata | `python scripts/gitleaks_scan.py validate-baseline` | 30s |
+| Gitleaks detector/redaction fixture | `python scripts/gitleaks_scan.py fixture-smoke` | 60s |
 | Gitleaks changed range | `python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD` | 60s |
 | Scorecard | `python scripts/quality_scorecard.py --check` | 30s |
 | Architecture guard | `python scripts/architecture_guard.py --root .` | 30s |
@@ -60,7 +60,8 @@ The scorecard check is stdlib-only (no install, no network) and validates the
 quality scorecard's shape, determinism, public-safety, and committed artifact
 freshness. The public-safety scan checks tracked and staged repository files for
 private local paths, secret-like tokens, and local-only raw artifacts. The
-Gitleaks checks validate reviewed baseline metadata and scan an explicit
+Gitleaks fixture proves five synthetic detector classes and redacted disposable
+SARIF. The changed-range scan inspects an explicit
 `BASE..HEAD` commit range for maintained credential signatures and entropy
 findings. After a quality change lands, regenerate the committed artifacts with
 `python scripts/quality_scorecard.py --write` (see `docs/quality/README.md`).
@@ -99,9 +100,9 @@ python3.13 -m venv /tmp/mempalace-ci-venv
 ```
 
 If an optional extra changed, create a separate fresh environment for that
-extra and run its focused tests. For ChromaDB, use only the `chroma-migration`
-bridge extra and do not raise into affected 1.x versions while
-GHSA-f4j7-r4q5-qw2c applies.
+extra and run its focused tests. The retired `chroma` and `chroma-migration`
+extras are not current verification targets. For historical ChromaDB recovery,
+follow `docs/BACKUP_RESTORE.md`; do not restore those extras to this package.
 
 ## Step 3: Report Results
 

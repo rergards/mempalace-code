@@ -8,9 +8,15 @@ Verifies:
   - python -m mempalace_code.cli does not emit the runpy RuntimeWarning (AC-1, AC-2)
 """
 
+import json
+import logging
+import os
+import runpy
 import subprocess
 import sys
 import types
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -78,8 +84,72 @@ def test_search_help_describes_semantic_verbatim_behavior():
 def test_package_main_is_callable():
     """AC-3: import mempalace_code; mempalace_code.main must be callable for console-script compat."""
     import mempalace_code
+    import mempalace_code.cli as cli
 
     assert callable(mempalace_code.main), "mempalace_code.main must be callable"
+    assert mempalace_code.main is cli._one_shot_main
+
+
+def test_one_shot_main_collects_after_return_and_system_exit(monkeypatch, capsys):
+    import mempalace_code.cli as cli
+
+    events = []
+    result = object()
+
+    def returning_main():
+        events.append("main")
+        print("normal output")
+        return result
+
+    monkeypatch.setattr(cli, "main", returning_main)
+    monkeypatch.setattr(cli.gc, "collect", lambda: events.append("collect"))
+
+    assert cli._one_shot_main() is result
+    assert events == ["main", "collect"]
+
+    events.clear()
+    original_exit = SystemExit(17)
+
+    def exiting_main():
+        events.append("main")
+        print("exit diagnostic", file=sys.stderr)
+        raise original_exit
+
+    monkeypatch.setattr(cli, "main", exiting_main)
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli._one_shot_main()
+
+    assert exc_info.value is original_exit
+    assert events == ["main", "collect"]
+    captured = capsys.readouterr()
+    assert captured.out == "normal output\n"
+    assert captured.err == "exit diagnostic\n"
+
+    package_module_calls = []
+    monkeypatch.setattr(cli, "_one_shot_main", lambda: package_module_calls.append("called"))
+    runpy.run_module("mempalace_code.__main__", run_name="__main__")
+    assert package_module_calls == ["called"]
+
+
+def test_direct_main_remains_reusable_without_process_shutdown(monkeypatch, capsys):
+    import mempalace_code.cli as cli
+
+    calls = []
+
+    def agent_plugin(args):
+        calls.append(args.agent_plugin_command)
+        print("plugin-path")
+
+    monkeypatch.setattr(cli, "cmd_agent_plugin", agent_plugin)
+    monkeypatch.setattr(cli.gc, "collect", MagicMock())
+    monkeypatch.setattr(sys, "argv", ["mempalace-code", "agent-plugin", "path"])
+
+    assert cli.main() is None
+    assert cli.main() is None
+    assert calls == ["path", "path"]
+    cli.gc.collect.assert_not_called()
+    assert capsys.readouterr() == ("plugin-path\nplugin-path\n", "")
 
 
 def test_cli_module_exports_stable_entry_points():
@@ -247,13 +317,64 @@ def test_fetch_model_is_same_object_as_in_model_module():
     assert cli.fetch_model is model.fetch_model
 
 
-def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False):
+def _write_fake_fastembed_layout(cache_dir: Path, *, provenance: bool) -> None:
+    from mempalace_code.storage import (
+        CANONICAL_EMBED_MODEL_REVISION,
+        canonical_fastembed_provenance,
+    )
+
+    repository = cache_dir / "models--qdrant--all-MiniLM-L6-v2-onnx"
+    refs = repository / "refs"
+    refs.mkdir(parents=True, exist_ok=True)
+    (refs / "main").write_text(CANONICAL_EMBED_MODEL_REVISION, encoding="utf-8")
+    snapshot = repository / "snapshots" / CANONICAL_EMBED_MODEL_REVISION
+    snapshot.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "config.json",
+        "model.onnx",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+    ):
+        (snapshot / name).write_bytes(b"fixture")
+    (snapshot / "tokenizer_config.json").write_text(
+        json.dumps({"max_length": 256, "model_max_length": 512}), encoding="utf-8"
+    )
+    if provenance:
+        (cache_dir / ".mempalace-model.json").write_text(
+            json.dumps(canonical_fastembed_provenance()), encoding="utf-8"
+        )
+
+
+def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False, fail_online=False):
+    downloaded = False
+
+    class FakeTextEmbedding:
+        def __init__(self, **kwargs):
+            nonlocal downloaded
+            calls.append(kwargs)
+            if fail_local and kwargs.get("local_files_only") and not downloaded:
+                raise RuntimeError("local model unavailable")
+            if not kwargs.get("local_files_only"):
+                if fail_online:
+                    cache = Path(kwargs["cache_dir"])
+                    cache.mkdir(parents=True, exist_ok=True)
+                    (cache / "interrupted.bin").write_bytes(b"partial")
+                    raise RuntimeError("download interrupted")
+                _write_fake_fastembed_layout(Path(kwargs["cache_dir"]), provenance=False)
+                downloaded = True
+
     class FakeSentenceTransformer:
         def __init__(self, model_name, **kwargs):
             calls.append((model_name, kwargs))
             if fail_local and kwargs.get("local_files_only"):
                 raise RuntimeError("local model unavailable")
 
+    monkeypatch.setitem(
+        sys.modules,
+        "fastembed",
+        types.SimpleNamespace(TextEmbedding=FakeTextEmbedding),
+    )
     monkeypatch.setitem(
         sys.modules,
         "sentence_transformers",
@@ -269,51 +390,86 @@ def test_fetch_model_uses_cached_model_without_download(tmp_path, monkeypatch, c
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     cache_dir = model._model_cache_dir(DEFAULT_EMBED_MODEL)
     assert cache_dir is not None
-    (cache_dir / "refs").mkdir(parents=True)
-    (cache_dir / "snapshots" / "snapshot").mkdir(parents=True)
+    _write_fake_fastembed_layout(cache_dir, provenance=True)
 
     calls = []
     _install_fake_fetch_model(monkeypatch, calls)
 
     model.fetch_model(DEFAULT_EMBED_MODEL)
 
-    assert calls == [(DEFAULT_EMBED_MODEL, {"local_files_only": True})]
+    assert len(calls) == 1
+    assert calls[0]["local_files_only"] is True
+    assert calls[0]["providers"] == ["CPUExecutionProvider"]
+    assert "trust_remote_code" not in calls[0]
     output = capsys.readouterr().out
     assert "already available locally" in output
     assert "Downloading model" not in output
 
 
-def test_fetch_model_downloads_after_local_cache_miss(monkeypatch, capsys):
-    """Uncached fetch-model probes local files first, then performs one online load."""
+def test_fetch_model_downloads_after_local_cache_miss(tmp_path, monkeypatch, capsys):
+    """Uncached fetch normalizes the downloaded cache before its local reload."""
     from mempalace_code.cli_commands import model
     from mempalace_code.storage import DEFAULT_EMBED_MODEL
 
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     calls = []
     _install_fake_fetch_model(monkeypatch, calls, fail_local=True)
 
     model.fetch_model(DEFAULT_EMBED_MODEL)
 
-    assert calls == [
-        (DEFAULT_EMBED_MODEL, {"local_files_only": True}),
-        (DEFAULT_EMBED_MODEL, {"local_files_only": False}),
-    ]
+    assert len(calls) == 2
+    assert calls[0]["local_files_only"] is False
+    assert calls[1]["local_files_only"] is True
     output = capsys.readouterr().out
     assert "Downloading model" in output
     assert "Waiting for model download" in output
 
 
-def test_fetch_model_force_skips_local_probe(monkeypatch, capsys):
+def test_fetch_model_force_skips_local_probe(tmp_path, monkeypatch, capsys):
     """--force must re-download instead of accepting a local cached load."""
     from mempalace_code.cli_commands import model
     from mempalace_code.storage import DEFAULT_EMBED_MODEL
 
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     calls = []
     _install_fake_fetch_model(monkeypatch, calls)
 
     model.fetch_model(DEFAULT_EMBED_MODEL, force=True)
 
-    assert calls == [(DEFAULT_EMBED_MODEL, {"local_files_only": False})]
+    assert len(calls) == 2
+    assert calls[0]["local_files_only"] is False
+    assert calls[1]["local_files_only"] is True
     assert "Waiting for model download" in capsys.readouterr().out
+
+
+def test_fetch_model_preserves_partial_cache_and_retry_is_idempotent(tmp_path, monkeypatch, capsys):
+    from mempalace_code.cli_commands import model
+    from mempalace_code.storage import DEFAULT_EMBED_MODEL, canonical_fastembed_cache_owned
+
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    cache_dir = model._model_cache_dir(DEFAULT_EMBED_MODEL)
+    assert cache_dir is not None
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "original-partial.bin").write_bytes(b"original")
+    calls = []
+    _install_fake_fetch_model(monkeypatch, calls, fail_online=True)
+
+    with pytest.raises(RuntimeError, match=r"Retry exactly: `mempalace-code fetch-model"):
+        model.fetch_model(DEFAULT_EMBED_MODEL)
+    first_output = capsys.readouterr().out
+    assert "Preserved partial cache at:" in first_output
+    assert (cache_dir / "interrupted.bin").read_bytes() == b"partial"
+
+    calls.clear()
+    _install_fake_fetch_model(monkeypatch, calls)
+    model.fetch_model(DEFAULT_EMBED_MODEL)
+
+    preserved = sorted(cache_dir.parent.glob(f"{cache_dir.name}.quarantine-*"))
+    assert len(preserved) == 2
+    assert any((path / "original-partial.bin").exists() for path in preserved)
+    assert any((path / "interrupted.bin").exists() for path in preserved)
+    assert canonical_fastembed_cache_owned()
+    assert "already available locally" not in capsys.readouterr().out
 
 
 def test_fetch_model_existing_local_path_does_not_retry_online(tmp_path, monkeypatch):
@@ -329,6 +485,121 @@ def test_fetch_model_existing_local_path_does_not_retry_online(tmp_path, monkeyp
         model.fetch_model(str(model_path))
 
     assert calls == [(str(model_path), {"local_files_only": True})]
+
+
+def test_quiet_hf_model_output_preserves_progress_and_suppresses_noise(capfd, monkeypatch):
+    """Buffered progress survives while Python and fd-level loader noise stays hidden."""
+    from mempalace_code.cli_commands import model
+
+    logger = logging.getLogger("huggingface_hub")
+    previous_level = logger.level
+    logger.setLevel(logging.WARNING)
+    buffered_stdout = os.fdopen(1, "w", buffering=4096, closefd=False)
+    buffered_stderr = os.fdopen(2, "w", buffering=4096, closefd=False)
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(sys, "stdout", buffered_stdout)
+            context.setattr(sys, "stderr", buffered_stderr)
+            sys.stdout.write("Downloading\nWaiting for model download\n")
+            sys.stderr.write("progress stderr\n")
+            with model._quiet_hf_model_output():
+                assert logger.level == logging.ERROR
+                sys.stdout.write("python stdout noise\n")
+                sys.stderr.write("python stderr noise\n")
+                os.write(1, b"fd stdout noise\n")
+                os.write(2, b"fd stderr noise\n")
+            sys.stdout.write("Done\n")
+            sys.stderr.write("restored stderr\n")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.write(1, b"restored stdout fd\n")
+            os.write(2, b"restored stderr fd\n")
+            assert logger.level == logging.WARNING
+    finally:
+        buffered_stdout.close()
+        buffered_stderr.close()
+        logger.setLevel(previous_level)
+
+    captured = capfd.readouterr()
+    assert captured.out == ("Downloading\nWaiting for model download\nDone\nrestored stdout fd\n")
+    assert captured.err == "progress stderr\nrestored stderr\nrestored stderr fd\n"
+    assert logger.level == previous_level
+
+
+def test_quiet_hf_model_output_restores_state_after_loader_failure(capfd):
+    """A loader exception remains observable after descriptors and logging are restored."""
+    from mempalace_code.cli_commands import model
+
+    logger = logging.getLogger("huggingface_hub")
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
+
+    def load_model():
+        with model._quiet_hf_model_output():
+            os.write(1, b"hidden loader stdout\n")
+            os.write(2, b"hidden loader stderr\n")
+            raise RuntimeError("loader failed")
+
+    try:
+        with pytest.raises(RuntimeError, match="loader failed"):
+            load_model()
+        os.write(1, b"restored stdout\n")
+        os.write(2, b"restored stderr\n")
+        assert logger.level == logging.INFO
+    finally:
+        logger.setLevel(previous_level)
+
+    captured = capfd.readouterr()
+    assert captured.out == "restored stdout\n"
+    assert captured.err == "restored stderr\n"
+
+
+@pytest.mark.parametrize("stream_name", ["stdout", "stderr"])
+@pytest.mark.parametrize("loader_fails", [False, True])
+def test_quiet_hf_model_output_restores_state_after_cleanup_flush_failure(
+    capfd, monkeypatch, stream_name, loader_fails
+):
+    """Cleanup restores state and preserves an active loader error over flush errors."""
+    from mempalace_code.cli_commands import model
+
+    logger = logging.getLogger("huggingface_hub")
+    previous_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    underlying_stream = getattr(sys, stream_name)
+    stream = MagicMock(wraps=underlying_stream)
+    flush_calls = 0
+
+    def flush_stream():
+        nonlocal flush_calls
+        flush_calls += 1
+        if flush_calls == 2:
+            raise OSError("flush failed")
+        underlying_stream.flush()
+
+    stream.flush.side_effect = flush_stream
+
+    def load_model():
+        with model._quiet_hf_model_output():
+            assert logger.level == logging.ERROR
+            if loader_fails:
+                raise RuntimeError("loader failed")
+
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(sys, stream_name, stream)
+            expected_error = RuntimeError if loader_fails else OSError
+            expected_message = "loader failed" if loader_fails else "flush failed"
+            with pytest.raises(expected_error, match=expected_message):
+                load_model()
+            os.write(1, b"restored stdout\n")
+            os.write(2, b"restored stderr\n")
+            assert logger.level == logging.DEBUG
+    finally:
+        logger.setLevel(previous_level)
+
+    captured = capfd.readouterr()
+    assert captured.out == "restored stdout\n"
+    assert captured.err == "restored stderr\n"
 
 
 def test_main_alias_is_same_object_as_in_alias_module():
