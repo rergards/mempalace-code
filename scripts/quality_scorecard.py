@@ -59,6 +59,19 @@ _SKIP_PARTS = frozenset(
 )
 TOP_MODULES = 10
 
+
+def _load_gate_inventory():
+    path = Path(__file__).with_name("gate_inventory.py")
+    spec = importlib.util.spec_from_file_location("_quality_scorecard_gate_inventory", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load canonical gate inventory from {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_GATE_INVENTORY = _load_gate_inventory()
+
 # Suppression policy — kept identical to tests/test_type_suppressions.py so the
 # scorecard's "unreasoned" count matches the gate that enforces it.
 _SUPPRESSION_RE = re.compile(r"#\s*(?:type|pyright):\s*ignore")
@@ -90,27 +103,6 @@ _KNOWN_SUITES = (
         "tests/test_code_intelligence_packet.py",
         "Code-intelligence demo packet generation and validation tests",
     ),
-)
-
-# The canonical /verify pre-commit checks. Kept verbatim-identical to the command
-# table in .claude/skills/verify/INSTRUCTIONS.md (a drift test enforces this).
-# Relative paths only; this is the public verification surface, not private state.
-_VERIFICATION_COMMANDS = (
-    ("lint", "ruff check mempalace_code/ tests/ scripts/"),
-    ("format", "ruff format --check mempalace_code/ tests/ scripts/"),
-    ("tests", 'python -m pytest tests/ -x -q -m "not needs_network"'),
-    (
-        "typecheck",
-        "python -m pyright --pythonpath \"$(python -c 'import sys; print(sys.executable)')\"",
-    ),
-    ("typecheck_strict_slice", "python -m pyright -p pyrightconfig.strict.json"),
-    ("public_safety", "python scripts/public_safety_scan.py --tracked --staged"),
-    (
-        "gitleaks_changed_range",
-        "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD",
-    ),
-    ("scorecard", "python scripts/quality_scorecard.py --check"),
-    ("architecture_guard", "python scripts/architecture_guard.py --root ."),
 )
 
 _PUBLIC_SAFETY_MODULE = None
@@ -358,7 +350,10 @@ def collect_suites(root: Path) -> list[dict]:
 
 
 def verification_commands() -> list[dict]:
-    return [{"name": name, "command": cmd} for name, cmd in _VERIFICATION_COMMANDS]
+    return [
+        {"name": gate["id"], "command": gate["command"]}
+        for gate in _GATE_INVENTORY.verify_surface_gates()
+    ]
 
 
 def collect_pyright_strict_slice(root: Path) -> dict:
@@ -391,11 +386,13 @@ def collect_public_safety_coverage() -> dict:
 def collect_gitleaks_coverage() -> dict:
     """Metadata about supported Gitleaks modes — no subprocess, no scan execution."""
     return {
+        "assurance_commands": {
+            "fixture_smoke": _GATE_INVENTORY.GITLEAKS_FIXTURE_SMOKE_COMMAND,
+            "validate_baseline": _GATE_INVENTORY.GITLEAKS_VALIDATE_BASELINE_COMMAND,
+        },
         "commands": {
-            "changed_range": (
-                "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD"
-            ),
-            "full_history": "python scripts/gitleaks_scan.py full-history",
+            "changed_range": _GATE_INVENTORY.GITLEAKS_CHANGED_RANGE_COMMAND,
+            "full_history": _GATE_INVENTORY.GITLEAKS_FULL_HISTORY_COMMAND,
         },
         "coverage": [
             "maintained_default_corpus",
@@ -403,7 +400,9 @@ def collect_gitleaks_coverage() -> dict:
             "changed_commit_range",
             "full_git_history",
             "native_fingerprint_ignores",
+            "reviewed_suppression_metadata",
             "redacted_sarif_report",
+            "runtime_five_class_fixture",
         ],
         "modes": ["changed_range", "full_history"],
     }
@@ -619,6 +618,11 @@ def render_markdown(data: dict) -> str:
         _cmd = gleaks.get("commands", {}).get(_mode, "")
         lines.append(f"| {_mode} | `{_cmd}` |")
     lines.append("")
+    lines.append("| Assurance | Command |")
+    lines.append("|-----------|---------|")
+    for _name, _cmd in sorted(gleaks["assurance_commands"].items()):
+        lines.append(f"| {_name} | `{_cmd}` |")
+    lines.append("")
     lines.append("Coverage: " + ", ".join(f"`{c}`" for c in gleaks["coverage"]))
     lines.append("")
 
@@ -802,6 +806,16 @@ def validate(data: dict) -> list[str]:
         for _mode in ("changed_range", "full_history"):
             require(_mode in gleaks["modes"], f"gitleaks.modes must include '{_mode}'")
     require(isinstance(gleaks.get("commands"), dict), "gitleaks.commands must be a dict")
+    require(
+        isinstance(gleaks.get("assurance_commands"), dict),
+        "gitleaks.assurance_commands must be a dict",
+    )
+    if isinstance(gleaks.get("assurance_commands"), dict):
+        for _command in ("validate_baseline", "fixture_smoke"):
+            require(
+                _command in gleaks["assurance_commands"],
+                f"gitleaks.assurance_commands must include {_command}",
+            )
     require(isinstance(gleaks.get("coverage"), list), "gitleaks.coverage must be a list")
     if isinstance(gleaks.get("coverage"), list):
         for _coverage in (
@@ -810,7 +824,9 @@ def validate(data: dict) -> list[str]:
             "changed_commit_range",
             "full_git_history",
             "native_fingerprint_ignores",
+            "reviewed_suppression_metadata",
             "redacted_sarif_report",
+            "runtime_five_class_fixture",
         ):
             require(_coverage in gleaks["coverage"], f"gitleaks.coverage must include {_coverage}")
 

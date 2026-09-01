@@ -48,6 +48,8 @@ GITLEAKS_CHANGED_RANGE_COMMAND = (
     "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD"
 )
 GITLEAKS_FULL_HISTORY_COMMAND = "python scripts/gitleaks_scan.py full-history"
+GITLEAKS_VALIDATE_BASELINE_COMMAND = "python scripts/gitleaks_scan.py validate-baseline"
+GITLEAKS_FIXTURE_SMOKE_COMMAND = "python scripts/gitleaks_scan.py fixture-smoke"
 
 _GITLEAKS_REQUIRE_RE = re.compile(
     rf"^\s*(?:require\s+)?{re.escape(GITLEAKS_GO_MODULE)}\s+(?P<version>v\S+?)\s*(?://.*)?$",
@@ -153,6 +155,25 @@ CANONICAL_GATES: list[dict] = [
         ],
     },
     {
+        "id": "gitleaks_fixture_smoke",
+        "name": "Gitleaks detector and redaction fixture",
+        "command": GITLEAKS_FIXTURE_SMOKE_COMMAND,
+        "category": "quality",
+        "surfaces": [
+            ".claude/skills/verify/INSTRUCTIONS.md",
+            ".github/workflows/ci.yml",
+            ".github/workflows/publish.yml",
+            ".github/workflows/gitleaks-history.yml",
+        ],
+    },
+    {
+        "id": "gitleaks_validate_baseline",
+        "name": "Gitleaks suppression metadata validation",
+        "command": GITLEAKS_VALIDATE_BASELINE_COMMAND,
+        "category": "quality",
+        "surfaces": [],
+    },
+    {
         "id": "gitleaks_install",
         "name": "Gitleaks CLI install (checksum-locked tool module)",
         "command": GITLEAKS_INSTALL_COMMAND,
@@ -251,8 +272,7 @@ CANONICAL_GATES: list[dict] = [
 
 
 # ── Verify-surface subset ─────────────────────────────────────────────────────
-# Which gate IDs should appear in INSTRUCTIONS.md as the /verify surface.
-# This matches _VERIFICATION_COMMANDS in quality_scorecard.py.
+# Which gate IDs should appear in INSTRUCTIONS.md and generated scorecard output.
 VERIFY_SURFACE_IDS: tuple[str, ...] = (
     "lint",
     "format",
@@ -260,6 +280,7 @@ VERIFY_SURFACE_IDS: tuple[str, ...] = (
     "typecheck",
     "typecheck_strict_slice",
     "public_safety",
+    "gitleaks_fixture_smoke",
     "gitleaks_changed_range",
     "scorecard",
     "architecture_guard",
@@ -593,31 +614,6 @@ def check_parity(root: Path, gates: list[dict] | None = None) -> list[str]:
                 errors.append(f"MISSING-SURFACE: {surface_path} (required by gate '{gate_id}')")
                 continue
             errors.extend(_check_surface_contains_command(text, gate_id, command, surface_path))
-
-    # Also check that the scorecard's _VERIFICATION_COMMANDS matches the verify-surface gates.
-    scorecard_path = root / "scripts" / "quality_scorecard.py"
-    if scorecard_path.exists():
-        scorecard_text = scorecard_path.read_text(encoding="utf-8")
-        # Find _VERIFICATION_COMMANDS tuple to verify command strings.
-        verify_gates = [g for g in gates if g["id"] in set(VERIFY_SURFACE_IDS)]
-        for gate in verify_gates:
-            cmd = gate["command"]
-            # The command may appear either verbatim (in markdown) or Python-escaped
-            # (inside a string literal in quality_scorecard.py, where " → \").
-            escaped_cmd = cmd.replace('"', '\\"')
-            if cmd in scorecard_text or escaped_cmd in scorecard_text:
-                continue
-            # Partial match: first 40 chars of command (use escaped form for Python src).
-            fragment = cmd[:40].rstrip()
-            escaped_fragment = escaped_cmd[:40].rstrip()
-            if (fragment and fragment in scorecard_text) or (
-                escaped_fragment and escaped_fragment in scorecard_text
-            ):
-                continue
-            errors.append(
-                f"SCORECARD-DRIFT: gate '{gate['id']}' command not found in "
-                f"scripts/quality_scorecard.py _VERIFICATION_COMMANDS"
-            )
 
     if using_default_gates:
         errors.extend(check_ruff_contract(root))

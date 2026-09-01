@@ -43,18 +43,31 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-# Canonical verification command surfaces the guard checks. Kept in sync with
-# guard.VERIFICATION_COMMAND_SURFACES so the fixture below satisfies every
-# surface the real guard requires.
-_VERIFICATION_COMMANDS_SOURCE = """_VERIFICATION_COMMANDS = (
-    ("lint", "ruff check pkg/ tests/ scripts/"),
-    ("format", "ruff format --check pkg/ tests/ scripts/"),
-    ("tests", "python -m pytest tests/ -x -q"),
-    ("typecheck", "python -m pyright"),
-    ("typecheck_strict_slice", "python -m pyright -p pyrightconfig.strict.json"),
-    ("public_safety", "python scripts/public_safety_scan.py --tracked --staged"),
-    ("scorecard", "python scripts/quality_scorecard.py --check"),
-    ("architecture_guard", "python scripts/architecture_guard.py --root ."),
+# Canonical verification gates the guard checks. Kept in sync with
+# guard.VERIFICATION_COMMAND_SURFACES so the fixture satisfies each public surface.
+_GATE_INVENTORY_SOURCE = """CANONICAL_GATES = [
+    {"id": "lint", "command": "ruff check pkg/ tests/ scripts/"},
+    {"id": "format", "command": "ruff format --check pkg/ tests/ scripts/"},
+    {"id": "tests", "command": "python -m pytest tests/ -x -q"},
+    {"id": "typecheck", "command": "python -m pyright"},
+    {"id": "typecheck_strict_slice", "command": "python -m pyright -p pyrightconfig.strict.json"},
+    {"id": "public_safety", "command": "python scripts/public_safety_scan.py --tracked --staged"},
+    {"id": "gitleaks_fixture_smoke", "command": "python scripts/gitleaks_scan.py fixture-smoke"},
+    {"id": "gitleaks_changed_range", "command": "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD"},
+    {"id": "scorecard", "command": "python scripts/quality_scorecard.py --check"},
+    {"id": "architecture_guard", "command": "python scripts/architecture_guard.py --root ."},
+]
+VERIFY_SURFACE_IDS = (
+    "lint",
+    "format",
+    "tests",
+    "typecheck",
+    "typecheck_strict_slice",
+    "public_safety",
+    "gitleaks_fixture_smoke",
+    "gitleaks_changed_range",
+    "scorecard",
+    "architecture_guard",
 )
 """
 
@@ -475,6 +488,8 @@ python -m pyright
         "python -m pyright\n"
         "python -m pyright -p pyrightconfig.strict.json\n"
         "python scripts/public_safety_scan.py --tracked --staged\n"
+        "python scripts/gitleaks_scan.py fixture-smoke\n"
+        "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD\n"
         "python scripts/quality_scorecard.py --check\n"
         "python scripts/architecture_guard.py --root .\n",
     )
@@ -490,7 +505,8 @@ python -m pyright
         tmp_path / "docs" / "UPSTREAM_COMPARISON.md",
         _CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND + "\n",
     )
-    _write(tmp_path / "scripts" / "quality_scorecard.py", _VERIFICATION_COMMANDS_SOURCE)
+    _write(tmp_path / "scripts" / "gate_inventory.py", _GATE_INVENTORY_SOURCE)
+    _write(tmp_path / "scripts" / "quality_scorecard.py", "# fixture stub\n")
     _write(tmp_path / "scripts" / "release_admission_checks.py", "# fixture stub\n")
     _write(tmp_path / "scripts" / "release_preflight.py", "# fixture stub\n")
     _write(tmp_path / "scripts" / "release_readiness_gate.py", "# fixture stub\n")
@@ -867,7 +883,7 @@ def test_agents_optional_extras_report_stale_unknown_extra(tmp_path: Path):
 # ── AC-4: Canonical verification command documentation ─────────────────────────
 
 
-def test_canonical_verification_command_docs_match_scorecard_commands(tmp_path: Path):
+def test_canonical_verification_command_docs_match_gate_inventory(tmp_path: Path):
     root = _make_repo(tmp_path)
     facts, errors = guard.evaluate(root)
     assert errors == []
@@ -879,6 +895,8 @@ def test_canonical_verification_command_docs_match_scorecard_commands(tmp_path: 
         "typecheck",
         "typecheck_strict_slice",
         "public_safety",
+        "gitleaks_fixture_smoke",
+        "gitleaks_changed_range",
         "scorecard",
         "architecture_guard",
     }

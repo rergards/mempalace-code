@@ -4,7 +4,7 @@
     "package_files": 80,
     "package_total_lines": 29069,
     "test_files": 88,
-    "test_total_lines": 78777
+    "test_total_lines": 79021
   },
   "demo_gates": {
     "architecture_guard": {
@@ -33,6 +33,10 @@
     }
   },
   "gitleaks": {
+    "assurance_commands": {
+      "fixture_smoke": "python scripts/gitleaks_scan.py fixture-smoke",
+      "validate_baseline": "python scripts/gitleaks_scan.py validate-baseline"
+    },
     "commands": {
       "changed_range": "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD",
       "full_history": "python scripts/gitleaks_scan.py full-history"
@@ -43,7 +47,9 @@
       "changed_commit_range",
       "full_git_history",
       "native_fingerprint_ignores",
-      "redacted_sarif_report"
+      "reviewed_suppression_metadata",
+      "redacted_sarif_report",
+      "runtime_five_class_fixture"
     ],
     "modes": [
       "changed_range",
@@ -276,7 +282,7 @@
   },
   "tests": {
     "test_files": 88,
-    "test_functions": 3666
+    "test_functions": 3675
   },
   "verification_commands": [
     {
@@ -302,6 +308,10 @@
     {
       "command": "python scripts/public_safety_scan.py --tracked --staged",
       "name": "public_safety"
+    },
+    {
+      "command": "python scripts/gitleaks_scan.py fixture-smoke",
+      "name": "gitleaks_fixture_smoke"
     },
     {
       "command": "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD",

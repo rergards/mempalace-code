@@ -111,6 +111,8 @@ jobs:
       # Installs the Gitleaks version pinned by tools/gitleaks/go.mod and locked by
       # tools/gitleaks/go.sum. Dependabot's gomod ecosystem owns that upgrade.
       - uses: ./.github/actions/gitleaks-gate
+      - name: Gitleaks detector and redaction fixture
+        run: python scripts/gitleaks_scan.py fixture-smoke
       - name: Derive exact Gitleaks commit range
         id: gitleaks-range
         shell: bash

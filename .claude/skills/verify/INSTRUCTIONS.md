@@ -51,6 +51,7 @@ Run in parallel:
 | Typecheck | `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"` | 120s |
 | Strict slice typecheck | `python -m pyright -p pyrightconfig.strict.json` | 60s |
 | Public safety | `python scripts/public_safety_scan.py --tracked --staged` | 30s |
+| Gitleaks detector/redaction fixture | `python scripts/gitleaks_scan.py fixture-smoke` | 60s |
 | Gitleaks changed range | `python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD` | 60s |
 | Scorecard | `python scripts/quality_scorecard.py --check` | 30s |
 | Architecture guard | `python scripts/architecture_guard.py --root .` | 30s |
@@ -59,7 +60,8 @@ The scorecard check is stdlib-only (no install, no network) and validates the
 quality scorecard's shape, determinism, public-safety, and committed artifact
 freshness. The public-safety scan checks tracked and staged repository files for
 private local paths, secret-like tokens, and local-only raw artifacts. The
-Gitleaks scans an explicit
+Gitleaks fixture proves five synthetic detector classes and redacted disposable
+SARIF. The changed-range scan inspects an explicit
 `BASE..HEAD` commit range for maintained credential signatures and entropy
 findings. After a quality change lands, regenerate the committed artifacts with
 `python scripts/quality_scorecard.py --write` (see `docs/quality/README.md`).

@@ -78,6 +78,8 @@ def test_required_quality_gates_present():
         "typecheck",
         "typecheck_strict_slice",
         "public_safety",
+        "gitleaks_fixture_smoke",
+        "gitleaks_validate_baseline",
         "gitleaks_changed_range",
         "scorecard",
         "architecture_guard",
@@ -183,6 +185,7 @@ def test_verify_surface_ids_cover_core_quality_gates():
         "typecheck",
         "typecheck_strict_slice",
         "public_safety",
+        "gitleaks_fixture_smoke",
         "gitleaks_changed_range",
         "scorecard",
         "architecture_guard",
@@ -198,15 +201,23 @@ def test_gitleaks_gates_are_canonical_and_wired_into_ci():
     history_text = (ROOT / ".github" / "workflows" / "gitleaks-history.yml").read_text(
         encoding="utf-8"
     )
+    verify_text = (ROOT / ".claude" / "skills" / "verify" / "INSTRUCTIONS.md").read_text(
+        encoding="utf-8"
+    )
 
     # The CLI version is read from the checksum-locked tool module, never restated
     # here, so a Dependabot bump of tools/gitleaks/go.mod needs no test edit.
     assert gi.gitleaks_cli_version(ROOT).startswith("v8.")
     assert gates["gitleaks_changed_range"]["command"] == gi.GITLEAKS_CHANGED_RANGE_COMMAND
     assert gates["gitleaks_full_history"]["command"] == gi.GITLEAKS_FULL_HISTORY_COMMAND
+    assert gates["gitleaks_fixture_smoke"]["command"] == gi.GITLEAKS_FIXTURE_SMOKE_COMMAND
+    assert gates["gitleaks_validate_baseline"]["command"] == gi.GITLEAKS_VALIDATE_BASELINE_COMMAND
     assert gates["gitleaks_install"]["command"] == gi.GITLEAKS_INSTALL_COMMAND
     assert gates["gitleaks_changed_range"]["category"] == "quality"
     assert gates["gitleaks_full_history"]["category"] == "release"
+    assert gates["gitleaks_fixture_smoke"]["category"] == "quality"
+    assert gates["gitleaks_validate_baseline"]["category"] == "quality"
+    assert gates["gitleaks_validate_baseline"]["surfaces"] == []
     assert gates["gitleaks_install"]["category"] == "install"
 
     assert gi.GITLEAKS_INSTALL_COMMAND in ci_text
@@ -217,7 +228,11 @@ def test_gitleaks_gates_are_canonical_and_wired_into_ci():
     assert gi.GITLEAKS_INSTALL_COMMAND in history_text
     assert gi.GITLEAKS_FULL_HISTORY_COMMAND in publish_text
     assert gi.GITLEAKS_FULL_HISTORY_COMMAND in history_text
+    assert gi.GITLEAKS_FIXTURE_SMOKE_COMMAND in verify_text
+    assert "gitleaks_fixture_smoke" in gi.VERIFY_SURFACE_IDS
     for text in (ci_text, publish_text, history_text):
+        assert gi.GITLEAKS_FIXTURE_SMOKE_COMMAND in text
+        assert gi.GITLEAKS_VALIDATE_BASELINE_COMMAND not in text
         # A mutable `go install ...@tag` must never come back into a workflow.
         assert f"{gi.GITLEAKS_GO_MODULE}@" not in text
         assert "gitleaks/v8@" not in text

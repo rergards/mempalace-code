@@ -12,7 +12,7 @@ Schema version: 4
 | Package total lines | 29069 |
 | Package code lines | 23895 |
 | Test files (`tests/`) | 88 |
-| Test total lines | 78777 |
+| Test total lines | 79021 |
 
 ## Largest Modules (top 10)
 
@@ -78,7 +78,12 @@ Files under strict type-checking (`pyrightconfig.strict.json`): 6.
 | changed_range | `python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD` |
 | full_history | `python scripts/gitleaks_scan.py full-history` |
 
-Coverage: `maintained_default_corpus`, `entropy_rule`, `changed_commit_range`, `full_git_history`, `native_fingerprint_ignores`, `redacted_sarif_report`
+| Assurance | Command |
+|-----------|---------|
+| fixture_smoke | `python scripts/gitleaks_scan.py fixture-smoke` |
+| validate_baseline | `python scripts/gitleaks_scan.py validate-baseline` |
+
+Coverage: `maintained_default_corpus`, `entropy_rule`, `changed_commit_range`, `full_git_history`, `native_fingerprint_ignores`, `reviewed_suppression_metadata`, `redacted_sarif_report`, `runtime_five_class_fixture`
 
 ## Demo Gates
 
@@ -123,7 +128,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | Test files | 88 |
-| Test functions | 3666 |
+| Test functions | 3675 |
 
 ## Available Suites
 
@@ -148,6 +153,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 - **typecheck**: `python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"`
 - **typecheck_strict_slice**: `python -m pyright -p pyrightconfig.strict.json`
 - **public_safety**: `python scripts/public_safety_scan.py --tracked --staged`
+- **gitleaks_fixture_smoke**: `python scripts/gitleaks_scan.py fixture-smoke`
 - **gitleaks_changed_range**: `python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD`
 - **scorecard**: `python scripts/quality_scorecard.py --check`
 - **architecture_guard**: `python scripts/architecture_guard.py --root .`

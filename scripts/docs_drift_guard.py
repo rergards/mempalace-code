@@ -3,8 +3,8 @@
 
 The guard is stdlib-only so it can run in lint CI without importing package
 dependencies. It reads the MCP registry, the CLI argparse tree, packaging
-metadata, release/dependency-gate workflows, and the canonical verification
-command list as plain source text (AST/TOML/YAML-adjacent text parsing —
+metadata, release/dependency-gate workflows, and the canonical gate inventory
+as plain source text (AST/TOML/YAML-adjacent text parsing —
 never `import mempalace_code` and never executes a workflow), then checks the
 public files that repeat those facts.
 
@@ -36,7 +36,7 @@ ABOUT_TEMPLATE = (
 )
 
 # Documented verification-command coverage per public surface. Each name must be
-# a key in scripts/quality_scorecard.py's _VERIFICATION_COMMANDS. Detailed
+# a verify-surface gate in scripts/gate_inventory.py. Detailed
 # release commands belong to docs/RELEASING.md; the release skill only routes to
 # that canonical runbook and names its two entry-point gates.
 VERIFICATION_COMMAND_SURFACES: dict[str, tuple[str, ...]] = {
@@ -47,6 +47,8 @@ VERIFICATION_COMMAND_SURFACES: dict[str, tuple[str, ...]] = {
         "typecheck",
         "typecheck_strict_slice",
         "public_safety",
+        "gitleaks_fixture_smoke",
+        "gitleaks_changed_range",
         "scorecard",
         "architecture_guard",
     ),
@@ -550,27 +552,49 @@ def cli_command_inventory(path: Path) -> tuple[list[str], int]:
 
 
 def canonical_verification_commands(root: Path) -> dict[str, str]:
-    path = root / "scripts" / "quality_scorecard.py"
+    path = root / "scripts" / "gate_inventory.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    value = _assignment(tree, "_VERIFICATION_COMMANDS")
-    if not isinstance(value, ast.Tuple):
-        raise ValueError(f"{path}: _VERIFICATION_COMMANDS is not a tuple literal")
-    result: dict[str, str] = {}
-    for item in value.elts:
-        if not isinstance(item, ast.Tuple) or len(item.elts) != 2:
-            raise ValueError(f"{path}: _VERIFICATION_COMMANDS entries must be 2-tuples")
-        name_node, cmd_node = item.elts
-        if not (
-            isinstance(name_node, ast.Constant)
-            and isinstance(name_node.value, str)
-            and isinstance(cmd_node, ast.Constant)
-            and isinstance(cmd_node.value, str)
-        ):
-            raise ValueError(f"{path}: _VERIFICATION_COMMANDS entries must be string literals")
-        result[name_node.value] = cmd_node.value
-    if not result:
-        raise ValueError(f"{path}: _VERIFICATION_COMMANDS is empty")
-    return result
+    ids_node = _assignment(tree, "VERIFY_SURFACE_IDS")
+    gates_node = _assignment(tree, "CANONICAL_GATES")
+    if not isinstance(ids_node, (ast.Tuple, ast.List)):
+        raise ValueError(f"{path}: VERIFY_SURFACE_IDS is not a literal sequence")
+    if not isinstance(gates_node, ast.List):
+        raise ValueError(f"{path}: CANONICAL_GATES is not a list literal")
+
+    verify_ids: list[str] = []
+    for item in ids_node.elts:
+        if not isinstance(item, ast.Constant) or not isinstance(item.value, str):
+            raise ValueError(f"{path}: VERIFY_SURFACE_IDS contains a non-string entry")
+        verify_ids.append(item.value)
+
+    def resolve_string(node: ast.AST) -> str:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            return resolve_string(_assignment(tree, node.id))
+        raise ValueError(f"{path}: canonical gate command is not a string literal or constant")
+
+    commands: dict[str, str] = {}
+    for item in gates_node.elts:
+        if not isinstance(item, ast.Dict):
+            raise ValueError(f"{path}: CANONICAL_GATES contains a non-dict entry")
+        fields = {
+            key.value: value
+            for key, value in zip(item.keys, item.values, strict=True)
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        gate_id_node = fields.get("id")
+        command_node = fields.get("command")
+        if gate_id_node is None or command_node is None:
+            raise ValueError(f"{path}: canonical gate is missing id or command")
+        gate_id = resolve_string(gate_id_node)
+        if gate_id in verify_ids:
+            commands[gate_id] = resolve_string(command_node)
+
+    missing = [gate_id for gate_id in verify_ids if gate_id not in commands]
+    if missing:
+        raise ValueError(f"{path}: verify-surface gates missing from CANONICAL_GATES: {missing}")
+    return {gate_id: commands[gate_id] for gate_id in verify_ids}
 
 
 def benchmark_fixture_facts(root: Path) -> dict:
@@ -1606,7 +1630,7 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
             command = canonical_commands.get(name)
             if command is None:
                 errors.append(
-                    f"scripts/quality_scorecard.py: canonical verification command missing: {name}"
+                    f"scripts/gate_inventory.py: canonical verification command missing: {name}"
                 )
                 continue
             if command not in text:

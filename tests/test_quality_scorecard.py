@@ -517,15 +517,22 @@ def test_verification_commands_match_verify_skill():
     instructions = (ROOT / ".claude" / "skills" / "verify" / "INSTRUCTIONS.md").read_text(
         encoding="utf-8"
     )
-    for _name, cmd in sc._VERIFICATION_COMMANDS:
-        assert cmd in instructions, f"verification command not in /verify verbatim: {cmd!r}"
+    commands = sc.verification_commands()
+    for row in commands:
+        assert row["command"] in instructions, (
+            f"verification command not in /verify verbatim: {row['command']!r}"
+        )
+    source = (ROOT / "scripts" / "quality_scorecard.py").read_text(encoding="utf-8")
+    assert "_VERIFICATION_COMMANDS" not in source
 
 
 def test_strict_slice_command_in_verify_and_ci():
     """AC-4: the strict-slice command stays wired into /verify and CI, and the strict
     config keeps reportMissingImports enabled rather than being weakened to pass."""
     strict_cmd = next(
-        cmd for name, cmd in sc._VERIFICATION_COMMANDS if name == "typecheck_strict_slice"
+        row["command"]
+        for row in sc.verification_commands()
+        if row["name"] == "typecheck_strict_slice"
     )
     assert strict_cmd == "python -m pyright -p pyrightconfig.strict.json"
 
