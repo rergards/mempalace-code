@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## v1.13.5 — 2026-08-31
+## v1.13.5 — 2026-09-01
 
 Patch release for ingest source safety, ChromaDB runtime retirement, explicit
 update and install opt-ins, alias target containment, and stricter MCP argument
