@@ -995,6 +995,7 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "overrides" },
     { name = "packaging" },
+    { name = "pyarrow" },
     { name = "pyyaml" },
 ]
 
@@ -1054,6 +1055,7 @@ requires-dist = [
     { name = "onnxruntime", specifier = ">=1.20,<2" },
     { name = "overrides", specifier = ">=7.7" },
     { name = "packaging", specifier = ">=21.0" },
+    { name = "pyarrow", specifier = "<25" },
     { name = "pypi-attestations", marker = "extra == 'dev'", specifier = "==0.0.30" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.350" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
