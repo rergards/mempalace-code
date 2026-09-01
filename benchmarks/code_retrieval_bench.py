@@ -48,7 +48,7 @@ RETRIEVAL_QUALITY_FACTS = Path(__file__).resolve().parent / "retrieval_quality_f
 MINILM_COMPATIBILITY_FIXTURE = (
     Path(__file__).resolve().parent / "minilm_runtime_compatibility_fixture.json"
 )
-MINILM_FIXTURE_SHA256 = "52606c0cb541caa17f57e937e746057ff40355748935d8afa5cdaeb6d01eb245"
+MINILM_FIXTURE_SHA256 = "0a71e40e8685563c48d9e4db51ee787ae9ab30dbaf4714bb58a92004b83970b8"
 MINILM_FIXTURE_RECOVERY = "git restore benchmarks/minilm_runtime_compatibility_fixture.json"
 MINILM_CACHE_RECOVERY = "mempalace-code fetch-model --model all-MiniLM-L6-v2 --force"
 MINILM_INSTALL_RECOVERY = "python -m pip install dist/*.whl"
