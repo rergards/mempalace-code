@@ -73,6 +73,35 @@ def _json(value: object) -> bytes:
     return json.dumps(value).encode()
 
 
+CHECK_RUN_ID = 99_722_321_144
+EXPECTED_SHA = "a" * 40
+
+
+def _check_run(**updates):
+    value = {
+        "id": CHECK_RUN_ID,
+        "name": public.MINILM_CHECK_NAME,
+        "status": "completed",
+        "conclusion": "failure",
+        "head_sha": EXPECTED_SHA,
+        "html_url": "https://github.com/ignored",
+    }
+    value.update(updates)
+    return value
+
+
+def _annotation(**updates):
+    value = {
+        "annotation_level": "failure",
+        "title": public.MINILM_ANNOTATION_TITLE,
+        "message": "ERROR: MiniLM runtime cache is unavailable",
+        "path": "ignored/path",
+        "raw_details": "ignored details",
+    }
+    value.update(updates)
+    return value
+
+
 def test_check_runs_uses_one_bounded_credential_free_get():
     opener = Opener([_json({"total_count": 0, "check_runs": []})])
     reader = public.PublicReader(opener)
@@ -88,10 +117,168 @@ def test_check_runs_uses_one_bounded_credential_free_get():
     assert request.get_header("Cookie") is None
 
 
+def test_check_run_annotations_binds_two_exact_sterile_gets():
+    opener = Opener([_json(_check_run()), _json([_annotation()])])
+    result = public.PublicReader(opener)(
+        public.check_run_annotations(public.PUBLIC_REPOSITORY, CHECK_RUN_ID, EXPECTED_SHA)
+    )
+
+    assert result.error == ""
+    assert result.data == {
+        "expectedSha": EXPECTED_SHA,
+        "checkRunId": CHECK_RUN_ID,
+        "checkName": public.MINILM_CHECK_NAME,
+        "annotationLevel": "failure",
+        "title": public.MINILM_ANNOTATION_TITLE,
+        "message": "ERROR: MiniLM runtime cache is unavailable",
+    }
+    assert opener.timeouts == [public.TIMEOUT_SECONDS, public.TIMEOUT_SECONDS]
+    assert [request.full_url for request in opener.requests] == [
+        f"{public.GITHUB_API}/repos/{public.PUBLIC_REPOSITORY}/check-runs/{CHECK_RUN_ID}",
+        f"{public.GITHUB_API}/repos/{public.PUBLIC_REPOSITORY}/check-runs/{CHECK_RUN_ID}"
+        "/annotations?per_page=100&page=1",
+    ]
+    for request in opener.requests:
+        assert request.get_method() == "GET"
+        assert request.get_header("Authorization") is None
+        assert request.get_header("Cookie") is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "ERROR: MiniLM compatibility current_vector_norm failed",
+        "ERROR: active mempalace-code distribution is not installed",
+        "ERROR: installed MiniLM runtime is unavailable",
+    ],
+)
+def test_check_run_annotation_accepts_every_compatibility_message_prefix(message):
+    evidence = public._check_run_annotation_evidence(
+        [_annotation(message=message)],
+        check_run_id=CHECK_RUN_ID,
+        expected_sha=EXPECTED_SHA,
+    )
+
+    assert evidence["message"] == message
+
+
+@pytest.mark.parametrize("check_run_id", [0, -1, 10**12 + 1, True])
+def test_check_run_annotation_invalid_id_is_rejected_before_requests(check_run_id):
+    opener = Opener([])
+    with pytest.raises(ValueError, match="invalid check run id"):
+        public.check_run_annotations(public.PUBLIC_REPOSITORY, check_run_id, EXPECTED_SHA)
+    assert opener.requests == []
+
+
+@pytest.mark.parametrize("expected_sha", ["a" * 39, "g" * 40, "../" + "a" * 37])
+def test_check_run_annotation_invalid_sha_is_rejected_before_requests(expected_sha):
+    with pytest.raises(ValueError, match="SHA"):
+        public.check_run_annotations(public.PUBLIC_REPOSITORY, CHECK_RUN_ID, expected_sha)
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"head_sha": "b" * 40},
+        {"name": "installed-application (ubuntu-latest, 3.11, arm64)"},
+        {"status": "in_progress"},
+        {"conclusion": "success"},
+    ],
+)
+def test_check_run_annotation_rejects_stale_name_or_state_before_second_get(updates):
+    opener = Opener([_json(_check_run(**updates))])
+    result = public.PublicReader(opener)(
+        public.check_run_annotations(public.PUBLIC_REPOSITORY, CHECK_RUN_ID, EXPECTED_SHA)
+    )
+
+    assert result.data is None
+    assert "does not match" in result.error
+    assert len(opener.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "annotations",
+    [
+        [],
+        [_annotation(annotation_level="warning")],
+        [_annotation(title="Other failure")],
+        [_annotation(message="WARNING: another benchmark")],
+        [_annotation(message="ERROR: ")],
+        [_annotation(message="MiniLM compatibility failed")],
+        [_annotation(), _annotation(message="ERROR: MiniLM second failure")],
+        [_annotation(message="ERROR: MiniLM" + "x" * 628)],
+    ],
+)
+def test_check_run_annotation_requires_one_bounded_exact_match(annotations):
+    opener = Opener([_json(_check_run()), _json(annotations)])
+    result = public.PublicReader(opener)(
+        public.check_run_annotations(public.PUBLIC_REPOSITORY, CHECK_RUN_ID, EXPECTED_SHA)
+    )
+
+    assert result.data is None
+    assert "exactly one" in result.error
+
+
+def test_check_run_annotation_rejects_full_page_as_incomplete():
+    opener = Opener([_json(_check_run()), _json([_annotation()] * 100)])
+    result = public.PublicReader(opener)(
+        public.check_run_annotations(public.PUBLIC_REPOSITORY, CHECK_RUN_ID, EXPECTED_SHA)
+    )
+
+    assert result.data is None
+    assert "bounded pagination limit" in result.error
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "error"),
+    [
+        ({"name": public.MINILM_CHECK_NAME}, [_annotation()], "malformed evidence"),
+        (_check_run(head_sha=1), [_annotation()], "malformed evidence"),
+        (_check_run(), {}, "unexpected annotation response shape"),
+        (_check_run(), [{"title": public.MINILM_ANNOTATION_TITLE}], "malformed evidence"),
+        (_check_run(), [_annotation(message=None)], "malformed evidence"),
+    ],
+)
+def test_check_run_annotation_rejects_malformed_declared_fields(first, second, error):
+    result = public.PublicReader(Opener([_json(first), _json(second)]))(
+        public.check_run_annotations(public.PUBLIC_REPOSITORY, CHECK_RUN_ID, EXPECTED_SHA)
+    )
+    assert result.data is None
+    assert error in result.error
+
+
+@pytest.mark.parametrize("response_index", [0, 1])
+def test_check_run_annotation_rejects_redirects_and_oversized_bodies(response_index):
+    metadata_url = f"{public.GITHUB_API}/repos/{public.PUBLIC_REPOSITORY}/check-runs/{CHECK_RUN_ID}"
+    annotation_url = metadata_url + "/annotations?per_page=100&page=1"
+    good: list[bytes | Response | BaseException] = [
+        _json(_check_run()),
+        _json([_annotation()]),
+    ]
+    redirected = list(good)
+    redirected[response_index] = Response(b"{}", "https://example.com/elsewhere", length="2")
+    oversized = list(good)
+    oversized[response_index] = Response(
+        b"x" * (public.JSON_LIMIT + 1),
+        metadata_url if response_index == 0 else annotation_url,
+    )
+
+    redirect_result = public.PublicReader(Opener(redirected))(
+        public.check_run_annotations(public.PUBLIC_REPOSITORY, CHECK_RUN_ID, EXPECTED_SHA)
+    )
+    oversized_result = public.PublicReader(Opener(oversized))(
+        public.check_run_annotations(public.PUBLIC_REPOSITORY, CHECK_RUN_ID, EXPECTED_SHA)
+    )
+
+    assert redirect_result.error == "redirects are forbidden"
+    assert oversized_result.error == "response exceeds the endpoint size limit"
+
+
 @pytest.mark.parametrize(
     ("factory", "args"),
     [
         (public.check_runs, ("other/repo", "a" * 40, "release-required", 100)),
+        (public.check_run_annotations, ("other/repo", CHECK_RUN_ID, EXPECTED_SHA)),
         (public.check_runs, (public.PUBLIC_REPOSITORY, "../main", "release-required", 100)),
         (public.check_runs, (public.PUBLIC_REPOSITORY, "a" * 40, "other-check", 100)),
         (public.workflow_runs, (public.PUBLIC_REPOSITORY, "Unknown", 10)),
@@ -354,6 +541,52 @@ def test_cli_prints_fixed_version_tags(monkeypatch, capsys):
     )
     assert public.main(["--version-tags"]) == 0
     assert capsys.readouterr().out == "v1.2.3\n"
+
+
+def test_cli_prints_deterministic_check_run_annotation_evidence(monkeypatch, capsys):
+    opener = Opener([_json(_check_run()), _json([_annotation()])])
+    monkeypatch.setattr(public, "DEFAULT_READER", public.PublicReader(opener))
+
+    assert (
+        public.main(
+            [
+                "--check-run-annotations",
+                str(CHECK_RUN_ID),
+                "--expect-sha",
+                EXPECTED_SHA.upper(),
+            ]
+        )
+        == 0
+    )
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == (
+        '{"annotationLevel":"failure","checkName":"installed-application '
+        '(ubuntu-latest, 3.11, x64)","checkRunId":99722321144,'
+        '"expectedSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+        '"message":"ERROR: MiniLM runtime cache is unavailable",'
+        '"title":"MiniLM runtime compatibility"}\n'
+    )
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--check-run-annotations", "0", "--expect-sha", EXPECTED_SHA],
+        ["--check-run-annotations", str(CHECK_RUN_ID), "--expect-sha", "bad"],
+        ["--check-run-annotations", str(CHECK_RUN_ID)],
+        ["--public-main-sha", "--expect-sha", EXPECTED_SHA],
+    ],
+)
+def test_cli_rejects_invalid_annotation_arguments_without_request(monkeypatch, capsys, argv):
+    opener = Opener([])
+    monkeypatch.setattr(public, "DEFAULT_READER", public.PublicReader(opener))
+
+    assert public.main(argv) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("release-public-read: ERROR — ")
+    assert opener.requests == []
 
 
 def test_public_query_exposes_no_superseded_command_compatibility():

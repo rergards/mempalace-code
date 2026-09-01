@@ -53,10 +53,17 @@ MINILM_FIXTURE_RECOVERY = "git restore benchmarks/minilm_runtime_compatibility_f
 MINILM_CACHE_RECOVERY = "mempalace-code fetch-model --model all-MiniLM-L6-v2 --force"
 MINILM_INSTALL_RECOVERY = "python -m pip install dist/*.whl"
 MINILM_RUNTIME_BLOCKER = "persistent failure is a runtime/dependency compatibility blocker"
+MINILM_ANNOTATION_TITLE = "MiniLM runtime compatibility"
 
 
 class BenchError(Exception):
     """Expected user-facing benchmark failure."""
+
+
+def _github_compatibility_annotation(exc: BenchError) -> str:
+    data = f"ERROR: {exc}"
+    data = data.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return f"::error title={MINILM_ANNOTATION_TITLE}::{data}"
 
 
 def _fixture_error(predicate: str = "fixture_schema") -> BenchError:
@@ -771,6 +778,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except BenchError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
+        if args.check_minilm_runtime_compatibility and os.environ.get("GITHUB_ACTIONS") == "true":
+            print(_github_compatibility_annotation(exc))
         return 2
 
 

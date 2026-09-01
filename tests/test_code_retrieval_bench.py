@@ -509,6 +509,142 @@ def test_main_compatibility_mode_prints_one_bounded_status(monkeypatch, tmp_path
     ]
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "MiniLM compatibility minimum_paired_cosine failed: observed=0.1",
+        "MiniLM runtime cache is unavailable; recovery: "
+        "mempalace-code fetch-model --model all-MiniLM-L6-v2 --force",
+        "MiniLM runtime cache is unavailable; recovery: retry",
+    ],
+)
+def test_hosted_compatibility_failure_preserves_stderr_and_emits_one_annotation(
+    monkeypatch, tmp_path, capsys, message
+):
+    def fail(_repo):
+        raise bench.BenchError(message)
+
+    monkeypatch.setattr(bench, "run_minilm_runtime_compatibility", fail)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+
+    assert bench.main(["--repo-dir", str(tmp_path), "--check-minilm-runtime-compatibility"]) == 2
+    captured = capsys.readouterr()
+
+    assert captured.err == f"ERROR: {message}\n"
+    assert captured.out == f"::error title=MiniLM runtime compatibility::ERROR: {message}\n"
+    assert len(captured.out.splitlines()) == 1
+
+
+@pytest.mark.parametrize("github_actions", [None, "True", "1", "false"])
+def test_local_compatibility_failure_has_exact_existing_output(
+    monkeypatch, tmp_path, capsys, github_actions
+):
+    message = "MiniLM runtime cache is unavailable; recovery: retry"
+    monkeypatch.setattr(
+        bench,
+        "run_minilm_runtime_compatibility",
+        lambda _repo: (_ for _ in ()).throw(bench.BenchError(message)),
+    )
+    if github_actions is None:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_ACTIONS", github_actions)
+
+    assert bench.main(["--check-minilm-runtime-compatibility"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"ERROR: {message}\n"
+
+
+def test_hosted_other_mode_failure_and_compatibility_success_emit_no_annotation(
+    monkeypatch, tmp_path, capsys
+):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(
+        bench,
+        "load_dataset",
+        lambda *_args: (_ for _ in ()).throw(bench.BenchError("ordinary failure")),
+    )
+    assert bench.main(["--repo-dir", str(tmp_path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "ERROR: ordinary failure\n"
+
+    monkeypatch.setattr(
+        bench,
+        "run_minilm_runtime_compatibility",
+        lambda _repo: {
+            "fixture": "fixture.json",
+            "model": "all-MiniLM-L6-v2",
+            "texts": 5,
+            "dimensions": 384,
+        },
+    )
+    assert bench.main(["--check-minilm-runtime-compatibility"]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "::" not in captured.out
+
+
+def test_compatibility_annotation_escapes_workflow_command_data_in_order():
+    error = bench.BenchError("MiniLM 100%\r\n::warning::secret")
+
+    assert bench._github_compatibility_annotation(error) == (
+        "::error title=MiniLM runtime compatibility::ERROR: MiniLM 100%25%0D%0A::warning::secret"
+    )
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "MiniLM compatibility fixture_schema failed; recovery: "
+        "git restore benchmarks/minilm_runtime_compatibility_fixture.json",
+        "MiniLM compatibility fixture_hash failed; recovery: "
+        "git restore benchmarks/minilm_runtime_compatibility_fixture.json",
+        "active mempalace-code distribution is not installed; recovery: "
+        "python -m pip install dist/*.whl",
+        "active mempalace-code distribution metadata is malformed; recovery: "
+        "python -m pip install dist/*.whl",
+        "active mempalace-code package root is unavailable; recovery: "
+        "python -m pip install dist/*.whl",
+        "installed MiniLM runtime is unavailable; recovery: python -m pip install dist/*.whl",
+        "installed MiniLM runtime is shadowed; recovery: python -m pip install dist/*.whl",
+        "MiniLM runtime cache is unavailable; recovery: "
+        "mempalace-code fetch-model --model all-MiniLM-L6-v2 --force",
+        "MiniLM compatibility current_vector_shape failed: observed_vector_count=5 "
+        "expected_vector_count=5; cache refresh-and-retry: mempalace-code fetch-model "
+        "--model all-MiniLM-L6-v2 --force; persistent failure is a runtime/dependency "
+        "compatibility blocker",
+        "MiniLM compatibility current_vector_shape failed: vector_index=4 "
+        "observed_dimensions=384 expected_dimensions=384; cache refresh-and-retry: "
+        "mempalace-code fetch-model --model all-MiniLM-L6-v2 --force; persistent failure "
+        "is a runtime/dependency compatibility blocker",
+        "MiniLM compatibility current_vector_norm failed: vector_index=4 "
+        "observed_norm=0.99999999999999989 expected_norm=1 absolute_tolerance=1e-06; "
+        "cache refresh-and-retry: mempalace-code fetch-model --model all-MiniLM-L6-v2 "
+        "--force; persistent failure is a runtime/dependency compatibility blocker",
+        "MiniLM compatibility minimum_paired_cosine failed: "
+        "observed=-0.99999999999999989 expected_minimum=0.99999999999999989; "
+        "cache refresh-and-retry: mempalace-code fetch-model --model all-MiniLM-L6-v2 "
+        "--force; persistent failure is a runtime/dependency compatibility blocker",
+        "MiniLM compatibility maximum_similarity_matrix_delta failed: "
+        "observed=1.9999999999999998 expected_maximum=0.99999999999999989; "
+        "cache refresh-and-retry: mempalace-code fetch-model --model all-MiniLM-L6-v2 "
+        "--force; persistent failure is a runtime/dependency compatibility blocker",
+        "MiniLM compatibility neighbor_order failed: row_index=4 observed=[3, 2, 1, 0] "
+        "expected=[0, 1, 2, 3]; cache refresh-and-retry: mempalace-code fetch-model "
+        "--model all-MiniLM-L6-v2 --force; persistent failure is a runtime/dependency "
+        "compatibility blocker",
+    ],
+)
+def test_current_production_compatibility_annotation_messages_are_below_bound(message):
+    error = bench.BenchError(message)
+    data = f"ERROR: {message}"
+
+    assert len(data) < 640
+    assert bench._github_compatibility_annotation(error).endswith(data)
+
+
 def _write_fake_installed_runtime(root, *, fail=False):
     package = root / "mempalace_code"
     package.mkdir(parents=True)

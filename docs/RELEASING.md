@@ -328,6 +328,12 @@ rebuild the candidate; do not move `main`. Rebuilding means a fresh
 `CANDIDATE_BRANCH` back in section 3 — never a second push over the branch that
 already failed.
 
+When the hosted x64 installed-application check fails at MiniLM compatibility,
+read its single bounded annotation against the reviewed candidate with
+`python scripts/release_public_read.py --check-run-annotations <CHECK_RUN_ID> --expect-sha <40-HEX-SHA>`.
+The result authorizes only replanning the proved owner; by itself it never
+authorizes a runtime, cache, or dependency change.
+
 ## 3b. Fast-forward the green SHA onto public `main`
 
 Only an already-green `$CANDIDATE_SHA` is promoted, and only as a fast-forward:

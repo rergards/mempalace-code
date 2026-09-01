@@ -31,6 +31,8 @@ ARTIFACT_LIMIT: Final = 128 * 1024 * 1024
 ERROR_LIMIT: Final = 320
 USER_AGENT: Final = "mempalace-code-release-public-read/1"
 MAX_TAG_PEELS: Final = 4
+MINILM_CHECK_NAME: Final = "installed-application (ubuntu-latest, 3.11, x64)"
+MINILM_ANNOTATION_TITLE: Final = "MiniLM runtime compatibility"
 
 _SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -136,6 +138,17 @@ def workflow_jobs(repo: str, run_id: int) -> _PublicQuery:
     return _PublicQuery(
         "github_workflow_jobs",
         (_fixed(repo, PUBLIC_REPOSITORY, "repository"), _positive(run_id, "run id", 10**12)),
+    )
+
+
+def check_run_annotations(repo: str, check_run_id: int, expected_sha: str) -> _PublicQuery:
+    return _PublicQuery(
+        "github_check_run_annotations",
+        (
+            _fixed(repo, PUBLIC_REPOSITORY, "repository"),
+            _positive(check_run_id, "check run id", 10**12),
+            _sha(expected_sha),
+        ),
     )
 
 
@@ -268,6 +281,34 @@ class PublicReader:
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise PublicReadError("response was not valid UTF-8 JSON") from exc
         normalized = self._normalize(query, data)
+        if query.endpoint == "github_check_run_annotations":
+            repo, check_run_id, expected_sha = query.values
+            metadata = cast("dict[str, str]", normalized)
+            if metadata != {
+                "name": MINILM_CHECK_NAME,
+                "status": "completed",
+                "conclusion": "failure",
+                "head_sha": expected_sha,
+            }:
+                raise PublicReadError("check run does not match the expected failed x64 candidate")
+            annotations_url = (
+                f"{GITHUB_API}/repos/{repo}/check-runs/{check_run_id}"
+                "/annotations?per_page=100&page=1"
+            )
+            annotations_body = self._get(
+                annotations_url,
+                limit=JSON_LIMIT,
+                accept="application/vnd.github+json",
+            )
+            try:
+                annotations = json.loads(annotations_body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise PublicReadError("annotation response was not valid UTF-8 JSON") from exc
+            return _check_run_annotation_evidence(
+                annotations,
+                check_run_id=cast("int", check_run_id),
+                expected_sha=cast("str", expected_sha),
+            )
         if query.endpoint == "github_releases":
             repo, requested_limit = query.values
             normalized_releases = cast("list[dict[str, object]]", normalized)
@@ -389,6 +430,9 @@ class PublicReader:
         if endpoint == "github_check_runs":
             repo, sha, name, limit = values
             path = f"/repos/{repo}/commits/{sha}/check-runs?check_name={urllib.parse.quote(str(name), safe='')}&per_page={limit}"
+        elif endpoint == "github_check_run_annotations":
+            repo, check_run_id, _expected_sha = values
+            path = f"/repos/{repo}/check-runs/{check_run_id}"
         elif endpoint == "github_workflow_runs":
             repo, workflow, limit, branch = values
             query_args = {"per_page": str(limit)}
@@ -454,6 +498,22 @@ class PublicReader:
             if data["total_count"] != len(data["check_runs"]):
                 raise PublicReadError("check-runs response does not prove complete pagination")
             return data
+        if endpoint == "github_check_run_annotations":
+            if (
+                not isinstance(data, dict)
+                or not isinstance(data.get("name"), str)
+                or not isinstance(data.get("status"), str)
+                or not isinstance(data.get("conclusion"), str)
+                or not isinstance(data.get("head_sha"), str)
+                or not _SHA.fullmatch(data["head_sha"])
+            ):
+                raise PublicReadError("check-run response contains malformed evidence")
+            return {
+                "name": data["name"],
+                "status": data["status"],
+                "conclusion": data["conclusion"],
+                "head_sha": data["head_sha"].lower(),
+            }
         if endpoint == "github_workflow_runs":
             if (
                 not isinstance(data, dict)
@@ -613,6 +673,43 @@ def _matching_tags(data: object) -> list[dict[str, str]]:
     return result
 
 
+def _check_run_annotation_evidence(
+    data: object, *, check_run_id: int, expected_sha: str
+) -> dict[str, object]:
+    if not isinstance(data, list):
+        raise PublicReadError("unexpected annotation response shape")
+    if len(data) >= 100:
+        raise PublicReadError("annotation response hit the bounded pagination limit")
+    matches: list[dict[str, str]] = []
+    for item in data:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("annotation_level"), str)
+            or not isinstance(item.get("title"), str)
+            or not isinstance(item.get("message"), str)
+        ):
+            raise PublicReadError("annotation response contains malformed evidence")
+        if (
+            item["annotation_level"] == "failure"
+            and item["title"] == MINILM_ANNOTATION_TITLE
+            and item["message"].startswith("ERROR: ")
+            and item["message"] != "ERROR: "
+            and len(item["message"]) < 640
+        ):
+            matches.append(item)
+    if len(matches) != 1:
+        raise PublicReadError("annotation response does not contain exactly one MiniLM failure")
+    match = matches[0]
+    return {
+        "expectedSha": expected_sha,
+        "checkRunId": check_run_id,
+        "checkName": MINILM_CHECK_NAME,
+        "annotationLevel": match["annotation_level"],
+        "title": match["title"],
+        "message": match["message"],
+    }
+
+
 def _diagnostic(error: BaseException) -> str:
     text = " ".join(str(error).split()) or error.__class__.__name__
     return text[:ERROR_LIMIT]
@@ -622,23 +719,43 @@ DEFAULT_READER = PublicReader()
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Expose the two fixed public facts needed by release operators and agents."""
+    """Expose fixed public facts needed by release operators and agents."""
     parser = argparse.ArgumentParser(description="Read fixed public release evidence safely.")
     operation = parser.add_mutually_exclusive_group(required=True)
     operation.add_argument("--version-tags", action="store_true")
     operation.add_argument("--public-main-sha", action="store_true")
+    operation.add_argument("--check-run-annotations", type=int, metavar="CHECK_RUN_ID")
+    parser.add_argument("--expect-sha")
     args = parser.parse_args(argv)
 
-    query = (
-        matching_version_tags(PUBLIC_REPOSITORY)
-        if args.version_tags
-        else public_main(PUBLIC_REPOSITORY)
-    )
+    try:
+        if args.check_run_annotations is not None:
+            if args.expect_sha is None:
+                raise ValueError("--expect-sha is required with --check-run-annotations")
+            query = check_run_annotations(
+                PUBLIC_REPOSITORY, args.check_run_annotations, args.expect_sha
+            )
+        elif args.expect_sha is not None:
+            raise ValueError("--expect-sha is supported only with --check-run-annotations")
+        else:
+            query = (
+                matching_version_tags(PUBLIC_REPOSITORY)
+                if args.version_tags
+                else public_main(PUBLIC_REPOSITORY)
+            )
+    except ValueError as exc:
+        print(f"release-public-read: ERROR — {_diagnostic(exc)}", file=sys.stderr)
+        return 1
     result = DEFAULT_READER(query)
     if result.error:
         print(f"release-public-read: ERROR — {result.error}", file=sys.stderr)
         return 1
-    if args.version_tags:
+    if args.check_run_annotations is not None:
+        if not isinstance(result.data, dict):
+            print("release-public-read: ERROR — invalid annotation evidence", file=sys.stderr)
+            return 1
+        print(json.dumps(result.data, sort_keys=True, separators=(",", ":")))
+    elif args.version_tags:
         if not isinstance(result.data, list):
             print("release-public-read: ERROR — invalid tag evidence", file=sys.stderr)
             return 1
