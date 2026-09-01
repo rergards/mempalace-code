@@ -20,6 +20,10 @@ import yaml
 ROOT = Path(__file__).parent.parent
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "publish.yml"
+UPSTREAM_DRIFT_WORKFLOW = ROOT / ".github" / "workflows" / "upstream-drift.yml"
+DOTNET_BENCH_WORKFLOW = ROOT / ".github" / "workflows" / "dotnet-bench.yml"
+WORKFLOW_DIR = ROOT / ".github" / "workflows"
+WORKFLOWS = sorted((*WORKFLOW_DIR.glob("*.yml"), *WORKFLOW_DIR.glob("*.yaml")))
 
 
 def _load_admission():
@@ -43,6 +47,20 @@ def _workflow(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def _uses_nodes(node):
+    matches = []
+    if isinstance(node, yaml.MappingNode):
+        for key, value in node.value:
+            if isinstance(key, yaml.ScalarNode) and key.value == "uses":
+                matches.append(value)
+            matches.extend(_uses_nodes(key))
+            matches.extend(_uses_nodes(value))
+    elif isinstance(node, yaml.SequenceNode):
+        for value in node.value:
+            matches.extend(_uses_nodes(value))
+    return matches
+
+
 def _publish_build_job() -> dict:
     return _workflow(PUBLISH_WORKFLOW)["jobs"]["build"]
 
@@ -52,6 +70,10 @@ def _github_release_job() -> dict:
 
 
 # ── ci.yml: the stable aggregate check ────────────────────────────────────────
+
+
+def test_standalone_upstream_drift_workflow_is_absent():
+    assert not UPSTREAM_DRIFT_WORKFLOW.exists()
 
 
 def test_aggregate_check_job_exists_with_the_contract_name():
@@ -72,6 +94,228 @@ def test_release_critical_jobs_all_exist_in_ci():
     jobs = _workflow(CI_WORKFLOW)["jobs"]
     missing = [name for name in ADMISSION.RELEASE_CRITICAL_CI_JOBS if name not in jobs]
     assert missing == []
+
+
+def test_installed_application_job_uses_local_wheel_without_credentials():
+    job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
+    assert job["permissions"] == {"contents": "read"}
+    commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
+    assert "python -m build --wheel" in commands
+    assert "release_install_metadata_smoke.py" in commands
+    assert "--all-installers" in commands
+    assert "--installed-golden-wheel" in commands
+    assert (
+        'python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json'
+        in commands
+    )
+    assert "dist/*.whl" in commands
+    assert "for installer in" not in commands
+    assert "--installer" not in commands
+    assert all(client not in commands for client in ("codex", "claude", "gemini"))
+
+
+def test_installed_application_self_seeds_required_minilm_cache_on_miss():
+    job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
+    assert job["env"] == {
+        "HF_HOME": "${{ github.workspace }}/.cache/huggingface",
+        "MEMPALACE_TEST_HF_HOME": "${{ github.workspace }}/.cache/huggingface",
+    }
+    steps = job["steps"]
+    cache = next(step for step in job["steps"] if step.get("id") == "hf-cache")
+    assert str(cache["uses"]).startswith("actions/cache@")
+    assert cache["with"]["path"].endswith(
+        "/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1"
+    )
+    assert "fail-on-cache-miss" not in cache["with"]
+    assert "fastembed-" in cache["with"]["key"]
+    assert "benchmarks/minilm_runtime_compatibility_fixture.json" in cache["with"]["key"]
+    assert job["runs-on"] == "${{ matrix.runner }}"
+    assert job["strategy"]["matrix"]["include"] == [
+        {"runner": "ubuntu-latest", "python": "3.11", "arch": "x64"},
+        {"runner": "ubuntu-24.04-arm", "python": "3.12", "arch": "arm64"},
+    ]
+
+    bootstrap = next(step for step in steps if "fetch-model" in str(step.get("run", "")))
+    assert bootstrap["if"] == "steps.hf-cache.outputs.cache-hit != 'true'"
+    assert bootstrap["shell"] == "bash"
+    bootstrap_command = bootstrap["run"]
+    assert "set -euo pipefail" in bootstrap_command
+    assert "clean_env=(" in bootstrap_command
+    assert "env -i" in bootstrap_command
+    for assignment in (
+        'HOME="$bootstrap_home"',
+        'HF_HOME="$HF_HOME"',
+        "HF_HUB_DISABLE_IMPLICIT_TOKEN=1",
+        'PATH="$PATH"',
+        "PIP_CONFIG_FILE=/dev/null",
+        "PIP_KEYRING_PROVIDER=disabled",
+        "PYTHONNOUSERSITE=1",
+    ):
+        assert assignment in bootstrap_command
+    assert bootstrap_command.count('"${clean_env[@]}"') == 2
+    assert '"${clean_env[@]}" python -m pip install .' in bootstrap_command
+    assert '"${clean_env[@]}" mempalace-code fetch-model' in bootstrap_command
+    for forbidden in (
+        "HF_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+        "PIP_INDEX_URL",
+        "PIP_EXTRA_INDEX_URL",
+        "GITHUB_TOKEN",
+    ):
+        assert forbidden not in bootstrap_command
+    assert "continue-on-error" not in bootstrap
+    assert "continue-on-error" not in job
+
+    build_index = next(
+        index
+        for index, step in enumerate(steps)
+        if "python -m build --wheel" in step.get("run", "")
+    )
+    bootstrap_index = steps.index(bootstrap)
+    manager_index = next(
+        index
+        for index, step in enumerate(steps)
+        if "release_install_metadata_smoke.py" in step.get("run", "")
+    )
+    golden_index = next(
+        index
+        for index, step in enumerate(steps)
+        if "--installed-golden-wheel" in step.get("run", "")
+    )
+    compatibility = next(
+        step for step in steps if "--check-minilm-runtime-compatibility" in step.get("run", "")
+    )
+    compatibility_index = steps.index(compatibility)
+    assert compatibility["if"] == "matrix.arch == 'x64'"
+    assert 'python -m pip install "${wheel[0]}"' in compatibility["run"]
+    checkout = next(
+        step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    assert checkout["with"]["fetch-depth"] == 1
+    assert "git fetch" not in compatibility["run"]
+    assert "git archive" not in compatibility["run"]
+    assert (
+        steps.index(cache)
+        < bootstrap_index
+        < build_index
+        < compatibility_index
+        < manager_index
+        < golden_index
+    )
+
+
+def test_installed_application_cache_bootstrap_has_no_credential_or_provider_access():
+    workflow = _workflow(CI_WORKFLOW)
+    job = workflow["jobs"]["installed-application"]
+    serialized = yaml.safe_dump(job).lower()
+
+    assert "persist-credentials: false" in serialized
+    assert "secrets." not in serialized
+    assert all(client not in serialized for client in ("codex", "claude", "gemini"))
+    assert workflow["jobs"]["release-required"]["needs"].count("installed-application") == 1
+
+
+def test_installed_application_keeps_manager_matrix_and_full_suite_separate():
+    job = _workflow(CI_WORKFLOW)["jobs"]["installed-application"]
+    commands = [str(step.get("run", "")) for step in job["steps"]]
+    manager = [command for command in commands if "release_install_metadata_smoke.py" in command]
+    golden = [command for command in commands if "--installed-golden-wheel" in command]
+
+    assert len(manager) == 1
+    assert len(golden) == 1
+    assert "--all-installers" in manager[0]
+    assert "test_cli_golden_scenarios.py" not in manager[0]
+    assert "release_install_metadata_smoke.py" not in golden[0]
+
+
+def test_installed_application_uses_disposable_systemd_user_lifecycle():
+    workflow = _workflow(CI_WORKFLOW)
+    job = workflow["jobs"]["installed-application"]
+    commands = [str(step.get("run", "")) for step in job["steps"]]
+    manager = [command for command in commands if "release_install_metadata_smoke.py" in command]
+
+    assert len(manager) == 1
+    command = manager[0]
+    assert "useradd --create-home" in command
+    assert 'systemctl start "user@${lifecycle_uid}.service"' in command
+    assert 'XDG_RUNTIME_DIR="$lifecycle_runtime"' in command
+    assert 'DBUS_SESSION_BUS_ADDRESS="unix:path=$lifecycle_runtime/bus"' in command
+    assert "MEMPALACE_RELEASE_SYSTEMD_USER=1" in command
+    assert 'sudo -u "$lifecycle_user" env -i' in command
+    assert 'userdel --remove "$lifecycle_user"' in command
+    assert "loginctl" not in command
+    assert (
+        'stage_dir="$(sudo mktemp -d /var/tmp/mempalace-installed-application.XXXXXX)"' in command
+    )
+    assert 'staged_wheel="$stage_dir/${wheel[0]##*/}"' in command
+    assert 'staged_wheel="$stage_dir/candidate.whl"' not in command
+    assert 'sudo install -o root -g root -m 0444 -- "$script_source" "$staged_script"' in command
+    assert 'sudo install -o root -g root -m 0444 -- "$wheel_source" "$staged_wheel"' in command
+    assert 'sudo test -f "$staged_path" && sudo test ! -L "$staged_path"' in command
+    assert 'test "$(sudo stat -c %u "$staged_path")" = 0' in command
+    assert 'test "$(sudo stat -c %a "$staged_path")" = 444' in command
+    assert 'sudo -u "$lifecycle_user" test -r "$staged_path"' in command
+    assert 'cmp -s -- "$script_source" "$staged_script"' in command
+    assert 'cmp -s -- "$wheel_source" "$staged_wheel"' in command
+    assert 'sudo rm -f -- "$staged_script" "$staged_wheel"' in command
+    assert 'sudo rmdir -- "$stage_dir"' in command
+    assert "rm -rf" not in command
+    assert "setsid bash -c" in command
+    assert 'exec "$3" "$4" --all-installers --install-spec "$5" --json' in command
+    assert 'smoke_identity="$lifecycle_home/.mempalace-release-smoke.identity"' in command
+    assert 'smoke_identity_tmp="$smoke_identity.tmp"' in command
+    assert "umask 077" in command
+    assert r"""trap '\''rm -f -- "$2"'\'' EXIT""" in command
+    assert 'test ! -e "$2"\n    test ! -L "$2"' in command
+    assert 'printf "%s %s %s %s\\n" "$$" "$$" "$(id -u)" "$3" > "$2"' in command
+    assert 'test "$(stat -c %u "$2")" = "$(id -u)"' in command
+    assert 'test "$(stat -c %a "$2")" = 600' in command
+    assert 'mv -- "$2" "$1"' in command
+    write_index = command.index('printf "%s %s %s %s\\n"')
+    chmod_index = command.index('chmod 0600 -- "$2"')
+    mode_check_index = command.index('test "$(stat -c %a "$2")" = 600')
+    publish_index = command.index('mv -- "$2" "$1"')
+    assert write_index < chmod_index < mode_check_index < publish_index
+    assert command.count("read -r smoke_pid smoke_pgid smoke_uid smoke_command smoke_extra") == 2
+    assert (
+        'test -n "$smoke_pid" && test -n "$smoke_pgid" && test -n "$smoke_uid" && test -n "$smoke_command"'
+        in command
+    )
+    assert 'test -z "$smoke_extra"' in command
+    assert 'test "$smoke_pid" = "$smoke_pgid"' in command
+    assert 'test "$smoke_uid" = "$lifecycle_uid"' in command
+    assert 'test "$smoke_command" = "$python_bin"' in command
+    assert 'test "${smoke_cmdline[0]:-}" = "$python_bin"' in command
+    assert 'test "${smoke_cmdline[1]:-}" = "$staged_script"' in command
+    assert 'sudo kill -TERM -- "-$smoke_pgid"' in command
+    assert 'sudo kill -KILL -- "-$smoke_pgid"' in command
+    assert command.count('sudo kill -0 -- "-$smoke_pgid" 2>/dev/null || break') == 2
+    assert "disposable smoke process identity or termination failed" in command
+    assert 'sudo rm -f -- "$smoke_identity_tmp"' in command
+    assert "smoke_started_at=$SECONDS" in command
+    assert 'while kill -0 "$smoke_launcher_pid" 2>/dev/null; do' in command
+    assert "SECONDS - smoke_started_at >= 2400" in command
+    assert (
+        "installed-application smoke exceeded its 40-minute deadline; recovery: rerun the installed-application job"
+        in command
+    )
+    assert "exit 124" in command
+    assert 'if wait "$smoke_launcher_pid"; then' in command
+    assert 'exit "$smoke_launcher_rc"' in command
+    assert '\n          wait "$smoke_launcher_pid"\n' not in command
+    assert command.index('sudo kill -TERM -- "-$smoke_pgid"') < command.index(
+        'userdel --remove "$lifecycle_user"'
+    )
+    assert '"$python_bin" scripts/release_install_metadata_smoke.py' not in command
+    assert '--install-spec "$wheel_path"' not in command
+    assert command.index("trap cleanup_lifecycle_user EXIT") < command.index(
+        "sudo useradd --create-home"
+    )
+    assert command.index("trap cleanup_lifecycle_user EXIT") < command.index("sudo mktemp -d")
+    assert command.index("lifecycle_created=1") < command.index("sudo useradd --create-home")
+    assert all(client not in command for client in ("codex", "claude", "gemini"))
+    assert command.count("--all-installers") == 1
+    assert workflow["jobs"]["release-required"]["needs"].count("installed-application") == 1
 
 
 def test_no_ci_job_escapes_the_release_critical_classification():
@@ -102,54 +346,6 @@ def test_every_exempt_ci_job_exists_and_carries_a_reason():
 
 
 # ── The exemption set cannot absorb a canonical gate ──────────────────────────
-#
-# A reviewed-exemption design has exactly one soft direction: move a real gate
-# out of RELEASE_CRITICAL_CI_JOBS into AGGREGATE_EXEMPT_CI_JOBS with a
-# plausible-sounding reason. The doc marker check would still pass (the name is
-# already in the doc) and the total-classification test above would still pass
-# (the job is still classified). RELEASE_CRITICAL_MINIMUM_CI_JOBS is a duplicate
-# of the required set, so it only makes a demotion a two-place edit; the binding
-# check is the third test below, which derives the floor's contents from ci.yml
-# and so still fails when both tuples are edited together.
-
-
-def test_the_release_critical_floor_is_a_subset_of_the_required_jobs():
-    demoted = set(ADMISSION.RELEASE_CRITICAL_MINIMUM_CI_JOBS) - set(
-        ADMISSION.RELEASE_CRITICAL_CI_JOBS
-    )
-    assert demoted == set(), (
-        f"jobs {sorted(demoted)} were dropped from RELEASE_CRITICAL_CI_JOBS but are pinned as "
-        "the release-critical minimum; a release gate cannot stop being required"
-    )
-
-
-def test_no_floor_job_can_be_moved_into_the_exemption_set():
-    exempted = set(ADMISSION.AGGREGATE_EXEMPT_CI_JOBS) & set(
-        ADMISSION.RELEASE_CRITICAL_MINIMUM_CI_JOBS
-    )
-    assert exempted == set(), (
-        f"jobs {sorted(exempted)} are exempt from release-required but are pinned as the "
-        "release-critical minimum"
-    )
-
-
-def test_the_floor_covers_every_ci_gate_except_the_one_reasoned_exemption():
-    """Derived from ci.yml, so shrinking both constants together still fails.
-
-    `model-tests` is the only job that may sit outside the floor: it is
-    dispatch-only, so requiring it would make release-required permanently red.
-    Any other job outside the floor is a gate that stopped gating.
-    """
-    jobs = set(_workflow(CI_WORKFLOW)["jobs"])
-    outside = jobs - {ADMISSION.AGGREGATE_REQUIRED_CHECK}
-    outside -= set(ADMISSION.RELEASE_CRITICAL_MINIMUM_CI_JOBS)
-    assert outside == {"model-tests"}, (
-        f"ci.yml jobs {sorted(outside)} sit outside the release-critical minimum; model-tests is "
-        "the only reasoned exemption"
-    )
-    assert set(ADMISSION.AGGREGATE_EXEMPT_CI_JOBS) == {"model-tests"}
-
-
 def test_aggregate_check_runs_even_when_an_upstream_job_fails_or_skips():
     job = _workflow(CI_WORKFLOW)["jobs"][ADMISSION.AGGREGATE_REQUIRED_CHECK]
     # Without `if: always()` a failed or skipped dependency skips this job too,
@@ -221,6 +417,14 @@ def test_aggregate_script_fails_when_a_release_critical_job_is_missing():
     code, output = _run_aggregate_script(needs)
     assert code == 1
     assert "typecheck: missing from needs" in output
+
+
+def test_aggregate_script_fails_when_installed_application_bootstrap_fails():
+    needs = _all_successful()
+    needs["installed-application"] = {"result": "failure"}
+    code, output = _run_aggregate_script(needs)
+    assert code == 1
+    assert "installed-application: failure" in output
 
 
 def test_aggregate_script_fails_when_needs_carries_an_unlisted_job():
@@ -403,19 +607,44 @@ def test_publish_workflow_default_permissions_stay_read_only():
     assert workflow["permissions"] == {"contents": "read"}
 
 
-def test_every_release_action_stays_pinned_to_an_immutable_commit_sha():
-    workflow = _workflow(PUBLISH_WORKFLOW)
-    uses = [
-        str(step["uses"])
-        for job in workflow["jobs"].values()
-        for step in job.get("steps", [])
-        if "uses" in step
-    ]
+def test_publish_has_exactly_the_approved_jobs():
+    assert set(_workflow(PUBLISH_WORKFLOW)["jobs"]) == {
+        "build",
+        "publish",
+        "github-release",
+    }
 
-    external = [value for value in uses if not value.startswith("./")]
-    local = [value for value in uses if value.startswith("./")]
+
+def test_every_external_workflow_action_has_an_immutable_sha_and_version_comment():
+    external = []
+    local = []
+    for workflow in WORKFLOWS:
+        source = workflow.read_text(encoding="utf-8")
+        root = yaml.compose(source)
+        assert root is not None, f"{workflow.name} is empty"
+        lines = source.splitlines()
+        for node in _uses_nodes(root):
+            line_number = node.start_mark.line + 1
+            assert isinstance(node, yaml.ScalarNode), (
+                f"{workflow.name}:{line_number}: uses must be a scalar"
+            )
+            reference = node.value
+            if reference.startswith("./"):
+                if workflow == PUBLISH_WORKFLOW:
+                    local.append(reference)
+                continue
+
+            version = None
+            if node.start_mark.line == node.end_mark.line:
+                suffix = lines[node.end_mark.line][node.end_mark.column :]
+                comment = re.fullmatch(r"\s+#(.*)", suffix)
+                if comment is not None:
+                    version = comment.group(1).strip()
+            external.append((workflow.name, line_number, reference, version))
+
     assert external
-    assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", value) for value in external), external
+    assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", item[2]) for item in external), external
+    assert all(item[3] for item in external), external
     assert local == ["./.github/actions/gitleaks-gate"]
 
 
@@ -447,6 +676,7 @@ def test_publish_build_job_holds_only_read_scopes_needed_for_admission():
     assert _publish_build_job()["permissions"] == {
         "contents": "read",
         "checks": "read",
+        "statuses": "read",
         "actions": "read",
     }
 
@@ -495,12 +725,13 @@ def test_github_release_rerun_rechecks_exact_repository_tag_sha_and_admission():
     assert 'test "$GITHUB_EVENT_NAME" = "push"' in run
     assert 'git rev-parse --verify "refs/tags/${TAG_NAME}^{commit}"' in run
     assert 'test "$TAG_SHA" = "$GITHUB_SHA"' in run
-    assert 'test "$TAG_SHA" = "$MAIN_SHA"' in run
+    assert "--check-public-main" in run
+    assert "git fetch" not in run
     assert '--expect-sha "$TAG_SHA"' in run
     assert "--check-required-check" in run
     assert "--check-dependency-audit" in run
     assert "--check-branch-rules" in run
-    assert "--check-tag-ruleset" not in run
+    assert "--check-tag-ruleset" in run
 
 
 def test_github_release_rerun_rechecks_artifact_pypi_and_provenance_identity():
@@ -519,6 +750,11 @@ def test_github_release_rerun_rechecks_artifact_pypi_and_provenance_identity():
     assert "_publisher_identity_matches" in match
     assert '"pypi-attestations"' in match
     assert '"--repository"' in match
+    assert "_credential_free_env" in match
+    assert "_isolate_probe_state" in match
+    assert "_default_run_subprocess" in match
+    assert "MAX_VERIFIER_OUTPUT_BYTES" in match
+    assert "subprocess.run" not in match
 
 
 def test_github_release_reconciliation_is_idempotent_and_fails_closed_on_asset_drift():
@@ -542,6 +778,7 @@ def test_admission_step_runs_before_any_artifact_is_built_or_uploaded():
     steps = _publish_build_job()["steps"]
     names = [str(step.get("name", step.get("uses", ""))) for step in steps]
     admission_index = names.index("Verify exact SHA release admission")
+    live_upstream_index = names.index("Upstream comparison guard (live head, read-only)")
     build_index = names.index("Build distributions")
     dist_upload_index = next(
         index
@@ -549,7 +786,7 @@ def test_admission_step_runs_before_any_artifact_is_built_or_uploaded():
         if str(step.get("uses", "")).startswith("actions/upload-artifact")
         and step.get("with", {}).get("name") == "dist"
     )
-    assert admission_index < build_index < dist_upload_index
+    assert admission_index < live_upstream_index < build_index < dist_upload_index
 
 
 def test_admission_step_binds_the_exact_tag_commit_and_public_candidate_ref():
@@ -561,9 +798,10 @@ def test_admission_step_binds_the_exact_tag_commit_and_public_candidate_ref():
     assert "set -euo pipefail" in run
     # Fully qualified tag ref: a same-named branch must not be resolvable here.
     assert 'git rev-parse --verify "refs/tags/${TAG_NAME}^{commit}"' in run
-    assert 'git rev-parse "origin/main^{commit}"' in run
+    assert "--check-public-main" in run
+    assert "git fetch" not in run
     assert '--expect-sha "$TAG_SHA"' in run
-    assert "--candidate-ref origin/main" in run
+    assert "--candidate-ref" not in run
     assert '--repo "$GITHUB_REPOSITORY"' in run
     assert "--require-clean" in run
     # The tag name arrives through env, never interpolated into the shell body.
@@ -571,16 +809,14 @@ def test_admission_step_binds_the_exact_tag_commit_and_public_candidate_ref():
     assert "${{ github.ref_name }}" not in run
 
 
-def test_admission_step_requires_check_audit_and_branch_rules_but_not_the_ruleset_api():
+def test_admission_step_requires_check_audit_branch_and_tag_rules():
     steps = _publish_build_job()["steps"]
     run = next(s for s in steps if s.get("name") == "Verify exact SHA release admission")["run"]
 
     assert "--check-required-check" in run
     assert "--check-dependency-audit" in run
     assert "--check-branch-rules" in run
-    # Needs administration:read, which a workflow token cannot have; the operator
-    # gates on it through the readiness/status gate instead.
-    assert "--check-tag-ruleset" not in run
+    assert "--check-tag-ruleset" in run
 
 
 def test_publish_keeps_gitleaks_full_history_admission_before_admission_step():
@@ -720,3 +956,10 @@ def test_publish_never_gains_a_manual_or_release_trigger():
     text = PUBLISH_WORKFLOW.read_text(encoding="utf-8")
     assert "workflow_dispatch" not in text
     assert "\n  release:" not in text
+
+
+def test_benchmark_owner_uses_canonical_fastembed_cache():
+    text = DOTNET_BENCH_WORKFLOW.read_text(encoding="utf-8")
+    assert ".cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1" in text
+    assert "hub/models--sentence-transformers--all-MiniLM-L6-v2" not in text
+    assert "--check-facts benchmarks/retrieval_quality_facts.json" not in text

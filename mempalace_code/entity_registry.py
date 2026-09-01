@@ -650,9 +650,14 @@ class EntityRegistry:
     # ── Summary ──────────────────────────────────────────────────────────────
 
     def summary(self) -> str:
+        people_line = f"People: {len(self.people)}"
+        if self.people:
+            names = ", ".join(list(self.people.keys())[:8])
+            people_line += f" ({names}{'...' if len(self.people) > 8 else ''})"
+
         lines = [
             f"Mode: {self.mode}",
-            f"People: {len(self.people)} ({', '.join(list(self.people.keys())[:8])}{'...' if len(self.people) > 8 else ''})",
+            people_line,
             f"Projects: {', '.join(self.projects) or '(none)'}",
             f"Ambiguous flags: {', '.join(self.ambiguous_flags) or '(none)'}",
             f"Wiki cache: {len(self._data.get('wiki_cache', {}))} entries",

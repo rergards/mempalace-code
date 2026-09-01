@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
@@ -16,8 +17,8 @@ if TYPE_CHECKING:
 
 # Raw JSON payload boundary: config.json / people_map.json decode to this shape once.
 # scan_skip_* properties normalize via _normalize_scan_list, and *_enabled-style
-# properties normalize via _parse_optional_bool. collection_name, people_map,
-# topic_wings, and hall_keywords instead return this Any-typed payload cast to a
+# properties normalize via _parse_optional_bool. people_map, topic_wings, and
+# hall_keywords instead return this Any-typed payload cast to a
 # narrower annotation with no runtime check — a malformed config.json can produce
 # a value that mismatches the annotation undetected by strict Pyright.
 ConfigPayload: TypeAlias = dict[str, Any]
@@ -26,7 +27,6 @@ HallKeywords: TypeAlias = dict[str, list[str]]
 ScanSkipList: TypeAlias = list[str]
 
 DEFAULT_PALACE_PATH = os.path.expanduser("~/.mempalace/palace")
-DEFAULT_COLLECTION_NAME = "mempalace_drawers"
 
 # Storage safety defaults
 DEFAULT_OPTIMIZE_AFTER_MINE = True  # Set False to disable auto-compaction
@@ -141,11 +141,6 @@ class MempalaceConfig:
         if env_val:
             return env_val
         return self._file_config.get("palace_path", DEFAULT_PALACE_PATH)
-
-    @property
-    def collection_name(self) -> str:
-        """Legacy ChromaDB collection name used by migrate-storage compatibility."""
-        return self._file_config.get("collection_name", DEFAULT_COLLECTION_NAME)
 
     @property
     def people_map(self) -> PeopleMap:
@@ -448,7 +443,6 @@ class MempalaceConfig:
         if not self._config_file.exists():
             default_config: ConfigPayload = {
                 "palace_path": DEFAULT_PALACE_PATH,
-                "collection_name": DEFAULT_COLLECTION_NAME,
                 "entity_detection": DEFAULT_ENTITY_DETECTION,
                 "topic_wings": DEFAULT_TOPIC_WINGS,
                 "hall_keywords": DEFAULT_HALL_KEYWORDS,
@@ -467,6 +461,22 @@ class MempalaceConfig:
             people_map: Dict mapping name variants to canonical names.
         """
         self._config_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._people_map_file.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            try:
+                if not stat.S_ISREG(self._people_map_file.stat().st_mode):
+                    raise OSError("people_map.json is not a regular file")
+                with open(self._people_map_file, "r") as f:
+                    json.load(f)
+            except (json.JSONDecodeError, UnicodeError, OSError) as exc:
+                raise RuntimeError(
+                    f"Refusing to overwrite {self._people_map_file}: the existing path is the "
+                    "recovery source. Repair or move it, then retry save_people_map()."
+                ) from exc
+
         with open(self._people_map_file, "w") as f:
             json.dump(people_map, f, indent=2)
         return self._people_map_file

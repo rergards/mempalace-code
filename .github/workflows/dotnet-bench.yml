@@ -32,14 +32,14 @@ jobs:
             pyproject.toml
             uv.lock
 
-      - name: Restore HuggingFace model cache
+      - name: Restore canonical FastEmbed model cache
         id: hf-cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
-          path: ${{ github.workspace }}/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2
-          key: hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
+          key: hf-${{ runner.os }}-py3.13-fastembed-minilm-v1-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            hf-${{ runner.os }}-py3.13-minilm-all-MiniLM-L6-v2-
+            hf-${{ runner.os }}-py3.13-fastembed-minilm-v1-
 
       - run: pip install -e ".[dev,treesitter]"
 

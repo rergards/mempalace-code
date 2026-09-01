@@ -1,8 +1,7 @@
 """Tests for scripts/dependency_upgrade_gate.py.
 
 Covers: dependency enumeration, advisory blocking, resolver-audit scoping,
-ChromaDB 1.x advisory boundary, CI report-freshness enforcement, documentation
-schema, and the clean-PR pass path.
+CI report-freshness enforcement, documentation schema, and the clean-PR pass path.
 
 All tests mock the advisory querier and resolver runner so no network access
 or real resolver environments are created.
@@ -104,13 +103,19 @@ def test_audit_report_enumerates_direct_current_and_target_versions(tmp_path):
         runtime=["lancedb>=0.20", "pyyaml>=6.0"],
         dev=["pytest>=7.0"],
         extras={
-            "chroma-migration": ["chromadb>=0.5.0,<1"],
-            "chroma": ["chromadb>=0.5.0,<1"],
+            "spellcheck": ["autocorrect>=2.0"],
+            "watch": ["watchfiles>=1.0"],
         },
     )
     _write_lockfile(
         tmp_path / "uv.lock",
-        {"lancedb": "0.20.0", "pyyaml": "6.0.1", "pytest": "7.4.0", "chromadb": "0.5.4"},
+        {
+            "lancedb": "0.20.0",
+            "pyyaml": "6.0.1",
+            "pytest": "7.4.0",
+            "autocorrect": "2.6.1",
+            "watchfiles": "1.2.0",
+        },
     )
     manifest = {
         "targets": {"lancedb": "0.33.0", "pyyaml": "6.0.2"},
@@ -151,13 +156,12 @@ def test_audit_report_enumerates_direct_current_and_target_versions(tmp_path):
     assert pytest_dep["current_version"] == "7.4.0"
     assert pytest_dep["target_version"] is None
 
-    # Preferred migration extra and deprecated alias present
-    chroma_migration = dep_map[("extra:chroma-migration", "chromadb")]
-    assert chroma_migration["specifier"] == ">=0.5.0,<1"
-    assert chroma_migration["current_version"] == "0.5.4"
-    assert chroma_migration["target_version"] is None
-    chroma_alias = dep_map[("extra:chroma", "chromadb")]
-    assert chroma_alias["specifier"] == chroma_migration["specifier"]
+    spellcheck = dep_map[("extra:spellcheck", "autocorrect")]
+    assert spellcheck["specifier"] == ">=2.0"
+    assert spellcheck["current_version"] == "2.6.1"
+    assert spellcheck["target_version"] is None
+    watch = dep_map[("extra:watch", "watchfiles")]
+    assert watch["specifier"] == ">=1.0"
 
 
 # ── AC-2: advisory blocking ────────────────────────────────────────────────────
@@ -213,20 +217,24 @@ def test_changed_optional_extras_drive_fresh_resolver_audits_only_for_changed_ex
         runtime=["lancedb>=0.20"],
         dev=["pytest>=7.0"],
         extras={
-            "chroma-migration": ["chromadb>=0.5.0,<1"],
-            "chroma": ["chromadb>=0.5.0,<1"],
+            "treesitter": ["tree-sitter>=0.22,<0.26"],
             "spellcheck": ["autocorrect>=2.0"],
         },
     )
     _write_lockfile(
         tmp_path / "uv.lock",
-        {"lancedb": "0.20.0", "pytest": "7.4.0", "chromadb": "0.5.4", "autocorrect": "2.6.1"},
+        {
+            "lancedb": "0.20.0",
+            "pytest": "7.4.0",
+            "tree-sitter": "0.25.2",
+            "autocorrect": "2.6.1",
+        },
     )
-    # Only chroma-migration changed; dev is NOT in changed_groups; spellcheck NOT in changed_extras
+    # Only treesitter changed; dev is NOT in changed_groups; spellcheck NOT in changed_extras
     manifest = {
-        "targets": {"lancedb": "0.33.0", "chromadb": "0.6.0"},
+        "targets": {"lancedb": "0.33.0", "tree-sitter": "0.25.2"},
         "changed_groups": ["runtime"],
-        "changed_extras": ["chroma-migration"],
+        "changed_extras": ["treesitter"],
     }
     _write_manifest(tmp_path / "manifest.json", manifest)
 
@@ -250,8 +258,8 @@ def test_changed_optional_extras_drive_fresh_resolver_audits_only_for_changed_ex
 
     # Default install always present
     assert [] in plan
-    # chroma-migration present (in changed_extras)
-    assert ["chroma-migration"] in plan
+    # treesitter present (in changed_extras)
+    assert ["treesitter"] in plan
     # dev NOT present (not in changed_groups)
     assert ["dev"] not in plan
     # spellcheck NOT present (not in changed_extras)
@@ -293,55 +301,6 @@ def test_resolver_audit_includes_dev_when_dev_in_changed_groups(tmp_path):
     plan = captured[0]
     assert [] in plan
     assert ["dev"] in plan
-
-
-# ── AC-4: ChromaDB 1.x advisory boundary ──────────────────────────────────────
-
-
-def test_chromadb_one_x_target_is_rejected_while_ghsa_f4j7_r4q5_qw2c_affects_it(tmp_path, capsys):
-    """A target that raises ChromaDB into an OSV-affected 1.x release must be
-    rejected; the <1 ceiling is the documented safe boundary."""
-    _write_pyproject(
-        tmp_path / "pyproject.toml",
-        runtime=["lancedb>=0.20"],
-        extras={"chroma-migration": ["chromadb>=0.5.0,<1"]},
-    )
-    _write_lockfile(
-        tmp_path / "uv.lock",
-        {"lancedb": "0.20.0", "chromadb": "0.5.4"},
-    )
-    manifest = {
-        "targets": {"chromadb": "1.0.0"},
-        "changed_groups": [],
-        "changed_extras": ["chroma-migration"],
-    }
-    _write_manifest(tmp_path / "manifest.json", manifest)
-
-    def _chroma_one_x_affected(queries: list[dict]) -> list[dict]:
-        results = []
-        for q in queries:
-            if q["name"].lower() == "chromadb" and q["version"].startswith("1."):
-                results.append({"vulns": [{"id": "GHSA-f4j7-r4q5-qw2c"}]})
-            else:
-                results.append({"vulns": []})
-        return results
-
-    rc = gate.cmd_audit(
-        manifest_path=tmp_path / "manifest.json",
-        root=tmp_path,
-        slug="chroma-blocked",
-        advisory_querier=_chroma_one_x_affected,
-        resolver_runner=_no_resolver_failures,
-    )
-
-    assert rc != 0
-    err = capsys.readouterr().err
-    assert "GHSA-f4j7-r4q5-qw2c" in err
-    assert "chromadb" in err.lower()
-
-    # No report written — gate blocked before resolver tests
-    report_path = tmp_path / "docs" / "dependency-upgrade-reports" / "chroma-blocked.json"
-    assert not report_path.exists()
 
 
 # ── AC-5: CI report freshness ──────────────────────────────────────────────────
@@ -460,10 +419,6 @@ def test_dependency_gate_docs_define_order_and_public_report_schema():
     full_text = docs_path.read_text(encoding="utf-8")
     for field in ("schema_version", "status", "pyproject_hash", "lockfile_hash"):
         assert field in full_text, f"Gate docs must document report field {field!r}"
-
-    # ChromaDB ceiling policy documented
-    assert "ghsa-f4j7-r4q5-qw2c" in full_text.lower()
-    assert "<1" in full_text or "< 1" in full_text
 
 
 # ── AC-7: clean-PR pass ────────────────────────────────────────────────────────
@@ -735,12 +690,12 @@ def test_plan_resolver_audits_returns_default_plus_changed(tmp_path):
     manifest = {
         "targets": {},
         "changed_groups": ["runtime", "dev"],
-        "changed_extras": ["chroma-migration", "spellcheck"],
+        "changed_extras": ["treesitter", "spellcheck"],
     }
     plan = gate._plan_resolver_audits(manifest)
     assert [] in plan
     assert ["dev"] in plan
-    assert ["chroma-migration"] in plan
+    assert ["treesitter"] in plan
     assert ["spellcheck"] in plan
 
 
@@ -806,9 +761,9 @@ def test_verify_report_rejects_failed_resolver_audit(tmp_path, capsys):
         "resolver_audits": [
             {"extras": [], "status": "success", "summary": "default ok"},
             {
-                "extras": ["chroma-migration"],
+                "extras": ["spellcheck"],
                 "status": "failed",
-                "summary": "chroma migration install failed",
+                "summary": "spellcheck install failed",
             },
         ],
     }
@@ -876,6 +831,30 @@ def _current_resolver_ok(plan: list[list[str]], root: Path) -> list[dict]:
     return [{"extras": e, "status": "success", "summary": "mock ok"} for e in plan]
 
 
+def test_default_resolver_runner_upgrades_audit_tooling(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+
+    result = gate._default_resolver_runner([[]], ROOT)
+
+    assert result == [
+        {
+            "extras": [],
+            "status": "success",
+            "summary": "resolver audit for (default): success",
+        }
+    ]
+    assert any(
+        command[1:] == ["install", "--quiet", "--upgrade", "pip", "setuptools>=83", "pip-audit"]
+        for command in calls
+    )
+
+
 # ── AC-1 / VER-1: workflow shape ───────────────────────────────────────────────
 
 
@@ -932,10 +911,8 @@ def test_dependency_audit_workflow_declares_schedule_dispatch_artifact_and_notif
 # ── AC-2 / VER-2: resolver plan ────────────────────────────────────────────────
 
 
-def test_current_audit_plans_default_dev_and_all_optional_extra_installs(tmp_path):
-    """current-audit must plan fresh resolver audits for: default install, [dev],
-    and every optional extra declared in pyproject.toml — including treesitter,
-    spellcheck, chroma-migration, the chroma alias, and watch."""
+def test_current_audit_excludes_retired_chroma_extras(tmp_path):
+    """Current audit plans every remaining extra and contains no Chroma resolver row."""
     _write_pyproject(
         tmp_path / "pyproject.toml",
         runtime=["lancedb>=0.20", "sentence-transformers>=2.2", "pyyaml>=6.0"],
@@ -943,8 +920,6 @@ def test_current_audit_plans_default_dev_and_all_optional_extra_installs(tmp_pat
         extras={
             "treesitter": ["tree-sitter>=0.22,<0.26"],
             "spellcheck": ["autocorrect>=2.0"],
-            "chroma-migration": ["chromadb>=0.5.0,<1"],
-            "chroma": ["chromadb>=0.5.0,<1"],
             "watch": ["watchfiles>=1.0"],
         },
     )
@@ -957,7 +932,6 @@ def test_current_audit_plans_default_dev_and_all_optional_extra_installs(tmp_pat
             "pytest": "7.4.0",
             "tree-sitter": "0.22.0",
             "autocorrect": "2.6.1",
-            "chromadb": "0.5.4",
             "watchfiles": "1.0.0",
         },
     )
@@ -988,8 +962,9 @@ def test_current_audit_plans_default_dev_and_all_optional_extra_installs(tmp_pat
     # dev is always included
     assert ["dev"] in plan
     # Every optional extra must be included
-    for extra in ("treesitter", "spellcheck", "chroma-migration", "chroma", "watch"):
+    for extra in ("treesitter", "spellcheck", "watch"):
         assert [extra] in plan, f"extra '{extra}' must be in current-audit plan"
+    assert not any("chroma" in extra for target in plan for extra in target)
 
 
 # ── AC-3 / VER-3: OSV queries cover direct deps ────────────────────────────────
@@ -997,7 +972,7 @@ def test_current_audit_plans_default_dev_and_all_optional_extra_installs(tmp_pat
 
 def test_current_audit_queries_osv_for_current_direct_lock_versions(tmp_path):
     """OSV queries must be made for current locked direct dependency versions
-    including lancedb, sentence-transformers, pyyaml, packaging, chromadb, and
+    including lancedb, sentence-transformers, pyyaml, packaging, autocorrect, and
     tree-sitter packages; report stores only names, versions, advisory ids, and
     remediation notes (no private paths or raw tool output)."""
     _write_pyproject(
@@ -1009,8 +984,7 @@ def test_current_audit_queries_osv_for_current_direct_lock_versions(tmp_path):
             "packaging>=21.0",
         ],
         extras={
-            "chroma-migration": ["chromadb>=0.5.0,<1"],
-            "chroma": ["chromadb>=0.5.0,<1"],
+            "spellcheck": ["autocorrect>=2.0"],
             "treesitter": [
                 "tree-sitter>=0.22,<0.26",
                 "tree-sitter-python>=0.23,<0.26",
@@ -1024,7 +998,7 @@ def test_current_audit_queries_osv_for_current_direct_lock_versions(tmp_path):
             "sentence-transformers": "2.2.0",
             "pyyaml": "6.0.1",
             "packaging": "21.3",
-            "chromadb": "0.5.4",
+            "autocorrect": "2.6.1",
             "tree-sitter": "0.22.0",
             "tree-sitter-python": "0.23.0",
         },
@@ -1056,7 +1030,7 @@ def test_current_audit_queries_osv_for_current_direct_lock_versions(tmp_path):
         "sentence-transformers",
         "pyyaml",
         "packaging",
-        "chromadb",
+        "autocorrect",
         "tree-sitter",
         "tree-sitter-python",
     ):
@@ -1321,14 +1295,16 @@ def test_current_audit_does_not_modify_pyproject_or_lockfile(tmp_path, capsys):
         tmp_path / "pyproject.toml",
         runtime=["lancedb>=0.20", "pyyaml>=6.0"],
         dev=["pytest>=7.0"],
-        extras={
-            "chroma-migration": ["chromadb>=0.5.0,<1"],
-            "chroma": ["chromadb>=0.5.0,<1"],
-        },
+        extras={"spellcheck": ["autocorrect>=2.0"]},
     )
     _write_lockfile(
         tmp_path / "uv.lock",
-        {"lancedb": "0.20.0", "pyyaml": "6.0.1", "pytest": "7.4.0", "chromadb": "0.5.4"},
+        {
+            "lancedb": "0.20.0",
+            "pyyaml": "6.0.1",
+            "pytest": "7.4.0",
+            "autocorrect": "2.6.1",
+        },
     )
     _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
 

@@ -228,6 +228,15 @@ class TestHandleRequest:
         assert "error" in resp
         assert resp["error"]["code"] == -32602
 
+    @pytest.mark.parametrize("value", ["nan", "inf", "-inf", float("nan"), float("inf")])
+    def test_number_coercion_rejects_non_finite_values(self, value):
+        from mempalace_code.mcp.dispatch import _coerce_arg
+
+        coerced, error = _coerce_arg("min_score", value, "number")
+
+        assert coerced is None
+        assert error == f"min_score (expected finite number, got {type(value).__name__})"
+
     # Request-level params=null must not crash; returns Unknown tool because no name was set
     def test_tools_call_request_params_null(self):
         from mempalace_code.mcp_server import handle_request

@@ -41,6 +41,8 @@ import fnmatch
 import re
 from pathlib import Path
 
+from mempalace_code.source_io import read_regular_text
+
 # Predicates owned by this pass.  Only these are expired before re-emission.
 ARCH_PREDICATES = ("is_pattern", "is_layer", "in_namespace", "in_project")
 
@@ -217,7 +219,7 @@ def extract_type_inventory(files: list, project_root: Path) -> list:
         if ext not in _ARCH_SOURCE_EXTENSIONS:
             continue
         try:
-            text = fp.read_text(encoding="utf-8", errors="ignore")
+            text = read_regular_text(fp, encoding="utf-8", errors="ignore")
         except OSError:
             continue
         if ext == ".cs":

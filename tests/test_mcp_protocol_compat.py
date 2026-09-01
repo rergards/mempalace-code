@@ -708,6 +708,174 @@ _SCHEMA_GUARD_VALID_CASES = [
 ]
 
 
+def _required_argument_placeholders(spec):
+    properties = spec["input_schema"].get("properties", {})
+    values_by_type = {
+        "string": "valid-value",
+        "boolean": False,
+        "integer": 1,
+        "number": 0.5,
+    }
+    arguments = {}
+    for name in spec["input_schema"].get("required", []):
+        declared_type = properties[name]["type"]
+        assert declared_type in values_by_type, (
+            f"Add a typed test placeholder for required {name!r} ({declared_type!r})"
+        )
+        arguments[name] = values_by_type[declared_type]
+    return arguments
+
+
+def _palace_byte_snapshot(palace_path):
+    root = Path(palace_path)
+    if not root.exists():
+        return {}
+    return {
+        str(path.relative_to(root)): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_required_string_guard_exhausts_live_registry_before_handlers():
+    """Every live required string rejects blank variants before its handler can run."""
+    from mempalace_code.mcp.dispatch import handle_request
+
+    assert len(TOOLS) == 29, "The release contract requires the live 29-tool registry"
+    required_strings = []
+    for tool_name, spec in TOOLS.items():
+        properties = spec["input_schema"].get("properties", {})
+        for argument_name in spec["input_schema"].get("required", []):
+            if properties[argument_name].get("type") == "string":
+                required_strings.append((tool_name, argument_name, spec))
+    assert required_strings, "The live registry must expose required strings"
+
+    for tool_name, argument_name, spec in required_strings:
+        for blank in ("", "   ", "\t", " \t\n"):
+            calls = []
+
+            def recording_handler(*, _calls=calls, **arguments):
+                _calls.append(arguments)
+                return {"unexpected": True}
+
+            arguments = _required_argument_placeholders(spec)
+            arguments[argument_name] = blank
+            registry = {tool_name: {**spec, "handler": recording_handler}}
+            response = handle_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 91,
+                    "method": "tools/call",
+                    "params": {"name": tool_name, "arguments": arguments},
+                },
+                active_registry=registry,
+            )
+
+            assert response["error"] == {
+                "code": -32602,
+                "message": f"Invalid params: blank required argument(s): {argument_name}",
+            }
+            assert calls == [], f"{tool_name}.{argument_name} invoked its handler for {blank!r}"
+            if blank:
+                assert blank not in response["error"]["message"]
+
+
+def test_required_string_guard_preserves_valid_and_optional_strings_verbatim():
+    """The blank predicate does not normalize valid required or optional strings."""
+    from mempalace_code.mcp.dispatch import handle_request
+
+    cases = []
+    for tool_name, spec in TOOLS.items():
+        properties = spec["input_schema"].get("properties", {})
+        required = spec["input_schema"].get("required", [])
+        for argument_name in required:
+            if properties[argument_name].get("type") == "string":
+                cases.append((tool_name, argument_name, "  valid content\t", spec))
+        optional_string = next(
+            (
+                name
+                for name, property_schema in properties.items()
+                if name not in required and property_schema.get("type") == "string"
+            ),
+            None,
+        )
+        if optional_string is not None:
+            cases.append((tool_name, optional_string, " \t ", spec))
+
+    for tool_name, argument_name, original_value, spec in cases:
+        calls = []
+
+        def recording_handler(*, _calls=calls, **arguments):
+            _calls.append(arguments)
+            return {"captured": True}
+
+        arguments = _required_argument_placeholders(spec)
+        arguments[argument_name] = original_value
+        registry = {tool_name: {**spec, "handler": recording_handler}}
+        response = handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 92,
+                "method": "tools/call",
+                "params": {"name": tool_name, "arguments": arguments},
+            },
+            active_registry=registry,
+        )
+
+        assert "result" in response, response
+        assert calls == [arguments]
+        assert calls[0][argument_name] == original_value
+
+
+def test_required_string_guard_via_full_stdio_preserves_state_and_continues(
+    palace_path, fresh_home
+):
+    """Blank calls cannot mutate a disposable palace and do not desynchronise stdio."""
+    open_store(palace_path, create=True)
+    before = _palace_byte_snapshot(palace_path)
+    requests = []
+    expected_fields = {}
+    request_id = 1
+    for tool_name, spec in TOOLS.items():
+        properties = spec["input_schema"].get("properties", {})
+        for argument_name in spec["input_schema"].get("required", []):
+            if properties[argument_name].get("type") != "string":
+                continue
+            for blank in ("", "   \t"):
+                arguments = _required_argument_placeholders(spec)
+                arguments[argument_name] = blank
+                requests.append(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "method": "tools/call",
+                        "params": {"name": tool_name, "arguments": arguments},
+                    }
+                )
+                expected_fields[request_id] = argument_name
+                request_id += 1
+    continuation_id = request_id
+    requests.append({"jsonrpc": "2.0", "id": continuation_id, "method": "tools/list", "params": {}})
+
+    responses, result = _run_mcp_stdio(
+        requests, palace_path, fresh_home, server_args=["--profile", "full"]
+    )
+
+    assert len(responses) == len(requests), (
+        f"Expected {len(requests)} responses, got {len(responses)}; stderr={result.stderr!r}"
+    )
+    for response in responses[:-1]:
+        field = expected_fields[response["id"]]
+        assert response["error"] == {
+            "code": -32602,
+            "message": f"Invalid params: blank required argument(s): {field}",
+        }
+    assert responses[-1]["id"] == continuation_id
+    assert [tool["name"] for tool in responses[-1]["result"]["tools"]] == list(TOOLS)
+    assert _palace_byte_snapshot(palace_path) == before
+    assert "Traceback" not in result.stderr
+
+
 @pytest.mark.parametrize("tool_name,arguments,expected_code,msg_fragment", _SCHEMA_GUARD_CASES)
 def test_schema_guard_via_handle_request(tool_name, arguments, expected_code, msg_fragment):
     """handle_request() intercepts invalid coercions and undeclared args before handler invocation."""

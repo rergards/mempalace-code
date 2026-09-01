@@ -9,7 +9,7 @@ This document is written for prospective users trying to decide which project fi
 ## TL;DR
 
 - **Graphify** builds a **static structural knowledge graph** from your repo using tree-sitter ASTs and (optionally) Leiden community detection. It has **no embeddings** — see [`README.md#what-it-does`](https://github.com/Graphify-Labs/graphify/blob/v0.9.38/README.md). Queries are graph traversals that find "god nodes" (highly-connected hubs) and community clusters. Output is a Markdown report and an interactive HTML graph, surfaced to the AI assistant before search tool calls via a per-platform hook or instruction file.
-- **mempalace-code** builds a **semantic vector index** over code, prose, and conversations using `sentence-transformers` and LanceDB. On top it tracks **temporal facts** via a separate SQLite knowledge graph with validity windows. Queries are cosine-distance retrieval filtered by wing/room.
+- **mempalace-code** builds a **semantic vector index** over code, prose, and conversations using CPU FastEmbed/ONNX and LanceDB. On top it tracks **temporal facts** via a separate SQLite knowledge graph with validity windows. Queries are cosine-distance retrieval filtered by wing/room.
 
 If you want to answer "what are the structural hubs of my codebase and which files are unexpectedly central?" → graphify.
 If you want to answer "what did we decide about auth last quarter?" or "find the function that detects language from a file extension" → mempalace.

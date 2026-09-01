@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import torch
 import yaml
 
 from mempalace_code.miner import (
@@ -244,7 +243,7 @@ def test_scan_project_can_include_exact_file_without_known_extension():
 
 
 def test_scan_project_guard_skips_dangling_source_symlink():
-    """Opt-in guard drops a symlink whose target does not exist and records the reason."""
+    """Default discovery rejects a dangling source symlink by node kind."""
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
@@ -260,13 +259,13 @@ def test_scan_project_guard_skips_dangling_source_symlink():
         )
 
         assert files == []
-        assert diagnostics == [{"path": str(link), "reason": "dangling"}]
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
     finally:
         shutil.rmtree(tmpdir)
 
 
 def test_scan_project_guard_skips_unreadable_source_symlink():
-    """Opt-in guard drops a symlink whose target exists but cannot be read."""
+    """Default discovery rejects a source symlink without reading its target."""
     tmpdir = tempfile.mkdtemp()
     outside_dir = tempfile.mkdtemp()
     try:
@@ -279,24 +278,11 @@ def test_scan_project_guard_skips_unreadable_source_symlink():
         link = project_root / "link.py"
         link.symlink_to(target)
 
-        try:
-            # Some environments (e.g. tests run as root) ignore permission bits and can
-            # still read the target — skip rather than assert a platform-dependent result.
-            with open(link, "rb") as f:
-                f.read(1)
-            pytest.skip("current user can read despite chmod 0o000 (e.g. running as root)")
-        except OSError:
-            pass
-
         diagnostics = []
-        files = scan_project(
-            str(project_root),
-            skip_invalid_source_symlinks=True,
-            symlink_diagnostics=diagnostics,
-        )
+        files = scan_project(str(project_root), symlink_diagnostics=diagnostics)
 
         assert files == []
-        assert diagnostics == [{"path": str(link), "reason": "unreadable"}]
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
     finally:
         target.chmod(0o644)
         shutil.rmtree(tmpdir)
@@ -304,7 +290,7 @@ def test_scan_project_guard_skips_unreadable_source_symlink():
 
 
 def test_scan_project_guard_keeps_valid_source_symlink():
-    """Opt-in guard keeps a symlink to a readable file, unresolved to its target path."""
+    """Default discovery rejects a symlink even when its target is readable."""
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
@@ -321,10 +307,8 @@ def test_scan_project_guard_keeps_valid_source_symlink():
             symlink_diagnostics=diagnostics,
         )
 
-        assert diagnostics == []
-        assert sorted(p.name for p in files) == ["link.py", "real.py"]
-        link_entry = next(p for p in files if p.name == "link.py")
-        assert link_entry == link, "valid symlinks must keep the symlink path, not the target"
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
+        assert [p.name for p in files] == ["real.py"]
     finally:
         shutil.rmtree(tmpdir)
 
@@ -355,7 +339,7 @@ def test_scan_project_guard_skips_symlink_to_non_regular_file():
         )
 
         assert files == []
-        assert diagnostics == [{"path": str(link), "reason": "not-a-file"}]
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
     finally:
         shutil.rmtree(tmpdir)
 
@@ -382,7 +366,7 @@ def test_scan_project_guard_keeps_regular_source_file():
 
 
 # =============================================================================
-# Typed boundary coverage — GitignoreRule / ScanFilterRules / SymlinkDiagnostic (AC-2, AC-3)
+# Typed boundary coverage — GitignoreRule / ScanFilterRules / SourceDiagnostic (AC-2, AC-3)
 # =============================================================================
 
 
@@ -461,10 +445,8 @@ def test_scan_filter_rules_accepts_frozenset_and_list_fields():
     assert rules._fields == ("skip_dirs", "skip_files", "skip_globs")
 
 
-def test_invalid_source_symlink_reason_valid_symlink_returns_none():
-    """invalid_source_symlink_reason returns None for a symlink resolving to a readable file."""
-    from mempalace_code.mining.scanner import invalid_source_symlink_reason
-
+def test_source_diagnostic_reports_valid_symlink_as_symlink():
+    """Source diagnostics use non-following metadata for readable symlinks."""
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
@@ -473,8 +455,9 @@ def test_invalid_source_symlink_reason_valid_symlink_returns_none():
         link = project_root / "link.py"
         link.symlink_to(target)
 
-        assert invalid_source_symlink_reason(link) is None
-        assert invalid_source_symlink_reason(target) is None
+        diagnostics = []
+        assert scan_project(str(project_root), symlink_diagnostics=diagnostics) == [target]
+        assert diagnostics == [{"path": str(link), "reason": "symlink"}]
     finally:
         shutil.rmtree(tmpdir)
 
@@ -1695,39 +1678,24 @@ def test_status_empty_palace_no_embedder(capsys, monkeypatch):
 
 
 # =============================================================================
-# _detect_batch_size() tests — monkeypatch device/memory detection
+# _detect_batch_size() tests — CPU/RAM detection
 # =============================================================================
-
-
-def test_detect_batch_size_mps():
-    with patch.object(torch.backends.mps, "is_available", return_value=True):
-        assert _detect_batch_size() == 256
-
-
-def test_detect_batch_size_cuda():
-    with patch.object(torch.backends.mps, "is_available", return_value=False):
-        with patch.object(torch.cuda, "is_available", return_value=True):
-            assert _detect_batch_size() == 256
 
 
 def test_detect_batch_size_cpu_high_ram():
     """CPU with >4 GB RAM → batch size 128."""
     # 8 GB = 2097152 pages * 4096 bytes/page
-    with patch.object(torch.backends.mps, "is_available", return_value=False):
-        with patch.object(torch.cuda, "is_available", return_value=False):
-            sysconf_vals = {"SC_PHYS_PAGES": 2097152, "SC_PAGE_SIZE": 4096}
-            with patch("os.sysconf", side_effect=lambda name: sysconf_vals[name]):
-                assert _detect_batch_size() == 128
+    sysconf_vals = {"SC_PHYS_PAGES": 2097152, "SC_PAGE_SIZE": 4096}
+    with patch("os.sysconf", side_effect=lambda name: sysconf_vals[name]):
+        assert _detect_batch_size() == 128
 
 
 def test_detect_batch_size_cpu_low_ram():
     """CPU with <=4 GB RAM → batch size 64."""
     # 2 GB = 524288 pages * 4096 bytes/page
-    with patch.object(torch.backends.mps, "is_available", return_value=False):
-        with patch.object(torch.cuda, "is_available", return_value=False):
-            sysconf_vals = {"SC_PHYS_PAGES": 524288, "SC_PAGE_SIZE": 4096}
-            with patch("os.sysconf", side_effect=lambda name: sysconf_vals[name]):
-                assert _detect_batch_size() == 64
+    sysconf_vals = {"SC_PHYS_PAGES": 524288, "SC_PAGE_SIZE": 4096}
+    with patch("os.sysconf", side_effect=lambda name: sysconf_vals[name]):
+        assert _detect_batch_size() == 64
 
 
 # =============================================================================
@@ -1760,28 +1728,20 @@ def test_get_batch_size_cached():
         batching_mod._batch_size = original
 
 
-def test_ac6_get_batch_size_fallback_when_torch_unavailable():
-    """AC-6: get_batch_size() returns fallback 128 when torch import fails."""
-    import sys
-
+def test_get_batch_size_fallback_when_ram_detection_unavailable():
+    """Batch sizing remains available when platform RAM detection is unsupported."""
     import mempalace_code.mining.batching as batching_mod
     from mempalace_code.miner import get_batch_size
 
     # Reset the lazy cache so detection runs fresh
     original_cache = batching_mod._batch_size
     batching_mod._batch_size = None
-    # Make torch appear unimportable inside _detect_batch_size
-    original_torch = sys.modules.get("torch")
-    sys.modules["torch"] = None  # type: ignore[assignment]  # reason: signals ImportError on import for torch-missing fallback path
     try:
-        result = get_batch_size()
-        assert result == 128, f"Expected fallback 128 when torch unavailable, got {result}"
+        with patch("os.sysconf", side_effect=ValueError("unsupported")):
+            result = get_batch_size()
+        assert result == 128, f"Expected fallback 128 when RAM detection fails, got {result}"
     finally:
         batching_mod._batch_size = original_cache
-        if original_torch is None:
-            sys.modules.pop("torch", None)
-        else:
-            sys.modules["torch"] = original_torch
 
 
 # =============================================================================
@@ -1840,6 +1800,36 @@ def test_mine_noop_with_injected_collection_does_not_warm_embedder():
         get_collection.assert_not_called()
     finally:
         shutil.rmtree(tmpdir)
+
+
+def test_mine_regular_source_noop_and_rejected_source_sweep(tmp_path):
+    """Regular sources remain no-ops; symlink paths are never duplicated and are swept."""
+    project = tmp_path / "project"
+    project.mkdir()
+    regular = project / "regular.py"
+    legacy = project / "legacy.py"
+    write_file(regular, MULTI_FUNC_PY)
+    write_file(legacy, MULTI_FUNC_PY + "\n# legacy path\n")
+    _make_palace_config(project)
+    palace_path = str(tmp_path / "palace")
+
+    first = mine(str(project), palace_path, skip_optimize=True)
+    assert first["drawers_filed"] > 0
+
+    store = open_store(palace_path, create=False)
+    assert store.get(where={"source_file": str(regular)}, limit=100)["ids"]
+    assert store.get(where={"source_file": str(legacy)}, limit=100)["ids"]
+
+    unchanged = mine(str(project), palace_path, collection=store, skip_optimize=True)
+    assert unchanged["drawers_filed"] == 0
+    assert unchanged["embedder_warmed"] is False
+
+    legacy.unlink()
+    legacy.symlink_to(regular)
+    swept = mine(str(project), palace_path, collection=store, skip_optimize=True)
+    assert swept["drawers_filed"] == 0
+    assert store.get(where={"source_file": str(legacy)}, limit=100)["ids"] == []
+    assert store.get(where={"source_file": str(regular)}, limit=100)["ids"]
 
 
 def test_mine_hash_failure_reported_separately(capsys):
@@ -3387,11 +3377,25 @@ class TestProjectMarkerClassification:
 
         assert classify_project_root(tmp_path) == ("initialized", ["pyproject.toml"])
 
+    def test_regular_init_marker_alone_classifies_initialized(self, tmp_path):
+        (tmp_path / "mempalace.yaml").write_text("wing: test\n", encoding="utf-8")
+
+        assert classify_project_root(tmp_path) == ("initialized", [])
+
     def test_missing_root_fails_closed(self, tmp_path):
         assert classify_project_root(tmp_path / "missing") == ("parent", [])
 
 
 class TestDetectProjects:
+    def test_detect_finds_regular_init_marker_without_software_marker(self, tmp_path):
+        proj = tmp_path / "initialized"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("wing: initialized\n", encoding="utf-8")
+
+        assert detect_projects(str(tmp_path)) == [
+            {"path": str(proj), "markers": [], "initialized": True}
+        ]
+
     def test_detect_finds_git_dirs(self, tmp_path):
         proj = tmp_path / "myapp"
         proj.mkdir()
