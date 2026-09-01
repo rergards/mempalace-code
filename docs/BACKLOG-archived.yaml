@@ -1816,3 +1816,13 @@ items:
       resolution: '2026-09-01: Exact rc6 run 33456968750 job 99698892809 passed the pinned MiniLM compatibility step with the new bounded diagnostics in place. The later installed-golden failure is a distinct diary runtime failure tracked by REL-LINUX-X64-DIARY-SIGSEGV.'
       archived_date: "2026-09-01"
       done_summary: Exact rc6 run 33456968750 job 99698892809 passed the pinned MiniLM compatibility step with the new bounded diagnostics in place. The later installed-golden failure is a distinct diary runtime failure tracked by REL-LINUX-X64-DIARY-SIGSEGV.
+    - key: REL-ARM-ONNX-PCIBUS-DIAGNOSTIC-CLASSIFIER
+      summary: Classify the bounded ONNX PCI warning on hosted ARM
+      resolution: '2026-09-01: Implemented the null-safe merged-stderr classifier in e3402541; focused, full-suite, Ruff, scorecard, public-safety, macOS, native ARM, and three independent reviews passed; exact rc7 a8b675e1 hosted ARM installed-application completed successfully.'
+      archived_date: "2026-09-01"
+      done_summary: Implemented the null-safe merged-stderr classifier in e3402541; focused, full-suite, Ruff, scorecard, public-safety, macOS, native ARM, and three independent reviews passed; exact rc7 a8b675e1 hosted ARM installed-application completed successfully.
+    - key: REL-LINUX-ARM-INSTALLER-HANDSHAKE
+      summary: Make hosted ARM installer smoke establish its owned identity
+      resolution: '2026-09-01: The existing explicit chmod handshake and classifier fix were qualified end to end; exact rc7 a8b675e1 hosted ARM completed cache provisioning, all installers, systemd lifecycle, and the complete installed golden matrix successfully.'
+      archived_date: "2026-09-01"
+      done_summary: The existing explicit chmod handshake and classifier fix were qualified end to end; exact rc7 a8b675e1 hosted ARM completed cache provisioning, all installers, systemd lifecycle, and the complete installed golden matrix successfully.
