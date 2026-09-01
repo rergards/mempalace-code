@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import shlex
 import subprocess
 import sys
@@ -20,12 +21,14 @@ import mempalace_code.updater as updater
 from mempalace_code.cli_commands.update import cmd_update
 from mempalace_code.operation_lock import OperationLock
 from mempalace_code.updater import (
+    DEFAULT_LAUNCHD_WATCH_LABEL,
     DEFAULT_SERVICE_UNIT,
     DEFAULT_TIMER_UNIT,
     DEFAULT_WATCHER_UNIT,
     SCHEDULER_UNSET_ENVIRONMENT,
     SYSTEMD_BASELINE_PATH,
     Installation,
+    LaunchdUserService,
     SystemdUserService,
     UpdateManager,
     UpdateResult,
@@ -277,21 +280,45 @@ class TestUnsupportedPlatformDiagnostics:
         )
 
     @staticmethod
-    def _expected_result() -> dict[str, object]:
+    def _scheduler_result(platform: str = "darwin") -> dict[str, object]:
+        """The scheduler boundary stays Linux systemd-user only on every platform."""
         return {
             "ok": False,
             "stage": "unsupported-platform",
-            "message": "update mutations require Linux systemd-user; current platform is darwin",
+            "message": (
+                "scheduled update mutations require Linux systemd-user; "
+                f"current platform is {platform}"
+            ),
             "exit_code": 2,
             "log_path": None,
-            "platform": "darwin",
+            "platform": platform,
             "required_platform": "linux",
             "service_manager": "systemd-user",
             "recovery_command": "mempalace-code update status --json",
         }
 
-    @pytest.mark.parametrize("method", ["apply", "install_scheduler", "remove_scheduler"])
-    def test_confirmed_mutations_refuse_before_effects(self, tmp_path, monkeypatch, method):
+    @staticmethod
+    def _manual_result(platform: str = "win32") -> dict[str, object]:
+        """Manual apply refuses only where no supported user service manager exists."""
+        return {
+            "ok": False,
+            "stage": "unsupported-platform",
+            "message": (
+                "manual update mutations require Linux systemd-user or macOS launchd-user; "
+                f"current platform is {platform}"
+            ),
+            "exit_code": 2,
+            "log_path": None,
+            "platform": platform,
+            "required_platforms": ["darwin", "linux"],
+            "service_managers": ["launchd-user", "systemd-user"],
+            "recovery_command": "mempalace-code update status --json",
+        }
+
+    @pytest.mark.parametrize("method", ["install_scheduler", "remove_scheduler"])
+    def test_scheduler_mutations_refuse_before_effects_on_darwin(
+        self, tmp_path, monkeypatch, method
+    ):
         monkeypatch.setattr(updater.sys, "platform", "darwin")
         calls: list[list[str]] = []
         manager = self._manager(tmp_path, calls)
@@ -299,12 +326,26 @@ class TestUnsupportedPlatformDiagnostics:
 
         result = getattr(manager, method)()
 
-        assert result.as_dict() == self._expected_result()
+        assert result.as_dict() == self._scheduler_result()
+        assert calls == []
+        assert tuple(tmp_path.rglob("*")) == before
+
+    @pytest.mark.parametrize("method", ["apply", "install_scheduler", "remove_scheduler"])
+    def test_confirmed_mutations_refuse_before_effects(self, tmp_path, monkeypatch, method):
+        monkeypatch.setattr(updater.sys, "platform", "win32")
+        calls: list[list[str]] = []
+        manager = self._manager(tmp_path, calls)
+        before = tuple(tmp_path.rglob("*"))
+
+        result = getattr(manager, method)()
+
+        expected = self._manual_result() if method == "apply" else self._scheduler_result("win32")
+        assert result.as_dict() == expected
         assert calls == []
         assert tuple(tmp_path.rglob("*")) == before
 
     def test_status_is_useful_and_bypasses_systemd(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(updater.sys, "platform", "darwin")
+        monkeypatch.setattr(updater.sys, "platform", "win32")
         calls: list[list[str]] = []
 
         def runner(command: list[str]) -> tuple[int, str, str]:
@@ -325,18 +366,21 @@ class TestUnsupportedPlatformDiagnostics:
 
         assert result.ok is True
         assert result.stage == "status"
-        assert result.data["platform"] == "darwin"
+        assert result.data["platform"] == "win32"
         assert result.data["installation"]["supported"] is True  # type: ignore[index]  # reason: stable status mapping
         assert result.data["provenance"]["target_version"] == ELIGIBLE_VERSION  # type: ignore[index]  # reason: stable status mapping
         assert result.data["watcher"] == {  # type: ignore[comparison-overlap]  # reason: stable status mapping
             "unit": DEFAULT_WATCHER_UNIT,
             "active": False,
-            "detail": "update mutations require Linux systemd-user; current platform is darwin",
+            "detail": (
+                "manual update mutations require Linux systemd-user or macOS launchd-user; "
+                "current platform is win32"
+            ),
             "safe": False,
             "supported": False,
-            "platform": "darwin",
-            "required_platform": "linux",
-            "service_manager": "systemd-user",
+            "platform": "win32",
+            "required_platforms": ["darwin", "linux"],
+            "service_managers": ["launchd-user", "systemd-user"],
             "recovery_command": "mempalace-code update status --json",
         }
         assert scheduler == result.data["scheduler"]
@@ -350,7 +394,7 @@ class TestUnsupportedPlatformDiagnostics:
     def test_json_cli_uses_stable_result(
         self, tmp_path, monkeypatch, capsys, update_command, scheduler_command
     ):
-        monkeypatch.setattr(updater.sys, "platform", "darwin")
+        monkeypatch.setattr(updater.sys, "platform", "win32")
         calls: list[list[str]] = []
         manager = self._manager(tmp_path, calls)
         args = Namespace(
@@ -369,7 +413,10 @@ class TestUnsupportedPlatformDiagnostics:
         assert exc_info.value.code == 2
         captured = capsys.readouterr()
         assert captured.err == ""
-        assert json.loads(captured.out) == self._expected_result()
+        expected = (
+            self._manual_result() if update_command == "apply" else self._scheduler_result("win32")
+        )
+        assert json.loads(captured.out) == expected
         assert "FileNotFoundError" not in captured.out
         assert "Errno" not in captured.out
         assert "systemctl" not in captured.out
@@ -393,6 +440,436 @@ class TestUnsupportedPlatformDiagnostics:
             ["systemctl", "--user", "daemon-reload"],
             ["systemctl", "--user", "enable", "--now", DEFAULT_TIMER_UNIT],
         ]
+
+
+WATCH_SH_ARGUMENTS = ["/bin/sh", "-c", "/usr/local/bin/mempalace-code watch /srv/dev"]
+RECOVERY_HINT = "mempalace-code update status --json"
+
+
+def _write_agent_plist(
+    home: Path,
+    label: str,
+    *,
+    program_arguments: list[str] | None = None,
+    plist_label: str | None = None,
+    symlink: bool = False,
+) -> Path:
+    agents = home / "Library" / "LaunchAgents"
+    agents.mkdir(parents=True, exist_ok=True)
+    path = agents / f"{label}.plist"
+    if symlink:
+        target = home / f"{label}.source.plist"
+        target.write_bytes(b"")
+        path.symlink_to(target)
+        return path
+    with path.open("wb") as handle:
+        plistlib.dump(
+            {
+                "Label": plist_label or label,
+                "ProgramArguments": program_arguments or list(WATCH_SH_ARGUMENTS),
+            },
+            handle,
+        )
+    return path
+
+
+def _launchd_manager(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    active_labels: list[str],
+    list_rc: int = 0,
+    bootout_rc: dict[str, int] | None = None,
+    bootstrap_rc: dict[str, int] | None = None,
+    passwd_home: Path | None = None,
+    pids: dict[str, str] | None = None,
+):
+    """Build a Darwin manager whose only service seam is a fake ``launchctl``."""
+    monkeypatch.setattr(updater.sys, "platform", "darwin")
+    home = tmp_path / "home"
+    (home / "Library" / "LaunchAgents").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(updater.Path, "home", lambda: home)
+    # The adapter fails closed unless the process home is the effective uid's passwd
+    # home, so the fixture injects that identity instead of relaxing the check.
+    identity = home if passwd_home is None else passwd_home
+    monkeypatch.setattr(updater.pwd, "getpwuid", lambda _uid: SimpleNamespace(pw_dir=str(identity)))
+
+    commands: list[list[str]] = []
+    active = list(active_labels)
+    bootout_codes = bootout_rc if bootout_rc is not None else {}
+    bootstrap_codes = bootstrap_rc if bootstrap_rc is not None else {}
+    pid_column = pids or {}
+
+    def runner(command: list[str]) -> tuple[int, str, str]:
+        commands.append(command)
+        if command[:2] == ["launchctl", "list"]:
+            if list_rc:
+                return list_rc, "", "Could not find domain for gui"
+            lines = ["PID\tStatus\tLabel", "-\t0\tcom.apple.unrelated", "-\t0\tcom.mempalace.mine"]
+            lines += [
+                f"{pid_column.get(label, str(4200 + index))}\t0\t{label}"
+                for index, label in enumerate(active)
+            ]
+            return 0, "\n".join(lines), ""
+        if command[:2] == ["launchctl", "bootout"]:
+            label = command[2].rsplit("/", 1)[-1]
+            rc = bootout_codes.get(label, 0)
+            if rc == 0 and label in active:
+                active.remove(label)
+            return rc, "", ("" if rc == 0 else "Bootout failed: 3: No such process")
+        if command[:2] == ["launchctl", "bootstrap"]:
+            label = Path(command[3]).name.removesuffix(".plist")
+            rc = bootstrap_codes.get(label, 0)
+            if rc == 0 and label not in active:
+                active.append(label)
+            return rc, "", ("" if rc == 0 else "Bootstrap failed: 5: Input/output error")
+        return 0, "ok", ""
+
+    manager = UpdateManager(
+        state_root=tmp_path / "state",
+        palace_path=str(tmp_path / "palace"),
+        installation=_installation(),
+        runner=runner,
+        fetcher=_pypi,
+        lock=OperationLock(tmp_path / "state" / "operation.lock"),
+        service=LaunchdUserService(runner),
+        palace_validator=lambda _path: (True, "healthy"),
+        backup_preflight=lambda: (True, "backup policy checked"),
+        minimum_free_bytes=0,
+    )
+    return manager, commands, home
+
+
+def _domain(label: str) -> str:
+    return f"gui/{os.geteuid()}/{label}"
+
+
+class TestLaunchdWatcherDiscovery:
+    """macOS manual apply coordinates launchd; scheduling stays Linux systemd-user."""
+
+    def test_status_is_eligible_with_no_active_watcher(self, tmp_path, monkeypatch):
+        manager, commands, _home = _launchd_manager(tmp_path, monkeypatch, active_labels=[])
+
+        result = manager.status()
+
+        assert result.data["eligible"] is True
+        assert result.data["manual_update_supported"] is True
+        assert result.data["watcher"] == {  # type: ignore[comparison-overlap]  # reason: stable status mapping
+            "unit": DEFAULT_LAUNCHD_WATCH_LABEL,
+            "active": False,
+            "detail": "no active MemPalace watcher discovered",
+            "safe": True,
+        }
+        assert result.data["scheduler"]["supported"] is False  # type: ignore[index]  # reason: stable status mapping
+        assert result.data["scheduler"]["service_manager"] == "systemd-user"  # type: ignore[index]  # reason: stable status mapping
+        assert all(command[0] != "systemctl" for command in commands)
+        assert not manager.state_path.exists()
+
+    def test_status_selects_every_active_watcher(self, tmp_path, monkeypatch):
+        labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.srv-dev"]
+        manager, commands, home = _launchd_manager(tmp_path, monkeypatch, active_labels=labels)
+        for label in labels:
+            _write_agent_plist(home, label)
+
+        result = manager.status()
+
+        watcher = result.data["watcher"]
+        assert watcher["unit"] == ", ".join(labels)  # type: ignore[index]  # reason: stable status mapping
+        assert watcher["active"] is True  # type: ignore[index]  # reason: stable status mapping
+        assert watcher["safe"] is True  # type: ignore[index]  # reason: stable status mapping
+        assert "selected active MemPalace LaunchAgents" in watcher["detail"]  # type: ignore[operator]  # reason: stable status mapping
+        assert result.data["eligible"] is True
+        assert manager.service.labels == tuple(labels)  # type: ignore[union-attr]  # reason: adapter is the concrete launchd service
+        assert all(command[0] != "systemctl" for command in commands)
+
+    def test_apply_stops_and_restarts_every_active_watcher(self, tmp_path, monkeypatch):
+        labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.srv-dev"]
+        manager, commands, home = _launchd_manager(tmp_path, monkeypatch, active_labels=labels)
+        agents = {label: _write_agent_plist(home, label) for label in labels}
+
+        result = manager.apply()
+
+        assert result.ok is True
+        assert result.stage == "succeeded"
+        for label in labels:
+            assert ["launchctl", "bootout", _domain(label)] in commands
+            assert ["launchctl", "bootstrap", f"gui/{os.geteuid()}", str(agents[label])] in (
+                commands
+            )
+        assert all(command[0] != "systemctl" for command in commands)
+        state = json.loads(manager.state_path.read_text(encoding="utf-8"))
+        assert state["stage"] == "succeeded"
+        assert state["watcher_unit"] == ", ".join(labels)
+        assert state["watcher_was_active"] is True
+
+    @pytest.mark.parametrize(
+        ("label", "plist_kwargs", "list_rc", "expected_detail"),
+        [
+            (
+                DEFAULT_LAUNCHD_WATCH_LABEL,
+                {"plist_label": "com.example.other"},
+                0,
+                "label does not match the active label",
+            ),
+            ("com.mempalace.watch.srv-dev", None, 0, "no owned LaunchAgent plist"),
+            (
+                "com.mempalace.watch.srv-dev",
+                {"symlink": True},
+                0,
+                "not a regular file",
+            ),
+            (
+                "com.mempalace.watch.srv-dev",
+                {"program_arguments": ["/usr/bin/other-watch", "/srv/dev"]},
+                0,
+                "not a MemPalace watch command",
+            ),
+            (
+                "com.mempalace.watch.srv-dev",
+                {"program_arguments": ["/bin/sh", "-c", "mempalace-code watch 'unterminated"]},
+                0,
+                "ProgramArguments is malformed",
+            ),
+            ("com.mempalace.watch..bad", {}, 0, "malformed launchd label"),
+            (DEFAULT_LAUNCHD_WATCH_LABEL, {}, 1, "discovery unavailable"),
+        ],
+    )
+    def test_apply_refuses_unsafe_state_before_package_install(
+        self, tmp_path, monkeypatch, label, plist_kwargs, list_rc, expected_detail
+    ):
+        manager, commands, home = _launchd_manager(
+            tmp_path, monkeypatch, active_labels=[label], list_rc=list_rc
+        )
+        if plist_kwargs is not None:
+            _write_agent_plist(home, label, **plist_kwargs)
+
+        result = manager.apply()
+
+        assert result.ok is False
+        assert result.stage == "preflight"
+        assert expected_detail in result.message
+        assert RECOVERY_HINT in result.message
+        assert not any(command[:2] == ["launchctl", "bootout"] for command in commands)
+        assert not any("install" in command for command in commands)
+        assert not manager.state_path.exists()
+
+    def test_apply_restores_already_stopped_watchers_when_a_later_stop_fails(
+        self, tmp_path, monkeypatch
+    ):
+        labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.srv-dev"]
+        manager, commands, home = _launchd_manager(
+            tmp_path,
+            monkeypatch,
+            active_labels=labels,
+            bootout_rc={"com.mempalace.watch.srv-dev": 1},
+        )
+        agents = {label: _write_agent_plist(home, label) for label in labels}
+
+        result = manager.apply()
+
+        assert result.ok is False
+        assert result.stage == "watcher-stop"
+        assert "could not stop com.mempalace.watch.srv-dev" in result.message
+        # The first agent was already booted out, so the failed stop compensates it back.
+        assert ["launchctl", "bootout", _domain(DEFAULT_LAUNCHD_WATCH_LABEL)] in commands
+        assert [
+            "launchctl",
+            "bootstrap",
+            f"gui/{os.geteuid()}",
+            str(agents[DEFAULT_LAUNCHD_WATCH_LABEL]),
+        ] in commands
+        assert not any("install" in command for command in commands)
+        assert not manager.state_path.exists()
+
+    def test_stop_leaves_only_unrestored_watchers_pending_for_a_later_start(
+        self, tmp_path, monkeypatch
+    ):
+        labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.srv-dev"]
+        bootstrap_rc = {DEFAULT_LAUNCHD_WATCH_LABEL: 1}
+        manager, commands, home = _launchd_manager(
+            tmp_path,
+            monkeypatch,
+            active_labels=labels,
+            bootout_rc={"com.mempalace.watch.srv-dev": 1},
+            bootstrap_rc=bootstrap_rc,
+        )
+        agents = {label: _write_agent_plist(home, label) for label in labels}
+        service = manager.service
+
+        stopped, _detail = service.stop()
+
+        assert stopped is False
+        # Only the watcher compensation could not put back stays pending.
+        assert service._stopped == (DEFAULT_LAUNCHD_WATCH_LABEL,)  # type: ignore[union-attr]  # reason: adapter is the concrete launchd service
+
+        bootstrap_rc.clear()
+        commands.clear()
+        started, detail = service.start()
+
+        assert (started, detail) == (True, "")
+        assert commands == [
+            [
+                "launchctl",
+                "bootstrap",
+                f"gui/{os.geteuid()}",
+                str(agents[DEFAULT_LAUNCHD_WATCH_LABEL]),
+            ]
+        ]
+        assert service._stopped == ()  # type: ignore[union-attr]  # reason: adapter is the concrete launchd service
+
+    def test_start_retries_only_the_labels_that_are_still_stopped(self, tmp_path, monkeypatch):
+        labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.srv-dev"]
+        bootstrap_rc = {"com.mempalace.watch.srv-dev": 1}
+        manager, commands, home = _launchd_manager(
+            tmp_path, monkeypatch, active_labels=labels, bootstrap_rc=bootstrap_rc
+        )
+        agents = {label: _write_agent_plist(home, label) for label in labels}
+        service = manager.service
+        assert service.stop() == (True, "")
+        commands.clear()
+
+        started, detail = service.start()
+
+        assert started is False
+        assert "could not start com.mempalace.watch.srv-dev" in detail
+        assert RECOVERY_HINT in detail
+
+        bootstrap_rc.clear()
+        commands.clear()
+        retried, retry_detail = service.start()
+
+        assert (retried, retry_detail) == (True, "")
+        # A succeeded on the first start, so the retry never bootstraps it again.
+        assert commands == [
+            [
+                "launchctl",
+                "bootstrap",
+                f"gui/{os.geteuid()}",
+                str(agents["com.mempalace.watch.srv-dev"]),
+            ]
+        ]
+
+    def test_status_coordinates_loaded_watchers_listed_without_a_pid(self, tmp_path, monkeypatch):
+        # `launchctl list` prints "-" for a loaded job that is not currently running;
+        # KeepAlive can respawn it mid-replacement, so it must still be coordinated.
+        labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.srv-dev"]
+        manager, commands, home = _launchd_manager(
+            tmp_path,
+            monkeypatch,
+            active_labels=labels,
+            pids={DEFAULT_LAUNCHD_WATCH_LABEL: "-"},
+        )
+        agents = {label: _write_agent_plist(home, label) for label in labels}
+
+        result = manager.apply()
+
+        assert result.ok is True
+        assert manager.service.labels == tuple(labels)  # type: ignore[union-attr]  # reason: adapter is the concrete launchd service
+        for label in labels:
+            assert ["launchctl", "bootout", _domain(label)] in commands
+            assert ["launchctl", "bootstrap", f"gui/{os.geteuid()}", str(agents[label])] in (
+                commands
+            )
+
+    def test_stop_waits_until_launchd_drops_the_selected_label(self, monkeypatch):
+        label = DEFAULT_LAUNCHD_WATCH_LABEL
+        service = LaunchdUserService(lambda _command: (0, "", ""))
+        service.labels = (label,)
+        service._discovery = WatcherDiscovery(label, True, True, "selected")
+        states = iter([([label], None), ([label], None), ([], None)])
+        monkeypatch.setattr(service, "_active_watch_labels", lambda: next(states))
+        sleeps: list[float] = []
+        monkeypatch.setattr(updater.time, "sleep", sleeps.append)
+
+        stopped, detail = service.stop()
+
+        assert (stopped, detail) == (True, "")
+        assert sleeps == [0.1, 0.1]
+
+    def test_stop_restores_a_label_when_launchd_never_settles(self, monkeypatch):
+        label = DEFAULT_LAUNCHD_WATCH_LABEL
+        commands: list[list[str]] = []
+        service = LaunchdUserService(lambda command: commands.append(command) or (0, "", ""))
+        service.labels = (label,)
+        service._discovery = WatcherDiscovery(label, True, True, "selected")
+        monkeypatch.setattr(service, "_active_watch_labels", lambda: ([label], None))
+        monkeypatch.setattr(service, "_plist_path", lambda _label: (Path("/owned.plist"), ""))
+        monkeypatch.setattr(updater.time, "sleep", lambda _delay: None)
+
+        stopped, detail = service.stop()
+
+        assert stopped is False
+        assert "remained loaded after bootout" in detail
+        assert commands == [
+            ["launchctl", "bootout", _domain(label)],
+            ["launchctl", "bootstrap", f"gui/{os.geteuid()}", "/owned.plist"],
+        ]
+
+    def test_start_accepts_an_exact_selected_label_that_is_already_active(self, monkeypatch):
+        label = DEFAULT_LAUNCHD_WATCH_LABEL
+        service = LaunchdUserService(lambda _command: (5, "", "already loaded"))
+        service.labels = (label,)
+        service._stopped = (label,)
+        service._discovery = WatcherDiscovery(label, True, True, "selected")
+        monkeypatch.setattr(service, "_plist_path", lambda _label: (Path("/owned.plist"), ""))
+        monkeypatch.setattr(service, "_active_watch_labels", lambda: ([label], None))
+
+        started, detail = service.start()
+
+        assert (started, detail) == (True, "")
+        assert service._stopped == ()
+
+    def test_status_accepts_the_canonical_cli_alias_watch_command(self, tmp_path, monkeypatch):
+        manager, _commands, home = _launchd_manager(
+            tmp_path, monkeypatch, active_labels=[DEFAULT_LAUNCHD_WATCH_LABEL]
+        )
+        _write_agent_plist(
+            home,
+            DEFAULT_LAUNCHD_WATCH_LABEL,
+            program_arguments=["/bin/sh", "-c", "/usr/local/bin/mempalace watch /srv/dev"],
+        )
+
+        result = manager.status()
+
+        watcher = result.data["watcher"]
+        assert watcher["safe"] is True  # type: ignore[index]  # reason: stable status mapping
+        assert watcher["active"] is True  # type: ignore[index]  # reason: stable status mapping
+        assert result.data["eligible"] is True
+
+    def test_apply_refuses_when_home_is_not_the_effective_uid_passwd_home(
+        self, tmp_path, monkeypatch
+    ):
+        foreign_home = tmp_path / "foreign-home"
+        foreign_home.mkdir()
+        manager, commands, home = _launchd_manager(
+            tmp_path,
+            monkeypatch,
+            active_labels=[DEFAULT_LAUNCHD_WATCH_LABEL],
+            passwd_home=foreign_home,
+        )
+        _write_agent_plist(home, DEFAULT_LAUNCHD_WATCH_LABEL)
+
+        result = manager.apply()
+
+        assert result.ok is False
+        assert result.stage == "preflight"
+        assert "HOME does not match the effective uid passwd directory" in result.message
+        assert RECOVERY_HINT in result.message
+        assert commands == []
+        assert not manager.state_path.exists()
+
+    @pytest.mark.parametrize("method", ["install_scheduler", "remove_scheduler"])
+    def test_scheduler_mutations_never_call_launchctl(self, tmp_path, monkeypatch, method):
+        manager, commands, _home = _launchd_manager(
+            tmp_path, monkeypatch, active_labels=[DEFAULT_LAUNCHD_WATCH_LABEL]
+        )
+
+        result = getattr(manager, method)()
+
+        assert result.ok is False
+        assert result.stage == "unsupported-platform"
+        assert result.data["service_manager"] == "systemd-user"
+        assert commands == []
 
 
 class TestSystemdWatcherDiscovery:

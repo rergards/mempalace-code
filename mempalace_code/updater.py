@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import pwd
 import re
 import shlex
@@ -17,6 +18,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import metadata
@@ -28,6 +30,7 @@ from urllib.request import urlopen
 
 from packaging.version import InvalidVersion, Version
 
+from .cli_commands.alias import CANONICAL_CLI_COMMAND, LEGACY_CLI_ALIAS
 from .operation_lock import OperationLock, OperationLockedError
 from .version import __version__
 
@@ -42,6 +45,15 @@ SYSTEMD_BASELINE_PATH = ("/usr/local/bin", "/usr/bin", "/bin")
 REQUIRED_UPDATE_PLATFORM = "linux"
 UPDATE_SERVICE_MANAGER = "systemd-user"
 UNSUPPORTED_PLATFORM_RECOVERY_COMMAND = "mempalace-code update status --json"
+# Manual apply coordinates whichever user service manager owns the watcher; scheduling
+# stays Linux systemd-user only, so the two boundaries are reported independently.
+DARWIN_UPDATE_PLATFORM = "darwin"
+DARWIN_SERVICE_MANAGER = "launchd-user"
+MANUAL_UPDATE_PLATFORMS = (DARWIN_UPDATE_PLATFORM, REQUIRED_UPDATE_PLATFORM)
+DEFAULT_LAUNCHD_WATCH_LABEL = "com.mempalace.watch"
+LAUNCH_AGENTS_DIR = ("Library", "LaunchAgents")
+# Both console scripts ship in this distribution, so an owned watcher may invoke either.
+SUPPORTED_WATCH_CONSOLE_SCRIPTS = frozenset({CANONICAL_CLI_COMMAND, LEGACY_CLI_ALIAS})
 SCHEDULER_UNSET_ENVIRONMENT = (
     "ANTHROPIC_API_KEY",
     "AWS_SECRET_ACCESS_KEY",
@@ -61,6 +73,7 @@ SCHEDULER_UNSET_ENVIRONMENT = (
     "UV_INDEX_URL",
 )
 _CUSTOM_WATCHER_UNIT = re.compile(r"^mempalace-watch-[A-Za-z0-9][A-Za-z0-9_.@-]*\.service$")
+_LAUNCHD_WATCH_LABEL = re.compile(r"^com\.mempalace\.watch(?:[.-][A-Za-z0-9][A-Za-z0-9_.-]*)?$")
 _PYTHON_EXECUTABLE = re.compile(r"^python(?:3(?:\.\d+)?t?)?$")
 _ASCII_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 _SHA256_HEX = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -209,6 +222,23 @@ class UpdateResult:
         }
 
 
+def _is_supported_watch_command(tokens: list[str]) -> bool:
+    """Accept only the MemPalace watch invocations the project itself renders.
+
+    Both console-script names ship in the same distribution, so generated and legacy
+    agents and units may invoke either alias.
+    """
+    if len(tokens) >= 2 and Path(tokens[0]).name in SUPPORTED_WATCH_CONSOLE_SCRIPTS:
+        return tokens[1] == "watch"
+    return (
+        len(tokens) >= 4
+        and bool(_PYTHON_EXECUTABLE.fullmatch(Path(tokens[0]).name))
+        and tokens[1] == "-m"
+        and tokens[2] == "mempalace_code"
+        and tokens[3] == "watch"
+    )
+
+
 class SystemdUserService:
     """Narrow systemctl --user adapter used by the update transaction."""
 
@@ -314,7 +344,7 @@ class SystemdUserService:
         tokens = self._parse_exec_start(out)
         if tokens is None:
             return False, "ExecStart is malformed"
-        if self._is_supported_watch_command(tokens):
+        if _is_supported_watch_command(tokens):
             return True, ""
         return False, "ExecStart is not a MemPalace watch command"
 
@@ -334,18 +364,6 @@ class SystemdUserService:
             return None
         return tokens or None
 
-    @staticmethod
-    def _is_supported_watch_command(tokens: list[str]) -> bool:
-        if len(tokens) >= 2 and Path(tokens[0]).name == "mempalace-code":
-            return tokens[1] == "watch"
-        return (
-            len(tokens) >= 4
-            and bool(_PYTHON_EXECUTABLE.fullmatch(Path(tokens[0]).name))
-            and tokens[1] == "-m"
-            and tokens[2] == "mempalace_code"
-            and tokens[3] == "watch"
-        )
-
     def _record_discovery(
         self, safe: bool, detail: str, unit: str = DEFAULT_WATCHER_UNIT
     ) -> WatcherDiscovery:
@@ -358,6 +376,263 @@ class SystemdUserService:
             return self.runner(command)
         except (OSError, subprocess.SubprocessError) as exc:
             return 127, "", str(exc)
+
+
+class LaunchdUserService:
+    """Narrow launchctl adapter that coordinates every attributable macOS watcher.
+
+    Unlike the systemd-user slice, macOS installs routinely carry several
+    ``com.mempalace.watch*`` LaunchAgents, so discovery selects the whole active set
+    rather than refusing more than one. Everything before ``stop`` is read-only, and
+    an active agent that cannot be attributed to an owned MemPalace plist makes the
+    whole discovery unsafe so no package mutation can start.
+    """
+
+    def __init__(self, runner: CommandRunner) -> None:
+        self.runner = runner
+        self.unit = DEFAULT_LAUNCHD_WATCH_LABEL
+        self.labels: tuple[str, ...] = ()
+        self._stopped: tuple[str, ...] = ()
+        self._discovery: WatcherDiscovery | None = None
+
+    def discover(self) -> WatcherDiscovery:
+        """Select every attributable active watcher once and retain it for this adapter."""
+        if self._discovery is not None:
+            return self._discovery
+
+        _home, home_error = self._verified_home()
+        if home_error is not None:
+            return self._record_discovery(False, f"watcher discovery unavailable: {home_error}")
+
+        active, error = self._active_watch_labels()
+        if error is not None:
+            return self._record_discovery(False, f"watcher discovery unavailable: {error}")
+
+        malformed = [label for label in active if not _LAUNCHD_WATCH_LABEL.fullmatch(label)]
+        if malformed:
+            return self._record_discovery(
+                False, f"watcher discovery found malformed launchd label: {malformed[0]}"
+            )
+        for label in active:
+            owned, detail = self._is_owned_watch_agent(label)
+            if not owned:
+                return self._record_discovery(False, f"watcher discovery refused {label}: {detail}")
+        if not active:
+            return self._record_discovery(True, "no active MemPalace watcher discovered")
+        return self._record_discovery(
+            True,
+            f"selected active MemPalace LaunchAgents: {', '.join(active)}",
+            tuple(active),
+        )
+
+    def is_active(self) -> tuple[bool, str]:
+        discovery = self.discover()
+        if not discovery.safe:
+            return False, discovery.detail
+        if not self.labels:
+            return False, "no active MemPalace watcher discovered"
+        active, error = self._active_watch_labels()
+        if error is not None:
+            return False, error
+        missing = [label for label in self.labels if label not in active]
+        if missing:
+            return False, f"inactive LaunchAgents: {', '.join(missing)}"
+        return True, "active"
+
+    def stop(self) -> tuple[bool, str]:
+        """Stop the whole selected set, restoring any already-stopped agent on failure."""
+        discovery = self.discover()
+        if not discovery.safe:
+            return False, discovery.detail
+        stopped: list[str] = []
+        for label in self.labels:
+            ok, detail = self._bootout(label)
+            if ok:
+                stopped.append(label)
+                ok, detail = self._wait_until_unloaded(label)
+            if not ok:
+                failures = [f"could not stop {label}: {detail}"]
+                # Keep only what compensation could not put back, so a later explicit
+                # start retries exactly the watchers still down.
+                unrestored: list[str] = []
+                for restored in reversed(stopped):
+                    restored_ok, restored_detail = self._bootstrap(restored)
+                    if not restored_ok:
+                        unrestored.append(restored)
+                        failures.append(f"could not restore {restored}: {restored_detail}")
+                self._stopped = tuple(unrestored)
+                return False, self._with_recovery("; ".join(failures))
+        self._stopped = tuple(stopped)
+        return True, ""
+
+    def start(self) -> tuple[bool, str]:
+        """Restart only what is still stopped, so a retry never re-bootstraps a live agent."""
+        discovery = self.discover()
+        if not discovery.safe:
+            return False, discovery.detail
+        pending: list[str] = []
+        failures: list[str] = []
+        for label in self._stopped:
+            ok, detail = self._bootstrap(label)
+            if ok:
+                continue
+            pending.append(label)
+            failures.append(f"could not start {label}: {detail}")
+        self._stopped = tuple(pending)
+        if failures:
+            return False, self._with_recovery("; ".join(failures))
+        return True, ""
+
+    @property
+    def _domain(self) -> str:
+        return f"gui/{os.geteuid()}"
+
+    @staticmethod
+    def _verified_home() -> tuple[Path, str | None]:
+        """Fail closed unless the process home is the effective uid's passwd home.
+
+        Every plist read and every launchctl mutation is addressed relative to this
+        directory, so a mismatched identity must stop the adapter before it acts.
+        """
+        uid = os.geteuid()
+        try:
+            passwd_home = Path(pwd.getpwuid(uid).pw_dir).resolve(strict=True)
+            home = Path.home().resolve(strict=True)
+        except (KeyError, OSError) as exc:
+            return Path("."), f"cannot resolve passwd HOME for uid {uid}: {exc}"
+        if home != passwd_home:
+            return Path("."), "HOME does not match the effective uid passwd directory"
+        return home, None
+
+    def _plist_path(self, label: str) -> tuple[Path | None, str]:
+        home, error = self._verified_home()
+        if error is not None:
+            return None, error
+        return home.joinpath(*LAUNCH_AGENTS_DIR, f"{label}.plist"), ""
+
+    def _active_watch_labels(self) -> tuple[list[str], str | None]:
+        rc, out, err = self._run(["launchctl", "list"])
+        if rc != 0:
+            return [], (err or out).strip() or "launchd user domain is unavailable"
+        labels: list[str] = []
+        for line in out.splitlines():
+            parts = line.split("\t") if "\t" in line else line.split()
+            if len(parts) < 3:
+                continue
+            pid, label = parts[0].strip(), parts[-1].strip()
+            # A loaded job lists "-" when it is not currently running; KeepAlive can
+            # respawn it mid-replacement, so it is coordinated exactly like a live PID.
+            if not (pid == "-" or pid.isdigit()) or not self._is_watch_candidate(label):
+                continue
+            labels.append(label)
+        return list(dict.fromkeys(labels)), None
+
+    @staticmethod
+    def _is_watch_candidate(label: str) -> bool:
+        return label == DEFAULT_LAUNCHD_WATCH_LABEL or any(
+            label.startswith(f"{DEFAULT_LAUNCHD_WATCH_LABEL}{separator}")
+            for separator in (".", "-")
+        )
+
+    def _is_owned_watch_agent(self, label: str) -> tuple[bool, str]:
+        path, path_error = self._plist_path(label)
+        if path is None:
+            return False, path_error
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            return False, "no owned LaunchAgent plist in ~/Library/LaunchAgents"
+        except OSError as exc:
+            return False, f"cannot inspect LaunchAgent plist: {exc}"
+        if not stat.S_ISREG(info.st_mode):
+            return False, "LaunchAgent plist is not a regular file"
+        if info.st_uid != os.geteuid():
+            return False, "LaunchAgent plist has a foreign owner"
+        try:
+            with path.open("rb") as handle:
+                plist = plistlib.load(handle)
+        except (OSError, ValueError) as exc:
+            return False, f"cannot read LaunchAgent plist: {exc}"
+        if not isinstance(plist, dict):
+            return False, "LaunchAgent plist is malformed"
+        if plist.get("Label") != label:
+            return False, "LaunchAgent plist label does not match the active label"
+        tokens = self._program_tokens(plist.get("ProgramArguments"))
+        if tokens is None:
+            return False, "ProgramArguments is malformed"
+        if not _is_supported_watch_command(tokens):
+            return False, "ProgramArguments is not a MemPalace watch command"
+        return True, ""
+
+    @staticmethod
+    def _program_tokens(arguments: object) -> list[str] | None:
+        if not isinstance(arguments, list) or not arguments:
+            return None
+        if not all(isinstance(argument, str) for argument in arguments):
+            return None
+        tokens = [str(argument) for argument in arguments]
+        # MemPalace renders its own agent as `/bin/sh -c "<cli> watch <root>"`.
+        if len(tokens) == 3 and Path(tokens[0]).name in {"sh", "bash"} and tokens[1] == "-c":
+            try:
+                tokens = shlex.split(tokens[2])
+            except ValueError:
+                return None
+        return tokens or None
+
+    def _bootout(self, label: str) -> tuple[bool, str]:
+        rc, out, err = self._run(["launchctl", "bootout", f"{self._domain}/{label}"])
+        return rc == 0, (err or out).strip()
+
+    def _wait_until_unloaded(self, label: str) -> tuple[bool, str]:
+        for _attempt in range(50):
+            active, error = self._active_watch_labels()
+            if error is not None:
+                return False, error
+            if label not in active:
+                return True, ""
+            time.sleep(0.1)
+        return False, f"launchd job remained loaded after bootout: {label}"
+
+    def _bootstrap(self, label: str) -> tuple[bool, str]:
+        path, path_error = self._plist_path(label)
+        if path is None:
+            return False, path_error
+        rc, out, err = self._run(["launchctl", "bootstrap", self._domain, str(path)])
+        if rc == 0:
+            return True, ""
+        active, error = self._active_watch_labels()
+        if error is None and label in active:
+            return True, "already active"
+        return False, (err or out).strip()
+
+    @staticmethod
+    def _with_recovery(detail: str) -> str:
+        # A refusal or failed mutation blocks the operator, so it has to carry the one
+        # read-only command that shows what state the watchers were left in.
+        return f"{detail}; recovery: {UNSUPPORTED_PLATFORM_RECOVERY_COMMAND}"
+
+    def _record_discovery(
+        self, safe: bool, detail: str, labels: tuple[str, ...] = ()
+    ) -> WatcherDiscovery:
+        self.labels = labels
+        self.unit = ", ".join(labels) if labels else DEFAULT_LAUNCHD_WATCH_LABEL
+        if not safe:
+            detail = self._with_recovery(detail)
+        self._discovery = WatcherDiscovery(unit=self.unit, active=False, safe=safe, detail=detail)
+        return self._discovery
+
+    def _run(self, command: list[str]) -> tuple[int, str, str]:
+        try:
+            return self.runner(command)
+        except (OSError, subprocess.SubprocessError) as exc:
+            return 127, "", str(exc)
+
+
+def _default_watcher_service(runner: CommandRunner) -> WatcherService:
+    """Bind the watcher adapter that owns this platform's user services."""
+    if sys.platform.startswith(DARWIN_UPDATE_PLATFORM):
+        return LaunchdUserService(runner)
+    return SystemdUserService(runner)
 
 
 def detect_installed_extras() -> frozenset[str]:
@@ -622,7 +897,7 @@ class UpdateManager:
         self.runner = runner
         self.fetcher = fetcher
         self.lock = lock or OperationLock(self.state_root / "operation.lock")
-        self.service = service or SystemdUserService(runner)
+        self.service = service or _default_watcher_service(runner)
         self.palace_validator = palace_validator
         self.backup_preflight = backup_preflight
         self.scheduler_context = scheduler_context or self._scheduler_context
@@ -642,8 +917,12 @@ class UpdateManager:
         installation = self._get_installation()
         provenance = self._resolve_provenance() if refresh else self._cached_provenance()
         state = self._read_state()
-        platform_boundary = self._unsupported_platform_data()
-        if platform_boundary is None:
+        # Manual apply and scheduling have independent platform boundaries: the watcher
+        # block follows whichever user service manager this platform supports, while the
+        # scheduler block stays Linux systemd-user only.
+        manual_boundary = self._unsupported_manual_platform_data()
+        scheduler = self.scheduler_status()
+        if manual_boundary is None:
             watcher = self._watcher_status()
             watcher_data = {
                 "unit": watcher.unit,
@@ -651,7 +930,6 @@ class UpdateManager:
                 "detail": watcher.detail,
                 "safe": watcher.safe,
             }
-            scheduler = self.scheduler_status()
             required_missing = self._required_extra_missing(installation, watcher.active)
             if not watcher.safe:
                 eligibility_reason = watcher.detail
@@ -662,29 +940,23 @@ class UpdateManager:
             else:
                 eligibility_reason = provenance.reason
         else:
-            detail = self._unsupported_platform_message()
+            detail = self._unsupported_manual_platform_message()
             watcher_data = {
                 "unit": DEFAULT_WATCHER_UNIT,
                 "active": False,
                 "detail": detail,
                 "safe": False,
                 "supported": False,
-                **platform_boundary,
-            }
-            scheduler = {
-                "supported": False,
-                "enabled": False,
-                "detail": detail,
-                "next_run": None,
-                **platform_boundary,
+                **manual_boundary,
             }
             required_missing = None
             eligibility_reason = detail
         data = {
             "installation": installation.as_dict(),
             "provenance": provenance.as_dict(),
+            "manual_update_supported": manual_boundary is None,
             "eligible": (
-                platform_boundary is None
+                manual_boundary is None
                 and installation.supported
                 and provenance.eligible
                 and required_missing is None
@@ -695,7 +967,7 @@ class UpdateManager:
             "next_run": scheduler.get("next_run"),
             "last_update": state,
             "reason": eligibility_reason,
-            **(platform_boundary or {}),
+            **(manual_boundary or {}),
         }
         return UpdateResult(
             True, "status", "update status inspected without mutation", 0, data=data
@@ -707,7 +979,7 @@ class UpdateManager:
 
     def apply(self, *, scheduled: bool = False) -> UpdateResult:
         """Run the explicit, compensating update transaction for a supported installation."""
-        platform_error = self._unsupported_platform_result()
+        platform_error = self._unsupported_manual_platform_result()
         if platform_error is not None:
             return platform_error
         installation = self._get_installation()
@@ -1164,6 +1436,7 @@ class UpdateManager:
 
     @staticmethod
     def _unsupported_platform_data() -> dict[str, object] | None:
+        """Report the scheduler boundary, which stays Linux systemd-user only."""
         if sys.platform.startswith(REQUIRED_UPDATE_PLATFORM):
             return None
         return {
@@ -1176,7 +1449,7 @@ class UpdateManager:
     @staticmethod
     def _unsupported_platform_message() -> str:
         return (
-            f"update mutations require Linux {UPDATE_SERVICE_MANAGER}; "
+            f"scheduled update mutations require Linux {UPDATE_SERVICE_MANAGER}; "
             f"current platform is {sys.platform}"
         )
 
@@ -1188,6 +1461,37 @@ class UpdateManager:
             False,
             "unsupported-platform",
             self._unsupported_platform_message(),
+            2,
+            data=data,
+        )
+
+    @staticmethod
+    def _unsupported_manual_platform_data() -> dict[str, object] | None:
+        """Report the manual-apply boundary, which covers every supported service manager."""
+        if sys.platform.startswith(MANUAL_UPDATE_PLATFORMS):
+            return None
+        return {
+            "platform": sys.platform,
+            "required_platforms": list(MANUAL_UPDATE_PLATFORMS),
+            "service_managers": [DARWIN_SERVICE_MANAGER, UPDATE_SERVICE_MANAGER],
+            "recovery_command": UNSUPPORTED_PLATFORM_RECOVERY_COMMAND,
+        }
+
+    @staticmethod
+    def _unsupported_manual_platform_message() -> str:
+        return (
+            f"manual update mutations require Linux {UPDATE_SERVICE_MANAGER} or "
+            f"macOS {DARWIN_SERVICE_MANAGER}; current platform is {sys.platform}"
+        )
+
+    def _unsupported_manual_platform_result(self) -> UpdateResult | None:
+        data = self._unsupported_manual_platform_data()
+        if data is None:
+            return None
+        return UpdateResult(
+            False,
+            "unsupported-platform",
+            self._unsupported_manual_platform_message(),
             2,
             data=data,
         )

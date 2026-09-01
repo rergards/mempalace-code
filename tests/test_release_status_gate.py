@@ -1981,3 +1981,29 @@ def test_a_single_undatable_workflow_run_is_still_usable_evidence():
     tests_surf = next(s for s in result.surfaces if s.name == rsg.SURFACE_TESTS)
     assert tests_surf.status == rsg.STATUS_FAIL, tests_surf.detail
     assert "failure" in tests_surf.detail
+
+
+def test_exact_sha_workflow_lookup_asks_for_the_full_public_page():
+    limits: list[object] = []
+
+    def recording_read(query):
+        limits.append(query.values[2])
+        return SimpleNamespace(
+            data=[
+                {
+                    "status": "completed",
+                    "conclusion": "success",
+                    "headBranch": BRANCH,
+                    "headSha": SHA,
+                    "createdAt": "2026-02-01T01:00:00Z",
+                }
+            ],
+            error="",
+        )
+
+    surface = rsg.check_workflow_run(
+        rsg.SURFACE_TESTS, rsg.TESTS_WORKFLOW, REPO, BRANCH, recording_read, expected_sha=SHA
+    )
+
+    assert surface.status == rsg.STATUS_OK, surface.detail
+    assert limits == [100]

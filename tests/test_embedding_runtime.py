@@ -4,8 +4,10 @@ import json
 import math
 import os
 import sys
+import threading
 import types
 from array import array
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -179,10 +181,15 @@ def test_provenance_write_refuses_hostile_temporary_symlink(tmp_path, monkeypatc
     root = canonical_fastembed_cache_root()
     _write_owned_provenance(root)
     canonical_fastembed_provenance_path().unlink()
+    nonce = "hostile"
+    monkeypatch.setattr(
+        "mempalace_code.storage.uuid.uuid4", lambda: types.SimpleNamespace(hex=nonce)
+    )
     sentinel = tmp_path / "external-sentinel"
     expected = b"external\x00\xffsentinel"
     sentinel.write_bytes(expected)
-    temporary = canonical_fastembed_provenance_path().with_suffix(".tmp")
+    provenance = canonical_fastembed_provenance_path()
+    temporary = provenance.with_name(f"{provenance.name}.{nonce}.tmp")
     temporary.symlink_to(sentinel)
 
     with pytest.raises(FileExistsError):
@@ -191,6 +198,27 @@ def test_provenance_write_refuses_hostile_temporary_symlink(tmp_path, monkeypatc
     assert sentinel.read_bytes() == expected
     assert not canonical_fastembed_provenance_path().exists()
     assert not canonical_fastembed_cache_owned()
+
+
+def test_concurrent_provenance_writers_use_distinct_temporaries(tmp_path, monkeypatch):
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    root = canonical_fastembed_cache_root()
+    _write_owned_provenance(root)
+    barrier = threading.Barrier(2)
+    real_open = os.open
+
+    def synchronized_open(path, flags, mode=0o777):
+        barrier.wait(timeout=5)
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr("mempalace_code.storage.os.open", synchronized_open)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(_write_canonical_provenance) for _ in range(2)]
+        for future in futures:
+            future.result(timeout=10)
+
+    assert canonical_fastembed_cache_owned()
+    assert list(root.glob(".mempalace-model.json.*.tmp")) == []
 
 
 def test_owned_cache_rejects_unpinned_refs_main(tmp_path, monkeypatch):

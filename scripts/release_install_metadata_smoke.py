@@ -84,8 +84,26 @@ SURFACE_AGENT_PLUGIN = "agent_plugin"
 SURFACE_RUNTIME_NO_CHROMADB = "ordinary_runtime_no_chromadb"
 SURFACE_RECOVERY_SAFETY = "no_model_recovery"
 SURFACE_VERSION_CHECK_NETWORK = "version_check_no_network"
+# Published surface name kept stable for release consumers; it now covers both the
+# manual-apply and the scheduled-update boundary on a non-Linux host.
 SURFACE_UPDATE_PLATFORM = "unsupported_platform_updates"
 SURFACE_LINUX_SYSTEMD_LIFECYCLE = "linux_systemd_update_lifecycle"
+
+UPDATE_STATUS_RECOVERY_COMMAND = "mempalace-code update status --json"
+LAUNCHD_WATCH_LABEL = "com.mempalace.watch"
+# The disposable contour deliberately runs under a HOME that is not the effective
+# uid's passwd home, so the macOS watcher adapter must fail closed before launchd.
+DARWIN_DISPOSABLE_WATCHER_DETAIL = (
+    "watcher discovery unavailable: HOME does not match the effective uid passwd "
+    f"directory; recovery: {UPDATE_STATUS_RECOVERY_COMMAND}"
+)
+_FORBIDDEN_UPDATE_DIAGNOSTICS = (
+    "FileNotFoundError",
+    "Errno",
+    "Traceback",
+    "launchctl",
+    "systemctl",
+)
 
 LIFECYCLE_STATUS_PASS = "pass"
 LIFECYCLE_STATUS_FAIL = "fail"
@@ -1001,21 +1019,44 @@ def _probe_recovery_refusals(
     )
 
 
-def _probe_unsupported_platform_updates(
+def _probe_platform_update_boundaries(
     console_bin: str,
     probe_cwd: str,
     run_subprocess: RunSubprocess,
     env: dict[str, str],
 ) -> SurfaceResult:
-    platform_fields = {
+    """Prove both update boundaries on an installed non-Linux host.
+
+    macOS coordinates its watcher through launchd, so manual apply stays supported
+    there and must stop inside preflight rather than claim an unsupported platform.
+    Scheduled updates remain Linux systemd-user only on every non-Linux host, and
+    every other non-Linux host still refuses manual apply outright.
+    """
+    manual_supported = sys.platform.startswith("darwin")
+
+    def fail(detail: str) -> SurfaceResult:
+        return SurfaceResult(SURFACE_UPDATE_PLATFORM, STATUS_FAIL, detail)
+
+    scheduler_fields: dict[str, object] = {
         "platform": sys.platform,
         "required_platform": "linux",
         "service_manager": "systemd-user",
-        "recovery_command": "mempalace-code update status --json",
+        "recovery_command": UPDATE_STATUS_RECOVERY_COMMAND,
     }
-    expected_message = (
-        f"update mutations require Linux systemd-user; current platform is {sys.platform}"
+    scheduler_message = (
+        f"scheduled update mutations require Linux systemd-user; current platform is {sys.platform}"
     )
+    manual_fields: dict[str, object] = {
+        "platform": sys.platform,
+        "required_platforms": ["darwin", "linux"],
+        "service_managers": ["launchd-user", "systemd-user"],
+        "recovery_command": UPDATE_STATUS_RECOVERY_COMMAND,
+    }
+    manual_message = (
+        "manual update mutations require Linux systemd-user or macOS launchd-user; "
+        f"current platform is {sys.platform}"
+    )
+
     before_status = _snapshot_mutable_state(env)
     rc, out, err = run_subprocess(
         [console_bin, "update", "status", "--json"], env=env, cwd=probe_cwd
@@ -1030,32 +1071,75 @@ def _probe_unsupported_platform_updates(
         or not isinstance(status, dict)
         or status.get("ok") is not True
         or status.get("stage") != "status"
-        or any(status.get(key) != value for key, value in platform_fields.items())
+        or status.get("manual_update_supported") is not manual_supported
+        or status.get("eligible") is not False
         or not isinstance(status.get("installation"), dict)
         or not isinstance(status.get("provenance"), dict)
-        or not isinstance(status.get("watcher"), dict)
-        or not isinstance(status.get("scheduler"), dict)
     ):
-        return SurfaceResult(
-            SURFACE_UPDATE_PLATFORM,
-            STATUS_FAIL,
-            "update status did not return the unsupported-host diagnostic contract",
-        )
+        return fail("update status did not return the read-only platform diagnostic contract")
+    scheduler = status.get("scheduler")
+    if (
+        not isinstance(scheduler, dict)
+        or scheduler.get("supported") is not False
+        or scheduler.get("enabled") is not False
+        or scheduler.get("next_run") is not None
+        or scheduler.get("detail") != scheduler_message
+        or any(scheduler.get(key) != value for key, value in scheduler_fields.items())
+    ):
+        return fail("update status scheduler mapping lost the systemd-user boundary")
+    watcher = status.get("watcher")
+    if not isinstance(watcher, dict):
+        return fail("update status omitted the watcher mapping")
+    if manual_supported:
+        # A supported manual platform must report the real adapter, not a boundary
+        # stub: the launchd label, and an unsafe discovery carrying the recovery
+        # command because this HOME can never match the passwd home.
+        if (
+            watcher.get("safe") is not False
+            or watcher.get("active") is not False
+            or watcher.get("unit") != LAUNCHD_WATCH_LABEL
+            or watcher.get("detail") != DARWIN_DISPOSABLE_WATCHER_DETAIL
+            or "required_platforms" in status
+        ):
+            return fail("update status did not report the real launchd watcher boundary")
+    elif (
+        watcher.get("supported") is not False
+        or watcher.get("detail") != manual_message
+        or any(watcher.get(key) != value for key, value in manual_fields.items())
+        or any(status.get(key) != value for key, value in manual_fields.items())
+    ):
+        return fail("update status did not report the unsupported manual-update boundary")
     if _snapshot_mutable_state(env) != before_status:
-        return SurfaceResult(
-            SURFACE_UPDATE_PLATFORM,
-            STATUS_FAIL,
-            "update status mutated disposable state",
-        )
+        return fail("update status mutated disposable state")
 
     before_mutations = _snapshot_mutable_state(env)
-    actions = (
-        ["update", "apply", "--yes", "--json"],
-        ["update", "scheduler", "install", "--yes", "--json"],
-        ["update", "scheduler", "remove", "--yes", "--json"],
+    manual_stage = "preflight" if manual_supported else "unsupported-platform"
+    manual_detail = DARWIN_DISPOSABLE_WATCHER_DETAIL if manual_supported else manual_message
+    manual_payload_fields: dict[str, object] = {} if manual_supported else manual_fields
+    actions: tuple[tuple[str, list[str], str, str, dict[str, object]], ...] = (
+        (
+            "manual update apply",
+            ["update", "apply", "--yes", "--json"],
+            manual_stage,
+            manual_detail,
+            manual_payload_fields,
+        ),
+        (
+            "scheduler install",
+            ["update", "scheduler", "install", "--yes", "--json"],
+            "unsupported-platform",
+            scheduler_message,
+            scheduler_fields,
+        ),
+        (
+            "scheduler remove",
+            ["update", "scheduler", "remove", "--yes", "--json"],
+            "unsupported-platform",
+            scheduler_message,
+            scheduler_fields,
+        ),
     )
-    forbidden_diagnostics = ("FileNotFoundError", "Errno", "systemctl")
-    for action in actions:
+    for label, action, stage, message, fields in actions:
         rc, out, err = run_subprocess([console_bin, *action], env=env, cwd=probe_cwd)
         try:
             payload = json.loads(out)
@@ -1066,27 +1150,20 @@ def _probe_unsupported_platform_updates(
             or err != ""
             or not isinstance(payload, dict)
             or payload.get("ok") is not False
-            or payload.get("stage") != "unsupported-platform"
+            or payload.get("stage") != stage
             or payload.get("exit_code") != 2
-            or payload.get("message") != expected_message
-            or any(payload.get(key) != value for key, value in platform_fields.items())
-            or any(marker in out for marker in forbidden_diagnostics)
+            or payload.get("message") != message
+            or any(payload.get(key) != value for key, value in fields.items())
+            or UPDATE_STATUS_RECOVERY_COMMAND not in out
+            or any(marker in out for marker in _FORBIDDEN_UPDATE_DIAGNOSTICS)
         ):
-            return SurfaceResult(
-                SURFACE_UPDATE_PLATFORM,
-                STATUS_FAIL,
-                "confirmed update mutation did not return the unsupported-platform contract",
-            )
+            return fail(f"confirmed {label} did not return its exact refusal contract")
     if _snapshot_mutable_state(env) != before_mutations:
-        return SurfaceResult(
-            SURFACE_UPDATE_PLATFORM,
-            STATUS_FAIL,
-            "confirmed update mutations changed disposable state",
-        )
+        return fail("confirmed update mutations changed disposable state")
     return SurfaceResult(
         SURFACE_UPDATE_PLATFORM,
         STATUS_OK,
-        "status and all confirmed update mutations returned stable unsupported-platform JSON",
+        "manual and scheduler update boundaries refused without mutation",
     )
 
 
@@ -2004,7 +2081,7 @@ def _append_recovery_safety(
     surfaces.append(_probe_recovery_refusals(console_bin, probe_cwd, run_subprocess, env))
     if not sys.platform.startswith("linux"):
         surfaces.append(
-            _probe_unsupported_platform_updates(console_bin, probe_cwd, run_subprocess, env)
+            _probe_platform_update_boundaries(console_bin, probe_cwd, run_subprocess, env)
         )
     surfaces.append(
         _probe_version_check_no_network(

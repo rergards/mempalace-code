@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 23895,
+    "package_code_lines": 24154,
     "package_files": 80,
-    "package_total_lines": 29069,
+    "package_total_lines": 29373,
     "test_files": 88,
-    "test_total_lines": 79584
+    "test_total_lines": 80330
   },
   "demo_gates": {
     "architecture_guard": {
@@ -62,7 +62,7 @@
       "path": "mempalace_code/storage.py"
     },
     {
-      "lines": 1476,
+      "lines": 1780,
       "path": "mempalace_code/updater.py"
     },
     {
@@ -276,13 +276,13 @@
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 157,
+    "type_pyright_total": 170,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
     "test_files": 88,
-    "test_functions": 3698
+    "test_functions": 3721
   },
   "verification_commands": [
     {

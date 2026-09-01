@@ -1439,108 +1439,296 @@ def test_recovery_refusals_require_exact_json_and_zero_mutation(tmp_path):
     assert list(state_root.iterdir()) == []
 
 
-class TestUnsupportedPlatformUpdateProbe:
+class TestPlatformUpdateBoundaryProbe:
+    """Cover the two independent update boundaries the installed probe asserts."""
+
+    STATUS_COMMAND = ["update", "status", "--json"]
+    APPLY_COMMAND = ["update", "apply", "--yes", "--json"]
+    SCHEDULER_INSTALL_COMMAND = ["update", "scheduler", "install", "--yes", "--json"]
+    SCHEDULER_REMOVE_COMMAND = ["update", "scheduler", "remove", "--yes", "--json"]
+
     @staticmethod
-    def _status_payload() -> dict[str, object]:
-        boundary = {
-            "platform": "darwin",
+    def _scheduler_boundary(platform: str) -> dict[str, object]:
+        return {
+            "platform": platform,
             "required_platform": "linux",
             "service_manager": "systemd-user",
             "recovery_command": "mempalace-code update status --json",
         }
+
+    @staticmethod
+    def _manual_boundary(platform: str) -> dict[str, object]:
         return {
-            "ok": True,
-            "stage": "status",
-            "installation": {"kind": "bootstrap-venv", "supported": True},
-            "provenance": {"current_version": VERSION},
-            "watcher": {"active": False, "supported": False, **boundary},
-            "scheduler": {"enabled": False, "supported": False, **boundary},
-            **boundary,
+            "platform": platform,
+            "required_platforms": ["darwin", "linux"],
+            "service_managers": ["launchd-user", "systemd-user"],
+            "recovery_command": "mempalace-code update status --json",
         }
 
     @staticmethod
-    def _mutation_payload() -> dict[str, object]:
+    def _scheduler_message(platform: str) -> str:
+        return (
+            f"scheduled update mutations require Linux systemd-user; current platform is {platform}"
+        )
+
+    @staticmethod
+    def _manual_message(platform: str) -> str:
+        return (
+            "manual update mutations require Linux systemd-user or macOS launchd-user; "
+            f"current platform is {platform}"
+        )
+
+    @classmethod
+    def _scheduler_mapping(cls, platform: str) -> dict[str, object]:
+        return {
+            "supported": False,
+            "enabled": False,
+            "detail": cls._scheduler_message(platform),
+            "next_run": None,
+            **cls._scheduler_boundary(platform),
+        }
+
+    @classmethod
+    def _status_payload(cls, platform: str = "darwin") -> dict[str, object]:
+        payload: dict[str, object] = {
+            "ok": True,
+            "stage": "status",
+            "message": "update status inspected without mutation",
+            "exit_code": 0,
+            "log_path": None,
+            "installation": {"kind": "bootstrap-venv", "supported": True},
+            "provenance": {"current_version": VERSION},
+            "eligible": False,
+            "scheduler": cls._scheduler_mapping(platform),
+            "next_run": None,
+        }
+        if platform == "darwin":
+            payload["manual_update_supported"] = True
+            payload["watcher"] = {
+                "unit": "com.mempalace.watch",
+                "active": False,
+                "safe": False,
+                "detail": smoke.DARWIN_DISPOSABLE_WATCHER_DETAIL,
+            }
+            payload["reason"] = smoke.DARWIN_DISPOSABLE_WATCHER_DETAIL
+            return payload
+        payload["manual_update_supported"] = False
+        payload["watcher"] = {
+            "unit": "mempalace-watch.service",
+            "active": False,
+            "safe": False,
+            "supported": False,
+            "detail": cls._manual_message(platform),
+            **cls._manual_boundary(platform),
+        }
+        payload["reason"] = cls._manual_message(platform)
+        payload.update(cls._manual_boundary(platform))
+        return payload
+
+    @classmethod
+    def _apply_payload(cls, platform: str = "darwin") -> dict[str, object]:
+        if platform == "darwin":
+            return {
+                "ok": False,
+                "stage": "preflight",
+                "message": smoke.DARWIN_DISPOSABLE_WATCHER_DETAIL,
+                "exit_code": 2,
+                "log_path": None,
+            }
         return {
             "ok": False,
             "stage": "unsupported-platform",
-            "message": "update mutations require Linux systemd-user; current platform is darwin",
+            "message": cls._manual_message(platform),
             "exit_code": 2,
-            "platform": "darwin",
-            "required_platform": "linux",
-            "service_manager": "systemd-user",
-            "recovery_command": "mempalace-code update status --json",
+            "log_path": None,
+            **cls._manual_boundary(platform),
         }
 
-    def test_probe_invokes_exact_installed_console_commands(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+    @classmethod
+    def _scheduler_payload(cls, platform: str = "darwin") -> dict[str, object]:
+        return {
+            "ok": False,
+            "stage": "unsupported-platform",
+            "message": cls._scheduler_message(platform),
+            "exit_code": 2,
+            "log_path": None,
+            **cls._scheduler_boundary(platform),
+        }
+
+    @classmethod
+    def _responder(cls, platform: str):
+        def run_subprocess(args, env=None, cwd=None):
+            if args[1:] == cls.STATUS_COMMAND:
+                return 0, json.dumps(cls._status_payload(platform)), ""
+            if args[1:] == cls.APPLY_COMMAND:
+                return 2, json.dumps(cls._apply_payload(platform)), ""
+            return 2, json.dumps(cls._scheduler_payload(platform)), ""
+
+        return run_subprocess
+
+    @pytest.mark.parametrize("platform", ["darwin", "win32"])
+    def test_probe_invokes_exact_installed_console_commands(self, tmp_path, monkeypatch, platform):
+        monkeypatch.setattr(smoke.sys, "platform", platform)
         home = tmp_path / "home"
         home.mkdir()
         calls: list[tuple[list[str], dict[str, str] | None, str | None]] = []
+        responder = self._responder(platform)
 
         def run_subprocess(args, env=None, cwd=None):
             calls.append((args, env, cwd))
-            payload = (
-                self._status_payload()
-                if args[1:] == ["update", "status", "--json"]
-                else self._mutation_payload()
-            )
-            return (0 if payload["ok"] else 2), json.dumps(payload), ""
+            return responder(args, env=env, cwd=cwd)
 
         env = {"HOME": str(home)}
-        result = smoke._probe_unsupported_platform_updates(
+        result = smoke._probe_platform_update_boundaries(
             "/installed/bin/mempalace-code", str(tmp_path), run_subprocess, env
         )
 
         assert result == smoke.SurfaceResult(
             smoke.SURFACE_UPDATE_PLATFORM,
             smoke.STATUS_OK,
-            "status and all confirmed update mutations returned stable unsupported-platform JSON",
+            "manual and scheduler update boundaries refused without mutation",
         )
         assert [call[0] for call in calls] == [
-            ["/installed/bin/mempalace-code", "update", "status", "--json"],
-            ["/installed/bin/mempalace-code", "update", "apply", "--yes", "--json"],
-            [
-                "/installed/bin/mempalace-code",
-                "update",
-                "scheduler",
-                "install",
-                "--yes",
-                "--json",
-            ],
-            [
-                "/installed/bin/mempalace-code",
-                "update",
-                "scheduler",
-                "remove",
-                "--yes",
-                "--json",
-            ],
+            ["/installed/bin/mempalace-code", *self.STATUS_COMMAND],
+            ["/installed/bin/mempalace-code", *self.APPLY_COMMAND],
+            ["/installed/bin/mempalace-code", *self.SCHEDULER_INSTALL_COMMAND],
+            ["/installed/bin/mempalace-code", *self.SCHEDULER_REMOVE_COMMAND],
         ]
         assert all(call[1] is env and call[2] == str(tmp_path) for call in calls)
         assert list(home.iterdir()) == []
 
-    def test_probe_rejects_raw_executable_diagnostic(self, tmp_path, monkeypatch):
+    def test_probe_rejects_unsupported_platform_manual_apply_on_darwin(self, tmp_path, monkeypatch):
         monkeypatch.setattr(smoke.sys, "platform", "darwin")
-        home = tmp_path / "home"
-        home.mkdir()
+        responder = self._responder("darwin")
 
         def run_subprocess(args, env=None, cwd=None):
-            if args[1:] == ["update", "status", "--json"]:
-                return 0, json.dumps(self._status_payload()), ""
-            payload = self._mutation_payload()
-            payload["message"] = "[Errno 2] systemctl executable missing"
-            return 2, json.dumps(payload), ""
+            if args[1:] == self.APPLY_COMMAND:
+                # Swapping the scheduler contract onto manual apply would hide the
+                # supported launchd path behind a platform refusal.
+                return 2, json.dumps(self._scheduler_payload("darwin")), ""
+            return responder(args, env=env, cwd=cwd)
 
-        result = smoke._probe_unsupported_platform_updates(
-            "/installed/bin/mempalace-code",
-            str(tmp_path),
-            run_subprocess,
-            {"HOME": str(home)},
+        result = smoke._probe_platform_update_boundaries(
+            "/installed/bin/mempalace-code", str(tmp_path), run_subprocess, {}
+        )
+
+        assert result == smoke.SurfaceResult(
+            smoke.SURFACE_UPDATE_PLATFORM,
+            smoke.STATUS_FAIL,
+            "confirmed manual update apply did not return its exact refusal contract",
+        )
+
+    def test_probe_rejects_manual_preflight_contract_on_scheduler_install(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+        responder = self._responder("darwin")
+
+        def run_subprocess(args, env=None, cwd=None):
+            if args[1:] == self.SCHEDULER_INSTALL_COMMAND:
+                return 2, json.dumps(self._apply_payload("darwin")), ""
+            return responder(args, env=env, cwd=cwd)
+
+        result = smoke._probe_platform_update_boundaries(
+            "/installed/bin/mempalace-code", str(tmp_path), run_subprocess, {}
+        )
+
+        assert result == smoke.SurfaceResult(
+            smoke.SURFACE_UPDATE_PLATFORM,
+            smoke.STATUS_FAIL,
+            "confirmed scheduler install did not return its exact refusal contract",
+        )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "[Errno 2] systemctl executable missing",
+            "launchctl bootout failed: Traceback",
+        ],
+    )
+    def test_probe_rejects_raw_executable_diagnostic(self, tmp_path, monkeypatch, message):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+        responder = self._responder("darwin")
+
+        def run_subprocess(args, env=None, cwd=None):
+            if args[1:] == self.SCHEDULER_REMOVE_COMMAND:
+                payload = self._scheduler_payload("darwin")
+                payload["message"] = message
+                return 2, json.dumps(payload), ""
+            return responder(args, env=env, cwd=cwd)
+
+        result = smoke._probe_platform_update_boundaries(
+            "/installed/bin/mempalace-code", str(tmp_path), run_subprocess, {}
         )
 
         assert result.status == smoke.STATUS_FAIL
         assert result.detail == (
-            "confirmed update mutation did not return the unsupported-platform contract"
+            "confirmed scheduler remove did not return its exact refusal contract"
+        )
+
+    def test_probe_rejects_status_without_real_launchd_watcher(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+
+        def run_subprocess(args, env=None, cwd=None):
+            payload = self._status_payload("darwin")
+            # A boundary stub instead of the real adapter must not pass as a
+            # supported manual platform.
+            payload["watcher"] = {
+                "unit": "mempalace-watch.service",
+                "active": False,
+                "safe": False,
+                "supported": False,
+                "detail": self._manual_message("darwin"),
+                **self._manual_boundary("darwin"),
+            }
+            return 0, json.dumps(payload), ""
+
+        result = smoke._probe_platform_update_boundaries(
+            "/installed/bin/mempalace-code", str(tmp_path), run_subprocess, {}
+        )
+
+        assert result == smoke.SurfaceResult(
+            smoke.SURFACE_UPDATE_PLATFORM,
+            smoke.STATUS_FAIL,
+            "update status did not report the real launchd watcher boundary",
+        )
+
+    def test_probe_rejects_status_claiming_a_darwin_scheduler(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+
+        def run_subprocess(args, env=None, cwd=None):
+            payload = self._status_payload("darwin")
+            payload["scheduler"] = {"supported": True, "enabled": False, "next_run": None}
+            return 0, json.dumps(payload), ""
+
+        result = smoke._probe_platform_update_boundaries(
+            "/installed/bin/mempalace-code", str(tmp_path), run_subprocess, {}
+        )
+
+        assert result == smoke.SurfaceResult(
+            smoke.SURFACE_UPDATE_PLATFORM,
+            smoke.STATUS_FAIL,
+            "update status scheduler mapping lost the systemd-user boundary",
+        )
+
+    def test_probe_rejects_status_claiming_manual_support_on_unsupported_host(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(smoke.sys, "platform", "win32")
+
+        def run_subprocess(args, env=None, cwd=None):
+            payload = self._status_payload("win32")
+            payload["manual_update_supported"] = True
+            return 0, json.dumps(payload), ""
+
+        result = smoke._probe_platform_update_boundaries(
+            "/installed/bin/mempalace-code", str(tmp_path), run_subprocess, {}
+        )
+
+        assert result == smoke.SurfaceResult(
+            smoke.SURFACE_UPDATE_PLATFORM,
+            smoke.STATUS_FAIL,
+            "update status did not return the read-only platform diagnostic contract",
         )
 
     def test_probe_rejects_status_mutating_disposable_state(self, tmp_path, monkeypatch):
@@ -1553,9 +1741,9 @@ class TestUnsupportedPlatformUpdateProbe:
             Path(env["XDG_DATA_HOME"], "application-state").write_text(
                 "mutated\n", encoding="utf-8"
             )
-            return 0, json.dumps(self._status_payload()), ""
+            return 0, json.dumps(self._status_payload("darwin")), ""
 
-        result = smoke._probe_unsupported_platform_updates(
+        result = smoke._probe_platform_update_boundaries(
             "/installed/bin/mempalace-code",
             str(tmp_path),
             run_subprocess,
@@ -1566,6 +1754,33 @@ class TestUnsupportedPlatformUpdateProbe:
             smoke.SURFACE_UPDATE_PLATFORM,
             smoke.STATUS_FAIL,
             "update status mutated disposable state",
+        )
+
+    def test_probe_rejects_confirmed_mutation_touching_disposable_state(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+        data_home = tmp_path / "xdg-data"
+        data_home.mkdir()
+        responder = self._responder("darwin")
+
+        def run_subprocess(args, env=None, cwd=None):
+            if args[1:] == self.APPLY_COMMAND:
+                assert env is not None
+                Path(env["XDG_DATA_HOME"], "updates.json").write_text("{}", encoding="utf-8")
+            return responder(args, env=env, cwd=cwd)
+
+        result = smoke._probe_platform_update_boundaries(
+            "/installed/bin/mempalace-code",
+            str(tmp_path),
+            run_subprocess,
+            {"XDG_DATA_HOME": str(data_home)},
+        )
+
+        assert result == smoke.SurfaceResult(
+            smoke.SURFACE_UPDATE_PLATFORM,
+            smoke.STATUS_FAIL,
+            "confirmed update mutations changed disposable state",
         )
 
     @pytest.mark.parametrize(

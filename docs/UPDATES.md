@@ -13,9 +13,15 @@ Supported install ownership is deliberately narrow:
 - the documented bootstrap venv at `~/.mempalace/venv`
 
 System Python, distro-managed packages, editable/source checkouts, and ambiguous virtual
-environments are refused before package or service mutation. The first scheduler slice supports only
-Linux systemd-user units. It does not create machine-wide units or support cron, launchd, or Windows
-Task Scheduler.
+environments are refused before package or service mutation.
+
+The two boundaries are independent:
+
+- **Manual `update apply --yes`** runs on Linux (systemd-user) and macOS (launchd-user) for those
+  supported isolated installers. Every other platform is refused with `stage: unsupported-platform`.
+- **Scheduled package updates** remain Linux systemd-user only. There is no macOS scheduler: no
+  launchd update agent, and no cron or Windows Task Scheduler support. Machine-wide units are never
+  created.
 
 ### Ordinary pip installs
 
@@ -81,17 +87,57 @@ mempalace-code update apply --yes
 
 `--yes` confirms package and service mutation. The updater records the old version and whether the
 selected managed watcher was active only after installer, provenance, extras, disk/backup, and
-operation-lease preflight succeeds. Discovery accepts the legacy `mempalace-watch.service` or one
-active named `mempalace-watch-<root>.service` whose `ExecStart` is a supported MemPalace `watch`
-command. Ambiguous, malformed, unrelated, or unavailable systemd-user discovery is a visible refusal
-before package, lease, or service mutation. It stops the selected active watcher, takes the exclusive
-lease, installs the selected version with retained extras, validates `mempalace-code update --help`,
-probes the palace, then restarts and verifies that same watcher if it was running before the attempt.
+operation-lease preflight succeeds. It stops the selected active watchers, takes the exclusive lease,
+installs the selected version with retained extras, validates `mempalace-code update --help`, probes
+the palace, then restarts and verifies exactly the watchers it stopped.
+
+Watcher coordination follows whichever user service manager owns the host:
+
+- **Linux (systemd-user)** — discovery accepts the legacy `mempalace-watch.service` or one active
+  `mempalace-watch-<root>.service` whose `ExecStart` is a supported MemPalace `watch` command, and
+  the update coordinates that single selected unit.
+- **macOS (launchd-user)** — discovery coordinates *every* loaded attributable
+  `com.mempalace.watch*` LaunchAgent, not just one. A loaded job that lists no PID is included,
+  because `KeepAlive` can respawn it mid-replacement. Each label must be backed by an owned, regular,
+  label-matching plist in `~/Library/LaunchAgents` whose `ProgramArguments` is a supported MemPalace
+  `watch` command.
+
+Ambiguous, malformed, unattributable, or unavailable watcher evidence is a visible refusal before
+package, lease, or service mutation. The refusal names the command that shows what the watchers were
+left in:
+
+```bash
+mempalace-code update status --json
+```
 
 Watchers hold shared leases throughout their lifetime. The updater reports lock owner metadata rather
 than racing an unmanaged watcher. A scheduled overlap exits before package or service mutation.
 Dead-PID owner records from an interrupted process are pruned before they can block a later update;
 the kernel lease remains the concurrency authority.
+
+### macOS on v1.13.5: one-time manual recovery
+
+v1.13.5 on macOS **cannot self-apply this patch**: that version refuses manual apply on any
+non-Linux platform, so `mempalace-code update apply --yes` returns an unsupported-platform refusal
+before it can install the release that adds launchd support. Move once with the installer that owns
+your installation:
+
+```bash
+uv tool upgrade mempalace-code   # uv tool installs
+pipx upgrade mempalace-code      # pipx installs
+~/.mempalace/venv/bin/python -m pip install --upgrade mempalace-code   # bootstrap-venv installs
+```
+
+Then confirm the new boundary:
+
+```bash
+mempalace-code update status
+```
+
+Do not use plain `pip` for a `uv tool` or `pipx` installation — it would write into an environment
+the owning installer manages. The bootstrap-venv line above is not plain `pip`: it names that venv's
+own interpreter explicitly, so it upgrades only that environment. After this one-time upgrade, macOS
+manual updates work through `mempalace-code update apply --yes`; scheduled updates stay Linux-only.
 
 ## Scheduled update
 

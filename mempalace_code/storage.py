@@ -540,7 +540,7 @@ def _write_canonical_provenance() -> None:
     finally:
         temporary_config.unlink(missing_ok=True)
     path = canonical_fastembed_provenance_path()
-    temporary = path.with_suffix(".tmp")
+    temporary = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(temporary, flags, 0o600)
     try:

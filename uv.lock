@@ -986,7 +986,7 @@ wheels = [
 
 [[package]]
 name = "mempalace-code"
-version = "1.13.5"
+version = "1.13.6"
 source = { editable = "." }
 dependencies = [
     { name = "fastembed" },

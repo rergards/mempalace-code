@@ -1841,3 +1841,18 @@ items:
       resolution: '2026-09-01: Exact candidate 46539ccc4e61f437e60966025c279ccf52d4fb16 passed both native Linux installed-application jobs, Python 3.11-3.14, package, lint, typecheck, dependency, Gitleaks, and release-required in Tests run 33514710029; exact MSFT1000:00 and VMBUS:00 diagnostics are qualified.'
       archived_date: "2026-09-01"
       done_summary: Exact candidate 46539ccc4e61f437e60966025c279ccf52d4fb16 passed both native Linux installed-application jobs, Python 3.11-3.14, package, lint, typecheck, dependency, Gitleaks, and release-required in Tests run 33514710029; exact MSFT1000:00 and VMBUS:00 diagnostics are qualified.
+    - key: REL-STATUS-TESTS-WINDOW-100
+      summary: Use bounded GitHub maximum for exact-SHA Tests lookup
+      resolution: '2026-09-01: Raised the exact-SHA Tests lookup to GitHub''s bounded maximum of 100; the live v1.13.5 status gate passed every public surface at exact SHA 484ab7d5e96d21cdf8e50c4e13c7276d40b6230f. Full non-network suite passed with 4,479 tests, focused public-reader/status coverage passed, Ruff and both Pyright contours passed, public safety and changed-range Gitleaks passed, and three independent reviews approved while fail-closed behavior above 100 remains.'
+      archived_date: "2026-09-01"
+      done_summary: Raised the exact-SHA Tests lookup to GitHub's bounded maximum of 100; the live v1.13.5 status gate passed every public surface at exact SHA 484ab7d5e96d21cdf8e50c4e13c7276d40b6230f. Full non-network suite passed with 4,479 tests, focused public-reader/status coverage passed, Ruff and both Pyright contours passed, public safety and changed-range Gitleaks passed, and three independent reviews approved while fail-closed behavior above 100 remains.
+    - key: UPDATE-MACOS-MANUAL-APPLY-RESTORE
+      summary: Restore safe manual package updates on macOS
+      resolution: '2026-09-01: implemented macOS launchd manual-update coordination and bounded shutdown settling in abf7fe87 and 69add606; exact v1.13.6 wheel passed direct two-watcher macOS stop/install/restart, all four installer contours, Linux systemd-user lifecycle, Mac and Linux 26-row installed-golden suites, 4507-test full suite, static, public-safety, and secret gates'
+      archived_date: "2026-09-01"
+      done_summary: implemented macOS launchd manual-update coordination and bounded shutdown settling in abf7fe87 and 69add606; exact v1.13.6 wheel passed direct two-watcher macOS stop/install/restart, all four installer contours, Linux systemd-user lifecycle, Mac and Linux 26-row installed-golden suites, 4507-test full suite, static, public-safety, and secret gates
+    - key: MODEL-CACHE-CONCURRENT-PROVENANCE-TEMP
+      summary: Prevent concurrent canonical-cache provenance writers from colliding
+      resolution: '2026-09-01: Replaced the v1.13.5 fixed provenance temp pathname with the existing UUID-named same-directory atomic-write pattern while preserving exclusive creation and inode, link, path, and symlink checks. Barrier-synchronized writer coverage, hostile-temp coverage, an exact v1.13.6 wheel with two concurrent installed CLI searches, 4,511 non-network tests, static/public/secret gates, and two independent reviews passed.'
+      archived_date: "2026-09-01"
+      done_summary: Replaced the v1.13.5 fixed provenance temp pathname with the existing UUID-named same-directory atomic-write pattern while preserving exclusive creation and inode, link, path, and symlink checks. Barrier-synchronized writer coverage, hostile-temp coverage, an exact v1.13.6 wheel with two concurrent installed CLI searches, 4,511 non-network tests, static/public/secret gates, and two independent reviews passed.

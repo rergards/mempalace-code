@@ -2,6 +2,7 @@
 slug: UPDATE-UNSUPPORTED-PLATFORM-DIAGNOSTICS
 status: completed
 authority: non_authoritative
+superseded_by: UPDATE-MACOS-MANUAL-APPLY-RESTORE
 goal: "Return a stable unsupported-platform diagnosis before confirmed update mutations can invoke systemctl."
 risk: medium
 risk_note: "The change is small but sits before package, watcher, and scheduler mutations in a pre-release CLI; ordering mistakes could weaken Linux behavior or confirmation guards."
@@ -147,6 +148,13 @@ task_contract:
         proves: "The supported Linux scheduler removal still disables the timer, removes owned units, and reloads systemd-user."
         acceptance_ids: [AC-4]
 ---
+
+## Superseded Notice
+
+This plan is a historical record and no longer describes current behavior. Its Darwin-wide manual
+apply refusal was superseded by UPDATE-MACOS-MANUAL-APPLY-RESTORE in v1.13.6, which admits macOS
+manual apply with launchd watcher coordination. Only the scheduler refusal remains Linux-only. The
+current contract is docs/UPDATES.md; the plan body below is preserved unchanged as history.
 
 ## Design Notes
 

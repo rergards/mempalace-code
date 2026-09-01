@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v1.13.6 — 2026-09-01
+
+### Fixed
+
+- Concurrent MemPalace processes can safely initialize the same canonical FastEmbed
+  cache without colliding on a shared provenance temporary file.
+- Manual `mempalace-code update apply --yes` works again on macOS for supported `uv tool`, `pipx`, and bootstrap-venv installs, using safe launchd coordination of all attributable loaded `com.mempalace.watch*` agents. Scheduled package updates remain Linux systemd-user only. macOS users on v1.13.5 need one upgrade through their owning installer before future self-updates work; see `docs/UPDATES.md`.
+- Exact-SHA release workflow lookup now uses the bounded 100-run GitHub window and stays fail-closed beyond it.
+
 ## v1.13.5 — 2026-09-01
 
 Patch release for ingest source safety, ChromaDB runtime retirement, explicit
