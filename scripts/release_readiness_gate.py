@@ -805,7 +805,10 @@ def _classify_installed_golden_diagnostic(result, *, platform_name: str, machine
         and machine.strip().lower() in {"aarch64", "arm64"}
         and (
             result.stderr == f"{INSTALLED_GOLDEN_ONNX_CPU_WARNING}\n"
-            or INSTALLED_GOLDEN_ONNX_PCI_WARNING.fullmatch(result.stderr) is not None
+            or (
+                result.stderr is not None
+                and INSTALLED_GOLDEN_ONNX_PCI_WARNING.fullmatch(result.stderr) is not None
+            )
         )
     ):
         result.stderr = ""

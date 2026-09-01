@@ -4275,6 +4275,13 @@ _ONNX_PCI_WARNING = (
 def test_installed_golden_accepts_exact_linux_arm_onnx_warning_and_completes_suite(
     tmp_path, monkeypatch, machine, warning
 ):
+    merged_result = SimpleNamespace(returncode=0, stdout="merged output", stderr=None)
+    classified = rrg._classify_installed_golden_diagnostic(
+        merged_result, platform_name="linux", machine=machine
+    )
+    assert classified is merged_result
+    assert classified.stderr is None
+
     wheel = _write_candidate_wheel(tmp_path)
     cache = _write_model_cache(tmp_path / "hf")
     calls = []
