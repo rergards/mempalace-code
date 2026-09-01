@@ -78,7 +78,7 @@ def _chunk_by_exchange(lines: list) -> list:
     while i < len(lines):
         line = lines[i]
         if line.strip().startswith(">"):
-            user_turn = line.strip()
+            user_turn = line
             i += 1
 
             ai_lines = []
@@ -222,9 +222,11 @@ def get_collection(palace_path: str):
     return open_store(palace_path, create=True)
 
 
-def file_already_mined(collection, source_file: str) -> bool:
+def file_already_mined(collection, source_file: str, wing: str) -> bool:
     try:
-        results = collection.get(where={"source_file": source_file}, limit=1)
+        results = collection.get(
+            where={"$and": [{"source_file": source_file}, {"wing": wing}]}, limit=1
+        )
         return len(results.get("ids", [])) > 0
     except Exception:
         return False
@@ -241,6 +243,14 @@ def scan_convos(convo_dir: str) -> list:
     files = []
     for root, dirs, filenames in os.walk(convo_path):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        accepted_dirs = []
+        for dirname in dirs:
+            dirpath = Path(root) / dirname
+            if dirpath.suffix.lower() in CONVO_EXTENSIONS:
+                print(regular_source_diagnostic(dirpath), file=sys.stderr)
+            else:
+                accepted_dirs.append(dirname)
+        dirs[:] = accepted_dirs
         for filename in filenames:
             if filename.endswith(".meta.json"):
                 continue
@@ -265,6 +275,7 @@ def mine_convos(
     agent: str = "mempalace",
     limit: int = 0,
     dry_run: bool = False,
+    incremental: bool = True,
     extract_mode: str = "exchange",
     spellcheck: bool = True,
     extract_categories: Optional[Iterable[str]] = None,
@@ -294,11 +305,14 @@ def mine_convos(
     print(f"  Palace:  {palace_path}")
     if dry_run:
         print("  DRY RUN — nothing will be filed")
+    if not incremental:
+        print("  Mode:    FULL REBUILD (--full)")
     print(f"{'-' * 55}\n")
 
     collection = get_collection(palace_path) if not dry_run else None
 
     total_drawers = 0
+    files_processed = 0
     files_skipped = 0
     room_counts = defaultdict(int)
     batch_buffer: list = []
@@ -312,7 +326,7 @@ def mine_convos(
         source_file = str(filepath)
 
         # Skip if already filed
-        if not dry_run and file_already_mined(collection, source_file):
+        if not dry_run and incremental and file_already_mined(collection, source_file, wing):
             files_skipped += 1
             continue
 
@@ -322,19 +336,19 @@ def mine_convos(
         except (OSError, ValueError):
             continue
 
-        if not content or len(content.strip()) < MIN_CHUNK_SIZE:
-            continue
+        chunks = []
+        if content and len(content.strip()) >= MIN_CHUNK_SIZE:
+            # Chunk — either exchange pairs or general extraction
+            if extract_mode == "general":
+                from .general_extractor import extract_memories
 
-        # Chunk — either exchange pairs or general extraction
-        if extract_mode == "general":
-            from .general_extractor import extract_memories
-
-            chunks = extract_memories(content, categories=extract_categories)
-            # Each chunk already has memory_type; use it as the room name
-        else:
-            chunks = chunk_exchanges(content)
+                chunks = extract_memories(content, categories=extract_categories)
+                # Each chunk already has memory_type; use it as the room name
+            else:
+                chunks = chunk_exchanges(content)
 
         if not chunks:
+            files_processed += 1
             continue
 
         # Detect room from content (general mode uses memory_type instead)
@@ -359,19 +373,20 @@ def mine_convos(
                     room_counts[c.get("memory_type", "general")] += 1
             else:
                 room_counts[room] += 1
+            files_processed += 1
             continue
 
         if extract_mode != "general":
             room_counts[room] += 1
 
-        # Build specs for this file; accumulate into the batch buffer
-        file_spec_count = 0
+        # Build specs for this file.
+        file_specs = []
         for chunk in chunks:
             chunk_room = chunk.get("memory_type", room) if extract_mode == "general" else room
             if extract_mode == "general":
                 room_counts[chunk_room] += 1
             drawer_id = f"drawer_{wing}_{chunk_room}_{hashlib.md5((source_file + str(chunk['chunk_index'])).encode(), usedforsecurity=False).hexdigest()[:16]}"
-            batch_buffer.append(
+            file_specs.append(
                 {
                     "id": drawer_id,
                     "content": chunk["content"],
@@ -389,36 +404,52 @@ def mine_convos(
                     },
                 }
             )
-            file_spec_count += 1
+        file_spec_count = len(file_specs)
+        success_line = f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{file_spec_count}"
 
-        print(f"  ✓ [{i:4}/{len(files)}] {filepath.name[:50]:50} +{file_spec_count}")
-        if len(batch_buffer) >= get_batch_size():
-            flush_batch()
+        if incremental:
+            print(success_line)
+            batch_buffer.extend(file_specs)
+            if len(batch_buffer) >= get_batch_size():
+                flush_batch()
+        else:
+            assert collection is not None
+            collection.replace_source(
+                source_file,
+                wing,
+                [spec["id"] for spec in file_specs],
+                [spec["content"] for spec in file_specs],
+                [spec["metadata"] for spec in file_specs],
+            )
+            total_drawers += file_spec_count
+            print(success_line)
+        files_processed += 1
 
     if not dry_run:
         flush_batch()
         assert collection is not None
-        config = MempalaceConfig()
-        if config.optimize_after_mine:
-            t0 = time.time()
-            backup_first = config.backup_before_optimize
-            if backup_first:
-                print("  >> Backing up before optimize...", flush=True)
-            print("  >> Optimizing storage...", end="", flush=True)
-            result = optimize_store(collection, palace_path, backup_first=backup_first)
-            if result.ok:
-                print(f" done ({time.time() - t0:.1f}s)", flush=True)
+        if incremental or total_drawers:
+            config = MempalaceConfig()
+            if config.optimize_after_mine:
+                t0 = time.time()
+                backup_first = config.backup_before_optimize
+                if backup_first:
+                    print("  >> Backing up before optimize...", flush=True)
+                print("  >> Optimizing storage...", end="", flush=True)
+                result = optimize_store(collection, palace_path, backup_first=backup_first)
+                if result.ok:
+                    print(f" done ({time.time() - t0:.1f}s)", flush=True)
+                else:
+                    print(
+                        f"\n  !! WARNING: optimize failed or verification error ({time.time() - t0:.1f}s)",
+                        flush=True,
+                    )
             else:
-                print(
-                    f"\n  !! WARNING: optimize failed or verification error ({time.time() - t0:.1f}s)",
-                    flush=True,
-                )
-        else:
-            print("  >> Skipping optimize (disabled in config)", flush=True)
+                print("  >> Skipping optimize (disabled in config)", flush=True)
 
     print(f"\n{'=' * 55}")
     print("  Done.")
-    print(f"  Files processed: {len(files) - files_skipped}")
+    print(f"  Files processed: {files_processed}")
     print(f"  Files skipped (already filed): {files_skipped}")
     print(f"  Drawers filed: {total_drawers}")
     if room_counts:

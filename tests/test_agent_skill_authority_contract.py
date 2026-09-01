@@ -158,19 +158,11 @@ def test_plan_and_hardening_preserve_state_before_initialization():
             "## 1. Admit Existing State Before Initialization",
             "## 2.",
         )
-        _assert_in_order(
-            section,
-            "read the exact task-state path",
-            "inspect Git root",
-            "autopilot doctor --json",
-            "autopilot status",
-            "phase_write_allowed=true",
-            "safe_to_edit=true",
-            "initialize only an absent admitted",
-            "Resume valid matching state",
-        )
-        assert "active-owner, blocked, resumable, stale, malformed" in section
-        assert "Preserve" in section
+        assert "`.claude/skills/_shared/task-state.md` in full" in section
+        assert "sole owner of admission, persistence, resume, and\nrecovery behavior" in section
+        assert "Recovery: `autopilot doctor --json`" in section
+        assert "phase_write_allowed" not in section
+        assert "safe_to_edit" not in section
 
 
 def test_ship_and_checkpoint_require_ordered_exact_target_admission():
@@ -355,11 +347,14 @@ def test_tracked_plan_lifecycle_metadata_matches_repository_state():
     tracked_markdown = _git("ls-files", "docs/plans/*.md").splitlines()
     contract_relative = "docs/plans/README.md"
     implementation_plans = [
-        relative for relative in tracked_markdown if relative != contract_relative
+        relative
+        for relative in tracked_markdown
+        if relative != contract_relative and (ROOT / relative).is_file()
     ]
+    existing_tracked = {relative for relative in tracked_markdown if (ROOT / relative).is_file()}
     assert PLAN_CONTRACT.is_file()
     assert all(relative.startswith("docs/plans/") for relative in implementation_plans)
-    assert set(tracked_markdown) - set(implementation_plans) <= {contract_relative}
+    assert existing_tracked - set(implementation_plans) <= {contract_relative}
     assert implementation_plans
 
     for relative in implementation_plans:
@@ -480,7 +475,7 @@ def test_historical_plan_direct_retrieval_is_non_authoritative():
     tracked = _git("ls-files", "docs/plans/*.md").splitlines()
     historical = []
     for relative in tracked:
-        if relative == "docs/plans/README.md":
+        if relative == "docs/plans/README.md" or not (ROOT / relative).is_file():
             continue
         text = (ROOT / relative).read_text(encoding="utf-8")
         metadata, _, _ = _front_matter(text)
@@ -512,6 +507,6 @@ def test_plan_repository_and_distribution_boundaries_are_truthful():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     hatch = project["tool"]["hatch"]["build"]["targets"]
     assert hatch["wheel"]["packages"] == ["mempalace_code"]
-    assert "docs/plans/" not in hatch["sdist"]["exclude"]
+    assert "docs/plans/" in hatch["sdist"]["exclude"]
     assert not historical.is_relative_to(ROOT / "mempalace_code")
     assert "repository search" in PLAN_CONTRACT.read_text(encoding="utf-8")

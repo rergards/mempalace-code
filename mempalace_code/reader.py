@@ -39,7 +39,7 @@ _validate_wing_against_store = _taxonomy_filters.validate_wing_against_store
 class ReaderStore(Protocol):
     """Structural boundary for the palace store methods read_slice depends on.
 
-    Any DrawerStore backend (LanceStore, ChromaStore, ...) satisfies this
+    Any DrawerStore backend (currently LanceStore) satisfies this
     structurally — reader.py never imports a concrete store class.
     """
 

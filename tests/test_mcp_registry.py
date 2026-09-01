@@ -178,6 +178,24 @@ class TestCompatibilityReExports:
         assert "AAAK" in result["aaak_spec"]
 
 
+class TestRuntimeScope:
+    def test_kg_uses_configured_palace_path(self, tmp_path, monkeypatch):
+        from mempalace_code.mcp import runtime
+
+        palace = tmp_path / "configured-palace"
+
+        class Config:
+            palace_path = str(palace)
+
+        monkeypatch.setattr(runtime, "_config", Config())
+        monkeypatch.setattr(runtime, "_kg", None)
+
+        kg = runtime._get_kg()
+
+        assert kg.db_path == str(palace / "knowledge_graph.sqlite3")
+        assert (palace / "knowledge_graph.sqlite3").is_file()
+
+
 class TestDispatchBehavior:
     def test_ac4_hidden_profile_tool_returns_profile_disabled_error(self):
         """AC-4: tool hidden by active profile returns -32601 with 'not enabled' message."""

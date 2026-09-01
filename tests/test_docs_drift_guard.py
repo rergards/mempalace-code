@@ -27,24 +27,47 @@ guard = _load_module("docs_drift_guard", ROOT / "scripts" / "docs_drift_guard.py
 # constants, so the assertions below compare against them rather than literals.
 ADMISSION = guard._load_admission_checks()
 
+_OFFLINE_USAGE_DISCLOSURE = (
+    "With version checks disabled, core commands run offline. "
+    "`update status` and `update check` are read-only. Each refreshes canonical package "
+    "metadata from PyPI. MEMPALACE_VERSION_CHECK=0 does not block updater PyPI requests. "
+    "While offline, do not run `update status`, `update check`, `update apply --yes`, or "
+    "scheduled update execution. The low-level Python API exposes "
+    "`EntityRegistry.research()`, which contacts the English Wikipedia REST API. Standard "
+    "CLI and MCP flows never call this method.\n"
+)
+
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 
 
-# Canonical verification command surfaces the guard checks. Kept in sync with
-# guard.VERIFICATION_COMMAND_SURFACES so the fixture below satisfies every
-# surface the real guard requires.
-_VERIFICATION_COMMANDS_SOURCE = """_VERIFICATION_COMMANDS = (
-    ("lint", "ruff check pkg/ tests/ scripts/"),
-    ("format", "ruff format --check pkg/ tests/ scripts/"),
-    ("tests", "python -m pytest tests/ -x -q"),
-    ("typecheck", "python -m pyright"),
-    ("typecheck_strict_slice", "python -m pyright -p pyrightconfig.strict.json"),
-    ("public_safety", "python scripts/public_safety_scan.py --tracked --staged"),
-    ("scorecard", "python scripts/quality_scorecard.py --check"),
-    ("architecture_guard", "python scripts/architecture_guard.py --root ."),
+# Canonical verification gates the guard checks. Kept in sync with
+# guard.VERIFICATION_COMMAND_SURFACES so the fixture satisfies each public surface.
+_GATE_INVENTORY_SOURCE = """CANONICAL_GATES = [
+    {"id": "lint", "command": "ruff check pkg/ tests/ scripts/"},
+    {"id": "format", "command": "ruff format --check pkg/ tests/ scripts/"},
+    {"id": "tests", "command": "python -m pytest tests/ -x -q"},
+    {"id": "typecheck", "command": "python -m pyright"},
+    {"id": "typecheck_strict_slice", "command": "python -m pyright -p pyrightconfig.strict.json"},
+    {"id": "public_safety", "command": "python scripts/public_safety_scan.py --tracked --staged"},
+    {"id": "gitleaks_fixture_smoke", "command": "python scripts/gitleaks_scan.py fixture-smoke"},
+    {"id": "gitleaks_changed_range", "command": "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD"},
+    {"id": "scorecard", "command": "python scripts/quality_scorecard.py --check"},
+    {"id": "architecture_guard", "command": "python scripts/architecture_guard.py --root ."},
+]
+VERIFY_SURFACE_IDS = (
+    "lint",
+    "format",
+    "tests",
+    "typecheck",
+    "typecheck_strict_slice",
+    "public_safety",
+    "gitleaks_fixture_smoke",
+    "gitleaks_changed_range",
+    "scorecard",
+    "architecture_guard",
 )
 """
 
@@ -53,7 +76,7 @@ _CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND = (
 )
 _CANONICAL_EXACT_SHA_RELEASE_PREFLIGHT_COMMAND = (
     "python scripts/release_preflight.py --tag vX.Y.Z --require-clean "
-    "--expect-sha <40-hex-candidate-sha> --candidate-ref publish/main "
+    "--expect-sha <40-hex-candidate-sha> --check-public-main "
     "--check-required-check --check-dependency-audit --check-branch-rules "
     "--check-tag-ruleset"
 )
@@ -66,22 +89,21 @@ _CANONICAL_PARTIAL_PUBLICATION_RECOVERY_COMMAND = (
     "gh run rerun <publish-workflow-run-id> --job <github-release-job-id> "
     "--repo rergards/mempalace-code"
 )
+_CANONICAL_CANDIDATE_READINESS_COMMAND = (
+    'python scripts/release_readiness_gate.py --check --candidate-sha "$CANDIDATE_SHA" --json'
+)
 
 
-def _release_status_surface_block(names: tuple[str, ...] | None = None) -> str:
-    """Render the release-skill surface block the guard requires.
+def test_release_instructions_bind_candidate_without_client_execution():
+    releasing = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+    skill = (ROOT / ".claude" / "skills" / "release" / "SKILL.md").read_text(encoding="utf-8")
 
-    Built from the guard's own derived surface list, not a literal copy, so the
-    fixture cannot pass while the real REQUIRED_SURFACES set moves on.
-    """
-    surfaces = names if names is not None else tuple(guard.release_status_surface_names())
-    rows = "".join(f"| `{name}` | documented |\n" for name in surfaces)
-    return (
-        f"<!-- {guard.RELEASE_STATUS_SURFACE_MARKER} start -->\n"
-        "| Surface | Green means |\n|---|---|\n"
-        f"{rows}"
-        f"<!-- {guard.RELEASE_STATUS_SURFACE_MARKER} end -->\n"
-    )
+    for surface in (releasing, skill):
+        assert surface.count(_CANONICAL_CANDIDATE_READINESS_COMMAND) == 1
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    forbidden = ("release_direct_application_gate.py", "@openai/codex", "claude-code", "gemini-cli")
+    for text in (releasing, skill, workflow):
+        assert all(value not in text for value in forbidden)
 
 
 # The full managed rules block has one canonical owner. Line-anchored markers
@@ -125,8 +147,10 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+custom-models = ["sentence-transformers>=2.2"]
 dev = ["pytest>=7.0"]
-chroma-migration = ["chromadb>=0.5.0,<1"]
+spellcheck = ["autocorrect>=2.0"]
+watch = ["watchfiles>=1.0"]
 treesitter = ["tree-sitter>=0.22"]
 """,
     )
@@ -203,9 +227,11 @@ mempalace-code repair --rollback --dry-run
 **Optional extras:**
 
 ```bash
+# mempalace-code[custom-models]  # CPU-only Linux: docs/OFFLINE_USAGE.md
 pip install "mempalace-code[dev]"
-pip install "mempalace-code[chroma-migration]"
+pip install "mempalace-code[spellcheck]"
 pip install "mempalace-code[treesitter]"
+pip install "mempalace-code[watch]"
 ```
 
 <details>
@@ -227,10 +253,16 @@ mempalace-code diary write --agent <name> --entry "<text>"
         "Runtime storage is LanceDB-only. ChromaDB appears only as migration input.\n",
     )
     _write(
-        tmp_path / "CLAUDE.md",
+        tmp_path / "AGENTS.md",
         """## Running Tests
 
-Optional extras: .[dev], .[chroma-migration], .[treesitter]
+Optional extras:
+
+- `.[custom-models]` — custom models
+- `.[dev]` — development tools
+- `.[spellcheck]` — spellcheck
+- `.[treesitter]` — AST parsing
+- `.[watch]` — file watching
 
 ```bash
 python -m pytest tests/ -x -q
@@ -245,6 +277,7 @@ python -m pyright
 ```
 """,
     )
+    _write(tmp_path / "CLAUDE.md", "@AGENTS.md\n")
     _write(
         tmp_path / "CONTRIBUTING.md",
         "ChromaDB is isolated to the one-way bridge in .[chroma-migration].\n",
@@ -293,6 +326,8 @@ python -m pyright
         + _CANONICAL_RELEASE_STATUS_COMMAND
         + "\n"
         + _CANONICAL_PARTIAL_PUBLICATION_RECOVERY_COMMAND
+        + "\n"
+        + "\n".join(guard.PUBLIC_READ_BOUNDARY_MARKERS)
         + "\nscripts/release_admission_checks.py\n"
         + "scripts/release_preflight.py\n"
         + "scripts/release_readiness_gate.py\n"
@@ -307,6 +342,8 @@ python -m pyright
         + "\n".join(guard.release_admission_markers())
         + "\n"
         + _CANONICAL_PARTIAL_PUBLICATION_RECOVERY_COMMAND
+        + "\n"
+        + "\n".join(guard.PUBLIC_READ_BOUNDARY_MARKERS)
         + "\n",
     )
     _write(
@@ -362,6 +399,11 @@ python -m pyright
         "Updates preserve installed extras, including `chroma-migration` when present.\n",
     )
     _write(
+        tmp_path / "docs" / "UPSTREAM_HARDENING.md",
+        "Current releases reject ChromaDB input without mutation. "
+        "Follow docs/BACKUP_RESTORE.md for historical recovery.\n",
+    )
+    _write(
         tmp_path / "docs" / "DEPENDENCY_UPGRADE_GATE.md",
         "Dependency Audit workflow. Tests workflow.\n"
         + "\n".join(guard.dependency_audit_markers())
@@ -405,10 +447,7 @@ python -m pyright
     )
     _write(
         tmp_path / "docs" / "OFFLINE_USAGE.md",
-        "The low-level Python API also exposes one explicit network-capable method: "
-        "`EntityRegistry.research()`. Calling it directly contacts the English Wikipedia "
-        "REST API for the requested word. Standard CLI, MCP, onboarding, mining, search, "
-        "update, and watcher flows never call this method.\n",
+        _OFFLINE_USAGE_DISCLOSURE,
     )
     _write(
         tmp_path / "benchmarks" / "retrieval_quality_facts.json",
@@ -449,25 +488,14 @@ python -m pyright
         "python -m pyright\n"
         "python -m pyright -p pyrightconfig.strict.json\n"
         "python scripts/public_safety_scan.py --tracked --staged\n"
+        "python scripts/gitleaks_scan.py fixture-smoke\n"
+        "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD\n"
         "python scripts/quality_scorecard.py --check\n"
         "python scripts/architecture_guard.py --root .\n",
     )
     _write(
         tmp_path / ".claude" / "skills" / "release" / "SKILL.md",
-        "ruff check pkg/ tests/ scripts/\n"
-        "ruff format --check pkg/ tests/ scripts/\n"
-        "python -m pyright\n"
-        + _CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND
-        + "\n"
-        + _CANONICAL_EXACT_SHA_RELEASE_PREFLIGHT_COMMAND
-        + "\n"
-        + _CANONICAL_RELEASE_STATUS_COMMAND
-        + "\n"
-        + _CANONICAL_PARTIAL_PUBLICATION_RECOVERY_COMMAND
-        + "\n"
-        + _release_status_surface_block()
-        + "\n"
-        + _PROMOTION_FLOW,
+        "Read AGENTS.md and docs/RELEASING.md.\n" + _CANONICAL_CANDIDATE_READINESS_COMMAND + "\n",
     )
     _write(
         tmp_path / ".claude" / "skills" / "release-prep" / "SKILL.md",
@@ -477,7 +505,8 @@ python -m pyright
         tmp_path / "docs" / "UPSTREAM_COMPARISON.md",
         _CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND + "\n",
     )
-    _write(tmp_path / "scripts" / "quality_scorecard.py", _VERIFICATION_COMMANDS_SOURCE)
+    _write(tmp_path / "scripts" / "gate_inventory.py", _GATE_INVENTORY_SOURCE)
+    _write(tmp_path / "scripts" / "quality_scorecard.py", "# fixture stub\n")
     _write(tmp_path / "scripts" / "release_admission_checks.py", "# fixture stub\n")
     _write(tmp_path / "scripts" / "release_preflight.py", "# fixture stub\n")
     _write(tmp_path / "scripts" / "release_readiness_gate.py", "# fixture stub\n")
@@ -538,25 +567,6 @@ def test_runbook_consistency_rejects_duplicate_candidate_sha_assignment(tmp_path
         error.startswith("docs/RELEASING.md:")
         and "exactly one line-anchored CANDIDATE_SHA" in error
         and "found 2" in error
-        for error in errors
-    ), errors
-
-
-def test_runbook_consistency_rejects_install_question_count_mismatch(tmp_path: Path):
-    root = _make_repo(tmp_path)
-    path = root / "docs" / "AGENT_INSTALL.md"
-    path.write_text(
-        path.read_text(encoding="utf-8").replace(
-            "Ask all seven questions", "Ask all five questions"
-        ),
-        encoding="utf-8",
-    )
-
-    _, errors = guard.evaluate(root)
-
-    assert any(
-        error.startswith("docs/AGENT_INSTALL.md:")
-        and "declares 5 questions but defines 7 headings" in error
         for error in errors
     ), errors
 
@@ -780,7 +790,13 @@ def test_optional_extras_and_release_gate_docs_match_metadata_and_workflows(tmp_
     root = _make_repo(tmp_path)
     facts, errors = guard.evaluate(root)
     assert errors == []
-    assert facts["optional_extras"] == ["chroma-migration", "dev", "treesitter"]
+    assert facts["optional_extras"] == [
+        "custom-models",
+        "dev",
+        "spellcheck",
+        "treesitter",
+        "watch",
+    ]
     assert facts["workflow_names"] == {
         "tests": "Tests",
         "publish": "Publish to PyPI",
@@ -823,10 +839,51 @@ def test_optional_extras_and_release_gate_docs_match_metadata_and_workflows(tmp_
     assert any("docs/RELEASING.md" in error and "Ship to PyPI" in error for error in errors), errors
 
 
+def test_agents_optional_extras_report_missing_declared_extra_despite_section_prose(
+    tmp_path: Path,
+):
+    root = _make_repo(tmp_path)
+    agents_path = root / "AGENTS.md"
+    agents_path.write_text(
+        agents_path.read_text(encoding="utf-8")
+        .replace("- `.[treesitter]` — AST parsing\n", "")
+        .replace(
+            "\n## Running Tests\n",
+            "\nA prose note still mentions `.[treesitter]`.\n\n## Running Tests\n",
+        ),
+        encoding="utf-8",
+    )
+
+    _, errors = guard.evaluate(root)
+
+    assert any(
+        error == "AGENTS.md: 'Optional extras' section: drift (missing treesitter)"
+        for error in errors
+    ), errors
+
+
+def test_agents_optional_extras_report_stale_unknown_extra(tmp_path: Path):
+    root = _make_repo(tmp_path)
+    agents_path = root / "AGENTS.md"
+    agents_path.write_text(
+        agents_path.read_text(encoding="utf-8").replace(
+            "- `.[watch]` — file watching\n",
+            "- `.[watch]` — file watching\n- `.[unknown]` — unsupported\n",
+        ),
+        encoding="utf-8",
+    )
+
+    _, errors = guard.evaluate(root)
+
+    assert any(
+        error == "AGENTS.md: 'Optional extras' section: drift (stale unknown)" for error in errors
+    ), errors
+
+
 # ── AC-4: Canonical verification command documentation ─────────────────────────
 
 
-def test_canonical_verification_command_docs_match_scorecard_commands(tmp_path: Path):
+def test_canonical_verification_command_docs_match_gate_inventory(tmp_path: Path):
     root = _make_repo(tmp_path)
     facts, errors = guard.evaluate(root)
     assert errors == []
@@ -838,23 +895,25 @@ def test_canonical_verification_command_docs_match_scorecard_commands(tmp_path: 
         "typecheck",
         "typecheck_strict_slice",
         "public_safety",
+        "gitleaks_fixture_smoke",
+        "gitleaks_changed_range",
         "scorecard",
         "architecture_guard",
     }
 
-    # CLAUDE.md drifting from the canonical lint command is reported with the
+    # AGENTS.md drifting from the canonical lint command is reported with the
     # affected surface and command name.
-    root2 = _make_repo(tmp_path / "claude-md-drift")
-    claude_path = root2 / "CLAUDE.md"
-    claude_path.write_text(
-        claude_path.read_text(encoding="utf-8").replace(
+    root2 = _make_repo(tmp_path / "agents-md-drift")
+    agents_path = root2 / "AGENTS.md"
+    agents_path.write_text(
+        agents_path.read_text(encoding="utf-8").replace(
             "ruff check pkg/ tests/ scripts/", "ruff check pkg/ tests/"
         ),
         encoding="utf-8",
     )
     _, errors = guard.evaluate(root2)
     assert any(
-        "CLAUDE.md" in error and "canonical verification command drift (lint)" in error
+        "AGENTS.md" in error and "canonical verification command drift (lint)" in error
         for error in errors
     ), errors
 
@@ -905,29 +964,6 @@ def test_exact_sha_release_admission_commands_are_synchronised(tmp_path: Path):
     ), errors
 
 
-def test_the_release_skill_must_carry_both_exact_sha_release_commands(tmp_path: Path):
-    """The skill is what an agent executes, so it cannot lag docs/RELEASING.md."""
-    for index, command in enumerate(
-        (_CANONICAL_EXACT_SHA_RELEASE_PREFLIGHT_COMMAND, _CANONICAL_RELEASE_STATUS_COMMAND)
-    ):
-        root = _make_repo(tmp_path / f"skill-command-{index}")
-        _, errors = guard.evaluate(root)
-        assert errors == []
-
-        skill = root / ".claude" / "skills" / "release" / "SKILL.md"
-        skill.write_text(
-            skill.read_text(encoding="utf-8").replace(command, ""),
-            encoding="utf-8",
-        )
-
-        _, errors = guard.evaluate(root)
-
-        assert any(
-            error.startswith(".claude/skills/release/SKILL.md:") and command in error
-            for error in errors
-        ), errors
-
-
 def test_partial_publication_recovery_command_is_synchronised(tmp_path: Path):
     for index, relative_path in enumerate(guard.PARTIAL_PUBLICATION_RECOVERY_SURFACES):
         root = _make_repo(tmp_path / f"partial-recovery-{index}")
@@ -947,82 +983,6 @@ def test_partial_publication_recovery_command_is_synchronised(tmp_path: Path):
             and _CANONICAL_PARTIAL_PUBLICATION_RECOVERY_COMMAND in error
             for error in errors
         ), errors
-
-
-def test_the_release_skill_must_enumerate_every_release_status_surface(tmp_path: Path):
-    surfaces = tuple(guard.release_status_surface_names())
-    assert surfaces, "the status gate must define at least one required surface"
-
-    # A surface added to REQUIRED_SURFACES but never documented in the skill.
-    omitted_root = _make_repo(tmp_path / "omitted")
-    omitted_skill = omitted_root / ".claude" / "skills" / "release" / "SKILL.md"
-    omitted_skill.write_text(
-        omitted_skill.read_text(encoding="utf-8").replace(
-            _release_status_surface_block(),
-            _release_status_surface_block(surfaces[:-1]),
-        ),
-        encoding="utf-8",
-    )
-
-    _, omitted_errors = guard.evaluate(omitted_root)
-
-    assert any(
-        error.startswith(".claude/skills/release/SKILL.md:")
-        and "undocumented surfaces" in error
-        and surfaces[-1] in error
-        for error in omitted_errors
-    ), omitted_errors
-
-    # A surface name the skill still carries after the gate renamed it.
-    stale_root = _make_repo(tmp_path / "stale")
-    stale_skill = stale_root / ".claude" / "skills" / "release" / "SKILL.md"
-    stale_skill.write_text(
-        stale_skill.read_text(encoding="utf-8").replace(
-            _release_status_surface_block(),
-            _release_status_surface_block((*surfaces, "retired_surface")),
-        ),
-        encoding="utf-8",
-    )
-
-    _, stale_errors = guard.evaluate(stale_root)
-
-    assert any(
-        error.startswith(".claude/skills/release/SKILL.md:")
-        and "stale surfaces" in error
-        and "retired_surface" in error
-        for error in stale_errors
-    ), stale_errors
-
-    # Dropping the block entirely must not silently satisfy the contract.
-    dropped_root = _make_repo(tmp_path / "dropped")
-    dropped_skill = dropped_root / ".claude" / "skills" / "release" / "SKILL.md"
-    dropped_skill.write_text(
-        dropped_skill.read_text(encoding="utf-8").replace(_release_status_surface_block(), ""),
-        encoding="utf-8",
-    )
-
-    _, dropped_errors = guard.evaluate(dropped_root)
-
-    assert any(
-        error.startswith(".claude/skills/release/SKILL.md:")
-        and guard.RELEASE_STATUS_SURFACE_MARKER in error
-        for error in dropped_errors
-    ), dropped_errors
-
-
-def test_the_required_surface_list_comes_from_the_guards_own_status_gate(tmp_path: Path):
-    """A checkout under review cannot supply a shorter required-surface list."""
-    root = _make_repo(tmp_path)
-    (root / "scripts" / "release_status_gate.py").write_text(
-        "REQUIRED_SURFACES = []\n", encoding="utf-8"
-    )
-
-    facts, errors = guard.evaluate(root)
-
-    assert errors == []
-    release_admission = facts["release_admission"]
-    assert isinstance(release_admission, dict)
-    assert release_admission["status_surfaces"] == list(guard.release_status_surface_names())
 
 
 def test_release_ruleset_doc_markers_are_required(tmp_path: Path):
@@ -1151,6 +1111,24 @@ def test_stale_benchmark_wording_is_rejected_even_when_facts_match(tmp_path: Pat
 # ── AC-5: stale document fixtures across every category ────────────────────────
 
 
+def test_current_chroma_support_and_duplicate_recovery_are_rejected(tmp_path: Path):
+    current_root = _make_repo(tmp_path / "current-chroma-support")
+    readme = current_root / "README.md"
+    readme.write_text(
+        readme.read_text(encoding="utf-8")
+        + "\nChromaDB only, as a deprecated optional runtime backend.\n",
+        encoding="utf-8",
+    )
+    backup = current_root / "docs" / "BACKUP_RESTORE.md"
+    command = guard.CHROMA_RECOVERY_COMMAND
+    backup.write_text(f"Recovery: {command}\nRepeated: {command}\n", encoding="utf-8")
+
+    _, errors = guard.evaluate(current_root)
+
+    assert any("current ChromaDB runtime support wording" in error for error in errors)
+    assert any("duplicate ChromaDB recovery command" in error for error in errors)
+
+
 def test_stale_document_fixtures_fail_with_file_and_section_diagnostics(tmp_path: Path):
     """Every guard category fails deterministically with a file + section diagnostic."""
 
@@ -1183,12 +1161,12 @@ def test_stale_document_fixtures_fail_with_file_and_section_diagnostics(tmp_path
     extras_root = _make_repo(tmp_path / "extras")
     pyproject_path = extras_root / "pyproject.toml"
     pyproject_path.write_text(
-        pyproject_path.read_text(encoding="utf-8") + 'spellcheck = ["autocorrect>=2.0"]\n',
+        pyproject_path.read_text(encoding="utf-8") + 'new-extra = ["example>=1.0"]\n',
         encoding="utf-8",
     )
     _, extras_errors = guard.evaluate(extras_root)
     assert any(
-        e.startswith("README.md:") and "Optional extras" in e and "spellcheck" in e
+        e.startswith("README.md:") and "Optional extras" in e and "new-extra" in e
         for e in extras_errors
     ), extras_errors
 
@@ -1209,6 +1187,7 @@ def test_stale_document_fixtures_fail_with_file_and_section_diagnostics(tmp_path
     for relative_path, marker in (
         ("CONTRIBUTING.md", "deprecated legacy optional extra (`.[chroma]`)"),
         ("docs/WHY_THIS_FORK.md", "kept as an opt-in `.[chroma]` extra"),
+        ("docs/UPSTREAM_HARDENING.md", "one-way migration bridge"),
     ):
         case_root = _make_repo(
             tmp_path / f"chroma-runtime-{relative_path.replace('/', '-').replace('.', '-')}"
@@ -1234,19 +1213,18 @@ def test_stale_document_fixtures_fail_with_file_and_section_diagnostics(tmp_path
         e.startswith("docs/DEPENDENCY_UPGRADE_GATE.md:") and "Dep Scan" in e for e in gate_errors
     ), gate_errors
 
-    # Verification commands: the release skill drops the canonical format command.
+    # Verification commands: AGENTS.md drops the canonical format command.
     verify_root = _make_repo(tmp_path / "verify")
-    skill_path = verify_root / ".claude" / "skills" / "release" / "SKILL.md"
-    skill_path.write_text(
-        skill_path.read_text(encoding="utf-8").replace(
+    agents_path = verify_root / "AGENTS.md"
+    agents_path.write_text(
+        agents_path.read_text(encoding="utf-8").replace(
             "ruff format --check pkg/ tests/ scripts/\n", ""
         ),
         encoding="utf-8",
     )
     _, verify_errors = guard.evaluate(verify_root)
     assert any(
-        e.startswith(".claude/skills/release/SKILL.md:")
-        and "canonical verification command drift (format)" in e
+        e.startswith("AGENTS.md:") and "canonical verification command drift (format)" in e
         for e in verify_errors
     ), verify_errors
 
@@ -1391,10 +1369,9 @@ def test_offline_usage_disclosure_tolerates_wrapped_markdown_line(tmp_path: Path
     root = _make_repo(tmp_path / "offline-usage-wrapped")
     path = root / "docs" / "OFFLINE_USAGE.md"
     path.write_text(
-        "The low-level Python API also exposes one explicit network-capable method: "
-        "`EntityRegistry.research()`. Calling it directly contacts the English Wikipedia\n"
-        "REST API for the requested word. Standard CLI, MCP, onboarding, mining, search,\n"
-        "update, and watcher flows never call this method.\n",
+        _OFFLINE_USAGE_DISCLOSURE.replace(
+            "English Wikipedia REST API", "English Wikipedia\nREST API"
+        ),
         encoding="utf-8",
     )
 
@@ -1403,24 +1380,16 @@ def test_offline_usage_disclosure_tolerates_wrapped_markdown_line(tmp_path: Path
     assert errors == []
 
 
-def test_offline_usage_missing_disclosure_fails_with_useful_diagnostic(tmp_path: Path):
+@pytest.mark.parametrize("marker", guard.OFFLINE_USAGE_DISCLOSURE_MARKERS)
+def test_offline_usage_missing_disclosure_fails_with_useful_diagnostic(tmp_path: Path, marker: str):
     root = _make_repo(tmp_path / "offline-usage-no-disclosure")
     path = root / "docs" / "OFFLINE_USAGE.md"
-    path.write_text("mempalace-code runs offline after model download.\n", encoding="utf-8")
+    path.write_text(_OFFLINE_USAGE_DISCLOSURE.replace(marker, "removed"), encoding="utf-8")
 
     _, errors = guard.evaluate(root)
 
     assert any(
-        error.startswith("docs/OFFLINE_USAGE.md:") and "EntityRegistry.research()" in error
-        for error in errors
-    ), errors
-    assert any(
-        error.startswith("docs/OFFLINE_USAGE.md:") and "English Wikipedia REST API" in error
-        for error in errors
-    ), errors
-    assert any(
-        error.startswith("docs/OFFLINE_USAGE.md:") and "flows never call this method" in error
-        for error in errors
+        error.startswith("docs/OFFLINE_USAGE.md:") and marker in error for error in errors
     ), errors
 
 
@@ -1932,6 +1901,148 @@ def test_llm_usage_rules_has_ambiguous_write_outcome_protocol():
     assert "search" in text or "reconcile" in text
 
 
+def test_direct_cli_recovery_contracts_stay_synchronised():
+    """Direct diary and update recovery guidance stays aligned across public owners."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    updates = (ROOT / "docs" / "UPDATES.md").read_text(encoding="utf-8")
+    rules = (ROOT / "docs" / "LLM_USAGE_RULES.md").read_text(encoding="utf-8")
+    rules_single_line = " ".join(rules.split())
+
+    for text in (readme, rules):
+        text_single_line = " ".join(text.split()).lower()
+        for marker in (
+            "Diary entry stored.",
+            "`ID`",
+            "`Wing`",
+            "`Room`",
+            "`Topic`",
+            "`Verify before retry`",
+            "printed search",
+            "exact hit means success",
+            "do not repeat the write",
+            "response or printed command is unavailable",
+            "do not retry",
+            "mempalace_diary_read",
+            "owner reconciliation",
+        ):
+            assert marker.lower() in text_single_line
+
+    for text in (readme, updates, rules):
+        for marker in (
+            "`update apply`",
+            "`update scheduler install`",
+            "`update scheduler remove`",
+            "exits 2 before mutation",
+            "`Recovery: <command>`",
+            "`recovery_command`",
+            "mutation authority",
+        ):
+            assert marker in text
+
+    for marker in (
+        "exactly one parseable JSON object",
+        "`ok: false`",
+        "`stage: confirmation`",
+        "`exit_code: 2`",
+        "`--yes --json`",
+    ):
+        assert marker in updates
+
+    assert "## Direct CLI recovery" in rules
+    assert "do not invent a retry" in rules_single_line
+    assert "Do not add flags, change the action, or invent a nearby retry." in rules_single_line
+    assert "## Ambiguous Write Outcome" in rules
+    assert "mempalace_add_drawer" in rules
+    assert "mempalace_kg_add" in rules
+    assert "mempalace_diary_write" in rules
+
+
+def test_releasing_uses_all_installer_recovery_smoke_contract():
+    text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+
+    assert (
+        "python scripts/release_install_metadata_smoke.py --all-installers --install-spec . --json"
+    ) in text
+    assert all(name in text for name in ("venv", "bootstrap-venv", "pipx", "uv-tool"))
+    assert "three update confirmation refusals" in text
+    assert "interpreter-site socket guard" in text
+    assert "python -m pip install pipx" in text
+    assert "python -m pip install uv" in text
+
+
+def test_releasing_names_exact_wheel_installed_golden_cache_and_provenance_contract():
+    text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+    command = 'python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json'
+
+    assert text.count(command) == 3
+    assert "`watch` extra" in text
+    assert 'HF_HOME="$MEMPALACE_TEST_HF_HOME" mempalace-code fetch-model' in text
+    assert "mempalace-fastembed/all-MiniLM-L6-v2-v1/.mempalace-model.json" in text
+    assert "interpreter-site\nsocket guard" in text
+    assert "neutral cwd" in text
+    assert "outside the checkout and ambient PATH" in text
+    assert "manager matrix" in text
+
+
+def test_custom_models_linux_cpu_install_and_recovery_authority_contract():
+    offline = (ROOT / "docs" / "OFFLINE_USAGE.md").read_text(encoding="utf-8")
+    agent = (ROOT / "docs" / "AGENT_INSTALL.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    releasing = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
+    mkdir = 'install -d -m 700 "$HOME/.cache/mempalace/tmp"'
+    free_space = 'df -h "$HOME/.cache/mempalace/tmp"'
+    cpu_install = (
+        'TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install torch '
+        "--index-url https://download.pytorch.org/whl/cpu"
+    )
+    extra_install = (
+        'TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install '
+        "'mempalace-code[custom-models]'"
+    )
+    recovery = (
+        'TMPDIR="$HOME/.cache/mempalace/tmp" python scripts/release_readiness_gate.py '
+        '--installed-golden-wheel "$WHEEL" --json'
+    )
+
+    assert all(token in offline for token in (mkdir, free_space, cpu_install, extra_install))
+    assert offline.index(mkdir) < offline.index(free_space) < offline.index(cpu_install)
+    assert offline.index(cpu_install) < offline.index(extra_install)
+    assert offline.count(cpu_install) == 2
+    assert offline.count(extra_install) == 2
+    assert "from any\ndirectory" in offline
+    assert "incomplete" in offline
+
+    for user_surface in (offline, agent, readme, agents):
+        assert "scripts/release_readiness_gate.py" not in user_surface
+        assert '"$WHEEL"' not in user_surface
+
+    assert "ask for authority" in agent
+    assert "docs/OFFLINE_USAGE.md" in agent
+    assert cpu_install not in agent
+    assert extra_install not in agent
+
+    for entry_point in (readme, agents):
+        assert "docs/OFFLINE_USAGE.md" in entry_point
+        assert cpu_install not in entry_point
+        assert extra_install not in entry_point
+
+    assert "mempalace-code[custom-models]" in readme
+    optional_extras = readme.split("**Optional extras:**", 1)[1].split("```", 2)[1]
+    assert "docs/OFFLINE_USAGE.md" in optional_extras
+    custom_model_rows = [
+        line for line in optional_extras.splitlines() if "mempalace-code[custom-models]" in line
+    ]
+    assert len(custom_model_rows) == 1
+    assert custom_model_rows[0].lstrip().startswith("#")
+
+    assert all(token in releasing for token in (mkdir, free_space, cpu_install, extra_install))
+    assert releasing.index(mkdir) < releasing.index(free_space) < releasing.index(cpu_install)
+    assert releasing.index(cpu_install) < releasing.index(extra_install)
+    assert releasing.count(recovery) == 1
+    assert "adequate free space" in releasing
+
+
 def test_releasing_agent_plugin_locator_is_machine_readable():
     text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
     command = f"`{guard.AGENT_PLUGIN_RECOVERY_COMMAND}`"
@@ -1990,9 +2101,9 @@ def test_release_promotion_rejects_pushing_local_main_to_publish():
 
 
 def test_release_promotion_requires_every_candidate_flow_marker():
-    errors = guard.release_promotion_errors({".claude/skills/release/SKILL.md": "just tag it\n"})
+    errors = guard.release_promotion_errors({"docs/RELEASING.md": "just tag it\n"})
     assert len(errors) == len(guard._PROMOTION_MARKERS)
-    assert all(e.startswith(".claude/skills/release/SKILL.md: missing") for e in errors)
+    assert all(e.startswith("docs/RELEASING.md: missing") for e in errors)
     for marker in guard._PROMOTION_MARKERS:
         assert any(repr(marker) in e for e in errors), marker
 
@@ -2095,13 +2206,10 @@ def test_release_promotion_rejects_a_flag_split_across_lines():
     assert any("split across lines" in e for e in errors)
 
 
-def test_tracked_release_surfaces_carry_the_fast_forward_only_flow():
-    """The shipped docs, not just a fixture, must describe the executable promotion."""
-    surfaces = {
-        path: (ROOT / path).read_text(encoding="utf-8")
-        for path in ("docs/RELEASING.md", ".claude/skills/release/SKILL.md")
-    }
-    assert guard.release_promotion_errors(surfaces) == []
+def test_tracked_release_runbook_carries_the_fast_forward_only_flow():
+    """The shipped runbook, not just a fixture, describes the executable promotion."""
+    path = "docs/RELEASING.md"
+    assert guard.release_promotion_errors({path: (ROOT / path).read_text(encoding="utf-8")}) == []
 
 
 def test_the_shipped_release_doc_proves_the_candidate_green_before_moving_main():
@@ -2118,20 +2226,17 @@ def test_the_shipped_release_doc_proves_the_candidate_green_before_moving_main()
     assert text.index("release-required", branch_push) < main_push
 
 
-def test_the_shipped_release_surfaces_gate_candidate_branch_deletion_on_approval():
+def test_the_shipped_release_runbook_gates_candidate_branch_deletion_on_approval():
     """Deleting the candidate branch is its own external mutation.
 
-    Both surfaces must name the deletion command and require approval for it
-    separately, so it cannot ride along on the approval given for the push, the
-    promotion, or the tag.
+    The canonical runbook names the deletion command and requires separate
+    approval, so it cannot ride along on an earlier mutation approval.
     """
-    for path in ("docs/RELEASING.md", ".claude/skills/release/SKILL.md"):
-        text = (ROOT / path).read_text(encoding="utf-8")
-        delete = text.index('git push publish --delete "$CANDIDATE_BRANCH"')
-        window = text[max(0, delete - 1200) : delete]
-        assert "approval" in window.lower(), path
-        # Deletion is proposed after verification, never before promotion.
-        assert text.index('git push publish "$CANDIDATE_SHA":refs/heads/main') < delete, path
+    text = (ROOT / "docs/RELEASING.md").read_text(encoding="utf-8")
+    delete = text.index('git push publish --delete "$CANDIDATE_BRANCH"')
+    window = text[max(0, delete - 1200) : delete]
+    assert "approval" in window.lower()
+    assert text.index('git push publish "$CANDIDATE_SHA":refs/heads/main') < delete
 
 
 def test_the_release_prep_skill_is_force_safe_without_carrying_publication():

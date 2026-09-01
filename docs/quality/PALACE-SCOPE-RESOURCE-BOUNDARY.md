@@ -183,13 +183,12 @@ from a neutral temporary working directory, and a sibling Python interpreter
 proves that `mempalace_code` resolves outside the source checkout.
 
 The pipx-installed `mempalace-code` console script carries a `python -E`
-shebang, which ignores `PYTHONPATH` entirely — the offline fake
-`sentence_transformers` package and socket guard used in source mode never
-load there. Installed mode therefore requires `MEMPALACE_TEST_HF_HOME` to
-point at a shared, pre-populated Hugging Face cache directory (validated to
-exist and be a directory); every subprocess gets `HF_HOME` set to it and runs
-the real cached embedding model fully offline, with `HF_HUB_OFFLINE=1` and
-`TRANSFORMERS_OFFLINE=1` retained.
+shebang, which ignores `PYTHONPATH` entirely — the offline fake `fastembed`
+package and socket guard used in source mode never load there. Installed mode
+therefore requires `MEMPALACE_TEST_HF_HOME` to contain the MemPalace-owned
+`mempalace-fastembed/all-MiniLM-L6-v2-v1/` cache with valid provenance; every
+subprocess gets `HF_HOME` set to it and runs the real cached embedding model
+fully offline, with `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` retained.
 
 The workflow initializes a fixture project, mines it, performs a no-op mine,
 backs up and restores the palace, searches and reads mined content, and runs one
@@ -198,7 +197,7 @@ creates no managed backup archive, and has zero byte growth across the palace an
 its sibling `backups/` directory. The watcher waits for `state=watch-ready`,
 updates one already-mined source, accepts one post-debounce retry for native
 watch registration, observes `[project: 1 change(s)]`, then exits cleanly on
-SIGINT with `1 re-mine cycle(s), 1 event(s)`.
+SIGTERM with `1 re-mine cycle(s), 1 event(s)`.
 
 Run the complete installed-wheel regression from the repository root. The fresh
 temporary environment avoids stale package state, and the watch extra supplies

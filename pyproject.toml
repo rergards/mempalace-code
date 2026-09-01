@@ -31,7 +31,10 @@ classifiers = [
 ]
 dependencies = [
     "lancedb>=0.20",
-    "sentence-transformers>=2.2",
+    "pyarrow<25",
+    "overrides>=7.7",
+    "fastembed>=0.8,<0.9",
+    "onnxruntime>=1.20,<2",
     "pyyaml>=6.0",
     "packaging>=21.0",
     "mcp>=2,<3",
@@ -49,13 +52,9 @@ mempalace-code-alias = "mempalace_code.cli:main_alias"
 mempalace-code-mcp = "mempalace_code.mcp_launcher:main"
 
 [project.optional-dependencies]
+custom-models = ["sentence-transformers>=2.2"]
 dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff==0.15.16", "watchfiles>=1.0", "build>=1.0", "twine>=5.0", "jsonschema>=4.18", "actionlint-py==1.7.12.24", "zizmor==1.29.0", "pypi-attestations==0.0.30"]
 spellcheck = ["autocorrect>=2.0"]
-# ChromaDB is retained only for the one-way ChromaDB-to-LanceDB migration bridge.
-# Keep below 1.x while GHSA-f4j7-r4q5-qw2c affects the current 1.x line.
-chroma-migration = ["chromadb>=0.5.0,<1"]
-# Deprecated compatibility alias for existing scripted installs.
-chroma = ["chromadb>=0.5.0,<1"]
 watch = ["watchfiles>=1.0"]
 treesitter = [
     "tree-sitter>=0.22,<0.26",
@@ -83,10 +82,20 @@ exclude = [
     # `.gitignore` — so it lands in the sdist unless it is excluded here.
     ".codex/",
     ".codex-local/",
+    ".claude/**",
+    ".playwright-mcp/",
+    ".github/",
     ".tasks/",
     ".protocols/",
     ".verify-state",
+    "/.gitleaksignore",
+    "scripts/codex-review.sh",
     "docs/audits/",
+    "docs/BACKLOG.yaml",
+    "docs/BACKLOG-archived.yaml",
+    "docs/dependency-upgrade-reports/",
+    "docs/plans/",
+    "docs/task-evidence/",
     "__pycache__/",
     ".mypy_cache/",
     ".ruff_cache/",
@@ -175,11 +184,6 @@ exclude = [
     # is correct at runtime but Pyright cannot verify the attribute without stubs.
     "mempalace_code/mcp/protocol_compat.py",
     "tests/test_mcp_protocol_compat.py",
-    # chromadb is an optional migration-only extra; default typecheck must not require it.
-    "mempalace_code/_chroma_store.py",
-    "mempalace_code/legacy_optional/chroma.py",
-    "tests/test_migrate.py",
-    "tests/test_migrate_storage_smoke.py",
 ]
 typeCheckingMode = "basic"
 reportMissingImports = true

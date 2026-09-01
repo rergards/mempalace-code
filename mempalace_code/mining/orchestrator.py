@@ -16,7 +16,6 @@ from ..source_io import (
     RegularSourceError,
     hash_regular_bytes,
     read_regular_text,
-    regular_source_diagnostic,
 )
 from ..storage import open_store, optimize_store
 from ..version import __version__
@@ -45,9 +44,7 @@ def _file_hash(path: Path) -> str:
 
 
 def _warn_source_read_error(path: Path, exc: OSError) -> None:
-    detail = (
-        regular_source_diagnostic(path) if isinstance(exc, RegularSourceError) else f"{path}: {exc}"
-    )
+    detail = str(exc) if isinstance(exc, RegularSourceError) else f"{path}: {exc}"
     print(detail, file=sys.stderr)
 
 
@@ -177,17 +174,26 @@ def add_drawer(
 
 
 def _find_chunk_in_content(content: str, chunk_text: str, cursor: int) -> tuple[int, int]:
-    """Find chunk_text in content starting at cursor, matching newlines flexibly.
+    """Find chunk_text in content starting at cursor, matching layout flexibly.
 
     The chunker may join blocks with \\n\\n while the source uses a single \\n.
     Splits chunk_text on runs of newlines and joins the escaped parts with \\n+
-    so the regex matches both single and double newlines between lines.
+    so the regex matches both single and double newlines between lines. Structural
+    chunkers may also normalize leading indentation, so a second line-anchored
+    lookup tolerates that normalization while preserving the same cursor order.
 
     Returns (start, end) positions in content, or (-1, -1) when not found.
     """
     parts = re.split(r"\n+", chunk_text)
     pattern = r"\n+".join(re.escape(p) for p in parts)
     m = re.search(pattern, content[cursor:])
+    if m:
+        return cursor + m.start(), cursor + m.end()
+
+    indentation_tolerant = r"(?m)^[^\S\n]*" + r"\n+[^\S\n]*".join(
+        re.escape(part.lstrip()) for part in parts
+    )
+    m = re.search(indentation_tolerant, content[cursor:])
     if m:
         return cursor + m.start(), cursor + m.end()
     return -1, -1
@@ -380,8 +386,8 @@ def mine(
     (e.g. the watcher) that run many mine() calls in sequence should skip optimize
     on each call and run a single optimize at the end.
 
-    *skip_invalid_source_symlinks* and *symlink_diagnostics* are forwarded to
-    ``scan_project()`` (opt-in, default disabled) — see its docstring.
+    *skip_invalid_source_symlinks* remains for call compatibility; source rejection is
+    unconditional. *symlink_diagnostics* collects rejected paths and actual source kinds.
 
     *kg_path* is passed to ``optimize_store()`` for pre-optimize backups so that
     scoped palace operations never archive the default global KG.  When None the

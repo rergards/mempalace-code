@@ -30,11 +30,10 @@ GENERIC_TEMP_ROOTS = frozenset({"/tmp", "/var/tmp", "/private/var/tmp"})
 PUBLISHABLE_DOC_SUFFIXES = (".md", ".yaml", ".yml")
 
 # Fixtures own the residue vocabulary by construction, so residue rules would
-# fire on the very text that proves they work. The detector's own `.py` sources
-# are already outside the suffix set; only the secret-scanner baseline, whose
-# entries are deliberately shaped like the things it catches, needs naming.
+# fire on the very text that proves they work. Detector source files are already
+# outside the suffix set.
 RESIDUE_EXEMPT_PREFIXES = ("tests/",)
-DETECTOR_FIXTURE_PATHS = frozenset({"security/gitleaks-baseline.yml"})
+DETECTOR_FIXTURE_PATHS: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)

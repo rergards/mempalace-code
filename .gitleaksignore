@@ -1,0 +1,8 @@
+# Reviewed false positives. Each exact native fingerprint must immediately follow
+# one `gitleaks-ignore-metadata` JSON comment. Metadata requires nonempty owner and
+# rationale plus either a nonempty review_condition or a nonexpired ISO expiry.
+# Paths must be literal repository paths; globs, regexes, and rule disablements fail.
+# gitleaks-ignore-metadata: {"owner":"security-maintainers","rationale":"Documentation preserves a synthetic example reported by the native generic rule.","review_condition":"Remove when the documented example or its historical commit is removed."}
+fd9a87eeb1c4f905731f10e5cc1512f57355ae40:docs/BACKLOG.yaml:generic-api-key:1064
+# gitleaks-ignore-metadata: {"owner":"security-maintainers","rationale":"Archived documentation preserves a synthetic example reported by the native generic rule.","review_condition":"Remove when the archived example or its historical commit is removed."}
+cddbbbbcf812bc84def50bbea09e4c13629e810b:docs/BACKLOG-archived.yaml:generic-api-key:229

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import sys
+import shlex
 
 from ..updater import UpdateManager, UpdateResult
 
@@ -20,6 +20,8 @@ def _render(result: UpdateResult, as_json: bool) -> None:
     if result.log_path:
         print(f"  Log: {result.log_path}")
     data = result.data
+    if data.get("recovery_command"):
+        print(f"  Recovery: {data['recovery_command']}")
     if result.stage == "status":
         installation = _mapping(data.get("installation"))
         provenance = _mapping(data.get("provenance"))
@@ -44,13 +46,27 @@ def _render(result: UpdateResult, as_json: bool) -> None:
             print(f"  Decision: {data['reason']}")
 
 
-def _require_yes(args) -> bool:
+def _require_yes(args, action: tuple[str, ...]) -> bool:
     if getattr(args, "yes", False):
         return True
-    print(
-        "  Refused: this action changes package or systemd-user state. Re-run with --yes.",
-        file=sys.stderr,
+
+    command = ["mempalace-code"]
+    if args.palace:
+        command.extend(["--palace", str(args.palace)])
+    command.extend(action)
+    command.append("--yes")
+    if action == ("update", "apply") and getattr(args, "scheduled", False):
+        command.append("--scheduled")
+    if getattr(args, "json", False):
+        command.append("--json")
+    result = UpdateResult(
+        False,
+        "confirmation",
+        "refused: package or systemd-user mutation requires explicit confirmation",
+        2,
+        data={"recovery_command": shlex.join(command)},
     )
+    _render(result, getattr(args, "json", False))
     return False
 
 
@@ -67,7 +83,7 @@ def cmd_update(args) -> None:
     elif command == "check":
         result = manager.check()
     elif command == "apply":
-        if not _require_yes(args):
+        if not _require_yes(args, ("update", "apply")):
             raise SystemExit(2)
         result = manager.apply(scheduled=getattr(args, "scheduled", False))
     elif command == "scheduler":
@@ -86,11 +102,11 @@ def cmd_update(args) -> None:
                     print(f"# {name}\n{content}", end="")
             return
         elif scheduler_command == "install":
-            if not _require_yes(args):
+            if not _require_yes(args, ("update", "scheduler", "install")):
                 raise SystemExit(2)
             result = manager.install_scheduler()
         elif scheduler_command == "remove":
-            if not _require_yes(args):
+            if not _require_yes(args, ("update", "scheduler", "remove")):
                 raise SystemExit(2)
             result = manager.remove_scheduler()
         else:

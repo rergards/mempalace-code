@@ -223,8 +223,8 @@ def spellcheck_transcript_line(line: str) -> str:
     if not stripped.startswith(">"):
         return line
 
-    # '> actual message here'
-    prefix_len = len(line) - len(stripped) + 2  # '> '
+    # Preserve the marker and every following whitespace character verbatim.
+    prefix_len = len(line) - len(stripped) + 1
     message = line[prefix_len:]
     if not message.strip():
         return line

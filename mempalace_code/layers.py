@@ -12,7 +12,7 @@ Load only what you need, when you need it.
 
 Wake-up cost: ~600-900 tokens (L0+L1). Leaves 95%+ of context free.
 
-Reads from the palace drawer store (LanceDB or ChromaDB)
+Reads from the LanceDB palace drawer store
 and ~/.mempalace/identity.txt.
 """
 
