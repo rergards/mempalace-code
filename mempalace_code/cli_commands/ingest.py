@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import NoReturn
 
 from ..config import MempalaceConfig
-from ..source_io import RegularSourceError
 from .common import parse_include_ignored
 
 
@@ -15,6 +14,8 @@ def cmd_init(args):
 
     from ..room_detector_local import (
         detect_rooms_local,
+        restore_regular_destinations,
+        snapshot_regular_destinations,
         validate_init_destinations,
         write_regular_destination,
     )
@@ -34,12 +35,17 @@ def cmd_init(args):
         sys.exit(1)
 
     config = MempalaceConfig()
+    global_config_dir_was_absent = not config._config_dir.exists()
     detect_entities_enabled = getattr(args, "detect_entities", False) or config.entity_detection
     try:
         destinations = validate_init_destinations(project_path, detect_entities_enabled)
+        snapshots = snapshot_regular_destinations(
+            [project_path / "mempalace.yaml", *destinations.values(), config._config_file]
+        )
     except OSError as exc:
         exit_destination_error(exc)
 
+    entities_content: str | None = None
     if detect_entities_enabled:
         from ..entity_detector import confirm_entities, detect_entities, scan_for_detection
 
@@ -52,12 +58,7 @@ def cmd_init(args):
             if total > 0:
                 confirmed = confirm_entities(detected, yes=getattr(args, "yes", False))
                 if confirmed["people"] or confirmed["projects"]:
-                    entities_path = destinations["entities.json"]
-                    try:
-                        write_regular_destination(entities_path, json.dumps(confirmed, indent=2))
-                    except OSError as exc:
-                        exit_destination_error(exc)
-                    print(f"  Entities saved: {entities_path}")
+                    entities_content = json.dumps(confirmed, indent=2)
             else:
                 print("  No entities detected — proceeding with directory-based rooms.")
 
@@ -67,9 +68,28 @@ def cmd_init(args):
             yes=getattr(args, "yes", False),
             interactive=getattr(args, "interactive", False),
         )
-    except RegularSourceError as exc:
+        if entities_content is not None:
+            entities_path = destinations["entities.json"]
+            write_regular_destination(entities_path, entities_content)
+            print(f"  Entities saved: {entities_path}")
+        config.init()
+    except OSError as exc:
+        try:
+            restore_regular_destinations(snapshots)
+            if (
+                global_config_dir_was_absent
+                and config._config_dir.is_dir()
+                and not any(config._config_dir.iterdir())
+            ):
+                config._config_dir.rmdir()
+        except OSError as rollback_exc:
+            print(f"  Error: init rollback failed: {rollback_exc}", file=sys.stderr)
+            print(
+                f"  Next: inspect {project_path}, restore its prior files, then rerun init.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         exit_destination_error(exc)
-    config.init()
 
     if not getattr(args, "skip_model_download", False):
         from ..storage import DEFAULT_EMBED_MODEL
@@ -184,6 +204,7 @@ def cmd_mine(args):
             agent=args.agent,
             limit=args.limit,
             dry_run=args.dry_run,
+            incremental=not args.full,
             extract_mode=args.extract,
             spellcheck=spellcheck,
             extract_categories=(

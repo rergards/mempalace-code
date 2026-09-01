@@ -329,6 +329,8 @@ def _generate_aaak_bootstrap(
     Generate AAAK entity registry + critical facts bootstrap from onboarding data.
     These files teach the AI about the user's world from session one.
     """
+    from .room_detector_local import write_regular_destination
+
     mempalace_dir = Path(config_dir) if config_dir else Path.home() / ".mempalace"
     mempalace_dir.mkdir(parents=True, exist_ok=True)
 
@@ -371,7 +373,7 @@ def _generate_aaak_bootstrap(
         ]
     )
 
-    (mempalace_dir / "aaak_entities.md").write_text("\n".join(registry_lines))
+    write_regular_destination(mempalace_dir / "aaak_entities.md", "\n".join(registry_lines))
 
     # Critical facts bootstrap (pre-palace — before any mining)
     facts_lines = [
@@ -418,7 +420,7 @@ def _generate_aaak_bootstrap(
         ]
     )
 
-    (mempalace_dir / "critical_facts.md").write_text("\n".join(facts_lines))
+    write_regular_destination(mempalace_dir / "critical_facts.md", "\n".join(facts_lines))
 
 
 def run_onboarding(
@@ -509,12 +511,27 @@ def _run_onboarding_inner(
 
     # ── All prompts complete — now write (staged commit) ──────────────────────
 
-    # Build and save registry with rerun reconciliation
-    registry = EntityRegistry.load(config_dir)
-    registry.seed(mode=mode, people=people, projects=projects, aliases=aliases)
+    from .room_detector_local import restore_regular_destinations, snapshot_regular_destinations
 
-    # Generate AAAK entity registry + critical facts bootstrap
-    _generate_aaak_bootstrap(people, projects, wings, mode, config_dir)
+    mempalace_dir = Path(config_dir) if config_dir else Path.home() / ".mempalace"
+    output_paths = [
+        mempalace_dir / "entity_registry.json",
+        mempalace_dir / "aaak_entities.md",
+        mempalace_dir / "critical_facts.md",
+    ]
+    directory_was_absent = not mempalace_dir.exists()
+    snapshots = snapshot_regular_destinations(output_paths)
+
+    # Build and save registry with rerun reconciliation.
+    registry = EntityRegistry.load(config_dir)
+    try:
+        registry.seed(mode=mode, people=people, projects=projects, aliases=aliases)
+        _generate_aaak_bootstrap(people, projects, wings, mode, config_dir)
+    except BaseException:
+        restore_regular_destinations(snapshots)
+        if directory_was_absent and mempalace_dir.is_dir() and not any(mempalace_dir.iterdir()):
+            mempalace_dir.rmdir()
+        raise
 
     # Summary
     _header("Setup Complete")

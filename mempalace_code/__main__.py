@@ -1,5 +1,5 @@
 """Allow running as: python -m mempalace_code"""
 
-from .cli import main
+from .cli import _one_shot_main
 
-main()
+_one_shot_main()

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 
 _ADMISSION_CHECKS_MODULE = None
+_PUBLIC_READ_MODULE = None
 
 
 def repo_root() -> Path:
@@ -42,6 +43,21 @@ def _load_admission_checks():
         spec.loader.exec_module(module)
         _ADMISSION_CHECKS_MODULE = module
     return _ADMISSION_CHECKS_MODULE
+
+
+def _load_public_read():
+    global _PUBLIC_READ_MODULE
+    if _PUBLIC_READ_MODULE is None:
+        module_name = "release_public_read"
+        path = Path(__file__).resolve().parent / f"{module_name}.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        _PUBLIC_READ_MODULE = module
+    return _PUBLIC_READ_MODULE
 
 
 def package_version(root: Path) -> str:
@@ -67,34 +83,6 @@ def _run(command: list[str], root: Path) -> tuple[int, str]:
     return completed.returncode, output
 
 
-GH_TIMEOUT_SECONDS = 60
-GH_MAX_OUTPUT_CHARS = 200_000
-
-
-def _run_gh(command: list[str]) -> tuple[int, str, str]:
-    """Run one read-only ``gh`` command with a bounded runtime and bounded output.
-
-    A hung or chatty GitHub call must never stall a release or flood a log, and a
-    timeout is an admission failure rather than a pass.
-    """
-    try:
-        completed = subprocess.run(
-            ["gh", *command],
-            capture_output=True,
-            text=True,
-            timeout=GH_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        return 124, "", f"gh timed out after {GH_TIMEOUT_SECONDS}s"
-    except OSError as exc:
-        return 127, "", f"could not run gh: {exc}"
-    return (
-        completed.returncode,
-        completed.stdout[:GH_MAX_OUTPUT_CHARS],
-        completed.stderr[:GH_MAX_OUTPUT_CHARS],
-    )
-
-
 def _with_remediation(
     row: dict[str, object],
     remediation: str,
@@ -103,6 +91,29 @@ def _with_remediation(
         row = dict(row)
         row["remediation"] = remediation
     return row
+
+
+def check_clean_tree(
+    root: Path,
+    run: Callable[[list[str], Path], tuple[int, str]] = _run,
+) -> dict[str, object]:
+    """Return the canonical fail-closed clean-worktree release row."""
+    rc, output = run(["git", "status", "--porcelain"], root)
+    clean = rc == 0 and not output
+    if clean:
+        detail = "worktree is clean"
+    elif rc != 0:
+        detail = "git status failed"
+    else:
+        detail = output
+    return _with_remediation(
+        {
+            "name": "clean_tree",
+            "status": "ok" if clean else "fail",
+            "detail": detail,
+        },
+        "Commit or discard unrelated local changes before creating a release tag.",
+    )
 
 
 def check_tag_identity(
@@ -290,12 +301,13 @@ def evaluate(
     check_dependency_audit: bool = False,
     check_branch_rules: bool = False,
     check_tag_ruleset: bool = False,
+    check_public_main: bool = False,
     repo: str | None = None,
     branch: str | None = None,
     required_check_name: str | None = None,
     audit_max_age_hours: int | None = None,
     run: Callable[[list[str], Path], tuple[int, str]] = _run,
-    run_gh: Callable[[list[str]], tuple[int, str, str]] = _run_gh,
+    public_read: Callable[[object], object] | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
     """Return package version and one result object per local release invariant.
 
@@ -313,6 +325,8 @@ def evaluate(
     """
     version = package_version(root)
     admission = _load_admission_checks()
+    public = _load_public_read()
+    query_public = public_read or public.DEFAULT_READER
     checks: list[dict[str, object]] = []
 
     tag_error = validate_tag(version, tag)
@@ -377,7 +391,7 @@ def evaluate(
             admission.check_aggregate_required_check(
                 expect_sha,
                 repo_name,
-                run_gh,
+                query_public,
                 check_name=check_name,
             ).to_dict()
         )
@@ -393,7 +407,7 @@ def evaluate(
         checks.append(
             admission.check_dependency_audit_freshness(
                 repo_name,
-                run_gh,
+                query_public,
                 max_age_hours=audit_max_age_hours or admission.DEFAULT_AUDIT_MAX_AGE_HOURS,
             ).to_dict()
         )
@@ -402,29 +416,48 @@ def evaluate(
             admission.check_main_branch_rules(
                 repo_name,
                 branch_name,
-                run_gh,
+                query_public,
                 check_name=check_name,
             ).to_dict()
         )
     if check_tag_ruleset:
-        # Kept separate from --check-branch-rules on purpose: reading a repository
-        # ruleset needs administration:read, which a workflow GITHUB_TOKEN cannot
-        # be granted, so publish.yml asks only for the branch-rule predicate.
-        checks.append(admission.check_tag_ruleset(repo_name, run_gh).to_dict())
+        checks.append(admission.check_tag_ruleset(repo_name, query_public).to_dict())
+    if check_public_main and not admission.SHA_RE.fullmatch(expect_sha or ""):
+        checks.append(
+            admission.fail_row(
+                "public_main_expected_sha",
+                "public main lookup requires a valid --expect-sha",
+                admission.REMEDIATE_EXPECT_SHA,
+            ).to_dict()
+        )
+    elif check_public_main and expected_sha_valid:
+        try:
+            result = query_public(public.public_main(repo_name, branch_name))
+            public_sha = getattr(result, "data", "")
+            public_error = getattr(result, "error", "")
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            public_sha, public_error = "", str(exc)
+        if public_error or not isinstance(public_sha, str):
+            checks.append(
+                admission.error_row(
+                    "public_main_expected_sha",
+                    f"public main lookup failed: {public_error or 'unexpected response'}",
+                    admission.REMEDIATE_CANDIDATE_SHA,
+                ).to_dict()
+            )
+        else:
+            checks.append(
+                admission.compare_sha_row(
+                    "public_main_expected_sha",
+                    public_sha,
+                    str(expect_sha).lower(),
+                    f"public {branch_name}",
+                    admission.REMEDIATE_CANDIDATE_SHA,
+                ).to_dict()
+            )
 
     if require_clean:
-        rc, output = run(["git", "status", "--porcelain"], root)
-        clean = rc == 0 and not output
-        checks.append(
-            _with_remediation(
-                {
-                    "name": "clean_tree",
-                    "status": "ok" if clean else "fail",
-                    "detail": "worktree is clean" if clean else output or "git status failed",
-                },
-                "Commit or discard unrelated local changes before creating a release tag.",
-            )
-        )
+        checks.append(check_clean_tree(root, run))
 
     return version, checks
 
@@ -485,10 +518,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-tag-ruleset",
         action="store_true",
-        help=(
-            "Require the public v* tag ruleset through the read-only rulesets API "
-            "(needs repository administration read; operator-run only)."
-        ),
+        help="Require the public v* tag ruleset through the credential-free rulesets API.",
+    )
+    parser.add_argument(
+        "--check-public-main",
+        action="store_true",
+        help="Require the fixed public main branch to match --expect-sha.",
     )
     parser.add_argument(
         "--repo",
@@ -530,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
             check_dependency_audit=args.check_dependency_audit,
             check_branch_rules=args.check_branch_rules,
             check_tag_ruleset=args.check_tag_ruleset,
+            check_public_main=args.check_public_main,
             repo=args.repo,
             branch=args.branch,
             required_check_name=args.required_check_name,
