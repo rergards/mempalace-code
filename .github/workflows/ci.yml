@@ -254,7 +254,7 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Restore required MiniLM cache
         id: hf-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
           key: fastembed-${{ runner.os }}-${{ matrix.arch }}-py${{ matrix.python }}-minilm-${{ hashFiles('pyproject.toml', 'uv.lock', 'benchmarks/minilm_runtime_compatibility_fixture.json') }} # zizmor: ignore[cache-poisoning]
@@ -551,7 +551,7 @@ jobs:
 
       - name: Restore canonical FastEmbed model cache
         id: hf-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
           key: hf-${{ runner.os }}-py3.13-fastembed-minilm-v1-${{ hashFiles('pyproject.toml', 'uv.lock') }} # zizmor: ignore[cache-poisoning]
@@ -675,7 +675,7 @@ jobs:
             uv.lock
       - name: Restore HuggingFace model cache
         id: hf-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
           key: fastembed-${{ runner.os }}-py3.13-minilm-${{ hashFiles('pyproject.toml', 'uv.lock') }} # zizmor: ignore[cache-poisoning]
