@@ -36,6 +36,7 @@ RULESET_DOC = "docs/release-admission-rulesets.md"
 # a release-critical job to ci.yml without widening the aggregate check fails.
 RELEASE_CRITICAL_CI_JOBS: tuple[str, ...] = (
     "dependency-upgrade-gate",
+    "dotnet-bench",
     "gitleaks-changed-range",
     "installed-application",
     "lint",

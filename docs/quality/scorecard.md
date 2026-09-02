@@ -9,21 +9,21 @@ Schema version: 4
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 80 |
-| Package total lines | 29373 |
-| Package code lines | 24154 |
+| Package total lines | 29421 |
+| Package code lines | 24198 |
 | Test files (`tests/`) | 88 |
-| Test total lines | 80330 |
+| Test total lines | 81012 |
 
 ## Largest Modules (top 10)
 
 | Module | Lines |
 |--------|------:|
-| `mempalace_code/storage.py` | 2071 |
+| `mempalace_code/storage.py` | 2107 |
 | `mempalace_code/updater.py` | 1780 |
 | `mempalace_code/mining/chunkers.py` | 1466 |
 | `mempalace_code/watcher.py` | 1333 |
 | `mempalace_code/dialect.py` | 1074 |
-| `mempalace_code/backup.py` | 987 |
+| `mempalace_code/backup.py` | 989 |
 | `mempalace_code/cli.py` | 947 |
 | `mempalace_code/mining/symbols.py` | 904 |
 | `mempalace_code/entity_detector.py` | 885 |
@@ -117,7 +117,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| type/pyright ignores (total) | 170 |
+| type/pyright ignores (total) | 171 |
 | type/pyright unreasoned | 0 |
 | noqa (total) | 39 |
 | noqa blanket | 0 |
@@ -128,7 +128,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | Test files | 88 |
-| Test functions | 3721 |
+| Test functions | 3739 |
 
 ## Available Suites
 

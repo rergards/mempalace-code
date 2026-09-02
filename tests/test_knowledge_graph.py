@@ -7,7 +7,36 @@ temporal validation (ISO date/datetime acceptance, natural-language
 rejection, inverted-window rejection, inclusive boundaries).
 """
 
+import multiprocessing
+import sqlite3
+
 import pytest
+
+from mempalace_code.knowledge_graph import KnowledgeGraph
+
+
+def _initialize_knowledge_graph(db_path, barrier, results):
+    try:
+        barrier.wait(timeout=15)
+        KnowledgeGraph(db_path)
+        results.put(("ok", None))
+    except BaseException as exc:
+        results.put(("error", f"{type(exc).__name__}: {exc}"))
+        raise
+
+
+class _FakeWalConnection:
+    def __init__(self, wal_error=None):
+        self.wal_error = wal_error
+        self.closed = False
+
+    def execute(self, statement):
+        assert statement == "PRAGMA journal_mode=WAL"
+        if self.wal_error is not None:
+            raise self.wal_error
+
+    def close(self):
+        self.closed = True
 
 
 class TestEntityOperations:
@@ -127,6 +156,129 @@ class TestWALMode:
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
         conn.close()
         assert mode == "wal"
+
+    def test_concurrent_fresh_database_initialization_smoke(self, tmp_path):
+        context = multiprocessing.get_context("spawn")
+        barrier = context.Barrier(2)
+        results = context.Queue()
+        db_path = tmp_path / "fresh" / "knowledge_graph.sqlite3"
+        processes = [
+            context.Process(
+                target=_initialize_knowledge_graph,
+                args=(str(db_path), barrier, results),
+            )
+            for _ in range(2)
+        ]
+
+        try:
+            for process in processes:
+                process.start()
+            for process in processes:
+                process.join(timeout=30)
+        finally:
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+                process.join(timeout=5)
+
+        outcomes = sorted(results.get(timeout=5) for _ in processes)
+        assert [process.exitcode for process in processes] == [0, 0]
+        assert outcomes == [("ok", None), ("ok", None)]
+
+        conn = sqlite3.connect(db_path)
+        try:
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?)",
+                    ("entities", "triples"),
+                )
+            }
+            journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            readable = [
+                conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() for table in tables
+            ]
+        finally:
+            conn.close()
+        assert tables == {"entities", "triples"}
+        assert journal_mode == "wal"
+        assert integrity == "ok"
+        assert len(readable) == 2
+
+    def test_non_busy_wal_error_propagates_and_closes_connection(self, monkeypatch, tmp_path):
+        failure = sqlite3.OperationalError("disk I/O error")
+        failure.sqlite_errorcode = sqlite3.SQLITE_IOERR
+
+        connection = _FakeWalConnection(failure)
+        connect_calls = []
+
+        def connect(db_path, *, timeout):
+            connect_calls.append((db_path, timeout))
+            return connection
+
+        monkeypatch.setattr(sqlite3, "connect", connect)
+        graph = object.__new__(KnowledgeGraph)
+        graph.db_path = str(tmp_path / "knowledge_graph.sqlite3")
+
+        with pytest.raises(sqlite3.OperationalError) as raised:
+            graph._conn()
+
+        assert raised.value is failure
+        assert len(connect_calls) == 1
+        assert connect_calls[0][0] == graph.db_path
+        assert connect_calls[0][1] == 10
+        assert connection.closed is True
+
+    def test_busy_wal_error_closes_and_retries_with_fresh_connection(self, monkeypatch, tmp_path):
+        failure = sqlite3.OperationalError("database is busy")
+        failure.sqlite_errorcode = sqlite3.SQLITE_BUSY_RECOVERY
+
+        first = _FakeWalConnection(failure)
+        second = _FakeWalConnection()
+        connections = iter((first, second))
+        connect_calls = []
+
+        def connect(db_path, *, timeout):
+            connect_calls.append((db_path, timeout))
+            return next(connections)
+
+        monkeypatch.setattr(sqlite3, "connect", connect)
+        graph = object.__new__(KnowledgeGraph)
+        graph.db_path = str(tmp_path / "knowledge_graph.sqlite3")
+
+        returned = graph._conn()
+
+        assert returned is second
+        assert first.closed is True
+        assert second.closed is False
+        assert connect_calls == [(graph.db_path, 10), (graph.db_path, 10)]
+
+    def test_busy_wal_error_propagates_after_second_attempt_and_closes_both(
+        self, monkeypatch, tmp_path
+    ):
+        failure = sqlite3.OperationalError("database remains busy")
+        failure.sqlite_errorcode = sqlite3.SQLITE_BUSY_SNAPSHOT
+        first = _FakeWalConnection(failure)
+        second = _FakeWalConnection(failure)
+        connections = iter((first, second))
+        connect_calls = []
+
+        def connect(db_path, *, timeout):
+            connect_calls.append((db_path, timeout))
+            return next(connections)
+
+        monkeypatch.setattr(sqlite3, "connect", connect)
+        graph = object.__new__(KnowledgeGraph)
+        graph.db_path = str(tmp_path / "knowledge_graph.sqlite3")
+
+        with pytest.raises(sqlite3.OperationalError) as raised:
+            graph._conn()
+
+        assert raised.value is failure
+        assert first.closed is True
+        assert second.closed is True
+        assert connect_calls == [(graph.db_path, 10), (graph.db_path, 10)]
 
 
 class TestStats:

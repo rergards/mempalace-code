@@ -207,9 +207,19 @@ class KnowledgeGraph:
         conn.close()
 
     def _conn(self):
-        conn = sqlite3.connect(self.db_path, timeout=10)
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        busy_retried = False
+        while True:
+            conn = sqlite3.connect(self.db_path, timeout=10)
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                return conn
+            except sqlite3.OperationalError as exc:
+                conn.close()
+                error_code = getattr(exc, "sqlite_errorcode", None)
+                is_busy = isinstance(error_code, int) and (error_code & 0xFF) == sqlite3.SQLITE_BUSY
+                if not is_busy or busy_retried:
+                    raise
+                busy_retried = True
 
     def _entity_id(self, name: str) -> str:
         return name.lower().replace(" ", "_").replace("'", "")

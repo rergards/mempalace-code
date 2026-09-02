@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 24154,
+    "package_code_lines": 24198,
     "package_files": 80,
-    "package_total_lines": 29373,
+    "package_total_lines": 29421,
     "test_files": 88,
-    "test_total_lines": 80330
+    "test_total_lines": 81012
   },
   "demo_gates": {
     "architecture_guard": {
@@ -58,7 +58,7 @@
   },
   "largest_modules": [
     {
-      "lines": 2071,
+      "lines": 2107,
       "path": "mempalace_code/storage.py"
     },
     {
@@ -78,7 +78,7 @@
       "path": "mempalace_code/dialect.py"
     },
     {
-      "lines": 987,
+      "lines": 989,
       "path": "mempalace_code/backup.py"
     },
     {
@@ -276,13 +276,13 @@
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 170,
+    "type_pyright_total": 171,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
     "test_files": 88,
-    "test_functions": 3721
+    "test_functions": 3739
   },
   "verification_commands": [
     {

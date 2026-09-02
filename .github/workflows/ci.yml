@@ -530,6 +530,71 @@ jobs:
           WHEEL="${wheel[0]}"
           python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
 
+  dotnet-bench:
+    runs-on: ubuntu-latest
+    env:
+      HF_HOME: ${{ github.workspace }}/.cache/huggingface
+      CLEAN_ARCHITECTURE_COMMIT: 5a600ab8749c110384bc3bd436b9c67f3067b489
+      R5_THRESHOLD: "0.900"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+          cache: pip # zizmor: ignore[cache-poisoning]
+          cache-dependency-path: |
+            pyproject.toml
+            uv.lock
+
+      - name: Restore canonical FastEmbed model cache
+        id: hf-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
+          key: hf-${{ runner.os }}-py3.13-fastembed-minilm-v1-${{ hashFiles('pyproject.toml', 'uv.lock') }} # zizmor: ignore[cache-poisoning]
+          restore-keys: |
+            hf-${{ runner.os }}-py3.13-fastembed-minilm-v1-
+
+      - run: pip install -e ".[dev,treesitter]"
+
+      - name: Fetch embedding model (no-op on cache hit)
+        run: mempalace-code fetch-model
+
+      - name: Fetch CleanArchitecture at pinned commit
+        run: |
+          git init /tmp/CleanArchitecture
+          git -C /tmp/CleanArchitecture remote add origin https://github.com/jasontaylordev/CleanArchitecture.git
+          git -C /tmp/CleanArchitecture fetch --depth=1 origin "$CLEAN_ARCHITECTURE_COMMIT"
+          git -C /tmp/CleanArchitecture checkout --detach FETCH_HEAD
+          ACTUAL=$(git -C /tmp/CleanArchitecture rev-parse HEAD)
+          if [ "$ACTUAL" != "$CLEAN_ARCHITECTURE_COMMIT" ]; then
+            echo "Commit mismatch: expected $CLEAN_ARCHITECTURE_COMMIT got $ACTUAL"
+            exit 1
+          fi
+
+      - name: Validate benchmark query set
+        run: |
+          python benchmarks/dotnet_bench.py \
+            --repo-dir /tmp/CleanArchitecture \
+            --validate-queries
+
+      - name: Run .NET retrieval benchmark with R@5 gate
+        run: |
+          python benchmarks/dotnet_bench.py \
+            --repo-dir /tmp/CleanArchitecture \
+            --out benchmarks/results_dotnet_bench_ci.json \
+            --fail-under-r5 ${{ env.R5_THRESHOLD }}
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dotnet-bench-results
+          path: benchmarks/results_dotnet_bench_ci.json
+
   # Stable aggregate release-admission check. Its name is the branch-ruleset
   # required-check context, so it must never be renamed without updating
   # RELEASE_CRITICAL_CI_JOBS / AGGREGATE_REQUIRED_CHECK in
@@ -541,6 +606,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - dependency-upgrade-gate
+      - dotnet-bench
       - gitleaks-changed-range
       - installed-application
       - lint
@@ -554,8 +620,8 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJson(needs) }}
           EXPECTED_JOBS: >-
-            dependency-upgrade-gate gitleaks-changed-range installed-application
-            lint package test typecheck
+            dependency-upgrade-gate dotnet-bench gitleaks-changed-range
+            installed-application lint package test typecheck
         run: |
           python3 - <<'PY'
           import json

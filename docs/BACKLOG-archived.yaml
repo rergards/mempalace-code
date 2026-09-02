@@ -1856,3 +1856,28 @@ items:
       resolution: '2026-09-01: Replaced the v1.13.5 fixed provenance temp pathname with the existing UUID-named same-directory atomic-write pattern while preserving exclusive creation and inode, link, path, and symlink checks. Barrier-synchronized writer coverage, hostile-temp coverage, an exact v1.13.6 wheel with two concurrent installed CLI searches, 4,511 non-network tests, static/public/secret gates, and two independent reviews passed.'
       archived_date: "2026-09-01"
       done_summary: Replaced the v1.13.5 fixed provenance temp pathname with the existing UUID-named same-directory atomic-write pattern while preserving exclusive creation and inode, link, path, and symlink checks. Barrier-synchronized writer coverage, hostile-temp coverage, an exact v1.13.6 wheel with two concurrent installed CLI searches, 4,511 non-network tests, static/public/secret gates, and two independent reviews passed.
+    - key: FASTEMBED-MIXED-LENGTH-BATCH-PADDING
+      summary: Prevent mixed-length FastEmbed batches from crashing mining
+      resolution: '2026-09-02: Implemented canonical 256-token FastEmbed batch padding and consolidated the pinned .NET benchmark into release-required. Exact query validation passed, R@5=0.900/R@10=1.000, macOS full suite passed 4526 tests, exact-wheel installed-golden passed on macOS and Linux, the live Linux watcher recovered with zero restarts, all static/public/secret gates passed, and three independent reviews found no blocker.'
+      archived_date: "2026-09-02"
+      done_summary: Implemented canonical 256-token FastEmbed batch padding and consolidated the pinned .NET benchmark into release-required. Exact query validation passed, R@5=0.900/R@10=1.000, macOS full suite passed 4526 tests, exact-wheel installed-golden passed on macOS and Linux, the live Linux watcher recovered with zero restarts, all static/public/secret gates passed, and three independent reviews found no blocker.
+    - key: BACKUP-PRUNE-CONCURRENT-DISAPPEARANCE
+      summary: Treat concurrently pruned backups as an idempotent success
+      resolution: '2026-09-02: Concurrent FileNotFoundError is quiet and idempotent while other OSError cases still warn; 104 focused backup tests, Ruff, formatting, and Pyright passed.'
+      archived_date: "2026-09-02"
+      done_summary: 'Concurrent FileNotFoundError is quiet and idempotent while other OSError cases still warn; 104 focused backup tests, Ruff, formatting, and Pyright passed.'
+    - key: WATCH-OPTIMIZE-FAILURE-REASON
+      summary: Report truthful watcher state when safe optimize fails
+      resolution: '2026-09-02: False safe-optimize results now use truthful safety-check console and state markers at both watcher entry points; watcher docs name the nonfatal state and health recovery. 124 focused watcher tests, Ruff, formatting, docs drift, Pyright, public-safety, changed-range Gitleaks, and an installed-wheel two-watcher disposable-palace smoke passed.'
+      archived_date: "2026-09-02"
+      done_summary: 'False safe-optimize results now use truthful safety-check console and state markers at both watcher entry points; watcher docs name the nonfatal state and health recovery. 124 focused watcher tests, Ruff, formatting, docs drift, Pyright, public-safety, changed-range Gitleaks, and an installed-wheel two-watcher disposable-palace smoke passed.'
+    - key: LANCE-CONCURRENT-TABLE-CREATE
+      summary: Make fresh Lance table creation idempotent across watcher processes
+      resolution: '2026-09-02: Native idempotent Lance create passed its deterministic concurrent storage regression and the installed golden suite on macOS arm64/Python 3.13 and Linux x86_64/Python 3.12.'
+      archived_date: "2026-09-02"
+      done_summary: Native idempotent Lance create passed its deterministic concurrent storage regression and the installed golden suite on macOS arm64/Python 3.13 and Linux x86_64/Python 3.12.
+    - key: KG-CONCURRENT-WAL-INIT-BUSY
+      summary: Make fresh knowledge-graph initialization safe across watcher processes
+      resolution: '2026-09-02: One bounded SQLITE_BUSY reconnect passed its focused multiprocess regression and the installed two-watcher WAL, integrity, lease-release, and search checks on macOS and Linux.'
+      archived_date: "2026-09-02"
+      done_summary: One bounded SQLITE_BUSY reconnect passed its focused multiprocess regression and the installed two-watcher WAL, integrity, lease-release, and search checks on macOS and Linux.

@@ -28,6 +28,7 @@ import shlex
 import shutil
 import signal
 import socket
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -3873,9 +3874,9 @@ def _run_installed_watcher_signal_cleanup_scenario(
             reader.join(timeout=5)
         drain(lines, output)
 
-    def launch(project: Path, palace: Path):
+    def launch_command(command: list[str]):
         process = popen(
-            [*command_prefix, "--palace", str(palace), "watch", str(project), "--on-save"],
+            command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=1,
@@ -3892,6 +3893,56 @@ def _run_installed_watcher_signal_cleanup_scenario(
         output: list[str] = []
         return process, reader, lines, output
 
+    def launch(project: Path, palace: Path):
+        return launch_command(
+            [*command_prefix, "--palace", str(palace), "watch", str(project), "--on-save"]
+        )
+
+    def cleanup_processes(processes) -> None:
+        first_error: Exception | None = None
+        for process, reader, lines, output in processes:
+            try:
+                stop_process(process, reader, lines, output)
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        for process, reader, lines, output in processes:
+            alive = False
+            try:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=stop_timeout)
+                alive = process.poll() is None
+            except Exception as exc:
+                alive = True
+                if first_error is None:
+                    first_error = exc
+            finally:
+                if reader is not None:
+                    reader.join(timeout=5)
+                drain(lines, output)
+            if alive and first_error is None:
+                first_error = RuntimeError(f"watcher PID {process.pid} survived cleanup")
+        if first_error is not None:
+            raise first_error
+
+    def verify_concurrent_kg(palace: Path) -> None:
+        kg_path = palace / "knowledge_graph.sqlite3"
+        if not kg_path.is_file():
+            raise RuntimeError("concurrent watcher shared KG is missing")
+        conn = sqlite3.connect(kg_path)
+        try:
+            journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+            integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            for table in ("entities", "triples"):
+                conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        finally:
+            conn.close()
+        if journal_mode != "wal":
+            raise RuntimeError(f"concurrent watcher KG journal mode is {journal_mode!r}")
+        if integrity != "ok":
+            raise RuntimeError(f"concurrent watcher KG integrity check is {integrity!r}")
+
     try:
         if not signals or signal.SIGTERM not in signals:
             return failure("SIGTERM is missing from the supported signal matrix")
@@ -3900,6 +3951,131 @@ def _run_installed_watcher_signal_cleanup_scenario(
         neutral_cwd.mkdir(parents=True, exist_ok=True)
         owners_path = Path(env["HOME"]) / ".mempalace" / "operation.lock.owners.json"
         signal_names: list[str] = []
+
+        concurrent_root = scenario_root / "concurrent"
+        concurrent_projects = [
+            _write_fixture_project(concurrent_root / "project-a"),
+            _write_fixture_project(concurrent_root / "project-b"),
+        ]
+        concurrent_palace = concurrent_root / "palace"
+        entry_sync = concurrent_root / "entry-sync.py"
+        entry_sync.write_text(
+            textwrap.dedent(
+                """
+                import os
+                import sys
+                import time
+                from pathlib import Path
+
+                barrier_root = Path(sys.argv[1])
+                command = sys.argv[2:]
+                ready = barrier_root / f"ready-{os.getpid()}"
+                ready.touch()
+                deadline = time.monotonic() + 30
+                while len(list(barrier_root.glob("ready-*"))) < 2:
+                    if time.monotonic() >= deadline:
+                        raise SystemExit("concurrent entry barrier timed out")
+                    time.sleep(0.01)
+                os.execv(command[0], command)
+                """
+            ).lstrip(),
+            encoding="utf-8",
+        )
+        entry_barrier = concurrent_root / "entry-barrier"
+        entry_barrier.mkdir()
+
+        def launch_concurrent(project: Path, palace: Path):
+            command = [
+                *command_prefix,
+                "--palace",
+                str(palace),
+                "watch",
+                str(project),
+                "--on-save",
+            ]
+            return launch_command(
+                [
+                    sys.executable,
+                    str(entry_sync),
+                    str(entry_barrier),
+                    *command,
+                ],
+            )
+
+        for project in concurrent_projects:
+            init = run(["init", str(project), "--skip-model-download"])
+            if (
+                init.returncode != 0
+                or "Config saved:" not in (init.stdout or "")
+                or not _installed_output_is_clean(init)
+            ):
+                return failure(f"concurrent watcher init failed: {init.stderr or init.stdout}")
+
+        concurrent_watchers = []
+        try:
+            for project in concurrent_projects:
+                concurrent_watchers.append(launch_concurrent(project, concurrent_palace))
+            for watcher, _reader, lines, output in concurrent_watchers:
+                wait_for_output(watcher, lines, output, "state=watch-ready")
+        finally:
+            cleanup_processes(concurrent_watchers)
+
+        if any(watcher.poll() is None for watcher, _reader, _lines, _output in concurrent_watchers):
+            return failure("concurrent watcher cleanup left a live process")
+
+        for watcher, _reader, _lines, output in concurrent_watchers:
+            summary = "".join(output)
+            if (
+                watcher.returncode != 0
+                or "Watch stopped after" not in summary
+                or any(marker in summary for marker in INSTALLED_GOLDEN_FORBIDDEN_OUTPUT)
+            ):
+                return failure(f"concurrent watcher did not stop cleanly: {summary}")
+
+        verify_concurrent_kg(concurrent_palace)
+
+        concurrent_health = run(["--palace", str(concurrent_palace), "health", "--json"])
+        concurrent_health_payload = json.loads(concurrent_health.stdout or "")
+        if (
+            concurrent_health.returncode != 0
+            or concurrent_health_payload.get("ok") is not True
+            or type(concurrent_health_payload.get("total_rows")) is not int
+            or concurrent_health_payload.get("total_rows", 0) <= 0
+            or not isinstance(concurrent_health_payload.get("storage"), dict)
+            or not _installed_output_is_clean(concurrent_health)
+        ):
+            return failure("concurrent watcher storage health failed")
+        for project in concurrent_projects:
+            wing = project.name.replace("-", "_")
+            search = run(
+                [
+                    "--palace",
+                    str(concurrent_palace),
+                    "search",
+                    "xylophonic_glyph_9182",
+                    "--wing",
+                    wing,
+                    "--results",
+                    "10",
+                ]
+            )
+            if (
+                search.returncode != 0
+                or any(
+                    marker not in (search.stdout or "")
+                    for marker in (
+                        "Results for:",
+                        f"  [1] {wing} /",
+                        "xylophonic_glyph_9182",
+                        "app.py",
+                    )
+                )
+                or not _installed_output_is_clean(search)
+            ):
+                return failure(
+                    f"concurrent watcher wing {wing} search failed: "
+                    f"{search.stderr or search.stdout}"
+                )
 
         for shutdown_signal in signals:
             signal_name = signal.Signals(shutdown_signal).name
@@ -4080,6 +4256,7 @@ def _run_installed_watcher_signal_cleanup_scenario(
         OSError,
         RuntimeError,
         subprocess.SubprocessError,
+        sqlite3.Error,
         TimeoutError,
         TypeError,
         UnicodeError,
@@ -4091,7 +4268,8 @@ def _run_installed_watcher_signal_cleanup_scenario(
         "installed_golden_watcher_signals",
         INSTALLED_WATCHER_SIGNALS_COMMAND,
         "pass",
-        f"{', '.join(signal_names)} released watcher and replacement leases with healthy search",
+        f"two concurrent fresh-palace watchers reached ready; {', '.join(signal_names)} "
+        "released watcher and replacement leases with healthy search",
     )
 
 

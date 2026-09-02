@@ -76,6 +76,29 @@ def test_standalone_upstream_drift_workflow_is_absent():
     assert not UPSTREAM_DRIFT_WORKFLOW.exists()
 
 
+def test_standalone_dotnet_benchmark_workflow_is_absent():
+    assert not DOTNET_BENCH_WORKFLOW.exists()
+
+
+def test_dotnet_benchmark_is_pinned_and_release_blocking():
+    workflow = _workflow(CI_WORKFLOW)
+    job = workflow["jobs"]["dotnet-bench"]
+    assert "if" not in job
+    assert job["env"]["CLEAN_ARCHITECTURE_COMMIT"] == ("5a600ab8749c110384bc3bd436b9c67f3067b489")
+    assert str(job["env"]["R5_THRESHOLD"]) == "0.900"
+    commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
+    assert "mempalace-code fetch-model" in commands
+    assert "git -C /tmp/CleanArchitecture checkout --detach FETCH_HEAD" in commands
+    assert "--validate-queries" in commands
+    assert "--fail-under-r5 ${{ env.R5_THRESHOLD }}" in commands
+    upload = next(step for step in job["steps"] if step.get("name") == "Upload benchmark report")
+    assert str(upload["if"]).strip() == "always()"
+    assert upload["with"] == {
+        "name": "dotnet-bench-results",
+        "path": "benchmarks/results_dotnet_bench_ci.json",
+    }
+
+
 def test_aggregate_check_job_exists_with_the_contract_name():
     jobs = _workflow(CI_WORKFLOW)["jobs"]
     assert ADMISSION.AGGREGATE_REQUIRED_CHECK in jobs
@@ -417,6 +440,23 @@ def test_aggregate_script_fails_when_a_release_critical_job_is_missing():
     code, output = _run_aggregate_script(needs)
     assert code == 1
     assert "typecheck: missing from needs" in output
+
+
+@pytest.mark.parametrize("result", ["failure", "cancelled", "skipped", "", "neutral"])
+def test_aggregate_script_fails_closed_for_dotnet_benchmark(result):
+    needs = _all_successful()
+    needs["dotnet-bench"] = {"result": result}
+    code, output = _run_aggregate_script(needs)
+    assert code == 1, output
+    assert f"dotnet-bench: {result or 'unknown'}" in output
+
+
+def test_aggregate_script_fails_when_dotnet_benchmark_is_missing():
+    needs = _all_successful()
+    del needs["dotnet-bench"]
+    code, output = _run_aggregate_script(needs)
+    assert code == 1, output
+    assert "dotnet-bench: missing from needs" in output
 
 
 def test_aggregate_script_fails_when_installed_application_bootstrap_fails():
@@ -959,7 +999,8 @@ def test_publish_never_gains_a_manual_or_release_trigger():
 
 
 def test_benchmark_owner_uses_canonical_fastembed_cache():
-    text = DOTNET_BENCH_WORKFLOW.read_text(encoding="utf-8")
+    job = _workflow(CI_WORKFLOW)["jobs"]["dotnet-bench"]
+    text = str(job)
     assert ".cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1" in text
     assert "hub/models--sentence-transformers--all-MiniLM-L6-v2" not in text
     assert "--check-facts benchmarks/retrieval_quality_facts.json" not in text

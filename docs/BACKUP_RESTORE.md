@@ -381,8 +381,14 @@ The watcher emits grep-friendly `WATCH_RUN` lines at each startup transition so 
 | `WATCH_RUN run_id=<id> state=initial-mine-completed` | Initial mine finished successfully |
 | `WATCH_RUN run_id=<id> state=initial-mine-skipped reason=disk-budget` | Mine skipped because disk budget is too low |
 | `WATCH_RUN run_id=<id> state=optimize-completed` | Post-mine optimize pass succeeded |
-| `WATCH_RUN run_id=<id> state=optimize-skipped reason=backup-gate` | Optimize skipped (backup gate rejected) |
-| `WATCH_RUN run_id=<id> state=watch-ready` | All startup gates passed; daemon entered the watch loop |
+| `WATCH_RUN run_id=<id> state=optimize-skipped reason=safety-check` | Safe optimize refused or failed; see the preceding storage log for the precise cause |
+| `WATCH_RUN run_id=<id> state=optimize-skipped reason=error` | Optimize raised an unexpected error; the preceding optimize line contains the cause |
+| `WATCH_RUN run_id=<id> state=watch-ready` | Daemon entered the watch loop; inspect earlier markers for startup work that was skipped |
+
+For either `optimize-skipped` reason, the initial mine completed but optimization did not.
+The watcher continues. Inspect the preceding optimize output, then run
+`mempalace-code --palace /path/palace health`; if it recurs, resolve that reported storage
+error before restarting.
 
 The `run_id` is unique per startup attempt. An appended log file may contain `WATCH_RUN` lines from older runs that exited with disk-budget or backup failures. To find the latest healthy startup, locate the last `state=watch-ready` line and use its `run_id` to filter the associated transitions:
 

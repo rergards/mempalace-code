@@ -11,6 +11,7 @@ import shlex
 import shutil
 import signal
 import socket
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -3082,6 +3083,13 @@ def test_installed_watcher_signal_cleanup_fails_closed(tmp_path):
         "launch",
         "missing-stdout",
         "early-exit",
+        "concurrent-second-early-exit",
+        "concurrent-first-cleanup-failure",
+        "concurrent-missing-kg",
+        "concurrent-schema-failure",
+        "concurrent-integrity-failure",
+        "concurrent-missing-wing",
+        "concurrent-health-bool",
         "stop-timeout",
         "malformed-owner",
         "nonzero-exit",
@@ -3106,18 +3114,30 @@ def test_installed_watcher_signal_cleanup_fails_closed(tmp_path):
         if fault == "network-attempt":
             attempts.write_text("blocked.example:443\n", encoding="utf-8")
         processes = []
+        popen_commands = []
         next_pid = 4100
 
         class FakeProcess:
-            def __init__(self, active_fault=fault, active_owners_path=owners_path):
+            def __init__(
+                self,
+                launch_number,
+                active_fault=fault,
+                active_owners_path=owners_path,
+            ):
                 nonlocal next_pid
                 self.pid = next_pid
                 next_pid += 1
-                self.returncode = 2 if active_fault == "early-exit" else None
+                self.returncode = (
+                    2
+                    if active_fault == "early-exit"
+                    or (active_fault == "concurrent-second-early-exit" and launch_number == 2)
+                    else None
+                )
                 self.stdout = io.StringIO("state=watch-ready\nWatch stopped after 0 changes\n")
                 if active_fault == "missing-stdout":
                     self.stdout = None
                 self.killed = False
+                self.signal_calls = 0
                 active_owners_path.write_text(
                     "{"
                     + json.dumps(f"token-{self.pid}")
@@ -3136,6 +3156,13 @@ def test_installed_watcher_signal_cleanup_fails_closed(tmp_path):
                 active_fault=fault,
                 active_owners_path=owners_path,
             ):
+                self.signal_calls += 1
+                if (
+                    active_fault == "concurrent-first-cleanup-failure"
+                    and self.pid == 4100
+                    and shutdown_signal == signal.SIGINT
+                ):
+                    raise OSError("first concurrent cleanup failed")
                 if active_fault == "stop-timeout" and shutdown_signal != signal.SIGINT:
                     return
                 self.returncode = 2 if active_fault == "nonzero-exit" else 0
@@ -3159,15 +3186,37 @@ def test_installed_watcher_signal_cleanup_fails_closed(tmp_path):
             active_fault=fault,
             active_case_root=case_root,
             active_processes=processes,
+            active_popen_commands=popen_commands,
             **_kwargs,
         ):
             if active_fault == "launch":
                 raise OSError(f"launcher unavailable at {active_case_root}")
-            process = FakeProcess()
+            command = [str(item) for item in _args[0]]
+            active_popen_commands.append(command)
+            if len(command) > 3 and command[1].endswith("entry-sync.py"):
+                candidate_command = command[3:]
+            else:
+                candidate_command = command
+            if "--palace" in candidate_command and active_fault != "concurrent-missing-kg":
+                palace = Path(candidate_command[candidate_command.index("--palace") + 1])
+                palace.mkdir(parents=True, exist_ok=True)
+                conn = sqlite3.connect(palace / "knowledge_graph.sqlite3")
+                try:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute("CREATE TABLE IF NOT EXISTS entities (id TEXT);")
+                    if active_fault != "concurrent-schema-failure":
+                        conn.execute("CREATE TABLE IF NOT EXISTS triples (id TEXT);")
+                    conn.commit()
+                finally:
+                    conn.close()
+            process = FakeProcess(len(active_processes) + 1)
             active_processes.append(process)
+            if active_fault == "concurrent-integrity-failure" and len(active_processes) == 2:
+                palace = Path(candidate_command[candidate_command.index("--palace") + 1])
+                (palace / "knowledge_graph.sqlite3").write_bytes(b"not sqlite")
             return process
 
-        def fake_run(command, **_kwargs):
+        def fake_run(command, active_fault=fault, **_kwargs):
             args = [str(item) for item in command]
             if len(args) > 1 and args[1] == "-c":
                 return SimpleNamespace(returncode=0, stdout="exclusive-released\n", stderr="")
@@ -3176,15 +3225,27 @@ def test_installed_watcher_signal_cleanup_fails_closed(tmp_path):
             if "mine" in args:
                 return SimpleNamespace(returncode=0, stdout="Drawers filed: 4\n", stderr="")
             if "health" in args:
+                total_rows = True if active_fault == "concurrent-health-bool" else 4
                 return SimpleNamespace(
                     returncode=0,
-                    stdout='{"ok":true,"total_rows":4,"storage":{}}',
+                    stdout=json.dumps({"ok": True, "total_rows": total_rows, "storage": {}}),
                     stderr="",
                 )
             if "search" in args:
+                wing = args[args.index("--wing") + 1] if "--wing" in args else None
+                if active_fault == "concurrent-missing-wing" and wing == "project_b":
+                    return SimpleNamespace(
+                        returncode=0,
+                        stdout='Results for: "xylophonic_glyph_9182"\n',
+                        stderr="",
+                    )
+                heading = f"  [1] {wing} / module\n" if wing else ""
                 return SimpleNamespace(
                     returncode=0,
-                    stdout="Results for: xylophonic_glyph_9182\napp.py\n",
+                    stdout=(
+                        'Results for: "xylophonic_glyph_9182"\n'
+                        f"{heading}xylophonic_glyph_9182\napp.py\n"
+                    ),
                     stderr="",
                 )
             raise AssertionError(f"unexpected command: {args}")
@@ -3208,7 +3269,40 @@ def test_installed_watcher_signal_cleanup_fails_closed(tmp_path):
         )
         assert str(case_root) not in row["detail"]
         if fault == "success":
-            assert len(processes) == len(supported_signals) * 2
+            assert len(processes) == 2 + len(supported_signals) * 2
+        if fault == "concurrent-second-early-exit":
+            assert len(processes) == 2, fault
+            assert all(process.poll() is not None for process in processes)
+        if fault == "concurrent-first-cleanup-failure":
+            assert len(processes) == 2
+            assert all(process.poll() is not None for process in processes)
+            assert all(process.signal_calls == 1 for process in processes)
+            assert processes[0].killed is True
+            assert all(process.stdout.closed for process in processes)
+            assert "first concurrent cleanup failed" in row["detail"]
+        if fault in {
+            "concurrent-missing-kg",
+            "concurrent-schema-failure",
+            "concurrent-integrity-failure",
+        }:
+            assert len(processes) == 2, fault
+            assert all(process.poll() is not None for process in processes)
+            expected_error = {
+                "concurrent-missing-kg": "concurrent watcher shared KG is missing",
+                "concurrent-schema-failure": "no such table: triples",
+                "concurrent-integrity-failure": "file is not a database",
+            }[fault]
+            assert expected_error in row["detail"]
+        if fault == "concurrent-missing-wing":
+            assert len(processes) == 2
+            assert "concurrent watcher wing project_b search failed" in row["detail"]
+        if fault == "concurrent-health-bool":
+            assert len(processes) == 2
+            assert "concurrent watcher storage health failed" in row["detail"]
+        if fault == "success":
+            assert all(
+                any("entry-sync.py" in item for item in command) for command in popen_commands[:2]
+            )
         if fault == "stop-timeout":
             assert processes[0].killed is True
         if fault == "missing-stdout":

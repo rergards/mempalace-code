@@ -6,7 +6,9 @@ import logging
 import os
 import sys
 import types
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Barrier, Lock
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -489,6 +491,85 @@ class TestWriteOpenNoEmbedder:
             "beta": {"frontend": 1},
         }
         assert table.calls == [["wing", "room"]]
+
+
+class TestConcurrentLanceTableCreate:
+    def test_two_fresh_writable_opens_converge_on_canonical_usable_table(
+        self, palace_path, monkeypatch
+    ):
+        import lancedb
+
+        original_connect = lancedb.connect
+        missing_barrier = Barrier(2)
+        missing_lock = Lock()
+        missing_tables = []
+
+        class BarrierConnection:
+            def __init__(self, connection):
+                self._connection = connection
+
+            def open_table(self, name):
+                try:
+                    return self._connection.open_table(name)
+                except Exception:
+                    with missing_lock:
+                        missing_tables.append(name)
+                    missing_barrier.wait(timeout=10)
+                    raise
+
+            def create_table(self, name, schema=None, exist_ok=False):
+                return self._connection.create_table(name, schema=schema, exist_ok=exist_ok)
+
+        def synchronized_connect(uri):
+            return BarrierConnection(original_connect(uri))
+
+        monkeypatch.setattr(lancedb, "connect", synchronized_connect)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(open_store, palace_path, create=True) for _ in range(2)]
+            stores = [future.result(timeout=15) for future in futures]
+
+        assert missing_tables == ["mempalace_drawers", "mempalace_drawers"]
+        stores[0].add(
+            ids=["concurrent_alpha"],
+            documents=["alpha content from the first concurrent store"],
+            metadatas=[{"wing": "concurrent", "room": "alpha"}],
+        )
+        stores[1].add(
+            ids=["concurrent_beta"],
+            documents=["beta content from the second concurrent store"],
+            metadatas=[{"wing": "concurrent", "room": "beta"}],
+        )
+
+        shared = open_store(palace_path, create=False)
+        stored = shared.get(include=["documents"], limit=10)
+        assert set(stored["ids"]) == {"concurrent_alpha", "concurrent_beta"}
+        assert set(stored["documents"]) == {
+            "alpha content from the first concurrent store",
+            "beta content from the second concurrent store",
+        }
+
+    def test_unrelated_create_failure_propagates_unchanged(self):
+        sentinel = RuntimeError("sentinel create failure")
+
+        class FaultConnection:
+            def open_table(self, name):
+                raise FileNotFoundError(name)
+
+            def create_table(self, name, schema=None, exist_ok=False):
+                assert exist_ok is True
+                raise sentinel
+
+        store = LanceStore.__new__(LanceStore)
+        store._read_only = False
+        store._db = FaultConnection()
+        store._embedder = MagicMock()
+        store._embedder.ndims.return_value = 384
+
+        with pytest.raises(RuntimeError, match="sentinel create failure") as raised:
+            store._open_or_create(create=True)  # type: ignore[reportPrivateUsage]  # reason: exact private fresh-create fault injection
+
+        assert raised.value is sentinel
 
 
 class TestGetSourceFiles:

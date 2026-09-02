@@ -50,10 +50,15 @@ def _write_fake_fastembed(pkg_root: Path, event_log: Path) -> None:
     (package / "__init__.py").write_text(
         textwrap.dedent(
             f"""\
-            import hashlib, json, math, os
+            import hashlib, json, math, os, types
             from pathlib import Path
             _log = {str(event_log)!r}
             _revision = {CANONICAL_EMBED_MODEL_REVISION!r}
+            class _Tokenizer:
+                def __init__(self):
+                    self.padding = {{"length": 128, "direction": "right", "pad_id": 0, "pad_type_id": 0, "pad_token": "[PAD]", "pad_to_multiple_of": None}}
+                def enable_padding(self, **kwargs):
+                    self.padding = kwargs
             def _record(event):
                 with open(_log, "a", encoding="utf-8") as stream:
                     stream.write(json.dumps(event) + "\\n")
@@ -69,6 +74,7 @@ def _write_fake_fastembed(pkg_root: Path, event_log: Path) -> None:
                 (snapshot / "tokenizer_config.json").write_text(json.dumps({{"max_length": 128, "model_max_length": 512}}), encoding="utf-8")
             class TextEmbedding:
                 def __init__(self, **kwargs):
+                    self.model = types.SimpleNamespace(tokenizer=_Tokenizer())
                     _record({{"type": "init", "local_files_only": bool(kwargs.get("local_files_only")), "providers": kwargs.get("providers")}})
                     if not kwargs.get("local_files_only"):
                         cache = Path(kwargs["cache_dir"])

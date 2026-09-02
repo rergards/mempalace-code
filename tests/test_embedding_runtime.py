@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import subprocess
 import sys
 import threading
 import types
@@ -20,6 +21,7 @@ from mempalace_code.storage import (
     CUSTOM_MODELS_INSTALL_COMMAND,
     DEFAULT_EMBED_MODEL,
     LanceStore,
+    _configure_canonical_fastembed_padding,
     _FastEmbedder,
     _write_canonical_provenance,
     canonical_fastembed_cache_owned,
@@ -30,6 +32,29 @@ from mempalace_code.storage import (
     quarantine_unowned_canonical_fastembed_cache,
     remove_owned_canonical_fastembed_cache,
 )
+
+
+class _FakeTokenizer:
+    def __init__(self, padding=None):
+        self.padding = padding or {
+            "length": 128,
+            "direction": "right",
+            "pad_id": 0,
+            "pad_type_id": 0,
+            "pad_token": "[PAD]",
+            "pad_to_multiple_of": None,
+        }
+        self.enable_calls = []
+
+    def enable_padding(self, **kwargs):
+        self.enable_calls.append(kwargs)
+        self.padding = dict(kwargs)
+
+
+def _fake_fastembed_backend(tokenizer=None):
+    return types.SimpleNamespace(
+        model=types.SimpleNamespace(tokenizer=tokenizer or _FakeTokenizer())
+    )
 
 
 def _write_owned_provenance(root: Path) -> None:
@@ -70,6 +95,7 @@ def test_canonical_runtime_is_cpu_only_and_never_enables_remote_code(tmp_path, m
     class FakeTextEmbedding:
         def __init__(self, **kwargs):
             calls.append(kwargs)
+            self.model = _fake_fastembed_backend().model
 
         def embed(self, texts):
             return [[3.0, 4.0] + [0.0] * 382 for _ in texts]
@@ -92,6 +118,99 @@ def test_canonical_runtime_is_cpu_only_and_never_enables_remote_code(tmp_path, m
         }
     ]
     assert "trust_remote_code" not in calls[0]
+
+
+def test_canonical_runtime_fixes_mixed_boundary_padding_before_one_batch(tmp_path, monkeypatch):
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    _write_owned_provenance(canonical_fastembed_cache_root())
+    tokenizer = _FakeTokenizer()
+    embedded_batches = []
+
+    class FakeTextEmbedding:
+        def __init__(self, **kwargs):
+            self.model = _fake_fastembed_backend(tokenizer).model
+
+        def embed(self, texts):
+            texts = list(texts)
+            embedded_batches.append(texts)
+            encoded_lengths = [
+                tokenizer.padding["length"] if len(text.split()) < 256 else 256 for text in texts
+            ]
+            if len(set(encoded_lengths)) != 1:
+                raise ValueError("inhomogeneous shape")
+            return [[3.0, 4.0] + [0.0] * 382 for _ in texts]
+
+    monkeypatch.setitem(
+        sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=FakeTextEmbedding)
+    )
+    short = "short input"
+    long = " ".join(f"token-{index}" for index in range(300))
+
+    vectors = _FastEmbedder(local_files_only=True).compute_source_embeddings([short, long])
+
+    assert embedded_batches == [[short, long]]
+    assert tokenizer.enable_calls == [
+        {
+            "length": CANONICAL_EMBED_MAX_LENGTH,
+            "direction": "right",
+            "pad_id": 0,
+            "pad_type_id": 0,
+            "pad_token": "[PAD]",
+            "pad_to_multiple_of": None,
+        }
+    ]
+    assert len(vectors) == 2
+    assert all(len(vector) == 384 for vector in vectors)
+    assert all(sum(value * value for value in vector) == pytest.approx(1.0) for vector in vectors)
+
+
+@pytest.mark.parametrize(
+    "backend",
+    [
+        types.SimpleNamespace(),
+        types.SimpleNamespace(model=types.SimpleNamespace()),
+        _fake_fastembed_backend(types.SimpleNamespace(padding=None)),
+        _fake_fastembed_backend(
+            types.SimpleNamespace(padding={}, enable_padding=lambda **kwargs: None)
+        ),
+    ],
+)
+def test_canonical_padding_fails_closed_for_incompatible_tokenizer(backend):
+    with pytest.raises(RuntimeError, match="fetch-model --force"):
+        _configure_canonical_fastembed_padding(backend)
+
+
+def test_canonical_padding_rejects_metadata_changes():
+    tokenizer = _FakeTokenizer()
+
+    def change_metadata(**kwargs):
+        tokenizer.padding = {**kwargs, "pad_id": 99}
+
+    tokenizer.enable_padding = change_metadata
+
+    with pytest.raises(RuntimeError, match="padding is incompatible"):
+        _configure_canonical_fastembed_padding(_fake_fastembed_backend(tokenizer))
+
+
+def test_owned_cache_constructor_failure_never_retries_online(tmp_path, monkeypatch):
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    _write_owned_provenance(canonical_fastembed_cache_root())
+    calls = []
+
+    class FakeTextEmbedding:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+            raise RuntimeError("load failed")
+
+    monkeypatch.setitem(
+        sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=FakeTextEmbedding)
+    )
+
+    with pytest.raises(RuntimeError, match="load failed"):
+        _FastEmbedder(local_files_only=False)
+
+    assert len(calls) == 1
+    assert calls[0]["local_files_only"] is True
 
 
 def test_missing_custom_extra_fails_before_lance_creation(tmp_path, monkeypatch):
@@ -267,6 +386,7 @@ def test_online_download_normalizes_then_reloads_before_embedding(tmp_path, monk
         def __init__(self, **kwargs):
             self.call_index = len(calls)
             calls.append(kwargs)
+            self.model = _fake_fastembed_backend().model
             if not kwargs["local_files_only"]:
                 root = canonical_fastembed_cache_root()
                 _write_owned_provenance(root)
@@ -351,11 +471,68 @@ def test_real_default_fastembed_runtime_from_prepared_cache(monkeypatch):
     monkeypatch.setenv("HF_HOME", cache)
     assert canonical_fastembed_cache_owned()
 
-    vector = _FastEmbedder(local_files_only=True).compute_source_embeddings(
-        ["MemPalace stores exact project context."]
-    )[0]
-    assert len(vector) == 384
-    assert sum(value * value for value in vector) == pytest.approx(1.0, abs=1e-6)
+    vectors = _FastEmbedder(local_files_only=True).compute_source_embeddings(
+        [
+            "MemPalace stores exact project context.",
+            " ".join(f"mixed-boundary-token-{index}" for index in range(300)),
+        ]
+    )
+    assert len(vectors) == 2
+    assert all(len(vector) == 384 for vector in vectors)
+    assert all(
+        sum(value * value for value in vector) == pytest.approx(1.0, abs=1e-6) for vector in vectors
+    )
+
+
+def test_direct_cli_mines_mixed_length_batch_from_prepared_cache(tmp_path, monkeypatch):
+    cache = os.environ.get("MEMPALACE_TEST_HF_HOME")
+    if not cache:
+        pytest.skip("set MEMPALACE_TEST_HF_HOME after mempalace-code fetch-model")
+    monkeypatch.setenv("HF_HOME", cache)
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    project = tmp_path / "mixed-project"
+    project.mkdir()
+    (project / "short.md").write_text(
+        " ".join(f"short-padding-token-{index}" for index in range(40)) + "\n",
+        encoding="utf-8",
+    )
+    (project / "long.md").write_text(
+        " ".join(f"mixed-boundary-token-{index}" for index in range(300)) + "\n",
+        encoding="utf-8",
+    )
+    palace = tmp_path / "palace"
+    executable = Path(sys.executable).with_name("mempalace-code")
+    assert executable.is_file()
+    environment = os.environ.copy()
+    initialized = subprocess.run(
+        [
+            str(executable),
+            "--palace",
+            str(palace),
+            "init",
+            str(project),
+            "--skip-model-download",
+        ],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=120,
+    )
+    assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+
+    completed = subprocess.run(
+        [str(executable), "--palace", str(palace), "mine", str(project), "--wing", "mixed"],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=120,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    rows = [row for batch in LanceStore(str(palace)).iter_all() for row in batch]
+    assert len(rows) == 2
+    assert {Path(str(row["source_file"])).name for row in rows} == {"short.md", "long.md"}
+    assert {row["wing"] for row in rows} == {"mixed"}
 
 
 def test_real_fastembed_matches_former_runtime_fixture(monkeypatch):

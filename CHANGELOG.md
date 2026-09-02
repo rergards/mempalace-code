@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v1.13.7 — 2026-09-02
+
+### Fixed
+
+- Canonical FastEmbed mining now applies the existing 256-token contract to
+  batch padding, preventing mixed-length inputs from failing with an
+  `inhomogeneous shape` error.
+- The pinned .NET retrieval benchmark now participates in the existing
+  `release-required` aggregate, so a red or missing benchmark blocks the exact
+  release candidate.
+- Backup retention now treats a backup removed concurrently by another process
+  as an idempotent success while still reporting other filesystem failures.
+- Watcher startup now reports whether post-mine optimization was refused by a
+  safety check or failed with an error, with a direct health-check recovery step.
+- Concurrent watchers can initialize one fresh palace safely: Lance table
+  creation is idempotent, and SQLite knowledge-graph WAL setup retries one
+  initial busy collision without hiding unrelated failures.
+
 ## v1.13.6 — 2026-09-01
 
 ### Fixed

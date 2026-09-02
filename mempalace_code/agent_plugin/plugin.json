@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "mempalace-code",
-  "version": "1.13.6",
+  "version": "1.13.7",
   "description": "Local-first semantic memory for coding agents, packaged with a minimal-profile MCP server and LLM skill.",
   "author": {
     "name": "mempalace-code contributors",

@@ -24,8 +24,8 @@ The public release branch is `refs/heads/main`. Required repository-rule types:
 
 `release-required` is the stable aggregate check exposed by the **Tests**
 workflow (`.github/workflows/ci.yml`). It depends on every release-critical job —
-`dependency-upgrade-gate`, `gitleaks-changed-range`, `installed-application`,
-`lint`, `package`, `test`, `typecheck` — and runs with
+`dependency-upgrade-gate`, `dotnet-bench`, `gitleaks-changed-range`,
+`installed-application`, `lint`, `package`, `test`, `typecheck` — and runs with
 `if: always()` so it still reports when an upstream job fails or is skipped. It
 fails when any of those jobs is failed, cancelled, skipped, missing from `needs`,
 or reports an unknown result. The job name is the required-check context:
@@ -33,6 +33,13 @@ renaming it silently removes the branch requirement, so `RELEASE_CRITICAL_CI_JOB
 `AGGREGATE_REQUIRED_CHECK` in `scripts/release_admission_checks.py` pin both the
 name and the job set, and `tests/test_release_workflow_admission.py` compares
 them against the workflow.
+
+`dotnet-bench` mines the immutable CleanArchitecture commit
+`5a600ab8749c110384bc3bd436b9c67f3067b489`, validates the committed query set,
+and requires vector-mode R@5 of at least `0.900`. It runs in the **Tests**
+workflow for release-candidate pushes, and its report uploads even after a
+failure. Missing, skipped, or failed benchmark evidence blocks the exact SHA.
+Recover by re-running the failed **Tests** push run for that candidate SHA.
 
 `release-required` is evaluated for the **exact operator-reviewed commit SHA**,
 never for a branch. Only the newest completed check-run of that name on that SHA

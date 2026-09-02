@@ -68,7 +68,9 @@ class _LanceTableProtocol(Protocol):
 
 class _LanceDBConnectionProtocol(Protocol):
     def open_table(self, name: str) -> _LanceTableProtocol: ...
-    def create_table(self, name: str, schema: Any = None) -> _LanceTableProtocol: ...
+    def create_table(
+        self, name: str, schema: Any = None, exist_ok: bool = False
+    ) -> _LanceTableProtocol: ...
 
 
 class LanceStoreDependencyError(RuntimeError):
@@ -566,6 +568,34 @@ def _write_canonical_provenance() -> None:
     _require_owned_canonical_fastembed_cache(root)
 
 
+def _configure_canonical_fastembed_padding(model: object) -> None:
+    """Make FastEmbed's canonical ONNX tokenizer emit fixed-width batches."""
+    recovery = (
+        "Canonical FastEmbed tokenizer padding is incompatible. "
+        "Run `mempalace-code fetch-model --force` while online, then retry."
+    )
+    try:
+        tokenizer = cast("Any", model).model.tokenizer
+        padding = tokenizer.padding
+        if not isinstance(padding, dict):
+            raise TypeError("tokenizer padding is unavailable")
+        preserved = {
+            name: padding[name]
+            for name in ("direction", "pad_id", "pad_type_id", "pad_token", "pad_to_multiple_of")
+        }
+        tokenizer.enable_padding(length=CANONICAL_EMBED_MAX_LENGTH, **preserved)
+        configured = tokenizer.padding
+        if (
+            not isinstance(configured, dict)
+            or configured.get("length") != CANONICAL_EMBED_MAX_LENGTH
+        ):
+            raise ValueError("tokenizer rejected fixed padding length")
+        if any(configured.get(name) != value for name, value in preserved.items()):
+            raise ValueError("tokenizer changed canonical padding metadata")
+    except Exception as exc:
+        raise RuntimeError(recovery) from exc
+
+
 class _FastEmbedder:
     """CPU-only FastEmbed adapter for the canonical MiniLM aliases."""
 
@@ -591,20 +621,26 @@ class _FastEmbedder:
         }
         if offline or cache_owned:
             _require_owned_canonical_fastembed_cache()
+
+        def load_model():
+            loaded = TextEmbedding(**kwargs)
+            _configure_canonical_fastembed_padding(loaded)
+            return loaded
+
         try:
-            model = TextEmbedding(**kwargs)
+            model = load_model()
         except Exception:
-            if offline:
+            if offline or cache_owned:
                 raise
             kwargs["local_files_only"] = False
-            model = TextEmbedding(**kwargs)
+            model = load_model()
         if offline or cache_owned:
             _require_owned_canonical_fastembed_cache()
         if not offline:
             _write_canonical_provenance()
             if not cache_owned:
                 kwargs["local_files_only"] = True
-                model = TextEmbedding(**kwargs)
+                model = load_model()
         self._model = model
 
     def ndims(self) -> int:
@@ -946,7 +982,7 @@ class LanceStore(DrawerStore):
         self._ensure_embedder()
         dim = self._embedder_handle().ndims()
         target = _target_drawer_schema(dim)
-        return db.create_table(_LANCE_TABLE, schema=target)
+        return db.create_table(_LANCE_TABLE, schema=target, exist_ok=True)
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for a list of texts."""

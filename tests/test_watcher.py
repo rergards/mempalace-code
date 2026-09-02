@@ -1441,19 +1441,14 @@ class TestWatchScanRuleReload:
 
 
 # ---------------------------------------------------------------------------
-# _optimize_once — disk-guard gate tests (AC-7)
+# _optimize_once — safe optimize outcome tests
 # ---------------------------------------------------------------------------
 
 
 class TestOptimizeOnce:
-    """Watcher optimize routing through safe_optimize and the backup gate (AC-7).
+    """Watcher optimize routing through optimize_store."""
 
-    When backup_before_optimize=True and safe_optimize returns False (disk guard
-    rejected the pre-optimize backup), _optimize_once must report the skip and
-    must NOT fall through to raw store.optimize().
-    """
-
-    def test_backup_gate_rejected_skips_optimize(self, capsys):
+    def test_safety_check_failure_reports_truthful_outcome(self, capsys):
         """optimize_store() returning ok=False → output reports skipped."""
         from mempalace_code.storage import OptimizeResult
         from mempalace_code.watcher import _optimize_once
@@ -1465,12 +1460,14 @@ class TestOptimizeOnce:
         ):
             with patch("mempalace_code.config.MempalaceConfig") as mock_cfg_cls:
                 mock_cfg_cls.return_value.backup_before_optimize = True
-                _optimize_once("/fake/palace", mock_open)
+                outcome = _optimize_once("/fake/palace", mock_open)
 
         captured = capsys.readouterr()
-        assert "skipped (backup gate failed)" in captured.out
+        assert outcome == "skipped:safety-check"
+        assert "skipped (safety check failed; see preceding error)" in captured.out
+        assert "backup gate" not in captured.out.lower()
 
-    def test_backup_gate_success_prints_done(self, capsys):
+    def test_safe_optimize_success_prints_done(self, capsys):
         """optimize_store() returning ok=True → output shows done."""
         from mempalace_code.storage import OptimizeResult
         from mempalace_code.watcher import _optimize_once
@@ -1482,10 +1479,29 @@ class TestOptimizeOnce:
         ):
             with patch("mempalace_code.config.MempalaceConfig") as mock_cfg_cls:
                 mock_cfg_cls.return_value.backup_before_optimize = True
-                _optimize_once("/fake/palace", mock_open)
+                outcome = _optimize_once("/fake/palace", mock_open)
 
         captured = capsys.readouterr()
+        assert outcome == "completed"
         assert "done" in captured.out
+
+    def test_optimize_exception_reports_error_outcome(self, capsys):
+        """Raised optimize errors retain their precise text and error outcome."""
+        from mempalace_code.watcher import _optimize_once
+
+        with (
+            patch(
+                "mempalace_code.watcher.optimize_store",
+                side_effect=RuntimeError("concurrent optimize conflict"),
+            ),
+            patch("mempalace_code.config.MempalaceConfig") as mock_cfg_cls,
+        ):
+            mock_cfg_cls.return_value.backup_before_optimize = True
+            outcome = _optimize_once("/fake/palace", MagicMock())
+
+        captured = capsys.readouterr()
+        assert outcome == "skipped:error"
+        assert "skipped (concurrent optimize conflict)" in captured.out
 
     def test_store_without_safe_optimize_uses_raw_optimize(self, capsys):
         """Stores without safe_optimize fall back to raw optimize()."""
@@ -2718,6 +2734,41 @@ class TestWatchRunReadinessDiagnostics:
         assert "WATCH_RUN run_id=TEST-RUN-ID state=initial-mine-completed" in output
         assert "WATCH_RUN run_id=TEST-RUN-ID state=optimize-completed" in output
         assert "WATCH_RUN run_id=TEST-RUN-ID state=watch-ready" in output
+
+    @pytest.mark.parametrize("entrypoint", ["watch_and_mine", "watch_all"])
+    def test_safety_check_skip_keeps_watch_ready(self, entrypoint, tmp_path, capsys):
+        """A false safe-optimize result is truthful and non-fatal at both entry points."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        if entrypoint == "watch_all":
+            (project / "mempalace.yaml").write_text("wing: test_wing\n")
+
+        with (
+            patch("mempalace_code.watcher._make_run_id", return_value="SAFETY-CHECK-RUN"),
+            patch(
+                "mempalace_code.watcher.mine",
+                return_value={"drawers_filed": 1, "files_processed": 1, "elapsed_secs": 0},
+            ),
+            patch(
+                "mempalace_code.watcher._optimize_once",
+                return_value="skipped:safety-check",
+            ),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.storage.open_store"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=10 * 1024**3),
+        ):
+            if entrypoint == "watch_and_mine":
+                watch_and_mine(str(project), str(tmp_path / "palace"))
+            else:
+                watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
+
+        output = capsys.readouterr().out
+        assert (
+            "WATCH_RUN run_id=SAFETY-CHECK-RUN state=optimize-skipped reason=safety-check" in output
+        )
+        assert "reason=backup-gate" not in output
+        assert "WATCH_RUN run_id=SAFETY-CHECK-RUN state=watch-ready" in output
 
     def test_watch_and_mine_pre_watch_backup_failure_emits_failed_state(self, tmp_path, capsys):
         """AC-2: watch_and_mine backup failure emits pre-watch-backup-failed; no watch-ready."""

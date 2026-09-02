@@ -490,8 +490,8 @@ def watch_and_mine(
                 )
                 if outcome == "completed":
                     _emit_run_state(run_id, "optimize-completed")
-                elif outcome == "skipped:backup-gate":
-                    _emit_run_state(run_id, "optimize-skipped", "reason=backup-gate")
+                elif outcome == "skipped:safety-check":
+                    _emit_run_state(run_id, "optimize-skipped", "reason=safety-check")
                 else:
                     _emit_run_state(run_id, "optimize-skipped", "reason=error")
     else:
@@ -606,7 +606,7 @@ def _optimize_once(
     *,
     store=None,
 ) -> str:
-    """Run a single optimize pass; return 'completed', 'skipped:backup-gate', or 'skipped:error'."""
+    """Run a single optimize pass; return 'completed', 'skipped:safety-check', or 'skipped:error'."""
     from .config import MempalaceConfig
 
     try:
@@ -619,8 +619,8 @@ def _optimize_once(
             store, palace_path, backup_first=config.backup_before_optimize, kg_path=kg_path
         )
         if not result.ok:
-            print(" skipped (backup gate failed)", flush=True)
-            return "skipped:backup-gate"
+            print(" skipped (safety check failed; see preceding error)", flush=True)
+            return "skipped:safety-check"
         print(f" done ({time.time() - t0:.1f}s)", flush=True)
         return "completed"
     except Exception as exc:
@@ -1021,8 +1021,8 @@ def watch_all(
         )
         if outcome == "completed":
             _emit_run_state(run_id, "optimize-completed")
-        elif outcome == "skipped:backup-gate":
-            _emit_run_state(run_id, "optimize-skipped", "reason=backup-gate")
+        elif outcome == "skipped:safety-check":
+            _emit_run_state(run_id, "optimize-skipped", "reason=safety-check")
         else:
             _emit_run_state(run_id, "optimize-skipped", "reason=error")
 

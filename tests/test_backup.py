@@ -1128,6 +1128,60 @@ class TestManagedRetention:
             f"deleted={deleted}"
         )
 
+    def test_prune_managed_backups_handles_concurrent_disappearance(
+        self, tmp_dir, monkeypatch, caplog
+    ):
+        """A concurrently removed candidate is quiet; other unlink failures still warn."""
+        original_unlink = os.unlink
+
+        def create_candidates(directory):
+            os.makedirs(directory)
+            retained = os.path.join(directory, "scheduled_20260101_120001.tar.gz")
+            stale = os.path.join(directory, "scheduled_20260101_120000.tar.gz")
+            for path in (retained, stale):
+                with open(path, "wb") as archive:
+                    archive.write(b"stub")
+                os.utime(path, (1_700_000_000.0, 1_700_000_000.0))
+            return retained, stale
+
+        disappeared_dir = os.path.join(tmp_dir, "disappeared")
+        disappeared_retained, disappeared_stale = create_candidates(disappeared_dir)
+
+        def disappear_then_unlink(path):
+            original_unlink(path)
+            raise FileNotFoundError(path)
+
+        with monkeypatch.context() as patch_context:
+            patch_context.setattr(backup_module.os, "unlink", disappear_then_unlink)
+            disappeared = backup_module.prune_managed_backups(
+                disappeared_dir, "scheduled", retain_count=1
+            )
+
+        assert disappeared == []
+        assert os.path.isfile(disappeared_retained)
+        assert not os.path.exists(disappeared_stale)
+        assert not any("Backup pruning failed" in message for message in caplog.messages)
+
+        caplog.clear()
+        denied_dir = os.path.join(tmp_dir, "denied")
+        denied_retained, denied_stale = create_candidates(denied_dir)
+
+        def deny_unlink(path):
+            raise PermissionError(path)
+
+        with monkeypatch.context() as patch_context:
+            patch_context.setattr(backup_module.os, "unlink", deny_unlink)
+            denied = backup_module.prune_managed_backups(denied_dir, "scheduled", retain_count=1)
+
+        assert denied == []
+        assert os.path.isfile(denied_retained)
+        assert os.path.isfile(denied_stale)
+        pruning_failures = [
+            message for message in caplog.messages if "Backup pruning failed" in message
+        ]
+        assert len(pruning_failures) == 1
+        assert denied_stale in pruning_failures[0]
+
     def test_default_scheduled_retention_prunes_to_bound(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):

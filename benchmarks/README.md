@@ -227,21 +227,25 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python benchmarks/dotnet_bench.py \
 
 ### CI Gate
 
-The workflow `.github/workflows/dotnet-bench.yml` runs on every pull request to
-`main` and every push to `main`. It:
+The `dotnet-bench` job in `.github/workflows/ci.yml` runs for every `Tests`
+workflow event. Pull requests to `main` and pushes to `main` or `release/v*` can
+provide release evidence; `workflow_dispatch` is diagnostic only and cannot
+satisfy release admission. The job:
 
 1. Fetches `jasontaylordev/CleanArchitecture` at the pinned commit
    `5a600ab8749c110384bc3bd436b9c67f3067b489` and verifies `HEAD` matches.
 2. Runs `--validate-queries` to confirm expected files are present in the corpus.
 3. Runs the benchmark with `--fail-under-r5 0.900`; exits 1 when overall R@5
    falls below 0.900.
-4. Uploads `benchmarks/results_dotnet_bench_ci.json` as a build artifact, even
-   on failure, so the report is always available.
+4. Uploads `benchmarks/results_dotnet_bench_ci.json` as the
+   `dotnet-bench-results` artifact even on failure.
+5. Feeds the existing `release-required` aggregate. A failed, skipped, or missing
+   benchmark blocks release admission.
 
-To skip the benchmark on a pull request (e.g. for documentation-only changes),
-add the **`skip-bench`** label. The job is skipped before cloning
-CleanArchitecture or downloading the embedding model. Pushes to `main` always
-run the benchmark regardless of labels.
+The job has no skip label. If it fails, inspect `dotnet-bench-results`, then run
+the reproduction command above against the pinned commit. Recover by rerunning
+the failed push or pull-request `Tests` run for the same candidate SHA; never
+dispatch a new run as release evidence.
 
 ## What Each Benchmark Tests
 

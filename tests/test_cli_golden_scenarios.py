@@ -109,8 +109,18 @@ _FAKE_FASTEMBED = '''\
 import hashlib
 import math
 import re
+import types
 
 _DIM = 384
+
+
+class _Tokenizer:
+    def __init__(self):
+        self.padding = {"length": 128, "direction": "right", "pad_id": 0,
+                        "pad_type_id": 0, "pad_token": "[PAD]", "pad_to_multiple_of": None}
+
+    def enable_padding(self, **kwargs):
+        self.padding = kwargs
 
 
 def _embed(text):
@@ -126,6 +136,7 @@ def _embed(text):
 class TextEmbedding:
     def __init__(self, model_name, **kwargs):
         self._model_name = model_name
+        self.model = types.SimpleNamespace(tokenizer=_Tokenizer())
         import os
         import sys
 

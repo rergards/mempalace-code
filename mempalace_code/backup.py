@@ -294,6 +294,8 @@ def prune_managed_backups(backups_dir: str, kind: str, retain_count: int) -> Lis
             os.unlink(fpath)
             pruned.append(fpath)
             logger.info("Pruned managed backup: %s", fpath)
+        except FileNotFoundError:
+            pass
         except OSError as exc:
             logger.warning("Backup pruning failed for %s: %s", fpath, exc)
 

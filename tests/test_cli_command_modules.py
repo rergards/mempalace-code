@@ -349,6 +349,20 @@ def _write_fake_fastembed_layout(cache_dir: Path, *, provenance: bool) -> None:
 def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False, fail_online=False):
     downloaded = False
 
+    class FakeTokenizer:
+        def __init__(self):
+            self.padding = {
+                "length": 128,
+                "direction": "right",
+                "pad_id": 0,
+                "pad_type_id": 0,
+                "pad_token": "[PAD]",
+                "pad_to_multiple_of": None,
+            }
+
+        def enable_padding(self, **kwargs):
+            self.padding = kwargs
+
     class FakeTextEmbedding:
         def __init__(self, **kwargs):
             nonlocal downloaded
@@ -363,6 +377,7 @@ def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False, fail_onli
                     raise RuntimeError("download interrupted")
                 _write_fake_fastembed_layout(Path(kwargs["cache_dir"]), provenance=False)
                 downloaded = True
+            self.model = types.SimpleNamespace(tokenizer=FakeTokenizer())
 
     class FakeSentenceTransformer:
         def __init__(self, model_name, **kwargs):
