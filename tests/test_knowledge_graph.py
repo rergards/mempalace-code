@@ -9,10 +9,19 @@ rejection, inverted-window rejection, inclusive boundaries).
 
 import multiprocessing
 import sqlite3
+from datetime import UTC, datetime
 
 import pytest
 
+import mempalace_code.knowledge_graph as knowledge_graph_module
 from mempalace_code.knowledge_graph import KnowledgeGraph
+
+
+class _FixedDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        instant = cls(2026, 6, 15, 12, 0, tzinfo=UTC)
+        return instant if tz is not None else instant.replace(tzinfo=None)
 
 
 def _initialize_knowledge_graph(db_path, barrier, results):
@@ -31,8 +40,8 @@ class _FakeWalConnection:
         self.closed = False
 
     def execute(self, statement):
-        assert statement == "PRAGMA journal_mode=WAL"
-        if self.wal_error is not None:
+        assert statement in {"PRAGMA journal_mode=WAL", "PRAGMA busy_timeout=10000"}
+        if statement == "PRAGMA journal_mode=WAL" and self.wal_error is not None:
             raise self.wal_error
 
     def close(self):
@@ -80,6 +89,40 @@ class TestTripleOperations:
 
 
 class TestQueries:
+    def test_current_classification_uses_full_window_at_fixed_instant(self, monkeypatch, kg):
+        kg.add_triple(
+            "Alice", "worked_at", "PastCo", valid_from="2024-01-01", valid_to="2025-12-31"
+        )
+        kg.add_triple(
+            "Alice",
+            "works_at",
+            "CurrentCo",
+            valid_from="2026-01-01",
+            valid_to="2026-12-31",
+        )
+        kg.add_triple("Alice", "will_join", "FutureCo", valid_from="2027-01-01")
+        monkeypatch.setattr(knowledge_graph_module, "datetime", _FixedDateTime)
+
+        facts = kg.query_entity("Alice", direction="outgoing")
+
+        assert {
+            fact["object"]: (fact["current"], fact["valid_from"], fact["valid_to"])
+            for fact in facts
+        } == {
+            "PastCo": (False, "2024-01-01", "2025-12-31"),
+            "CurrentCo": (True, "2026-01-01", "2026-12-31"),
+            "FutureCo": (False, "2027-01-01", None),
+        }
+        assert {
+            predicate: kg.query_relationship(predicate)[0]["current"]
+            for predicate in ("worked_at", "works_at", "will_join")
+        } == {"worked_at": False, "works_at": True, "will_join": False}
+        assert {fact["object"]: fact["current"] for fact in kg.timeline("Alice")} == {
+            "PastCo": False,
+            "CurrentCo": True,
+            "FutureCo": False,
+        }
+
     def test_query_outgoing(self, seeded_kg):
         results = seeded_kg.query_entity("Alice", direction="outgoing")
         predicates = {r["predicate"] for r in results}
@@ -121,6 +164,38 @@ class TestInvalidation:
         assert len(chess) == 1
         assert chess[0]["valid_to"] == "2026-01-01"
         assert chess[0]["current"] is False
+
+    def test_omitted_end_invalidates_at_current_utc_instant(self, monkeypatch, kg):
+        instants = iter(
+            (
+                _FixedDateTime(2026, 6, 15, 12, 0, tzinfo=UTC),
+                _FixedDateTime(2026, 6, 15, 12, 0, 1, tzinfo=UTC),
+            )
+        )
+
+        class AdvancingDateTime(_FixedDateTime):
+            @classmethod
+            def now(cls, tz=None):
+                source = next(instants)
+                instant = cls(
+                    source.year,
+                    source.month,
+                    source.day,
+                    source.hour,
+                    source.minute,
+                    source.second,
+                    tzinfo=UTC,
+                )
+                return instant if tz is not None else instant.replace(tzinfo=None)
+
+        kg.add_triple("Alice", "works_at", "Acme", valid_from="2026-01-01")
+        monkeypatch.setattr(knowledge_graph_module, "datetime", AdvancingDateTime)
+
+        kg.invalidate("Alice", "works_at", "Acme")
+        fact = kg.query_entity("Alice")[0]
+
+        assert fact["valid_to"] == "2026-06-15T12:00:00+00:00"
+        assert fact["current"] is False
 
 
 class TestTimeline:
@@ -244,6 +319,8 @@ class TestWALMode:
             return next(connections)
 
         monkeypatch.setattr(sqlite3, "connect", connect)
+        sleeps = []
+        monkeypatch.setattr(knowledge_graph_module.time, "sleep", sleeps.append)
         graph = object.__new__(KnowledgeGraph)
         graph.db_path = str(tmp_path / "knowledge_graph.sqlite3")
 
@@ -252,23 +329,26 @@ class TestWALMode:
         assert returned is second
         assert first.closed is True
         assert second.closed is False
-        assert connect_calls == [(graph.db_path, 10), (graph.db_path, 10)]
+        assert connect_calls == [(graph.db_path, 10), (graph.db_path, 0)]
+        assert sleeps == [knowledge_graph_module._WAL_BUSY_RETRY_DELAYS[0]]
 
-    def test_busy_wal_error_propagates_after_second_attempt_and_closes_both(
+    def test_busy_wal_error_propagates_after_retry_window_and_closes_every_connection(
         self, monkeypatch, tmp_path
     ):
         failure = sqlite3.OperationalError("database remains busy")
         failure.sqlite_errorcode = sqlite3.SQLITE_BUSY_SNAPSHOT
-        first = _FakeWalConnection(failure)
-        second = _FakeWalConnection(failure)
-        connections = iter((first, second))
+        connection_count = len(knowledge_graph_module._WAL_BUSY_RETRY_DELAYS) + 1
+        connections = [_FakeWalConnection(failure) for _ in range(connection_count)]
+        connection_iter = iter(connections)
         connect_calls = []
+        sleeps = []
 
         def connect(db_path, *, timeout):
             connect_calls.append((db_path, timeout))
-            return next(connections)
+            return next(connection_iter)
 
         monkeypatch.setattr(sqlite3, "connect", connect)
+        monkeypatch.setattr(knowledge_graph_module.time, "sleep", sleeps.append)
         graph = object.__new__(KnowledgeGraph)
         graph.db_path = str(tmp_path / "knowledge_graph.sqlite3")
 
@@ -276,12 +356,38 @@ class TestWALMode:
             graph._conn()
 
         assert raised.value is failure
-        assert first.closed is True
-        assert second.closed is True
-        assert connect_calls == [(graph.db_path, 10), (graph.db_path, 10)]
+        assert all(connection.closed for connection in connections)
+        assert connect_calls == [(graph.db_path, 10)] + [(graph.db_path, 0)] * len(
+            knowledge_graph_module._WAL_BUSY_RETRY_DELAYS
+        )
+        assert sleeps == list(knowledge_graph_module._WAL_BUSY_RETRY_DELAYS)
 
 
 class TestStats:
+    def test_temporal_stats_and_supported_directions_at_fixed_instant(self, monkeypatch, kg):
+        kg.add_triple("Hub", "used", "Past", valid_to="2025-12-31")
+        kg.add_triple("Hub", "uses", "Current", valid_from="2026-01-01", valid_to="2026-12-31")
+        kg.add_triple("Future", "will_use", "Hub", valid_from="2027-01-01")
+        monkeypatch.setattr(knowledge_graph_module, "datetime", _FixedDateTime)
+
+        outgoing = kg.query_entity("Hub", direction="outgoing")
+        incoming = kg.query_entity("Hub", direction="incoming")
+        both = kg.query_entity("Hub", direction="both")
+        stats = kg.stats()
+
+        assert [(fact["direction"], fact["object"]) for fact in outgoing] == [
+            ("outgoing", "Past"),
+            ("outgoing", "Current"),
+        ]
+        assert [(fact["direction"], fact["subject"]) for fact in incoming] == [
+            ("incoming", "Future")
+        ]
+        assert both == outgoing + incoming
+        assert stats["triples"] == 3
+        assert stats["current_facts"] == 1
+        assert stats["expired_facts"] == 1
+        assert stats["future_facts"] == 1
+
     def test_stats_empty(self, kg):
         stats = kg.stats()
         assert stats["entities"] == 0
@@ -293,6 +399,7 @@ class TestStats:
         assert stats["triples"] == 5
         assert stats["current_facts"] == 4  # 1 expired (Acme Corp)
         assert stats["expired_facts"] == 1
+        assert stats["future_facts"] == 0
 
 
 class TestTemporalValidation:

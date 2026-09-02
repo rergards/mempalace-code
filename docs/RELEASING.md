@@ -50,7 +50,7 @@ python scripts/docs_drift_guard.py
 python scripts/public_safety_scan.py --tracked --staged
 python scripts/quality_scorecard.py --check
 python scripts/release_preflight.py --tag vX.Y.Z --require-clean
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --check-public-main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --check-public-main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
 python scripts/release_install_metadata_smoke.py --all-installers --install-spec . --json
 WHEEL=dist/mempalace_code-X.Y.Z-py3-none-any.whl
 python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
@@ -165,7 +165,7 @@ The exact-SHA release admission command is the publication boundary after the
 operator has reviewed the candidate commit and fetched the public target:
 
 ```bash
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --candidate-ref publish/main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --candidate-ref publish/main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
 ```
 
 This command binds `HEAD`, the intended `vX.Y.Z` tag target, the
@@ -320,7 +320,7 @@ owner:
 
 ```bash
 test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-python scripts/release_preflight.py --require-clean --expect-sha "$CANDIDATE_SHA" --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset
+python scripts/release_preflight.py --require-clean --expect-sha "$CANDIDATE_SHA" --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
 ```
 
 A non-zero exit means the release is not admissible. Fix the reported row and
@@ -356,7 +356,7 @@ Public `main` has moved, so re-run exact-SHA admission — this time bound to
 `publish/main` — before any tag exists:
 
 ```bash
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --candidate-ref publish/main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --candidate-ref publish/main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
 ```
 
 A non-zero exit means the release is not admissible. Fix the reported row; do

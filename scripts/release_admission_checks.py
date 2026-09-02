@@ -109,6 +109,11 @@ ACKNOWLEDGED_ORPHAN_TAGS: dict[str, str] = {
         "failed publish attempt: no PyPI distribution and no GitHub Release; the "
         "tag stays as immutable public evidence and must never be moved or deleted"
     ),
+    "v1.13.7": (
+        "failed publish attempt: live upstream drift stopped the workflow before "
+        "artifact build, so no PyPI distribution or GitHub Release exists; the tag "
+        "stays as immutable public evidence and must never be moved or deleted"
+    ),
 }
 
 # Bounds on live lookups so a large repository cannot flood a release log.
@@ -770,6 +775,7 @@ def check_public_orphan_tags(
     public_read: Callable[[object], object],
     *,
     require_expected_tag: bool = False,
+    allow_expected_tag_pending: bool = False,
 ) -> AdmissionRow:
     """Report public ``v*`` tags without a non-draft GitHub Release and PyPI identity.
 
@@ -777,8 +783,17 @@ def check_public_orphan_tags(
     immutable evidence and never block; every other orphan is a new regression
     and fails closed. ``require_expected_tag`` is for the post-publication status
     gate, where ``v{version}`` must already exist publicly.
+    ``allow_expected_tag_pending`` is only for a validated tag-triggered
+    publication transaction: it permits that exact tag to be temporarily
+    incomplete while every other orphan remains blocking.
     """
     row_name = "public_orphan_tags"
+    if require_expected_tag and allow_expected_tag_pending:
+        return fail_row(
+            row_name,
+            "the expected public tag cannot be both required complete and allowed pending",
+            REMEDIATE_ORPHAN,
+        )
     tags, tag_error = list_public_version_tags(repo, public_read)
     if tag_error is not None:
         return tag_error
@@ -832,8 +847,10 @@ def check_public_orphan_tags(
         )
     pypi_releases: dict[str, object] = pypi_data["releases"]
 
+    expected_tag = f"v{version}"
     blocking: list[str] = []
     acknowledged: list[str] = []
+    pending: list[str] = []
     for tag in tags:
         problems: list[str] = []
         release = releases.get(tag)
@@ -846,15 +863,19 @@ def check_public_orphan_tags(
             problems.append(f"no PyPI distribution for {package}=={tag.removeprefix('v')}")
         if not problems:
             continue
-        if tag in ACKNOWLEDGED_ORPHAN_TAGS:
+        if allow_expected_tag_pending and tag == expected_tag:
+            pending.append(f"{tag} ({', '.join(problems)})")
+        elif tag in ACKNOWLEDGED_ORPHAN_TAGS:
             acknowledged.append(f"{tag} ({', '.join(problems)})")
         else:
             blocking.append(f"{tag}: {', '.join(problems)}")
 
-    expected_tag = f"v{version}"
     if require_expected_tag and expected_tag not in tags:
         blocking.append(f"{expected_tag}: expected public tag not found")
 
+    pending_evidence = (
+        f" expected publication tag pending: {_summarize(pending)}" if pending else ""
+    )
     evidence = (
         f" acknowledged immutable orphan evidence: {_summarize(acknowledged)}"
         if acknowledged
@@ -862,10 +883,13 @@ def check_public_orphan_tags(
     )
     if blocking:
         return fail_row(
-            row_name, f"orphan public tags: {_summarize(blocking)}.{evidence}", REMEDIATE_ORPHAN
+            row_name,
+            f"orphan public tags: {_summarize(blocking)}.{pending_evidence}{evidence}",
+            REMEDIATE_ORPHAN,
         )
     return ok_row(
         row_name,
         f"{len(tags)} public v* tags have a non-draft GitHub Release and PyPI identity, "
-        f"or are acknowledged evidence.{evidence}",
+        f"are the exact pending publication tag, or are acknowledged evidence."
+        f"{pending_evidence}{evidence}",
     )

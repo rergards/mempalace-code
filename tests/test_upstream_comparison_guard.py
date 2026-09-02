@@ -487,12 +487,7 @@ def test_canonical_document_records_the_exact_commit_inventory():
     manifest = guard.load_manifest(ROOT)
     document = (ROOT / "docs" / "UPSTREAM_COMPARISON.md").read_text(encoding="utf-8")
     decisions = manifest["delta_decisions"]
-    nested_merges = {
-        "359c579d2028fd5f4964984297abf67417e7c105",
-        "87e6f38377b4bee0666374b05df6e14ffd154245",
-        "98a0f824c84dd46b98230acf6ac990800797e570",
-        "c044acdaed50fd474709080fc8cd3978cf230315",
-    }
+    nested_merges: set[str] = set()
 
     merge_groups = [decision["merge_group"] for decision in decisions]
     constituent_commits = [
@@ -522,12 +517,12 @@ def test_canonical_document_records_the_exact_commit_inventory():
             f"- `{decision['merge_group'][:8]}`: {', '.join(rendered_commits)}"
         )
 
-    assert len(merge_groups) == len(set(merge_groups)) == 12
-    assert len(full_inventory) == 47
-    assert nested_merges < set(constituent_commits)
-    assert len(non_merge_constituents) == 31
-    assert "exact 47-commit full-range inventory" in document
-    assert "31-commit non-merge constituent subset" in document
+    assert len(merge_groups) == len(set(merge_groups)) == 1
+    assert len(full_inventory) == 10
+    assert not nested_merges
+    assert len(non_merge_constituents) == 9
+    assert "exact 10-commit full-range inventory" in document
+    assert "nine-commit non-merge constituent subset" in document
     assert inventory_lines == expected_inventory_lines
 
 
@@ -914,7 +909,7 @@ def test_repository_manifest_and_document_agree():
     assert errors == []
     assert facts["inventory_anchor_algorithm"] == "sha256"
     assert facts["inventory_anchor_version"] == 1
-    assert facts["inventory_anchor_declared_count"] == 47
-    assert facts["inventory_anchor_derived_count"] == 47
+    assert facts["inventory_anchor_declared_count"] == 10
+    assert facts["inventory_anchor_derived_count"] == 10
     assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
     assert facts["commit_inventory_exact"] is True

@@ -108,6 +108,7 @@ below are reviewed, immutable, and reported without blocking; they are the
 |---|---|
 | `v1.0.0`, `v1.1.0`, `v1.1.1`, `v1.2.0`, `v1.3.0`, `v1.4.0`, `v1.4.1`, `v1.5.0`, `v1.6.0`, `v1.6.1`, `v1.6.2`, `v1.7.0`, `v1.8.0`, `v1.10.2` | historical tags: the PyPI distribution was published before GitHub Release creation was automated, so no GitHub Release exists. The tags are immutable. |
 | `v1.13.2` | failed publish attempt: **no** PyPI distribution and **no** GitHub Release. The tag stays as immutable public evidence of the failure and must never be moved or deleted. |
+| `v1.13.7` | failed publish attempt: live upstream drift stopped the workflow before artifact build, so **no** PyPI distribution and **no** GitHub Release exists. The tag stays as immutable public evidence of the failure and must never be moved or deleted. |
 
 Adding a tag to that registry is a reviewed decision for a permanent missing
 surface. An in-flight partial publication stays outside the registry and follows

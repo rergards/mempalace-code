@@ -5440,7 +5440,7 @@ def _installed_mcp_recipe(project: Path) -> dict[str, dict]:
         "mempalace_list_wings": {"arguments": {}},
         "mempalace_list_rooms": {"arguments": {"wing": "seed_main"}},
         "mempalace_get_taxonomy": {"arguments": {}},
-        "mempalace_kg_query": {"arguments": {"entity": "SeedEntity"}},
+        "mempalace_kg_query": {"arguments": {"entity": "TemporalSeed", "direction": "outgoing"}},
         "mempalace_kg_add": {
             "arguments": {
                 "subject": "AddedEntity",
@@ -5542,11 +5542,16 @@ def _validate_installed_mcp_semantics(name: str, payload: dict | list) -> None:
     elif name == "mempalace_get_taxonomy" and isinstance(payload, dict):
         ok = payload.get("taxonomy", {}).get("seed_graph", {}).get("shared_room") == 1
     elif name == "mempalace_kg_query" and isinstance(payload, dict):
-        ok = payload.get("entity") == "SeedEntity" and any(
-            fact.get("predicate") == "preserves" and fact.get("object") == "SeedObject"
+        states = {
+            fact.get("object"): fact.get("current")
             for fact in payload.get("facts", [])
-            if isinstance(fact, dict)
-        )
+            if isinstance(fact, dict) and fact.get("predicate") == "temporal_state"
+        }
+        ok = payload.get("entity") == "TemporalSeed" and states == {
+            "ExpiredFact": False,
+            "ActiveFact": True,
+            "FutureFact": False,
+        }
     elif name == "mempalace_kg_add" and isinstance(payload, dict):
         ok = payload.get("success") is True and isinstance(payload.get("triple_id"), str)
     elif name == "mempalace_kg_invalidate" and isinstance(payload, dict):
@@ -5554,7 +5559,13 @@ def _validate_installed_mcp_semantics(name: str, payload: dict | list) -> None:
     elif name == "mempalace_kg_timeline" and isinstance(payload, dict):
         ok = payload.get("entity") == "SeedEntity" and payload.get("count", 0) >= 1
     elif name == "mempalace_kg_stats" and isinstance(payload, dict):
-        ok = payload.get("triples", 0) >= 3 and "preserves" in payload.get("relationship_types", [])
+        ok = (
+            payload.get("triples") == 7
+            and payload.get("current_facts") == 4
+            and payload.get("expired_facts") == 2
+            and payload.get("future_facts") == 1
+            and {"preserves", "temporal_state"}.issubset(payload.get("relationship_types", []))
+        )
     elif name == "mempalace_find_implementations" and isinstance(payload, dict):
         ok = any(row.get("type") == "SeedService" for row in payload.get("implementations", []))
     elif name == "mempalace_find_references" and isinstance(payload, dict):
@@ -5624,7 +5635,7 @@ def _validate_installed_mcp_semantics(name: str, payload: dict | list) -> None:
 def _run_installed_mcp_session(
     launcher: Path,
     profile: str,
-    batches: list[list[dict | str]],
+    batches: list[list[object]],
     env: dict[str, str],
     cwd: Path,
     *,
@@ -5796,6 +5807,29 @@ def _installed_mcp_seed_records() -> str:
             "predicate": "depends_on",
             "object": "SeedDependency",
         },
+        {
+            "type": "kg_triple",
+            "subject": "TemporalSeed",
+            "predicate": "temporal_state",
+            "object": "ExpiredFact",
+            "valid_from": "1990-01-01",
+            "valid_to": "2000-01-01",
+        },
+        {
+            "type": "kg_triple",
+            "subject": "TemporalSeed",
+            "predicate": "temporal_state",
+            "object": "ActiveFact",
+            "valid_from": "2000-01-01",
+            "valid_to": "2099-12-31",
+        },
+        {
+            "type": "kg_triple",
+            "subject": "TemporalSeed",
+            "predicate": "temporal_state",
+            "object": "FutureFact",
+            "valid_from": "2100-01-01",
+        },
     ]
     return "\n".join(json.dumps(record, separators=(",", ":")) for record in records) + "\n"
 
@@ -5861,7 +5895,7 @@ def _run_installed_mcp_stdio_scenario(
             init_result.returncode != 0
             or import_result.returncode != 0
             or "Imported drawers:   4" not in (import_result.stdout or "")
-            or "Imported KG triples:3" not in (import_result.stdout or "")
+            or "Imported KG triples:6" not in (import_result.stdout or "")
         ):
             raise RuntimeError("installed MCP fixture setup failed")
 
@@ -5907,20 +5941,36 @@ def _run_installed_mcp_stdio_scenario(
         for profile_index, (profile_name, expected_members) in enumerate(profiles):
             initialize = {"jsonrpc": "2.0", "id": 20, "method": "initialize", "params": {}}
             list_request = {"jsonrpc": "2.0", "id": 10, "method": "tools/list", "params": {}}
-            batches: list[list[dict | str]] = [[initialize], [list_request]]
+            batches: list[list[object]] = [[initialize], [list_request]]
             expected_responses: list[tuple[int | None, str]] = [
                 (20, "result"),
                 (10, "result"),
             ]
             primary_names: list[str] = []
             if profile_name == "full":
-                hostile: list[dict | str] = [
+                hostile: list[object] = [
                     "{malformed",
+                    [],
                     {"jsonrpc": "2.0", "id": 10, "method": "unknown/method", "params": {}},
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 11,
+                        "method": "tools/call",
+                        "params": [1],
+                    },
+                    {"jsonrpc": "2.0", "id": 12, "params": {}},
                     "",
                 ]
-                calls: list[dict | str] = [*hostile]
-                expected_responses.extend([(None, "error"), (10, "error")])
+                calls: list[object] = [*hostile]
+                expected_responses.extend(
+                    [
+                        (None, "error"),
+                        (None, "error"),
+                        (10, "error"),
+                        (11, "error"),
+                        (12, "error"),
+                    ]
+                )
                 next_id = 100
                 for tool_name in tools:
                     calls.append(
@@ -5934,6 +5984,34 @@ def _run_installed_mcp_stdio_scenario(
                     expected_responses.append((next_id, "result"))
                     primary_names.append(tool_name)
                     next_id += 1
+                invalid_direction_id = next_id
+                calls.append(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": invalid_direction_id,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "mempalace_kg_query",
+                            "arguments": {"entity": "TemporalSeed", "direction": "sideways"},
+                        },
+                    }
+                )
+                expected_responses.append((invalid_direction_id, "error"))
+                next_id += 1
+                direction_recovery_id = next_id
+                calls.append(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": direction_recovery_id,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "mempalace_kg_query",
+                            "arguments": {"entity": "TemporalSeed", "direction": "outgoing"},
+                        },
+                    }
+                )
+                expected_responses.append((direction_recovery_id, "result"))
+                next_id += 1
                 poststate_calls = [
                     (
                         "added_drawer",
@@ -6018,22 +6096,55 @@ def _run_installed_mcp_stdio_scenario(
                     "installed MCP profile listing did not match installed authority"
                 )
             if profile_name == "full":
+                query_tools = [tool for tool in listed if tool.get("name") == "mempalace_kg_query"]
+                if len(query_tools) != 1 or query_tools[0].get("inputSchema", {}).get(
+                    "properties", {}
+                ).get("direction", {}).get("enum") != ["outgoing", "incoming", "both"]:
+                    raise RuntimeError("installed MCP direction schema enum was not exact")
                 if responses[2].get("error", {}).get("code") != -32700:
                     raise RuntimeError(
                         "installed MCP malformed framing did not fail as parse error"
                     )
-                if responses[3].get("error", {}).get("code") != -32601:
+                if responses[3].get("error", {}).get("code") != -32600:
+                    raise RuntimeError("installed MCP non-object request was not invalid request")
+                if responses[4].get("error", {}).get("code") != -32601:
                     raise RuntimeError("installed MCP duplicate ID was not occurrence-attributed")
-                tool_responses = responses[4 : 4 + len(primary_names)]
+                if (
+                    responses[5].get("error", {}).get("code") != -32602
+                    or responses[5].get("error", {}).get("message")
+                    != "Invalid params: params must be an object"
+                ):
+                    raise RuntimeError("installed MCP non-object params were not invalid params")
+                if responses[6].get("error") != {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                }:
+                    raise RuntimeError("installed MCP missing method was not invalid request")
+                tool_start = 7
+                tool_responses = responses[tool_start : tool_start + len(primary_names)]
                 if len(tool_responses) != len(primary_names):
                     raise RuntimeError("installed MCP tool response count did not reconcile")
                 for tool_name, response in zip(primary_names, tool_responses, strict=True):
                     payload = _installed_mcp_text_result(response)
                     _validate_installed_mcp_semantics(tool_name, payload)
                     primary_validated.add(tool_name)
+                contract_start = tool_start + len(primary_names)
+                invalid_direction, direction_recovery = responses[
+                    contract_start : contract_start + 2
+                ]
+                if (
+                    invalid_direction.get("error", {}).get("code") != -32602
+                    or "result" in invalid_direction
+                ):
+                    raise RuntimeError(
+                        "installed MCP invalid direction did not fail as invalid params"
+                    )
+                _validate_installed_mcp_semantics(
+                    "mempalace_kg_query", _installed_mcp_text_result(direction_recovery)
+                )
                 post_payloads = [
                     _installed_mcp_text_result(response)
-                    for response in responses[4 + len(primary_names) :]
+                    for response in responses[contract_start + 2 :]
                 ]
                 if len(post_payloads) != len(poststate_calls):
                     raise RuntimeError("installed MCP post-state response count did not reconcile")

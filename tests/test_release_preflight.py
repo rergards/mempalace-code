@@ -121,7 +121,7 @@ def test_default_preflight_executes_static_upstream_guard_successfully():
 
     upstream = next(check for check in checks if check["name"] == "upstream_comparison")
     assert upstream["status"] == "ok"
-    assert "manifest_inventory_commits=47" in upstream["detail"]
+    assert "manifest_inventory_commits=10" in upstream["detail"]
 
 
 def test_default_preflight_propagates_static_inventory_failure(tmp_path: Path):
@@ -460,6 +460,43 @@ def test_public_main_comparison_requires_a_reviewed_sha_without_network(tmp_path
     assert "--expect-sha" in row["detail"]
 
 
+def test_orphan_preflight_allows_pending_tag_only_after_exact_tag_validation(
+    tmp_path: Path, monkeypatch
+):
+    root = _root(tmp_path)
+    admission = preflight._load_admission_checks()
+    observed: list[bool] = []
+
+    def check_public_orphan_tags(
+        version, repo, package, public_read, *, allow_expected_tag_pending=False
+    ):
+        assert version == "1.2.3"
+        assert repo == admission.DEFAULT_REPO
+        assert package == admission.DEFAULT_PACKAGE
+        observed.append(allow_expected_tag_pending)
+        return admission.ok_row("public_orphan_tags", "fixture passed")
+
+    def run(command, _root):
+        if command[:2] == ["git", "rev-parse"] and "--verify" in command:
+            return 1, "absent"
+        return 0, "passed"
+
+    monkeypatch.setattr(admission, "check_public_orphan_tags", check_public_orphan_tags)
+    for tag in ("v1.2.3", "v9.9.9"):
+        preflight.evaluate(
+            root,
+            tag=tag,
+            require_clean=False,
+            check_public_orphan_tags=True,
+            run=run,
+            public_read=lambda _query: (_ for _ in ()).throw(
+                AssertionError("fixture predicate owns public reads")
+            ),
+        )
+
+    assert observed == [True, False]
+
+
 def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
     root = _root(tmp_path)
     observed: dict[str, object] = {}
@@ -477,6 +514,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
         check_dependency_audit,
         check_branch_rules,
         check_tag_ruleset,
+        check_public_orphan_tags,
         check_public_main,
         repo,
         branch,
@@ -495,6 +533,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
             check_dependency_audit=check_dependency_audit,
             check_branch_rules=check_branch_rules,
             check_tag_ruleset=check_tag_ruleset,
+            check_public_orphan_tags=check_public_orphan_tags,
             check_public_main=check_public_main,
             repo=repo,
             branch=branch,
@@ -533,6 +572,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
         "check_dependency_audit": False,
         "check_branch_rules": False,
         "check_tag_ruleset": False,
+        "check_public_orphan_tags": False,
         "check_public_main": False,
         "repo": None,
         "branch": None,

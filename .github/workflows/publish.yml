@@ -77,7 +77,8 @@ jobs:
             --check-required-check \
             --check-dependency-audit \
             --check-branch-rules \
-            --check-tag-ruleset
+            --check-tag-ruleset \
+            --check-public-orphan-tags
       - name: Upstream comparison guard (live head, read-only)
         run: python scripts/upstream_comparison_guard.py --check-live
       - name: Build distributions
@@ -152,7 +153,8 @@ jobs:
             --check-required-check \
             --check-dependency-audit \
             --check-branch-rules \
-            --check-tag-ruleset
+            --check-tag-ruleset \
+            --check-public-orphan-tags
       - name: Inspect original-run distributions
         run: python scripts/release_artifact_gate.py --dist dist --require-wheel --require-sdist
       - name: Match original-run distributions to PyPI and provenance

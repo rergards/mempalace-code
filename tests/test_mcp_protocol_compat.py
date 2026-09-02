@@ -542,6 +542,87 @@ def test_malformed_then_valid_continuity(palace_path, fresh_home):
     )
 
 
+def test_non_object_envelope_then_initialize_continuity(palace_path, fresh_home):
+    """A valid non-object JSON envelope returns -32600 without disrupting stdio."""
+    open_store(palace_path, create=True)
+
+    raw_lines = [
+        "[]",
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+    ]
+    responses, result = _run_mcp_raw(raw_lines, palace_path, fresh_home)
+
+    assert len(responses) == 2, (
+        f"Expected 2 responses, got {len(responses)}\n"
+        f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+    )
+    assert responses[0] == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": -32600, "message": "Invalid Request"},
+    }
+    assert responses[1]["id"] == 1
+    assert responses[1]["result"]["serverInfo"]["name"] == "mempalace-code"
+    assert "Server error" not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_non_object_params_then_initialize_continuity(palace_path, fresh_home):
+    """Every non-object params shape returns -32602 without disrupting stdio."""
+    open_store(palace_path, create=True)
+
+    invalid_params = ([], [1], "", "invalid", 0, False)
+    raw_lines = [
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "tools/call",
+                "params": params,
+            }
+        )
+        for request_id, params in enumerate(invalid_params, start=1)
+    ]
+    raw_lines.append(json.dumps({"jsonrpc": "2.0", "id": 7, "method": "initialize", "params": {}}))
+    responses, result = _run_mcp_raw(raw_lines, palace_path, fresh_home)
+
+    assert len(responses) == 7
+    for request_id, response in enumerate(responses[:-1], start=1):
+        assert response == {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {"code": -32602, "message": "Invalid params: params must be an object"},
+        }
+    assert responses[-1]["id"] == 7
+    assert responses[-1]["result"]["serverInfo"]["name"] == "mempalace-code"
+    assert "Server error" not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_invalid_method_then_initialize_continuity(palace_path, fresh_home):
+    """A missing or non-string method returns -32600 without disrupting stdio."""
+    open_store(palace_path, create=True)
+
+    raw_lines = [
+        json.dumps({"jsonrpc": "2.0", "id": 1, "params": {}}),
+        json.dumps({"jsonrpc": "2.0", "id": 2, "method": 1, "params": {}}),
+        json.dumps({"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {}}),
+    ]
+    responses, result = _run_mcp_raw(raw_lines, palace_path, fresh_home)
+
+    assert len(responses) == 3
+    for request_id, response in enumerate(responses[:2], start=1):
+        assert response == {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {"code": -32600, "message": "Invalid Request"},
+        }
+    assert responses[2]["id"] == 3
+    assert responses[2]["result"]["serverInfo"]["name"] == "mempalace-code"
+    assert "Server error" not in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_duplicate_initialize_deterministic(palace_path, fresh_home):
     """Sending initialize twice returns two identical deterministic success responses (AC-3)."""
     open_store(palace_path, create=True)
@@ -891,6 +972,93 @@ def test_schema_guard_via_handle_request(tool_name, arguments, expected_code, ms
     assert "error" in resp, f"Expected error response, got: {resp}"
     assert resp["error"]["code"] == expected_code
     assert msg_fragment in resp["error"]["message"]
+
+
+def test_enum_guard_rejects_invalid_direction_before_handler():
+    from mempalace_code.mcp.dispatch import handle_request
+
+    calls = []
+
+    def recording_handler(**arguments):
+        calls.append(arguments)
+        return {"unexpected": True}
+
+    spec = TOOLS["mempalace_kg_query"]
+    registry = {
+        "mempalace_kg_query": {
+            **spec,
+            "handler": recording_handler,
+        }
+    }
+    response = handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 101,
+            "method": "tools/call",
+            "params": {
+                "name": "mempalace_kg_query",
+                "arguments": {"entity": "Alice", "direction": "sideways"},
+            },
+        },
+        active_registry=registry,
+    )
+
+    assert response["error"] == {
+        "code": -32602,
+        "message": (
+            "Invalid params: unsupported value for argument(s): "
+            "direction (expected one of: outgoing, incoming, both)"
+        ),
+    }
+    assert calls == []
+
+
+def test_kg_query_contract_identifies_current_as_output_only():
+    spec = TOOLS["mempalace_kg_query"]
+
+    assert "current" not in spec["input_schema"]["properties"]
+    assert "current is not an input argument" in spec["description"]
+
+
+def test_kg_direction_enum_guard_via_full_stdio_preserves_continuity(palace_path, fresh_home):
+    open_store(palace_path, create=True)
+    requests = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "mempalace_kg_query",
+                "arguments": {"entity": "Alice", "direction": "sideways"},
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "mempalace_kg_query",
+                "arguments": {"entity": "Alice", "direction": "both"},
+            },
+        },
+    ]
+
+    responses, result = _run_mcp_stdio(
+        requests, palace_path, fresh_home, server_args=["--profile", "full"]
+    )
+
+    assert len(responses) == 2, f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+    assert responses[0]["error"] == {
+        "code": -32602,
+        "message": (
+            "Invalid params: unsupported value for argument(s): "
+            "direction (expected one of: outgoing, incoming, both)"
+        ),
+    }
+    assert responses[1]["id"] == 2
+    assert "result" in responses[1]
+    assert "Traceback" not in result.stderr
+    assert "ValueError" not in result.stderr
 
 
 @pytest.mark.parametrize("tool_name,arguments,expected_code,msg_fragment", _SCHEMA_GUARD_CASES)

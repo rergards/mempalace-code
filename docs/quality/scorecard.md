@@ -9,10 +9,10 @@ Schema version: 4
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 80 |
-| Package total lines | 29421 |
-| Package code lines | 24198 |
+| Package total lines | 29511 |
+| Package code lines | 24281 |
 | Test files (`tests/`) | 88 |
-| Test total lines | 81012 |
+| Test total lines | 81582 |
 
 ## Largest Modules (top 10)
 
@@ -128,7 +128,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | Test files | 88 |
-| Test functions | 3739 |
+| Test functions | 3755 |
 
 ## Available Suites
 

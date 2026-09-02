@@ -772,6 +772,7 @@ def test_github_release_rerun_rechecks_exact_repository_tag_sha_and_admission():
     assert "--check-dependency-audit" in run
     assert "--check-branch-rules" in run
     assert "--check-tag-ruleset" in run
+    assert "--check-public-orphan-tags" in run
 
 
 def test_github_release_rerun_rechecks_artifact_pypi_and_provenance_identity():
@@ -857,6 +858,7 @@ def test_admission_step_requires_check_audit_branch_and_tag_rules():
     assert "--check-dependency-audit" in run
     assert "--check-branch-rules" in run
     assert "--check-tag-ruleset" in run
+    assert "--check-public-orphan-tags" in run
 
 
 def test_publish_keeps_gitleaks_full_history_admission_before_admission_step():

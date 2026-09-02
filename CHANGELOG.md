@@ -2,7 +2,40 @@
 
 ## Unreleased
 
-## v1.13.7 — 2026-09-02
+## v1.13.8 — 2026-09-02
+
+Recovery release for the accumulated v1.13.7 changes. The immutable v1.13.7
+tag stopped before artifact build when the pinned upstream head moved, so no
+v1.13.7 package or GitHub Release exists.
+
+### Fixed
+
+- Temporal KG queries now classify bounded, expired, and future facts against
+  their full validity windows; statistics reconcile current, expired, and
+  future facts. Omitted invalidation bounds retire facts at the current UTC
+  instant while explicit date-only bounds remain inclusive through that day.
+- Invalid KG directions return bounded argument errors, including JSON-RPC
+  `-32602` through MCP.
+- A decoded non-object JSON-RPC envelope returns `-32600` without terminating
+  the stdio server, so the next valid request is still served.
+- Concurrent first-open KG initialization now retries a short bounded
+  `SQLITE_BUSY` window instead of repeating the WAL transition immediately.
+
+### Changed
+
+- Refreshed the reviewed upstream snapshot through `d9f05907`. Its optional
+  three-tool PQL facade, temporal response buckets, and logstream coordination
+  remain outside this fork because the existing typed MCP profiles already own
+  the supported surface.
+- Added the failed v1.13.7 tag to the immutable orphan-tag evidence registry.
+- The installed-wheel release gate now exercises temporal KG classification,
+  invalid direction recovery, malformed-envelope recovery, and the existing
+  concurrent-watcher KG path through the built applications.
+
+## v1.13.7 — 2026-09-02 (tagged, not published)
+
+The tag remains immutable public evidence. Publication stopped before artifact
+build because the reviewed upstream head changed; these changes ship in v1.13.8.
 
 ### Fixed
 

@@ -1446,13 +1446,35 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
             "mempalace_list_rooms": {"wing": "seed_main", "rooms": {"shared_room": 1}},
             "mempalace_get_taxonomy": {"taxonomy": {"seed_graph": {"shared_room": 1}}},
             "mempalace_kg_query": {
-                "entity": "SeedEntity",
-                "facts": [{"predicate": "preserves", "object": "SeedObject"}],
+                "entity": "TemporalSeed",
+                "facts": [
+                    {
+                        "predicate": "temporal_state",
+                        "object": "ExpiredFact",
+                        "current": False,
+                    },
+                    {
+                        "predicate": "temporal_state",
+                        "object": "ActiveFact",
+                        "current": True,
+                    },
+                    {
+                        "predicate": "temporal_state",
+                        "object": "FutureFact",
+                        "current": False,
+                    },
+                ],
             },
             "mempalace_kg_add": {"success": True, "triple_id": "triple-1"},
             "mempalace_kg_invalidate": {"success": True, "ended": "2026-01-01"},
             "mempalace_kg_timeline": {"entity": "SeedEntity", "count": 1},
-            "mempalace_kg_stats": {"triples": 3, "relationship_types": ["preserves"]},
+            "mempalace_kg_stats": {
+                "triples": 7,
+                "current_facts": 4,
+                "expired_facts": 2,
+                "future_facts": 1,
+                "relationship_types": ["preserves", "temporal_state"],
+            },
             "mempalace_find_implementations": {"implementations": [{"type": "SeedService"}]},
             "mempalace_find_references": {
                 "references": {"depends_on": [{"type": "SeedDependency"}]}
@@ -1500,6 +1522,14 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
         rrg._validate_installed_mcp_semantics(tool_name, semantic_payload(tool_name))
         with pytest.raises(ValueError, match=tool_name):
             rrg._validate_installed_mcp_semantics(tool_name, {})
+    wrong_state = semantic_payload("mempalace_kg_query")
+    wrong_state["facts"][2]["current"] = True
+    with pytest.raises(ValueError, match="mempalace_kg_query"):
+        rrg._validate_installed_mcp_semantics("mempalace_kg_query", wrong_state)
+    wrong_stats = dict(semantic_payload("mempalace_kg_stats"))
+    wrong_stats["future_facts"] = 0
+    with pytest.raises(ValueError, match="mempalace_kg_stats"):
+        rrg._validate_installed_mcp_semantics("mempalace_kg_stats", wrong_stats)
 
     def run_session(_launcher, profile, batches, _env, _cwd, **_kwargs):
         calls.append((profile, batches))
@@ -1511,8 +1541,20 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
             if item == "{malformed":
                 responses.append({"jsonrpc": "2.0", "id": None, "error": {"code": -32700}})
                 continue
-            method = item["method"]
-            if method == "initialize":
+            if item == []:
+                responses.append({"jsonrpc": "2.0", "id": None, "error": {"code": -32600}})
+                continue
+            assert isinstance(item, dict)
+            method = item.get("method")
+            if not isinstance(method, str):
+                responses.append(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": item["id"],
+                        "error": {"code": -32600, "message": "Invalid Request"},
+                    }
+                )
+            elif method == "initialize":
                 responses.append(
                     {
                         "jsonrpc": "2.0",
@@ -1521,18 +1563,49 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
                     }
                 )
             elif method == "tools/list":
+                listed = []
+                for name in profile_members[profile]:
+                    tool = {"name": name}
+                    if name == "mempalace_kg_query":
+                        tool["inputSchema"] = {
+                            "properties": {"direction": {"enum": ["outgoing", "incoming", "both"]}}
+                        }
+                    listed.append(tool)
                 responses.append(
                     {
                         "jsonrpc": "2.0",
                         "id": item["id"],
-                        "result": {"tools": [{"name": name} for name in profile_members[profile]]},
+                        "result": {"tools": listed},
                     }
                 )
             elif method == "unknown/method":
                 responses.append({"jsonrpc": "2.0", "id": item["id"], "error": {"code": -32601}})
+            elif method == "tools/call" and not isinstance(item["params"], dict):
+                responses.append(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": item["id"],
+                        "error": {
+                            "code": -32602,
+                            "message": "Invalid params: params must be an object",
+                        },
+                    }
+                )
             else:
                 name = item["params"]["name"]
                 arguments = item["params"]["arguments"]
+                if name == "mempalace_kg_query" and arguments.get("direction") == "sideways":
+                    responses.append(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": item["id"],
+                            "error": {
+                                "code": -32602,
+                                "message": "Invalid params: direction is not allowed",
+                            },
+                        }
+                    )
+                    continue
                 if name not in primary_seen:
                     payload = semantic_payload(name)
                     primary_seen.add(name)
@@ -1544,6 +1617,8 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
                     payload = {"wings": {"added_wing": 1}}
                 elif name == "mempalace_kg_query" and arguments["entity"] == "AddedEntity":
                     payload = {"facts": [{"predicate": "verifies", "object": "AddedObject"}]}
+                elif name == "mempalace_kg_query" and arguments["entity"] == "TemporalSeed":
+                    payload = semantic_payload(name)
                 elif name == "mempalace_kg_query":
                     payload = {
                         "facts": [
@@ -1580,7 +1655,7 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
         if "import" in command:
             return SimpleNamespace(
                 returncode=0,
-                stdout="Imported drawers:   4\nImported KG triples:3\n",
+                stdout="Imported drawers:   4\nImported KG triples:6\n",
                 stderr="",
             )
         return SimpleNamespace(returncode=0, stdout="Config saved", stderr="")
@@ -1612,10 +1687,67 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
         item["params"]["name"]
         for batch in full_batches
         for item in batch
-        if isinstance(item, dict) and item.get("method") == "tools/call"
+        if isinstance(item, dict)
+        and item.get("method") == "tools/call"
+        and isinstance(item.get("params"), dict)
     }
     assert requested == set(discovered_tools)
     assert len(discovered_tools) == 29
+
+    def corrupting_session(case):
+        def session(*args, **kwargs):
+            returncode, stdout, stderr = run_session(*args, **kwargs)
+            responses = [json.loads(line) for line in stdout.splitlines()]
+            if case == "non-object":
+                target = next(
+                    (row for row in responses if row.get("error", {}).get("code") == -32600),
+                    None,
+                )
+                if target is not None:
+                    target["error"]["code"] = -32000
+            elif case == "direction":
+                target = next(
+                    (
+                        row
+                        for row in responses
+                        if row.get("error", {}).get("message")
+                        == "Invalid params: direction is not allowed"
+                    ),
+                    None,
+                )
+                if target is not None:
+                    target["error"]["code"] = -32000
+            else:
+                for row in responses:
+                    for tool in row.get("result", {}).get("tools", []):
+                        if tool.get("name") == "mempalace_kg_query":
+                            tool["inputSchema"]["properties"]["direction"]["enum"] = ["sideways"]
+            return returncode, "".join(json.dumps(row) + "\n" for row in responses), stderr
+
+        return session
+
+    for case, expected in (
+        ("non-object", "non-object request"),
+        ("direction", "invalid direction"),
+        ("schema", "schema enum"),
+    ):
+        failure = rrg._run_installed_mcp_stdio_scenario(
+            launcher,
+            console,
+            discovered_tools,
+            profiles,
+            env,
+            tmp_path / f"scenario-{case}",
+            neutral,
+            repository_root=repository,
+            venv=venv,
+            network_attempts=attempts,
+            smoke=smoke,
+            run_subprocess=seed_runner,
+            run_session=corrupting_session(case),
+        )
+        assert failure is not None
+        assert expected in failure
 
     def invalid_envelope_session(*args, **kwargs):
         returncode, stdout, stderr = run_session(*args, **kwargs)

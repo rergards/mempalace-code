@@ -498,6 +498,87 @@ def test_ref_protection_always_returns_one_row_per_predicate_even_on_failure():
     assert all(row.remediation for row in rows)
 
 
+# ── Public orphan tags ────────────────────────────────────────────────────────
+
+
+def _orphan_public_read(
+    tags: list[str],
+    *,
+    releases: list[dict] | None = None,
+    pypi_releases: dict[str, list[dict]] | None = None,
+):
+    def public_read(query):
+        if query.endpoint == "github_matching_tags":
+            return _fixture_result(
+                [{"ref": f"refs/tags/{tag}", "sha": "a" * 40, "type": "commit"} for tag in tags]
+            )
+        if query.endpoint == "github_releases":
+            return _fixture_result(releases or [])
+        if query.endpoint == "pypi_metadata":
+            return _fixture_result({"releases": pypi_releases or {}})
+        raise AssertionError(f"unexpected public query: {query.endpoint}")
+
+    return public_read
+
+
+def test_orphan_admission_allows_only_the_exact_pending_publication_tag():
+    row = ADMISSION.check_public_orphan_tags(
+        "1.2.3",
+        "acme/tool",
+        "mempalace-code",
+        _orphan_public_read(["v1.2.3", "v1.13.7"]),
+        allow_expected_tag_pending=True,
+    )
+
+    assert row.status == ADMISSION.STATUS_OK
+    assert "expected publication tag pending: v1.2.3" in row.detail
+    assert "acknowledged immutable orphan evidence: v1.13.7" in row.detail
+
+
+def test_orphan_admission_rejects_another_orphan_while_current_tag_is_pending():
+    row = ADMISSION.check_public_orphan_tags(
+        "1.2.3",
+        "acme/tool",
+        "mempalace-code",
+        _orphan_public_read(["v1.2.3", "v9.9.9"]),
+        allow_expected_tag_pending=True,
+    )
+
+    assert row.status == ADMISSION.STATUS_FAIL
+    assert "v9.9.9: no GitHub Release" in row.detail
+    assert "expected publication tag pending: v1.2.3" in row.detail
+
+
+def test_postpublication_orphan_admission_cannot_allow_expected_tag_pending():
+    def forbidden_public_read(_query):
+        raise AssertionError("contradictory mode must fail before public reads")
+
+    row = ADMISSION.check_public_orphan_tags(
+        "1.2.3",
+        "acme/tool",
+        "mempalace-code",
+        forbidden_public_read,
+        require_expected_tag=True,
+        allow_expected_tag_pending=True,
+    )
+
+    assert row.status == ADMISSION.STATUS_FAIL
+    assert "cannot be both required complete and allowed pending" in row.detail
+
+
+def test_orphan_admission_without_publication_exemption_rejects_expected_orphan():
+    row = ADMISSION.check_public_orphan_tags(
+        "1.2.3",
+        "acme/tool",
+        "mempalace-code",
+        _orphan_public_read(["v1.2.3"]),
+        require_expected_tag=True,
+    )
+
+    assert row.status == ADMISSION.STATUS_FAIL
+    assert "v1.2.3: no GitHub Release" in row.detail
+
+
 # ── Documentation is checked against the code constants ───────────────────────
 
 
@@ -514,8 +595,9 @@ def test_every_acknowledged_orphan_tag_is_documented_with_a_reason():
         assert reason.strip()
 
 
-def test_v1_13_2_stays_immutable_evidence_rather_than_a_repair_target():
-    reason = ADMISSION.ACKNOWLEDGED_ORPHAN_TAGS["v1.13.2"]
+@pytest.mark.parametrize("tag", ["v1.13.2", "v1.13.7"])
+def test_failed_publish_tag_stays_immutable_evidence_rather_than_a_repair_target(tag):
+    reason = ADMISSION.ACKNOWLEDGED_ORPHAN_TAGS[tag]
     assert "immutable" in reason
     assert "never be moved or deleted" in reason
     assert "must never be moved or deleted" in RULESET_DOC.read_text(encoding="utf-8")

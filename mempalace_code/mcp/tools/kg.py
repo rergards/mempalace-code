@@ -37,7 +37,7 @@ def tool_kg_invalidate(subject: str, predicate: str, object: str, ended: str | N
     return {
         "success": True,
         "fact": f"{subject} → {predicate} → {object}",
-        "ended": ended or "today",
+        "ended": ended or "now",
     }
 
 
@@ -54,7 +54,13 @@ def tool_kg_stats():
 
 TOOL_SPECS = {
     "mempalace_kg_query": {
-        "description": "Query the knowledge graph for an entity's relationships. Returns typed facts with temporal validity. E.g. 'Max' → child_of Alice, loves chess, does swimming. Filter by date with as_of to see what was true at a point in time.",
+        "description": (
+            "Query an entity's typed relationships. Without as_of, returns historical, "
+            "current, and future facts; for present state, filter the returned facts where "
+            "the current output field is true (current is not an input argument). With as_of, "
+            "filters facts to that date while the current output field still reports present "
+            "wall-clock state."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -68,6 +74,7 @@ TOOL_SPECS = {
                 },
                 "direction": {
                     "type": "string",
+                    "enum": ["outgoing", "incoming", "both"],
                     "description": "outgoing (entity→?), incoming (?→entity), or both (default: both)",
                 },
             },
@@ -117,7 +124,9 @@ TOOL_SPECS = {
                 "object": {"type": "string", "description": "Connected entity"},
                 "ended": {
                     "type": "string",
-                    "description": "When it stopped being true (YYYY-MM-DD, default: today)",
+                    "description": (
+                        "When it stopped being true (YYYY-MM-DD or UTC ISO datetime; omit for now)"
+                    ),
                 },
             },
             "required": ["subject", "predicate", "object"],
@@ -138,7 +147,7 @@ TOOL_SPECS = {
         "handler": tool_kg_timeline,
     },
     "mempalace_kg_stats": {
-        "description": "Knowledge graph overview: entities, triples, current vs expired facts, relationship types.",
+        "description": "Knowledge graph overview: entities, triples, current, expired, and future facts, relationship types.",
         "input_schema": {"type": "object", "properties": {}},
         "handler": tool_kg_stats,
     },

@@ -7,11 +7,20 @@ via monkeypatch to avoid touching real data.
 """
 
 import json
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
 
+import mempalace_code.knowledge_graph as knowledge_graph_module
 from mempalace_code.storage import open_store
+
+
+class _FixedKGDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        instant = cls(2026, 6, 15, 12, 0, tzinfo=UTC)
+        return instant if tz is not None else instant.replace(tzinfo=None)
 
 
 def _patch_mcp_server(monkeypatch, config, palace_path, kg):
@@ -612,6 +621,41 @@ class TestWriteTools:
 
 
 class TestKGTools:
+    def test_kg_query_current_classification_at_fixed_instant(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_kg_query
+
+        kg.add_triple("Alice", "used", "Past", valid_to="2025-12-31")
+        kg.add_triple("Alice", "uses", "Current", valid_from="2026-01-01", valid_to="2026-12-31")
+        kg.add_triple("Alice", "will_use", "Future", valid_from="2027-01-01")
+        monkeypatch.setattr(knowledge_graph_module, "datetime", _FixedKGDateTime)
+
+        result = tool_kg_query(entity="Alice", direction="outgoing")
+
+        assert result["count"] == 3
+        assert {
+            fact["object"]: (fact["current"], fact["valid_from"], fact["valid_to"])
+            for fact in result["facts"]
+        } == {
+            "Past": (False, None, "2025-12-31"),
+            "Current": (True, "2026-01-01", "2026-12-31"),
+            "Future": (False, "2027-01-01", None),
+        }
+
+    def test_kg_query_rejects_invalid_direction_directly(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_kg_query
+
+        with pytest.raises(
+            ValueError,
+            match="supported directions are outgoing, incoming, both",
+        ):
+            tool_kg_query(entity="Alice", direction="sideways")
+
     def test_kg_add(self, monkeypatch, config, palace_path, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace_code.mcp_server import tool_kg_add

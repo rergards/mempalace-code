@@ -1881,3 +1881,48 @@ items:
       resolution: '2026-09-02: One bounded SQLITE_BUSY reconnect passed its focused multiprocess regression and the installed two-watcher WAL, integrity, lease-release, and search checks on macOS and Linux.'
       archived_date: "2026-09-02"
       done_summary: One bounded SQLITE_BUSY reconnect passed its focused multiprocess regression and the installed two-watcher WAL, integrity, lease-release, and search checks on macOS and Linux.
+    - key: KG-CURRENT-OUTPUT-CONTRACT
+      summary: Clarify KG current as an output field
+      resolution: '2026-09-02: Clarified the canonical MCP description and LLM guide that current is an output-only field; installed-wheel stdio recovery passed and 159 focused MCP/docs checks passed.'
+      archived_date: "2026-09-02"
+      done_summary: Clarified the canonical MCP description and LLM guide that current is an output-only field; installed-wheel stdio recovery passed and 159 focused MCP/docs checks passed.
+    - key: KG-TEMPORAL-QUERY-TRUTH
+      summary: Make KG temporal query state and direction truthful
+      resolution: '2026-09-02: Corrected temporal window classification, truthful streaming stats, default-now invalidation, and direction validation; focused suites plus direct installed-wheel MCP transcripts and full installed-app gates passed on macOS and Linux.'
+      archived_date: "2026-09-02"
+      done_summary: Corrected temporal window classification, truthful streaming stats, default-now invalidation, and direction validation; focused suites plus direct installed-wheel MCP transcripts and full installed-app gates passed on macOS and Linux.
+    - key: MCP-MALFORMED-ENVELOPE-RESPONSE
+      summary: Return JSON-RPC Invalid Request for malformed MCP envelopes
+      resolution: '2026-09-02: Added the existing dispatch-boundary mapping guard; real stdio returns -32600 with id null for a decoded non-object and processes the following valid request on macOS and Linux; protocol suites passed.'
+      archived_date: "2026-09-02"
+      done_summary: Added the existing dispatch-boundary mapping guard; real stdio returns -32600 with id null for a decoded non-object and processes the following valid request on macOS and Linux; protocol suites passed.
+    - key: KG-WAL-FIRST-OPEN-RETRY-WINDOW
+      summary: Make concurrent KG first-open retry cover the WAL transition
+      resolution: '2026-09-02: Extended the existing first-open SQLITE_BUSY owner with bounded nonblocking retry probes, preserved normal timeout and cleanup semantics, passed exhaustion/non-busy tests, 100 consecutive real two-process repetitions, and exact-wheel watcher gates on macOS and Linux.'
+      archived_date: "2026-09-02"
+      done_summary: Extended the existing first-open SQLITE_BUSY owner with bounded nonblocking retry probes, preserved normal timeout and cleanup semantics, passed exhaustion/non-busy tests, 100 consecutive real two-process repetitions, and exact-wheel watcher gates on macOS and Linux.
+    - key: REL-V1-13-8-UPSTREAM-DRIFT-RECOVERY
+      summary: Recover failed v1.13.7 publication as v1.13.8
+      resolution: '2026-09-02: Prepared v1.13.8 from unchanged upstream d9f05907, preserved immutable orphan v1.13.7, aligned all version/public metadata, and passed clean-candidate artifact, all four installer, direct MCP, full installed-app, security, and static evidence across macOS and Linux. Publication convergence remains the release transaction receipt.'
+      archived_date: "2026-09-02"
+      done_summary: Prepared v1.13.8 from unchanged upstream d9f05907, preserved immutable orphan v1.13.7, aligned all version/public metadata, and passed clean-candidate artifact, all four installer, direct MCP, full installed-app, security, and static evidence across macOS and Linux. Publication convergence remains the release transaction receipt.
+    - key: REL-QUALITY-SCORECARD-STALE
+      summary: Regenerate release quality scorecards
+      resolution: '2026-09-02: Regenerated both scorecards through the existing generator; schema 4 reports 80 package files, 3,748 tests, and zero unreasoned suppressions; the canonical check passes.'
+      archived_date: "2026-09-02"
+      done_summary: Regenerated both scorecards through the existing generator; schema 4 reports 80 package files, 3,748 tests, and zero unreasoned suppressions; the canonical check passes.
+    - key: MCP-NONOBJECT-PARAMS-RESPONSE
+      summary: Return JSON-RPC error for non-object MCP params
+      resolution: '2026-09-02: MCP dispatch now returns exact -32602 for every non-object params shape and continues the same stdio session; direct source and installed-golden hostile transcripts pass, focused release/protocol review passes, and the full non-network suite passes 4,553 tests.'
+      archived_date: "2026-09-02"
+      done_summary: MCP dispatch now returns exact -32602 for every non-object params shape and continues the same stdio session; direct source and installed-golden hostile transcripts pass, focused release/protocol review passes, and the full non-network suite passes 4,553 tests.
+    - key: REL-PUBLISH-ORPHAN-ADMISSION
+      summary: Enforce orphan-tag admission before publication
+      resolution: '2026-09-02: Both tag-triggered publication admission stages now call the existing orphan predicate; only the exact validated in-flight tag may be pending, every unrelated orphan fails, postpublication remains strict, and release/security review plus focused tests pass.'
+      archived_date: "2026-09-02"
+      done_summary: Both tag-triggered publication admission stages now call the existing orphan predicate; only the exact validated in-flight tag may be pending, every unrelated orphan fails, postpublication remains strict, and release/security review plus focused tests pass.
+    - key: MCP-NONSTRING-METHOD-RESPONSE
+      summary: Return JSON-RPC Invalid Request for non-string methods
+      resolution: '2026-09-02: Missing and non-string MCP method values now return exact -32600 with preserved IDs and same-session recovery; direct source and installed-golden hostile transcripts pass, independent review passes, and the full non-network suite passes 4,553 tests.'
+      archived_date: "2026-09-02"
+      done_summary: Missing and non-string MCP method values now return exact -32600 with preserved IDs and same-session recovery; direct source and installed-golden hostile transcripts pass, independent review passes, and the full non-network suite passes 4,553 tests.

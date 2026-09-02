@@ -107,7 +107,7 @@ For large monorepos, prefer the highest-ROI initialized subdirectory first when 
 ## Existing memory systems
 
 If the repo already has curated memory docs (`MEMORY.md`, project notes, hand-written summaries), do not mirror them wholesale into drawers. Use stores by job:
-- KG = volatile current facts that need exact lookup or history.
+- KG = temporal facts that need exact lookup, current-state filtering, or history.
 - Drawers = verbatim source material, decisions, root causes, and discussion excerpts.
 - Diary = this agent's own continuity notes.
 - Curated docs = compressed narrative, rationale, and human-maintained summaries.
@@ -118,7 +118,16 @@ Do not turn a carefully compressed memory file into drawer content unless the hu
 
 Use the KG for facts that **change over time** or need **exact-match lookup** — version numbers, stack choices, ownership, statuses, deadlines.
 
-Update protocol: `mempalace_kg_query` → `mempalace_kg_invalidate` (old triple, today's date) → `mempalace_kg_add` (new triple, validity window). Never leave two live triples for the same `(subject, predicate)`.
+`mempalace_kg_query` without `as_of` returns historical, current, and future
+facts with an explicit `current` output field. For present state, filter the
+returned facts where `current` is `true`; never send `current` as an input
+argument. Pass `as_of` when the question names another date.
+
+Update protocol: `mempalace_kg_query` → select the intended returned triple
+whose `current` field is `true` → `mempalace_kg_invalidate` (omit `ended` to
+retire it now; pass a date for an inclusive end-of-day bound) →
+`mempalace_kg_add` (new triple, validity window). Never leave two current
+triples for the same `(subject, predicate)`.
 
 Bad for KG: code patterns, debugging notes, prose — those belong in a drawer.
 
@@ -265,7 +274,7 @@ Active tools: `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate
 | Semantic search | `mempalace_search` |
 | Duplicate check before filing | `mempalace_check_duplicate` |
 | Save a decision or note | `mempalace_add_drawer` |
-| Query an entity's current facts | `mempalace_kg_query` |
+| Query an entity's temporal facts; filter returned facts by the `current` output field for present state | `mempalace_kg_query` |
 | Add a temporal fact | `mempalace_kg_add` |
 | Retire an outdated fact | `mempalace_kg_invalidate` |
 | See how facts changed over time | `mempalace_kg_timeline` |

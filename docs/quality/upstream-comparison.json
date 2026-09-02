@@ -1,18 +1,18 @@
 {
   "schema_version": 2,
-  "reviewed_date": "2026-08-31",
+  "reviewed_date": "2026-09-02",
   "canonical_repository": "https://github.com/MemPalace/mempalace",
   "branch": "develop",
-  "commit": "e8098348ddfce59964fe536e5deffb81da579e6b",
-  "previous_commit": "a9f345cc63254eb4dea7abad36963b85c9f8453a",
+  "commit": "d9f059076c866fa6f29195679d75712436986024",
+  "previous_commit": "e8098348ddfce59964fe536e5deffb81da579e6b",
   "inventory_anchor": {
     "algorithm": "sha256",
     "version": 1,
-    "count": 47,
-    "digest": "4ee827c643113410c17140162f4650930586a5b4ea92d28ca720b2ec6cd648df"
+    "count": 10,
+    "digest": "127aa2ccb94b5e549c305a9cc4317ba4a2f6c0488b5db1707ead7e8cb4a5d24c"
   },
-  "previous_reviewed_date": "2026-08-29",
-  "compare_ref": "https://github.com/MemPalace/mempalace/compare/a9f345cc63254eb4dea7abad36963b85c9f8453a...e8098348ddfce59964fe536e5deffb81da579e6b",
+  "previous_reviewed_date": "2026-08-31",
+  "compare_ref": "https://github.com/MemPalace/mempalace/compare/e8098348ddfce59964fe536e5deffb81da579e6b...d9f059076c866fa6f29195679d75712436986024",
   "canonical_document": "docs/UPSTREAM_COMPARISON.md",
   "readme_path": "README.md",
   "recovery_command": "python scripts/upstream_comparison_guard.py --check-live --json",
@@ -36,29 +36,41 @@
     "benchmarks/PRIVATE_PALACE.md",
     "docs/rfcs/003-agent-logstream-coordination.md",
     "docs/rfcs/004-replicated-palace.md",
-    "docs/rfcs/005-agent-identity-routing.md"
+    "docs/rfcs/005-agent-identity-routing.md",
+    "integrations/shared/coordination-protocol.md",
+    "mempalace/cli.py",
+    "mempalace/knowledge_graph.py",
+    "mempalace/mcp_light_server.py",
+    "mempalace/query_parser.py",
+    "website/guide/lightweight-mcp.md"
   ],
   "source_refs": {
-    "README.md": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/README.md",
-    "CHANGELOG.md": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/CHANGELOG.md",
-    "pyproject.toml": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/pyproject.toml",
-    ".codex-plugin/plugin.json": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/.codex-plugin/plugin.json",
-    ".claude-plugin/plugin.json": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/.claude-plugin/plugin.json",
-    ".agents/plugins/marketplace.json": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/.agents/plugins/marketplace.json",
-    ".mcp.json": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/.mcp.json",
-    "mempalace/config.py": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/mempalace/config.py",
-    "mempalace/split_mega_files.py": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/mempalace/split_mega_files.py",
-    "mempalace/update_awareness.py": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/mempalace/update_awareness.py",
-    "mempalace/hub_client.py": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/mempalace/hub_client.py",
-    "mempalace/logstream.py": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/mempalace/logstream.py",
-    "mempalace/mcp_server.py": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/mempalace/mcp_server.py",
-    "mempalace/searcher.py": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/mempalace/searcher.py",
-    "mempalace/embedding.py": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/mempalace/embedding.py",
-    "mempalace/backends/qdrant.py": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/mempalace/backends/qdrant.py",
-    "benchmarks/PRIVATE_PALACE.md": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/benchmarks/PRIVATE_PALACE.md",
-    "docs/rfcs/003-agent-logstream-coordination.md": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/docs/rfcs/003-agent-logstream-coordination.md",
-    "docs/rfcs/004-replicated-palace.md": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/docs/rfcs/004-replicated-palace.md",
-    "docs/rfcs/005-agent-identity-routing.md": "https://github.com/MemPalace/mempalace/blob/e8098348ddfce59964fe536e5deffb81da579e6b/docs/rfcs/005-agent-identity-routing.md"
+    "README.md": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/README.md",
+    "CHANGELOG.md": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/CHANGELOG.md",
+    "pyproject.toml": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/pyproject.toml",
+    ".codex-plugin/plugin.json": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/.codex-plugin/plugin.json",
+    ".claude-plugin/plugin.json": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/.claude-plugin/plugin.json",
+    ".agents/plugins/marketplace.json": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/.agents/plugins/marketplace.json",
+    ".mcp.json": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/.mcp.json",
+    "mempalace/config.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/config.py",
+    "mempalace/split_mega_files.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/split_mega_files.py",
+    "mempalace/update_awareness.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/update_awareness.py",
+    "mempalace/hub_client.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/hub_client.py",
+    "mempalace/logstream.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/logstream.py",
+    "mempalace/mcp_server.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/mcp_server.py",
+    "mempalace/searcher.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/searcher.py",
+    "mempalace/embedding.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/embedding.py",
+    "mempalace/backends/qdrant.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/backends/qdrant.py",
+    "benchmarks/PRIVATE_PALACE.md": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/benchmarks/PRIVATE_PALACE.md",
+    "docs/rfcs/003-agent-logstream-coordination.md": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/docs/rfcs/003-agent-logstream-coordination.md",
+    "docs/rfcs/004-replicated-palace.md": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/docs/rfcs/004-replicated-palace.md",
+    "docs/rfcs/005-agent-identity-routing.md": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/docs/rfcs/005-agent-identity-routing.md",
+    "integrations/shared/coordination-protocol.md": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/integrations/shared/coordination-protocol.md",
+    "mempalace/cli.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/cli.py",
+    "mempalace/knowledge_graph.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/knowledge_graph.py",
+    "mempalace/mcp_light_server.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/mcp_light_server.py",
+    "mempalace/query_parser.py": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/query_parser.py",
+    "website/guide/lightweight-mcp.md": "https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/website/guide/lightweight-mcp.md"
   },
   "readme_markers": [
     "## This Fork vs Upstream",
@@ -112,7 +124,10 @@
       "embeddinggemma-batch-size-override",
       "qdrant-bounded-get-scroll",
       "closet-search-source-index",
-      "private-palace-search-benchmark"
+      "private-palace-search-benchmark",
+      "lightweight-mcp-pql-three-tools",
+      "kg-entity-candidate-temporal-buckets",
+      "on-demand-logstream-coordination"
     ],
     "fork_current": [
       "code-first-mining",
@@ -132,28 +147,63 @@
     ]
   },
   "capability_sources": {
-    "embeddinggemma-default-for-new-onboarding": ["README.md", "CHANGELOG.md"],
-    "hybrid-retrieval": ["README.md"],
-    "optional-llm-reranking": ["README.md"],
-    "backend-chromadb": ["README.md"],
-    "backend-sqlite-exact": ["README.md"],
-    "backend-milvus": ["README.md"],
-    "backend-qdrant": ["README.md"],
-    "backend-pgvector": ["README.md"],
-    "chroma-sqlite-metadata-read-paths": ["CHANGELOG.md"],
-    "sqlite-exact-indexed-structured-fields": ["CHANGELOG.md"],
-    "mcp-tools-45-readme": ["README.md"],
-    "claude-plugin-tools-45": [".claude-plugin/plugin.json"],
-    "codex-plugin-tools-44": [".codex-plugin/plugin.json"],
+    "embeddinggemma-default-for-new-onboarding": [
+      "README.md",
+      "CHANGELOG.md"
+    ],
+    "hybrid-retrieval": [
+      "README.md"
+    ],
+    "optional-llm-reranking": [
+      "README.md"
+    ],
+    "backend-chromadb": [
+      "README.md"
+    ],
+    "backend-sqlite-exact": [
+      "README.md"
+    ],
+    "backend-milvus": [
+      "README.md"
+    ],
+    "backend-qdrant": [
+      "README.md"
+    ],
+    "backend-pgvector": [
+      "README.md"
+    ],
+    "chroma-sqlite-metadata-read-paths": [
+      "CHANGELOG.md"
+    ],
+    "sqlite-exact-indexed-structured-fields": [
+      "CHANGELOG.md"
+    ],
+    "mcp-tools-45-readme": [
+      "README.md"
+    ],
+    "claude-plugin-tools-45": [
+      ".claude-plugin/plugin.json"
+    ],
+    "codex-plugin-tools-44": [
+      ".codex-plugin/plugin.json"
+    ],
     "codex-plugin-metadata": [
       ".codex-plugin/plugin.json",
       ".agents/plugins/marketplace.json",
       ".mcp.json"
     ],
-    "openai-compatible-embeddings": ["README.md"],
-    "search-date-window": ["CHANGELOG.md"],
-    "hermes-memory-provider-core": ["CHANGELOG.md"],
-    "source-adapters-mine": ["CHANGELOG.md"],
+    "openai-compatible-embeddings": [
+      "README.md"
+    ],
+    "search-date-window": [
+      "CHANGELOG.md"
+    ],
+    "hermes-memory-provider-core": [
+      "CHANGELOG.md"
+    ],
+    "source-adapters-mine": [
+      "CHANGELOG.md"
+    ],
     "agent-logstream-artifact-handoffs": [
       "CHANGELOG.md",
       "docs/rfcs/003-agent-logstream-coordination.md"
@@ -166,10 +216,18 @@
       "CHANGELOG.md",
       "docs/rfcs/003-agent-logstream-coordination.md"
     ],
-    "read-replica-mesh-preview": ["docs/rfcs/004-replicated-palace.md"],
-    "multiarch-docker-image": ["README.md"],
-    "process-lifetime-single-writer": ["CHANGELOG.md"],
-    "agent-logstream-watch": ["CHANGELOG.md"],
+    "read-replica-mesh-preview": [
+      "docs/rfcs/004-replicated-palace.md"
+    ],
+    "multiarch-docker-image": [
+      "README.md"
+    ],
+    "process-lifetime-single-writer": [
+      "CHANGELOG.md"
+    ],
+    "agent-logstream-watch": [
+      "CHANGELOG.md"
+    ],
     "opt-in-release-awareness": [
       "README.md",
       "CHANGELOG.md",
@@ -180,7 +238,10 @@
       "mempalace/hub_client.py",
       "mempalace/mcp_server.py"
     ],
-    "concurrent-hub-palace-reads": ["CHANGELOG.md", "mempalace/mcp_server.py"],
+    "concurrent-hub-palace-reads": [
+      "CHANGELOG.md",
+      "mempalace/mcp_server.py"
+    ],
     "agent-logstream-topic-routing": [
       "mempalace/logstream.py",
       "docs/rfcs/003-agent-logstream-coordination.md"
@@ -189,193 +250,66 @@
       "mempalace/logstream.py",
       "docs/rfcs/003-agent-logstream-coordination.md"
     ],
-    "embeddinggemma-batch-size-override": ["CHANGELOG.md", "mempalace/embedding.py"],
-    "qdrant-bounded-get-scroll": ["CHANGELOG.md", "mempalace/backends/qdrant.py"],
-    "closet-search-source-index": ["CHANGELOG.md", "mempalace/searcher.py"],
-    "private-palace-search-benchmark": ["benchmarks/PRIVATE_PALACE.md"]
+    "embeddinggemma-batch-size-override": [
+      "CHANGELOG.md",
+      "mempalace/embedding.py"
+    ],
+    "qdrant-bounded-get-scroll": [
+      "CHANGELOG.md",
+      "mempalace/backends/qdrant.py"
+    ],
+    "closet-search-source-index": [
+      "CHANGELOG.md",
+      "mempalace/searcher.py"
+    ],
+    "private-palace-search-benchmark": [
+      "benchmarks/PRIVATE_PALACE.md"
+    ],
+    "lightweight-mcp-pql-three-tools": [
+      "website/guide/lightweight-mcp.md",
+      "mempalace/mcp_light_server.py",
+      "mempalace/query_parser.py",
+      "mempalace/cli.py",
+      "pyproject.toml"
+    ],
+    "kg-entity-candidate-temporal-buckets": [
+      "mempalace/mcp_server.py",
+      "mempalace/knowledge_graph.py"
+    ],
+    "on-demand-logstream-coordination": [
+      "integrations/shared/coordination-protocol.md"
+    ]
   },
   "delta_decisions": [
     {
-      "id": "opt-in-release-awareness",
-      "merge_group": "dae19f6133bb51ae3251d228bc97d6497494f66b",
+      "id": "lightweight-mcp-pql",
+      "merge_group": "d9f059076c866fa6f29195679d75712436986024",
       "constituent_commits": [
-        "c83f1ebc42e4bc596aa63cec8d4626cc981750d7",
-        "8baf1df4f74e290205a0137873eaccd43fe26494"
+        "85d60c906e1e39566dfd5e2487695398419061cf",
+        "17936626be394e6e3f280bcd66840934791e2bda",
+        "478ecee95640bf0f504e126ad15b2aa9a41d9ef7",
+        "66b3b23dc76ee7ccbcac65d07862b7a63bcaa50d",
+        "4aa1e7f1423c4d017a7f3daf497f11030f26ec3e",
+        "bf30db9bf97d6350356170c81a0a8e53dd376869",
+        "be27f7317af7a6b93c042635a832bf7da782449c",
+        "57ab367a3b1b2720ba84ca4a30787c4348404534",
+        "ea0c780bd3b78402ee1d9ad7a004770a4111b6d1"
       ],
-      "upstream_change": "update checks are disabled by default, cache stable PyPI release state when enabled, expose cached status to agents, and prepare installer-specific upgrade actions without installing automatically",
-      "source_refs": ["README.md", "CHANGELOG.md", "mempalace/update_awareness.py"],
-      "release_critical": true,
-      "decision": "equivalent-local",
-      "rationale": "The fork already provides disabled-by-default version checks, explicit read-only update status and check paths, confirmed update apply with supported-installer selection, and safe refusal defaults. This outcome equivalence does not claim compatibility with upstream's MCP cached-status response shape.",
-      "local_predicates": [
-        "tests/test_cli.py::TestVersionCheckCLIHook::test_health_json_stdout_unchanged_with_no_opt_in",
-        "tests/test_version_check.py::test_invalid_env_var_fails_closed",
-        "tests/test_updater.py::TestUpdateStatus::test_status_reports_eligibility_provenance_and_next_run_without_mutation",
-        "tests/test_updater.py::TestUnsupportedPlatformDiagnostics::test_confirmed_mutations_refuse_before_effects",
-        "tests/test_updater.py::TestScheduling::test_scheduler_is_disabled_by_default_and_refuses_overlap"
-      ]
-    },
-    {
-      "id": "release-history-sync",
-      "merge_group": "45ee76087248670bd33085dd1724c86a7d3441cb",
-      "constituent_commits": [
-        "359c579d2028fd5f4964984297abf67417e7c105",
-        "87e6f38377b4bee0666374b05df6e14ffd154245",
-        "98a0f824c84dd46b98230acf6ac990800797e570"
-      ],
-      "upstream_change": "develop imports upstream main's 3.7.1 and 3.8.0 release merge history before subsequent feature merges",
-      "source_refs": ["compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "This group changes upstream ancestry and carries no new fork runtime or release owner. Earlier reviewed behavior remains represented by the cumulative capability comparison.",
-      "local_predicates": []
-    },
-    {
-      "id": "logstream-topic-reverse-pagination",
-      "merge_group": "c524d11a09be44683c8e3758481e7b03bb26bca0",
-      "constituent_commits": ["148bc6f231cfcc4d269f7e80ca78f2e86b12ea66"],
-      "upstream_change": "logstream events gain topic routing plus status, before-event, and ascending or descending pagination filters",
+      "upstream_change": "upstream adds an optional three-tool lightweight MCP facade with PQL and structured inputs, KG active, historical, and future response partitions, and on-demand logstream coordination guidance",
       "source_refs": [
-        "mempalace/logstream.py",
-        "docs/rfcs/003-agent-logstream-coordination.md",
-        "compare"
-      ],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The fork has no logstream database, event-list API, topic index, or coordination transport. Advertising the filters would imply an unsupported distributed state owner.",
-      "local_predicates": []
-    },
-    {
-      "id": "ruff-precommit-pin",
-      "merge_group": "b54f64cdee7607b4cfbe0ec0d3e0dd64a210a4f8",
-      "constituent_commits": ["59ce358819f0d90b41f12d94bcc95ef7de9a208e"],
-      "upstream_change": "upstream aligns its pre-commit Ruff revision with its package and CI pins",
-      "source_refs": ["compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "This is upstream repository tooling. The fork owns independent Ruff constraints and release qualification.",
-      "local_predicates": []
-    },
-    {
-      "id": "docker-login-action-update",
-      "merge_group": "6242edfbd6e68d0f83008ef1d7907cb216bc6e61",
-      "constituent_commits": ["238b5ce92647ce1e89c04b969da28c6c80c4a5d6"],
-      "upstream_change": "upstream raises docker/login-action from 4.5.2 to 4.6.0 in its image publication workflow",
-      "source_refs": ["compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The fork does not publish the upstream Docker image and owns its own hosted workflow versions.",
-      "local_predicates": []
-    },
-    {
-      "id": "qdrant-bounded-get-scroll",
-      "merge_group": "49737d5075fec1b21cfaea4377c013a80b5b0254",
-      "constituent_commits": ["720f3d81f7f6318a7714b8a4740ce040d17cb82c"],
-      "upstream_change": "Qdrant get operations bound remote scrolling by offset plus limit when IDs and local-only filters do not require a complete scan",
-      "source_refs": ["CHANGELOG.md", "mempalace/backends/qdrant.py", "compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The current package is LanceDB-only and has no supported Qdrant collection or scrolling contract.",
-      "local_predicates": []
-    },
-    {
-      "id": "concurrent-hub-palace-reads",
-      "merge_group": "da245c6cef4291c48d2c88f698641eb618991898",
-      "constituent_commits": ["dc0858596f4fb907340dbeb851b0b0ff2f80aaf9"],
-      "upstream_change": "HTTP MCP dispatch permits concurrent palace reads, keeps writes exclusive, and leaves independent stores outside the palace lock",
-      "source_refs": ["CHANGELOG.md", "mempalace/mcp_server.py", "compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The fork exposes stdio MCP only and has no shared HTTP hub dispatcher or process-wide read-write lock owner.",
-      "local_predicates": []
-    },
-    {
-      "id": "closet-search-source-index",
-      "merge_group": "6597908a4c209a8c7444e8f924cb77248bcdf879",
-      "constituent_commits": ["fe98bfce87b3fb53c7d258bd574509a372530e22"],
-      "upstream_change": "closet enrichment indexes source-file lookups and reports raw vector similarity while retaining closet boost only for ranking",
-      "source_refs": ["CHANGELOG.md", "mempalace/searcher.py", "compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The fork has no closet index or closet-boosted generic search result. Its Lance code-search scoring remains a separate owner.",
-      "local_predicates": []
-    },
-    {
-      "id": "private-palace-search-benchmark",
-      "merge_group": "b0b10aa8f8465ecc2e6dd4f85b2956dc2641af81",
-      "constituent_commits": ["3bf31aaaee276f7bf140b952c3c50498729d8461"],
-      "upstream_change": "upstream adds a private-palace search benchmark harness and operator procedure",
-      "source_refs": ["benchmarks/PRIVATE_PALACE.md", "compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The harness targets upstream private-palace retrieval and does not provide comparable fork benchmark results or change a supported fork surface.",
-      "local_predicates": []
-    },
-    {
-      "id": "embeddinggemma-batch-size-override",
-      "merge_group": "dc43751c12589b4c8e8a39e2d2d3b55d523ad6fe",
-      "constituent_commits": ["a616a57741e34cbfab27ffbf6dbd5992b4e54ff6"],
-      "upstream_change": "EmbeddingGemma document sub-batch size becomes configurable through environment or config to bound long-input attention memory",
-      "source_refs": ["CHANGELOG.md", "mempalace/embedding.py", "compare"],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The supported fork default is MiniLM through FastEmbed and has no EmbeddingGemma runtime or matching batch-size setting.",
-      "local_predicates": []
-    },
-    {
-      "id": "live-hub-cli-search-forwarding",
-      "merge_group": "307a676515a23c147c37cce166d3661b69dee1b7",
-      "constituent_commits": [
-        "b232fa3db95a695ad02475ff304baa64576d9c9d",
-        "87ec85453b63b53f6ff7b5f02f024251207cf754",
-        "460924eba38c1de003811605d0df2c70d92c3729",
-        "90e8214b017d4dcad817d60edd8d9111485651a4",
-        "67be395070efd50072eff6b437bb0c18c14bfaf7",
-        "ae8a4e8ce8af9c3d6e062c1bd714b4aa1477e55f",
-        "fd556beef99b274717ad79162ba865bb39e204c0",
-        "e96162456ab4034f0647dd9a6b76986d4dd08d2f",
-        "bd94b7f4d8f6e7cb84cba46a3656c7f5e3c59220",
-        "733a0c6dc5b3d226db61a88a22e39a422d8b4c3e",
-        "e016aff406cf0a466a2b3666eef89b423069e61d",
-        "2edd215b5826da37f57b7e6fab11d2310866cb46",
-        "24dc2e6beb16da3c721f3e99193eddee37faea90",
-        "4a971ef39c158b0f482c9af9ecf6f678abca658e",
-        "90dcd41fe0e79cfeeda974aa1388ba825d380b9d",
-        "f19ea69fc8a41e061d9a7043eaab1ab364e54513",
-        "648ef944b6b3a7560e99fdd1923f034f2ed004c2",
-        "75770f4ff169d9e1709d868bb9b509af4df565cf",
-        "722bf22ae208689cd15f2919e58d81747b056e1a",
-        "e20384c737d44fb5eebe8a8dd23de84347312543",
-        "c044acdaed50fd474709080fc8cd3978cf230315"
-      ],
-      "upstream_change": "CLI search can reuse a compatible live hub while preserving direct-search filters and ranking, rejecting configuration drift, serializing captured output, selecting and retrying live tokens, and failing safely after an accepted request",
-      "source_refs": [
-        "CHANGELOG.md",
-        "mempalace/config.py",
-        "mempalace/hub_client.py",
+        "integrations/shared/coordination-protocol.md",
+        "mempalace/cli.py",
+        "mempalace/knowledge_graph.py",
+        "mempalace/mcp_light_server.py",
         "mempalace/mcp_server.py",
-        "compare"
-      ],
-      "release_critical": false,
-      "decision": "irrelevant",
-      "rationale": "The fork has no live palace hub, HTTP MCP transport, server registry, hub token, or CLI-to-hub forwarding contract. Its direct local Lance search stays the sole owner.",
-      "local_predicates": []
-    },
-    {
-      "id": "release-3-9-0-metadata",
-      "merge_group": "e8098348ddfce59964fe536e5deffb81da579e6b",
-      "constituent_commits": ["434f00b571f302bfbdc6858205b31e0e5c36efe5"],
-      "upstream_change": "upstream publishes the accumulated delta as 3.9.0 and synchronizes package, plugin, integration, badge, lockfile, and changelog version sources",
-      "source_refs": [
-        "README.md",
-        "CHANGELOG.md",
+        "mempalace/query_parser.py",
         "pyproject.toml",
-        ".codex-plugin/plugin.json",
+        "website/guide/lightweight-mcp.md",
         "compare"
       ],
       "release_critical": false,
       "decision": "irrelevant",
-      "rationale": "Upstream version and publication metadata do not set this fork's package version, release admission, tag, or publication state.",
+      "rationale": "The fork already owns one direct typed MCP registry with a 29-tool full profile and a standards-conformant four-tool portable minimal profile. Adding a second free-form parser and server would duplicate that owner, weaken fail-closed argument semantics, and import hub, logstream, and fuzzy-resolution contracts the fork does not expose.",
       "local_predicates": []
     }
   ]

@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import sys
+from collections.abc import Mapping
 from typing import Optional
 
 from ..version import __version__
@@ -75,11 +76,34 @@ def handle_request(request, active_registry=None):
     ``active_registry`` overrides the module-level ``_active_registry`` when provided.
     Both default to the full TOOLS dict when None, preserving backward compatibility.
     """
+    if not isinstance(request, Mapping):
+        return {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {"code": -32600, "message": "Invalid Request"},
+        }
+
     registry = active_registry if active_registry is not None else (_active_registry or TOOLS)
 
-    method = request.get("method", "")
-    params = request.get("params") or {}
     req_id = request.get("id")
+    method = request.get("method")
+    if not isinstance(method, str):
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32600, "message": "Invalid Request"},
+        }
+    raw_params = request.get("params")
+    if raw_params is None:
+        params = {}
+    elif not isinstance(raw_params, Mapping):
+        return {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": {"code": -32602, "message": "Invalid params: params must be an object"},
+        }
+    else:
+        params = dict(raw_params)
 
     if method == "server/discover":
         # server/discover has no legacy counterpart: it always requires full
@@ -204,6 +228,21 @@ def handle_request(request, active_registry=None):
                 "error": {
                     "code": -32602,
                     "message": f"Invalid params: type mismatch for argument(s): {', '.join(coerce_errors)}",
+                },
+            }
+        enum_errors: list[str] = []
+        for key, value in tool_args.items():
+            allowed_values = schema_props.get(key, {}).get("enum")
+            if allowed_values is not None and value not in allowed_values:
+                allowed = ", ".join(str(item) for item in allowed_values)
+                enum_errors.append(f"{key} (expected one of: {allowed})")
+        if enum_errors:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32602,
+                    "message": f"Invalid params: unsupported value for argument(s): {', '.join(enum_errors)}",
                 },
             }
         # Validate required arguments before calling handler so client omissions

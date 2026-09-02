@@ -40,6 +40,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -138,7 +139,33 @@ def _in_window(
     return True
 
 
+def _temporal_state(
+    valid_from_str: str | None,
+    valid_to_str: str | None,
+    at: date | datetime,
+) -> str:
+    """Classify one stored interval as current, future, or expired at ``at``."""
+    if _in_window(valid_from_str, valid_to_str, at):
+        return "current"
+
+    cmp = _as_comparable(at)
+    if valid_from_str is not None:
+        try:
+            valid_from = _as_comparable(_parse_temporal(valid_from_str))
+        except ValueError:
+            valid_from = None
+        if cmp is not None and valid_from is not None and cmp < valid_from:
+            return "future"
+    return "expired"
+
+
+def _default_invalidation_end() -> str:
+    """Return the precise UTC instant used by an omitted invalidation bound."""
+    return datetime.now(UTC).isoformat()
+
+
 DEFAULT_KG_PATH = os.path.expanduser("~/.mempalace/knowledge_graph.sqlite3")
+_WAL_BUSY_RETRY_DELAYS = (0.01, 0.02, 0.04, 0.08, 0.16)
 
 
 def palace_kg_path(palace_path: str) -> str:
@@ -207,19 +234,22 @@ class KnowledgeGraph:
         conn.close()
 
     def _conn(self):
-        busy_retried = False
+        busy_retries = 0
         while True:
-            conn = sqlite3.connect(self.db_path, timeout=10)
+            conn = sqlite3.connect(self.db_path, timeout=10 if busy_retries == 0 else 0)
             try:
                 conn.execute("PRAGMA journal_mode=WAL")
+                if busy_retries:
+                    conn.execute("PRAGMA busy_timeout=10000")
                 return conn
             except sqlite3.OperationalError as exc:
                 conn.close()
                 error_code = getattr(exc, "sqlite_errorcode", None)
                 is_busy = isinstance(error_code, int) and (error_code & 0xFF) == sqlite3.SQLITE_BUSY
-                if not is_busy or busy_retried:
+                if not is_busy or busy_retries == len(_WAL_BUSY_RETRY_DELAYS):
                     raise
-                busy_retried = True
+                time.sleep(_WAL_BUSY_RETRY_DELAYS[busy_retries])
+                busy_retries += 1
 
     def _entity_id(self, name: str) -> str:
         return name.lower().replace(" ", "_").replace("'", "")
@@ -314,7 +344,7 @@ class KnowledgeGraph:
         architecture extraction pass to refresh only architecture predicates without
         expiring type-dependency facts (implements, inherits, depends_on, etc.).
         """
-        ended = ended or date.today().isoformat()
+        ended = ended or _default_invalidation_end()
         _parse_temporal(ended)
         conn = self._conn()
         if predicates:
@@ -342,7 +372,7 @@ class KnowledgeGraph:
         """
         if not predicates:
             return
-        ended = ended or date.today().isoformat()
+        ended = ended or _default_invalidation_end()
         _parse_temporal(ended)
         conn = self._conn()
         placeholders = ",".join("?" * len(predicates))
@@ -381,7 +411,7 @@ class KnowledgeGraph:
         """
         if not predicates:
             return
-        ended = ended or date.today().isoformat()
+        ended = ended or _default_invalidation_end()
         _parse_temporal(ended)
         resolved = str(Path(project_root).resolve())
         # Escape SQL LIKE wildcards in the resolved root so that '_' and '%' in
@@ -429,7 +459,7 @@ class KnowledgeGraph:
         themselves mined.  After every wing has been mined once on the new
         release, all legacy sentinel rows have been retired.
         """
-        ended = ended or date.today().isoformat()
+        ended = ended or _default_invalidation_end()
         _parse_temporal(ended)
         obj_id = self._entity_id(wing_name)
         conn = self._conn()
@@ -446,7 +476,7 @@ class KnowledgeGraph:
         sub_id = self._entity_id(subject)
         obj_id = self._entity_id(obj)
         pred = predicate.lower().replace(" ", "_")
-        ended_str = ended or date.today().isoformat()
+        ended_str = ended or _default_invalidation_end()
 
         ended_parsed = _parse_temporal(ended_str)
         cmp_ended = _as_comparable(ended_parsed)
@@ -487,8 +517,15 @@ class KnowledgeGraph:
         direction: "outgoing" (entity → ?), "incoming" (? → entity), "both"
         as_of: ISO date or UTC datetime — only return facts valid at that time
         """
+        supported_directions = ("outgoing", "incoming", "both")
+        if direction not in supported_directions:
+            raise ValueError(
+                f"Invalid direction: supported directions are {', '.join(supported_directions)}"
+            )
+
         eid = self._entity_id(name)
         as_of_parsed = _parse_temporal(as_of)
+        current_instant = datetime.now(UTC)
         conn = self._conn()
 
         results = []
@@ -511,7 +548,7 @@ class KnowledgeGraph:
                         "confidence": row[6],
                         "source_closet": row[7],
                         "source_file": row[8],
-                        "current": row[5] is None,
+                        "current": _temporal_state(row[4], row[5], current_instant) == "current",
                     }
                 )
 
@@ -533,7 +570,7 @@ class KnowledgeGraph:
                         "confidence": row[6],
                         "source_closet": row[7],
                         "source_file": row[8],
-                        "current": row[5] is None,
+                        "current": _temporal_state(row[4], row[5], current_instant) == "current",
                     }
                 )
 
@@ -544,6 +581,7 @@ class KnowledgeGraph:
         """Get all triples with a given relationship type."""
         pred = predicate.lower().replace(" ", "_")
         as_of_parsed = _parse_temporal(as_of)
+        current_instant = datetime.now(UTC)
         conn = self._conn()
 
         results = []
@@ -568,7 +606,7 @@ class KnowledgeGraph:
                     "valid_to": row[5],
                     "source_closet": row[7],
                     "source_file": row[8],
-                    "current": row[5] is None,
+                    "current": _temporal_state(row[4], row[5], current_instant) == "current",
                 }
             )
         conn.close()
@@ -576,6 +614,7 @@ class KnowledgeGraph:
 
     def timeline(self, entity_name: str | None = None):
         """Get all facts in chronological order, optionally filtered by entity."""
+        current_instant = datetime.now(UTC)
         conn = self._conn()
         if entity_name:
             eid = self._entity_id(entity_name)
@@ -611,7 +650,7 @@ class KnowledgeGraph:
                 "valid_to": r[5],
                 "source_closet": r[7],
                 "source_file": r[8],
-                "current": r[5] is None,
+                "current": _temporal_state(r[4], r[5], current_instant) == "current",
             }
             for r in rows
         ]
@@ -642,11 +681,13 @@ class KnowledgeGraph:
     # ── Stats ─────────────────────────────────────────────────────────────
 
     def stats(self):
+        current_instant = datetime.now(UTC)
         conn = self._conn()
         entities = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
         triples = conn.execute("SELECT COUNT(*) FROM triples").fetchone()[0]
-        current = conn.execute("SELECT COUNT(*) FROM triples WHERE valid_to IS NULL").fetchone()[0]
-        expired = triples - current
+        temporal_counts = {"current": 0, "expired": 0, "future": 0}
+        for valid_from, valid_to in conn.execute("SELECT valid_from, valid_to FROM triples"):
+            temporal_counts[_temporal_state(valid_from, valid_to, current_instant)] += 1
         predicates = [
             r[0]
             for r in conn.execute(
@@ -657,8 +698,9 @@ class KnowledgeGraph:
         return {
             "entities": entities,
             "triples": triples,
-            "current_facts": current,
-            "expired_facts": expired,
+            "current_facts": temporal_counts["current"],
+            "expired_facts": temporal_counts["expired"],
+            "future_facts": temporal_counts["future"],
             "relationship_types": predicates,
         }
 

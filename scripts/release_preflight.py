@@ -2,9 +2,9 @@
 """Run release checks before creating or publishing a tag.
 
 Default checks validate only the checked-out tree and stay deterministic and
-network-free. ``--check-live-upstream`` explicitly adds the shared read-only
-upstream head comparison. This guard never tags, pushes, creates a release, or
-contacts package registries.
+network-free. Explicit public-admission flags add bounded credential-free reads
+of their named public surfaces. This guard never tags, pushes, creates a release,
+or mutates a package registry.
 """
 
 from __future__ import annotations
@@ -301,6 +301,7 @@ def evaluate(
     check_dependency_audit: bool = False,
     check_branch_rules: bool = False,
     check_tag_ruleset: bool = False,
+    check_public_orphan_tags: bool = False,
     check_public_main: bool = False,
     repo: str | None = None,
     branch: str | None = None,
@@ -314,6 +315,10 @@ def evaluate(
     The default stays deterministic and network-free.  ``check_live_upstream`` is
     the explicit pre-tag opt-in that delegates the one bounded read-only lookup
     to the shared upstream comparison guard.
+
+    ``check_public_orphan_tags`` opts into the existing bounded GitHub/PyPI
+    identity predicate. A matching validated tag may be incomplete only during
+    this prepublication transaction; every other orphan still fails closed.
 
     ``with_gitleaks_history`` is the explicit opt-in for the full-history secret
     scan. It is off by default because the scan needs both a non-shallow checkout
@@ -422,6 +427,16 @@ def evaluate(
         )
     if check_tag_ruleset:
         checks.append(admission.check_tag_ruleset(repo_name, query_public).to_dict())
+    if check_public_orphan_tags:
+        checks.append(
+            admission.check_public_orphan_tags(
+                version,
+                repo_name,
+                admission.DEFAULT_PACKAGE,
+                query_public,
+                allow_expected_tag_pending=tag is not None and tag_error is None,
+            ).to_dict()
+        )
     if check_public_main and not admission.SHA_RE.fullmatch(expect_sha or ""):
         checks.append(
             admission.fail_row(
@@ -521,6 +536,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Require the public v* tag ruleset through the credential-free rulesets API.",
     )
     parser.add_argument(
+        "--check-public-orphan-tags",
+        action="store_true",
+        help=(
+            "Require every public version tag except the exact validated tag currently being "
+            "published to have a non-draft GitHub Release and PyPI distribution."
+        ),
+    )
+    parser.add_argument(
         "--check-public-main",
         action="store_true",
         help="Require the fixed public main branch to match --expect-sha.",
@@ -565,6 +588,7 @@ def main(argv: list[str] | None = None) -> int:
             check_dependency_audit=args.check_dependency_audit,
             check_branch_rules=args.check_branch_rules,
             check_tag_ruleset=args.check_tag_ruleset,
+            check_public_orphan_tags=args.check_public_orphan_tags,
             check_public_main=args.check_public_main,
             repo=args.repo,
             branch=args.branch,
