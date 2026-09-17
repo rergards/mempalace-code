@@ -72,6 +72,46 @@ def _github_release_job() -> dict:
 # ── ci.yml: the stable aggregate check ────────────────────────────────────────
 
 
+def test_test_matrix_self_seeds_required_minilm_cache_without_credentials():
+    job = _workflow(CI_WORKFLOW)["jobs"]["test"]
+    assert job["env"] == {
+        "HF_HOME": "${{ github.workspace }}/.cache/huggingface",
+        "MEMPALACE_TEST_HF_HOME": "${{ github.workspace }}/.cache/huggingface",
+    }
+    steps = job["steps"]
+    cache = next(step for step in steps if step.get("id") == "test-hf-cache")
+    assert str(cache["uses"]).startswith("actions/cache@")
+    assert cache["with"]["path"].endswith(
+        "/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1"
+    )
+    assert "benchmarks/minilm_runtime_compatibility_fixture.json" in cache["with"]["key"]
+
+    bootstrap = next(step for step in steps if step.get("name") == "Seed missing MiniLM cache")
+    assert bootstrap["if"] == "steps.test-hf-cache.outputs.cache-hit != 'true'"
+    command = bootstrap["run"]
+    for required in (
+        "env -i",
+        'HOME="$bootstrap_home"',
+        'HF_HOME="$HF_HOME"',
+        "HF_HUB_DISABLE_IMPLICIT_TOKEN=1",
+        'PATH="$PATH"',
+        "PYTHONNOUSERSITE=1",
+        '"${clean_env[@]}" mempalace-code fetch-model',
+    ):
+        assert required in command
+    for forbidden in (
+        "HF_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+        "PIP_INDEX_URL",
+        "PIP_EXTRA_INDEX_URL",
+        "GITHUB_TOKEN",
+    ):
+        assert forbidden not in command
+    assert steps.index(bootstrap) < next(
+        index for index, step in enumerate(steps) if "pytest tests/" in step.get("run", "")
+    )
+
+
 def test_standalone_upstream_drift_workflow_is_absent():
     assert not UPSTREAM_DRIFT_WORKFLOW.exists()
 

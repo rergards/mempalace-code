@@ -641,6 +641,7 @@ def test_dispatch_keys_cover_all_expected_commands():
         model,
         query,
         watch,
+        wing_migration,
     )
 
     expected: dict = {
@@ -666,6 +667,7 @@ def test_dispatch_keys_cover_all_expected_commands():
         "restore": backup_restore.cmd_restore,
         "export": export_import.cmd_export,
         "import": export_import.cmd_import,
+        "wing-migration": wing_migration.cmd_wing_migration,
     }
 
     for cmd_name, handler in expected.items():

@@ -1121,6 +1121,7 @@ mempalace-code version-check                           # show version-check stat
 mempalace-code version-check --check-now               # check PyPI now; prints a pip fallback for unmanaged installs
 mempalace-code update status                            # inspect upgrade eligibility (supported installs)
 mempalace-code agent-plugin path --json                # locate the installed Agent Plugins package directory
+mempalace-code wing-migration qualify --mode synthetic # qualify the receipt-bound copy migration operator
 ```
 
 Plain `status` prints a full wing/room breakdown, so its output grows with palace size. Do not use it as a routine agent bootstrap or machine-readable health check; use `status --summary` for bounded shell-based CLI discovery, task-specific MCP retrieval, or `mempalace-code health --json` for a compact CLI integrity report.
@@ -1216,7 +1217,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.13.8-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.14.0-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

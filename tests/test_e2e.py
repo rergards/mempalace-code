@@ -183,13 +183,16 @@ def test_incremental_remine_after_edit(tmp_path):
         include=["documents"],
         limit=100,
     )
-    all_changed_text = " ".join(changed_result["documents"])
+    changed_documents = changed_result["documents"]
+    assert changed_documents is not None
+    all_changed_text = " ".join(changed_documents)
     assert "updated_algorithm" in all_changed_text, (
         "Changed file content not indexed after incremental remine"
     )
 
     # (b) The changed file now has a hash tracked in the store
     hashes = store2.get_source_file_hashes("e2e_test")
+    assert hashes is not None
     assert str(changed_file) in hashes
 
     # (c) Stable file's drawers are byte-identical — content and filed_at unchanged

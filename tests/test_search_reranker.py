@@ -96,6 +96,36 @@ class TestHybridRerank:
         assert result[0]["source_file"] == "Infrastructure.csproj", (
             f"Candidate with exact query tokens should be promoted, got: {result[0]['source_file']}"
         )
+        promoted = result[0]["ranking"]
+        assert promoted["lexical_score"] == 1.0
+        assert promoted["input_rank_score"] == 0.5
+        assert promoted["hybrid_score"] == 0.75
+
+    def test_ranking_evidence_preserves_existing_fields_and_input(self):
+        candidates = [
+            {
+                "text": "alpha",
+                "source_file": "first.py",
+                "ranking": {"storage_rank": 1, "vector_distance": 0.125},
+            },
+            {
+                "text": "beta target",
+                "source_file": "second.py",
+                "ranking": {"storage_rank": 2, "vector_distance": 0.25},
+            },
+        ]
+
+        result = hybrid_rerank("target", candidates)
+
+        assert [row["source_file"] for row in result] == ["second.py", "first.py"]
+        assert result[0]["ranking"] == {
+            "storage_rank": 2,
+            "vector_distance": 0.25,
+            "lexical_score": 1.0,
+            "input_rank_score": 0.5,
+            "hybrid_score": 0.75,
+        }
+        assert "lexical_score" not in candidates[1]["ranking"]
 
     def test_csproj_promoted_over_readme_for_package_reference_query(self):
         """AC-2: Hybrid reranking promotes .csproj over README for PackageReference query.
@@ -220,6 +250,8 @@ class TestHybridRerank:
             "rank2.cs",
             "rank3.cs",
         ]
+        assert [c["ranking"]["input_rank_score"] for c in result] == [1.0, 0.75, 0.5, 0.25]
+        assert all(c["ranking"]["lexical_score"] == 0.0 for c in result)
 
     def test_lexical_weight_zero_returns_original_order(self):
         """lexical_weight=0 produces pure vector ordering regardless of token overlap."""

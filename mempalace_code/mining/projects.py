@@ -343,7 +343,9 @@ def resolve_wing_for_project(project_dir: str) -> str:
         config = _load_yaml_mapping(config_path)
         wing = config.get("wing", "")
         if wing and isinstance(wing, str) and wing.strip():
-            return _normalize_wing_name(wing.strip())
+            if config.get("dotnet_structure", False):
+                return _normalize_wing_name(wing.strip())
+            return _normalize_configured_wing(wing)
         # config file exists but has no usable wing — stop looking, fall through
         break
 
@@ -354,6 +356,13 @@ def _normalize_wing_name(name: str) -> str:
     """Lowercase, replace spaces/hyphens with underscores, strip other special chars."""
     name = name.lower().replace("-", "_").replace(" ", "_")
     name = re.sub(r"[^a-z0-9_]", "", name)
+    return name or "project"
+
+
+def _normalize_configured_wing(name: str) -> str:
+    """Canonicalize an explicit non-.NET wing while preserving hyphens."""
+    name = name.strip().lower().replace(" ", "_")
+    name = re.sub(r"[^a-z0-9_-]", "", name)
     return name or "project"
 
 

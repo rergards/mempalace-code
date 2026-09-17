@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## v1.14.0 — 2026-09-17
+
+### Added
+
+- Added the installed wing migration operator with exact-union, snapshot, retry,
+  and recovery qualification. Synthetic mining uses an independent offline copy of
+  the validated canonical model cache. Exact-host live authority adds MCP maintenance
+  fencing, retained recovery evidence, and an original-path zero-write runtime check.
+
+### Changed
+
+- Code retrieval qualification now checks current declaration owners and same-hit
+  symbols across storage, default code search, and hybrid code search while exposing
+  additive ranking evidence.
+- Configured non-.NET wing identifiers now preserve hyphens consistently across
+  standalone mining, mine-all, and fresh watcher startup. Git/folder-derived names,
+  .NET solution precedence, explicit CLI overrides, historical rows, and active
+  watcher snapshots retain their existing behavior.
+
+### Fixed
+
+- Stale-file deletion and dependent knowledge-graph and tiny-hash expiry now require
+  proven regenerable sources owned by the selected project.
+- Full-copy wing qualification now removes each recovered descendant trial before creating the
+  next one, caps retained baseline snapshots at one, and refuses stale trial or snapshot
+  generations before writing new evidence.
+
 ## v1.13.8 — 2026-09-02
 
 Recovery release for the accumulated v1.13.7 changes. The immutable v1.13.7
@@ -882,7 +909,7 @@ Add 4 architecture-oriented MCP tools for .NET type analysis: `mempalace_find_im
 
 ## 2026-04-17 · SKILLS-HOOKS
 
-Add Claude Code skills and hooks from wh40k workflow: 12 skills (`/start`, `/status`, `/verify`, `/palace-health`, `/task-plan`, `/task-hardening`, `/doc-refresh`, `/ship`, `/release`, `/entropy-gc`, `/mine`, `/bench`), 3 shared modules (mode-classification, task-state, commit-checkpoint), Codex review integration, pre-commit verification gate, and edit logging hooks.
+Add Claude Code skills and hooks: 12 skills (`/start`, `/status`, `/verify`, `/palace-health`, `/task-plan`, `/task-hardening`, `/doc-refresh`, `/ship`, `/release`, `/entropy-gc`, `/mine`, `/bench`), 3 shared modules (mode-classification, task-state, commit-checkpoint), Codex review integration, pre-commit verification gate, and edit logging hooks.
 
 ## 2026-04-17 · BENCH-DOTNET
 

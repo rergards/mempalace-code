@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -1803,7 +1804,7 @@ def test_mine_noop_with_injected_collection_does_not_warm_embedder():
 
 
 def test_mine_regular_source_noop_and_rejected_source_sweep(tmp_path):
-    """Regular sources remain no-ops; symlink paths are never duplicated and are swept."""
+    """Regular sources remain no-ops; rejected symlink sources retain existing rows."""
     project = tmp_path / "project"
     project.mkdir()
     regular = project / "regular.py"
@@ -1817,8 +1818,10 @@ def test_mine_regular_source_noop_and_rejected_source_sweep(tmp_path):
     assert first["drawers_filed"] > 0
 
     store = open_store(palace_path, create=False)
-    assert store.get(where={"source_file": str(regular)}, limit=100)["ids"]
-    assert store.get(where={"source_file": str(legacy)}, limit=100)["ids"]
+    regular_ids = set(store.get(where={"source_file": str(regular)}, limit=100)["ids"])
+    legacy_ids = set(store.get(where={"source_file": str(legacy)}, limit=100)["ids"])
+    assert regular_ids
+    assert legacy_ids
 
     unchanged = mine(str(project), palace_path, collection=store, skip_optimize=True)
     assert unchanged["drawers_filed"] == 0
@@ -1826,10 +1829,10 @@ def test_mine_regular_source_noop_and_rejected_source_sweep(tmp_path):
 
     legacy.unlink()
     legacy.symlink_to(regular)
-    swept = mine(str(project), palace_path, collection=store, skip_optimize=True)
-    assert swept["drawers_filed"] == 0
-    assert store.get(where={"source_file": str(legacy)}, limit=100)["ids"] == []
-    assert store.get(where={"source_file": str(regular)}, limit=100)["ids"]
+    rejected = mine(str(project), palace_path, collection=store, skip_optimize=True)
+    assert rejected["drawers_filed"] == 0
+    assert set(store.get(where={"source_file": str(legacy)}, limit=100)["ids"]) == legacy_ids
+    assert set(store.get(where={"source_file": str(regular)}, limit=100)["ids"]) == regular_ids
 
 
 def test_mine_hash_failure_reported_separately(capsys):
@@ -1955,8 +1958,8 @@ def test_mine_calls_optimize_once():
         shutil.rmtree(tmpdir)
 
 
-def test_mine_get_source_file_hashes_called_once():
-    """mine() calls get_source_file_hashes() once at startup (not per file)."""
+def test_mine_get_source_file_hashes_calls_complete_and_stale_inventories_once():
+    """mine() fetches one complete inventory and one project-scoped stale inventory."""
     tmpdir = tempfile.mkdtemp()
     try:
         project_root = Path(tmpdir).resolve()
@@ -1971,7 +1974,13 @@ def test_mine_get_source_file_hashes_called_once():
             mock_get_collection.return_value = mock_store
             mine(str(project_root), palace_path)
 
-        mock_store.get_source_file_hashes.assert_called_once()
+        assert mock_store.get_source_file_hashes.call_count == 2
+        first, second = mock_store.get_source_file_hashes.call_args_list
+        assert first.args == ("test_wing",)
+        assert first.kwargs == {}
+        assert second.args == ("test_wing",)
+        assert second.kwargs["project_root"] == project_root
+        assert second.kwargs["protected_source_files"] == set()
     finally:
         shutil.rmtree(tmpdir)
 
@@ -2144,9 +2153,9 @@ def test_incremental_stale_sweep_deletes_stale_sources_in_one_bulk_call():
         bulk_delete_calls = []
         original_bulk = LanceStore.delete_by_source_files
 
-        def _spy(self, source_files, wing):
+        def _spy(self, source_files, wing, *, project_root=None):
             bulk_delete_calls.append((set(source_files), wing))
-            return original_bulk(self, source_files, wing)
+            return original_bulk(self, source_files, wing, project_root=project_root)
 
         with patch.object(LanceStore, "delete_by_source_files", _spy):
             mine(str(project_root), palace_path)
@@ -2171,6 +2180,287 @@ def test_incremental_stale_sweep_deletes_stale_sources_in_one_bulk_call():
         assert len(kept["ids"]) > 0, "keeper file drawers must remain"
     finally:
         shutil.rmtree(tmpdir)
+
+
+class TestStaleSweepProvenance:
+    def test_shared_destination_sweeps_only_owned_file_rows_and_is_retry_safe(self, tmp_path):
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        project = (tmp_path / "project").resolve()
+        other_project = (tmp_path / "other-project").resolve()
+        project.mkdir()
+        other_project.mkdir()
+        owned = project / "owned.py"
+        mixed = project / "mixed.py"
+        keeper = project / "keeper.py"
+        other = other_project / "other.py"
+        for source in (owned, mixed, keeper, other):
+            write_file(source, MULTI_FUNC_PY)
+        _make_palace_config(project)
+        _make_palace_config(other_project)
+        palace_path = str(tmp_path / "palace")
+
+        mine(str(project), palace_path, skip_optimize=True)
+        mine(str(other_project), palace_path, skip_optimize=True)
+        store = open_store(palace_path, create=False)
+        store.add(
+            ids=["manual-shared-source"],
+            documents=["manual content sharing a mined source path"],
+            metadatas=[{"wing": "manual-wing", "room": "manual", "source_file": str(mixed)}],
+        )
+        owned.unlink()
+        mixed.unlink()
+
+        kg = KnowledgeGraph(db_path=str(tmp_path / "kg.sqlite3"))
+        kg.add_triple("owned-fact", "tracks", "owned", source_file=str(owned))
+        kg.add_triple("mixed-fact", "tracks", "mixed", source_file=str(mixed))
+        kg.add_triple("other-fact", "tracks", "other", source_file=str(other))
+        original_bulk = type(store).delete_by_source_files
+        calls = []
+
+        def _spy(self, source_files, wing, *, project_root=None):
+            calls.append((set(source_files), wing, project_root))
+            return original_bulk(self, source_files, wing, project_root=project_root)
+
+        with patch.object(type(store), "delete_by_source_files", _spy):
+            mine(
+                str(project),
+                palace_path,
+                collection=store,
+                kg=kg,
+                skip_optimize=True,
+            )
+
+        assert calls == [({str(owned), str(mixed)}, "test_wing", project)]
+        assert store.get(where={"source_file": str(owned)}, limit=100)["ids"] == []
+        mixed_rows = store.get(
+            where={"source_file": str(mixed)}, include=["documents", "metadatas"], limit=100
+        )
+        assert mixed_rows["ids"] == ["manual-shared-source"]
+        assert mixed_rows["documents"] == ["manual content sharing a mined source path"]
+        assert store.get(where={"source_file": str(other)}, limit=100)["ids"]
+        assert store.get(where={"source_file": str(keeper)}, limit=100)["ids"]
+        assert kg.query_entity("owned-fact")[0]["valid_to"] is not None
+        assert kg.query_entity("mixed-fact")[0]["valid_to"] is None
+        assert kg.query_entity("other-fact")[0]["valid_to"] is None
+
+        with patch.object(type(store), "delete_by_source_files", wraps=original_bulk) as retry:
+            result = mine(str(project), palace_path, collection=store, kg=kg, skip_optimize=True)
+        assert result["drawers_filed"] == 0
+        retry.assert_not_called()
+
+    def test_legacy_hashes_skip_unchanged_and_changed_file_gets_file_provenance(self, tmp_path):
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        project = (tmp_path / "project").resolve()
+        project.mkdir()
+        source = project / "code.py"
+        multi_chunk = "\n\n".join(
+            f"def function_{index}():\n" + "    value = 'substantial chunk content'\n" * 40
+            for index in range(3)
+        )
+        write_file(source, multi_chunk)
+        _make_palace_config(project)
+        palace_path = str(tmp_path / "palace")
+        mine(str(project), palace_path, skip_optimize=True)
+        store = open_store(palace_path, create=False)
+        before = store.get(
+            where={"source_file": str(source)}, include=["documents", "metadatas"], limit=100
+        )
+        legacy_metas = [{**meta, "ingest_mode": ""} for meta in before["metadatas"]]
+        store.upsert(ids=before["ids"], documents=before["documents"], metadatas=legacy_metas)
+        kg = KnowledgeGraph(db_path=str(tmp_path / "legacy-kg.sqlite3"))
+        kg.add_triple("legacy-fact", "tracks", "code", source_file=str(source))
+
+        unchanged = mine(
+            str(project),
+            palace_path,
+            collection=store,
+            kg=kg,
+            warmup=False,
+            skip_optimize=True,
+        )
+        assert unchanged["files_skipped"] == 1
+        assert unchanged["drawers_filed"] == 0
+        assert kg.query_entity("legacy-fact")[0]["valid_to"] is None
+
+        write_file(source, ("def shortened():\n    return 'updated'\n\n" * 6))
+        changed = mine(
+            str(project),
+            palace_path,
+            collection=store,
+            kg=kg,
+            warmup=False,
+            skip_optimize=True,
+        )
+        after = store.get(where={"source_file": str(source)}, include=["metadatas"], limit=100)
+        assert changed["files_processed"] == 1
+        assert 0 < len(after["ids"]) < len(before["ids"])
+        assert {meta["ingest_mode"] for meta in after["metadatas"]} == {"file"}
+        assert kg.query_entity("legacy-fact")[0]["valid_to"] is not None
+
+    def test_tiny_sweep_expires_only_canonical_owned_original_keys(self, tmp_path):
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        project = (tmp_path / "project").resolve()
+        external_root = (tmp_path / "external").resolve()
+        project.mkdir()
+        external_root.mkdir()
+        keeper = project / "keeper.py"
+        write_file(keeper, MULTI_FUNC_PY)
+        _make_palace_config(project)
+        palace_path = tmp_path / "palace"
+        mine(str(project), str(palace_path), skip_optimize=True)
+
+        owned_stale = str(project / "deleted-tiny.py")
+        external = str(external_root / "external.py")
+        dotted = str(project / "sub" / ".." / "alias.py")
+        alias_parent = project / "alias-parent"
+        alias_parent.symlink_to(external_root, target_is_directory=True)
+        symlink_alias = str(alias_parent / "aliased.py")
+        sidecar = palace_path / ".mempalace" / "tiny_hashes.json"
+        sidecar.write_text(
+            json.dumps(
+                {
+                    "test_wing": {
+                        owned_stale: "1" * 32,
+                        external: "2" * 32,
+                        dotted: "3" * 32,
+                        "relative.py": "4" * 32,
+                        symlink_alias: "5" * 32,
+                        str(project / "null.py"): None,
+                        str(project / "structured.py"): {"digest": "6" * 32},
+                        str(project / "empty.py"): "",
+                        str(project / "uppercase.py"): "A" * 32,
+                    }
+                }
+            )
+        )
+
+        kg = KnowledgeGraph(db_path=str(tmp_path / "tiny-kg.sqlite3"))
+        kg.add_triple("tiny-owned", "tracks", "owned", source_file=owned_stale)
+        kg.add_triple("tiny-alias", "tracks", "alias", source_file=symlink_alias)
+        result = mine(str(project), str(palace_path), kg=kg, skip_optimize=True)
+        saved = json.loads(sidecar.read_text())["test_wing"]
+        assert result["drawers_filed"] == 0
+        assert owned_stale not in saved
+        assert saved == {
+            external: "2" * 32,
+            dotted: "3" * 32,
+            "relative.py": "4" * 32,
+            symlink_alias: "5" * 32,
+            str(project / "null.py"): None,
+            str(project / "structured.py"): {"digest": "6" * 32},
+            str(project / "empty.py"): "",
+            str(project / "uppercase.py"): "A" * 32,
+        }
+        assert kg.query_entity("tiny-owned")[0]["valid_to"] is not None
+        assert kg.query_entity("tiny-alias")[0]["valid_to"] is None
+
+    @pytest.mark.parametrize(
+        "sidecar_payload",
+        [[], {"test_wing": None}],
+        ids=["non-object-root", "non-object-wing"],
+    )
+    def test_malformed_tiny_sidecar_container_is_replaced_safely(self, tmp_path, sidecar_payload):
+        project = (tmp_path / "project").resolve()
+        project.mkdir()
+        keeper = project / "keeper.py"
+        write_file(keeper, MULTI_FUNC_PY)
+        _make_palace_config(project)
+        palace_path = tmp_path / "palace"
+        sidecar = palace_path / ".mempalace" / "tiny_hashes.json"
+        sidecar.parent.mkdir(parents=True)
+        sidecar.write_text(json.dumps(sidecar_payload))
+
+        result = mine(str(project), str(palace_path), skip_optimize=True)
+
+        assert result["files_processed"] == 1
+        assert json.loads(sidecar.read_text()) == {"test_wing": {}}
+
+    def test_unavailable_scoped_inventory_blocks_all_stale_effects(self, tmp_path, capsys):
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        project = (tmp_path / "project").resolve()
+        project.mkdir()
+        keeper = project / "keeper.py"
+        write_file(keeper, MULTI_FUNC_PY)
+        _make_palace_config(project)
+        palace_path = tmp_path / "palace"
+        mine(str(project), str(palace_path), skip_optimize=True)
+        store = open_store(str(palace_path), create=False)
+        stale_tiny = str(project / "stale-tiny.py")
+        sidecar = palace_path / ".mempalace" / "tiny_hashes.json"
+        sidecar.write_text(json.dumps({"test_wing": {stale_tiny: "7" * 32}}))
+        kg = KnowledgeGraph(db_path=str(tmp_path / "unavailable-kg.sqlite3"))
+        kg.add_triple("unavailable-fact", "tracks", "tiny", source_file=stale_tiny)
+        original_inventory = store.get_source_file_hashes
+
+        def _unsupported_inventory(wing, **kwargs):
+            if kwargs:
+                raise TypeError("legacy backend has no scoped inventory")
+            return original_inventory(wing)
+
+        with (
+            patch.object(store, "get_source_file_hashes", side_effect=_unsupported_inventory),
+            patch.object(
+                store, "delete_by_source_files", wraps=store.delete_by_source_files
+            ) as delete,
+        ):
+            result = mine(
+                str(project),
+                str(palace_path),
+                collection=store,
+                kg=kg,
+                warmup=False,
+                skip_optimize=True,
+            )
+
+        assert result["drawers_filed"] == 0
+        delete.assert_not_called()
+        assert json.loads(sidecar.read_text())["test_wing"] == {stale_tiny: "7" * 32}
+        assert kg.query_entity("unavailable-fact")[0]["valid_to"] is None
+        assert "project provenance assessment unavailable" in capsys.readouterr().err
+
+    def test_bulk_delete_failure_blocks_kg_and_tiny_expiry(self, tmp_path, capsys):
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        project = (tmp_path / "project").resolve()
+        project.mkdir()
+        stale = project / "stale.py"
+        keeper = project / "keeper.py"
+        write_file(stale, MULTI_FUNC_PY)
+        write_file(keeper, MULTI_FUNC_PY)
+        _make_palace_config(project)
+        palace_path = tmp_path / "palace"
+        mine(str(project), str(palace_path), skip_optimize=True)
+        store = open_store(str(palace_path), create=False)
+        stale.unlink()
+        stale_tiny = str(project / "stale-tiny.py")
+        sidecar = palace_path / ".mempalace" / "tiny_hashes.json"
+        sidecar.write_text(json.dumps({"test_wing": {stale_tiny: "8" * 32}}))
+        kg = KnowledgeGraph(db_path=str(tmp_path / "failed-delete-kg.sqlite3"))
+        kg.add_triple("row-fact", "tracks", "row", source_file=str(stale))
+        kg.add_triple("tiny-fact", "tracks", "tiny", source_file=stale_tiny)
+
+        with patch.object(
+            store, "delete_by_source_files", side_effect=RuntimeError("delete failed")
+        ):
+            result = mine(
+                str(project),
+                str(palace_path),
+                collection=store,
+                kg=kg,
+                warmup=False,
+                skip_optimize=True,
+            )
+
+        assert result["drawers_filed"] == 0
+        assert store.get(where={"source_file": str(stale)}, limit=100)["ids"]
+        assert json.loads(sidecar.read_text())["test_wing"] == {stale_tiny: "8" * 32}
+        assert kg.query_entity("row-fact")[0]["valid_to"] is None
+        assert kg.query_entity("tiny-fact")[0]["valid_to"] is None
+        assert "Stale-file sweep failed: delete failed" in capsys.readouterr().err
 
 
 def test_incremental_full_flag_forces_rebuild():
@@ -3630,12 +3920,38 @@ class TestMultiProjectWingResolution:
         assert result == "my_folder_name"
 
     def test_resolution_normalizes_config_wing(self, tmp_path):
-        """Wing value from config is normalized (lowercase, spaces→underscores)."""
+        """Configured wing retains hyphens while normalizing case and spaces."""
         proj = tmp_path / "proj"
         proj.mkdir()
         (proj / "mempalace.yaml").write_text("wing: My-Cool Project\n")
         result = resolve_wing_for_project(str(proj))
-        assert result == "my_cool_project"
+        assert result == "my-cool_project"
+
+    @pytest.mark.parametrize(
+        ("configured", "expected"),
+        [
+            ("  UPPER wing  ", "upper_wing"),
+            ("under_score", "under_score"),
+            ("hyphen-name", "hyphen-name"),
+            ("punct.!name", "punctname"),
+            ("!!!", "project"),
+        ],
+    )
+    def test_resolution_canonicalizes_explicit_non_dotnet_wing(
+        self, tmp_path, configured, expected
+    ):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text(f"wing: {configured!r}\n")
+
+        assert resolve_wing_for_project(str(proj)) == expected
+
+    def test_resolution_dotnet_config_keeps_derived_normalization(self, tmp_path):
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "mempalace.yaml").write_text("wing: My-Cool Project\ndotnet_structure: true\n")
+
+        assert resolve_wing_for_project(str(proj)) == "my_cool_project"
 
     def test_resolution_legacy_config_name(self, tmp_path):
         """mempal.yaml is accepted as a legacy config filename."""
@@ -4062,11 +4378,11 @@ class TestMineWithDotnetStructure:
         self._make_dotnet_repo(project_root, sln_name="MySolution")
         palace_path = tmp_path / "palace"
 
-        mine(str(project_root), str(palace_path), wing_override="my_custom_wing")
+        mine(str(project_root), str(palace_path), wing_override="EXACT-Hyphen_Wing")
 
         store = open_store(str(palace_path), create=False)
         wing_room_counts = store.count_by_pair("wing", "room")
-        assert "my_custom_wing" in wing_room_counts
+        assert "EXACT-Hyphen_Wing" in wing_room_counts
         assert "mysolution" not in wing_room_counts
 
     def test_mine_dotnet_structure_off(self, tmp_path):

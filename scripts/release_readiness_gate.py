@@ -1427,6 +1427,13 @@ def _run_installed_cli_inventory_gap_scenario(
             raise RuntimeError("inventory scenario inherited a network attempt")
 
         require(run(["help"]), "help", 0, "usage:")
+        require(
+            run(["wing-migration"]),
+            "wing-migration missing-action guard",
+            2,
+            "usage:",
+            "{inventory,snapshot,apply,classify,recover,qualify,live-run,live-recover}",
+        )
 
         onboarding_dir = scenario_root / "onboarding"
         onboarding_dir.mkdir()
@@ -5898,6 +5905,22 @@ def _run_installed_mcp_stdio_scenario(
             or "Imported KG triples:6" not in (import_result.stdout or "")
         ):
             raise RuntimeError("installed MCP fixture setup failed")
+
+        # MCP stdio holds the same installation-wide lease used by maintenance.
+        # Seed its persistent anchors before the protected HOME snapshot so the
+        # gate still rejects every other write while allowing clean lease cycles.
+        lease_root = scenario_home / ".mempalace"
+        lease_root.mkdir(parents=True, exist_ok=True)
+        for name, payload in (
+            ("operation.lock", b""),
+            ("operation.lock.metadata.lock", b""),
+            ("operation.lock.owners.json", b"{}"),
+        ):
+            path = lease_root / name
+            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+            path.chmod(0o600)
 
         recipe = _installed_mcp_recipe(project)
         if set(recipe) != set(tools):

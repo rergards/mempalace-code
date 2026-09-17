@@ -9,7 +9,9 @@ file-level retrieval quality for naive, smart, and tree-sitter chunking.
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
+import gc
 import hashlib
 import importlib
 import importlib.metadata
@@ -37,10 +39,19 @@ if not _COMPATIBILITY_MODE_REQUESTED:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
     import mempalace_code.miner as miner  # noqa: E402
+    import mempalace_code.mining.chunkers as mining_chunkers  # noqa: E402
+    import mempalace_code.searcher as searcher  # noqa: E402
     from mempalace_code.storage import DEFAULT_EMBED_MODEL, open_store  # noqa: E402
     from mempalace_code.version import __version__  # noqa: E402
 
 SUPPORTED_MODES = ("naive", "smart", "treesitter")
+SEARCH_PATHS = ("store.query", "code_search", "code_search_hybrid")
+PATH_CANDIDATE_LIMITS = {
+    "store.query": 10,
+    "code_search": 30,
+    "code_search_hybrid": 50,
+}
+REPORT_SCHEMA_VERSION = 2
 DEFAULT_DATASET = Path(__file__).resolve().parent / "data" / "code_retrieval_queries.json"
 NAIVE_WINDOW_LINES = 80
 NAIVE_OVERLAP_LINES = 10
@@ -379,7 +390,8 @@ def load_dataset(path: Path, limit: int | None = None) -> list[dict]:
     if not records:
         raise BenchError("dataset must contain at least one record")
 
-    required = {"id", "query", "expected_files", "category"}
+    required = {"id", "query", "expected_files", "category", "match_kind"}
+    seen_ids = set()
     for idx, record in enumerate(records):
         if not isinstance(record, dict):
             raise BenchError(f"dataset record {idx} must be an object")
@@ -388,6 +400,9 @@ def load_dataset(path: Path, limit: int | None = None) -> list[dict]:
             raise BenchError(f"dataset record {idx} is missing: {', '.join(missing)}")
         if not isinstance(record["id"], str) or not record["id"]:
             raise BenchError(f"dataset record {idx} id must be a non-empty string")
+        if record["id"] in seen_ids:
+            raise BenchError(f"dataset record {record['id']} has a duplicate id")
+        seen_ids.add(record["id"])
         if not isinstance(record["query"], str) or not record["query"]:
             raise BenchError(f"dataset record {record['id']} query must be a non-empty string")
         if not isinstance(record["category"], str) or not record["category"]:
@@ -400,6 +415,30 @@ def load_dataset(path: Path, limit: int | None = None) -> list[dict]:
         ):
             raise BenchError(
                 f"dataset record {record['id']} expected_files must be a non-empty list of strings"
+            )
+        if len(set(expected_files)) != len(expected_files):
+            raise BenchError(f"dataset record {record['id']} expected_files must be unique")
+        match_kind = record["match_kind"]
+        if match_kind not in {"symbol", "file_only"}:
+            raise BenchError(
+                f"dataset record {record['id']} match_kind must be 'symbol' or 'file_only'"
+            )
+        expected_symbols = record.get("expected_symbols")
+        if match_kind == "symbol":
+            if (
+                not isinstance(expected_symbols, list)
+                or not expected_symbols
+                or any(not isinstance(symbol, str) or not symbol for symbol in expected_symbols)
+            ):
+                raise BenchError(
+                    f"dataset record {record['id']} expected_symbols must be a non-empty list "
+                    "of strings for symbol matches"
+                )
+            if len(set(expected_symbols)) != len(expected_symbols):
+                raise BenchError(f"dataset record {record['id']} expected_symbols must be unique")
+        elif "expected_symbols" in record:
+            raise BenchError(
+                f"dataset record {record['id']} file_only matches must omit expected_symbols"
             )
     return records
 
@@ -421,22 +460,37 @@ def _source_identity(source_file: str) -> tuple[str, str]:
 
 
 def file_matches_expected(source_file: str, expected_file: str) -> bool:
-    """Match expected file by basename equality or repo-relative suffix equality."""
+    """Match a basename or complete normalized path suffix on segment boundaries."""
     source, basename = _source_identity(source_file)
-    expected = expected_file.replace("\\", "/")
-    return basename == expected or source.endswith(expected)
+    expected = expected_file.replace("\\", "/").strip("/")
+    if "/" not in expected:
+        return basename == expected
+    return source == expected or source.endswith(f"/{expected}")
 
 
-def hit_at_k(metadatas: list[dict], expected_files: list[str], k: int) -> bool:
+def hit_at_k(
+    metadatas: list[dict],
+    expected_files: list[str],
+    k: int,
+    expected_symbols: list[str] | None = None,
+) -> bool:
     """Return True when any expected file appears within top-k result metadata."""
-    return rank_of_first_hit(metadatas[:k], expected_files) is not None
+    return rank_of_first_hit(metadatas[:k], expected_files, expected_symbols) is not None
 
 
-def rank_of_first_hit(metadatas: list[dict], expected_files: list[str]) -> int | None:
-    """Return 1-based rank of the first matching source file, if any."""
+def rank_of_first_hit(
+    metadatas: list[dict],
+    expected_files: list[str],
+    expected_symbols: list[str] | None = None,
+) -> int | None:
+    """Return the first same-hit file and optional exact-symbol match."""
     for rank, meta in enumerate(metadatas, start=1):
         source_file = meta.get("source_file", "")
-        if any(file_matches_expected(source_file, expected) for expected in expected_files):
+        file_match = any(
+            file_matches_expected(source_file, expected) for expected in expected_files
+        )
+        symbol_match = expected_symbols is None or meta.get("symbol_name") in expected_symbols
+        if file_match and symbol_match:
             return rank
     return None
 
@@ -447,16 +501,50 @@ def scan_corpus_files(repo_dir: Path) -> list[Path]:
 
 
 def validate_dataset(repo_dir: Path, records: list[dict]) -> int:
-    """Validate that every expected file resolves in the scanned corpus."""
+    """Validate expected paths and Python declarations against the current corpus."""
     scanned = [str(path.relative_to(repo_dir)) for path in scan_corpus_files(repo_dir)]
     failures = []
     for record in records:
+        resolved_files = []
         for expected in record["expected_files"]:
-            if not any(file_matches_expected(source, expected) for source in scanned):
+            matches = [source for source in scanned if file_matches_expected(source, expected)]
+            if not matches:
                 failures.append((record["id"], expected))
                 print(f"FAIL {record['id']}: missing {expected}")
             else:
+                resolved_files.extend(matches)
                 print(f"PASS {record['id']}: {expected}")
+        if record["match_kind"] == "symbol" and resolved_files:
+            declared = set()
+            for source in resolved_files:
+                path = repo_dir / source
+                if path.suffix != ".py":
+                    continue
+                try:
+                    tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+                except (OSError, SyntaxError) as exc:
+                    failures.append((record["id"], f"unreadable declaration owner: {source}"))
+                    print(f"FAIL {record['id']}: cannot parse declarations in {source}: {exc}")
+                    continue
+                declared.update(
+                    node.name
+                    for node in ast.walk(tree)
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                )
+            missing_symbols = [
+                symbol for symbol in record["expected_symbols"] if symbol not in declared
+            ]
+            if len(missing_symbols) == len(record["expected_symbols"]):
+                failures.append((record["id"], "expected declaration"))
+                print(
+                    f"FAIL {record['id']}: no expected declaration in owner files: "
+                    f"{', '.join(record['expected_symbols'])}"
+                )
+            else:
+                print(
+                    f"PASS {record['id']}: declaration "
+                    f"{', '.join(symbol for symbol in record['expected_symbols'] if symbol in declared)}"
+                )
     if failures:
         return 1
     print(f"PASS dataset: {len(records)} queries")
@@ -469,12 +557,12 @@ def smart_chunking_only(enabled: bool):
     if not enabled:
         yield
         return
-    original = miner.get_parser
-    miner.get_parser = lambda _language: None
+    original = mining_chunkers.get_parser
+    mining_chunkers.get_parser = lambda _language: None
     try:
         yield
     finally:
-        miner.get_parser = original
+        mining_chunkers.get_parser = original
 
 
 def _repo_commit(repo_dir: Path) -> str | None:
@@ -605,26 +693,58 @@ def mine_mode(repo_dir: Path, palace_path: Path, mode: str):
     return mine_with_miner(repo_dir, palace_path, mode)
 
 
-def run_queries(store, records: list[dict]) -> tuple[list[dict], list[float]]:
-    per_query = []
-    latencies = []
-    for record in records:
-        t0 = time.time()
+def _query_path(store, palace_path: Path, record: dict, path: str) -> list[dict]:
+    if path == "store.query":
         results = store.query(
             query_texts=[record["query"]],
             n_results=10,
             include=["documents", "metadatas", "distances"],
         )
+        return results.get("metadatas", [[]])[0] if results.get("metadatas") else []
+
+    rerank = "hybrid" if path == "code_search_hybrid" else None
+    results = searcher.code_search(str(palace_path), record["query"], n_results=10, rerank=rerank)
+    if "error" in results:
+        raise BenchError(f"{path} failed for {record['id']}: {results['error']}")
+    return results.get("results", [])
+
+
+@contextlib.contextmanager
+def supported_search_store(store):
+    """Route supported code_search calls to the lifecycle-owned benchmark store."""
+    original = searcher.open_store
+
+    def use_existing_store(*_args, **_kwargs):
+        return store
+
+    searcher.open_store = use_existing_store
+    try:
+        yield
+    finally:
+        searcher.open_store = original
+
+
+def run_queries(
+    store, palace_path: Path, records: list[dict], path: str
+) -> tuple[list[dict], list[float]]:
+    """Evaluate one supported retrieval path without hiding errors or misses."""
+    per_query = []
+    latencies = []
+    for record in records:
+        t0 = time.time()
+        metas = _query_path(store, palace_path, record, path)
         latencies.append((time.time() - t0) * 1000)
-        metas = results.get("metadatas", [[]])[0] if results.get("metadatas") else []
-        rank = rank_of_first_hit(metas, record["expected_files"])
+        symbols = record["expected_symbols"] if record["match_kind"] == "symbol" else None
+        rank = rank_of_first_hit(metas, record["expected_files"], symbols)
         per_query.append(
             {
                 "id": record["id"],
                 "query": record["query"],
                 "category": record["category"],
                 "expected_files": record["expected_files"],
-                "expected_symbols": record.get("expected_symbols", []),
+                "match_kind": record["match_kind"],
+                "expected_symbols": record.get("expected_symbols"),
+                "path": path,
                 "rank": rank,
                 "hit_at_5": rank is not None and rank <= 5,
                 "hit_at_10": rank is not None and rank <= 10,
@@ -636,55 +756,61 @@ def run_queries(store, records: list[dict]) -> tuple[list[dict], list[float]]:
 
 
 def aggregate_results(per_query: list[dict], latencies: list[float]) -> dict:
-    query_count = len(per_query)
-    r5 = sum(1 for row in per_query if row["hit_at_5"]) / query_count
-    r10 = sum(1 for row in per_query if row["hit_at_10"]) / query_count
-    mrr = sum(1 / row["rank"] for row in per_query if row["rank"]) / query_count
-
-    by_category = defaultdict(list)
-    for row in per_query:
-        by_category[row["category"]].append(row)
-
-    per_category = {}
-    for category, rows in sorted(by_category.items()):
+    def summarize(rows: list[dict]) -> dict:
         count = len(rows)
-        per_category[category] = {
+        if not count:
+            return {"query_count": 0, "R@5": None, "R@10": None, "MRR": None}
+        return {
             "query_count": count,
             "R@5": sum(1 for row in rows if row["hit_at_5"]) / count,
             "R@10": sum(1 for row in rows if row["hit_at_10"]) / count,
             "MRR": sum(1 / row["rank"] for row in rows if row["rank"]) / count,
         }
 
+    by_category = defaultdict(list)
+    for row in per_query:
+        by_category[row["category"]].append(row)
     return {
-        "R@5": r5,
-        "R@10": r10,
-        "MRR": mrr,
         "query_latency_avg_ms": sum(latencies) / len(latencies) if latencies else 0.0,
-        "per_category": per_category,
+        "populations": {
+            kind: summarize([row for row in per_query if row["match_kind"] == kind])
+            for kind in ("symbol", "file_only")
+        },
+        "per_category": {
+            category: summarize(rows) for category, rows in sorted(by_category.items())
+        },
     }
 
 
 def run_mode(repo_dir: Path, mode: str, records: list[dict]) -> dict:
     tmp_dir = Path(tempfile.mkdtemp(prefix=f"code_bench_{mode}_"))
+    store = None
     try:
         t0 = time.time()
         store, chunk_count, mode_meta = mine_mode(repo_dir, tmp_dir, mode)
         embed_time_s = time.time() - t0
-        per_query, latencies = run_queries(store, records)
-        metrics = aggregate_results(per_query, latencies)
+        paths = {}
+        with supported_search_store(store):
+            for path in SEARCH_PATHS:
+                per_query, latencies = run_queries(store, tmp_dir, records, path)
+                metrics = aggregate_results(per_query, latencies)
+                paths[path] = {
+                    "ordering": "storage-ranked" if path != "code_search_hybrid" else "hybrid",
+                    "requested_results": 10,
+                    "candidate_fetch_limit": PATH_CANDIDATE_LIMITS[path],
+                    **metrics,
+                    "per_query": per_query,
+                }
         return {
             "chunk_count": chunk_count,
             "embed_time_s": embed_time_s,
             "index_size_mb": _index_size_mb(tmp_dir),
-            "query_latency_avg_ms": metrics["query_latency_avg_ms"],
-            "R@5": metrics["R@5"],
-            "R@10": metrics["R@10"],
-            "MRR": metrics["MRR"],
-            "per_category": metrics["per_category"],
-            "per_query": per_query,
+            "paths": paths,
             **mode_meta,
         }
     finally:
+        store = None
+        gc.collect()
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
@@ -692,26 +818,31 @@ def build_comparison(modes: dict) -> dict:
     """Build compact table-friendly comparison metrics."""
     return {
         mode: {
-            "R@5": result["R@5"],
-            "R@10": result["R@10"],
-            "MRR": result["MRR"],
-            "chunk_count": result["chunk_count"],
-            "query_latency_avg_ms": result["query_latency_avg_ms"],
+            path: {
+                "symbol": result["paths"][path]["populations"]["symbol"],
+                "file_only": result["paths"][path]["populations"]["file_only"],
+                "query_latency_avg_ms": result["paths"][path]["query_latency_avg_ms"],
+            }
+            for path in SEARCH_PATHS
         }
         for mode, result in modes.items()
     }
 
 
 def print_table(modes: dict) -> None:
-    print("\nCode retrieval results")
-    print("mode          chunks   R@5    R@10   MRR    query_ms")
-    print("------------  -------  -----  -----  -----  --------")
+    print(f"\nCode retrieval results (schema={REPORT_SCHEMA_VERSION}, model={DEFAULT_EMBED_MODEL})")
+    print("mode          path                population  count  R@5    R@10   MRR")
+    print("------------  ------------------  ----------  -----  -----  -----  -----")
     for mode, result in modes.items():
-        print(
-            f"{mode:<12}  {result['chunk_count']:>7}  "
-            f"{result['R@5']:.3f}  {result['R@10']:.3f}  "
-            f"{result['MRR']:.3f}  {result['query_latency_avg_ms']:.1f}"
-        )
+        for path, path_result in result["paths"].items():
+            for population, metrics in path_result["populations"].items():
+                values = [metrics[name] for name in ("R@5", "R@10", "MRR")]
+                formatted = ["null" if value is None else f"{value:.3f}" for value in values]
+                print(
+                    f"{mode:<12}  {path:<18}  {population:<10}  "
+                    f"{metrics['query_count']:>5}  {formatted[0]:>5}  "
+                    f"{formatted[1]:>5}  {formatted[2]:>5}"
+                )
 
 
 def run_benchmark(repo_dir: Path, dataset_path: Path, modes: list[str], limit: int | None) -> dict:
@@ -719,6 +850,7 @@ def run_benchmark(repo_dir: Path, dataset_path: Path, modes: list[str], limit: i
     mode_results = {mode: run_mode(repo_dir, mode, records) for mode in modes}
     return {
         "meta": {
+            "report_schema_version": REPORT_SCHEMA_VERSION,
             "date": datetime.now(UTC).isoformat(),
             "repo_path": str(repo_dir),
             "repo_name": repo_dir.name,

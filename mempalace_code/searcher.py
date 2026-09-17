@@ -240,8 +240,7 @@ def search_memories(
     for doc, meta, dist in zip(docs, metas, dists):
         meta = meta or {}
         doc = doc or ""
-        ls = int(meta.get("line_start", 0) or 0)
-        le = int(meta.get("line_end", 0) or 0)
+        line_range = _compact_line_range(meta)
         hits.append(
             {
                 "text": doc,
@@ -258,7 +257,11 @@ def search_memories(
                 "contains_mermaid": bool(meta.get("contains_mermaid", 0)),
                 "contains_code": bool(meta.get("contains_code", 0)),
                 "contains_table": bool(meta.get("contains_table", 0)),
-                "line_range": {"start": ls, "end": le} if ls > 0 and le > 0 else None,
+                "line_range": (
+                    {"start": line_range[0], "end": line_range[1]}
+                    if line_range is not None
+                    else None
+                ),
                 "similarity": round(1 - dist, 3),
             }
         )
@@ -350,8 +353,13 @@ def code_search(
     Over-fetches n_results*3 (capped at 150) to compensate for post-filter
     discard, then truncates to n_results.
 
+    Results are storage-ranked by default. ``ranking.storage_rank`` is the
+    1-based position within this call's returned storage candidate pool;
+    ``ranking.vector_distance`` is the unrounded distance returned by storage.
+
     rerank: Optional reranking mode. Only "hybrid" is accepted. Hybrid mode
-        applies BM25-style token overlap reranking before post-filters.
+        applies token-overlap reranking before post-filters and adds its score
+        components under ``ranking``.
         search_memories and the print-oriented search() are unaffected.
     """
     if rerank is not None and rerank != "hybrid":
@@ -430,13 +438,12 @@ def code_search(
 
     # Build raw hit dicts for the full fetched pool (before post-filters)
     raw_hits = []
-    for doc, meta, dist in zip(docs, metas, dists):
+    for storage_rank, (doc, meta, dist) in enumerate(zip(docs, metas, dists), start=1):
         meta = meta or {}
         doc = doc or ""
         sym_name = meta.get("symbol_name", "") or ""
         src_file = meta.get("source_file", "") or ""
-        ls = int(meta.get("line_start", 0) or 0)
-        le = int(meta.get("line_end", 0) or 0)
+        line_range = _compact_line_range(meta)
         raw_hits.append(
             {
                 "text": doc,
@@ -446,8 +453,16 @@ def code_search(
                 "symbol_name": sym_name,
                 "symbol_type": meta.get("symbol_type", "") or "",
                 "language": meta.get("language", "") or "",
-                "line_range": {"start": ls, "end": le} if ls > 0 and le > 0 else None,
+                "line_range": (
+                    {"start": line_range[0], "end": line_range[1]}
+                    if line_range is not None
+                    else None
+                ),
                 "similarity": round(1 - dist, 3),
+                "ranking": {
+                    "storage_rank": storage_rank,
+                    "vector_distance": dist,
+                },
             }
         )
 

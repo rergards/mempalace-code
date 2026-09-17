@@ -107,10 +107,11 @@ WHEEL=dist/mempalace_code-X.Y.Z-py3-none-any.whl
 python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
 ```
 
-Set `MEMPALACE_TEST_HF_HOME` to a pre-populated cache root before running that
-command. The gate requires the CPU FastEmbed artifact and exact MemPalace
+Set `MEMPALACE_TEST_HF_HOME` to a pre-populated cache root before running the
+full pytest suite or the installed-golden command. Wing-migration tests and the
+gate require the CPU FastEmbed artifact and exact MemPalace
 provenance at `mempalace-fastembed/all-MiniLM-L6-v2-v1/.mempalace-model.json`
-and stops before venv creation when either is absent, foreign, or stale.
+Qualification stops before venv creation when either is absent, foreign, or stale.
 Provision the cache outside qualification, then retry:
 
 ```bash
