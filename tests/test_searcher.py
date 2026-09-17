@@ -4,6 +4,7 @@ test_searcher.py — Tests for the programmatic search_memories API.
 Tests the library-facing search interface (not the CLI print variant).
 """
 
+import copy
 import shlex
 
 import pytest
@@ -1243,6 +1244,11 @@ class TestCodeSearchHybridRerank:
             f"Default mode must keep README first (vector order), "
             f"got: {result['results'][0]['source_file']}"
         )
+        assert [hit["ranking"] for hit in result["results"]] == [
+            {"storage_rank": 1, "vector_distance": 0.10},
+            {"storage_rank": 2, "vector_distance": 0.35},
+        ]
+        assert [hit["similarity"] for hit in result["results"]] == [0.9, 0.65]
 
     def test_hybrid_rerank_promotes_csproj_over_readme(self, csproj_palace_path):
         """AC-6: Hybrid reranking promotes .csproj over README for PackageReference query."""
@@ -1258,6 +1264,16 @@ class TestCodeSearchHybridRerank:
         assert result["results"][0]["source_file"].endswith(".csproj"), (
             f"Hybrid mode must promote .csproj first, got: {result['results'][0]['source_file']}"
         )
+        first = result["results"][0]
+        assert first["ranking"]["storage_rank"] == 2
+        assert first["ranking"]["vector_distance"] == 0.35
+        assert set(first["ranking"]) == {
+            "storage_rank",
+            "vector_distance",
+            "lexical_score",
+            "input_rank_score",
+            "hybrid_score",
+        }
 
     def test_hybrid_rerank_result_count_limited_to_n_results(self, csproj_palace_path):
         """AC-6: Result set is still limited to n_results after hybrid reranking."""
@@ -1313,6 +1329,33 @@ class TestCodeSearchHybridRerank:
             "file_glob",
             "wing",
         }
+
+    def test_post_filter_preserves_original_storage_rank(self, csproj_palace_path):
+        result = code_search(
+            csproj_palace_path,
+            "PackageReference",
+            file_glob="*.csproj",
+            n_results=1,
+        )
+
+        assert len(result["results"]) == 1
+        assert result["results"][0]["ranking"] == {
+            "storage_rank": 2,
+            "vector_distance": 0.35,
+        }
+
+
+def test_code_search_tool_description_names_storage_and_hybrid_evidence():
+    from mempalace_code.mcp.tools.search import TOOL_SPECS
+
+    definition = TOOL_SPECS["mempalace_code_search"]
+    description = definition["description"]
+    rerank_description = definition["input_schema"]["properties"]["rerank"]["description"]
+
+    assert "storage-ranked order" in description
+    assert "ranking.vector_distance" in description
+    assert "hybrid_score" in description
+    assert "storage-ranked order" in rerank_description
 
 
 class TestLuaLanguageSupport:
@@ -1626,3 +1669,192 @@ class TestLineRange:
         assert "results" in result
         assert result["results"][0]["line_range"] is None
         assert result["results"][0]["source_file"] == ""
+
+
+class TestStructuredLineRangeMetadata:
+    """Structured search APIs reject unsafe ranges without altering stored metadata."""
+
+    class FakeQueryStore:
+        def __init__(self, documents, metadatas, distances):
+            self.documents = documents
+            self.metadatas = metadatas
+            self.distances = distances
+            self.query_calls = []
+
+        def query(self, **kwargs):
+            self.query_calls.append(kwargs)
+            return {
+                "documents": [self.documents],
+                "metadatas": [self.metadatas],
+                "distances": [self.distances],
+            }
+
+    @staticmethod
+    def _metadata(**line_values):
+        return {
+            "wing": "project",
+            "room": "backend",
+            "source_file": "/src/example.py",
+            "symbol_name": "example",
+            "symbol_type": "function",
+            "language": "python",
+            "heading": "Example",
+            "heading_level": 2,
+            "heading_path": "API / Example",
+            "doc_section_type": "reference",
+            "contains_mermaid": 1,
+            "contains_code": 1,
+            "contains_table": 0,
+            **line_values,
+        }
+
+    @staticmethod
+    def _call(api_name, palace_path):
+        if api_name == "search_memories":
+            return search_memories("needle", str(palace_path), n_results=50)
+        return code_search(str(palace_path), "needle", n_results=50)
+
+    @staticmethod
+    def _expected_hit(api_name, text, line_range):
+        hit = {
+            "text": text,
+            "wing": "project",
+            "room": "backend",
+            "source_file": "/src/example.py",
+            "symbol_name": "example",
+            "symbol_type": "function",
+            "language": "python",
+            "line_range": line_range,
+            "similarity": 0.875,
+        }
+        if api_name == "search_memories":
+            hit.update(
+                {
+                    "heading": "Example",
+                    "heading_level": 2,
+                    "heading_path": "API / Example",
+                    "doc_section_type": "reference",
+                    "contains_mermaid": True,
+                    "contains_code": True,
+                    "contains_table": False,
+                }
+            )
+        return hit
+
+    @staticmethod
+    def _expected_envelope(api_name, results):
+        if api_name == "code_search":
+            results = [
+                {
+                    **hit,
+                    "ranking": {"storage_rank": rank, "vector_distance": 0.125},
+                }
+                for rank, hit in enumerate(results, start=1)
+            ]
+        filters = (
+            {"wing": None, "room": None}
+            if api_name == "search_memories"
+            else {
+                "language": None,
+                "symbol_name": None,
+                "symbol_type": None,
+                "file_glob": None,
+                "wing": None,
+            }
+        )
+        return {"query": "needle", "filters": filters, "results": results}
+
+    @pytest.mark.parametrize("api_name", ["search_memories", "code_search"])
+    def test_malformed_ranges_return_null_without_writes(self, api_name, tmp_path, monkeypatch):
+        missing = object()
+        invalid_ranges = [
+            ("x", 2),
+            (1, "x"),
+            ("", 2),
+            (1, ""),
+            (True, 2),
+            (1, False),
+            (None, 2),
+            (1, None),
+            (0, 2),
+            (1, 0),
+            (-1, 2),
+            (1, "-2"),
+            (3, 2),
+            (1.0, 2),
+            (1, 2.0),
+            ([1], 2),
+            (1, {"value": 2}),
+            (missing, 2),
+            (1, missing),
+        ]
+        metadatas = []
+        for line_start, line_end in invalid_ranges:
+            line_values = {}
+            if line_start is not missing:
+                line_values["line_start"] = line_start
+            if line_end is not missing:
+                line_values["line_end"] = line_end
+            metadatas.append(self._metadata(**line_values))
+        metadatas.append(self._metadata(line_start=8, line_end="9"))
+        documents = [f"invalid-{index}" for index in range(len(invalid_ranges))] + ["valid"]
+        distances = [0.125] * len(documents)
+        original_metadatas = copy.deepcopy(metadatas)
+        store = self.FakeQueryStore(documents, metadatas, distances)
+        open_calls = []
+
+        def fake_open_store(path, **kwargs):
+            open_calls.append((path, kwargs))
+            return store
+
+        monkeypatch.setattr("mempalace_code.searcher.open_store", fake_open_store)
+        palace_path = tmp_path / "absent-palace"
+        expected_hits = [self._expected_hit(api_name, text, None) for text in documents[:-1]] + [
+            self._expected_hit(api_name, "valid", {"start": 8, "end": 9})
+        ]
+        expected = self._expected_envelope(api_name, expected_hits)
+
+        for _ in range(2):
+            assert self._call(api_name, palace_path) == expected
+
+        assert open_calls == [(str(palace_path), {"create": False})] * 2
+        assert len(store.query_calls) == 2
+        assert all(call["query_texts"] == ["needle"] for call in store.query_calls)
+        assert metadatas == original_metadatas
+        assert not palace_path.exists()
+
+    @pytest.mark.parametrize("api_name", ["search_memories", "code_search"])
+    @pytest.mark.parametrize(
+        ("line_start", "line_end", "expected"),
+        [
+            (1, 2, {"start": 1, "end": 2}),
+            (" 3 ", "4", {"start": 3, "end": 4}),
+            (5, "6", {"start": 5, "end": 6}),
+            ("7", 8, {"start": 7, "end": 8}),
+            (9, 9, {"start": 9, "end": 9}),
+        ],
+    )
+    def test_valid_ranges_preserve_complete_result_shape(
+        self, api_name, line_start, line_end, expected, tmp_path, monkeypatch
+    ):
+        metadata = self._metadata(line_start=line_start, line_end=line_end)
+        original_metadata = copy.deepcopy(metadata)
+        store = self.FakeQueryStore(["valid"], [metadata], [0.125])
+        open_calls = []
+
+        def fake_open_store(path, **kwargs):
+            open_calls.append((path, kwargs))
+            return store
+
+        monkeypatch.setattr("mempalace_code.searcher.open_store", fake_open_store)
+        palace_path = tmp_path / "absent-palace"
+
+        result = self._call(api_name, palace_path)
+
+        assert result == self._expected_envelope(
+            api_name, [self._expected_hit(api_name, "valid", expected)]
+        )
+        assert open_calls == [(str(palace_path), {"create": False})]
+        assert len(store.query_calls) == 1
+        assert metadata == original_metadata
+        assert not palace_path.exists()

@@ -8,26 +8,26 @@ Schema version: 4
 
 | Metric | Value |
 |--------|------:|
-| Package files (`mempalace_code/`) | 80 |
-| Package total lines | 29511 |
-| Package code lines | 24281 |
-| Test files (`tests/`) | 88 |
-| Test total lines | 81582 |
+| Package files (`mempalace_code/`) | 82 |
+| Package total lines | 35237 |
+| Package code lines | 29550 |
+| Test files (`tests/`) | 91 |
+| Test total lines | 86501 |
 
 ## Largest Modules (top 10)
 
 | Module | Lines |
 |--------|------:|
-| `mempalace_code/storage.py` | 2107 |
+| `mempalace_code/wing_migration.py` | 5395 |
+| `mempalace_code/storage.py` | 2226 |
 | `mempalace_code/updater.py` | 1780 |
 | `mempalace_code/mining/chunkers.py` | 1466 |
 | `mempalace_code/watcher.py` | 1333 |
 | `mempalace_code/dialect.py` | 1074 |
 | `mempalace_code/backup.py` | 989 |
-| `mempalace_code/cli.py` | 947 |
+| `mempalace_code/cli.py` | 963 |
+| `mempalace_code/mining/orchestrator.py` | 963 |
 | `mempalace_code/mining/symbols.py` | 904 |
-| `mempalace_code/entity_detector.py` | 885 |
-| `mempalace_code/mining/orchestrator.py` | 860 |
 
 ## Ruff Ignores
 
@@ -90,7 +90,7 @@ Coverage: `maintained_default_corpus`, `entropy_rule`, `changed_commit_range`, `
 | Gate | Status | Count |
 |------|:------:|------:|
 | architecture_guard | present |  |
-| cli_golden_scenarios | present | 20 |
+| cli_golden_scenarios | present | 21 |
 | dependency_audit | present |  |
 | docs_drift_guard | present |  |
 | mcp_stdio_contracts | present | 5 |
@@ -127,8 +127,8 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| Test files | 88 |
-| Test functions | 3755 |
+| Test files | 91 |
+| Test functions | 3915 |
 
 ## Available Suites
 

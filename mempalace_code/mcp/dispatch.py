@@ -11,6 +11,8 @@ legacy and behaves exactly as before this module gained protocol_compat
 import json
 import logging
 import math
+import os
+import stat
 import sys
 from collections.abc import Mapping
 from typing import Optional
@@ -313,6 +315,22 @@ def _parse_comma_list(value: str) -> list[str]:
     return [tok.strip() for tok in value.split(",") if tok.strip()]
 
 
+def _maintenance_message(path) -> str | None:
+    if not path.exists() and not path.is_symlink():
+        return None
+    try:
+        metadata = path.lstat()
+        safe = stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1
+        detail = json.loads(path.read_text(encoding="utf-8")) if safe else {}
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        detail = {}
+    recovery = detail.get("recovery_command")
+    message = "MemPalace maintenance is active"
+    if isinstance(recovery, str) and recovery:
+        message += f"; recovery: {recovery}"
+    return message
+
+
 def main(argv=None):
     import argparse
 
@@ -387,31 +405,53 @@ def main(argv=None):
     global _active_registry
     _active_registry = {k: v for k, v in TOOLS.items() if k in active_names}
 
-    logger.info("MemPalace MCP Server starting...")
-    while True:
-        try:
-            line = sys.stdin.readline()
-            if not line:
+    # Keep every installed stdio server on the shared side of the same lock used
+    # by storage maintenance.  A live migration also leaves an explicit marker,
+    # so a crashed operator cannot silently reopen the palace in a partial state.
+    from ..operation_lock import OperationLock, OperationLockedError
+
+    lock = OperationLock.default()
+    maintenance = lock.path.with_name("live-wing-migration.json")
+    message = _maintenance_message(maintenance)
+    if message is not None:
+        print(message, file=sys.stderr)
+        raise SystemExit(os.EX_TEMPFAIL)
+    try:
+        lease = lock.acquire_shared("mcp-stdio")
+    except OperationLockedError as exc:
+        print(f"MemPalace maintenance lock is active: {exc}", file=sys.stderr)
+        raise SystemExit(os.EX_TEMPFAIL) from exc
+
+    with lease:
+        message = _maintenance_message(maintenance)
+        if message is not None:
+            print(message, file=sys.stderr)
+            raise SystemExit(os.EX_TEMPFAIL)
+        logger.info("MemPalace MCP Server starting...")
+        while True:
+            try:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                request = json.loads(line)
+                response = handle_request(request)
+                if response is not None:
+                    sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+                    sys.stdout.flush()
+            except KeyboardInterrupt:
                 break
-            line = line.strip()
-            if not line:
-                continue
-            request = json.loads(line)
-            response = handle_request(request)
-            if response is not None:
-                sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+            except json.JSONDecodeError as e:
+                # Per JSON-RPC 2.0 spec, id is null when the request could not be parsed.
+                err = {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": f"Parse error: {e}"},
+                }
+                sys.stdout.write(json.dumps(err, ensure_ascii=False) + "\n")
                 sys.stdout.flush()
-        except KeyboardInterrupt:
-            break
-        except json.JSONDecodeError as e:
-            # Per JSON-RPC 2.0 spec, id is null when the request could not be parsed.
-            err = {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32700, "message": f"Parse error: {e}"},
-            }
-            sys.stdout.write(json.dumps(err, ensure_ascii=False) + "\n")
-            sys.stdout.flush()
-            logger.debug("Parse error (malformed JSON input): %s", e)
-        except Exception as e:
-            logger.error(f"Server error: {e}")
+                logger.debug("Parse error (malformed JSON input): %s", e)
+            except Exception as e:
+                logger.error(f"Server error: {e}")

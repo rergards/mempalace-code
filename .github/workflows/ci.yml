@@ -35,6 +35,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      HF_HOME: ${{ github.workspace }}/.cache/huggingface
+      MEMPALACE_TEST_HF_HOME: ${{ github.workspace }}/.cache/huggingface
     strategy:
       fail-fast: false
       matrix:
@@ -50,7 +53,33 @@ jobs:
           cache-dependency-path: |
             pyproject.toml
             uv.lock
+      - name: Restore required MiniLM cache
+        id: test-hf-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
+          key: fastembed-${{ runner.os }}-x64-py${{ matrix.python-version }}-minilm-${{ hashFiles('pyproject.toml', 'uv.lock', 'benchmarks/minilm_runtime_compatibility_fixture.json') }} # zizmor: ignore[cache-poisoning]
+          restore-keys: |
+            fastembed-${{ runner.os }}-x64-py${{ matrix.python-version }}-minilm-
       - run: pip install -e ".[dev,treesitter]"
+      - name: Seed missing MiniLM cache
+        if: steps.test-hf-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bootstrap_home="$RUNNER_TEMP/mempalace-test-cache-bootstrap-home"
+          mkdir -p "$bootstrap_home"
+          clean_env=(
+            env -i
+            HOME="$bootstrap_home"
+            HF_HOME="$HF_HOME"
+            HF_HUB_DISABLE_IMPLICIT_TOKEN=1
+            LANG=C.UTF-8
+            PATH="$PATH"
+            PYTHONDONTWRITEBYTECODE=1
+            PYTHONNOUSERSITE=1
+          )
+          "${clean_env[@]}" mempalace-code fetch-model
       - run: python3 -m pytest tests/ -v -m "not needs_network"
       - name: Demo performance budgets (hard CI gate)
         if: matrix.python-version == '3.13'

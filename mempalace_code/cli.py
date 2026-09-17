@@ -29,6 +29,7 @@ Commands:
     mempalace-code agent-plugin path          Print the installed Agent Plugin directory
     mempalace-code update status                Inspect explicit upgrade eligibility and provenance
     mempalace-code update apply --yes           Apply an opt-in supported-install upgrade
+    mempalace-code wing-migration qualify --mode synthetic  Qualify copy migration operator
     mempalace-code diary write --agent <name> --entry "<text>"  Write a diary entry
 
 Examples:
@@ -64,6 +65,7 @@ from .cli_commands.query import cmd_compress, cmd_read, cmd_search, cmd_wakeup
 from .cli_commands.update import cmd_update
 from .cli_commands.version_check import cmd_version_check
 from .cli_commands.watch import cmd_watch
+from .cli_commands.wing_migration import cmd_wing_migration
 from .storage import CHROMA_RUNTIME_RETIRED_MESSAGE, ChromaRuntimeRetiredError
 from .version import __version__
 
@@ -837,6 +839,16 @@ def main():
             "--json", action="store_true", help="Emit machine-readable JSON"
         )
 
+    p_wing_migration = sub.add_parser(
+        "wing-migration",
+        help="Run receipt-bound wing migration on disposable or owner-authorized copies",
+    )
+    p_wing_migration.add_argument(
+        "wing_migration_args",
+        nargs=argparse.REMAINDER,
+        help="Operator action and arguments",
+    )
+
     args = parser.parse_args(_hoist_palace_before_subcommand(sys.argv[1:]))
 
     if not args.command:
@@ -899,11 +911,12 @@ def main():
         "version-check": cmd_version_check,
         "update": cmd_update,
         "preflight": cmd_preflight,
+        "wing-migration": cmd_wing_migration,
     }
 
     # --- opt-in version-check hook ---
     # version-check command handles itself; all others may get a first-run prompt.
-    if args.command not in ("version-check", "update", "agent-plugin"):
+    if args.command not in ("version-check", "update", "agent-plugin", "wing-migration"):
         from .version import __version__ as _current_version
         from .version_check import (
             load_state,
@@ -927,7 +940,10 @@ def main():
         raise SystemExit(1) from None
 
     # Automatic check runs after the command succeeds; skipped on SystemExit.
-    if args.command not in ("version-check", "update", "agent-plugin") and _vc_config.enabled:  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
+    if (
+        args.command not in ("version-check", "update", "agent-plugin", "wing-migration")
+        and _vc_config.enabled
+    ):  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
         run_automatic_check(  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
             _current_version,  # type: ignore[possibly-undefined]  # reason: assigned conditionally via opt-in path; always set when enabled
             _vc_config,
