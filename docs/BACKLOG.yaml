@@ -46,4 +46,99 @@ sections:
 # ============================================================
 # OPEN ITEMS
 # ============================================================
-items: []
+items:
+  - key: WING-MIGRATION-FULL-COPY-QUALIFICATION
+    summary: "Qualify the wing migration runner on an owner-authorized isolated full copy"
+    type: task
+    status: blocked
+    priority: medium
+    size: M
+    section_id: storage_reliability
+    assignee: owner
+    blocked_by:
+      - WING-MIGRATION-FULL-COPY-RUNNER-HARDENING
+    description: |
+      ## Problem
+      Synthetic fixtures cannot prove preservation of the original rollout's complete Lance, KG,
+      sidecar, marker, and runtime state. The retained private inventory predates the final runner
+      contract and lacks source host/filesystem binding, normalized full-preimage evidence, and
+      owner-sealed installed-package identity.
+
+      ## Scope
+      After `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` lands, refresh the exact private inventory
+      against that frozen schema and runner revision, then run one owner-authorized rehearsal against
+      the retained isolated full copy and both candidate KG stores. Preserve the sealed receipt and
+      qualification evidence. Do not mutate original paths, activate the original marker, restart a
+      watcher, or perform the live migration.
+
+      ## Private operator input
+      Before launch, the operator exports `WING_MIGRATION_INVENTORY_PATH` with the absolute path to
+      the owner-authorized private inventory outside Git. Plan and implementation must read that exact
+      file and fail closed when the variable or file is absent. The path and private inventory values
+      must not be copied into tracked plans, logs, fixtures, or other public artifacts.
+
+      ## Reuse ledger
+      capability | existing owner | completion evidence | residual delta | action
+      migration and recovery | temporary runner from `WING-MIGRATION-EXISTING-DESTINATION-GUARD` | synthetic qualification and focused tests | prove the same contract against complete private state | reuse
+      stored provenance identity | landed runner from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` | lexical and relocation contract passes focused gates | verify the frozen behavior against real copied state | reuse
+      private state authority | owner-supplied inventory and isolated copy | supplied before implementation launch | validate exact copied targets and admit copy-only mutation | reuse
+
+      ## Owner prerequisite
+      Refresh only the missing private authority fields after the final runner schema is known. Bind
+      the current qualification host, source host/filesystem and snapshot manifest, normalized
+      origin-to-copy preimage, exact copied targets, installed runtime package hashes, final runner
+      digest, retention, and descendant authority. A missing or mismatched field must refuse before
+      mutation. Keep the private values outside Git and public logs.
+
+      ## Acceptance criteria
+      - [ ] Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime,
+        source and destination wings, both KG candidates, snapshot roots, and evidence destination.
+      - [ ] Full-copy inventory seals the original logical source root separately from the copied
+        project root. Collision, protected-row, and KG eligibility checks use that logical root;
+        resolver and effective-mine probes use only a disposable copy of the copied project root.
+        Stored source paths and hashes remain unchanged.
+      - [ ] Device/inode and full preimage checks prove the qualification targets do not overlap original
+        paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.
+      - [ ] The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate
+        retry, every staged interruption recovery, complete preservation, and no unrelated drift.
+      - [ ] The exact runtime resolves and effectively mines the destination wing on the copied tree.
+        The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do
+        not substitute for the live original-path no-op check.
+      - [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no
+        state. One receipt-bound recovery command and the retention deadline are recorded.
+      - [ ] Live execution remains blocked pending separate authority for the original host, original
+        snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.
+  - key: LOCAL-ROLLOUT-RECONCILE-AND-ACCEPT
+    summary: "Reconcile local indexing state and complete bounded watcher acceptance"
+    type: task
+    status: blocked
+    priority: medium
+    size: M
+    section_id: storage_reliability
+    assignee: owner
+    description: |
+      ## Problem
+      The interrupted local rollout has structural health evidence but lacks a current complete
+      inventory, backup comparison, per-wing retrieval acceptance, and one fresh run proving initial
+      mine completion and watcher readiness. The evidence belongs to a different host, so all live
+      checks must run on that original rollout host.
+
+      ## Scope
+      Reconcile current state read-only first, then perform only explicitly authorized local rollout
+      actions after the stale-sweep guard is installed and verified. Reuse native watch, health,
+      backup, storage inventory, and search surfaces. Do not perform an automatic global rebuild,
+      archive purge, credential rotation, watcher redesign, sibling-repository commits, or expand Git
+      event support from unproven limitations.
+
+      ## Reuse ledger
+      capability | existing owner | completion evidence | residual delta | action
+      rollout acceptance | native watch status/events, health, backup, inventory, and scoped search | prior stopped-state and structural-health evidence | fresh inventory, preservation comparison, completed run, and retrieval evidence | reuse
+
+      ## Acceptance criteria
+      - [ ] Checks on the original rollout host identify the actual palace, installed runtime, writer owners, watcher state, disk gate, and available rollback artifacts without relying on stale paths or PIDs.
+      - [ ] Manual and diary inventory is compared with the pre-rollout backup without exposing stored content.
+      - [ ] Freshness, current source hashes, pending exclusions, and representative per-wing retrieval are measured for the authorized repository set.
+      - [ ] Exact-line acceptance waits for MINE-SOURCE-EXACT-LINE-ROUNDTRIP; rename acceptance waits for the migration task.
+      - [ ] After MINE-STALE-SWEEP-PROVENANCE-GUARD and separate resume authority, one verified writer run emits initial-mine-started, initial-mine-completed, an explained optimize outcome, and watch-ready for one run ID.
+      - [ ] Commit-event integration and unsupported Git layouts are reported by observed evidence; no user commits or branches are created solely for a canary without authority.
+      - [ ] Final health, exclusions, ownership, and retrieval checks pass, or the exact blocker and one recovery command are recorded.

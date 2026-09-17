@@ -1,17 +1,17 @@
 {
   "code_size": {
-    "package_code_lines": 24281,
-    "package_files": 80,
-    "package_total_lines": 29511,
-    "test_files": 88,
-    "test_total_lines": 81582
+    "package_code_lines": 29550,
+    "package_files": 82,
+    "package_total_lines": 35237,
+    "test_files": 91,
+    "test_total_lines": 86461
   },
   "demo_gates": {
     "architecture_guard": {
       "status": "present"
     },
     "cli_golden_scenarios": {
-      "count": 20,
+      "count": 21,
       "status": "present"
     },
     "dependency_audit": {
@@ -58,7 +58,11 @@
   },
   "largest_modules": [
     {
-      "lines": 2107,
+      "lines": 5395,
+      "path": "mempalace_code/wing_migration.py"
+    },
+    {
+      "lines": 2226,
       "path": "mempalace_code/storage.py"
     },
     {
@@ -82,20 +86,16 @@
       "path": "mempalace_code/backup.py"
     },
     {
-      "lines": 947,
+      "lines": 963,
       "path": "mempalace_code/cli.py"
+    },
+    {
+      "lines": 963,
+      "path": "mempalace_code/mining/orchestrator.py"
     },
     {
       "lines": 904,
       "path": "mempalace_code/mining/symbols.py"
-    },
-    {
-      "lines": 885,
-      "path": "mempalace_code/entity_detector.py"
-    },
-    {
-      "lines": 860,
-      "path": "mempalace_code/mining/orchestrator.py"
     }
   ],
   "performance_budgets": {
@@ -281,8 +281,8 @@
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 88,
-    "test_functions": 3755
+    "test_files": 91,
+    "test_functions": 3914
   },
   "verification_commands": [
     {

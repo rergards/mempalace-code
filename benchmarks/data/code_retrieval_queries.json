@@ -2,42 +2,49 @@
   {
     "id": "func_detect_language",
     "query": "detect programming language from file extension filename shebang and Kubernetes yaml",
-    "expected_files": ["mempalace_code/miner.py"],
+    "expected_files": ["mempalace_code/mining/languages.py"],
     "category": "function_lookup",
+    "match_kind": "symbol",
     "expected_symbols": ["detect_language"]
   },
   {
     "id": "func_scan_project",
     "query": "scan project readable files respecting gitignore skip directories and include ignored paths",
-    "expected_files": ["mempalace_code/miner.py"],
+    "expected_files": ["mempalace_code/mining/scanner.py"],
     "category": "function_lookup",
+    "match_kind": "symbol",
     "expected_symbols": ["scan_project"]
   },
   {
     "id": "func_process_file",
     "query": "read chunk route and file one source file into drawer storage",
-    "expected_files": ["mempalace_code/miner.py"],
+    "expected_files": ["mempalace_code/mining/orchestrator.py"],
     "category": "function_lookup",
+    "match_kind": "symbol",
     "expected_symbols": ["process_file"]
   },
   {
     "id": "func_open_store",
-    "query": "open storage backend auto detect lance chroma create drawer store",
+    "query": "open LanceDB storage backend and create or load a drawer store",
     "expected_files": ["mempalace_code/storage.py"],
     "category": "function_lookup",
+    "match_kind": "symbol",
     "expected_symbols": ["open_store"]
   },
   {
     "id": "func_search",
     "query": "semantic search palace drawers by query text wing and room filters",
     "expected_files": ["mempalace_code/searcher.py"],
-    "category": "function_lookup"
+    "category": "function_lookup",
+    "match_kind": "symbol",
+    "expected_symbols": ["search"]
   },
   {
     "id": "func_add_drawers_batch",
     "query": "batch upsert drawer specs with ids documents and metadata",
-    "expected_files": ["mempalace_code/miner.py"],
+    "expected_files": ["mempalace_code/mining/orchestrator.py"],
     "category": "function_lookup",
+    "match_kind": "symbol",
     "expected_symbols": ["add_drawers_batch"]
   },
   {
@@ -45,6 +52,7 @@
     "query": "DrawerStore abstract interface add upsert get query delete count_by",
     "expected_files": ["mempalace_code/storage.py"],
     "category": "symbol_lookup",
+    "match_kind": "symbol",
     "expected_symbols": ["DrawerStore"]
   },
   {
@@ -52,13 +60,15 @@
     "query": "LanceStore crash safe vector database backend implementation",
     "expected_files": ["mempalace_code/storage.py"],
     "category": "symbol_lookup",
+    "match_kind": "symbol",
     "expected_symbols": ["LanceStore"]
   },
   {
     "id": "symbol_gitignore_matcher",
     "query": "GitignoreMatcher pattern matching negation directory slash rules",
-    "expected_files": ["mempalace_code/miner.py"],
+    "expected_files": ["mempalace_code/mining/scanner.py"],
     "category": "symbol_lookup",
+    "match_kind": "symbol",
     "expected_symbols": ["GitignoreMatcher"]
   },
   {
@@ -66,126 +76,172 @@
     "query": "MempalaceConfig loads yaml validates wing rooms palace path",
     "expected_files": ["mempalace_code/config.py"],
     "category": "symbol_lookup",
+    "match_kind": "symbol",
     "expected_symbols": ["MempalaceConfig"]
   },
   {
     "id": "symbol_kg",
     "query": "KnowledgeGraph temporal triples valid_from valid_to relationship storage",
     "expected_files": ["mempalace_code/knowledge_graph.py"],
-    "category": "symbol_lookup"
+    "category": "symbol_lookup",
+    "match_kind": "symbol",
+    "expected_symbols": ["KnowledgeGraph"]
   },
   {
     "id": "module_miner",
-    "query": "module that walks source files extracts chunks detects rooms and stores verbatim drawers",
+    "query": "compatibility module re-exporting the public mining API",
     "expected_files": ["mempalace_code/miner.py"],
-    "category": "module_overview"
+    "category": "module_overview",
+    "match_kind": "file_only"
   },
   {
     "id": "module_storage",
-    "query": "module that abstracts LanceDB and ChromaDB drawer vector storage",
+    "query": "module that defines drawer storage and the LanceDB implementation",
     "expected_files": ["mempalace_code/storage.py"],
-    "category": "module_overview"
+    "category": "module_overview",
+    "match_kind": "file_only"
   },
   {
     "id": "module_cli",
     "query": "command line interface init mine search health repair backup watch",
     "expected_files": ["mempalace_code/cli.py"],
-    "category": "module_overview"
+    "category": "module_overview",
+    "match_kind": "file_only"
   },
   {
     "id": "module_mcp_server",
     "query": "MCP server exposing palace tools add drawer search kg query code search",
     "expected_files": ["mempalace_code/mcp_server.py"],
-    "category": "module_overview"
+    "category": "module_overview",
+    "match_kind": "file_only"
   },
   {
     "id": "module_layers",
     "query": "tiered context loading wake up layers L0 L1 L2 L3",
     "expected_files": ["mempalace_code/layers.py"],
-    "category": "module_overview"
+    "category": "module_overview",
+    "match_kind": "file_only"
   },
   {
     "id": "workflow_mine",
     "query": "mine command loads config scans project opens store processes files and reports drawers",
-    "expected_files": ["mempalace_code/miner.py", "mempalace_code/cli.py"],
-    "category": "feature_workflow"
+    "expected_files": ["mempalace_code/mining/orchestrator.py", "mempalace_code/cli.py"],
+    "category": "feature_workflow",
+    "match_kind": "file_only"
   },
   {
     "id": "workflow_mcp_code_search",
     "query": "MCP code optimized search returns symbols file path language and source metadata",
-    "expected_files": ["mempalace_code/mcp_server.py"],
-    "category": "feature_workflow"
+    "expected_files": ["mempalace_code/mcp/tools/search.py"],
+    "category": "feature_workflow",
+    "match_kind": "file_only"
   },
   {
     "id": "workflow_backup_restore",
     "query": "tarball backup restore scheduled backups prune retention palace archive",
     "expected_files": ["mempalace_code/backup.py"],
-    "category": "feature_workflow"
+    "category": "feature_workflow",
+    "match_kind": "file_only"
   },
   {
     "id": "workflow_watch",
     "query": "watch project for file changes remine changed source files launchd cron schedule",
     "expected_files": ["mempalace_code/watcher.py"],
-    "category": "feature_workflow"
+    "category": "feature_workflow",
+    "match_kind": "file_only"
   },
   {
     "id": "workflow_convo_mining",
     "query": "ingest Claude ChatGPT Slack conversation exports into memory drawers",
     "expected_files": ["mempalace_code/convo_miner.py"],
-    "category": "feature_workflow"
+    "category": "feature_workflow",
+    "match_kind": "file_only"
   },
   {
     "id": "cross_incremental_hash",
     "query": "incremental mining compares source_hash deletes stale drawers by source file",
-    "expected_files": ["mempalace_code/miner.py", "mempalace_code/storage.py"],
-    "category": "cross_file"
+    "expected_files": ["mempalace_code/mining/orchestrator.py", "mempalace_code/storage.py"],
+    "category": "cross_file",
+    "match_kind": "file_only"
   },
   {
     "id": "cross_chunk_metadata",
     "query": "chunk metadata language symbol name symbol type extractor version chunker strategy",
-    "expected_files": ["mempalace_code/miner.py", "mempalace_code/storage.py"],
-    "category": "cross_file"
+    "expected_files": ["mempalace_code/mining/orchestrator.py", "mempalace_code/storage.py"],
+    "category": "cross_file",
+    "match_kind": "file_only"
   },
   {
     "id": "cross_project_graph",
     "query": "dotnet solution project graph references packages targets framework output type",
-    "expected_files": ["mempalace_code/miner.py", "mempalace_code/knowledge_graph.py"],
-    "category": "cross_file"
+    "expected_files": ["mempalace_code/mining/kg_extract.py", "mempalace_code/knowledge_graph.py"],
+    "category": "cross_file",
+    "match_kind": "file_only"
   },
   {
     "id": "cross_treesitter",
     "query": "tree sitter parser AST chunking Python TypeScript Go Rust fallback adaptive",
-    "expected_files": ["mempalace_code/treesitter.py", "mempalace_code/miner.py"],
-    "category": "cross_file"
+    "expected_files": ["mempalace_code/treesitter.py", "mempalace_code/mining/chunkers.py"],
+    "category": "cross_file",
+    "match_kind": "file_only"
   },
   {
     "id": "cross_export",
     "query": "export palace drawers to json markdown with metadata filters",
     "expected_files": ["mempalace_code/export.py", "mempalace_code/cli.py"],
-    "category": "cross_file"
+    "category": "cross_file",
+    "match_kind": "file_only"
   },
   {
     "id": "config_yaml",
     "query": "mempalace yaml config wing palace path rooms include ignored files",
-    "expected_files": ["mempalace_code/config.py", "mempalace_code/miner.py"],
-    "category": "config_dependency"
+    "expected_files": ["mempalace_code/config.py", "mempalace_code/mining/projects.py"],
+    "category": "config_dependency",
+    "match_kind": "file_only"
   },
   {
     "id": "config_pyproject_deps",
-    "query": "pyproject dependencies lancedb sentence transformers pyyaml pytest ruff",
+    "query": "pyproject dependencies lancedb fastembed pyyaml pytest ruff",
     "expected_files": ["pyproject.toml"],
-    "category": "config_dependency"
+    "category": "config_dependency",
+    "match_kind": "file_only"
   },
   {
     "id": "config_lance_schema",
     "query": "LanceDB table schema metadata fields vector dimension chunker_strategy source_hash",
     "expected_files": ["mempalace_code/storage.py"],
-    "category": "config_dependency"
+    "category": "config_dependency",
+    "match_kind": "file_only"
   },
   {
     "id": "config_mcp_json",
     "query": "MCP server json protocol list tools call tool request handlers",
     "expected_files": ["mempalace_code/mcp_server.py"],
-    "category": "config_dependency"
+    "category": "config_dependency",
+    "match_kind": "file_only"
+  },
+  {
+    "id": "short_detect_language",
+    "query": "detect_language",
+    "expected_files": ["mempalace_code/mining/languages.py"],
+    "category": "short_name",
+    "match_kind": "symbol",
+    "expected_symbols": ["detect_language"]
+  },
+  {
+    "id": "short_process_file",
+    "query": "process_file",
+    "expected_files": ["mempalace_code/mining/orchestrator.py"],
+    "category": "short_name",
+    "match_kind": "symbol",
+    "expected_symbols": ["process_file"]
+  },
+  {
+    "id": "short_knowledge_graph",
+    "query": "KnowledgeGraph",
+    "expected_files": ["mempalace_code/knowledge_graph.py"],
+    "category": "short_name",
+    "match_kind": "symbol",
+    "expected_symbols": ["KnowledgeGraph"]
   }
 ]

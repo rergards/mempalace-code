@@ -4205,3 +4205,60 @@ class TestMCPStdioContracts:
             import shutil
 
             shutil.rmtree(fresh_home, ignore_errors=True)
+
+
+def test_stdio_refuses_live_maintenance_marker(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    state = tmp_path / ".mempalace"
+    state.mkdir()
+    marker = state / "live-wing-migration.json"
+    marker.write_text(
+        json.dumps({"recovery_command": "mempalace-code wing-migration recover --receipt R"}),
+        encoding="utf-8",
+    )
+    marker.chmod(0o600)
+    environment = dict(os.environ)
+    environment["HOME"] = str(tmp_path)
+    result = subprocess.run(
+        [sys.executable, "-B", "-m", "mempalace_code.mcp_server"],
+        input="",
+        text=True,
+        capture_output=True,
+        env=environment,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == os.EX_TEMPFAIL
+    assert result.stdout == ""
+    assert "maintenance is active" in result.stderr
+    assert "wing-migration recover" in result.stderr
+
+
+def test_stdio_rechecks_maintenance_after_shared_lease(tmp_path, monkeypatch, capsys):
+    import os
+
+    from mempalace_code.mcp import dispatch
+    from mempalace_code.operation_lock import OperationLock
+
+    lock = OperationLock(tmp_path / "operation.lock")
+    marker = tmp_path / "live-wing-migration.json"
+
+    class RacingLock:
+        path = lock.path
+
+        def acquire_shared(self, operation):
+            lease = lock.acquire_shared(operation)
+            marker.write_text(json.dumps({"recovery_command": "recover-now"}), encoding="utf-8")
+            marker.chmod(0o600)
+            return lease
+
+    monkeypatch.setattr(OperationLock, "default", classmethod(lambda cls: RacingLock()))
+    with pytest.raises(SystemExit) as caught:
+        dispatch.main([])
+    assert caught.value.code == os.EX_TEMPFAIL
+    assert "recover-now" in capsys.readouterr().err
+    with lock.acquire_exclusive("lease-released"):
+        pass

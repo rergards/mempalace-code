@@ -9,6 +9,7 @@ import types
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Barrier, Lock
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1463,6 +1464,266 @@ class TestDeleteBySourceFiles:
             f"(before={versions_before} + ceil({n_files}/{small_batch})={math.ceil(n_files / small_batch)}), "
             f"got {versions_after}"
         )
+
+
+class TestStaleSweepProvenance:
+    def test_base_scoped_methods_fail_closed_and_unscoped_methods_remain_compatible(self):
+        class _Fallback:
+            def delete_by_source_file(self, source_file, wing):
+                return int(source_file == "owned.py" and wing == "w")
+
+        fallback = cast("DrawerStore", _Fallback())
+        assert DrawerStore.get_source_file_hashes(fallback, "w") == {}
+        assert DrawerStore.get_source_file_hashes(fallback, "w", project_root="/project") is None
+        assert DrawerStore.delete_by_source_files(fallback, ["owned.py"], "w") == 1
+        assert (
+            DrawerStore.delete_by_source_files(fallback, ["owned.py"], "w", project_root="/project")
+            == 0
+        )
+
+    def test_guarded_inventory_and_delete_preserve_mixed_provenance(self, palace_path, tmp_path):
+        project = (tmp_path / "project").resolve()
+        other = (tmp_path / "other").resolve()
+        project.mkdir()
+        other.mkdir()
+        owned = str(project / "owned.py")
+        mixed = str(project / "mixed.py")
+        legacy = str(project / "legacy.py")
+        diary = str(project / "diary.py")
+        external = str(other / "external.py")
+        invalid_hash = str(project / "invalid-hash.py")
+        nested_root = project / "nested"
+        nested_root.mkdir()
+        (nested_root / ".git").mkdir()
+        nested = str(nested_root / "nested.py")
+
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=[
+                "owned",
+                "mixed-file",
+                "mixed-manual",
+                "legacy",
+                "diary",
+                "external",
+                "invalid-hash",
+                "nested",
+            ],
+            documents=[f"content for {name}" for name in range(8)],
+            metadatas=[
+                {
+                    "wing": "w",
+                    "room": "r",
+                    "source_file": owned,
+                    "source_hash": "a" * 32,
+                    "ingest_mode": "file",
+                },
+                {
+                    "wing": "w",
+                    "room": "r",
+                    "source_file": mixed,
+                    "source_hash": "b" * 32,
+                    "ingest_mode": "file",
+                },
+                {"wing": "protected-wing", "room": "r", "source_file": mixed},
+                {
+                    "wing": "w",
+                    "room": "r",
+                    "source_file": legacy,
+                    "source_hash": "c" * 32,
+                },
+                {
+                    "wing": "w",
+                    "room": "diary",
+                    "source_file": diary,
+                    "source_hash": "d" * 32,
+                    "ingest_mode": "file",
+                    "type": "diary_entry",
+                },
+                {
+                    "wing": "w",
+                    "room": "r",
+                    "source_file": external,
+                    "source_hash": "e" * 32,
+                    "ingest_mode": "file",
+                },
+                {
+                    "wing": "w",
+                    "room": "r",
+                    "source_file": invalid_hash,
+                    "source_hash": "A" * 32,
+                    "ingest_mode": "file",
+                },
+                {
+                    "wing": "w",
+                    "room": "r",
+                    "source_file": nested,
+                    "source_hash": "f" * 32,
+                    "ingest_mode": "file",
+                },
+            ],
+        )
+
+        protected: set[str] = set()
+        inventory = store.get_source_file_hashes(
+            "w", project_root=project, protected_source_files=protected
+        )
+        assert inventory == {owned: "a" * 32, mixed: "b" * 32}
+        assert protected == {mixed, legacy, diary, invalid_hash}
+
+        deleted = store.delete_by_source_files(
+            [owned, mixed, legacy, diary, external, invalid_hash, nested, "relative.py"],
+            "w",
+            project_root=project,
+        )
+        assert deleted == 2
+        remaining = store.get(include=["documents", "metadatas"], limit=100)
+        survivors = dict(zip(remaining["ids"], remaining["documents"]))
+        assert survivors == {
+            "mixed-manual": "content for 2",
+            "legacy": "content for 3",
+            "diary": "content for 4",
+            "external": "content for 5",
+            "invalid-hash": "content for 6",
+            "nested": "content for 7",
+        }
+
+    def test_guarded_inventory_fails_closed_for_missing_metadata_and_invalid_scope(self, tmp_path):
+        project = (tmp_path / "project").resolve()
+        project.mkdir()
+        table = _ProjectedTable(
+            [
+                {
+                    "source_file": str(project / "file.py"),
+                    "source_hash": "hash",
+                    "wing": "w",
+                    "ingest_mode": "file",
+                    "type": "",
+                }
+            ],
+            fail_on_columns={"ingest_mode"},
+        )
+        store = _store_with_projected_table(table)
+        protected: set[str] = set()
+
+        assert (
+            store.get_source_file_hashes(
+                "w", project_root=project, protected_source_files=protected
+            )
+            is None
+        )
+        assert protected == set()
+        assert store.get_source_file_hashes("w", project_root="relative/project") is None
+        assert store.get_source_file_hashes("w", project_root=tmp_path / "missing-project") is None
+
+        successful_empty = _store_with_projected_table(
+            _ProjectedTable(
+                [
+                    {
+                        "source_file": str(project / "other.py"),
+                        "source_hash": "a" * 32,
+                        "wing": "other",
+                        "ingest_mode": "file",
+                        "type": "",
+                    }
+                ]
+            )
+        )
+        assert successful_empty.get_source_file_hashes("w", project_root=project) == {}
+
+    def test_guarded_inventory_rejects_noncanonical_and_malformed_sources(self, tmp_path):
+        project = (tmp_path / "project").resolve()
+        project.mkdir()
+        rows = [
+            {
+                "source_file": source,
+                "source_hash": "hash",
+                "wing": "w",
+                "ingest_mode": "file",
+                "type": "",
+            }
+            for source in (
+                str(project / ".." / "project" / "alias.py"),
+                str(tmp_path / "project-sibling" / "file.py"),
+                "relative.py",
+                "",
+                None,
+            )
+        ]
+        table = _ProjectedTable(rows)
+        store = _store_with_projected_table(table)
+
+        assert store.get_source_file_hashes("w", project_root=project) == {}
+
+    def test_guarded_inventory_rejects_invalid_hash_shapes_and_protects_sources(self, tmp_path):
+        project = (tmp_path / "project").resolve()
+        project.mkdir()
+        rows = [
+            {
+                "source_file": str(project / f"{index}.py"),
+                "source_hash": source_hash,
+                "wing": "w",
+                "ingest_mode": "file",
+                "type": "",
+            }
+            for index, source_hash in enumerate([None, "", "A" * 32, "a" * 31, "g" * 32])
+        ]
+        table = _ProjectedTable(rows)
+        store = _store_with_projected_table(table)
+        protected: set[str] = set()
+
+        assert (
+            store.get_source_file_hashes(
+                "w", project_root=project, protected_source_files=protected
+            )
+            == {}
+        )
+        assert protected == {row["source_file"] for row in rows}
+
+    @pytest.mark.parametrize("git_shape", ["directory", "file"])
+    def test_guarded_inventory_rejects_nested_repository_boundaries(self, tmp_path, git_shape):
+        project = (tmp_path / "project").resolve()
+        nested = project / "nested"
+        nested.mkdir(parents=True)
+        marker = nested / ".git"
+        if git_shape == "directory":
+            marker.mkdir()
+        else:
+            marker.write_text("gitdir: elsewhere", encoding="utf-8")
+        source = str(nested / "deleted.py")
+        table = _ProjectedTable(
+            [
+                {
+                    "source_file": source,
+                    "source_hash": "f" * 32,
+                    "wing": "w",
+                    "ingest_mode": "file",
+                    "type": "",
+                }
+            ]
+        )
+        store = _store_with_projected_table(table)
+
+        assert store.get_source_file_hashes("w", project_root=project) == {}
+
+    def test_guarded_inventory_rejects_missing_intermediate_ownership(self, tmp_path):
+        project = (tmp_path / "project").resolve()
+        project.mkdir()
+        source = str(project / "removed-directory" / "deleted.py")
+        table = _ProjectedTable(
+            [
+                {
+                    "source_file": source,
+                    "source_hash": "f" * 32,
+                    "wing": "w",
+                    "ingest_mode": "file",
+                    "type": "",
+                }
+            ]
+        )
+        store = _store_with_projected_table(table)
+
+        assert store.get_source_file_hashes("w", project_root=project) == {}
 
 
 class TestGetSourceFileHashes:

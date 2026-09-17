@@ -1865,12 +1865,12 @@ items:
       summary: Treat concurrently pruned backups as an idempotent success
       resolution: '2026-09-02: Concurrent FileNotFoundError is quiet and idempotent while other OSError cases still warn; 104 focused backup tests, Ruff, formatting, and Pyright passed.'
       archived_date: "2026-09-02"
-      done_summary: 'Concurrent FileNotFoundError is quiet and idempotent while other OSError cases still warn; 104 focused backup tests, Ruff, formatting, and Pyright passed.'
+      done_summary: Concurrent FileNotFoundError is quiet and idempotent while other OSError cases still warn; 104 focused backup tests, Ruff, formatting, and Pyright passed.
     - key: WATCH-OPTIMIZE-FAILURE-REASON
       summary: Report truthful watcher state when safe optimize fails
       resolution: '2026-09-02: False safe-optimize results now use truthful safety-check console and state markers at both watcher entry points; watcher docs name the nonfatal state and health recovery. 124 focused watcher tests, Ruff, formatting, docs drift, Pyright, public-safety, changed-range Gitleaks, and an installed-wheel two-watcher disposable-palace smoke passed.'
       archived_date: "2026-09-02"
-      done_summary: 'False safe-optimize results now use truthful safety-check console and state markers at both watcher entry points; watcher docs name the nonfatal state and health recovery. 124 focused watcher tests, Ruff, formatting, docs drift, Pyright, public-safety, changed-range Gitleaks, and an installed-wheel two-watcher disposable-palace smoke passed.'
+      done_summary: False safe-optimize results now use truthful safety-check console and state markers at both watcher entry points; watcher docs name the nonfatal state and health recovery. 124 focused watcher tests, Ruff, formatting, docs drift, Pyright, public-safety, changed-range Gitleaks, and an installed-wheel two-watcher disposable-palace smoke passed.
     - key: LANCE-CONCURRENT-TABLE-CREATE
       summary: Make fresh Lance table creation idempotent across watcher processes
       resolution: '2026-09-02: Native idempotent Lance create passed its deterministic concurrent storage regression and the installed golden suite on macOS arm64/Python 3.13 and Linux x86_64/Python 3.12.'
@@ -1926,3 +1926,43 @@ items:
       resolution: '2026-09-02: Missing and non-string MCP method values now return exact -32600 with preserved IDs and same-session recovery; direct source and installed-golden hostile transcripts pass, independent review passes, and the full non-network suite passes 4,553 tests.'
       archived_date: "2026-09-02"
       done_summary: Missing and non-string MCP method values now return exact -32600 with preserved IDs and same-session recovery; direct source and installed-golden hostile transcripts pass, independent review passes, and the full non-network suite passes 4,553 tests.
+    - key: MINE-STALE-SWEEP-PROVENANCE-GUARD
+      summary: Restrict stale-file deletion to regenerable rows owned by the current project
+      resolution: '2026-09-08: completed in pipeline run (delivered: Restricted stale deletion and dependent KG/tiny expiry to proven regenerable sources owned by the selected project., artifacts: mempalace_code/mining/orchestrator.py, mempalace_code/storage.py, tests/test_miner.py (+1), verified: VER-1, VER-2, VER-3 (+3), phase_commit=df3d5a74, final_commit=9add8001, 5 files changed, 492 insertions(+), 107 deletions(-))'
+      archived_date: "2026-09-08"
+      done_summary: 'completed in pipeline run (delivered: Restricted stale deletion and dependent KG/tiny expiry to proven regenerable sources owned by the selected project., artifacts: mempalace_code/mining/orchestrator.py, mempalace_code/storage.py, tests/test_miner.py (+1), verified: VER-1, VER-2, VER-3 (+3), phase_commit=df3d5a74, final_commit=9add8001, 5 files changed, 492 insertions(+), 107 deletions(-))'
+    - key: MINE-STALE-SWEEP-SYMLINK-EXPECTATION
+      summary: Align the symlink-source regression with provenance-safe stale deletion
+      resolution: '2026-09-08: completed in pipeline run (delivered: Updated the symlink-transition regression to preserve and compare the original regular and legacy source row IDs., artifacts: tests/test_miner.py, verified: VER-1, VER-2, REG-1, phase_commit=e1f7a8ea, final_commit=eca18320, 1 file changed, 9 insertions(+), 7 deletions(-))'
+      archived_date: "2026-09-08"
+      done_summary: 'completed in pipeline run (delivered: Updated the symlink-transition regression to preserve and compare the original regular and legacy source row IDs., artifacts: tests/test_miner.py, verified: VER-1, VER-2, REG-1, phase_commit=e1f7a8ea, final_commit=eca18320, 1 file changed, 9 insertions(+), 7 deletions(-))'
+    - key: MINE-SOURCE-EXACT-LINE-ROUNDTRIP
+      summary: Preserve source-exact content and line mapping for merged mined chunks
+      resolution: '2026-09-08: Mapped chunks now persist exact decoded source lines while preserving cursor order, IDs, symbols, strategies, and zero-range failures; 390 focused tests passed with 50 optional skips, and Ruff lint/format checks passed.'
+      archived_date: "2026-09-08"
+      done_summary: Mapped chunks now persist exact decoded source lines while preserving cursor order, IDs, symbols, strategies, and zero-range failures; 390 focused tests passed with 50 optional skips, and Ruff lint/format checks passed.
+    - key: SEARCH-STRUCTURED-MALFORMED-LINE-RANGE
+      summary: Return safe structured search results for malformed line metadata
+      resolution: '2026-09-08: Structured search_memories and code_search now return null line ranges for malformed persisted metadata while preserving valid ranges and response shape; 127 searcher tests and Ruff lint/format checks passed, and independent Astra diff review passed.'
+      archived_date: "2026-09-08"
+      done_summary: Structured search_memories and code_search now return null line ranges for malformed persisted metadata while preserving valid ranges and response shape; 127 searcher tests and Ruff lint/format checks passed, and independent Astra diff review passed.
+    - key: CODE-RETRIEVAL-SYMBOL-TRUTH
+      summary: Qualify code retrieval against current owner and symbol truth
+      resolution: '2026-09-08: completed in pipeline run (delivered: Qualified code retrieval by current declaration owners and same-hit symbols across storage, default code_search, and hybrid code_search while exposing additive ranking evidence., artifacts: benchmarks/code_retrieval_bench.py, benchmarks/data/code_retrieval_queries.json, mempalace_code/mcp/tools/search.py (+5), verified: VER-1, VER-2, VER-3 (+3), phase_commit=0985da7d, final_commit=09501edd, 9 files changed, 710 insertions(+), 145 deletions(-))'
+      archived_date: "2026-09-08"
+      done_summary: 'completed in pipeline run (delivered: Qualified code retrieval by current declaration owners and same-hit symbols across storage, default code_search, and hybrid code_search while exposing additive ranking evidence., artifacts: benchmarks/code_retrieval_bench.py, benchmarks/data/code_retrieval_queries.json, mempalace_code/mcp/tools/search.py (+5), verified: VER-1, VER-2, VER-3 (+3), phase_commit=0985da7d, final_commit=09501edd, 9 files changed, 710 insertions(+), 145 deletions(-))'
+    - key: WING-EXPLICIT-ID-CONSISTENCY
+      summary: Resolve explicit wing identifiers consistently across mining entry points
+      resolution: '2026-09-08: Non-.NET configured wing identifiers now use one canonicalizer across standalone mine, mine-all, and fresh watcher startup; migrate-openclaw stays hyphenated while derived, .NET, override, historical-row, and active-watcher behavior remains compatible. Forty-five focused tests, Ruff lint/format, focused Pyright, and independent Astra review passed.'
+      archived_date: "2026-09-08"
+      done_summary: Non-.NET configured wing identifiers now resolve consistently across all supported entry points without migrating historical state.
+    - key: WING-MIGRATION-EXISTING-DESTINATION-GUARD
+      summary: Implement and synthetically qualify a no-loss wing migration runner
+      resolution: '2026-09-08: Implemented an uninstalled fixture-bound exact-union migration runner with WAL-safe snapshots, deterministic retry and recovery, independent offline model-cache copies, and explicit full-copy/live authority refusals; 60 focused migration tests, Ruff, formatting, Pyright, the 4,685-test non-network suite, and two Astra reviews passed.'
+      archived_date: "2026-09-08"
+      done_summary: Implemented an uninstalled fixture-bound exact-union migration runner with WAL-safe snapshots, deterministic retry and recovery, independent offline model-cache copies, and explicit full-copy/live authority refusals; 60 focused migration tests, Ruff, formatting, Pyright, the 4,685-test non-network suite, and two Astra reviews passed.
+    - key: WING-MIGRATION-FULL-COPY-RUNNER-HARDENING
+      summary: Finish fail-closed full-copy admission before the owner rehearsal
+      resolution: '2026-09-09: Landed fail-closed full-copy runner hardening through e2c3c11e; 102 focused tests, Ruff, format, diff-check, standalone synthetic qualification, and final Astra review passed.'
+      archived_date: "2026-09-09"
+      done_summary: Landed fail-closed full-copy runner hardening through e2c3c11e; 102 focused tests, Ruff, format, diff-check, standalone synthetic qualification, and final Astra review passed.
