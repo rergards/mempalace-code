@@ -17,7 +17,12 @@ from ..source_io import (
     hash_regular_bytes,
     read_regular_text,
 )
-from ..storage import open_store, optimize_store
+from ..storage import (
+    is_canonical_project_source,
+    is_valid_file_hash,
+    open_store,
+    optimize_store,
+)
 from ..version import __version__
 from .batching import get_batch_size
 from .chunkers import MIN_CHUNK, chunk_file
@@ -29,7 +34,13 @@ from .kg_extract import (
     parse_xaml_file,
 )
 from .languages import detect_language
-from .projects import _build_csproj_room_map, _detect_sln_wing, detect_room, load_config
+from .projects import (
+    _build_csproj_room_map,
+    _detect_sln_wing,
+    _normalize_configured_wing,
+    detect_room,
+    load_config,
+)
 from .scanner import get_scan_filter_rules, normalize_include_paths, scan_project
 from .symbols import extract_symbol
 
@@ -48,14 +59,47 @@ def _warn_source_read_error(path: Path, exc: OSError) -> None:
     print(detail, file=sys.stderr)
 
 
-def _bulk_existing_file_hashes(collection, wing: str) -> dict:
+def _bulk_existing_file_hashes(
+    collection, wing: str, *, project_root=None, protected_source_files: Optional[set] = None
+) -> Optional[dict]:
     """Return {source_file: source_hash} for all drawers in wing.
 
     Delegates to collection.get_source_file_hashes() (LanceDB column projection,
-    no vector scan). Returns an empty dict on unsupported backends or empty palace.
+    no vector scan). Scoped calls preserve None so callers cannot confuse an
+    unavailable provenance assessment with a successful empty scan.
     """
-    result = collection.get_source_file_hashes(wing)
-    return result if result is not None else {}
+    try:
+        if project_root is None:
+            result = collection.get_source_file_hashes(wing)
+        else:
+            result = collection.get_source_file_hashes(
+                wing,
+                project_root=project_root,
+                protected_source_files=protected_source_files,
+            )
+    except Exception:
+        if project_root is not None:
+            return None
+        raise
+    if project_root is None:
+        return result if result is not None else {}
+    return result if isinstance(result, dict) else None
+
+
+def _owned_tiny_sources(
+    tiny_hashes: object, project_root: Path, protected_source_files: set[str]
+) -> set[str]:
+    """Return original sidecar keys with proven safe path and digest provenance."""
+    if not isinstance(tiny_hashes, dict):
+        return set()
+    return {
+        source_file
+        for source_file, source_hash in tiny_hashes.items()
+        if isinstance(source_file, str)
+        and is_valid_file_hash(source_hash)
+        and is_canonical_project_source(source_file, project_root)
+        and source_file not in protected_source_files
+    }
 
 
 def _tiny_hashes_path(palace_path: str) -> Path:
@@ -79,7 +123,10 @@ def _load_tiny_hashes(palace_path: str, wing: str) -> dict:
         return {}
     try:
         data = json.loads(p.read_text())
-        return data.get(wing, {})
+        if not isinstance(data, dict):
+            return {}
+        hashes = data.get(wing, {})
+        return hashes if isinstance(hashes, dict) else {}
     except Exception:
         return {}
 
@@ -91,6 +138,8 @@ def _save_tiny_hashes(palace_path: str, wing: str, hashes: dict) -> None:
     try:
         data = json.loads(p.read_text()) if p.exists() else {}
     except Exception:
+        data = {}
+    if not isinstance(data, dict):
         data = {}
     data[wing] = hashes
     p.write_text(json.dumps(data))
@@ -184,14 +233,15 @@ def _find_chunk_in_content(content: str, chunk_text: str, cursor: int) -> tuple[
 
     Returns (start, end) positions in content, or (-1, -1) when not found.
     """
-    parts = re.split(r"\n+", chunk_text)
-    pattern = r"\n+".join(re.escape(p) for p in parts)
+    parts = re.split(r"(?:\r?\n)+", chunk_text)
+    newline_gap = r"[^\S\r\n]*(?:\r?\n[^\S\r\n]*)+"
+    pattern = newline_gap.join(re.escape(p) for p in parts)
     m = re.search(pattern, content[cursor:])
     if m:
         return cursor + m.start(), cursor + m.end()
 
-    indentation_tolerant = r"(?m)^[^\S\n]*" + r"\n+[^\S\n]*".join(
-        re.escape(part.lstrip()) for part in parts
+    indentation_tolerant = r"(?m)^[^\S\r\n]*" + newline_gap.join(
+        re.escape(part.lstrip(" \t\f\v")) for part in parts
     )
     m = re.search(indentation_tolerant, content[cursor:])
     if m:
@@ -236,10 +286,9 @@ def _collect_specs_for_file(
     if len(content) < MIN_CHUNK:
         return []
 
-    # Compute the line offset caused by stripping leading whitespace/newlines.
-    # Lines stripped from the start shift all chunk line numbers forward.
-    leading = raw_content[: len(raw_content) - len(raw_content.lstrip())]
-    _line_offset = leading.count("\n")
+    # Retain the raw offset so normalized chunk matches can be expanded back to
+    # their complete decoded source lines before persistence.
+    content_offset = len(raw_content) - len(raw_content.lstrip())
 
     language = detect_language(filepath, content)
     room = detect_room(filepath, content, rooms, project_path, csproj_room_map=csproj_room_map)
@@ -260,23 +309,31 @@ def _collect_specs_for_file(
         chunk_text = chunk["content"]
         pos_start, pos_end = _find_chunk_in_content(content, chunk_text, _cursor)
         if pos_start != -1:
-            line_start = content.count("\n", 0, pos_start) + 1 + _line_offset
-            line_end = content.count("\n", 0, pos_end) + 1 + _line_offset
+            raw_start = content_offset + pos_start
+            raw_end = content_offset + pos_end
+            slice_start = raw_content.rfind("\n", 0, raw_start) + 1
+            next_newline = raw_content.find("\n", raw_end)
+            slice_end = next_newline if next_newline != -1 else len(raw_content)
+            stored_content = raw_content[slice_start:slice_end]
+            line_start = raw_content.count("\n", 0, slice_start) + 1
+            line_end = line_start + stored_content.count("\n")
             _cursor = pos_end
         else:
+            stored_content = chunk_text
             line_start = 0
             line_end = 0
 
         specs.append(
             {
                 "id": drawer_id,
-                "content": chunk_text,
+                "content": stored_content,
                 "metadata": {
                     "wing": wing,
                     "room": room,
                     "source_file": source_file,
                     "chunk_index": chunk["chunk_index"],
                     "added_by": agent,
+                    "ingest_mode": "file",
                     "filed_at": datetime.now().isoformat(),
                     "language": language,
                     "symbol_name": symbol_name,
@@ -409,6 +466,8 @@ def mine(
     rooms = config.get("rooms", [{"name": "general", "description": "All project files"}])
 
     dotnet_structure = config.get("dotnet_structure", False)
+    if not wing_override and not dotnet_structure and isinstance(wing, str) and wing.strip():
+        wing = _normalize_configured_wing(wing)
     csproj_room_map: dict = {}
     if dotnet_structure:
         if not wing_override:
@@ -453,7 +512,11 @@ def mine(
     # Running before warmup lets a true no-op skip the embedding model entirely.
     _precomputed_hashes: dict = {}  # {source_file_str: hash} — populated below when useful
     existing_hashes: dict = {}
+    stale_hashes: dict = {}
+    stale_assessment_available = False
+    protected_stale_sources: set[str] = set()
     tiny_hashes: dict = {}
+    owned_tiny_sources: set[str] = set()
     _hashes_loaded = False  # True when hashes were already fetched for the main loop
     files_failed = 0
     _hash_failed_paths: set[str] = set()
@@ -473,7 +536,21 @@ def mine(
                 files_failed += 1
                 _hash_failed_paths.add(str(_f))
                 continue
-        existing_hashes = _bulk_existing_file_hashes(collection, wing)
+        existing_hashes = _bulk_existing_file_hashes(collection, wing) or {}
+        scoped_hashes = _bulk_existing_file_hashes(
+            collection,
+            wing,
+            project_root=project_path,
+            protected_source_files=protected_stale_sources,
+        )
+        stale_assessment_available = scoped_hashes is not None
+        stale_hashes = scoped_hashes or {}
+        if not stale_assessment_available:
+            print(
+                "  Stale-file sweep skipped: project provenance assessment unavailable; "
+                "rerun this mine after resolving storage metadata access.",
+                file=sys.stderr,
+            )
         tiny_hashes = _load_tiny_hashes(palace_path, wing)
         _hashes_loaded = True
         _walked_set = {str(path) for path in files}
@@ -484,8 +561,11 @@ def mine(
             )
             for sf, h in _precomputed_hashes.items()
         )
-        _any_deleted = bool((set(existing_hashes.keys()) | set(tiny_hashes.keys())) - _walked_set)
-        if not _any_changed and not _any_deleted:
+        owned_tiny_sources = _owned_tiny_sources(tiny_hashes, project_path, protected_stale_sources)
+        _any_deleted = stale_assessment_available and bool(
+            (set(stale_hashes) | owned_tiny_sources) - _walked_set
+        )
+        if stale_assessment_available and not _any_changed and not _any_deleted:
             elapsed = time.time() - mine_start
             mins, secs = divmod(int(elapsed), 60)
             _tiny_count = sum(
@@ -522,7 +602,7 @@ def mine(
             embedder_warmed = True
             print("  Model ready.\n", flush=True)
         if not _hashes_loaded:
-            existing_hashes = _bulk_existing_file_hashes(collection, wing)
+            existing_hashes = _bulk_existing_file_hashes(collection, wing) or {}
             # Tiny files produce no drawers so their hashes live in a sidecar. Load it
             # for incremental runs; start fresh for full rebuilds so the sidecar is
             # rebuilt from scratch.
@@ -675,15 +755,38 @@ def mine(
 
             # Stale-file sweep: remove drawers for files no longer on disk.
             # Only safe when the full file set was walked (limit == 0).
-            if incremental and limit == 0:
-                stale_paths = set(existing_hashes.keys()) - walked_paths
-                collection.delete_by_source_files(stale_paths, wing)
-                for stale_path in stale_paths:
-                    if kg is not None and Path(stale_path).suffix.lower() in _KG_EXTRACT_EXTENSIONS:
-                        kg.invalidate_by_source_file(stale_path)
-                # Also expire tiny-hash entries for files no longer on disk.
-                for stale_tiny in set(tiny_hashes.keys()) - walked_paths:
-                    del tiny_hashes[stale_tiny]
+            if incremental and limit == 0 and stale_assessment_available:
+                stale_paths = set(stale_hashes) - walked_paths
+                stale_tiny_paths = owned_tiny_sources - walked_paths
+                sweep_succeeded = True
+                if stale_paths:
+                    try:
+                        deleted = collection.delete_by_source_files(
+                            stale_paths, wing, project_root=project_path
+                        )
+                    except Exception as exc:
+                        sweep_succeeded = False
+                        print(f"  Stale-file sweep failed: {exc}", file=sys.stderr)
+                    else:
+                        if deleted < len(stale_paths):
+                            sweep_succeeded = False
+                            print(
+                                "  Stale-file sweep incomplete: scoped bulk deletion was not "
+                                "supported or did not remove every assessed source.",
+                                file=sys.stderr,
+                            )
+                if sweep_succeeded:
+                    stale_effect_sources = (
+                        stale_paths | stale_tiny_paths
+                    ) - protected_stale_sources
+                    for stale_path in stale_effect_sources:
+                        if (
+                            kg is not None
+                            and Path(stale_path).suffix.lower() in _KG_EXTRACT_EXTENSIONS
+                        ):
+                            kg.invalidate_by_source_file(stale_path)
+                    for stale_tiny in stale_tiny_paths:
+                        del tiny_hashes[stale_tiny]
 
             # Architecture extraction pass: derive pattern/layer/namespace/project
             # KG facts from the full walked file set.  Runs after the stale sweep so

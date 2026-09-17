@@ -35,13 +35,27 @@ class FakeStore:
 
 def test_hit_and_rank_match_basename_and_suffix():
     metas = [
-        {"source_file": "/repo/mempalace/convo_miner.py"},
-        {"source_file": "/repo/mempalace/miner.py"},
+        {"source_file": "/repo/mempalace/convo_miner.py", "symbol_name": "mine"},
+        {"source_file": "/repo/mempalace/miner.py", "symbol_name": "scan_project"},
     ]
 
     assert bench.rank_of_first_hit(metas, ["mempalace/miner.py"]) == 2
+    assert bench.rank_of_first_hit(metas, ["mempalace/miner.py"], ["mine"]) is None
+    assert bench.rank_of_first_hit(metas, ["mempalace/miner.py"], ["scan_project"]) == 2
     assert bench.hit_at_k(metas, ["miner.py"], 5) is True
     assert bench.hit_at_k(metas, ["mempalace/miner.py"], 1) is False
+    assert bench.file_matches_expected("/repo/notminer.py", "miner.py") is False
+
+
+def test_symbol_rank_requires_file_and_symbol_on_same_hit():
+    metas = [
+        {"source_file": "/repo/owner.py", "symbol_name": "wrong"},
+        {"source_file": "/repo/other.py", "symbol_name": "expected"},
+        {"source_file": "/repo/owner.py", "symbol_name": "expected"},
+    ]
+
+    assert bench.rank_of_first_hit(metas[:2], ["owner.py"], ["expected"]) is None
+    assert bench.rank_of_first_hit(metas, ["owner.py"], ["expected"]) == 3
 
 
 def test_validate_dataset_reports_missing_expected_file(tmp_path, capsys, monkeypatch):
@@ -51,14 +65,54 @@ def test_validate_dataset_reports_missing_expected_file(tmp_path, capsys, monkey
     source.write_text("def present():\n    return True\n" * 20, encoding="utf-8")
     monkeypatch.setattr(bench.miner, "scan_project", lambda _repo: [source])
     records = [
-        {"id": "ok", "query": "present", "expected_files": ["present.py"], "category": "x"},
-        {"id": "bad", "query": "absent", "expected_files": ["absent.py"], "category": "x"},
+        {
+            "id": "ok",
+            "query": "present",
+            "expected_files": ["present.py"],
+            "category": "x",
+            "match_kind": "symbol",
+            "expected_symbols": ["present"],
+        },
+        {
+            "id": "bad",
+            "query": "absent",
+            "expected_files": ["absent.py"],
+            "category": "x",
+            "match_kind": "file_only",
+        },
     ]
 
     assert bench.validate_dataset(repo.resolve(), records) == 1
     out = capsys.readouterr().out
     assert "PASS ok: present.py" in out
     assert "FAIL bad: missing absent.py" in out
+    assert "PASS ok: declaration present" in out
+
+
+def test_validate_dataset_rejects_import_or_text_mentions_as_declarations(
+    tmp_path, capsys, monkeypatch
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    source = repo / "owner.py"
+    source.write_text(
+        "from elsewhere import expected\nNOTE = 'def expected(): pass'\n" * 20,
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bench.miner, "scan_project", lambda _repo: [source])
+    records = [
+        {
+            "id": "missing-declaration",
+            "query": "expected",
+            "expected_files": ["owner.py"],
+            "category": "x",
+            "match_kind": "symbol",
+            "expected_symbols": ["expected"],
+        }
+    ]
+
+    assert bench.validate_dataset(repo.resolve(), records) == 1
+    assert "no expected declaration" in capsys.readouterr().out
 
 
 def test_normalize_modes_rejects_unknown_with_supported_modes():
@@ -107,6 +161,7 @@ def test_load_dataset_rejects_malformed_expected_files(tmp_path):
                     "query": "find miner",
                     "expected_files": "miner.py",
                     "category": "function_lookup",
+                    "match_kind": "file_only",
                 }
             ]
         ),
@@ -121,46 +176,224 @@ def test_load_dataset_rejects_malformed_expected_files(tmp_path):
         raise AssertionError("expected BenchError")
 
 
+@pytest.mark.parametrize(
+    ("record_update", "message"),
+    [
+        ({}, "missing: match_kind"),
+        ({"match_kind": "other"}, "match_kind must be 'symbol' or 'file_only'"),
+        ({"match_kind": "symbol"}, "expected_symbols must be a non-empty list"),
+        (
+            {"match_kind": "file_only", "expected_symbols": []},
+            "file_only matches must omit expected_symbols",
+        ),
+        (
+            {"match_kind": "symbol", "expected_symbols": ["owner", "owner"]},
+            "expected_symbols must be unique",
+        ),
+    ],
+)
+def test_load_dataset_rejects_invalid_match_contract(tmp_path, record_update, message):
+    record = {
+        "id": "q1",
+        "query": "owner",
+        "expected_files": ["owner.py"],
+        "category": "function_lookup",
+        **record_update,
+    }
+    dataset = tmp_path / "queries.json"
+    dataset.write_text(json.dumps([record]), encoding="utf-8")
+
+    with pytest.raises(bench.BenchError, match=message):
+        bench.load_dataset(dataset)
+
+
+def test_load_dataset_rejects_duplicate_ids(tmp_path):
+    record = {
+        "id": "duplicate",
+        "query": "owner",
+        "expected_files": ["owner.py"],
+        "category": "function_lookup",
+        "match_kind": "file_only",
+    }
+    dataset = tmp_path / "queries.json"
+    dataset.write_text(json.dumps([record, record]), encoding="utf-8")
+
+    with pytest.raises(bench.BenchError, match="duplicate id"):
+        bench.load_dataset(dataset)
+
+
 def test_aggregate_results_computes_r_at_k_mrr_and_categories():
     rows = [
-        {"category": "function_lookup", "rank": 1, "hit_at_5": True, "hit_at_10": True},
-        {"category": "function_lookup", "rank": 6, "hit_at_5": False, "hit_at_10": True},
-        {"category": "module_overview", "rank": None, "hit_at_5": False, "hit_at_10": False},
+        {
+            "category": "function_lookup",
+            "match_kind": "symbol",
+            "rank": 1,
+            "hit_at_5": True,
+            "hit_at_10": True,
+        },
+        {
+            "category": "function_lookup",
+            "match_kind": "symbol",
+            "rank": 6,
+            "hit_at_5": False,
+            "hit_at_10": True,
+        },
+        {
+            "category": "module_overview",
+            "match_kind": "file_only",
+            "rank": None,
+            "hit_at_5": False,
+            "hit_at_10": False,
+        },
     ]
 
     result = bench.aggregate_results(rows, [10.0, 20.0, 30.0])
 
-    assert result["R@5"] == 1 / 3
-    assert result["R@10"] == 2 / 3
-    assert result["MRR"] == (1 + 1 / 6) / 3
+    assert result["populations"]["symbol"]["R@5"] == 1 / 2
+    assert result["populations"]["symbol"]["R@10"] == 1.0
+    assert result["populations"]["symbol"]["MRR"] == (1 + 1 / 6) / 2
+    assert result["populations"]["file_only"]["R@5"] == 0.0
     assert result["query_latency_avg_ms"] == 20.0
     assert result["per_category"]["function_lookup"]["R@10"] == 1.0
 
 
-def test_smart_mode_suppresses_treesitter_parser(monkeypatch, tmp_path):
-    calls = []
+def test_aggregate_results_empty_population_has_null_metrics():
+    rows = [
+        {
+            "category": "module",
+            "match_kind": "file_only",
+            "rank": 1,
+            "hit_at_5": True,
+            "hit_at_10": True,
+        }
+    ]
+
+    result = bench.aggregate_results(rows, [])
+
+    assert result["populations"]["symbol"] == {
+        "query_count": 0,
+        "R@5": None,
+        "R@10": None,
+        "MRR": None,
+    }
+
+
+def test_run_queries_reports_path_and_same_hit_symbol(monkeypatch, tmp_path):
+    store = FakeStore(
+        [
+            {"source_file": "/repo/owner.py", "symbol_name": "wrong"},
+            {"source_file": "/repo/owner.py", "symbol_name": "expected"},
+        ]
+    )
+    record = {
+        "id": "symbol",
+        "query": "expected",
+        "expected_files": ["owner.py"],
+        "expected_symbols": ["expected"],
+        "category": "function_lookup",
+        "match_kind": "symbol",
+    }
+    monkeypatch.setattr(
+        bench.searcher,
+        "code_search",
+        lambda *_args, **_kwargs: {
+            "results": [
+                {"source_file": "/repo/owner.py", "symbol_name": "wrong"},
+                {"source_file": "/repo/owner.py", "symbol_name": "expected"},
+            ]
+        },
+    )
+
+    for path in bench.SEARCH_PATHS:
+        rows, latencies = bench.run_queries(store, tmp_path, [record], path)
+        assert rows[0]["path"] == path
+        assert rows[0]["rank"] == 2
+        assert rows[0]["expected_symbols"] == ["expected"]
+        assert len(latencies) == 1
+
+
+def test_run_queries_surfaces_supported_code_search_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        bench.searcher,
+        "code_search",
+        lambda *_args, **_kwargs: {"error": "broken index"},
+    )
+    record = {
+        "id": "file",
+        "query": "owner",
+        "expected_files": ["owner.py"],
+        "category": "module",
+        "match_kind": "file_only",
+    }
+
+    with pytest.raises(bench.BenchError, match="code_search failed for file: broken index"):
+        bench.run_queries(FakeStore(), tmp_path, [record], "code_search")
+
+
+def test_smart_mode_suppresses_real_chunker_parser_and_restores_it(monkeypatch, tmp_path):
     fake_store = FakeStore()
     source = tmp_path / "sample.py"
     source.write_text("def sample():\n    return 1\n" * 20, encoding="utf-8")
 
     monkeypatch.setattr(bench, "open_store", lambda *_a, **_kw: fake_store)
     monkeypatch.setattr(bench, "scan_corpus_files", lambda _repo: [source])
-    monkeypatch.setattr(bench.miner, "get_parser", lambda language: object())
 
-    def fake_process_file(**kwargs):
-        calls.append(bench.miner.get_parser("python"))
-        kwargs["collection"].metadatas = [{"chunker_strategy": "regex_structural_v1"}]
-        return 1
+    def sentinel(_language):
+        raise AssertionError("real parser owner escaped benchmark isolation")
 
-    monkeypatch.setattr(bench.miner, "process_file", fake_process_file)
+    monkeypatch.setattr(bench.mining_chunkers, "get_parser", sentinel)
 
     _store, count, meta = bench.mine_with_miner(tmp_path, tmp_path / "palace", "smart")
 
-    assert count == 1
-    assert calls == [None]
-    assert bench.miner.get_parser("python") is not None
+    assert count > 0
+    assert fake_store.metadatas
+    assert all(row["chunker_strategy"] != "treesitter_v1" for row in fake_store.metadatas)
+    assert bench.mining_chunkers.get_parser is sentinel
     assert meta["mode_degraded"] is False
     assert meta["tree_sitter_available"] is False
+
+
+def test_smart_chunking_only_restores_parser_after_nested_exception(monkeypatch):
+    def sentinel(_language):
+        return object()
+
+    monkeypatch.setattr(bench.mining_chunkers, "get_parser", sentinel)
+
+    def raise_inside_nested_contexts():
+        with bench.smart_chunking_only(True):
+            with bench.smart_chunking_only(True):
+                assert bench.mining_chunkers.get_parser("python") is None
+                raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        raise_inside_nested_contexts()
+
+    assert bench.mining_chunkers.get_parser is sentinel
+
+
+def test_smart_chunking_only_disabled_leaves_parser_available(monkeypatch):
+    def sentinel(_language):
+        return object()
+
+    monkeypatch.setattr(bench.mining_chunkers, "get_parser", sentinel)
+
+    with bench.smart_chunking_only(False):
+        assert bench.mining_chunkers.get_parser is sentinel
+
+
+def test_supported_search_store_reuses_store_and_restores_after_error(monkeypatch):
+    original = bench.searcher.open_store
+    fake_store = object()
+
+    def raise_inside_context():
+        with bench.supported_search_store(fake_store):
+            assert bench.searcher.open_store("/unused", create=False) is fake_store
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        raise_inside_context()
+
+    assert bench.searcher.open_store is original
 
 
 def test_treesitter_mode_reports_available_or_degraded(monkeypatch, tmp_path):
@@ -195,6 +428,7 @@ def test_run_benchmark_json_shape_without_embeddings(monkeypatch, tmp_path):
                     "query": "find miner",
                     "expected_files": ["miner.py"],
                     "category": "function_lookup",
+                    "match_kind": "file_only",
                 }
             ]
         ),
@@ -206,14 +440,17 @@ def test_run_benchmark_json_shape_without_embeddings(monkeypatch, tmp_path):
             "chunk_count": 2,
             "embed_time_s": 0.1,
             "index_size_mb": 0.0,
-            "query_latency_avg_ms": 1.5,
-            "R@5": 1.0,
-            "R@10": 1.0,
-            "MRR": 1.0,
-            "per_category": {
-                "function_lookup": {"query_count": 1, "R@5": 1.0, "R@10": 1.0, "MRR": 1.0}
+            "paths": {
+                path: {
+                    "query_latency_avg_ms": 1.5,
+                    "populations": {
+                        "symbol": {"query_count": 0, "R@5": None, "R@10": None, "MRR": None},
+                        "file_only": {"query_count": 1, "R@5": 1.0, "R@10": 1.0, "MRR": 1.0},
+                    },
+                    "per_query": [{"id": records[0]["id"], "top5_files": ["/repo/miner.py"]}],
+                }
+                for path in bench.SEARCH_PATHS
             },
-            "per_query": [{"id": records[0]["id"], "top5_files": ["/repo/miner.py"]}],
             "tree_sitter_available": mode == "treesitter",
             "mode_degraded": False,
         }
@@ -224,9 +461,37 @@ def test_run_benchmark_json_shape_without_embeddings(monkeypatch, tmp_path):
     report = bench.run_benchmark(tmp_path, dataset, ["smart", "treesitter"], None)
 
     assert report["meta"]["query_count"] == 1
+    assert report["meta"]["report_schema_version"] == 2
     assert set(report["modes"]) == {"smart", "treesitter"}
-    assert report["modes"]["smart"]["per_query"][0]["top5_files"] == ["/repo/miner.py"]
-    assert report["comparison"]["treesitter"]["chunk_count"] == 2
+    assert report["modes"]["smart"]["paths"]["store.query"]["per_query"][0]["top5_files"] == [
+        "/repo/miner.py"
+    ]
+    assert report["comparison"]["treesitter"]["code_search"]["file_only"]["R@5"] == 1.0
+
+
+def test_print_table_labels_model_paths_and_populations(capsys):
+    metrics = {
+        "query_count": 0,
+        "R@5": None,
+        "R@10": None,
+        "MRR": None,
+    }
+    paths = {
+        path: {
+            "populations": {"symbol": metrics, "file_only": metrics},
+        }
+        for path in bench.SEARCH_PATHS
+    }
+
+    bench.print_table({"smart": {"paths": paths}})
+
+    output = capsys.readouterr().out
+    assert "schema=2" in output
+    assert "model=all-MiniLM-L6-v2" in output
+    assert "store.query" in output
+    assert "code_search_hybrid" in output
+    assert "symbol" in output
+    assert "file_only" in output
 
 
 def test_minilm_compatibility_fixture_is_the_single_strict_contract():

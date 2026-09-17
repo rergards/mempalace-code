@@ -1110,7 +1110,7 @@ class TestWatchRootProjectMarkerClassification:
             watch_all(str(tmp_path), str(tmp_path / "palace"), on_commit=False)
 
         assert [call["project_dir"] for call in mine_calls] == [str(child)]
-        assert mine_calls[0]["wing_override"] == "child_wing"
+        assert mine_calls[0]["wing_override"] == "child-wing"
         assert render_watch_schedule(str(tmp_path), "linux").startswith("@reboot ")
 
 

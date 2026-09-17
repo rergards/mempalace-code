@@ -192,8 +192,12 @@ TOOL_SPECS = {
     },
     "mempalace_code_search": {
         "description": (
-            "Code-optimized search. Returns symbol name, type, language, and file path per hit. "
-            "Use this instead of mempalace_search when looking for code symbols, functions, or files."
+            "Code-optimized search. Returns symbol name, type, language, file path, and ranking "
+            "evidence per hit. Results use storage-ranked order by default; ranking.storage_rank "
+            "is the position in this call's returned candidate pool and ranking.vector_distance "
+            "is the storage distance. Hybrid reranking additionally reports lexical_score, "
+            "input_rank_score, and hybrid_score. Use this instead of mempalace_search when "
+            "looking for code symbols, functions, or files."
         ),
         "input_schema": {
             "type": "object",
@@ -240,7 +244,10 @@ TOOL_SPECS = {
                 },
                 "rerank": {
                     "type": "string",
-                    "description": "Optional reranker. Use 'hybrid' for BM25-style token overlap reranking; omit for vector order.",
+                    "description": (
+                        "Optional reranker. Use 'hybrid' for token-overlap reranking with score "
+                        "evidence; omit for storage-ranked order."
+                    ),
                 },
             },
             "required": ["query"],

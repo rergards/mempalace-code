@@ -3,7 +3,7 @@ search_reranker.py — BM25-style hybrid reranker for LanceDB candidate lists.
 
 Reranks an already-retrieved vector candidate pool using token overlap on the
 document text plus metadata surface (source_file path parts, symbol_name,
-symbol_type, language, room, wing). Vector rank is preserved as a tie-breaker
+symbol_type, language, room, wing). Storage input rank is preserved as a tie-breaker
 so candidates with no lexical evidence are not randomly reshuffled.
 """
 
@@ -70,21 +70,21 @@ def hybrid_rerank(
     lexical_weight: float = 0.5,
 ) -> list[dict[str, Any]]:
     """
-    Rerank candidates by blending vector rank position with BM25-style token overlap.
+    Rerank candidates by blending storage input rank with token overlap.
 
     Args:
         query: The search query string.
-        candidates: Ordered list of candidate dicts (vector-best first). Each dict
+        candidates: Storage-ranked candidate list. Each dict
             should include "text"; metadata fields "source_file", "symbol_name",
             "symbol_type", "language", "room", "wing" are included in the lexical
             surface when present. None or missing fields are silently skipped.
-        lexical_weight: Blend factor in [0, 1]. 0 = pure vector order; 1 = pure
+        lexical_weight: Blend factor in [0, 1]. 0 = pure storage input order; 1 = pure
             lexical. Default 0.5 gives equal weight to lexical and vector evidence.
 
     Returns:
         A new list with candidates reordered by hybrid score (descending). Original
-        vector rank breaks ties so semantically close candidates with equal lexical
-        scores keep their LanceDB order. All input candidates are preserved.
+        storage input rank breaks ties so candidates with equal lexical scores keep
+        their input order. All input candidates are preserved.
     """
     if not candidates:
         return []
@@ -96,11 +96,21 @@ def hybrid_rerank(
     for rank, cand in enumerate(candidates):
         doc_tokens = _candidate_tokens(cand)
         lex = _token_overlap(query_tokens, doc_tokens)
-        # Normalise vector rank: rank 0 (best) → 1.0, rank n-1 → 1/n
-        vec_score = (n - rank) / n
-        hybrid = (1.0 - lexical_weight) * vec_score + lexical_weight * lex
-        scored.append((hybrid, rank, cand))
+        # Normalise storage input rank: rank 0 (best) → 1.0, rank n-1 → 1/n
+        input_rank_score = (n - rank) / n
+        hybrid = (1.0 - lexical_weight) * input_rank_score + lexical_weight * lex
+        enriched = dict(cand)
+        ranking = dict(enriched.get("ranking", {}))
+        ranking.update(
+            {
+                "lexical_score": lex,
+                "input_rank_score": input_rank_score,
+                "hybrid_score": hybrid,
+            }
+        )
+        enriched["ranking"] = ranking
+        scored.append((hybrid, rank, enriched))
 
-    # Descending by hybrid score; ascending original rank breaks ties
+    # Descending by hybrid score; ascending storage input rank breaks ties
     scored.sort(key=lambda x: (-x[0], x[1]))
     return [cand for _, _, cand in scored]

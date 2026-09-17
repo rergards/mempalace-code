@@ -22,6 +22,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import stat
 import sys
@@ -193,24 +194,29 @@ class DrawerStore(ABC):
         """Delete all drawers for a given source_file within a wing. Returns deleted count."""
         return 0
 
-    def delete_by_source_files(self, source_files, wing: str) -> int:
+    def delete_by_source_files(self, source_files, wing: str, *, project_root=None) -> int:
         """Bulk-delete all drawers for a collection of source_file values within a wing.
 
         Fallback: iterates and calls delete_by_source_file() per file.
         Override in backends that support efficient batch deletion (e.g. LanceDB).
         Returns the total deleted row count.
         """
+        if project_root is not None:
+            return 0
         total = 0
         for sf in source_files:
             total += self.delete_by_source_file(sf, wing)
         return total
 
-    def get_source_file_hashes(self, wing: str) -> dict:
+    def get_source_file_hashes(
+        self, wing: str, *, project_root=None, protected_source_files: Optional[set] = None
+    ) -> Optional[dict]:
         """Return {source_file: source_hash} for all drawers in wing.
 
-        Returns an empty dict if unsupported. Override in LanceDB backend.
+        Unscoped calls return an empty dict if unsupported. Scoped calls return None
+        when provenance assessment is unsupported. Override in LanceDB backend.
         """
-        return {}
+        return None if project_root is not None else {}
 
     def iter_all(self, where=None, batch_size=1000, include_vectors=False):
         """Yield batches of drawers as lists of dicts. Streams without loading full table.
@@ -759,6 +765,87 @@ _META_KEYS: frozenset = frozenset(name for name, _, _ in _META_FIELD_SPEC)
 _META_DEFAULTS: dict = {name: default for name, _, default in _META_FIELD_SPEC}
 
 
+def _canonical_project_root(project_root: object) -> Optional[Path]:
+    try:
+        if not isinstance(project_root, (str, os.PathLike)):
+            return None
+        root_text = os.fspath(project_root)
+        if not isinstance(root_text, str) or not root_text:
+            return None
+        root = Path(root_text)
+        if not root.is_absolute():
+            return None
+        resolved_root = root.resolve(strict=False)
+        root_stat = resolved_root.lstat()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return None
+    if str(root) != str(resolved_root) or not stat.S_ISDIR(root_stat.st_mode):
+        return None
+    return resolved_root
+
+
+def is_canonical_project_source(source_file: object, project_root: object) -> bool:
+    """Return whether a stored source is a canonical descendant owned by the project.
+
+    Nested Git roots deny ownership. The stale leaf may be absent, but every existing
+    intermediate marker must be unambiguously absent or a supported repository marker.
+    """
+    if not isinstance(source_file, str) or not source_file:
+        return False
+    resolved_root = _canonical_project_root(project_root)
+    if resolved_root is None:
+        return False
+    try:
+        source = Path(source_file)
+        if not source.is_absolute():
+            return False
+        resolved_source = source.resolve(strict=False)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return False
+    if source_file != str(resolved_source) or resolved_root not in resolved_source.parents:
+        return False
+
+    current = resolved_source.parent
+    while current != resolved_root:
+        try:
+            parent_stat = current.lstat()
+        except OSError:
+            return False
+        if not stat.S_ISDIR(parent_stat.st_mode):
+            return False
+        marker = current / ".git"
+        try:
+            marker_stat = marker.lstat()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return False
+        else:
+            if stat.S_ISDIR(marker_stat.st_mode) or stat.S_ISREG(marker_stat.st_mode):
+                return False
+            return False
+        current = current.parent
+    return True
+
+
+_FILE_HASH_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def is_valid_file_hash(value: object) -> bool:
+    """Return whether a value matches the file-ingest BLAKE2b digest contract."""
+    return isinstance(value, str) and _FILE_HASH_RE.fullmatch(value) is not None
+
+
+def _is_regenerable_file_row(row: dict) -> bool:
+    """Return whether projected metadata proves a row is regenerable file output."""
+    source_hash = row.get("source_hash")
+    return (
+        row.get("ingest_mode") == "file"
+        and row.get("type") == ""
+        and is_valid_file_hash(source_hash)
+    )
+
+
 def _meta_arrow_types() -> dict:
     """Return the PyArrow type map for _META_FIELD_SPEC type tags.
 
@@ -1237,7 +1324,7 @@ class LanceStore(DrawerStore):
         table.delete(f"source_file = '{escaped_file}' AND wing = '{escaped_wing}'")
         return count
 
-    def delete_by_source_files(self, source_files, wing: str) -> int:
+    def delete_by_source_files(self, source_files, wing: str, *, project_root=None) -> int:
         """Bulk-delete drawers for a collection of source_file values within a wing.
 
         Deduplicates the input, then issues at most one count/delete predicate per
@@ -1249,6 +1336,10 @@ class LanceStore(DrawerStore):
             return 0
 
         paths = list(dict.fromkeys(source_files))  # dedupe, preserve insertion order
+        if project_root is not None:
+            if _canonical_project_root(project_root) is None:
+                return 0
+            paths = [path for path in paths if is_canonical_project_source(path, project_root)]
         if not paths:
             return 0
 
@@ -1259,6 +1350,11 @@ class LanceStore(DrawerStore):
             batch = paths[i : i + BULK_DELETE_BATCH_SIZE]
             escaped_items = ", ".join("'" + p.replace("'", "''") + "'" for p in batch)
             predicate = f"source_file IN ({escaped_items}) AND wing = '{escaped_wing}'"
+            if project_root is not None:
+                predicate += (
+                    " AND ingest_mode = 'file' AND type = ''"
+                    " AND regexp_like(source_hash, '^[0-9a-f]{32}$')"
+                )
             count = table.count_rows(predicate)
             if count == 0:
                 continue
@@ -1267,31 +1363,54 @@ class LanceStore(DrawerStore):
 
         return total_deleted
 
-    def get_source_file_hashes(self, wing: str) -> dict:
+    def get_source_file_hashes(
+        self, wing: str, *, project_root=None, protected_source_files: Optional[set] = None
+    ) -> Optional[dict]:
         """Return {source_file: source_hash} for all drawers in wing.
 
         Uses LanceDB scan-time column projection — no vector scan.
         Deduplicates by taking the first hash per source_file.
-        Returns an empty dict if the table is empty or column is absent.
+        Scoped calls return None when the projection or project scope cannot be
+        assessed. A successful scan with no eligible rows returns an empty dict.
         """
         table = self._table
         if table is None:
             return {}
         import pyarrow.compute as pc
 
+        columns = ["source_file", "source_hash", "wing"]
+        if project_root is not None:
+            if _canonical_project_root(project_root) is None:
+                return None
+            columns.extend(["ingest_mode", "type"])
         try:
-            arrow_tbl = self._scan_columns(table, ["source_file", "source_hash", "wing"])
+            arrow_tbl = self._scan_columns(table, columns)
         except Exception:
-            # Table predates migration (source_hash column missing) — return empty
-            return {}
-        filtered = arrow_tbl.filter(pc.field("wing") == wing)
+            # A scoped destructive assessment cannot use a partial/legacy projection.
+            return None if project_root is not None else {}
         result: dict = {}
-        for sf, sh in zip(
-            filtered.column("source_file").to_pylist(),
-            filtered.column("source_hash").to_pylist(),
-        ):
-            if sf not in result:
-                result[sf] = sh
+        if project_root is None:
+            filtered = arrow_tbl.filter(pc.field("wing") == wing)
+            for sf, sh in zip(
+                filtered.column("source_file").to_pylist(),
+                filtered.column("source_hash").to_pylist(),
+            ):
+                if sf not in result:
+                    result[sf] = sh
+            return result
+
+        protected: set[str] = set()
+        for row in arrow_tbl.to_pylist():
+            sf = row.get("source_file")
+            if not is_canonical_project_source(sf, project_root):
+                continue
+            if not _is_regenerable_file_row(row):
+                protected.add(sf)
+                continue
+            if row.get("wing") == wing and sf not in result:
+                result[sf] = row["source_hash"]
+        if protected_source_files is not None:
+            protected_source_files.update(protected)
         return result
 
     def count_by(self, column: str) -> Dict[str, int]:
