@@ -3,6 +3,8 @@ import os
 import tempfile
 from unittest.mock import patch
 
+import pytest
+
 from mempalace_code.normalize import (
     _extract_content,
     _format_tool_result,
@@ -104,6 +106,36 @@ def test_invalid_json_plain_fallback_spellchecks_user_turns(tmp_path):
         result = normalize(str(path), spellcheck=True)
 
     assert result == content.replace(">pleese", ">please", 1)
+
+
+@pytest.mark.parametrize(
+    "events",
+    [
+        [],
+        [{"type": "event_msg", "payload": {"type": "future_format"}}],
+        [{"type": "event_msg", "payload": {"type": "user_message", "message": "pending"}}],
+        [
+            {
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "developer",
+                    "content": "DO NOT MINE",
+                },
+            }
+        ],
+    ],
+)
+def test_unparsed_codex_rollout_refuses_raw_json_fallback(tmp_path, events):
+    path = tmp_path / "rollout.jsonl"
+    rows = [{"type": "session_meta", "payload": {"id": "session"}}, *events]
+    path.write_text("\n".join(json.dumps(row) for row in rows))
+    original = path.read_bytes()
+
+    with pytest.raises(ValueError, match="refusing raw JSON fallback"):
+        normalize(str(path), spellcheck=False)
+
+    assert path.read_bytes() == original
 
 
 def test_plain_spellcheck_disabled_preserves_content_exactly(tmp_path):

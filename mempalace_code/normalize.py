@@ -338,6 +338,10 @@ def _try_codex_jsonl(content: str, spellcheck: bool = True) -> Optional[str]:
 
     if len(messages) >= 2 and has_session_meta:
         return _messages_to_transcript(messages, spellcheck=spellcheck)
+    if has_session_meta:
+        raise ValueError(
+            "Codex rollout contains no complete supported conversation; refusing raw JSON fallback"
+        )
     return None
 
 

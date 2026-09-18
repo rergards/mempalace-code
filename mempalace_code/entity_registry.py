@@ -6,7 +6,7 @@ Knows the difference between Riley (a person) and ever (an adverb).
 Built from three sources, in priority order:
   1. Onboarding — what the user explicitly told us
   2. Learned — what we inferred from session history with high confidence
-  3. Researched — what we looked up via Wikipedia for unknown words
+  3. Researched — legacy ``wiki_cache`` entries from older versions, read only
 
 Usage:
     from mempalace_code.entity_registry import EntityRegistry
@@ -18,10 +18,7 @@ Usage:
 import json
 import os
 import re
-import tempfile
-import urllib.error
-import urllib.parse
-import urllib.request
+import secrets
 from pathlib import Path
 from typing import Optional
 
@@ -126,137 +123,21 @@ CONCEPT_CONTEXT_PATTERNS = [
 ]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Wikipedia lookup for unknown words
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Phrases in Wikipedia summaries that indicate a personal name
-NAME_INDICATOR_PHRASES = [
-    "given name",
-    "personal name",
-    "first name",
-    "forename",
-    "masculine name",
-    "feminine name",
-    "boy's name",
-    "girl's name",
-    "male name",
-    "female name",
-    "irish name",
-    "welsh name",
-    "scottish name",
-    "gaelic name",
-    "hebrew name",
-    "arabic name",
-    "norse name",
-    "old english name",
-    "is a name",
-    "as a name",
-    "name meaning",
-    "name derived from",
-    "legendary irish",
-    "legendary welsh",
-    "legendary scottish",
-]
-
-PLACE_INDICATOR_PHRASES = [
-    "city in",
-    "town in",
-    "village in",
-    "municipality",
-    "capital of",
-    "district of",
-    "county",
-    "province",
-    "region of",
-    "island of",
-    "mountain in",
-    "river in",
-]
+_TEMP_NAME_ATTEMPTS = 8
 
 
-def _wikipedia_lookup(word: str) -> dict:
-    """
-    Look up a word via Wikipedia REST API.
-    Returns inferred type (person/place/concept/unknown) + confidence + summary.
-    Free, no API key, handles disambiguation pages.
-    """
-    try:
-        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(word)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "MemPalace/1.0"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read())
-
-        page_type = data.get("type", "")
-        extract = data.get("extract", "").lower()
-        title = data.get("title", word)
-
-        # Disambiguation — look at description
-        if page_type == "disambiguation":
-            desc = data.get("description", "").lower()
-            if any(p in desc for p in ["name", "given name"]):
-                return {
-                    "inferred_type": "person",
-                    "confidence": 0.65,
-                    "wiki_summary": extract[:200],
-                    "wiki_title": title,
-                    "note": "disambiguation page with name entries",
-                }
-            return {
-                "inferred_type": "ambiguous",
-                "confidence": 0.4,
-                "wiki_summary": extract[:200],
-                "wiki_title": title,
-            }
-
-        # Check for name indicators
-        if any(phrase in extract for phrase in NAME_INDICATOR_PHRASES):
-            # Higher confidence if the word itself is described as a name
-            confidence = (
-                0.90
-                if any(
-                    f"{word.lower()} is a" in extract or f"{word.lower()} (name" in extract
-                    for _ in [1]
-                )
-                else 0.80
-            )
-            return {
-                "inferred_type": "person",
-                "confidence": confidence,
-                "wiki_summary": extract[:200],
-                "wiki_title": title,
-            }
-
-        # Check for place indicators
-        if any(phrase in extract for phrase in PLACE_INDICATOR_PHRASES):
-            return {
-                "inferred_type": "place",
-                "confidence": 0.80,
-                "wiki_summary": extract[:200],
-                "wiki_title": title,
-            }
-
-        # Found but doesn't match name/place patterns
-        return {
-            "inferred_type": "concept",
-            "confidence": 0.60,
-            "wiki_summary": extract[:200],
-            "wiki_title": title,
-        }
-
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            # Not in Wikipedia — strong signal it's a proper noun (unusual name, nickname)
-            return {
-                "inferred_type": "person",
-                "confidence": 0.70,
-                "wiki_summary": None,
-                "wiki_title": None,
-                "note": "not found in Wikipedia — likely a proper noun or unusual name",
-            }
-        return {"inferred_type": "unknown", "confidence": 0.0, "wiki_summary": None}
-    except (urllib.error.URLError, OSError, json.JSONDecodeError, KeyError):
-        return {"inferred_type": "unknown", "confidence": 0.0, "wiki_summary": None}
+def _open_registry_temp(directory: Path) -> tuple[int, Path]:
+    """Create one bounded same-directory temp file for atomic publication."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    last_collision: FileExistsError | None = None
+    for _ in range(_TEMP_NAME_ATTEMPTS):
+        path = directory / f".entity_registry_{secrets.token_hex(8)}.tmp"
+        try:
+            return os.open(path, flags, 0o600), path
+        except FileExistsError as exc:
+            last_collision = exc
+    assert last_collision is not None
+    raise last_collision
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -301,20 +182,22 @@ class EntityRegistry:
     @classmethod
     def load(cls, config_dir: Optional[Path] = None) -> "EntityRegistry":
         path = (Path(config_dir) / "entity_registry.json") if config_dir else cls.DEFAULT_PATH
-        if path.exists():
-            try:
-                data = json.loads(path.read_text())
-                return cls(data, path)
-            except (json.JSONDecodeError, OSError):
-                pass
-        return cls(cls._empty(), path)
+        try:
+            payload = path.read_bytes()
+        except FileNotFoundError:
+            return cls(cls._empty(), path)
+
+        try:
+            data = json.loads(payload)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ValueError(f"entity registry is not valid JSON: {path}") from exc
+        if not isinstance(data, dict):
+            raise ValueError(f"entity registry root must be a JSON object: {path}")
+        return cls(data, path)
 
     def save(self):
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_path_str = tempfile.mkstemp(
-            dir=self._path.parent, prefix=".entity_registry_", suffix=".tmp"
-        )
-        tmp_path = Path(tmp_path_str)
+        tmp_fd, tmp_path = _open_registry_temp(self._path.parent)
         try:
             with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
                 json.dump(self._data, f, indent=2)
@@ -521,51 +404,6 @@ class EntityRegistry:
         # Truly ambiguous — return None to fall through to person (registered name)
         return None
 
-    # ── Research unknown words ───────────────────────────────────────────────
-
-    def research(self, word: str, auto_confirm: bool = False) -> dict:
-        """
-        Research an unknown word via Wikipedia.
-        Caches result. If auto_confirm=False, marks as unconfirmed (needs user review).
-        Returns the lookup result.
-        """
-        # Already cached?
-        cache = self._data.setdefault("wiki_cache", {})
-        if word in cache:
-            return cache[word]
-
-        result = _wikipedia_lookup(word)
-        result["word"] = word
-        result["confirmed"] = auto_confirm
-
-        cache[word] = result
-        self.save()
-        return result
-
-    def confirm_research(
-        self, word: str, entity_type: str, relationship: str = "", context: str = "personal"
-    ):
-        """Mark a researched word as confirmed and add to people registry."""
-        cache = self._data.get("wiki_cache", {})
-        if word in cache:
-            cache[word]["confirmed"] = True
-            cache[word]["confirmed_type"] = entity_type
-
-        if entity_type == "person":
-            self._data["people"][word] = {
-                "source": "wiki",
-                "contexts": [context],
-                "aliases": [],
-                "relationship": relationship,
-                "confidence": 0.90,
-            }
-            if word.lower() in COMMON_ENGLISH_WORDS:
-                flags = self._data.setdefault("ambiguous_flags", [])
-                if word.lower() not in flags:
-                    flags.append(word.lower())
-
-        self.save()
-
     # ── Learn from sessions ──────────────────────────────────────────────────
 
     def learn_from_text(self, text: str, min_confidence: float = 0.75) -> list:
@@ -635,7 +473,8 @@ class EntityRegistry:
     def extract_unknown_candidates(self, query: str) -> list:
         """
         Find capitalized words in query that aren't in registry or common words.
-        These are candidates for Wikipedia research.
+        These are candidates for the caller to resolve. The registry never
+        looks anything up off the machine.
         """
         candidates = re.findall(r"\b[A-Z][a-z]{2,15}\b", query)
         unknown = []

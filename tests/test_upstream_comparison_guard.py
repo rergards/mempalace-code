@@ -487,16 +487,13 @@ def test_canonical_document_records_the_exact_commit_inventory():
     manifest = guard.load_manifest(ROOT)
     document = (ROOT / "docs" / "UPSTREAM_COMPARISON.md").read_text(encoding="utf-8")
     decisions = manifest["delta_decisions"]
-    nested_merges: set[str] = set()
-
     merge_groups = [decision["merge_group"] for decision in decisions]
     constituent_commits = [
         commit for decision in decisions for commit in decision["constituent_commits"]
     ]
     full_inventory = set(merge_groups) | set(constituent_commits)
-    non_merge_constituents = set(constituent_commits) - nested_merges
     document_lines = document.splitlines()
-    inventory_start = document_lines.index("Grouped by the top-level merge commits:")
+    inventory_start = document_lines.index("Review groups:")
     inventory_lines: list[str] = []
     for line in document_lines[inventory_start + 1 :]:
         if not line:
@@ -509,20 +506,14 @@ def test_canonical_document_records_the_exact_commit_inventory():
     for decision in decisions:
         rendered_commits = []
         for commit in decision["constituent_commits"]:
-            rendered = f"`{commit[:8]}`"
-            if commit in nested_merges:
-                rendered += " (nested merge)"
-            rendered_commits.append(rendered)
+            rendered_commits.append(f"`{commit[:8]}`")
         expected_inventory_lines.append(
             f"- `{decision['merge_group'][:8]}`: {', '.join(rendered_commits)}"
         )
 
-    assert len(merge_groups) == len(set(merge_groups)) == 1
-    assert len(full_inventory) == 10
-    assert not nested_merges
-    assert len(non_merge_constituents) == 9
-    assert "exact 10-commit full-range inventory" in document
-    assert "nine-commit non-merge constituent subset" in document
+    assert len(merge_groups) == len(set(merge_groups)) == len(decisions)
+    assert len(full_inventory) == 89
+    assert "range contains exactly 89 commits" in document
     assert inventory_lines == expected_inventory_lines
 
 
@@ -909,7 +900,7 @@ def test_repository_manifest_and_document_agree():
     assert errors == []
     assert facts["inventory_anchor_algorithm"] == "sha256"
     assert facts["inventory_anchor_version"] == 1
-    assert facts["inventory_anchor_declared_count"] == 10
-    assert facts["inventory_anchor_derived_count"] == 10
+    assert facts["inventory_anchor_declared_count"] == 89
+    assert facts["inventory_anchor_derived_count"] == 89
     assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
     assert facts["commit_inventory_exact"] is True

@@ -191,11 +191,8 @@ The CLI also exposes these network-capable operations:
   to establish provenance and install an eligible release. See [UPDATES.md](UPDATES.md) for the
   complete updater contract.
 
-The low-level Python API also exposes one explicit network-capable method:
-`EntityRegistry.research()`. Calling it directly contacts the English Wikipedia REST
-API for the requested word and caches the result in the entity registry. Standard CLI,
-MCP, onboarding, mining, search, update, and watcher flows never call this method.
-Airgapped applications should omit direct calls to `EntityRegistry.research()`.
+The entity registry performs no network lookup. Existing `wiki_cache` entries from older
+versions remain readable, but current packages expose no method that creates new entries.
 
 To guarantee offline operation in automation or airgapped environments:
 
@@ -206,13 +203,12 @@ export MEMPALACE_VERSION_CHECK=0
 This env var overrides any saved preference and prevents automatic and explicit version-check
 network calls, including `version-check --check-now`; invalid values fail closed in the same way.
 It does not block updater PyPI requests from `update status`, `update check`, `update apply --yes`,
-or scheduled update execution, and it does not alter an application that explicitly calls
-`EntityRegistry.research()`.
+or scheduled update execution.
 
 While offline, do not run `update status`, `update check`, `update apply --yes`, or scheduled
-update execution. Avoid direct `EntityRegistry.research()` calls too. Retry them after connectivity
-is available. Run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) only when you also want to
-re-enable version checks.
+update execution. Retry them after connectivity is available. Run
+`unset MEMPALACE_VERSION_CHECK` (or set it to `1`) only when you also want to re-enable version
+checks.
 
 ---
 

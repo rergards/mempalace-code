@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## v1.14.0 — 2026-09-17
+## v1.14.0 — 2026-09-18
 
 ### Added
 
@@ -23,11 +23,22 @@
 
 ### Fixed
 
+- Recognized Codex rollout files that contain no complete supported conversation now fail before
+  raw JSON can be filed as memory and remain eligible for retry after the transcript completes.
+- Entity-registry atomic saves now bound temporary-name collision retries and surface directory
+  permission failures immediately on every supported Python version.
+- Existing entity registries with malformed JSON, a non-object root, or a read failure now stop
+  before onboarding or programmatic setup can replace their non-regenerable contents.
 - Stale-file deletion and dependent knowledge-graph and tiny-hash expiry now require
   proven regenerable sources owned by the selected project.
 - Full-copy wing qualification now removes each recovered descendant trial before creating the
   next one, caps retained baseline snapshots at one, and refuses stale trial or snapshot
   generations before writing new evidence.
+
+### Security
+
+- Removed the unused Wikipedia lookup API from the entity registry. Legacy cached entries remain
+  readable, while current packages contain no unconfigured entity-research network path.
 
 ## v1.13.8 — 2026-09-02
 

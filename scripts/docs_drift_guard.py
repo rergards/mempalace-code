@@ -225,17 +225,17 @@ _RETRIEVAL_DOTNET_STRING_FIELDS: tuple[str, ...] = (
 )
 _RETRIEVAL_DOTNET_NUMERIC_FIELDS: tuple[str, ...] = ("vector_r_at_5", "hybrid_r_at_5")
 
-# The offline guide must keep every network-capable escape hatch and its recovery
-# boundary explicit for airgapped users and degraded agents.
+# The offline guide must keep every network-capable escape hatch and the entity
+# registry's local-only boundary explicit for airgapped users and degraded agents.
 OFFLINE_USAGE_DISCLOSURE_MARKERS: tuple[str, ...] = (
     "With version checks disabled",
     "`update status` and `update check`",
     "refreshes canonical package metadata",
     "does not block updater PyPI requests",
     "While offline, do not run `update status`, `update check`, `update apply --yes`, or scheduled update execution.",
-    "EntityRegistry.research()",
-    "English Wikipedia REST API",
-    "flows never call this method",
+    "The entity registry performs no network lookup",
+    "Existing `wiki_cache` entries from older versions remain readable",
+    "current packages expose no method that creates new entries",
 )
 
 # Current public docs may mention ChromaDB only as migration input or historical
@@ -1684,7 +1684,7 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
             f"README.md: retrieval quality facts drift (chunk_count): missing {chunk_label!r}"
         )
 
-    # --- Offline usage disclosure: EntityRegistry.research() network escape hatch ---
+    # --- Offline usage disclosure: network escape hatches and local entity registry ---
     for marker in OFFLINE_USAGE_DISCLOSURE_MARKERS:
         _require_wrap_tolerant(
             errors, docs["docs/OFFLINE_USAGE.md"], marker, "docs/OFFLINE_USAGE.md"

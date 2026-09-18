@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from mempalace_code import entity_registry
 from mempalace_code.entity_registry import EntityRegistry
+from mempalace_code.onboarding import quick_setup
 
 
 def _build_registry(tmp_path: Path) -> EntityRegistry:
@@ -107,15 +109,131 @@ def test_save_failure_before_replace_preserves_existing_registry(tmp_path, monke
     assert "Bob" not in loaded.people
 
 
-def test_load_malformed_json_still_returns_empty_registry(tmp_path):
+def test_temp_name_permission_error_is_not_retried(tmp_path, monkeypatch):
+    reg = _build_registry(tmp_path)
+    reg.save()
     registry_file = tmp_path / "entity_registry.json"
-    registry_file.write_text("{this is not valid json!!!}")
+    original = registry_file.read_bytes()
+    reg._data["mode"] = "personal"
+    attempts = 0
 
-    loaded = EntityRegistry.load(config_dir=tmp_path)
-    assert loaded.mode == "personal"
-    assert loaded.people == {}
-    assert loaded.projects == []
-    assert loaded.ambiguous_flags == []
+    def refuse(_path, _flags, _mode):
+        nonlocal attempts
+        attempts += 1
+        raise PermissionError("directory refuses temporary files")
+
+    monkeypatch.setattr(entity_registry.os, "open", refuse)
+
+    with pytest.raises(PermissionError, match="refuses temporary"):
+        reg.save()
+
+    assert attempts == 1
+    assert registry_file.read_bytes() == original
+    assert list(tmp_path.glob(".entity_registry_*.tmp")) == []
+
+
+def test_temp_name_collision_retries_then_saves(tmp_path, monkeypatch):
+    reg = _build_registry(tmp_path)
+    real_open = entity_registry.os.open
+    attempts = 0
+
+    def collide_twice(path, flags, mode):
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            raise FileExistsError("occupied")
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(entity_registry.os, "open", collide_twice)
+
+    reg.save()
+
+    assert attempts == 3
+    assert json.loads((tmp_path / "entity_registry.json").read_text())["mode"] == "work"
+
+
+def test_temp_name_collisions_are_bounded(tmp_path, monkeypatch):
+    reg = _build_registry(tmp_path)
+    attempts = 0
+
+    def collide(_path, _flags, _mode):
+        nonlocal attempts
+        attempts += 1
+        raise FileExistsError("occupied")
+
+    monkeypatch.setattr(entity_registry.os, "open", collide)
+
+    with pytest.raises(FileExistsError, match="occupied"):
+        reg.save()
+
+    assert attempts == entity_registry._TEMP_NAME_ATTEMPTS
+
+
+def test_packaged_registry_has_no_wikipedia_network_api():
+    assert not hasattr(entity_registry, "_wikipedia_lookup")
+    assert not hasattr(EntityRegistry, "research")
+    assert not hasattr(EntityRegistry, "confirm_research")
+
+
+def test_load_malformed_json_fails_closed_and_preserves_registry(tmp_path):
+    registry_file = tmp_path / "entity_registry.json"
+    original = b"{this is not valid json!!!}"
+    registry_file.write_bytes(original)
+
+    with pytest.raises(ValueError, match="not valid JSON"):
+        EntityRegistry.load(config_dir=tmp_path)
+
+    assert registry_file.read_bytes() == original
+
+
+def test_load_non_object_json_fails_closed_and_preserves_registry(tmp_path):
+    registry_file = tmp_path / "entity_registry.json"
+    original = b'["Alice"]'
+    registry_file.write_bytes(original)
+
+    with pytest.raises(ValueError, match="root must be a JSON object"):
+        EntityRegistry.load(config_dir=tmp_path)
+
+    assert registry_file.read_bytes() == original
+
+
+def test_load_invalid_utf8_fails_closed_and_preserves_registry(tmp_path):
+    registry_file = tmp_path / "entity_registry.json"
+    original = b'{"people": ["Alic\xffe"]}'
+    registry_file.write_bytes(original)
+
+    with pytest.raises(ValueError, match="not valid JSON"):
+        EntityRegistry.load(config_dir=tmp_path)
+
+    assert registry_file.read_bytes() == original
+
+
+def test_quick_setup_refuses_to_replace_malformed_registry(tmp_path):
+    registry_file = tmp_path / "entity_registry.json"
+    original = b'{"people":{"Alice":{"relationship":"friend"}}'
+    registry_file.write_bytes(original)
+
+    with pytest.raises(ValueError, match="not valid JSON"):
+        quick_setup(
+            "work",
+            [{"name": "Bob", "relationship": "colleague", "context": "work"}],
+            config_dir=tmp_path,
+        )
+
+    assert registry_file.read_bytes() == original
+
+
+def test_load_read_error_fails_closed(tmp_path, monkeypatch):
+    registry_file = tmp_path / "entity_registry.json"
+    registry_file.write_text("{}")
+
+    def unreadable(_self):
+        raise PermissionError("registry is unreadable")
+
+    monkeypatch.setattr(Path, "read_bytes", unreadable)
+
+    with pytest.raises(PermissionError, match="registry is unreadable"):
+        EntityRegistry.load(config_dir=tmp_path)
 
 
 def test_save_sets_restrictive_permissions_where_supported(tmp_path):

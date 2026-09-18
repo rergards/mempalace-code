@@ -32,9 +32,9 @@ _OFFLINE_USAGE_DISCLOSURE = (
     "`update status` and `update check` are read-only. Each refreshes canonical package "
     "metadata from PyPI. MEMPALACE_VERSION_CHECK=0 does not block updater PyPI requests. "
     "While offline, do not run `update status`, `update check`, `update apply --yes`, or "
-    "scheduled update execution. The low-level Python API exposes "
-    "`EntityRegistry.research()`, which contacts the English Wikipedia REST API. Standard "
-    "CLI and MCP flows never call this method.\n"
+    "scheduled update execution. The entity registry performs no network lookup. Existing "
+    "`wiki_cache` entries from older versions remain readable, but current packages expose no "
+    "method that creates new entries.\n"
 )
 
 
@@ -1354,7 +1354,7 @@ def test_retrieval_quality_facts_missing_query_count_fails_hard(tmp_path: Path):
     ), errors
 
 
-# ── Offline usage disclosure: EntityRegistry.research() ────────────────────────
+# ── Offline usage disclosure: updater network and local entity registry ───────
 
 
 def test_offline_usage_disclosure_is_present_by_default(tmp_path: Path):
@@ -1364,13 +1364,12 @@ def test_offline_usage_disclosure_is_present_by_default(tmp_path: Path):
 
 
 def test_offline_usage_disclosure_tolerates_wrapped_markdown_line(tmp_path: Path):
-    """A hard line-wrap between 'English Wikipedia' and 'REST API' is normal
-    Markdown formatting, not a missing disclosure — it must not fail the guard."""
+    """A hard line-wrap inside the entity-registry disclosure is normal Markdown."""
     root = _make_repo(tmp_path / "offline-usage-wrapped")
     path = root / "docs" / "OFFLINE_USAGE.md"
     path.write_text(
         _OFFLINE_USAGE_DISCLOSURE.replace(
-            "English Wikipedia REST API", "English Wikipedia\nREST API"
+            "performs no network lookup", "performs no network\nlookup"
         ),
         encoding="utf-8",
     )

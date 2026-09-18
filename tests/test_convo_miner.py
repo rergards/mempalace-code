@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import tempfile
@@ -79,6 +80,36 @@ def test_convo_mining():
     assert len(results["documents"][0]) > 0
 
     shutil.rmtree(tmpdir)
+
+
+def test_unparsed_codex_rollout_remains_retryable(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
+    source_dir = tmp_path / "conversations"
+    source_dir.mkdir()
+    source = source_dir / "rollout.jsonl"
+    palace_path = str(tmp_path / "palace")
+    meta = {"type": "session_meta", "payload": {"id": "session"}}
+    source.write_text(json.dumps(meta), encoding="utf-8")
+
+    mine_convos(str(source_dir), palace_path, wing="codex", spellcheck=False)
+    store = open_store(palace_path, create=False)
+    assert store.count() == 0
+
+    rows = [
+        meta,
+        {"type": "event_msg", "payload": {"type": "user_message", "message": "Question?"}},
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "agent_message",
+                "message": "A complete answer long enough to form one drawer.",
+            },
+        },
+    ]
+    source.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+    mine_convos(str(source_dir), palace_path, wing="codex", spellcheck=False)
+    assert open_store(palace_path, create=False).count() == 1
 
 
 def test_full_replaces_changed_source_and_removes_stale_tail(tmp_path, monkeypatch, capsys):

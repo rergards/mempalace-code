@@ -1,125 +1,105 @@
 # Upstream Comparison — Reviewed Snapshot
 
-This is the canonical comparison between `rergards/mempalace-code` (this fork)
-and the upstream `mempalace` project. It records the public upstream surfaces
-reviewed at one commit, this fork's current documented surfaces, and decisions
-about scope. It is a factual snapshot, not an evaluation of either project.
-
-The machine-readable form is
-[`docs/quality/upstream-comparison.json`](quality/upstream-comparison.json). The
-stdlib-only `scripts/upstream_comparison_guard.py` keeps the manifest, this
-document, and the README pointer consistent.
+This is the canonical, source-pinned comparison between `rergards/mempalace-code` and the public upstream `mempalace` project. It records scope decisions; it does not claim runtime interoperability or benchmark equivalence.
 
 ## Snapshot
 
 | Field | Value |
 |---|---|
-| Reviewed date | `2026-09-02` |
+| Reviewed date | `2026-09-18` |
 | Canonical upstream repository | <https://github.com/MemPalace/mempalace> |
 | Branch reviewed | `develop` |
-| Commit reviewed | `d9f059076c866fa6f29195679d75712436986024` |
-| Previous reviewed commit | `e8098348ddfce59964fe536e5deffb81da579e6b` |
-| Previous reviewed date | `2026-08-31` |
-| Upstream release described by its changelog | `3.9.0` |
-| Upstream paths tracked for drift | `README.md`, `CHANGELOG.md`, `pyproject.toml`, plugin/MCP metadata, update awareness, hub, logstream, MCP, lightweight MCP/PQL, KG, CLI, search, embedding, Qdrant, benchmark, coordination, configuration, split-file, and RFC 003–005 sources |
-| Fork commit at review time | this repository, `main` |
+| Commit reviewed | `25203ed6ee1a739103a77e87219a1f679dee81e9` |
+| Previous reviewed commit | `d9f059076c866fa6f29195679d75712436986024` |
+| Previous reviewed date | `2026-09-02` |
+| Upstream release described by its changelog | `3.10.0` |
+| Fork commit at review time | this repository, release preparation branch |
 
-All upstream statements below are limited to the pinned public sources. Upstream
-code was read only where a source named a surface; it was not run, benchmarked,
-or independently compatibility-tested.
+Upstream code was reviewed at the pinned commit. It was not run, benchmarked, or compatibility-tested.
 
 ## Source Links
 
-Pinned primary upstream sources, all at the reviewed commit:
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/README.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/CHANGELOG.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/pyproject.toml>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/.codex-plugin/plugin.json>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/.claude-plugin/plugin.json>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/.agents/plugins/marketplace.json>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/.mcp.json>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/.dsh-plugin/README.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/crates/README.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/benchmarks/PRIVATE_PALACE.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/docs/rfcs/003-agent-logstream-coordination.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/docs/rfcs/004-replicated-palace.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/docs/rfcs/005-agent-identity-routing.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/integrations/shared/coordination-protocol.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/website/guide/lightweight-mcp.md>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/config.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/split_mega_files.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/update_awareness.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/hub_client.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/logstream.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/mcp_server/__init__.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/mcp_server/http.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/mcp_server/protocol.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/mcp_server/runtime.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/searcher/__init__.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/searcher/ranking.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/embedding.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/backends/qdrant.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/backends/rust_exact.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/cli/__init__.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/cli/parser.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/cli_write_routing.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/knowledge_graph.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/mcp_light_server.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/query_parser.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/normalize.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/entity_registry.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/diary_ingest.py>
+- <https://github.com/MemPalace/mempalace/blob/25203ed6ee1a739103a77e87219a1f679dee81e9/mempalace/daemon.py>
 
-- <https://github.com/MemPalace/mempalace/tree/d9f059076c866fa6f29195679d75712436986024>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/README.md>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/CHANGELOG.md>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/pyproject.toml>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/.codex-plugin/plugin.json>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/.claude-plugin/plugin.json>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/.agents/plugins/marketplace.json>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/.mcp.json>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/config.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/split_mega_files.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/update_awareness.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/hub_client.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/logstream.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/mcp_server.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/searcher.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/embedding.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/backends/qdrant.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/benchmarks/PRIVATE_PALACE.md>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/docs/rfcs/003-agent-logstream-coordination.md>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/docs/rfcs/004-replicated-palace.md>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/docs/rfcs/005-agent-identity-routing.md>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/integrations/shared/coordination-protocol.md>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/cli.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/knowledge_graph.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/mcp_light_server.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/mempalace/query_parser.py>
-- <https://github.com/MemPalace/mempalace/blob/d9f059076c866fa6f29195679d75712436986024/website/guide/lightweight-mcp.md>
-
-The exact public range between the previous pin and this one is:
-
-- <https://github.com/MemPalace/mempalace/compare/e8098348ddfce59964fe536e5deffb81da579e6b...d9f059076c866fa6f29195679d75712436986024>
+Exact compare range: <https://github.com/MemPalace/mempalace/compare/d9f059076c866fa6f29195679d75712436986024...25203ed6ee1a739103a77e87219a1f679dee81e9>
 
 ## Upstream Delta Since the Previous Pin
 
-The compare range contains 10 commits. Each commit is owned exactly once by the
-single first-parent merge group below. The group has one stance from the
-closed set `adopted`, `equivalent-local`, `migration-only`, `deferred`, or
-`irrelevant`.
+The range contains exactly 89 commits. Each SHA is owned once by one review group. The legacy manifest field `merge_group` stores the first SHA of each review group; groups may contain direct commits as well as merge commits.
 
-| Delta decision | Upstream change, as its sources describe it | Stance | Release-critical | Merge group |
+| Delta decision | Upstream change | Stance | Release-critical | Review group |
 |---|---|---|---|---|
-| `lightweight-mcp-pql` | Optional three-tool MCP facade with PQL/structured inputs, KG temporal buckets, and on-demand logstream coordination guidance | `irrelevant` | no | `d9f05907` |
+| `native-and-retired-backends` | optional Rust exact search plus sqlite_exact, ChromaDB, pgvector, Qdrant, HNSW, and native-wheel changes | `irrelevant` | no | `753f08f3` |
+| `distributed-runtime-integrations` | hub and daemon writer routing, logstream lifecycle, shared-brain rules, DSH integration, and distributed coordination fixes | `irrelevant` | no | `92a8ac6b` |
+| `structural-release-maintenance` | module and test splits, dependency and workflow maintenance, documentation, release metadata, and branch synchronization | `irrelevant` | no | `1beed5a3` |
+| `protocol-cli-equivalents` | diary pagination beyond the legacy limit, total JSON-RPC replies for requests with ids, and natural --palace option placement | `equivalent-local` | yes | `87a01ddf` |
+| `local-ingest-registry-safety` | raw Codex fallback refusal, registry preservation and bounded temporary names, plus removal of an unconfigured Wikipedia lookup | `adopted` | yes | `46406439` |
+| `optional-retrieval-metadata` | optional ranking weights, drawer timestamps, search date provenance, KG pagination, XDG defaults, and retrieval performance changes | `deferred` | no | `39c1200d` |
+| `upstream-runtime-specific-fixes` | repair, hook, collection-name, environment, and integrity fixes bound to upstream Chroma, hub, daemon, or hook implementations | `irrelevant` | no | `e32b1e84` |
 
-The manifest records the exact 10-commit full-range inventory for
-`e8098348..d9f05907`: one top-level merge commit, zero nested merge commits,
-and a nine-commit non-merge constituent subset. Its SHA-256 anchor is
-`127aa2ccb94b5e549c305a9cc4317ba4a2f6c0488b5db1707ead7e8cb4a5d24c`.
-Grouped by the top-level merge commits:
+Inventory anchor: `dc3a368fefa15cce6705eda7e3080264db7077eea726c7d5cc010fac0ba8e518` (`sha256`, 89 commits).
 
-- `d9f05907`: `85d60c90`, `17936626`, `478ecee9`, `66b3b23d`, `4aa1e7f1`, `bf30db9b`, `be27f731`, `57ab367a`, `ea0c780b`
+Review groups:
 
-**Not applicable.** The fork already has one typed MCP registry: 29 tools in the
-full profile and four tools in the portable minimal profile. Importing a second
-free-form PQL parser and server would duplicate that owner and add hub,
-logstream, and fuzzy-resolution contracts absent from this fork. The local KG
-retains typed tool arguments and returns explicit temporal state on its existing
-query surfaces.
+- `753f08f3`: `1ed2676e`, `1fd5c4c0`, `61e8a626`, `f1e5ef73`, `7e69c3f1`, `17465d29`, `1c3a125c`, `58af2f2e`, `c04d423d`, `7ff9502f`, `955ab13e`, `e7562c06`, `f2a6edad`, `7ac87d3b`, `c39007f4`, `863462c2`, `38260df5`, `7702a2df`
+- `92a8ac6b`: `f9297a22`, `6c47daac`, `4f0e0af1`, `622b8b05`, `5affd624`, `a30c4516`, `df330d8c`, `99b1c970`, `527d0810`, `30cb69ab`, `752965d7`, `0a4059ff`, `48b262ee`, `8d13b0e6`, `cda984ee`, `a992af9a`
+- `1beed5a3`: `3e24d4b4`, `ba27375c`, `0b8188c1`, `e7102f97`, `1e052302`, `c664e8a5`, `238ca21d`, `37e14155`, `7010a09a`, `37ffbbe3`, `4f2c0362`, `a855bc07`, `3b57f256`, `5e2fa639`, `b0774e73`, `f3a99cc9`, `50dc89a8`, `e59e3683`, `7b7a782b`, `319667a8`, `40ea737d`, `ce54d5dd`, `d5250c78`, `3206f45d`, `345bcfba`
+- `87a01ddf`: `5a2abffe`, `40db9e5c`, `25203ed6`
+- `46406439`: `5af2fc30`, `d81726a2`, `e7f79840`, `d30348d9`
+- `39c1200d`: `687533ec`, `e4d0aa06`, `4591269e`, `0da09a20`, `636d9bc6`, `d27e515d`, `a07fb3f1`, `0fec3340`, `77da41d3`
+- `e32b1e84`: `50fb09d2`, `d5a31d0e`, `c79f2d07`, `c0c96151`, `8dd30cba`, `e0c5d693`, `0818de9e`
 
-The range has no release-critical decisions and imports no upstream runtime
-behavior.
+The two release-critical groups are closed by named local predicates. Other groups add unsupported architecture, repository maintenance, or optional capabilities without a current release acceptance gap.
 
 ## Capability Comparison
 
-| Area | Upstream, as advertised at the reviewed commit | This fork today |
+| Area | Upstream at the reviewed commit | This fork today |
 |---|---|---|
-| Product focus | General-purpose AI memory | Code-first memory: repository mining, `code_search`, symbol/type/project-graph tools |
-| Storage and retrieval | ChromaDB default; `sqlite_exact`, Milvus, Qdrant, and pgvector are offered; hybrid retrieval and optional LLM reranking are described; 3.9.0 adds bounded safe Qdrant `get()` scrolling and a closet source index | LanceDB-only current package with ChromaDB support retired; local deterministic `code_search(rerank="hybrid")`; no LLM reranker or server-vector backends |
-| Embeddings | New onboarding offers multilingual `embeddinggemma-300m`; opt-in `openai-compat` targets an OpenAI-compatible endpoint; 3.9.0 adds an EmbeddingGemma sub-batch override | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration path, and no remote embedding-provider integration |
-| Search | Date-window filtering is advertised; 3.9.0 can forward compatible CLI searches to a live hub and reports raw vector similarity for closet-enriched search | No date-window or live-hub forwarding surface; local Lance search remains process-local |
-| Agent integration | A Hermes `MemoryProvider`, source adapters, shared-hub routing, and skill-first coordination are advertised | No Hermes provider, source-adapter ingestion, or shared-hub surface |
-| MCP count and plugin wording | README and Claude plugin wording say 45 MCP tools; the Codex plugin wording says 44; an optional lightweight facade exposes three PQL/structured tools | Direct stdio MCP registration defaults to the typed 29-tool profile; the portable package defaults to four typed tools |
-| Plugin metadata | Codex manifest identifies `mempalace` version 3.9.0 and points at `.mcp.json` | Standards-conformant Agent Plugins 1.0 portable package with a four-tool default |
-| Coordination and replication | Logstream includes watcher behavior, topic routing, reverse pagination, artifact handoffs, on-demand coordination guidance, and an RFC 004 multi-master foundation | No logstream, palace replication, mesh, or live-hub transport |
-| KG query shape | Entity candidates can be resolved through the lightweight facade and partitioned into active, historical, and future facts | Existing typed KG tools return each fact with explicit temporal state; no PQL or fuzzy entity-resolution layer |
-| Hub concurrency | HTTP MCP permits concurrent palace reads while retaining exclusive writes | Stdio-only MCP; no shared HTTP palace lock |
-| Update awareness | Stable-release checks are opt-in, cached, agent-visible, and do not install automatically | Disabled-by-default version checks plus explicit `update status`, `update check`, and confirmed `update apply --yes`; no upstream MCP cached-status compatibility claim |
-| Benchmarks | A private-palace search benchmark procedure is published | Independent local benchmark gates; no cross-project result equivalence claim |
-| Distribution | Python package and advertised multi-arch Docker image | Python package and pipx installation; no published Docker image |
-| Writer ownership | Shared write routing and process-lifetime single-writer recovery are described | Local watcher/miner/maintenance ownership guards |
-| Non-regular-file ingest | Nonblocking opens, discovery-time skips, and per-command type gates are described | Descriptor-validated ingest and generated split outputs with bounded diagnostics |
-
-The table reports source wording and documented surfaces. It establishes no
-runtime interoperability, performance, or completeness beyond those sources.
+| Product and storage | General-purpose memory with ChromaDB, sqlite_exact, optional Rust exact search, and server backends | Code-first memory with one LanceDB owner |
+| MCP and distribution | 45-tool full MCP, optional three-tool PQL facade, hub/daemon/logstream surfaces, plugins and native artifacts | 29-tool typed stdio profile plus four-tool portable minimal profile; pip/pipx package |
+| Retrieval | Hybrid retrieval, optional LLM reranking, configurable weights, date provenance, and multiple backend optimizations | Local deterministic vector and code hybrid rerank; no LLM reranker |
+| Coordination | Hub routing, daemon write policy, logstream, shared-brain rules and replication foundations | Local watcher/miner ownership guards; no hub, logstream, or replication |
+| Privacy | Entity-registry Wikipedia lookup removed at the reviewed commit; configured remote backends remain optional | No unconfigured entity-research network path; legacy wiki cache remains readable |
 
 ## Capability Identifiers
-
-The manifest records every identifier below, and the guard requires this
-document to list each one.
 
 Upstream, advertised at the reviewed commit:
 
@@ -160,6 +140,16 @@ Upstream, advertised at the reviewed commit:
 - `lightweight-mcp-pql-three-tools`
 - `kg-entity-candidate-temporal-buckets`
 - `on-demand-logstream-coordination`
+- `optional-native-rust-exact`
+- `xdg-config-default-new-installs`
+- `cli-daemon-write-routing`
+- `configurable-hybrid-rank-weights`
+- `drawer-last-modified`
+- `search-date-provenance`
+- `kg-timeline-pagination`
+- `dsh-plugin`
+- `entity-registry-no-unconfigured-network`
+- `diary-pagination-beyond-legacy-limit`
 
 This fork, current:
 
@@ -180,79 +170,78 @@ This fork, current:
 
 ## Capability Sources
 
-The manifest carries the exact source mapping. Established capabilities remain
-pinned to README, changelog, plugin/MCP metadata, and RFC 003–005. The newest
-delta uses these reviewed sources:
+Every upstream identifier is mapped in the manifest to one or more pinned sources. The complete tracked set is published above; the machine-readable mapping is authoritative.
 
-| Upstream identifier | Read from |
-|---|---|
-| `mcp-tools-45-readme` | `README.md` |
-| `claude-plugin-tools-45` | `.claude-plugin/plugin.json` |
-| `codex-plugin-tools-44` | `.codex-plugin/plugin.json` |
-| `opt-in-release-awareness` | `README.md`, `CHANGELOG.md`, `mempalace/update_awareness.py` |
-| `live-hub-cli-search-forwarding` | `CHANGELOG.md`, `mempalace/hub_client.py`, `mempalace/mcp_server.py` |
-| `concurrent-hub-palace-reads` | `CHANGELOG.md`, `mempalace/mcp_server.py` |
-| `agent-logstream-topic-routing` | `mempalace/logstream.py`, RFC 003 |
-| `agent-logstream-reverse-pagination` | `mempalace/logstream.py`, RFC 003 |
-| `embeddinggemma-batch-size-override` | `CHANGELOG.md`, `mempalace/embedding.py` |
-| `qdrant-bounded-get-scroll` | `CHANGELOG.md`, `mempalace/backends/qdrant.py` |
-| `closet-search-source-index` | `CHANGELOG.md`, `mempalace/searcher.py` |
-| `private-palace-search-benchmark` | `benchmarks/PRIVATE_PALACE.md` |
-| `lightweight-mcp-pql-three-tools` | lightweight MCP guide, `mempalace/mcp_light_server.py`, `mempalace/query_parser.py`, `mempalace/cli.py`, `pyproject.toml` |
-| `kg-entity-candidate-temporal-buckets` | `mempalace/mcp_server.py`, `mempalace/knowledge_graph.py` |
-| `on-demand-logstream-coordination` | `integrations/shared/coordination-protocol.md` |
-
-`mempalace/config.py` is also pinned for the live-hub search fingerprint.
-`mempalace/split_mega_files.py` and RFC 005 remain tracked because changes to
-their ingest and identity-routing surfaces would alter existing comparison
-rows. The manifest is authoritative for the complete capability-to-source map.
+- `embeddinggemma-default-for-new-onboarding`: `README.md`, `CHANGELOG.md`
+- `hybrid-retrieval`: `README.md`
+- `optional-llm-reranking`: `README.md`
+- `backend-chromadb`: `README.md`
+- `backend-sqlite-exact`: `README.md`
+- `backend-milvus`: `README.md`
+- `backend-qdrant`: `README.md`
+- `backend-pgvector`: `README.md`
+- `chroma-sqlite-metadata-read-paths`: `CHANGELOG.md`
+- `sqlite-exact-indexed-structured-fields`: `CHANGELOG.md`
+- `mcp-tools-45-readme`: `README.md`
+- `claude-plugin-tools-45`: `.claude-plugin/plugin.json`
+- `codex-plugin-tools-44`: `.codex-plugin/plugin.json`
+- `codex-plugin-metadata`: `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `.mcp.json`
+- `openai-compatible-embeddings`: `README.md`
+- `search-date-window`: `CHANGELOG.md`
+- `hermes-memory-provider-core`: `CHANGELOG.md`
+- `source-adapters-mine`: `CHANGELOG.md`
+- `agent-logstream-artifact-handoffs`: `CHANGELOG.md`, `docs/rfcs/003-agent-logstream-coordination.md`
+- `logstream-multi-master-sync-foundation`: `CHANGELOG.md`, `docs/rfcs/004-replicated-palace.md`
+- `live-palace-hub-write-routing`: `CHANGELOG.md`, `docs/rfcs/003-agent-logstream-coordination.md`
+- `read-replica-mesh-preview`: `docs/rfcs/004-replicated-palace.md`
+- `multiarch-docker-image`: `README.md`
+- `process-lifetime-single-writer`: `CHANGELOG.md`
+- `agent-logstream-watch`: `CHANGELOG.md`
+- `opt-in-release-awareness`: `README.md`, `CHANGELOG.md`, `mempalace/update_awareness.py`
+- `live-hub-cli-search-forwarding`: `CHANGELOG.md`, `mempalace/hub_client.py`, `mempalace/mcp_server/__init__.py`
+- `concurrent-hub-palace-reads`: `CHANGELOG.md`, `mempalace/mcp_server/__init__.py`
+- `agent-logstream-topic-routing`: `mempalace/logstream.py`, `docs/rfcs/003-agent-logstream-coordination.md`
+- `agent-logstream-reverse-pagination`: `mempalace/logstream.py`, `docs/rfcs/003-agent-logstream-coordination.md`
+- `embeddinggemma-batch-size-override`: `CHANGELOG.md`, `mempalace/embedding.py`
+- `qdrant-bounded-get-scroll`: `CHANGELOG.md`, `mempalace/backends/qdrant.py`
+- `closet-search-source-index`: `CHANGELOG.md`, `mempalace/searcher/__init__.py`
+- `private-palace-search-benchmark`: `benchmarks/PRIVATE_PALACE.md`
+- `lightweight-mcp-pql-three-tools`: `website/guide/lightweight-mcp.md`, `mempalace/mcp_light_server.py`, `mempalace/query_parser.py`, `mempalace/cli/__init__.py`, `pyproject.toml`
+- `kg-entity-candidate-temporal-buckets`: `mempalace/mcp_server/__init__.py`, `mempalace/knowledge_graph.py`
+- `on-demand-logstream-coordination`: `integrations/shared/coordination-protocol.md`
+- `optional-native-rust-exact`: `README.md`, `CHANGELOG.md`, `crates/README.md`, `mempalace/backends/rust_exact.py`
+- `xdg-config-default-new-installs`: `CHANGELOG.md`, `mempalace/config.py`
+- `cli-daemon-write-routing`: `CHANGELOG.md`, `mempalace/cli_write_routing.py`
+- `configurable-hybrid-rank-weights`: `CHANGELOG.md`, `mempalace/searcher/ranking.py`
+- `drawer-last-modified`: `CHANGELOG.md`
+- `search-date-provenance`: `CHANGELOG.md`, `mempalace/searcher/__init__.py`
+- `kg-timeline-pagination`: `CHANGELOG.md`, `mempalace/knowledge_graph.py`
+- `dsh-plugin`: `CHANGELOG.md`, `.dsh-plugin/README.md`
+- `entity-registry-no-unconfigured-network`: `CHANGELOG.md`, `mempalace/entity_registry.py`
+- `diary-pagination-beyond-legacy-limit`: `CHANGELOG.md`, `mempalace/diary_ingest.py`
 
 ## Fork Stance
 
-**Embeddings.** The supported default remains `all-MiniLM-L6-v2`. A model
-change requires the text and code retrieval evidence and migration support
-defined in `AGENTS.md`.
+**Adopted safety.** The fork refuses raw fallback for recognized incomplete Codex rollouts, preserves malformed or unreadable entity registries, bounds entity-registry temporary-name collisions, and contains no callable Wikipedia research path.
 
-**Retrieval and reranking.** The fork retains one local deterministic hybrid
-path, `code_search(rerank="hybrid")`. It has no remote hub, closet layer, or
-general LLM reranking layer.
+**Equivalent protocol behavior.** Existing tests cover diary reads beyond the former limit, malformed JSON-RPC envelopes with preserved request IDs and session continuity, and `--palace` placement before or after a subcommand.
 
-**Update awareness.** The existing local version-check and updater owners provide
-the equivalent opt-in outcomes listed above. The fork does not claim upstream MCP
-cached-status response compatibility.
+**Storage boundary.** LanceDB remains the only current backend. Rust exact search, ChromaDB, sqlite_exact, pgvector, Qdrant, hub, daemon, logstream, and replication contracts are outside this release.
 
-**Agent and distributed surfaces.** Hermes integration, source adapters,
-logstream, live-hub routing, and replication remain outside the local code-memory
-scope.
-
-**MCP and packages.** Direct MCP defaults to 29 tools. The separate Agent
-Plugins 1.0 portable package defaults to the four-tool `minimal` profile. The
-fork keeps this one typed registry and does not import the optional PQL facade.
+**Deferred additions.** Ranking weights, last-modified metadata, date provenance, KG pagination, and XDG default migration require their own acceptance and migration evidence.
 
 ## Evidence Limits
 
-- **Repository review only.** Claims come from the exact compare range and the
-  pinned README, changelog, package, plugin/MCP, runtime, benchmark, and RFC
-  sources. No upstream behavior was run.
-- **Nothing was measured.** This document contains no cross-project benchmark,
-  quality, performance, adoption, or compatibility measurement.
-- **Delta stances are about this fork.** Every commit is assigned to the one
-  merge group. Its `irrelevant` stance imports no local predicate claim.
-- **Plugin counts are source-local wording.** The pinned README and Claude plugin
-  say 45 tools; the pinned Codex plugin says 44. The fork's 29-tool direct profile
-  and four-tool portable default are independent.
-- **One branch, one commit.** Only `develop` at the pinned commit was reviewed.
-- **Historical criticism is separate.** `docs/UPSTREAM_HARDENING.md` describes
-  earlier material and is not evidence about this reviewed commit.
+- Repository review only; upstream behavior was not executed.
+- No cross-project performance or quality claim is made.
+- Decisions describe applicability to this fork at this release candidate.
+- Only public `develop` at the pinned commit was reviewed.
 
 ## Automation Policy
 
-Static mode validates manifest shape, dates, pins, source links, capabilities,
-decisions, inventory count and digest, and document/README synchronization
-without network access. Live mode adds one read-only GitHub head query and
-fails closed on drift or an untrusted response.
+Static mode validates manifest shape, pins, source links, capability mappings, decisions, local predicates, inventory count and digest, and document synchronization. Live mode adds one credential-free read of the public upstream head and fails closed on drift.
 
-The canonical release-time command remains:
+Canonical release command:
 
 ```bash
 python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream
@@ -260,13 +249,10 @@ python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-up
 
 ## Drift Recovery
 
-When live comparison reports `upstream-drift`, review the printed exact range,
-classify every new commit once, update the manifest and this document together,
-and run the single recovery command:
+If live mode reports a different upstream head, review the exact new range, update both comparison files, run the static guard and focused predicates, then retry the release preflight. Do not tag against stale evidence.
+
+Recovery command:
 
 ```bash
 python scripts/upstream_comparison_guard.py --check-live --json
 ```
-
-A release-critical row must cite a tracked upstream file. An `adopted` or
-`equivalent-local` row must name an existing local test or module.
