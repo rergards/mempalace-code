@@ -1,17 +1,17 @@
 {
   "code_size": {
-    "package_code_lines": 29419,
+    "package_code_lines": 29439,
     "package_files": 82,
-    "package_total_lines": 35080,
-    "test_files": 91,
-    "test_total_lines": 86672
+    "package_total_lines": 35098,
+    "test_files": 92,
+    "test_total_lines": 86858
   },
   "demo_gates": {
     "architecture_guard": {
       "status": "present"
     },
     "cli_golden_scenarios": {
-      "count": 21,
+      "count": 20,
       "status": "present"
     },
     "dependency_audit": {
@@ -58,11 +58,11 @@
   },
   "largest_modules": [
     {
-      "lines": 5395,
+      "lines": 5398,
       "path": "mempalace_code/wing_migration.py"
     },
     {
-      "lines": 2226,
+      "lines": 2241,
       "path": "mempalace_code/storage.py"
     },
     {
@@ -281,8 +281,8 @@
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 91,
-    "test_functions": 3925
+    "test_files": 92,
+    "test_functions": 3932
   },
   "verification_commands": [
     {

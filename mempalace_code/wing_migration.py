@@ -42,7 +42,7 @@ sys.dont_write_bytecode = True
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-RECEIPT_VERSION = 16
+RECEIPT_VERSION = 17
 INVENTORY_VERSION = 1
 TABLE_NAME = "mempalace_drawers"
 MAX_RECEIPT_BYTES = 256 * 1024 * 1024
@@ -71,9 +71,7 @@ RUNNER_PATH = Path(__file__).absolute()
 STATE_KEYS = ("lance_rows", "lance_schema", "tiny_hashes", "marker", "configuration", "kg")
 FULL_COPY_SCOPE = "isolated_full_copy_only"
 FULL_COPY_PROCESS_AUTHORITY = "acquire fixture lock and stop only fixture-owned subprocesses"
-FULL_COPY_RETENTION_RULE = (
-    "retain through deadline and until verified recovery or owner disposition, whichever is later"
-)
+FULL_COPY_RETENTION_RULE = "retain until verified recovery or owner disposition"
 LIVE_SCOPE = "single_host_live_wing_merge"
 LIVE_MAINTENANCE_NAME = "live-wing-migration.json"
 LEGACY_FILE_CHUNKER_STRATEGIES = frozenset(
@@ -507,7 +505,6 @@ def _validate_full_copy_authority(
         "original_paths_excluded_from_mutation",
         "owner_approval",
         "qualification_host",
-        "retention_deadline",
         "retention_rule",
         "scope",
         "watcher_restart",
@@ -556,16 +553,6 @@ def _validate_full_copy_authority(
         raise MigrationError(
             "lance_batch_size_invalid", "a positive integer batch size is required"
         )
-    deadline = authority.get("retention_deadline")
-    if not isinstance(deadline, str):
-        raise MigrationError("retention_deadline_invalid", "a UTC retention deadline is required")
-    try:
-        parsed_deadline = _parse_instant(deadline)
-    except (TypeError, ValueError) as exc:
-        raise MigrationError("retention_deadline_invalid", "invalid retention deadline") from exc
-    if parsed_deadline <= datetime.now(UTC):
-        raise MigrationError("retention_deadline_invalid", "retention deadline has passed")
-
     verification = raw.get("copy_verification")
     required_verification = {
         "checksum_dry_run_differences",
@@ -967,7 +954,7 @@ def _validate_inventory(raw: dict[str, Any], inventory_path: Path) -> dict[str, 
     if full_copy:
         inventory["qualification_mode"] = "full-copy"
         inventory["lance_state_format"] = LANCE_STATE_FORMAT
-        inventory["retention_deadline"] = raw["authority"]["retention_deadline"]
+        inventory["retention_rule"] = raw["authority"]["retention_rule"]
         inventory["validated_runtime"] = full_copy_runtime
     return inventory
 
@@ -2087,7 +2074,7 @@ def inventory(
             "writes": 0,
             "created_at": datetime.now(UTC).isoformat(),
             "qualification_mode": inv.get("qualification_mode", "synthetic"),
-            "retention_deadline": inv.get("retention_deadline"),
+            "retention_rule": inv.get("retention_rule"),
             "inventory_authority_seal": _digest(_load_json(Path(inv["inventory_path"]))),
             "unrelated_preimage": unrelated_preimage,
         }
@@ -2891,6 +2878,7 @@ def _recover_receipt(
 
 def _runtime_identity() -> dict[str, Any]:
     repo_root = RUNNER_PATH.parent.parent
+    prefix = Path(sys.prefix).absolute()
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
     try:
@@ -2919,8 +2907,20 @@ def _runtime_identity() -> dict[str, Any]:
         )
     module_origin = _real(package_spec.origin)
     distribution_origin = _real(Path(str(distribution.locate_file(metadata_file))).parent)
-    _reject_symlink_chain(module_origin)
-    _reject_symlink_chain(distribution_origin)
+    if _inside(module_origin, prefix):
+        module_root = prefix
+    elif _inside(module_origin, repo_root):
+        module_root = repo_root
+    else:
+        raise MigrationError(
+            "runtime_provenance_invalid", "package origin is outside its runtime owner"
+        )
+    if not _inside(distribution_origin, prefix):
+        raise MigrationError(
+            "runtime_provenance_invalid", "distribution metadata is outside the runtime prefix"
+        )
+    _reject_symlink_chain(module_origin, module_root)
+    _reject_symlink_chain(distribution_origin, prefix)
     model_cache_source_home = _model_cache_home()
     return {
         # Preserve the virtual-environment launcher. Resolving its symlink would select
@@ -3098,19 +3098,23 @@ def _assert_runtime_files_unchanged(receipt: dict[str, Any]) -> None:
     prefix = _real(runtime["runtime_prefix"])
     module_origin = _real(runtime["module_origin"])
     distribution_root = _real(runtime["distribution_origin"])
-    for path in (prefix, module_origin, distribution_root):
-        _reject_symlink_chain(path)
+    if not _inside(module_origin, prefix) or not _inside(distribution_root, prefix):
+        raise MigrationError("runtime_provenance_drift", "installed package left runtime prefix")
+    _reject_symlink_chain(prefix, prefix)
+    _reject_symlink_chain(module_origin, prefix)
+    _reject_symlink_chain(distribution_root, prefix)
     try:
         interpreter_metadata = interpreter.lstat()
     except OSError as exc:
         raise MigrationError("runtime_package_hash_drift", str(interpreter)) from exc
     interpreter_link = runtime.get("interpreter_link")
+    interpreter_root = prefix if _inside(interpreter, prefix) else Path(interpreter.anchor)
     if interpreter_link is None:
-        _reject_symlink_chain(interpreter)
+        _reject_symlink_chain(interpreter, interpreter_root)
         if not stat.S_ISREG(interpreter_metadata.st_mode):
             raise MigrationError("runtime_package_hash_drift", str(interpreter))
     else:
-        _reject_symlink_chain(interpreter.parent)
+        _reject_symlink_chain(interpreter.parent, interpreter_root)
         if (
             not isinstance(interpreter_link, dict)
             or set(interpreter_link) != {"value", "target", "target_sha256"}
@@ -3126,8 +3130,6 @@ def _assert_runtime_files_unchanged(receipt: dict[str, Any]) -> None:
             or _file_digest(target) != interpreter_link["target_sha256"]
         ):
             raise MigrationError("runtime_package_hash_drift", str(interpreter))
-    if not _inside(module_origin, prefix) or not _inside(distribution_root, prefix):
-        raise MigrationError("runtime_provenance_drift", "installed package left runtime prefix")
     package_root = module_origin.parent
     _reject_symlink_tree(package_root)
     _reject_symlink_tree(distribution_root)
@@ -3138,7 +3140,9 @@ def _assert_runtime_files_unchanged(receipt: dict[str, Any]) -> None:
     dependency_link_value = runtime.get("dependency_link")
     if dependency_link_value is not None:
         dependency_link = _real(dependency_link_value)
-        _reject_symlink_chain(dependency_link)
+        if not _inside(dependency_link, prefix):
+            raise MigrationError("runtime_provenance_drift", "dependency link left runtime prefix")
+        _reject_symlink_chain(dependency_link, prefix)
         try:
             _assert_regular_private(dependency_link)
         except OSError as exc:
@@ -3291,7 +3295,9 @@ def _prepare_isolated_runtime(receipt: dict[str, Any]) -> dict[str, Any]:
     if purelib_probe.returncode != 0:
         raise MigrationError("runtime_install_failed", purelib_probe.stderr.strip())
     purelib = _real(purelib_probe.stdout.strip())
-    _reject_symlink_chain(purelib)
+    if not _inside(purelib, runtime_root):
+        raise MigrationError("runtime_install_failed", f"site-packages escapes runtime: {purelib}")
+    _reject_symlink_chain(purelib, runtime_root)
     resolved_runtime_root = runtime_root.resolve()
     purelib = purelib.resolve()
     if not _inside(purelib, resolved_runtime_root):
@@ -3319,7 +3325,12 @@ def _prepare_isolated_runtime(receipt: dict[str, Any]) -> dict[str, Any]:
     )
     dependency_link = purelib / "wing_migration_dependencies.pth"
     dependency_source = _real(sysconfig.get_path("purelib"))
-    _reject_symlink_chain(dependency_source)
+    source_prefix = Path(sys.prefix).absolute()
+    if not _inside(dependency_source, source_prefix):
+        raise MigrationError(
+            "runtime_provenance_invalid", "dependency source is outside the runtime prefix"
+        )
+    _reject_symlink_chain(dependency_source, source_prefix)
     dependency_link.write_text(f"{dependency_source}\n", encoding="utf-8")
     identity_probe = _run_runtime_subprocess(
         receipt,
@@ -3353,8 +3364,8 @@ def _prepare_isolated_runtime(receipt: dict[str, Any]) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise MigrationError("runtime_install_failed", identity_probe.stdout) from exc
     origin = _real(identity["module_origin"])
-    _reject_symlink_chain(origin)
-    if not _inside(origin, runtime_root) or identity["distribution_version"] != version:
+    _reject_symlink_chain(origin, resolved_runtime_root)
+    if not _inside(origin, resolved_runtime_root) or identity["distribution_version"] != version:
         raise MigrationError("runtime_provenance_invalid", json.dumps(identity, sort_keys=True))
     identity.update(
         {
@@ -4400,7 +4411,7 @@ def _qualify_full_copy(inventory_argument: str | None) -> dict[str, Any]:
             "inventory_seal": _digest(final_receipt["inventory"]),
             "receipt": str(receipt_path),
             "recovery_command": final_receipt["recovery_command"],
-            "retention_deadline": final_receipt["retention_deadline"],
+            "retention_rule": final_receipt["retention_rule"],
             "runtime_identity": final_receipt["runtime"],
             "runtime_measurements": rehearsal_measurements,
             "resume": {"runner_sha256": final_receipt["runner_hash"]},
@@ -4462,7 +4473,7 @@ def _qualify_full_copy(inventory_argument: str | None) -> dict[str, Any]:
             ),
             "receipt": str(active_receipt_path),
             "recovery_command": recovery_command,
-            "retention_deadline": admitted["retention_deadline"],
+            "retention_rule": admitted["retention_rule"],
             "outcomes": outcomes,
         }
         if isinstance(exc, MigrationError) and exc.code.startswith("runtime_"):
@@ -4733,7 +4744,7 @@ def _validate_live_authority(
         "configuration",
         "lock",
         "evidence_root",
-        "retention_deadline",
+        "retention_rule",
         "qualification_report",
         "qualification_report_sha256",
         "qualification_inventory_seal",
@@ -4748,6 +4759,7 @@ def _validate_live_authority(
         or authority["scope"] != LIVE_SCOPE
         or authority["live_mutation"] is not True
         or authority["mcp_downtime"] is not True
+        or authority["retention_rule"] != FULL_COPY_RETENTION_RULE
         or authority["approved_host"] != socket.gethostname()
         or not isinstance(authority["owner_approval"], str)
         or not authority["owner_approval"]
@@ -4759,15 +4771,6 @@ def _validate_live_authority(
         or source == destination
     ):
         raise MigrationError("live_authority_invalid", "live authority values differ")
-    deadline = authority["retention_deadline"]
-    try:
-        if not isinstance(deadline, str) or _parse_instant(deadline) <= datetime.now(UTC):
-            raise ValueError
-    except (TypeError, ValueError) as exc:
-        raise MigrationError(
-            "retention_deadline_invalid", "live retention deadline is invalid"
-        ) from exc
-
     home = Path.home()
     canonical = {
         "palace": home / ".mempalace" / "palace",
@@ -4888,7 +4891,7 @@ def _live_inventory(authority: dict[str, Any], authority_path: Path) -> dict[str
         "lance_batch_size": 1024,
         "lance_state_format": LANCE_STATE_FORMAT,
         "qualification_mode": "live",
-        "retention_deadline": authority["retention_deadline"],
+        "retention_rule": authority["retention_rule"],
         "authority_path": str(authority_path),
         "live_authority_seal": _digest(authority),
         "approved_host": authority["approved_host"],
@@ -4964,7 +4967,7 @@ def live_run(authority_path: str) -> dict[str, Any]:
             "writes": 0,
             "created_at": datetime.now(UTC).isoformat(),
             "qualification_mode": "live",
-            "retention_deadline": authority["retention_deadline"],
+            "retention_rule": authority["retention_rule"],
             "inventory_authority_seal": _digest(authority),
             "unrelated_preimage": None,
             "recovery_command": recovery_command,
@@ -4998,7 +5001,7 @@ def live_run(authority_path: str) -> dict[str, Any]:
             "stopped_mcp_clients": len(stopped),
             "runtime_noop": sealed["runtime_proof"]["post_activation"]["predicates"],
             "recovery_command": recovery_command,
-            "retention_deadline": sealed["retention_deadline"],
+            "retention_rule": sealed["retention_rule"],
         }
     except BaseException:
         if not receipt_created:

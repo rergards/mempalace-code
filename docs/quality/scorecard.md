@@ -9,17 +9,17 @@ Schema version: 4
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 82 |
-| Package total lines | 35080 |
-| Package code lines | 29419 |
-| Test files (`tests/`) | 91 |
-| Test total lines | 86672 |
+| Package total lines | 35098 |
+| Package code lines | 29439 |
+| Test files (`tests/`) | 92 |
+| Test total lines | 86858 |
 
 ## Largest Modules (top 10)
 
 | Module | Lines |
 |--------|------:|
-| `mempalace_code/wing_migration.py` | 5395 |
-| `mempalace_code/storage.py` | 2226 |
+| `mempalace_code/wing_migration.py` | 5398 |
+| `mempalace_code/storage.py` | 2241 |
 | `mempalace_code/updater.py` | 1780 |
 | `mempalace_code/mining/chunkers.py` | 1466 |
 | `mempalace_code/watcher.py` | 1333 |
@@ -90,7 +90,7 @@ Coverage: `maintained_default_corpus`, `entropy_rule`, `changed_commit_range`, `
 | Gate | Status | Count |
 |------|:------:|------:|
 | architecture_guard | present |  |
-| cli_golden_scenarios | present | 21 |
+| cli_golden_scenarios | present | 20 |
 | dependency_audit | present |  |
 | docs_drift_guard | present |  |
 | mcp_stdio_contracts | present | 5 |
@@ -127,8 +127,8 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| Test files | 91 |
-| Test functions | 3925 |
+| Test files | 92 |
+| Test functions | 3932 |
 
 ## Available Suites
 

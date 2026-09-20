@@ -1681,16 +1681,16 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
         run_session=run_session,
     )
     assert failure is None
-    lease_root = tmp_path / "scenario" / "protected-home" / ".mempalace"
-    assert (lease_root / "operation.lock").read_bytes() == b""
-    assert (lease_root / "operation.lock.metadata.lock").read_bytes() == b""
-    assert (lease_root / "operation.lock.owners.json").read_bytes() == b"{}"
+    operation_root = tmp_path / "scenario" / "protected-home" / ".mempalace"
+    assert (operation_root / "operation.lock").read_bytes() == b""
+    assert (operation_root / "operation.lock.metadata.lock").read_bytes() == b""
+    assert (operation_root / "operation.lock.owners.json").read_text(encoding="utf-8") == "{}"
     assert all(
-        stat.S_IMODE(path.stat().st_mode) == 0o600
-        for path in (
-            lease_root / "operation.lock",
-            lease_root / "operation.lock.metadata.lock",
-            lease_root / "operation.lock.owners.json",
+        stat.S_IMODE((operation_root / name).stat().st_mode) == 0o600
+        for name in (
+            "operation.lock",
+            "operation.lock.metadata.lock",
+            "operation.lock.owners.json",
         )
     )
     assert [profile for profile, _batches in calls] == [name for name, _members in profiles]

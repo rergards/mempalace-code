@@ -471,28 +471,6 @@ def test_cli_golden_fetch_model_buffering_failure_and_retry(tmp_path, fake_pkg_r
     assert row["status"] == "pass", row["detail"]
 
 
-def test_cli_golden_wing_migration_missing_action_guard(tmp_path, fake_pkg_root):
-    env = _make_env(tmp_path, fake_pkg_root)
-    _assert_installed_cli_provenance(env, tmp_path)
-
-    step = _run_cli(
-        "wing-migration missing-action guard",
-        ["wing-migration"],
-        env,
-        tmp_path,
-    )
-
-    assert step.returncode == 2, (
-        f"{step.label} exited {step.returncode}\nstdout={step.stdout!r}\nstderr={step.stderr!r}"
-    )
-    _assert_clean(step)
-    assert "usage:" in step.stderr
-    assert (
-        "{inventory,snapshot,apply,classify,recover,qualify,live-run,live-recover}" in step.stderr
-    )
-    _assert_no_repo_artifacts(ROOT)
-
-
 def test_cli_golden_split_creates_explicit_output_dir(tmp_path, fake_pkg_root):
     env = _make_env(tmp_path, fake_pkg_root)
     _assert_installed_cli_provenance(env, tmp_path)

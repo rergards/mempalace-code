@@ -87,7 +87,10 @@ def _wait_for_output(
         return
     _drain_output(lines, output)
     joined = "".join(output)
-    pytest.fail(f"watcher did not emit {needle!r} before timeout; output:\n{joined}")
+    pytest.fail(
+        f"mempalace_reason=watcher_output_timeout\n"
+        f"watcher did not emit {needle!r} before timeout; output:\n{joined}"
+    )
 
 
 def _poll_for_output(
@@ -142,7 +145,10 @@ def _wait_for_first_cycle(
         ):
             return
     _drain_output(lines, output)
-    pytest.fail(f"watcher did not emit {needle!r} before timeout; output:\n{''.join(output)}")
+    pytest.fail(
+        "mempalace_reason=watcher_first_cycle_timeout\n"
+        f"watcher did not emit {needle!r} before timeout; output:\n{''.join(output)}"
+    )
 
 
 def _stop_watcher(
@@ -212,7 +218,9 @@ def test_watcher_resource_bounds_in_real_subprocess(monkeypatch):
             text=True,
             timeout=30,
         )
-        assert init.returncode == 0, init.stdout + init.stderr
+        assert init.returncode == 0, (
+            "mempalace_reason=watcher_init_failed\n" + init.stdout + init.stderr
+        )
 
         process = subprocess.Popen(
             [
@@ -231,7 +239,7 @@ def test_watcher_resource_bounds_in_real_subprocess(monkeypatch):
             env=env,
             text=True,
         )
-        assert process.stdout is not None
+        assert process.stdout is not None, "mempalace_reason=watcher_stdout_unavailable"
         lines = queue.Queue()
         reader = threading.Thread(target=_read_output, args=(process.stdout, lines), daemon=True)
         reader.start()
@@ -252,24 +260,28 @@ def test_watcher_resource_bounds_in_real_subprocess(monkeypatch):
             disk_samples.append(_combined_bytes(palace))
 
         _stop_watcher(process, reader, lines, output)
-        assert process.returncode == 0, "".join(output)
+        assert process.returncode == 0, "mempalace_reason=watcher_exit_nonzero\n" + "".join(output)
         summary = "".join(output)
-        assert "10 re-mine cycle(s), 20 event(s)" in summary, summary
+        assert "10 re-mine cycle(s), 20 event(s)" in summary, (
+            "mempalace_reason=watcher_summary_mismatch\n" + summary
+        )
 
         peak_rss_growth = max(rss_samples) - rss_samples[0]
         final_rss_growth = rss_samples[-1] - rss_samples[0]
-        assert peak_rss_growth <= 100 * MIB
-        assert final_rss_growth <= 100 * MIB
+        assert peak_rss_growth <= 100 * MIB, "mempalace_reason=watcher_rss_peak"
+        assert final_rss_growth <= 100 * MIB, "mempalace_reason=watcher_rss_final"
 
         observable_fds = [sample for sample in fd_samples if sample is not None]
         if observable_fds:
-            assert max(observable_fds) - observable_fds[0] <= 5
+            assert max(observable_fds) - observable_fds[0] <= 5, (
+                "mempalace_reason=watcher_fd_growth"
+            )
 
         backups = palace.parent / "backups"
         pre_optimize_count = len(list(backups.glob("pre_optimize_*.tar.gz")))
-        assert pre_optimize_count <= 5
+        assert pre_optimize_count <= 5, "mempalace_reason=watcher_backup_count"
         late_disk_growth = disk_samples[10] - disk_samples[5]
-        assert late_disk_growth <= 2 * MIB
+        assert late_disk_growth <= 2 * MIB, "mempalace_reason=watcher_disk_growth"
 
         print(
             json.dumps(

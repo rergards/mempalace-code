@@ -105,7 +105,7 @@ items:
         The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do
         not substitute for the live original-path no-op check.
       - [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no
-        state. One receipt-bound recovery command and the retention deadline are recorded.
+        state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.
       - [ ] Live execution remains blocked pending separate authority for the original host, original
         snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.
   - key: LOCAL-ROLLOUT-RECONCILE-AND-ACCEPT

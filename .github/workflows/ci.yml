@@ -80,7 +80,17 @@ jobs:
             PYTHONNOUSERSITE=1
           )
           "${clean_env[@]}" mempalace-code fetch-model
-      - run: python3 -m pytest tests/ -v -m "not needs_network"
+      - name: Run test suite
+        shell: bash
+        run: |
+          pytest_rc=0
+          python3 -m pytest tests/ -v -m "not needs_network" \
+            --junitxml="$RUNNER_TEMP/pytest-results.xml" || pytest_rc=$?
+          if (( pytest_rc != 0 )); then
+            python3 scripts/pytest_failure_summary.py "$RUNNER_TEMP/pytest-results.xml" || \
+              printf '%s\n' '::error title=pytest failure::classname=unavailable name=unavailable phase=summary'
+          fi
+          exit "$pytest_rc"
       - name: Demo performance budgets (hard CI gate)
         if: matrix.python-version == '3.13'
         run: python benchmarks/demo_perf_budgets.py --check --ci

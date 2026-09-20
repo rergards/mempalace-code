@@ -43,7 +43,7 @@ Supplying `--inventory` is optional and provides only an equality guard: it must
 same file selected by `WING_MIGRATION_INVENTORY_PATH`. Selection and mode-0600 regular-file checks
 run before a receipt, snapshot, lock, runtime artifact, or report is created. Public output contains
 fixed predicates; paths, inventory values, measured counts, runtime diagnostics, source content,
-the recovery command, and the retention deadline remain in private evidence.
+the recovery command, and the retention rule remain in private evidence.
 
 The receipt-bound fixture actions are:
 
@@ -62,8 +62,8 @@ mempalace-code wing-migration live-run --authority /absolute/private/live-author
 ```
 
 The mode-0600 authority names the exact host, source and destination wings, canonical palace,
-configuration, operation lock, both KG candidates, project marker, a fresh evidence root, a future
-retention deadline, and the retained full-copy qualification report with its SHA-256, inventory
+configuration, operation lock, both KG candidates, project marker, a fresh evidence root, the
+retention rule, and the retained full-copy qualification report with its SHA-256, inventory
 seal, and qualified runner hash. It must set `scope` to `single_host_live_wing_merge`, set both
 `live_mutation` and `mcp_downtime` to true, contain the owner's approval, and name the exact
 operation as `merge wing SOURCE into DESTINATION`. The operator rejects a non-canonical palace,
@@ -141,12 +141,12 @@ fail-closed authority values:
   "live_mutation": false,
   "watcher_restart": false,
   "fixture_process_authority": "acquire fixture lock and stop only fixture-owned subprocesses",
-  "retention_rule": "retain through deadline and until verified recovery or owner disposition, whichever is later"
+  "retention_rule": "retain until verified recovery or owner disposition"
 }
 ```
 
-The same object names distinct original and qualification hosts, explicit owner approval, all
-original paths excluded from mutation, and the future UTC `retention_deadline`. The qualification
+The same object names distinct original and qualification hosts, explicit owner approval, and all
+original paths excluded from mutation. The qualification
 host must equal the current host name. Logical provenance paths are absolute, reject dot
 components, and are compared by lexical path components; the runner never resolves or accesses
 the original root.
@@ -285,8 +285,8 @@ refusal falls back to the ordinary independent copy path.
 Older-format receipts remain byte-for-byte retained evidence. Recovery requires the matching
 historical runner version and hash because the current runner refuses older receipt versions or
 hashes. Preserve that runner separately until recovery or owner disposition.
-Retain this evidence through the inventoried deadline and until verified recovery or owner
-disposition, whichever is later. The private receipt contains one exact recovery command. The
+Retain this evidence until verified recovery or owner disposition. The private receipt contains
+one exact recovery command. The
 descendant receipt is persisted before copied storage is written; if construction stops
 before a snapshot exists, that command removes only incomplete descendant contents and retains the
 receipt. Sanitized command output may be retained with task evidence.

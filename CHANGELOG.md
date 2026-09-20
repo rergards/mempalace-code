@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v1.14.1 — 2026-09-19
+
+### Fixed
+
+- Wing migration now binds live evidence to the qualified runner, updates the
+  destination runtime hash after the merge, bounds retained qualification storage,
+  and preserves exact recovery for the original v16 receipt.
+- Wing migration receipts use the owner-controlled rule `retain until verified
+  recovery or owner disposition`; the obsolete calendar deadline is rejected before
+  any evidence or migration state is written.
+- Installed-wheel qualification now treats the installation-wide MCP lock files as
+  stable protected anchors and directly exercises the `wing-migration` CLI refusal
+  without an action.
+- Runtime provenance checks now accept platform-managed symlink ancestors outside
+  the owned installation and source roots while still refusing symlinks inside them.
+
 ## v1.14.0 — 2026-09-18
 
 ### Added

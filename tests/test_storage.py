@@ -8,7 +8,7 @@ import sys
 import types
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier, Lock
+from threading import Barrier, Event, Lock
 from typing import cast
 from unittest.mock import MagicMock, patch
 
@@ -160,6 +160,32 @@ def test_ensure_embedder_preserves_buffered_cli_output(capfd, monkeypatch):
     captured = capfd.readouterr()
     assert captured.out == "buffered stdout restored stdout"
     assert captured.err == "buffered stderr restored stderr"
+
+
+def test_ensure_embedder_cleans_up_partial_fd_acquisition(monkeypatch):
+    store = LanceStore.__new__(LanceStore)
+    store._embedder = None
+    first_duplicate = 101
+    duplicate_calls = 0
+
+    def fail_second_duplicate(_descriptor):
+        nonlocal duplicate_calls
+        duplicate_calls += 1
+        if duplicate_calls == 1:
+            return first_duplicate
+        raise OSError("second duplicate failed")
+
+    close = MagicMock()
+    open_devnull = MagicMock()
+    monkeypatch.setattr(os, "dup", fail_second_duplicate)
+    monkeypatch.setattr(os, "close", close)
+    monkeypatch.setattr(os, "open", open_devnull)
+
+    with pytest.raises(OSError, match="second duplicate failed"):
+        store._ensure_embedder()
+
+    open_devnull.assert_not_called()
+    close.assert_called_once_with(first_duplicate)
 
 
 class TestDeleteWing:
@@ -501,9 +527,15 @@ class TestConcurrentLanceTableCreate:
         import lancedb
 
         original_connect = lancedb.connect
+        original_get_embedder = LanceStore._get_embedder
         missing_barrier = Barrier(2)
         missing_lock = Lock()
         missing_tables = []
+        embedder_lock = Lock()
+        first_embedder_entered = Event()
+        second_embedder_entered = Event()
+        release_first_embedder = Event()
+        embedder_calls = 0
 
         class BarrierConnection:
             def __init__(self, connection):
@@ -524,13 +556,33 @@ class TestConcurrentLanceTableCreate:
         def synchronized_connect(uri):
             return BarrierConnection(original_connect(uri))
 
+        def synchronized_get_embedder(store):
+            nonlocal embedder_calls
+            with embedder_lock:
+                embedder_calls += 1
+                call_number = embedder_calls
+            if call_number == 1:
+                first_embedder_entered.set()
+                assert release_first_embedder.wait(timeout=10)
+            else:
+                second_embedder_entered.set()
+            return original_get_embedder(store)
+
         monkeypatch.setattr(lancedb, "connect", synchronized_connect)
+        monkeypatch.setattr(LanceStore, "_get_embedder", synchronized_get_embedder)
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [executor.submit(open_store, palace_path, create=True) for _ in range(2)]
+            assert first_embedder_entered.wait(timeout=10)
+            try:
+                assert not second_embedder_entered.wait(timeout=0.2)
+            finally:
+                release_first_embedder.set()
             stores = [future.result(timeout=15) for future in futures]
 
         assert missing_tables == ["mempalace_drawers", "mempalace_drawers"]
+        assert second_embedder_entered.is_set()
+        assert embedder_calls == 2
         stores[0].add(
             ids=["concurrent_alpha"],
             documents=["alpha content from the first concurrent store"],

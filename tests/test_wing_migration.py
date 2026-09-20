@@ -214,7 +214,6 @@ def full_copy_fixture(tmp_path: Path, monkeypatch) -> tuple[Path, Path, dict]:
                 ],
                 "owner_approval": "fixture owner approval",
                 "qualification_host": socket.gethostname(),
-                "retention_deadline": "2099-01-01T00:00:00+00:00",
                 "retention_rule": wing_migration.FULL_COPY_RETENTION_RULE,
                 "scope": wing_migration.FULL_COPY_SCOPE,
                 "watcher_restart": False,
@@ -782,8 +781,8 @@ def test_full_copy_uses_logical_provenance_and_restores_retained_copy(tmp_path, 
     sealed = wing_migration._load_receipt(receipt_path)
     assert wing_migration._capture(sealed["inventory"]) == sealed["pre"]
     assert (
-        json.loads(private_report.read_text())["retention_deadline"]
-        == inventory["authority"]["retention_deadline"]
+        json.loads(private_report.read_text())["retention_rule"]
+        == inventory["authority"]["retention_rule"]
     )
     outcomes = json.loads(private_report.read_text())["outcomes"]
     assert [(row["trial"], row.get("stage")) for row in outcomes] == [
@@ -946,7 +945,7 @@ def test_full_copy_retained_snapshot_roots_fail_closed(tmp_path, monkeypatch, mu
     else:
         retained = add_retained_snapshot(inventory)
         receipt_path = inventory["retained_snapshot_roots"][str(retained)]
-        alternate = f"{retained.parent}/./{retained.name}"
+        alternate = f"//{str(retained).lstrip('/')}"
         inventory["retained_snapshot_roots"][alternate] = receipt_path
     rewrite_inventory(inventory_path, inventory)
 
@@ -1351,6 +1350,21 @@ def test_full_copy_inventory_binding_and_authority_fail_before_writes(tmp_path, 
         )
         == before
     )
+    assert not (
+        Path(inventory["evidence_root"])
+        / f"full-copy-receipt-v{wing_migration.RECEIPT_VERSION}.json"
+    ).exists()
+
+
+def test_full_copy_refuses_legacy_deadline_authority_before_writes(tmp_path, monkeypatch):
+    inventory_path, _, inventory = full_copy_fixture(tmp_path, monkeypatch)
+    inventory["authority"]["retention_deadline"] = "legacy-owner-supplied-value"
+    rewrite_inventory(inventory_path, inventory)
+
+    with pytest.raises(wing_migration.MigrationError) as caught:
+        wing_migration.qualify("full-copy")
+
+    assert caught.value.code == "full_copy_authority_invalid"
     assert not (
         Path(inventory["evidence_root"])
         / f"full-copy-receipt-v{wing_migration.RECEIPT_VERSION}.json"
@@ -1897,6 +1911,68 @@ def test_symlink_chain_stops_before_access_below_symlink(tmp_path, monkeypatch):
 
     assert caught.value.code == "fixture_symlink"
     assert beneath not in observed
+
+
+def test_runtime_identity_scopes_symlink_checks_to_owned_roots(tmp_path, monkeypatch):
+    real_parent = tmp_path / "real"
+    real_parent.mkdir()
+    platform_alias = tmp_path / "platform-alias"
+    platform_alias.symlink_to(real_parent, target_is_directory=True)
+    prefix = platform_alias / "venv"
+    metadata_file = Path("mempalace_code-1.14.1.dist-info/METADATA")
+    metadata_path = prefix / "lib" / "python" / "site-packages" / metadata_file
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text("Version: 1.14.1\n", encoding="utf-8")
+
+    class Distribution:
+        version = "1.14.1"
+        files = (metadata_file,)
+
+        @staticmethod
+        def locate_file(path):
+            return metadata_path.parents[1] / path
+
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+    monkeypatch.setattr(
+        wing_migration.importlib.metadata, "distribution", lambda _name: Distribution()
+    )
+    monkeypatch.setattr(wing_migration, "_model_cache_home", lambda: tmp_path / "hf-home")
+    monkeypatch.setattr(wing_migration, "_seal_model_cache", lambda _path: {"files": {}})
+
+    identity = wing_migration._runtime_identity()
+
+    assert identity["distribution_origin"] == str(metadata_path.parent)
+
+
+def test_runtime_identity_rejects_symlink_inside_runtime_prefix(tmp_path, monkeypatch):
+    prefix = tmp_path / "venv"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    site_packages = prefix / "lib" / "python" / "site-packages"
+    site_packages.parent.mkdir(parents=True)
+    site_packages.symlink_to(outside, target_is_directory=True)
+    metadata_file = Path("mempalace_code-1.14.1.dist-info/METADATA")
+    metadata_path = site_packages / metadata_file
+    metadata_path.parent.mkdir()
+    metadata_path.write_text("Version: 1.14.1\n", encoding="utf-8")
+
+    class Distribution:
+        version = "1.14.1"
+        files = (metadata_file,)
+
+        @staticmethod
+        def locate_file(path):
+            return site_packages / path
+
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+    monkeypatch.setattr(
+        wing_migration.importlib.metadata, "distribution", lambda _name: Distribution()
+    )
+
+    with pytest.raises(wing_migration.MigrationError) as caught:
+        wing_migration._runtime_identity()
+
+    assert caught.value.code == "fixture_symlink"
 
 
 def test_descendant_apply_revalidates_parent_authority_and_baseline(tmp_path, monkeypatch):
@@ -3220,7 +3296,7 @@ def test_runbook_records_full_copy_private_recovery_and_live_gates():
     assert "WING_MIGRATION_INVENTORY_PATH" in runbook
     assert "source_preimage_sha256" in runbook
     assert "non-hardlinked descendant copy" in runbook
-    assert "Retain this evidence through the inventoried deadline" in runbook
+    assert "Retain this evidence until verified recovery or owner disposition" in runbook
     assert "one exact recovery command" in normalized
     assert "Full-copy qualification alone grants no live authority" in runbook
     assert "live-run --authority" in runbook

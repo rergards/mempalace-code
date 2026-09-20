@@ -31,11 +31,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, List, Optional, Protocol, cast, runtime_checkable
 
 from mempalace_code.retrieval_rerank import overfetch_limit, rerank, should_overfetch
 
 logger = logging.getLogger("mempalace")
+_EMBEDDER_STDIO_LOCK = Lock()
 
 
 # ─── Internal structural protocols for LanceDB handles ────────────────────────
@@ -956,33 +958,46 @@ class LanceStore(DrawerStore):
         """
         if self._embedder is not None:
             return
-        import logging
+        with _EMBEDDER_STDIO_LOCK:
+            if self._embedder is not None:
+                return
 
-        hf_logger = logging.getLogger("huggingface_hub")
-        prev_level = hf_logger.level
-        hf_logger.setLevel(logging.ERROR)
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        old_stdout = os.dup(1)
-        old_stderr = os.dup(2)
-        try:
-            sys.stdout.flush()
-            sys.stderr.flush()
-            os.dup2(devnull, 1)
-            os.dup2(devnull, 2)
-            self._embedder = cast("_EmbedderProtocol", self._get_embedder())
-        finally:
+            hf_logger = logging.getLogger("huggingface_hub")
+            prev_level = hf_logger.level
+            devnull: int | None = None
+            old_stdout: int | None = None
+            old_stderr: int | None = None
+            redirect_attempted = False
+            logger_changed = False
             try:
-                try:
-                    sys.stdout.flush()
-                    sys.stderr.flush()
-                finally:
-                    os.dup2(old_stdout, 1)
-                    os.dup2(old_stderr, 2)
+                old_stdout = os.dup(1)
+                old_stderr = os.dup(2)
+                devnull = os.open(os.devnull, os.O_WRONLY)
+                hf_logger.setLevel(logging.ERROR)
+                logger_changed = True
+                sys.stdout.flush()
+                sys.stderr.flush()
+                redirect_attempted = True
+                os.dup2(devnull, 1)
+                os.dup2(devnull, 2)
+                self._embedder = cast("_EmbedderProtocol", self._get_embedder())
             finally:
-                os.close(devnull)
-                os.close(old_stdout)
-                os.close(old_stderr)
-                hf_logger.setLevel(prev_level)
+                try:
+                    if redirect_attempted:
+                        try:
+                            sys.stdout.flush()
+                            sys.stderr.flush()
+                        finally:
+                            assert old_stdout is not None
+                            assert old_stderr is not None
+                            os.dup2(old_stdout, 1)
+                            os.dup2(old_stderr, 2)
+                finally:
+                    for descriptor in (devnull, old_stdout, old_stderr):
+                        if descriptor is not None:
+                            os.close(descriptor)
+                    if logger_changed:
+                        hf_logger.setLevel(prev_level)
 
     def _require_db(self) -> _LanceDBConnectionProtocol:
         """Return the open LanceDB connection or raise RuntimeError."""

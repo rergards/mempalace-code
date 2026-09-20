@@ -1427,13 +1427,6 @@ def _run_installed_cli_inventory_gap_scenario(
             raise RuntimeError("inventory scenario inherited a network attempt")
 
         require(run(["help"]), "help", 0, "usage:")
-        require(
-            run(["wing-migration"]),
-            "wing-migration missing-action guard",
-            2,
-            "usage:",
-            "{inventory,snapshot,apply,classify,recover,qualify,live-run,live-recover}",
-        )
 
         onboarding_dir = scenario_root / "onboarding"
         onboarding_dir.mkdir()
@@ -1463,6 +1456,14 @@ def _run_installed_cli_inventory_gap_scenario(
         require(migration, "optional ChromaDB migration refusal", 1, "Error:")
         if (scenario_root / "migration-target").exists():
             raise RuntimeError("optional ChromaDB migration refusal created a destination")
+
+        require(
+            run(["wing-migration"]),
+            "wing-migration parent guidance",
+            2,
+            "usage:",
+            "the following arguments are required: action",
+        )
 
         require(run(["agent-plugin"]), "agent-plugin parent guidance", 2, "usage:")
         plugin_payload = require_json(run(["agent-plugin", "path", "--json"]), "agent-plugin path")
@@ -5906,21 +5907,19 @@ def _run_installed_mcp_stdio_scenario(
         ):
             raise RuntimeError("installed MCP fixture setup failed")
 
-        # MCP stdio holds the same installation-wide lease used by maintenance.
-        # Seed its persistent anchors before the protected HOME snapshot so the
-        # gate still rejects every other write while allowing clean lease cycles.
-        lease_root = scenario_home / ".mempalace"
-        lease_root.mkdir(parents=True, exist_ok=True)
-        for name, payload in (
-            ("operation.lock", b""),
-            ("operation.lock.metadata.lock", b""),
-            ("operation.lock.owners.json", b"{}"),
-        ):
-            path = lease_root / name
-            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(payload)
-            path.chmod(0o600)
+        # MCP stdio intentionally holds the installation-wide operation lock for
+        # its lifetime. Seed the stable anchors before the protected baseline so
+        # each profile must return the owner registry to the same empty state.
+        operation_root = scenario_home / ".mempalace"
+        operation_root.mkdir(parents=True, exist_ok=True)
+        operation_lock = operation_root / "operation.lock"
+        operation_metadata_lock = operation_root / "operation.lock.metadata.lock"
+        operation_owners = operation_root / "operation.lock.owners.json"
+        for anchor in (operation_lock, operation_metadata_lock):
+            anchor.touch(exist_ok=True)
+            anchor.chmod(0o600)
+        operation_owners.write_text("{}", encoding="utf-8")
+        operation_owners.chmod(0o600)
 
         recipe = _installed_mcp_recipe(project)
         if set(recipe) != set(tools):
