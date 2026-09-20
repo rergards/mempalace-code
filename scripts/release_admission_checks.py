@@ -11,6 +11,7 @@ never passed to a process seam.
 
 from __future__ import annotations
 
+import hmac
 import importlib.util
 import re
 import sys
@@ -114,6 +115,20 @@ ACKNOWLEDGED_ORPHAN_TAGS: dict[str, str] = {
         "artifact build, so no PyPI distribution or GitHub Release exists; the tag "
         "stays as immutable public evidence and must never be moved or deleted"
     ),
+    "v1.14.1": (
+        "failed publish attempt: live upstream drift stopped the workflow before "
+        "artifact build, so no PyPI distribution or GitHub Release exists; the tag "
+        "stays as immutable public evidence and must never be moved or deleted"
+    ),
+}
+# Failed-publication evidence added after the SHA-bound registry contract. The
+# live orphan predicate peels the public tag and requires this exact commit;
+# ``workflow_run_id`` keeps the bounded failure receipt available to reviewers.
+ACKNOWLEDGED_ORPHAN_EVIDENCE: dict[str, dict[str, object]] = {
+    "v1.14.1": {
+        "commit_sha": "1f4cd91b7e3825056b82784b5f363c0df2967d42",
+        "workflow_run_id": 35541592673,
+    }
 }
 
 # Bounds on live lookups so a large repository cannot flood a release log.
@@ -741,12 +756,12 @@ def check_public_ref_protection(
 def list_public_version_tags(
     repo: str,
     public_read: Callable[[object], object],
-) -> tuple[list[str], AdmissionRow | None]:
+) -> tuple[dict[str, str], AdmissionRow | None]:
     public = _load_public_read()
     try:
         query = public.matching_version_tags(repo)
     except ValueError as exc:
-        return [], error_row("public_orphan_tags", str(exc), REMEDIATE_ORPHAN)
+        return {}, error_row("public_orphan_tags", str(exc), REMEDIATE_ORPHAN)
     data, error = _public_data(
         public_read,
         query,
@@ -755,17 +770,27 @@ def list_public_version_tags(
         what="public matching-tag lookup",
     )
     if error is not None:
-        return [], error
+        return {}, error
     if not isinstance(data, list):
-        return [], error_row(
+        return {}, error_row(
             "public_orphan_tags", "unexpected matching-tag response shape", REMEDIATE_ORPHAN
         )
-    tags = {
-        str(item["ref"]).removeprefix("refs/tags/")
-        for item in data
-        if isinstance(item, dict) and str(item.get("ref", "")).startswith("refs/tags/v")
-    }
-    return sorted(tags), None
+    tags: dict[str, str] = {}
+    for item in data:
+        if (
+            not isinstance(item, dict)
+            or not str(item.get("ref", "")).startswith("refs/tags/v")
+            or item.get("type") != "commit"
+            or not isinstance(item.get("sha"), str)
+            or SHA_RE.fullmatch(item["sha"]) is None
+        ):
+            return {}, error_row(
+                "public_orphan_tags",
+                "matching-tag response contains an unpeeled or malformed version tag",
+                REMEDIATE_ORPHAN,
+            )
+        tags[str(item["ref"]).removeprefix("refs/tags/")] = item["sha"].lower()
+    return dict(sorted(tags.items())), None
 
 
 def check_public_orphan_tags(
@@ -851,7 +876,7 @@ def check_public_orphan_tags(
     blocking: list[str] = []
     acknowledged: list[str] = []
     pending: list[str] = []
-    for tag in tags:
+    for tag, tag_sha in tags.items():
         problems: list[str] = []
         release = releases.get(tag)
         if release is None:
@@ -866,7 +891,15 @@ def check_public_orphan_tags(
         if allow_expected_tag_pending and tag == expected_tag:
             pending.append(f"{tag} ({', '.join(problems)})")
         elif tag in ACKNOWLEDGED_ORPHAN_TAGS:
-            acknowledged.append(f"{tag} ({', '.join(problems)})")
+            evidence = ACKNOWLEDGED_ORPHAN_EVIDENCE.get(tag)
+            expected_sha = evidence.get("commit_sha") if evidence is not None else None
+            if isinstance(expected_sha, str) and not hmac.compare_digest(tag_sha, expected_sha):
+                blocking.append(
+                    f"{tag}: immutable evidence target differs "
+                    f"(expected {expected_sha}, found {tag_sha})"
+                )
+            else:
+                acknowledged.append(f"{tag} ({', '.join(problems)})")
         else:
             blocking.append(f"{tag}: {', '.join(problems)}")
 

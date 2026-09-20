@@ -2,7 +2,26 @@
 
 ## Unreleased
 
-## v1.14.1 — 2026-09-19
+## v1.14.2 — 2026-09-21
+
+Recovery release for the accumulated v1.14.1 changes. The immutable v1.14.1
+tag stopped before artifact build when the pinned upstream head moved, so no
+v1.14.1 package or GitHub Release exists.
+
+### Changed
+
+- Refreshed the reviewed upstream snapshot through `e038af97`; the MCP import
+  fix already has an equivalent entry-point boundary in this fork, while the
+  upstream sync identity and JSON audit-WAL changes belong to unsupported
+  runtime owners.
+- Added the failed v1.14.1 tag to the immutable orphan-tag evidence registry.
+- Kept the live upstream check at the canonical pre-tag boundary so later
+  upstream movement cannot strand another immutable public tag.
+
+## v1.14.1 — 2026-09-20 (tagged, not published)
+
+The tag remains immutable public evidence. Publication stopped before artifact
+build because the reviewed upstream head changed; these changes ship in v1.14.2.
 
 ### Fixed
 

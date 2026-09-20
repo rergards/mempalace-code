@@ -506,11 +506,21 @@ def _orphan_public_read(
     *,
     releases: list[dict] | None = None,
     pypi_releases: dict[str, list[dict]] | None = None,
+    tag_shas: dict[str, str] | None = None,
 ):
+    tag_shas = tag_shas or {}
+
     def public_read(query):
         if query.endpoint == "github_matching_tags":
             return _fixture_result(
-                [{"ref": f"refs/tags/{tag}", "sha": "a" * 40, "type": "commit"} for tag in tags]
+                [
+                    {
+                        "ref": f"refs/tags/{tag}",
+                        "sha": tag_shas.get(tag, "a" * 40),
+                        "type": "commit",
+                    }
+                    for tag in tags
+                ]
             )
         if query.endpoint == "github_releases":
             return _fixture_result(releases or [])
@@ -579,6 +589,30 @@ def test_orphan_admission_without_publication_exemption_rejects_expected_orphan(
     assert "v1.2.3: no GitHub Release" in row.detail
 
 
+def test_acknowledged_failed_tag_requires_its_exact_peeled_commit():
+    evidence = ADMISSION.ACKNOWLEDGED_ORPHAN_EVIDENCE["v1.14.1"]
+
+    matching = ADMISSION.check_public_orphan_tags(
+        "9.9.9",
+        "acme/tool",
+        "mempalace-code",
+        _orphan_public_read(
+            ["v1.14.1"],
+            tag_shas={"v1.14.1": evidence["commit_sha"]},
+        ),
+    )
+    moved = ADMISSION.check_public_orphan_tags(
+        "9.9.9",
+        "acme/tool",
+        "mempalace-code",
+        _orphan_public_read(["v1.14.1"]),
+    )
+
+    assert matching.status == ADMISSION.STATUS_OK
+    assert moved.status == ADMISSION.STATUS_FAIL
+    assert "immutable evidence target differs" in moved.detail
+
+
 # ── Documentation is checked against the code constants ───────────────────────
 
 
@@ -595,7 +629,19 @@ def test_every_acknowledged_orphan_tag_is_documented_with_a_reason():
         assert reason.strip()
 
 
-@pytest.mark.parametrize("tag", ["v1.13.2", "v1.13.7"])
+def test_failed_v1141_evidence_binds_commit_and_workflow_run():
+    evidence = ADMISSION.ACKNOWLEDGED_ORPHAN_EVIDENCE["v1.14.1"]
+
+    assert evidence == {
+        "commit_sha": "1f4cd91b7e3825056b82784b5f363c0df2967d42",
+        "workflow_run_id": 35541592673,
+    }
+    text = RULESET_DOC.read_text(encoding="utf-8")
+    assert evidence["commit_sha"] in text
+    assert str(evidence["workflow_run_id"]) in text
+
+
+@pytest.mark.parametrize("tag", ["v1.13.2", "v1.13.7", "v1.14.1"])
 def test_failed_publish_tag_stays_immutable_evidence_rather_than_a_repair_target(tag):
     reason = ADMISSION.ACKNOWLEDGED_ORPHAN_TAGS[tag]
     assert "immutable" in reason

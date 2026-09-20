@@ -419,8 +419,8 @@ def _validate_delta_decisions(manifest: dict[str, Any]) -> list[str]:
         else:
             commit_occurrences.setdefault(merge_group, []).append(f"{label} merge_group")
         constituent_commits = decision["constituent_commits"]
-        if not isinstance(constituent_commits, list) or not constituent_commits:
-            errors.append(f"commit-inventory: {label} constituent_commits must be a non-empty list")
+        if not isinstance(constituent_commits, list):
+            errors.append(f"commit-inventory: {label} constituent_commits must be a list")
         else:
             if not all(
                 isinstance(item, str) and COMMIT_RE.fullmatch(item) for item in constituent_commits

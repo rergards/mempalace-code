@@ -859,7 +859,6 @@ def test_admission_step_runs_before_any_artifact_is_built_or_uploaded():
     steps = _publish_build_job()["steps"]
     names = [str(step.get("name", step.get("uses", ""))) for step in steps]
     admission_index = names.index("Verify exact SHA release admission")
-    live_upstream_index = names.index("Upstream comparison guard (live head, read-only)")
     build_index = names.index("Build distributions")
     dist_upload_index = next(
         index
@@ -867,7 +866,14 @@ def test_admission_step_runs_before_any_artifact_is_built_or_uploaded():
         if str(step.get("uses", "")).startswith("actions/upload-artifact")
         and step.get("with", {}).get("name") == "dist"
     )
-    assert admission_index < live_upstream_index < build_index < dist_upload_index
+    assert admission_index < build_index < dist_upload_index
+
+
+def test_tag_workflow_does_not_recheck_mutable_upstream_after_immutable_tag():
+    text = PUBLISH_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "upstream_comparison_guard.py --check-live" not in text
+    assert "--check-live-upstream" not in text
 
 
 def test_admission_step_binds_the_exact_tag_commit_and_public_candidate_ref():

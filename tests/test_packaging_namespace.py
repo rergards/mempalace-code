@@ -118,6 +118,29 @@ def test_source_compat_mempalace_mcp_server_shim():
     assert response["result"]["serverInfo"]["name"] == "mempalace-code"  # type: ignore[reportOptionalSubscript]  # reason: handle_request always returns a dict for valid requests; None only for notifications
 
 
+def test_mcp_server_import_ignores_host_process_arguments(tmp_path):
+    script = """
+import sys
+sys.argv = ["host-application", "--port", "not-an-mcp-option"]
+import mempalace_code.mcp_server
+print("IMPORTED")
+"""
+    environment = os.environ.copy()
+    environment["HOME"] = str(tmp_path)
+    environment["USERPROFILE"] = str(tmp_path)
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "IMPORTED"
+
+
 def test_source_compat_shim_supports_modern_discover():
     """AC-4/INV-6: the source-checkout shim speaks 2026-07-28 server/discover too, via the same handle_request."""
     import mempalace.mcp_server as legacy_mcp

@@ -375,9 +375,12 @@ wheel, sdist, PyPI artifact, or GitHub Release is created. It requires
 Audit**, and queries the effective rules for `refs/heads/main` plus the active
 `refs/tags/v*` ruleset. Hosted admission requires `non_fast_forward`, `deletion`,
 and `required_status_checks` with `release-required`, plus tag `creation`,
-`update`, and `deletion`. These public reads use no GitHub token. The workflow
-also retains a direct live upstream comparison as defense in depth; that
-post-tag check does not replace the canonical pre-tag command above.
+`update`, and `deletion`. These public reads use no GitHub token. Release
+admission validates the committed upstream snapshot. The direct live upstream
+lookup runs immediately before tag creation, while the operator can still
+refresh the candidate safely. A tag workflow must not repeat that mutable
+lookup after creating the immutable tag: later upstream movement cannot
+invalidate the reviewed release tree or strand a permanent orphan tag.
 Do not trigger PyPI publishing by a workflow dispatch or a release event.
 
 ## 4. Verify the public release

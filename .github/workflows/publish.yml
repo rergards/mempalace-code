@@ -79,8 +79,6 @@ jobs:
             --check-branch-rules \
             --check-tag-ruleset \
             --check-public-orphan-tags
-      - name: Upstream comparison guard (live head, read-only)
-        run: python scripts/upstream_comparison_guard.py --check-live
       - name: Build distributions
         run: python -m build
       # The last read of the archives before they leave this job. It invokes

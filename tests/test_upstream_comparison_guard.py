@@ -450,7 +450,6 @@ def test_static_guard_accepts_one_parent_candidate_without_pinned_objects(tmp_pa
     ("field", "value", "message"),
     [
         ("merge_group", "NOT-A-SHA", "merge_group"),
-        ("constituent_commits", [], "non-empty list"),
         ("constituent_commits", ["NOT-A-SHA"], "lowercase hex shas"),
     ],
 )
@@ -466,6 +465,22 @@ def test_evaluate_rejects_malformed_commit_inventory_fields(
 
     assert facts == {}
     assert any("commit-inventory" in error and message in error for error in errors)
+
+
+def test_evaluate_accepts_a_single_commit_decision_group(tmp_path: Path):
+    manifest = _manifest()
+    decisions = _decisions(manifest)
+    decisions[0]["constituent_commits"] = []
+    manifest["delta_decisions"] = decisions
+    inventory = guard.manifest_commit_inventory(manifest)
+    manifest["inventory_anchor"]["count"] = len(inventory)
+    manifest["inventory_anchor"]["digest"] = guard.inventory_anchor_digest(manifest, inventory)
+    root = _root(tmp_path, manifest=manifest)
+
+    facts, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert errors == []
+    assert facts["commit_inventory_exact"] is True
 
 
 def test_malformed_commits_do_not_produce_duplicate_ownership_errors(tmp_path: Path):
@@ -507,13 +522,14 @@ def test_canonical_document_records_the_exact_commit_inventory():
         rendered_commits = []
         for commit in decision["constituent_commits"]:
             rendered_commits.append(f"`{commit[:8]}`")
-        expected_inventory_lines.append(
-            f"- `{decision['merge_group'][:8]}`: {', '.join(rendered_commits)}"
-        )
+        line = f"- `{decision['merge_group'][:8]}`"
+        if rendered_commits:
+            line += f": {', '.join(rendered_commits)}"
+        expected_inventory_lines.append(line)
 
     assert len(merge_groups) == len(set(merge_groups)) == len(decisions)
-    assert len(full_inventory) == 89
-    assert "range contains exactly 89 commits" in document
+    assert len(full_inventory) == 3
+    assert "range contains exactly 3 commits" in document
     assert inventory_lines == expected_inventory_lines
 
 
@@ -900,7 +916,7 @@ def test_repository_manifest_and_document_agree():
     assert errors == []
     assert facts["inventory_anchor_algorithm"] == "sha256"
     assert facts["inventory_anchor_version"] == 1
-    assert facts["inventory_anchor_declared_count"] == 89
-    assert facts["inventory_anchor_derived_count"] == 89
+    assert facts["inventory_anchor_declared_count"] == 3
+    assert facts["inventory_anchor_derived_count"] == 3
     assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
     assert facts["commit_inventory_exact"] is True
