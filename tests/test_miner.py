@@ -1804,7 +1804,12 @@ def test_mine_noop_with_injected_collection_does_not_warm_embedder():
 
 
 def test_mine_regular_source_noop_and_rejected_source_sweep(tmp_path):
-    """Regular sources remain no-ops; rejected symlink sources retain existing rows."""
+    """Regular sources remain no-ops; a mined file replaced by a symlink is swept.
+
+    The scanner rejects the symlink, so its old drawers describe a file that is no
+    longer a source; the stale sweep removes them like any other vanished file while
+    the symlink target keeps its own drawers.
+    """
     project = tmp_path / "project"
     project.mkdir()
     regular = project / "regular.py"
@@ -1831,7 +1836,9 @@ def test_mine_regular_source_noop_and_rejected_source_sweep(tmp_path):
     legacy.symlink_to(regular)
     rejected = mine(str(project), palace_path, collection=store, skip_optimize=True)
     assert rejected["drawers_filed"] == 0
-    assert set(store.get(where={"source_file": str(legacy)}, limit=100)["ids"]) == legacy_ids
+    assert rejected["stale_files_removed"] == 1
+    assert rejected["stale_drawers_removed"] == len(legacy_ids)
+    assert store.get(where={"source_file": str(legacy)}, limit=100)["ids"] == []
     assert set(store.get(where={"source_file": str(regular)}, limit=100)["ids"]) == regular_ids
 
 
@@ -1903,12 +1910,12 @@ def test_mine_read_failure_reported_separately(capsys):
         palace_path = str(project_root / "palace")
         mock_store = _make_mock_store()
         mock_store.get_source_file_hashes.return_value = {str(failed): "stale-hash"}
-        read_regular_text = source_io.read_regular_text
+        read_regular_bytes = source_io.read_regular_bytes
 
         def read_with_failure(path, *args, **kwargs):
             if path == failed:
                 raise OSError("read boundary failed")
-            return read_regular_text(path, *args, **kwargs)
+            return read_regular_bytes(path, *args, **kwargs)
 
         with (
             patch(
@@ -1916,7 +1923,7 @@ def test_mine_read_failure_reported_separately(capsys):
                 return_value=[failed, healthy],
             ),
             patch(
-                "mempalace_code.mining.orchestrator.read_regular_text",
+                "mempalace_code.mining.orchestrator.read_regular_bytes",
                 side_effect=read_with_failure,
             ),
         ):
@@ -2284,7 +2291,7 @@ class TestStaleSweepProvenance:
         assert unchanged["drawers_filed"] == 0
         assert kg.query_entity("legacy-fact")[0]["valid_to"] is None
 
-        write_file(source, ("def shortened():\n    return 'updated'\n\n" * 6))
+        write_file(source, "def shortened():\n    return 'updated'\n")
         changed = mine(
             str(project),
             palace_path,
@@ -2485,6 +2492,37 @@ def test_incremental_full_flag_forces_rebuild():
         shutil.rmtree(tmpdir)
 
 
+@pytest.mark.parametrize("incremental", [True, False], ids=["incremental", "full"])
+def test_full_walk_sweeps_newly_excluded_and_deleted_files(tmp_path, monkeypatch, incremental):
+    """Plain and --full mines both sweep drawers, tiny entries and KG facts of vanished files."""
+    from mempalace_code.knowledge_graph import KnowledgeGraph
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    project_root = (tmp_path / "project").resolve()
+    for name in ("keeper.py", "secret.py", "gone.py"):
+        write_file(project_root / name, MULTI_FUNC_PY)
+    tiny = project_root / "tiny.py"
+    write_file(tiny, "\n  \n")  # whitespace only: nothing to index, tracked in the sidecar
+    _make_palace_config(project_root)
+    palace_path = tmp_path / "palace"
+    mine(str(project_root), str(palace_path), skip_optimize=True)
+    sidecar = palace_path / ".mempalace" / "tiny_hashes.json"
+    assert str(tiny) in json.loads(sidecar.read_text())["test_wing"]
+
+    kg = KnowledgeGraph(db_path=str(tmp_path / "kg.sqlite3"))
+    kg.add_triple("tiny-fact", "tracks", "tiny", source_file=str(tiny))
+    write_file(home / ".mempalace" / "config.json", json.dumps({"scan_skip_files": ["secret.py"]}))
+    (project_root / "gone.py").unlink()
+    tiny.unlink()
+    mine(str(project_root), str(palace_path), incremental=incremental, kg=kg, skip_optimize=True)
+
+    metadatas = open_store(str(palace_path), create=False).get(include=["metadatas"])["metadatas"]
+    assert {meta["source_file"] for meta in metadatas} == {str(project_root / "keeper.py")}
+    assert json.loads(sidecar.read_text())["test_wing"] == {}
+    assert kg.query_entity("tiny-fact")[0]["valid_to"] is not None
+
+
 # =============================================================================
 # Provenance tests (AC-6, AC-7)
 # =============================================================================
@@ -2504,7 +2542,7 @@ def test_provenance_fields_set_on_mine():
         ast_active = sys.version_info >= (3, 10)
     except ImportError:
         ast_active = False
-    expected_strategy = "treesitter_v1" if ast_active else "regex_structural_v1"
+    expected_strategy = "treesitter_v3" if ast_active else "regex_structural_v3"
 
     tmpdir = tempfile.mkdtemp()
     try:
@@ -2550,7 +2588,7 @@ def test_provenance_fields_set_on_convo_mine():
         assert len(result["metadatas"]) > 0
         for m in result["metadatas"]:
             assert m["extractor_version"] == __version__
-            assert m["chunker_strategy"] == "convo_turn_v1"
+            assert m["chunker_strategy"] == "convo_turn_v3"
     finally:
         shutil.rmtree(tmpdir)
 
@@ -2661,7 +2699,7 @@ export interface ProcessorOptions {
 
 
 def test_mine_typescript_chunker_strategy():
-    """AC-1: process_file() on a .ts file stores chunker_strategy='treesitter_v1'.
+    """AC-1: process_file() on a .ts file stores chunker_strategy='treesitter_v3'.
 
     Skipped when tree-sitter-typescript is not installed.
     """
@@ -2694,15 +2732,15 @@ def test_mine_typescript_chunker_strategy():
             limit=100,
         )
         for meta in result["metadatas"]:
-            assert meta.get("chunker_strategy") == "treesitter_v1", (
-                f"Expected treesitter_v1, got {meta.get('chunker_strategy')!r}"
+            assert meta.get("chunker_strategy") == "treesitter_v3", (
+                f"Expected treesitter_v3, got {meta.get('chunker_strategy')!r}"
             )
     finally:
         shutil.rmtree(tmpdir)
 
 
 def test_process_file_python_treesitter_chunker_strategy():
-    """AC-4: process_file() stores chunker_strategy='treesitter_v1' when AST path is active.
+    """AC-4: process_file() stores chunker_strategy='treesitter_v3' when AST path is active.
 
     Skipped when tree-sitter-python is not installed or Python < 3.10.
     """
@@ -2743,8 +2781,8 @@ def test_process_file_python_treesitter_chunker_strategy():
             limit=100,
         )
         for meta in result["metadatas"]:
-            assert meta.get("chunker_strategy") == "treesitter_v1", (
-                f"Expected treesitter_v1, got {meta.get('chunker_strategy')!r}"
+            assert meta.get("chunker_strategy") == "treesitter_v3", (
+                f"Expected treesitter_v3, got {meta.get('chunker_strategy')!r}"
             )
     finally:
         shutil.rmtree(tmpdir)
@@ -3834,6 +3872,7 @@ class TestDetectProjects:
 
 class TestDeriveWingName:
     def test_wing_from_git_remote_https(self, tmp_path):
+        (tmp_path / ".git").mkdir()
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = "https://github.com/user/my-repo.git\n"
@@ -3841,6 +3880,7 @@ class TestDeriveWingName:
         assert result == "my_repo"
 
     def test_wing_from_git_remote_ssh(self, tmp_path):
+        (tmp_path / ".git").mkdir()
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = "git@github.com:user/cool-project.git\n"
@@ -3867,11 +3907,32 @@ class TestDeriveWingName:
         assert result == "my_app_20"
 
     def test_wing_name_no_git_suffix(self, tmp_path):
+        (tmp_path / ".git").mkdir()
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = "https://github.com/org/repo\n"
             result = derive_wing_name(str(tmp_path))
         assert result == "repo"
+
+    def test_repository_subdirectory_keeps_its_folder_name(self, tmp_path):
+        """A monorepo subproject is not named after the enclosing repository's origin."""
+        (tmp_path / ".git").mkdir()
+        sub = tmp_path / "services" / "billing-api"
+        sub.mkdir(parents=True)
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "https://github.com/acme/monorepo.git\n"
+            result = derive_wing_name(str(sub))
+        assert result == "billing_api"
+        mock_run.assert_not_called()
+
+    def test_worktree_git_file_counts_as_repository_root(self, tmp_path):
+        (tmp_path / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt\n")
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            mock_run.return_value.stdout = "https://github.com/acme/Billing-Engine.git\n"
+            result = derive_wing_name(str(tmp_path))
+        assert result == "billing_engine"
 
     def test_wing_name_git_exception_falls_back(self, tmp_path):
         proj = tmp_path / "fallback-proj"
@@ -3904,6 +3965,7 @@ class TestMultiProjectWingResolution:
         # 2. No config → git remote wins
         proj_git = tmp_path / "proj_git"
         proj_git.mkdir()
+        (proj_git / ".git").mkdir()
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = "https://github.com/user/git-wing.git\n"
@@ -3968,6 +4030,7 @@ class TestMultiProjectWingResolution:
         """Config with blank/empty wing falls back to git/folder, not an error."""
         proj = tmp_path / "proj"
         proj.mkdir()
+        (proj / ".git").mkdir()
         (proj / "mempalace.yaml").write_text("wing: \n")
         with patch("subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
@@ -4329,9 +4392,8 @@ class TestMineWithDotnetStructure:
             )
             (proj_dir / "Stub.cs").write_text(cs_code)
 
-        # Config with dotnet_structure enabled
+        # Config with dotnet_structure enabled and no wing (load_config uses the .sln)
         config = {
-            "wing": "placeholder",
             "dotnet_structure": True,
             "rooms": [
                 {"name": "appcore", "description": "AppCore project", "keywords": ["appcore"]},
@@ -4343,7 +4405,7 @@ class TestMineWithDotnetStructure:
             yaml.dump(config, f)
 
     def test_mine_dotnet_structure_wing(self, tmp_path):
-        """Wing is derived from the .sln filename when dotnet_structure is true."""
+        """Without a yaml wing, dotnet_structure derives it from the .sln filename."""
         project_root = tmp_path / "dotnet_repo"
         project_root.mkdir()
         self._make_dotnet_repo(project_root, sln_name="MySolution")
@@ -4372,7 +4434,7 @@ class TestMineWithDotnetStructure:
         assert "appcore" in all_rooms or "appweb" in all_rooms
 
     def test_mine_dotnet_structure_wing_override(self, tmp_path):
-        """--wing override wins over .sln-derived wing."""
+        """--wing override wins over .sln-derived wing, normalized like a .NET yaml wing."""
         project_root = tmp_path / "dotnet_repo"
         project_root.mkdir()
         self._make_dotnet_repo(project_root, sln_name="MySolution")
@@ -4382,7 +4444,7 @@ class TestMineWithDotnetStructure:
 
         store = open_store(str(palace_path), create=False)
         wing_room_counts = store.count_by_pair("wing", "room")
-        assert "EXACT-Hyphen_Wing" in wing_room_counts
+        assert "exact_hyphen_wing" in wing_room_counts
         assert "mysolution" not in wing_room_counts
 
     def test_mine_dotnet_structure_off(self, tmp_path):
@@ -5897,12 +5959,15 @@ def test_line_range_metadata_repeated_chunk_text():
         shutil.rmtree(tmpdir)
 
 
-# ─── Tiny-file handling tests (MINE-TINY-FILES-ZERO-DRAWERS) ──────────────────
+# ─── Nothing-to-index file handling (MINE-TINY-FILES-ZERO-DRAWERS) ────────────
+#
+# Small files are indexed whole; only files without any non-whitespace content
+# produce no drawers. Those are tracked in the tiny-hash sidecar and reported as
+# files_tiny.
 
-# Three real-world tiny Python files whose stripped content is well below MIN_CHUNK (100 chars).
-_TINY_SRC_AUTH = "def login():\n    pass\n"
-_TINY_WEB_AUTH = "def logout():\n    pass\n"
-_TINY_LOGIN = "x = 1\n"
+_TINY_SRC_AUTH = "\n"
+_TINY_WEB_AUTH = "   \n\n"
+_TINY_LOGIN = "\t\n"
 
 
 def _make_tiny_project(project_root: Path) -> None:
@@ -5978,8 +6043,8 @@ def test_mine_tiny_files_changed_tiny_reprocessed():
         r1 = mine(str(project_root), palace_path, incremental=False)
         assert r1["files_tiny"] == 3
 
-        # Modify one tiny file (content changes, still below MIN_CHUNK)
-        write_file(project_root / "src" / "auth.py", "def login():\n    pass\n# modified\n")
+        # Modify one empty file (content changes, still whitespace only)
+        write_file(project_root / "src" / "auth.py", "\n\n\n")
 
         r2 = mine(str(project_root), palace_path, incremental=True)
         # Changed tiny file is reprocessed and still tiny — all 3 must be in files_tiny

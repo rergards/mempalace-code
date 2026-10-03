@@ -10,6 +10,8 @@ Supported install ownership is deliberately narrow:
 
 - `uv tool` installations
 - `pipx` installations
+- Custom `PIPX_HOME` paths are compared by resolved filesystem location, including symlink
+  and platform aliases. The `pipx` manager must still be discoverable.
 - the documented bootstrap venv at `~/.mempalace/venv`
 
 System Python, distro-managed packages, editable/source checkouts, and ambiguous virtual
@@ -35,7 +37,11 @@ that actually runs mempalace-code and an explicit version:
 
 Run `mempalace-code version-check --check-now` to get that line filled in: it prints the absolute path
 the interpreter running mempalace-code and the newest version on PyPI, so you never have to work out
-which `python` on `PATH` owns the install. `MEMPALACE_VERSION_CHECK=0` and invalid values block this
+which `python` on `PATH` owns the install. For an ordinary pip install it prints only that command,
+not the `update apply` line; `update status` shows the same command under
+`Upgrade this pip install with:`, and `update apply --yes` names it in its refusal. When PyPI
+offers no newer compatible release (or cannot be reached), both say so under `Pip upgrade:`
+instead of printing a command. `MEMPALACE_VERSION_CHECK=0` and invalid values block this
 explicit network request; run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) before retrying.
 Nothing is installed for you: no scheduler, no watcher coordination, no rollback. Move to `uv tool`
 or `pipx` if you want the managed flow.
@@ -57,13 +63,20 @@ mempalace-code update check --json
 ```
 
 These commands are read-only. They report the current version, selected target, installer, retained
-extras, managed watcher state, scheduler state, next run, and canonical PyPI provenance. Eligible
+extras, managed watcher state, scheduler state, next run, and canonical PyPI provenance. `update check`
+reports `stage: check` and `update status` reports `stage: status`; both refresh the same PyPI
+provenance.
+
+The `Decision` line (`reason` in JSON) names the refusal to act on first: an unsupported platform, then
+an installation `update` does not own (shown as `Installer refusal:`), then watcher, `HOME`, extras,
+and provenance preconditions. `update apply --yes` refuses in the same order. `manual_update_supported`
+is true only when both the platform and the installation can be updated with `update apply`. Eligible
 targets are newer stable PEP 440 releases in the compatible major version with a non-yanked wheel.
 Prereleases, yanked files, wheels missing from PyPI metadata, and failed provenance requests do not
 produce an update target.
 
-The updater detects the installed optional topology. It retains `watch`, `treesitter`, and
-`spellcheck` extras where present. Retired Chroma extras are excluded. An active configured watcher without the `watch` extra is a
+The updater detects the installed optional topology. It retains `watch`, `treesitter`,
+`spellcheck`, and `custom-models` extras where present. Retired Chroma extras are excluded. An active configured watcher without the `watch` extra is a
 preflight failure. The update transaction also checks free disk capacity and the local backup policy;
 it does not alter palace data or create a replacement palace backup.
 
@@ -73,10 +86,16 @@ The guarded mutations are `update apply`, `update scheduler install`, and
 `update scheduler remove`. If any is invoked without `--yes`, it exits 2 before mutation: no
 package, scheduler, service, log, state, lease, or palace change occurs.
 
-In human mode the command prints a concise confirmation refusal followed by
-`Recovery: <command>`. In JSON mode stdout contains exactly one parseable JSON object and stderr
+In human mode the command prints a concise confirmation refusal, naming the platform's user service
+manager, followed by `Recovery: <command>`. The recovery names the launcher you invoked when
+`mempalace-code` on `PATH` is a different one. On a platform without systemd-user,
+`update scheduler install` and `update scheduler remove` never offer `--yes`: they report
+`stage: unsupported-platform` instead. In JSON mode stdout contains exactly one parseable JSON object and stderr
 contains no human prose. The object contains `ok: false`, `stage: confirmation`, `exit_code: 2`,
 and `recovery_command`; that command matches the refused action and ends in `--yes --json`.
+For `unsupported-platform`, recovery instead runs `update status --json` through the same
+launcher. Release checks validate the launcher identity and exact action arguments for both
+short and absolute recovery commands.
 Review the current target and mutation authority before running the emitted recovery command.
 
 ## Manual update
@@ -103,8 +122,10 @@ Watcher coordination follows whichever user service manager owns the host:
   `watch` command.
 
 Ambiguous, malformed, unattributable, or unavailable watcher evidence is a visible refusal before
-package, lease, or service mutation. The refusal names the command that shows what the watchers were
-left in:
+package, lease, or service mutation. When `HOME` is not the account's passwd home directory (for
+example in a sandboxed shell), the refusal names the fix instead:
+`rerun with HOME set to the account home: HOME=<account home> mempalace-code update status --json`.
+Otherwise it names the command that shows what the watchers were left in:
 
 ```bash
 mempalace-code update status --json
@@ -153,8 +174,17 @@ The user service runs the guarded `update apply --yes --scheduled` command. The 
 uses systemd-user only, and remains disabled unless `install --yes` has completed. The scheduler
 unit sets a controlled `PATH` for the oneshot process. For `uv tool` and `pipx` installs, the
 admitted absolute manager directory is prepended to `/usr/local/bin:/usr/bin:/bin` so the updater can
-rediscover the same package manager under the minimal systemd-user manager environment. The generated
-unit does not copy an interactive shell `PATH` or embed host-private fallback directories.
+rediscover the same package manager under the minimal systemd-user manager environment. A custom
+`PIPX_HOME` or `PIPX_BIN_DIR` (pipx) and `UV_TOOL_DIR` or `UV_TOOL_BIN_DIR` (uv tool) set when you
+render or install the units is carried into the service environment so the scheduled run finds the
+same installation. Installed units that differ from a fresh render only in these carried lines
+(units from an earlier release, or rendered from a shell with other values) still count as owned:
+`install --yes` rewrites them with the current values and `remove --yes` removes them. The
+generated unit does not copy an interactive shell `PATH` or embed host-private
+fallback directories. `update scheduler render` still prints the units for an installation or platform
+the scheduler cannot serve, as a preview, and warns on stderr with the reason
+`update scheduler install --yes` would refuse; with `--json` the warning also goes to stderr only,
+so stdout stays the unit JSON.
 
 When a scheduled run proves from PyPI that the installed stable wheel is already current and no newer
 compatible stable wheel is available, it exits successfully with the `up-to-date` stage before

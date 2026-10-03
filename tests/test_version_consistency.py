@@ -1,20 +1,50 @@
+import json
 import re
+from importlib import metadata
 from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+import pytest
 
 from mempalace_code import __version__
 from mempalace_code.mcp_server import handle_request
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def _expected_version() -> str:
-    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    pyproject = ROOT / "pyproject.toml"
     content = pyproject.read_text(encoding="utf-8")
     match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
     assert match is not None, "Could not find project version in pyproject.toml"
     return match.group(1)
 
 
+def _checkout_install_version() -> str | None:
+    """Return the installed metadata version when that install was made from this checkout."""
+    try:
+        distribution = metadata.distribution("mempalace-code")
+    except metadata.PackageNotFoundError:
+        return None
+    url = urlparse(json.loads(distribution.read_text("direct_url.json") or "{}").get("url", ""))
+    if url.scheme != "file" or Path(unquote(url.path)).resolve() != ROOT:
+        return None
+    return distribution.version
+
+
 def test_package_version_matches_pyproject():
     assert __version__ == _expected_version()
+
+
+def test_checkout_install_metadata_matches_pyproject():
+    """version.py reads pyproject.toml in a checkout; the install record is the independent source."""
+    installed = _checkout_install_version()
+    if installed is None:
+        pytest.skip("mempalace-code metadata was not installed from this checkout")
+    assert installed == _expected_version(), (
+        f"installed metadata is {installed}; reinstall this checkout: "
+        "python -m pip install -e '.[dev]'"
+    )
 
 
 def test_mcp_initialize_reports_package_version():

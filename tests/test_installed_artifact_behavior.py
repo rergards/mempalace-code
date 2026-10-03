@@ -92,9 +92,40 @@ def test_runbook_operational_commands_stay_on_selected_launcher():
         assert re.search(
             rf'^"\$MEMPALACE_BIN" .*\b{re.escape(command)}\b', operational, re.MULTILINE
         )
-    assert 'MEMPALACE_MCP="$(dirname "$MEMPALACE_BIN")/mempalace-code-mcp"' in operational
+    assert (
+        'MEMPALACE_MCP="$(dirname "$(realpath "$MEMPALACE_BIN")")/mempalace-code-mcp"'
+        in operational
+    )
     assert not re.search(r"^mempalace-code\b", operational + troubleshooting, re.MULTILINE)
     assert '"$MEMPALACE_BIN" watch ~/projects/' in readme
+
+
+def test_mcp_sibling_resolves_through_symlinked_launcher(tmp_path):
+    """A ~/.local/bin symlink to only mempalace-code still finds the venv's MCP launcher."""
+    venv_bin = tmp_path / "venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    for name in ("mempalace-code", "mempalace-code-mcp"):
+        (venv_bin / name).write_text("#!/bin/sh\n", encoding="utf-8")
+        (venv_bin / name).chmod(0o755)
+    local_bin = tmp_path / "local bin"
+    local_bin.mkdir()
+    (local_bin / "mempalace-code").symlink_to(venv_bin / "mempalace-code")
+    resolve = 'MEMPALACE_MCP="$(dirname "$(realpath "$MEMPALACE_BIN")")/mempalace-code-mcp"'
+
+    for name in ("README.md", "docs/AGENT_INSTALL.md", "examples/mcp_setup.md"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert resolve in text, name
+        # A plain dirname finds ~/.local/bin/mempalace-code-mcp, absent for older bootstraps.
+        assert 'dirname "$MEMPALACE_BIN"' not in text, name
+    result = subprocess.run(
+        ["/bin/bash", "-c", f'{resolve}\ntest -x "$MEMPALACE_MCP" && echo "$MEMPALACE_MCP"'],
+        env={**os.environ, "MEMPALACE_BIN": str(local_bin / "mempalace-code")},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout.strip()).samefile(venv_bin / "mempalace-code-mcp")
 
 
 def test_mcp_registration_uses_installed_launcher_and_argv_paths():
@@ -182,6 +213,55 @@ def test_bootstrap_rejects_invalid_input_before_install(tmp_path, updates, messa
     assert result.returncode != 0
     assert message in result.stdout
     assert not (tmp_path / "home" / ".mempalace" / "venv").exists()
+
+
+def _fake_bootstrap_venv(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """Build a reusable venv whose tools are stubs, so bootstrap never reaches PyPI."""
+    venv = tmp_path / "venv"
+    bin_dir = venv / "bin"
+    bin_dir.mkdir(parents=True)
+    prefix = os.path.realpath(venv)
+    stubs = {
+        # Answers the prefix probe; every pip invocation succeeds without installing.
+        "python": f"#!/bin/sh\n[ \"$1\" = -c ] && printf '%s\\n' '{prefix}'\nexit 0\n",
+        "mempalace-code": "#!/bin/sh\necho 'mempalace-code 0.0.0'\n",
+        "mempalace-code-mcp": "#!/bin/sh\nexit 0\n",
+    }
+    for name, body in stubs.items():
+        (bin_dir / name).write_text(body, encoding="utf-8")
+        (bin_dir / name).chmod(0o755)
+    # Bootstrap selects python3 from PATH; pin it to a supported interpreter.
+    host_bin = tmp_path / "host-bin"
+    host_bin.mkdir()
+    (host_bin / "python3").symlink_to(sys.executable)
+    updates = {"MEMPALACE_VENV": str(venv), "PATH": f"{host_bin}:{os.environ['PATH']}"}
+    return venv, updates
+
+
+def test_bootstrap_links_mcp_launcher_idempotently(tmp_path):
+    venv, updates = _fake_bootstrap_venv(tmp_path)
+    mcp_link = tmp_path / "home" / ".local" / "bin" / "mempalace-code-mcp"
+
+    for _ in range(2):
+        result = _run_bootstrap(tmp_path, **updates)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    assert os.readlink(mcp_link) == str(venv / "bin" / "mempalace-code-mcp")
+    assert os.readlink(mcp_link.with_name("mempalace-code")) == str(venv / "bin" / "mempalace-code")
+    assert f"Symlink already correct: {mcp_link}" in result.stdout
+
+
+def test_bootstrap_refuses_to_replace_foreign_mcp_launcher(tmp_path):
+    _venv, updates = _fake_bootstrap_venv(tmp_path)
+    mcp_link = tmp_path / "home" / ".local" / "bin" / "mempalace-code-mcp"
+    mcp_link.parent.mkdir(parents=True)
+    mcp_link.write_text("foreign launcher\n", encoding="utf-8")
+
+    result = _run_bootstrap(tmp_path, **updates)
+
+    assert result.returncode != 0
+    assert f"Refusing to replace existing launcher {mcp_link}" in result.stdout
+    assert mcp_link.read_text(encoding="utf-8") == "foreign launcher\n"
 
 
 def test_custom_palace_config_snippet_treats_hostile_path_as_data_and_repeats(tmp_path):
@@ -555,7 +635,7 @@ def test_alias_provenance_uses_absolute_installed_console_script(tmp_path):
     assert Path(install_cmd[0]).is_absolute()
     assert launcher_seen is True
     assert install_kwargs["env"]["PATH"].split(os.pathsep)[0] != str(script_dir)
-    assert len(installer_cmd) == 1
+    assert installer_cmd[1:] == ["--yes"]
     assert (
         installer_kwargs["env"]["PATH"].split(os.pathsep)[0]
         == install_kwargs["env"]["PATH"].split(os.pathsep)[0]

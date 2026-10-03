@@ -6,8 +6,12 @@ from types import MappingProxyType
 _EXTENSION_LANG_MAP = {
     ".py": "python",
     ".js": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
     ".jsx": "jsx",
     ".ts": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
     ".tsx": "tsx",
     ".go": "go",
     ".rs": "rust",
@@ -26,6 +30,14 @@ _EXTENSION_LANG_MAP = {
     ".sln": "dotnet-solution",
     ".xaml": "xaml",
     ".sh": "shell",
+    ".bash": "shell",
+    ".zsh": "shell",
+    ".pl": "perl",
+    ".pm": "perl",
+    ".xml": "xml",
+    ".config": "xml",
+    ".props": "xml",
+    ".targets": "xml",
     ".sql": "sql",
     ".md": "markdown",
     ".txt": "text",
@@ -80,7 +92,11 @@ _READABLE_EXTENSIONS = frozenset(
         ".md",
         ".py",
         ".js",
+        ".mjs",
+        ".cjs",
         ".ts",
+        ".mts",
+        ".cts",
         ".jsx",
         ".tsx",
         ".json",
@@ -105,6 +121,14 @@ _READABLE_EXTENSIONS = frozenset(
         ".rs",
         ".rb",
         ".sh",
+        ".bash",
+        ".zsh",
+        ".pl",
+        ".pm",
+        ".xml",
+        ".config",
+        ".props",
+        ".targets",
         ".csv",
         ".sql",
         ".toml",
@@ -220,6 +244,23 @@ def known_filenames() -> set[str]:
 def shebang_patterns() -> tuple[tuple[re.Pattern, str], ...]:
     """Return shebang interpreter patterns in detector precedence order."""
     return SHEBANG_PATTERNS
+
+
+def shebang_language(first_line: str) -> str | None:
+    """Return the language named by a ``#!`` interpreter line, or None."""
+    if not first_line.startswith("#!"):
+        return None
+    parts = first_line[2:].strip().split()
+    if not parts:
+        return None
+    basename = parts[0].split("/")[-1]
+    interpreter = parts[1].split("/")[-1] if basename == "env" and len(parts) > 1 else basename
+    if interpreter == "-S" and basename == "env" and len(parts) > 2:
+        interpreter = parts[2].split("/")[-1]
+    for pattern, language in SHEBANG_PATTERNS:
+        if pattern.fullmatch(interpreter):
+            return language
+    return None
 
 
 def readable_extensions() -> set[str]:

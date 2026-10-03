@@ -43,6 +43,7 @@ PROFILES: dict[str, frozenset[str]] = {
             "mempalace_status",
             "mempalace_code_search",
             "mempalace_file_context",
+            "mempalace_read",
             "mempalace_find_implementations",
             "mempalace_find_references",
             "mempalace_show_project_graph",

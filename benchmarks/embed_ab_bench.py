@@ -3,7 +3,11 @@
 BENCH-EMBED-AB — A/B embedding model benchmark for mempalace.
 
 Compares embedding models on code retrieval quality and performance.
-Uses the mempalace repo itself as the test corpus.
+Uses the mempalace repo itself as the test corpus and the known-answer queries in
+benchmarks/data/code_retrieval_queries.json, shared with code_retrieval_bench.py.
+
+With --longmemeval-data, every model must also match or beat the first (baseline)
+model's LongMemEval R@5. The run exits 1 when that gate fails or cannot run.
 
 Usage:
     python benchmarks/embed_ab_bench.py
@@ -15,7 +19,9 @@ Usage:
 import argparse
 import gc
 import json
+import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,13 +30,16 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-# Add project root to path so we can import mempalace_code
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Import mempalace_code from this checkout and the shared query set from this directory.
+_BENCH_DIR = Path(__file__).resolve().parent
+_PROJECT_ROOT = _BENCH_DIR.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
+sys.path.insert(0, str(_BENCH_DIR))
+
+from code_retrieval_bench import DEFAULT_DATASET, hit_at_k, load_dataset  # noqa: E402
 
 from mempalace_code.miner import load_config, process_file, scan_project  # noqa: E402
 from mempalace_code.storage import open_store  # noqa: E402
-
 
 # =============================================================================
 # MODEL REGISTRY
@@ -61,139 +70,12 @@ MODELS = {
 # =============================================================================
 # KNOWN-ANSWER QUERY SET
 #
-# Each query has:
-#   - query: the search string
-#   - expected_files: source_file substrings that should appear in top-k
-#   - category: for per-category reporting
+# code_retrieval_bench.py owns this ground truth and checks it against the current
+# module owners (`--validate-dataset`); hits match path suffixes and, for symbol
+# queries, the declared symbol.
 # =============================================================================
 
-QUERIES = [
-    # ── Function lookup ──────────────────────────────────────────
-    {
-        "query": "detect programming language from file extension and shebang",
-        "expected_files": ["miner.py"],
-        "category": "function_lookup",
-    },
-    {
-        "query": "chunk code at structural boundaries for Python TypeScript Go",
-        "expected_files": ["miner.py"],
-        "category": "function_lookup",
-    },
-    {
-        "query": "extract symbol name and type from code chunk",
-        "expected_files": ["miner.py"],
-        "category": "function_lookup",
-    },
-    {
-        "query": "semantic search across palace drawers",
-        "expected_files": ["searcher.py"],
-        "category": "function_lookup",
-    },
-    {
-        "query": "add drawer to palace with metadata",
-        "expected_files": ["miner.py"],
-        "category": "function_lookup",
-    },
-    {
-        "query": "merge small chunks and split oversized ones",
-        "expected_files": ["miner.py"],
-        "category": "function_lookup",
-    },
-    # ── Class lookup ─────────────────────────────────────────────
-    {
-        "query": "DrawerStore abstract interface for storage backends",
-        "expected_files": ["storage.py"],
-        "category": "class_lookup",
-    },
-    {
-        "query": "LanceDB crash safe vector storage backend",
-        "expected_files": ["storage.py"],
-        "category": "class_lookup",
-    },
-    {
-        "query": "ChromaStore legacy storage backend",
-        "expected_files": ["storage.py"],
-        "category": "class_lookup",
-    },
-    {
-        "query": "gitignore pattern matcher for file scanning",
-        "expected_files": ["miner.py"],
-        "category": "class_lookup",
-    },
-    # ── Architecture ─────────────────────────────────────────────
-    {
-        "query": "how does the miner route files to rooms based on path and content",
-        "expected_files": ["miner.py"],
-        "category": "architecture",
-    },
-    {
-        "query": "how are embeddings generated and stored in LanceDB",
-        "expected_files": ["storage.py"],
-        "category": "architecture",
-    },
-    {
-        "query": "what metadata fields are stored per drawer in the palace",
-        "expected_files": ["storage.py"],
-        "category": "architecture",
-    },
-    {
-        "query": "how does smart chunking dispatch between code prose and adaptive strategies",
-        "expected_files": ["miner.py"],
-        "category": "architecture",
-    },
-    {
-        "query": "MCP server tool handler dispatch and request routing",
-        "expected_files": ["mcp_server.py"],
-        "category": "architecture",
-    },
-    # ── Cross-file concepts ──────────────────────────────────────
-    {
-        "query": "open_store factory function backend detection lance chroma",
-        "expected_files": ["storage.py"],
-        "category": "cross_file",
-    },
-    {
-        "query": "mine project directory files into palace drawers end to end",
-        "expected_files": ["miner.py"],
-        "category": "cross_file",
-    },
-    {
-        "query": "knowledge graph temporal entity relationship triples",
-        "expected_files": ["knowledge_graph.py"],
-        "category": "cross_file",
-    },
-    {
-        "query": "conversation mining Claude ChatGPT Slack exports",
-        "expected_files": ["convo_miner.py"],
-        "category": "cross_file",
-    },
-    {
-        "query": "tiered context loading wake-up layers for local models",
-        "expected_files": ["layers.py"],
-        "category": "cross_file",
-    },
-]
-
-
-# =============================================================================
-# METRICS
-# =============================================================================
-
-
-def hit_at_k(results_metadatas, expected_files, k):
-    """Check if any expected file appears in top-k results.
-
-    Uses basename comparison to avoid false positives where one filename is a
-    substring of another (e.g. "miner.py" matching "convo_miner.py").
-    """
-    top_k = results_metadatas[:k]
-    for meta in top_k:
-        source = meta.get("source_file", "")
-        source_basename = source.rsplit("/", 1)[-1]
-        for expected in expected_files:
-            if source_basename == expected:
-                return True
-    return False
+QUERIES = load_dataset(DEFAULT_DATASET)
 
 
 # =============================================================================
@@ -258,11 +140,12 @@ def run_code_bench(model_key, model_spec, project_dir):
             query_latencies.append(latency_ms)
 
             metas = results["metadatas"][0] if results["metadatas"] else []
-            h5 = hit_at_k(metas, q["expected_files"], 5)
-            h10 = hit_at_k(metas, q["expected_files"], 10)
+            h5 = hit_at_k(metas, q["expected_files"], 5, q.get("expected_symbols"))
+            h10 = hit_at_k(metas, q["expected_files"], 10, q.get("expected_symbols"))
 
             query_results.append(
                 {
+                    "id": q["id"],
                     "query": q["query"],
                     "category": q["category"],
                     "expected_files": q["expected_files"],
@@ -334,11 +217,21 @@ _LONGMEMEVAL_MODEL_MAP = {
 }
 
 
+def _gate_error(model_key, detail):
+    print(f"  [{model_key}] LongMemEval gate could not run: {detail}", file=sys.stderr)
+    return {"R@5": None, "R@10": None, "NDCG@10": None, "error": detail}
+
+
 def run_longmemeval_gate(model_key, data_path):
-    """Run LongMemEval with a model and parse R@5 from output."""
+    """Run LongMemEval with a model and parse R@5 from output.
+
+    A run that cannot produce R@5 returns an ``error`` entry that fails the gate.
+    benchmarks/longmemeval_bench.py still imports the retired chromadb package, so in
+    a current environment the gate reports that import failure instead of passing.
+    """
     lme_key = _LONGMEMEVAL_MODEL_MAP.get(model_key)
     if not lme_key:
-        return None
+        return _gate_error(model_key, "no LongMemEval embedding mapping for this model")
 
     bench_script = str(_PROJECT_ROOT / "benchmarks" / "longmemeval_bench.py")
     cmd = [
@@ -363,36 +256,61 @@ def run_longmemeval_gate(model_key, data_path):
         )
         output = result.stdout + result.stderr
 
-        # Parse recall@5 from output (format: "Recall@5: 0.960")
+        # The harness pads k to two columns and prints recall and NDCG on one line.
         r5 = None
         r10 = None
         ndcg = None
         for line in output.splitlines():
-            line_lower = line.strip().lower()
-            if "recall@5" in line_lower and ":" in line:
+            for match in re.finditer(r"(recall|ndcg)@\s*(5|10)\s*:\s*(\S+)", line, re.I):
                 try:
-                    r5 = float(line.split(":")[-1].strip().split()[0])
-                except (ValueError, IndexError):
-                    pass
-            elif "recall@10" in line_lower and ":" in line:
-                try:
-                    r10 = float(line.split(":")[-1].strip().split()[0])
-                except (ValueError, IndexError):
-                    pass
-            elif "ndcg@10" in line_lower and ":" in line:
-                try:
-                    ndcg = float(line.split(":")[-1].strip().split()[0])
-                except (ValueError, IndexError):
-                    pass
+                    value = float(match[3])
+                except ValueError:
+                    return _gate_error(model_key, f"invalid metric: {match[0]}")
+                if not math.isfinite(value) or not 0 <= value <= 1:
+                    return _gate_error(model_key, f"invalid metric: {match[0]}")
+                metric = (match[1].lower(), match[2])
+                if metric == ("recall", "5"):
+                    r5 = value
+                elif metric == ("recall", "10"):
+                    r10 = value
+                elif metric == ("ndcg", "10"):
+                    ndcg = value
 
-        if r5 is not None:
-            print(f"  [{model_key}] LongMemEval R@5={r5:.3f}")
+        if result.returncode != 0 or r5 is None:
+            last_line = next((ln.strip() for ln in reversed(output.splitlines()) if ln.strip()), "")
+            return _gate_error(
+                model_key,
+                f"longmemeval_bench.py exited {result.returncode} without Recall@5: "
+                f"{last_line or 'no output'}",
+            )
+
+        print(f"  [{model_key}] LongMemEval R@5={r5:.3f}")
 
         return {"R@5": r5, "R@10": r10, "NDCG@10": ndcg}
 
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"  [{model_key}] LongMemEval failed: {e}")
-        return None
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return _gate_error(model_key, str(e))
+
+
+def longmemeval_verdicts(all_results, model_keys):
+    """Gate each model on LongMemEval R@5: it must match or beat the first (baseline) model."""
+    baseline_r5 = all_results[model_keys[0]].get("text_retrieval", {}).get("R@5")
+    verdicts = {}
+    for key in model_keys:
+        r5 = all_results[key].get("text_retrieval", {}).get("R@5")
+        if any(
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+            or not 0 <= value <= 1
+            for value in (r5, baseline_r5)
+        ):
+            verdicts[key] = "ERROR"
+        elif key == model_keys[0]:
+            verdicts[key] = "BASE"
+        else:
+            verdicts[key] = "PASS" if r5 >= baseline_r5 else "FAIL"
+    return verdicts
 
 
 # =============================================================================
@@ -442,25 +360,19 @@ def print_report(all_results, model_keys):
     # LongMemEval gate
     has_lme = any(all_results[k].get("text_retrieval") for k in model_keys)
     if has_lme:
-        print("\n  TEXT RETRIEVAL (LongMemEval no-regression gate):\n")
+        print("\n  TEXT RETRIEVAL (LongMemEval no-regression gate: match or beat baseline R@5):\n")
         print(f"  {'Model':<10} | {'R@5':>6} | {'R@10':>6} | {'NDCG@10':>8} | {'Gate':>6}")
         print(f"  {'-' * 10}-+-{'-' * 6}-+-{'-' * 6}-+-{'-' * 8}-+-{'-' * 6}")
-        baseline_r5 = all_results[model_keys[0]].get("text_retrieval", {}).get("R@5")
+        verdicts = longmemeval_verdicts(all_results, model_keys)
         for key in model_keys:
             tr = all_results[key].get("text_retrieval", {})
-            if not tr or tr.get("R@5") is None:
-                print(f"  {key:<10} | {'N/A':>6} | {'N/A':>6} | {'N/A':>8} | {'SKIP':>6}")
+            gate = verdicts[key]
+            if tr.get("R@5") is None:
+                print(f"  {key:<10} | {'N/A':>6} | {'N/A':>6} | {'N/A':>8} | {gate:>6}")
                 continue
-            r5 = tr["R@5"]
             r10 = tr.get("R@10") or 0
             ndcg_val = tr.get("NDCG@10") or 0
-            if key == model_keys[0]:
-                gate = "BASE"
-            elif baseline_r5 is not None and r5 >= baseline_r5 - 0.02:
-                gate = "PASS"
-            else:
-                gate = "FAIL"
-            print(f"  {key:<10} | {r5:>6.3f} | {r10:>6.3f} | {ndcg_val:>8.3f} | {gate:>6}")
+            print(f"  {key:<10} | {tr['R@5']:>6.3f} | {r10:>6.3f} | {ndcg_val:>8.3f} | {gate:>6}")
 
     print(f"\n{'=' * 70}\n")
 
@@ -510,6 +422,11 @@ def main():
             print(f"Unknown model key: {key}. Available: {', '.join(MODELS)}")
             sys.exit(1)
 
+    gate_requested = bool(args.longmemeval_data) and not args.skip_longmemeval
+    if gate_requested and not Path(args.longmemeval_data).is_file():
+        print(f"LongMemEval data not found: {args.longmemeval_data}", file=sys.stderr)
+        sys.exit(1)
+
     print(f"BENCH-EMBED-AB — Comparing: {', '.join(model_keys)}")
     print(f"Project: {args.project}")
     print(f"Queries: {len(QUERIES)}")
@@ -539,10 +456,8 @@ def main():
         result = run_code_bench(key, spec, args.project)
 
         # Text retrieval gate
-        if not args.skip_longmemeval and args.longmemeval_data:
-            lme_result = run_longmemeval_gate(key, args.longmemeval_data)
-            if lme_result:
-                result["text_retrieval"] = lme_result
+        if gate_requested:
+            result["text_retrieval"] = run_longmemeval_gate(key, args.longmemeval_data)
 
         all_results[key] = {
             "model_name": spec["name"],
@@ -570,6 +485,16 @@ def main():
     with open(out_path, "w") as f:
         json.dump(report, f, indent=2)
     print(f"Report saved to: {out_path}")
+
+    if gate_requested:
+        verdicts = longmemeval_verdicts(all_results, model_keys)
+        failed = [key for key in model_keys if verdicts[key] in {"FAIL", "ERROR"}]
+        if failed:
+            print(
+                f"LongMemEval no-regression gate did not pass for: {', '.join(failed)}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":

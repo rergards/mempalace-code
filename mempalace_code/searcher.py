@@ -9,19 +9,84 @@ Returns verbatim text — the actual words, never summaries.
 import fnmatch
 import logging
 import os
-import shlex
 import sys
-from typing import TypeGuard
+from typing import Any, TypeGuard
 
+from .cli_invocation import cli_command, degraded_palace_next_step, no_palace_next_step
+from .config import expand_palace_path
+from .errors import InvalidArgumentError
 from .language_catalog import searchable_languages
-from .storage import open_store
+from .storage import (
+    CHROMA_RUNTIME_RETIRED_MESSAGE,
+    CanonicalModelCacheError,
+    ChromaRuntimeRetiredError,
+    PalaceReadError,
+    distance_to_similarity,
+    is_legacy_chroma_palace,
+    open_store,
+)
 from .taxonomy_filters import TaxonomyValidationError, validate_taxonomy_filters
 
 logger = logging.getLogger("mempalace_mcp")
 
+# Upper bound on hits per search call (CLI --results, MCP limit, code_search n_results).
+MAX_SEARCH_RESULTS = 50
+
+# Longest query the MCP search tools accept. The embedder reads only the first
+# 256 tokens, so a longer query cannot rank differently; it would only be echoed back.
+MAX_QUERY_CHARS = 10_000
+
+# Markdown section fields; a hit carries them only when its drawer has section metadata.
+_MARKDOWN_TEXT_FIELDS = ("heading", "heading_path", "doc_section_type")
+_MARKDOWN_FLAG_FIELDS = ("contains_mermaid", "contains_code", "contains_table")
+
+
+def no_palace_payload(palace_path: str | None) -> dict:
+    """Programmatic/MCP missing-palace payload; mcp.runtime._no_palace() returns it too.
+
+    A legacy ChromaDB palace is not missing: it names the migration instead of init/mine.
+    """
+    if palace_path and is_legacy_chroma_palace(palace_path):
+        return {
+            "error": "Legacy ChromaDB palace needs migration",
+            "error_code": "chroma_migration_required",
+            "hint": CHROMA_RUNTIME_RETIRED_MESSAGE,
+        }
+    return {"error": "No palace found", "hint": f"Next: {no_palace_next_step(palace_path)}"}
+
 
 class SearchError(Exception):
     """Raised when search cannot proceed (e.g. no palace found)."""
+
+
+def _taxonomy_where(wing: str | None, room: str | None) -> dict | None:
+    """Return the LanceDB where filter for optional wing/room scoping."""
+    if wing and room:
+        return {"$and": [{"wing": wing}, {"room": room}]}
+    if wing:
+        return {"wing": wing}
+    if room:
+        return {"room": room}
+    return None
+
+
+def _query_rows(store, query: str, n_results: int, where: dict | None, *, intent_rerank: bool):
+    """Run one vector query and return (ids, documents, metadatas, distances)."""
+    kwargs: dict[str, Any] = {
+        "query_texts": [query],
+        "n_results": n_results,
+        "include": ["documents", "metadatas", "distances"],
+        "intent_rerank": intent_rerank,
+    }
+    if where:
+        kwargs["where"] = where
+    results = store.query(**kwargs)
+    docs = results["documents"][0]
+    metas = results["metadatas"][0]
+    dists = results["distances"][0]
+    ids = (results.get("ids") or [[]])[0] or []
+    ids = list(ids) + [None] * (len(docs) - len(ids))
+    return ids, docs, metas, dists
 
 
 def search(
@@ -35,13 +100,14 @@ def search(
     """
     Search the palace. Returns verbatim drawer content.
     Optionally filter by wing (project) or room (aspect).
+
+    Results are in descending cosine similarity (plain vector order; the
+    code-retrieval intent rerank is used only by ``code_search``).
     """
+    palace_path = expand_palace_path(palace_path)
     if not os.path.isdir(palace_path):
         print(f"\n  No palace found at {palace_path}", file=sys.stderr)
-        print(
-            "  Next: run mempalace-code init <dir>, then mempalace-code mine <dir>.",
-            file=sys.stderr,
-        )
+        print(f"  Next: {no_palace_next_step(palace_path)}.", file=sys.stderr)
         raise SearchError(f"No palace found at {palace_path}")
 
     error_payload = validate_taxonomy_filters(palace_path, wing=wing, room=room)
@@ -50,46 +116,24 @@ def search(
 
     try:
         store = open_store(palace_path, create=False)
+    except ChromaRuntimeRetiredError:
+        raise  # names the migration; the CLI prints it without a traceback
     except Exception:
         print(f"\n  No palace found at {palace_path}", file=sys.stderr)
-        print(
-            "  Next: run mempalace-code init <dir>, then mempalace-code mine <dir>.",
-            file=sys.stderr,
-        )
+        print(f"  Next: {no_palace_next_step(palace_path)}.", file=sys.stderr)
         raise SearchError(f"No palace found at {palace_path}")
 
-    # Build where filter
-    where = {}
-    if wing and room:
-        where = {"$and": [{"wing": wing}, {"room": room}]}
-    elif wing:
-        where = {"wing": wing}
-    elif room:
-        where = {"room": room}
-
     try:
-        kwargs = {
-            "query_texts": [query],
-            "n_results": n_results,
-            "include": ["documents", "metadatas", "distances"],
-        }
-        if where:
-            kwargs["where"] = where
-
-        results = store.query(**kwargs)
-
+        ids, docs, metas, dists = _query_rows(
+            store, query, n_results, _taxonomy_where(wing, room), intent_rerank=False
+        )
     except Exception as e:
         print(f"\n  Search error: {e}", file=sys.stderr)
-        print(
-            "  Next: run mempalace-code health; if degraded, run "
-            "mempalace-code repair --rollback --dry-run before retrying search.",
-            file=sys.stderr,
-        )
+        # A missing model cache names its own fetch-model recovery (palace repair cannot
+        # help), and an unreadable palace names its own recovery: print one Next line.
+        if not isinstance(e, (CanonicalModelCacheError, PalaceReadError)):
+            print(f"  Next: {degraded_palace_next_step(palace_path, 'search')}", file=sys.stderr)
         raise SearchError(f"Search error: {e}") from e
-
-    docs = results["documents"][0]
-    metas = results["metadatas"][0]
-    dists = results["distances"][0]
 
     if not docs:
         if compact:
@@ -112,38 +156,24 @@ def search(
     for i, (doc, meta, dist) in enumerate(zip(docs, metas, dists), 1):
         meta = meta or {}
         doc = doc or ""
-        similarity = round(1 - dist, 3)
+        similarity = distance_to_similarity(dist)
         source = meta.get("source_file") or "?"
         wing_name = meta.get("wing", "?")
         room_name = meta.get("room", "?")
+        line_range = _compact_line_range(meta)
 
         print(f"  [{i}] {wing_name} / {room_name}")
         print(f"      Source: {source}")
         print(f"      Match:  {similarity}")
+        if line_range is not None:
+            print(f"      Lines:  {line_range[0]}-{line_range[1]}")
         if compact:
-            line_range = _compact_line_range(meta)
-            if line_range is not None:
-                print(f"      Lines:  {line_range[0]}-{line_range[1]}")
             print()
             preview = doc.strip().replace("\n", " ")
             if len(preview) > 300:
                 preview = f"{preview[:297]}..."
             print(f"      {preview}")
-            source_file = meta.get("source_file")
-            wing_value = meta.get("wing")
-            if (
-                line_range is not None
-                and _usable_recovery_value(source_file)
-                and _usable_recovery_value(wing_value)
-            ):
-                print(
-                    "      Recovery: mempalace-code --palace "
-                    f"{shlex.quote(palace_path)} read {shlex.quote(source_file)} "
-                    f"--start {line_range[0]} "
-                    f"--end {line_range[1]} --wing {shlex.quote(wing_value)}"
-                )
-            else:
-                print("      Recovery: unavailable")
+            print(f"      Recovery: {_recovery_text(meta, line_range, palace_path)}")
             print()
             print(f"  {'─' * 56}")
             continue
@@ -155,6 +185,31 @@ def search(
         print(f"  {'─' * 56}")
 
     print()
+
+
+def _recovery_text(meta: dict, line_range: tuple[int, int] | None, palace_path: str) -> str:
+    """Return the compact-mode read command for one hit, or why none can be built."""
+    source_file = meta.get("source_file")
+    wing_value = meta.get("wing")
+    if line_range is None:
+        if meta.get("ingest_mode") == "convos":
+            return "unavailable (conversation drawers have no line range; drop --compact for full text)"
+        return "unavailable (this drawer has no stored line range; drop --compact for full text)"
+    if not _usable_recovery_value(source_file):
+        return "unavailable (this drawer has no stored source path)"
+    if not _usable_recovery_value(wing_value):
+        return "unavailable (this drawer has no stored wing)"
+    return cli_command(
+        "read",
+        source_file,
+        "--start",
+        str(line_range[0]),
+        "--end",
+        str(line_range[1]),
+        "--wing",
+        wing_value,
+        palace=palace_path,
+    )
 
 
 def _compact_line_range(meta: dict) -> tuple[int, int] | None:
@@ -186,6 +241,76 @@ def _usable_recovery_value(value: object) -> TypeGuard[str]:
     return isinstance(value, str) and bool(value.strip()) and value.strip() != "?"
 
 
+def _clamp_results(n_results: int) -> int:
+    """Reject a hit count below 1; bound a larger one to MAX_SEARCH_RESULTS."""
+    if isinstance(n_results, bool) or not isinstance(n_results, int) or n_results < 1:
+        raise InvalidArgumentError(
+            f"n_results must be an integer from 1 to {MAX_SEARCH_RESULTS} (got {n_results!r})",
+            argument="n_results",
+        )
+    return min(MAX_SEARCH_RESULTS, n_results)
+
+
+def _missing_palace_payload(palace_path: str, query: str, signature: str) -> dict:
+    """The missing-palace payload; names the argument order when the two look swapped."""
+    payload = no_palace_payload(palace_path)
+    try:
+        swapped = isinstance(query, str) and os.path.isdir(
+            os.path.join(expand_palace_path(query), "lance")
+        )
+    except (OSError, ValueError):
+        swapped = False
+    if swapped:
+        payload["hint"] = (
+            f"The query argument is a palace directory: the signature is {signature}. "
+            "Pass both by keyword (palace_path=..., query=...)."
+        )
+    return payload
+
+
+def _file_glob_matches(source_file: str, file_glob: str) -> bool:
+    """Match *file_glob* against a stored source path.
+
+    A glob that starts with ``/`` or ``*`` matches the whole path. Any other glob
+    (``src/*.py``, ``storage.py``) also matches the end of the path at a ``/``
+    boundary, so a repo-relative path finds the absolute path mining stored.
+    """
+    if fnmatch.fnmatch(source_file, file_glob):
+        return True
+    if file_glob.startswith(("/", "*")):
+        return False
+    return fnmatch.fnmatch(source_file, f"*/{file_glob}")
+
+
+def _project_hit(drawer_id, doc, meta, dist, *, missing_source: str | None) -> dict:
+    """Return the public search-hit shape shared by search_memories() and code_search().
+
+    Every hit carries its drawer ``id`` (for mempalace_delete_drawer corrections).
+    Markdown section fields appear only on hits whose drawer has section metadata.
+    """
+    meta = meta or {}
+    line_range = _compact_line_range(meta)
+    hit: dict[str, Any] = {
+        "id": drawer_id,
+        "text": doc or "",
+        "wing": meta.get("wing", "unknown"),
+        "room": meta.get("room", "unknown"),
+        "source_file": meta.get("source_file", missing_source) or missing_source,
+        "symbol_name": meta.get("symbol_name", "") or "",
+        "symbol_type": meta.get("symbol_type", "") or "",
+        "language": meta.get("language", "") or "",
+    }
+    if any(meta.get(field) for field in _MARKDOWN_TEXT_FIELDS):
+        hit.update({field: meta.get(field, "") or "" for field in _MARKDOWN_TEXT_FIELDS})
+        hit["heading_level"] = meta.get("heading_level", 0) or 0
+        hit.update({field: bool(meta.get(field, 0)) for field in _MARKDOWN_FLAG_FIELDS})
+    hit["line_range"] = (
+        {"start": line_range[0], "end": line_range[1]} if line_range is not None else None
+    )
+    hit["similarity"] = distance_to_similarity(dist)
+    return hit
+
+
 def search_memories(
     query: str,
     palace_path: str,
@@ -196,7 +321,13 @@ def search_memories(
     """
     Programmatic search — returns a dict instead of printing.
     Used by the MCP server and other callers that need data.
+
+    ``n_results`` must be at least 1 (``InvalidArgumentError`` otherwise); values
+    above MAX_SEARCH_RESULTS are clamped to it. Hits are in descending cosine
+    similarity; each carries its drawer ``id``, and ``source_file`` is None for a
+    drawer filed without a source (a manual or diary drawer).
     """
+    n_results = _clamp_results(n_results)
     error_payload = validate_taxonomy_filters(palace_path, wing=wing, room=room)
     if error_payload is not None:
         return error_payload
@@ -205,66 +336,25 @@ def search_memories(
         store = open_store(palace_path, create=False)
     except Exception as e:
         logger.error("No palace found at %s: %s", palace_path, e)
-        return {
-            "error": "No palace found",
-            "hint": "Run: mempalace-code init <dir> && mempalace-code mine <dir>",
-        }
-
-    # Build where filter
-    where = {}
-    if wing and room:
-        where = {"$and": [{"wing": wing}, {"room": room}]}
-    elif wing:
-        where = {"wing": wing}
-    elif room:
-        where = {"room": room}
+        return _missing_palace_payload(
+            palace_path, query, "search_memories(query, palace_path, ...)"
+        )
 
     try:
-        kwargs = {
-            "query_texts": [query],
-            "n_results": n_results,
-            "include": ["documents", "metadatas", "distances"],
-        }
-        if where:
-            kwargs["where"] = where
-
-        results = store.query(**kwargs)
+        ids, docs, metas, dists = _query_rows(
+            store,
+            query,
+            n_results,
+            _taxonomy_where(wing, room),
+            intent_rerank=False,
+        )
     except Exception as e:
         return {"error": f"Search error: {e}"}
 
-    docs = results["documents"][0]
-    metas = results["metadatas"][0]
-    dists = results["distances"][0]
-
-    hits = []
-    for doc, meta, dist in zip(docs, metas, dists):
-        meta = meta or {}
-        doc = doc or ""
-        line_range = _compact_line_range(meta)
-        hits.append(
-            {
-                "text": doc,
-                "wing": meta.get("wing", "unknown"),
-                "room": meta.get("room", "unknown"),
-                "source_file": meta.get("source_file", "?"),
-                "symbol_name": meta.get("symbol_name", "") or "",
-                "symbol_type": meta.get("symbol_type", "") or "",
-                "language": meta.get("language", "") or "",
-                "heading": meta.get("heading", "") or "",
-                "heading_level": meta.get("heading_level", 0) or 0,
-                "heading_path": meta.get("heading_path", "") or "",
-                "doc_section_type": meta.get("doc_section_type", "") or "",
-                "contains_mermaid": bool(meta.get("contains_mermaid", 0)),
-                "contains_code": bool(meta.get("contains_code", 0)),
-                "contains_table": bool(meta.get("contains_table", 0)),
-                "line_range": (
-                    {"start": line_range[0], "end": line_range[1]}
-                    if line_range is not None
-                    else None
-                ),
-                "similarity": round(1 - dist, 3),
-            }
-        )
+    hits = [
+        _project_hit(drawer_id, doc, meta, dist, missing_source=None)
+        for drawer_id, doc, meta, dist in zip(ids, docs, metas, dists)
+    ]
 
     return {
         "query": query,
@@ -327,7 +417,19 @@ VALID_SYMBOL_TYPES = {
     "ansible_role",
     "ansible_vars",
     "ansible_inventory",
+    # Terraform/HCL blocks (module is listed above)
+    "resource",
+    "data",
+    "variable",
+    "output",
+    "check",
+    "provider",
 }
+
+
+def _matching_values(store, column: str, keep) -> list[str]:
+    """Return the distinct stored values of *column* accepted by *keep* (metadata-only scan)."""
+    return sorted(value for value in store.count_by(column) if value and keep(value))
 
 
 def code_search(
@@ -345,23 +447,30 @@ def code_search(
     Code-optimized semantic search. Returns symbol name, type, language, and
     full file path per hit.
 
-    Filters applied in two stages:
-      1. LanceDB where clause (pre-query): wing, language, symbol_type.
-      2. Python post-filter: symbol_name (case-insensitive substring),
-         file_glob (fnmatch against the stored source_file path).
-
-    Over-fetches n_results*3 (capped at 150) to compensate for post-filter
-    discard, then truncates to n_results.
+    Every filter narrows the rows *before* the vector scan ranks them, so a
+    filter never misses a matching chunk that ranks outside the top candidates:
+      - wing, language, symbol_type: LanceDB where equality.
+      - symbol_name (case-insensitive substring) and file_glob (fnmatch against
+        the stored source_file path; a glob not starting with ``/`` or ``*`` also
+        matches a trailing part of the path, so ``src/*.py`` works): the matching
+        distinct stored values are
+        found with a metadata-only column scan and applied as a LanceDB
+        ``IN`` prefilter. No matching value means an empty result without a
+        vector query.
 
     Results are storage-ranked by default. ``ranking.storage_rank`` is the
     1-based position within this call's returned storage candidate pool;
     ``ranking.vector_distance`` is the unrounded distance returned by storage.
+    Storage order is cosine order, except that .NET project-file and CamelCase
+    symbol-intent queries get a deterministic bonus rerank (retrieval_rerank.py),
+    so ``similarity`` is not always monotonic for those queries.
 
     rerank: Optional reranking mode. Only "hybrid" is accepted. Hybrid mode
-        applies token-overlap reranking before post-filters and adds its score
+        applies token-overlap reranking to the candidate pool and adds its score
         components under ``ranking``.
         search_memories and the print-oriented search() are unaffected.
     """
+    n_results = _clamp_results(n_results)
     if rerank is not None and rerank != "hybrid":
         return {
             "error": f"Invalid rerank mode: {rerank!r}",
@@ -388,25 +497,48 @@ def code_search(
     if error_payload is not None:
         return error_payload
 
-    n_results = max(1, min(50, n_results))
-
     try:
         store = open_store(palace_path, create=False)
     except Exception as e:
         logger.error("No palace found at %s: %s", palace_path, e)
-        return {
-            "error": "No palace found",
-            "hint": "Run: mempalace-code init <dir> && mempalace-code mine <dir>",
-        }
+        return _missing_palace_payload(palace_path, query, "code_search(palace_path, query, ...)")
+
+    envelope: dict[str, Any] = {
+        "query": query,
+        "filters": {
+            "language": language,
+            "symbol_name": symbol_name,
+            "symbol_type": symbol_type,
+            "file_glob": file_glob,
+            "wing": wing,
+        },
+        "results": [],
+    }
 
     # Build LanceDB where clause for pre-query filtering
-    conditions = []
+    conditions: list[dict[str, Any]] = []
     if wing:
         conditions.append({"wing": wing})
     if language:
         conditions.append({"language": language})
     if symbol_type:
         conditions.append({"symbol_type": symbol_type})
+    try:
+        if symbol_name:
+            needle = symbol_name.lower()
+            names = _matching_values(store, "symbol_name", lambda v: needle in v.lower())
+            if not names:
+                return envelope
+            conditions.append({"symbol_name": {"$in": names}})
+        if file_glob:
+            files = _matching_values(
+                store, "source_file", lambda v: _file_glob_matches(v, file_glob)
+            )
+            if not files:
+                return envelope
+            conditions.append({"source_file": {"$in": files}})
+    except Exception as e:
+        return {"error": f"Search error: {e}"}
 
     where = None
     if len(conditions) > 1:
@@ -420,77 +552,35 @@ def code_search(
         fetch_count = min(n_results * 3, 150)
 
     try:
-        kwargs = {
-            "query_texts": [query],
-            "n_results": fetch_count,
-            "include": ["documents", "metadatas", "distances"],
-        }
-        if where:
-            kwargs["where"] = where
-
-        results = store.query(**kwargs)
+        ids, docs, metas, dists = _query_rows(store, query, fetch_count, where, intent_rerank=True)
     except Exception as e:
         return {"error": f"Search error: {e}"}
 
-    docs = results["documents"][0]
-    metas = results["metadatas"][0]
-    dists = results["distances"][0]
-
-    # Build raw hit dicts for the full fetched pool (before post-filters)
+    # Build hit dicts for the full fetched pool
     raw_hits = []
-    for storage_rank, (doc, meta, dist) in enumerate(zip(docs, metas, dists), start=1):
-        meta = meta or {}
-        doc = doc or ""
-        sym_name = meta.get("symbol_name", "") or ""
-        src_file = meta.get("source_file", "") or ""
-        line_range = _compact_line_range(meta)
-        raw_hits.append(
-            {
-                "text": doc,
-                "wing": meta.get("wing", "unknown"),
-                "room": meta.get("room", "unknown"),
-                "source_file": src_file,
-                "symbol_name": sym_name,
-                "symbol_type": meta.get("symbol_type", "") or "",
-                "language": meta.get("language", "") or "",
-                "line_range": (
-                    {"start": line_range[0], "end": line_range[1]}
-                    if line_range is not None
-                    else None
-                ),
-                "similarity": round(1 - dist, 3),
-                "ranking": {
-                    "storage_rank": storage_rank,
-                    "vector_distance": dist,
-                },
-            }
-        )
+    for storage_rank, (drawer_id, doc, meta, dist) in enumerate(
+        zip(ids, docs, metas, dists), start=1
+    ):
+        hit = _project_hit(drawer_id, doc, meta, dist, missing_source="")
+        hit["ranking"] = {"storage_rank": storage_rank, "vector_distance": dist}
+        raw_hits.append(hit)
 
-    # Apply hybrid reranking before post-filters so the reranker sees the full pool
     if rerank == "hybrid":
         from .search_reranker import hybrid_rerank
 
         raw_hits = hybrid_rerank(query, raw_hits)
 
-    # Apply Python post-filters and truncate to n_results
+    # The prefilter already restricted rows; this exact re-check keeps the
+    # documented semantics for any store that ignores the where clause.
     hits = []
     for hit in raw_hits:
         if symbol_name and symbol_name.lower() not in hit["symbol_name"].lower():
             continue
-        if file_glob and not fnmatch.fnmatch(hit["source_file"], file_glob):
+        if file_glob and not _file_glob_matches(hit["source_file"], file_glob):
             continue
         hits.append(hit)
         if len(hits) >= n_results:
             break
 
-    return {
-        "query": query,
-        "filters": {
-            "language": language,
-            "symbol_name": symbol_name,
-            "symbol_type": symbol_type,
-            "file_glob": file_glob,
-            "wing": wing,
-        },
-        "results": hits,
-    }
+    envelope["results"] = hits
+    return envelope

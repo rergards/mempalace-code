@@ -72,17 +72,23 @@ def _write_fake_fastembed(pkg_root: Path, event_log: Path) -> None:
                 for name in ("config.json", "model.onnx", "special_tokens_map.json", "tokenizer.json", "tokenizer_config.json"):
                     (snapshot / name).write_bytes(b"fixture")
                 (snapshot / "tokenizer_config.json").write_text(json.dumps({{"max_length": 128, "model_max_length": 512}}), encoding="utf-8")
+            def _pinned_download():
+                _record({{"type": "download"}})
+                from mempalace_code.storage import canonical_fastembed_cache_root
+                cache = canonical_fastembed_cache_root()
+                if os.environ.get("MEMPALACE_FAKE_FASTEMBED_FAIL_DOWNLOAD") == "1":
+                    cache.mkdir(parents=True, exist_ok=True)
+                    (cache / "interrupted.bin").write_bytes(b"partial")
+                    raise RuntimeError("fake interrupted download")
+                _download(cache)
+            import sys as _sys
+            # storage imports this package before it downloads, so the pinned download
+            # (normally huggingface_hub) is simulated here without any network.
+            _sys.modules["mempalace_code.storage"]._download_pinned_canonical_snapshot = _pinned_download
             class TextEmbedding:
                 def __init__(self, **kwargs):
                     self.model = types.SimpleNamespace(tokenizer=_Tokenizer())
                     _record({{"type": "init", "local_files_only": bool(kwargs.get("local_files_only")), "providers": kwargs.get("providers")}})
-                    if not kwargs.get("local_files_only"):
-                        cache = Path(kwargs["cache_dir"])
-                        if os.environ.get("MEMPALACE_FAKE_FASTEMBED_FAIL_DOWNLOAD") == "1":
-                            cache.mkdir(parents=True, exist_ok=True)
-                            (cache / "interrupted.bin").write_bytes(b"partial")
-                            raise RuntimeError("fake interrupted download")
-                        _download(cache)
                 def embed(self, texts):
                     texts = list(texts)
                     _record({{"type": "embed", "count": len(texts)}})
@@ -216,11 +222,16 @@ def test_corrupt_offline_cache_fails_before_fastembed_or_online_retry(tmp_path: 
     assert root.is_dir()
 
 
-def test_force_partial_failure_and_retry_preserve_each_interruption(tmp_path: Path) -> None:
+def test_force_partial_failure_is_deleted_and_retry_preserves_the_original_once(
+    tmp_path: Path,
+) -> None:
     env, hf_home, event_log = _fake_runtime(tmp_path)
     root = hf_home / "mempalace-fastembed" / "all-MiniLM-L6-v2-v1"
     root.mkdir(parents=True)
     (root / "original.bin").write_bytes(b"original")
+    # Downloads are simulated by the fake runtime; the socket guard still blocks the network.
+    env.pop("HF_HUB_OFFLINE", None)
+    env.pop("TRANSFORMERS_OFFLINE", None)
     env["MEMPALACE_FAKE_FASTEMBED_FAIL_DOWNLOAD"] = "1"
 
     failed = _run(["-m", "mempalace_code.cli", "fetch-model", "--force"], env)
@@ -228,14 +239,15 @@ def test_force_partial_failure_and_retry_preserve_each_interruption(tmp_path: Pa
     assert failed.returncode == 1
     assert "Preserved partial cache at:" in failed.stdout
     assert "Retry exactly: `mempalace-code fetch-model --model all-MiniLM-L6-v2`" in failed.stderr
+    # The failed download was fetch-model's own, so it is deleted rather than kept.
+    assert not root.exists()
     env.pop("MEMPALACE_FAKE_FASTEMBED_FAIL_DOWNLOAD")
     recovered = _run(["-m", "mempalace_code.cli", "fetch-model"], env)
     assert recovered.returncode == 0, recovered.stderr
-    assert "Preserved partial cache at:" in recovered.stdout
+    assert "Preserved partial cache at:" not in recovered.stdout
     quarantines = sorted(root.parent.glob(f"{root.name}.quarantine-*"))
-    assert len(quarantines) == 2
-    assert any((path / "original.bin").exists() for path in quarantines)
-    assert any((path / "interrupted.bin").exists() for path in quarantines)
+    assert len(quarantines) == 1
+    assert (quarantines[0] / "original.bin").exists()
     cached = _run(["-m", "mempalace_code.cli", "fetch-model"], env)
     assert cached.returncode == 0
     assert "already available locally" in cached.stdout

@@ -347,7 +347,7 @@ def test_smart_mode_suppresses_real_chunker_parser_and_restores_it(monkeypatch, 
 
     assert count > 0
     assert fake_store.metadatas
-    assert all(row["chunker_strategy"] != "treesitter_v1" for row in fake_store.metadatas)
+    assert all(row["chunker_strategy"] != "treesitter_v3" for row in fake_store.metadatas)
     assert bench.mining_chunkers.get_parser is sentinel
     assert meta["mode_degraded"] is False
     assert meta["tree_sitter_available"] is False
@@ -405,7 +405,7 @@ def test_treesitter_mode_reports_available_or_degraded(monkeypatch, tmp_path):
     monkeypatch.setattr(bench, "scan_corpus_files", lambda _repo: [source])
 
     def fake_process_file(**kwargs):
-        kwargs["collection"].metadatas = [{"chunker_strategy": "treesitter_v1"}]
+        kwargs["collection"].metadatas = [{"chunker_strategy": "treesitter_v3"}]
         return 1
 
     monkeypatch.setattr(bench.miner, "process_file", fake_process_file)
@@ -415,7 +415,7 @@ def test_treesitter_mode_reports_available_or_degraded(monkeypatch, tmp_path):
     assert count == 1
     assert meta["tree_sitter_available"] is True
     assert meta["mode_degraded"] is False
-    assert meta["chunker_strategies"] == ["treesitter_v1"]
+    assert meta["chunker_strategies"] == ["treesitter_v3"]
 
 
 def test_run_benchmark_json_shape_without_embeddings(monkeypatch, tmp_path):

@@ -18,7 +18,6 @@ from mempalace_code.storage import (
     CANONICAL_EMBED_MAX_LENGTH,
     CANONICAL_EMBED_MODEL,
     CANONICAL_EMBED_MODEL_REVISION,
-    CUSTOM_MODELS_INSTALL_COMMAND,
     DEFAULT_EMBED_MODEL,
     LanceStore,
     _configure_canonical_fastembed_padding,
@@ -28,6 +27,7 @@ from mempalace_code.storage import (
     canonical_fastembed_cache_root,
     canonical_fastembed_provenance,
     canonical_fastembed_provenance_path,
+    extra_install_command,
     is_canonical_embed_model,
     quarantine_unowned_canonical_fastembed_cache,
     remove_owned_canonical_fastembed_cache,
@@ -227,8 +227,61 @@ def test_missing_custom_extra_fails_before_lance_creation(tmp_path, monkeypatch)
     with pytest.raises(RuntimeError, match=r"custom-models") as exc_info:
         LanceStore(str(palace), embed_model="example/custom-model")
 
-    assert CUSTOM_MODELS_INSTALL_COMMAND in str(exc_info.value)
+    assert extra_install_command("custom-models") in str(exc_info.value)
     assert not palace.exists()
+
+
+def test_extra_install_command_targets_running_interpreter(tmp_path, monkeypatch):
+    """The hint installs into this environment, not whichever python is first on PATH."""
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    monkeypatch.setattr(sys, "executable", "/opt/tools/mempalace code/bin/python")
+    monkeypatch.setattr("mempalace_code.storage.__version__", "9.8.7")
+    python = "'/opt/tools/mempalace code/bin/python'"
+
+    monkeypatch.setattr("mempalace_code.storage.find_spec", lambda name: object())
+    assert extra_install_command("custom-models") == (
+        f"{python} -m pip install 'mempalace-code[custom-models]==9.8.7'"
+    )
+
+    # A uv venv has no pip module.
+    monkeypatch.setattr("mempalace_code.storage.find_spec", lambda name: None)
+    assert extra_install_command("watch") == (
+        f"uv pip install --python {python} 'mempalace-code[watch]==9.8.7'"
+    )
+
+
+def test_extra_install_command_records_extra_in_uv_tool_receipt(tmp_path, monkeypatch):
+    """uv tool upgrade drops packages its receipt does not list, so the hint extends the receipt."""
+    # A tool in uv's default tool directory needs no UV_TOOL_DIR in the hint.
+    prefix = tmp_path / "xdg" / "uv" / "tools" / "mempalace-code"
+    prefix.mkdir(parents=True)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+    monkeypatch.setattr("mempalace_code.storage.__version__", "9.8.7")
+    monkeypatch.setattr("mempalace_code.storage.find_spec", lambda name: None)
+    receipt = prefix / "uv-receipt.toml"
+    receipt.write_text(
+        "[tool]\n"
+        'requirements = [{ name = "mempalace-code", extras = ["watch"], specifier = "==9.8.7" }]\n',
+        encoding="utf-8",
+    )
+
+    assert extra_install_command("custom-models") == (
+        "uv tool install --force 'mempalace-code[custom-models,watch]==9.8.7'"
+    )
+
+    receipt.write_text('[tool]\nrequirements = [{ name = "mempalace-code" }]\n', encoding="utf-8")
+    assert (
+        extra_install_command("watch") == "uv tool install --force 'mempalace-code[watch]==9.8.7'"
+    )
+
+    # An extra added with `uv pip` is missing from the receipt but kept, as update apply keeps it.
+    monkeypatch.setattr(
+        "mempalace_code.storage.find_spec", lambda name: object() if name == "watchfiles" else None
+    )
+    assert extra_install_command("custom-models") == (
+        "uv tool install --force 'mempalace-code[custom-models,watch]==9.8.7'"
+    )
 
 
 def test_force_cleanup_refuses_symlink_and_foreign_provenance(tmp_path, monkeypatch):
@@ -378,28 +431,32 @@ def test_owned_cache_rejects_tokenizer_length_drift_offline_and_force(tmp_path, 
 
 
 def test_online_download_normalizes_then_reloads_before_embedding(tmp_path, monkeypatch):
+    from mempalace_code import storage
+
     monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
     calls = []
     embedded_by = []
+
+    def fake_pinned_download():
+        calls.append({"download": True})
+        root = canonical_fastembed_cache_root()
+        _write_owned_provenance(root)
+        tokenizer_config = (
+            root
+            / "models--qdrant--all-MiniLM-L6-v2-onnx"
+            / "snapshots"
+            / CANONICAL_EMBED_MODEL_REVISION
+            / "tokenizer_config.json"
+        )
+        tokenizer_config.write_text(
+            json.dumps({"max_length": 128, "model_max_length": 512}), encoding="utf-8"
+        )
 
     class FakeTextEmbedding:
         def __init__(self, **kwargs):
             self.call_index = len(calls)
             calls.append(kwargs)
             self.model = _fake_fastembed_backend().model
-            if not kwargs["local_files_only"]:
-                root = canonical_fastembed_cache_root()
-                _write_owned_provenance(root)
-                tokenizer_config = (
-                    root
-                    / "models--qdrant--all-MiniLM-L6-v2-onnx"
-                    / "snapshots"
-                    / CANONICAL_EMBED_MODEL_REVISION
-                    / "tokenizer_config.json"
-                )
-                tokenizer_config.write_text(
-                    json.dumps({"max_length": 128, "model_max_length": 512}), encoding="utf-8"
-                )
 
         def embed(self, texts):
             embedded_by.append(self.call_index)
@@ -408,9 +465,11 @@ def test_online_download_normalizes_then_reloads_before_embedding(tmp_path, monk
     monkeypatch.setitem(
         sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=FakeTextEmbedding)
     )
+    monkeypatch.setattr(storage, "_download_pinned_canonical_snapshot", fake_pinned_download)
     vector = _FastEmbedder(local_files_only=False).compute_source_embeddings(["fixture"])[0]
 
-    assert calls[0]["local_files_only"] is False
+    # The pinned download runs first; FastEmbed itself only ever loads local files.
+    assert calls[0] == {"download": True}
     assert calls[1]["local_files_only"] is True
     assert embedded_by == [1]
     assert vector[0] == 1.0
@@ -530,9 +589,56 @@ def test_direct_cli_mines_mixed_length_batch_from_prepared_cache(tmp_path, monke
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
     rows = [row for batch in LanceStore(str(palace)).iter_all() for row in batch]
-    assert len(rows) == 2
     assert {Path(str(row["source_file"])).name for row in rows} == {"short.md", "long.md"}
     assert {row["wing"] for row in rows} == {"mixed"}
+    # The single long line exceeds the 4,000-character hard split, so it is stored as
+    # several verbatim pieces that all point at line 1.
+    long_rows = sorted(
+        (row for row in rows if Path(str(row["source_file"])).name == "long.md"),
+        key=lambda row: row["chunk_index"],
+    )
+    assert len(long_rows) > 1
+    assert all(len(row["text"]) <= 4000 and row["line_start"] == 1 for row in long_rows)
+    assert "".join(row["text"] for row in long_rows) == (project / "long.md").read_text().strip()
+
+
+def test_cli_mine_without_model_cache_prints_recovery_not_traceback(tmp_path):
+    """Offline mining with no owned cache exits 1 with the fetch-model recovery only."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "notes.md").write_text(
+        " ".join(f"offline-token-{index}" for index in range(80)) + "\n", encoding="utf-8"
+    )
+    cli = [sys.executable, "-m", "mempalace_code.cli", "--palace", str(tmp_path / "palace")]
+    environment = {
+        **os.environ,
+        "HF_HOME": str(tmp_path / "empty-hf"),
+        "HF_HUB_OFFLINE": "1",
+        "MEMPALACE_VERSION_CHECK": "0",
+    }
+    initialized = subprocess.run(
+        [*cli, "init", str(project), "--skip-model-download"],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=120,
+    )
+    assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+
+    completed = subprocess.run(
+        [*cli, "mine", str(project)],
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=120,
+    )
+
+    assert completed.returncode == 1
+    assert "Traceback" not in completed.stderr
+    assert completed.stderr.endswith(
+        "Run `mempalace-code fetch-model` while online, then retry offline.\n"
+    )
+    assert "Error: Canonical FastEmbed cache is not owned:" in completed.stderr
 
 
 def test_real_fastembed_matches_former_runtime_fixture(monkeypatch):

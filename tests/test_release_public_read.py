@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import sys
@@ -541,6 +542,47 @@ def test_cli_prints_fixed_version_tags(monkeypatch, capsys):
     )
     assert public.main(["--version-tags"]) == 0
     assert capsys.readouterr().out == "v1.2.3\n"
+
+
+def test_module_imports_only_the_standard_library():
+    """Every release gate loads this module, so it must run on a bare system Python."""
+    script = Path(__file__).parents[1] / "scripts" / "release_public_read.py"
+    tree = ast.parse(script.read_text(encoding="utf-8"))
+    imported = {
+        alias.name.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        node.module.split(".")[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level
+    }
+
+    assert imported - {"__future__"} <= sys.stdlib_module_names
+
+
+def test_cli_orders_version_tags_by_version_not_string(monkeypatch, capsys):
+    """A string sort ends at v1.9.0; the release-prep skill reads the last line as newest."""
+    refs = ["v1.14.2", "v1.2.0", "v1.9.0", "v1.14.0", "vnext", "v1.10.0rc1", "v1.10.0"]
+    monkeypatch.setattr(
+        public,
+        "DEFAULT_READER",
+        lambda _query: public.PublicResult(
+            data=[{"ref": f"refs/tags/{ref}", "sha": "a" * 40, "type": "commit"} for ref in refs]
+        ),
+    )
+
+    assert public.main(["--version-tags"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "v1.10.0rc1",
+        "vnext",
+        "v1.2.0",
+        "v1.9.0",
+        "v1.10.0",
+        "v1.14.0",
+        "v1.14.2",
+    ]
 
 
 def test_cli_prints_deterministic_check_run_annotation_evidence(monkeypatch, capsys):

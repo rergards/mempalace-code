@@ -59,9 +59,9 @@ def dcg(relevances, k):
 
 
 def ndcg(rankings, correct_ids, corpus_ids, k):
-    """Normalized DCG."""
+    """Normalized DCG against all ground-truth relevant documents, including misses."""
     relevances = [1.0 if corpus_ids[idx] in correct_ids else 0.0 for idx in rankings[:k]]
-    ideal = sorted(relevances, reverse=True)
+    ideal = [1.0] * min(len(set(correct_ids)), k)
     idcg = dcg(ideal, k)
     if idcg == 0:
         return 0.0
@@ -233,12 +233,6 @@ def build_palace_and_retrieve(entry, granularity="session", n_results=50):
     doc_id_to_idx = {f"doc_{i}": i for i in range(len(corpus))}
     ranked_indices = [doc_id_to_idx[rid] for rid in result_ids]
 
-    # Fill in any missing indices (ChromaDB may return fewer than corpus size)
-    seen = set(ranked_indices)
-    for i in range(len(corpus)):
-        if i not in seen:
-            ranked_indices.append(i)
-
     return ranked_indices, corpus, corpus_ids, corpus_timestamps
 
 
@@ -307,11 +301,6 @@ def build_palace_and_retrieve_aaak(entry, granularity="session", n_results=50):
     result_ids = results["ids"][0]
     doc_id_to_idx = {f"doc_{i}": i for i in range(len(corpus))}
     ranked_indices = [doc_id_to_idx[rid] for rid in result_ids]
-
-    seen = set(ranked_indices)
-    for i in range(len(corpus)):
-        if i not in seen:
-            ranked_indices.append(i)
 
     return ranked_indices, corpus, corpus_ids, corpus_timestamps
 
@@ -474,12 +463,6 @@ def build_palace_and_retrieve_rooms(entry, granularity="session", n_results=50):
     scored.sort(key=lambda x: x[1])
     ranked_indices = [idx for idx, _ in scored]
 
-    # Fill remaining
-    seen = set(ranked_indices)
-    for i in range(len(corpus)):
-        if i not in seen:
-            ranked_indices.append(i)
-
     return ranked_indices, corpus, corpus_ids, corpus_timestamps
 
 
@@ -628,11 +611,6 @@ def build_palace_and_retrieve_hybrid(
     scored.sort(key=lambda x: x[1])
     ranked_indices = [idx for idx, _ in scored]
 
-    seen = set(ranked_indices)
-    for i in range(len(corpus)):
-        if i not in seen:
-            ranked_indices.append(i)
-
     return ranked_indices, corpus, corpus_ids, corpus_timestamps
 
 
@@ -693,11 +671,6 @@ def build_palace_and_retrieve_full(entry, granularity="session", n_results=50):
     result_ids = results["ids"][0]
     doc_id_to_idx = {f"doc_{i}": i for i in range(len(corpus))}
     ranked_indices = [doc_id_to_idx[rid] for rid in result_ids]
-
-    seen = set(ranked_indices)
-    for i in range(len(corpus)):
-        if i not in seen:
-            ranked_indices.append(i)
 
     return ranked_indices, corpus, corpus_ids, corpus_timestamps
 
@@ -915,10 +888,9 @@ def build_palace_and_retrieve_hybrid_v2(
             n_results=min(n_results, len(top_corpus_full)),
             include=["distances", "metadatas"],
         )
-        # Build final rankings: two-pass top sessions first, then rest
+        # Build final rankings from the second-pass results
         two_pass_order = [top_indices[int(rid.split("_")[1])] for rid in results2["ids"][0]]
-        seen = set(two_pass_order)
-        ranked_indices = two_pass_order + [i for i in range(len(corpus_user)) if i not in seen]
+        ranked_indices = two_pass_order
         return ranked_indices, corpus_user, corpus_ids, corpus_timestamps
 
     # -------------------------------------------------------------------------
@@ -978,11 +950,6 @@ def build_palace_and_retrieve_hybrid_v2(
 
     scored.sort(key=lambda x: x[1])
     ranked_indices = [idx for idx, _ in scored]
-
-    seen = set(ranked_indices)
-    for i in range(len(corpus_user)):
-        if i not in seen:
-            ranked_indices.append(i)
 
     return ranked_indices, corpus_user, corpus_ids, corpus_timestamps
 
@@ -1252,8 +1219,7 @@ def build_palace_and_retrieve_hybrid_v3(
             include=["distances", "metadatas"],
         )
         two_pass_order = [top_indices[int(rid.split("_")[1])] for rid in results2["ids"][0]]
-        seen = set(two_pass_order)
-        ranked_indices = two_pass_order + [i for i in range(len(corpus_user)) if i not in seen]
+        ranked_indices = two_pass_order
         return ranked_indices, corpus_user, corpus_ids, corpus_timestamps
 
     # -------------------------------------------------------------------------
@@ -1327,12 +1293,6 @@ def build_palace_and_retrieve_hybrid_v3(
         if cid not in seen_ids:
             seen_ids.add(cid)
             ranked_indices.append(corpus_id_to_user_idx[cid])
-
-    # Fill in any sessions not yet ranked
-    for i in range(len(corpus_user)):
-        if corpus_ids[i] not in seen_ids:
-            ranked_indices.append(i)
-            seen_ids.add(corpus_ids[i])
 
     return ranked_indices, corpus_user, corpus_ids, corpus_timestamps
 
@@ -1717,10 +1677,6 @@ def build_palace_and_retrieve_hybrid_v4(
             if corpus_ids[idx] not in seen:
                 seen.add(corpus_ids[idx])
                 ranked_indices.append(idx)
-        for i in range(len(corpus_user)):
-            if corpus_ids[i] not in seen:
-                ranked_indices.append(i)
-                seen.add(corpus_ids[i])
         return ranked_indices, corpus_user, corpus_ids, corpus_timestamps
 
     # -------------------------------------------------------------------------
@@ -1796,11 +1752,6 @@ def build_palace_and_retrieve_hybrid_v4(
         if cid not in seen_ids:
             seen_ids.add(cid)
             ranked_indices.append(corpus_id_to_user_idx[cid])
-
-    for i in range(len(corpus_user)):
-        if corpus_ids[i] not in seen_ids:
-            ranked_indices.append(i)
-            seen_ids.add(corpus_ids[i])
 
     return ranked_indices, corpus_user, corpus_ids, corpus_timestamps
 
@@ -2354,12 +2305,6 @@ def build_palace_and_retrieve_palace(
             ranked_indices.append(corpus_id_to_user_idx[cid])
             seen_ids.add(cid)
 
-    # Fill any stragglers
-    for i in range(len(corpus_user)):
-        if corpus_ids[i] not in seen_ids:
-            ranked_indices.append(i)
-            seen_ids.add(corpus_ids[i])
-
     return ranked_indices, corpus_user, corpus_ids, corpus_timestamps
 
 
@@ -2754,11 +2699,6 @@ def build_palace_and_retrieve_diary(
         if cid not in seen_ids and cid in corpus_id_to_user_idx:
             ranked_indices.append(corpus_id_to_user_idx[cid])
             seen_ids.add(cid)
-
-    for i in range(len(corpus_user)):
-        if corpus_ids[i] not in seen_ids:
-            ranked_indices.append(i)
-            seen_ids.add(corpus_ids[i])
 
     return ranked_indices, corpus_user, corpus_ids, corpus_timestamps
 

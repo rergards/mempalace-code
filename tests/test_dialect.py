@@ -5,6 +5,10 @@ Covers plain text compression, entity detection, emotion detection,
 topic extraction, key sentence extraction, zettel encoding, and stats.
 """
 
+import json
+
+import pytest
+
 from mempalace_code.dialect import Dialect
 
 
@@ -155,3 +159,79 @@ class TestDecode:
         assert decoded["header"]["file"] == "001"
         assert decoded["arc"] == "journey"
         assert len(decoded["zettels"]) == 1
+
+
+class TestEntityConfigFormats:
+    """Dialect.from_config accepts the init entities.json and rejects unusable files."""
+
+    def test_init_entities_file_sets_entity_codes(self, tmp_path):
+        config = tmp_path / "entities.json"
+        config.write_text(
+            json.dumps({"people": ["Dana", "Dan", "Eli"], "projects": ["Heron"]}),
+            encoding="utf-8",
+        )
+
+        dialect = Dialect.from_config(str(config))
+
+        assert dialect.entity_codes["Dana"] == "DAN"
+        assert dialect.entity_codes["Dan"] not in {"DAN", "HER", "ELI"}
+        # Known names are matched case-insensitively and only as whole words.
+        summary = dialect.compress("dana met the heron team about delivery dates.")
+        assert summary.startswith("0:DAN+HER|")
+
+    def test_explicit_codes_win_and_skip_names_load(self, tmp_path):
+        config = tmp_path / "entities.json"
+        config.write_text(
+            json.dumps(
+                {"entities": {"Dana": "DNA"}, "people": ["Dana", "Eli"], "skip_names": ["Gandalf"]}
+            ),
+            encoding="utf-8",
+        )
+
+        dialect = Dialect.from_config(str(config))
+
+        assert dialect.entity_codes["Dana"] == "DNA"
+        assert dialect.entity_codes["Eli"] == "ELI"
+        assert dialect.skip_names == ["gandalf"]
+
+    @pytest.mark.parametrize(
+        "payload",
+        [[], {"unrelated": 1}, {"people": "Dana"}, {"entities": {"Dana": 3}}],
+    )
+    def test_unsupported_config_shapes_are_rejected(self, tmp_path, payload):
+        config = tmp_path / "entities.json"
+        config.write_text(json.dumps(payload), encoding="utf-8")
+
+        with pytest.raises(ValueError, match="expected|must"):
+            Dialect.from_config(str(config))
+
+    def test_invalid_json_names_the_position(self, tmp_path):
+        config = tmp_path / "entities.json"
+        config.write_text("{not json", encoding="utf-8")
+
+        with pytest.raises(ValueError, match=r"not valid JSON: .*\(line 1, column 2\)"):
+            Dialect.from_config(str(config))
+
+
+class TestKeySentenceBoundaries:
+    def test_key_quote_keeps_version_numbers_whole(self):
+        dialect = Dialect()
+
+        quote = dialect._extract_key_sentence(
+            "We picked Apache-2.0 because of the patent grant. Other notes follow here."
+        )
+
+        assert quote == "We picked Apache-2.0 because of the patent grant"
+        assert "apache" in dialect._extract_topics("Apache-2.0 Apache-2.0 license")
+        assert "apache-" not in dialect._extract_topics("Apache-2.0 Apache-2.0 license")
+        assert "v1.2.3" in dialect._extract_key_sentence("We decided to pin v1.2.3 for now.")
+
+    def test_long_quote_is_cut_at_a_word_boundary(self):
+        dialect = Dialect()
+        sentence = "We decided to migrate every billing service to the event bus architecture now"
+
+        quote = dialect._extract_key_sentence(sentence)
+
+        assert quote.endswith("...")
+        assert len(quote) <= 55
+        assert quote[:-3].split()[-1] in set(sentence.split())

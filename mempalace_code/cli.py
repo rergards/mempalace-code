@@ -22,8 +22,8 @@ Commands:
     mempalace-code status                      Show what's been filed
     mempalace-code status --summary            Bounded agent-facing status (drawer/wing/room-pair counts + storage)
     mempalace-code health [--json]             Probe palace for fragment corruption
-    mempalace-code cleanup [--older-than-days N] [--unsafe-now] [--json]  Reclaim stale Lance versions
-    mempalace-code repair [--rollback] [--dry-run]  Repair palace (rollback or full rebuild)
+    mempalace-code cleanup [--older-than-days N] [--unsafe-now] [--dry-run] [--json]  Reclaim stale Lance versions
+    mempalace-code repair [--rollback] [--dry-run] [--salvage]  Repair palace (rollback or full rebuild)
     mempalace-code backup [--out FILE]         Snapshot palace to a .tar.gz archive
     mempalace-code restore FILE [--force] [--kg-path PATH]  Restore palace from a .tar.gz archive
     mempalace-code agent-plugin path          Print the installed Agent Plugin directory
@@ -43,7 +43,9 @@ Examples:
 
 import argparse
 import gc
+import shlex
 import sys
+from pathlib import Path
 
 from .cli_commands.agent_plugin import cmd_agent_plugin
 from .cli_commands.alias import cmd_install_alias, install_legacy_alias, main_alias
@@ -61,12 +63,26 @@ from .cli_commands.ingest import (
 from .cli_commands.maintenance import cmd_cleanup, cmd_health, cmd_migrate_storage, cmd_repair
 from .cli_commands.model import cmd_fetch_model, fetch_model
 from .cli_commands.preflight import cmd_preflight
-from .cli_commands.query import cmd_compress, cmd_read, cmd_search, cmd_wakeup
+from .cli_commands.query import (
+    cmd_compress,
+    cmd_read,
+    cmd_search,
+    cmd_wakeup,
+    search_results_count,
+)
 from .cli_commands.update import cmd_update
 from .cli_commands.version_check import cmd_version_check
 from .cli_commands.watch import cmd_watch
 from .cli_commands.wing_migration import cmd_wing_migration
-from .storage import CHROMA_RUNTIME_RETIRED_MESSAGE, ChromaRuntimeRetiredError
+from .config import expand_palace_path
+from .knowledge_graph import KnowledgeGraphUnavailableError
+from .mining.projects import InvalidProjectConfigError
+from .storage import (
+    CHROMA_RUNTIME_RETIRED_MESSAGE,
+    CanonicalModelCacheError,
+    ChromaRuntimeRetiredError,
+    PalaceReadError,
+)
 from .version import __version__
 
 # Re-export for backward compatibility (tests and downstream direct imports).
@@ -89,6 +105,17 @@ def _positive_int(value: str) -> int:
     return v
 
 
+def _non_negative_int(value: str) -> int:
+    """Argparse type that rejects negative integers at parse time."""
+    try:
+        v = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a valid integer")
+    if v < 0:
+        raise argparse.ArgumentTypeError(f"must be >= 0, got {v}")
+    return v
+
+
 def _hoist_palace_before_subcommand(argv: list) -> list:
     """Return argv with --palace VALUE moved before the first subcommand token.
 
@@ -100,13 +127,14 @@ def _hoist_palace_before_subcommand(argv: list) -> list:
     Repeated identical values normalise idempotently (both space and ``=``
     forms).  Conflicting values produce a concise argparse-style error on
     stderr and exit 2 before any dispatch or palace mutation.  A bare
-    ``--palace`` with no following value is left in *rest* so argparse can
-    report a normal bounded parser error (exit 2).  A ``--palace`` whose
-    immediate successor starts with ``-`` is a missing-value error (exit 2)
-    and the successor is never treated as a path.  Tokens at or after the
-    POSIX ``--`` end-of-options sentinel are preserved verbatim and never
-    scanned for ``--palace``; the ``=`` form is always safe for paths that
-    contain hyphens or spaces.
+    ``--palace`` with no following value, and a ``--palace`` whose immediate
+    successor starts with ``-``, are missing-value errors (exit 2); the
+    successor is never treated as a path.  An empty value (``--palace ""``,
+    e.g. from an unset shell variable) is rejected rather than silently
+    meaning the default palace.  Tokens at or after the POSIX ``--``
+    end-of-options sentinel are preserved verbatim and never scanned for
+    ``--palace``; the ``=`` form is always safe for paths that contain
+    hyphens or spaces.
     """
     seen_values: list[str] = []
     rest: list[str] = []
@@ -122,8 +150,8 @@ def _hoist_palace_before_subcommand(argv: list) -> list:
             if val not in seen_values:
                 seen_values.append(val)
             i += 2
-        elif token == "--palace" and i + 1 < len(argv):
-            # Next token is an option flag, not a path value — bounded missing-value error.
+        elif token == "--palace":
+            # Missing value (argv end) or an option flag instead of a path: bounded error.
             sys.stderr.write("error: argument --palace: expected one argument\n")
             raise SystemExit(2)
         elif token.startswith("--palace="):
@@ -138,6 +166,13 @@ def _hoist_palace_before_subcommand(argv: list) -> list:
     if not seen_values:
         return argv
 
+    if any(not value.strip() for value in seen_values):
+        sys.stderr.write(
+            "error: argument --palace: expected a non-empty path "
+            "(is the shell variable holding the palace path unset?)\n"
+        )
+        raise SystemExit(2)
+
     if len(seen_values) > 1:
         sys.stderr.write(
             "error: --palace: conflicting values given: "
@@ -149,12 +184,59 @@ def _hoist_palace_before_subcommand(argv: list) -> list:
     return ["--palace", seen_values[0]] + rest
 
 
-def main():
+def _subcommands(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return dict(action.choices)
+    return {}
+
+
+def _print_topic_help(
+    parser: argparse.ArgumentParser,
+    p_help: argparse.ArgumentParser,
+    p_wing_migration: argparse.ArgumentParser,
+    topic: list[str],
+) -> None:
+    """Print the help of the (sub)command *topic* names, as ``<topic> --help`` would."""
+    current = parser
+    path: list[str] = []
+    for token in topic:
+        if current is p_wing_migration:
+            break
+        choices = _subcommands(current)
+        if token not in choices:
+            if not path:
+                p_help.error(
+                    f"unknown command {token!r}; run 'mempalace-code help' to list commands"
+                )
+            named = " ".join(path)
+            listing = f"run 'mempalace-code help {named}' to list its subcommands"
+            if not choices:
+                listing = f"'{named}' has no subcommands; run 'mempalace-code help {named}'"
+            p_help.error(f"unknown subcommand {token!r} for '{named}'; {listing}")
+        current = choices[token]
+        path.append(token)
+    if current is p_wing_migration:
+        # The operator owns its own parser; its help lists every action.
+        from .wing_migration import main as wing_migration_main
+
+        try:
+            wing_migration_main([*topic[len(path) :], "--help"])
+        except SystemExit as exc:
+            if exc.code not in (0, None):
+                raise
+        return
+    current.print_help()
+
+
+def main(prog: str | None = None):
+    """Run the CLI; ``prog`` overrides the argv[0]-derived command name in help and --version."""
     from ._stdio import configure_windows_stdio
 
     configure_windows_stdio()
 
     parser = argparse.ArgumentParser(
+        prog=prog,
         description="MemPalace — Give your AI a memory. No API key required.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
@@ -169,7 +251,12 @@ def main():
     sub = parser.add_subparsers(dest="command")
 
     # help
-    sub.add_parser("help", help="Show this help message and exit")
+    p_help = sub.add_parser("help", help="Show help for mempalace-code or for one command")
+    p_help.add_argument(
+        "topic",
+        nargs="*",
+        help="Command (and subcommand) to show help for, e.g. 'mine' or 'update status'",
+    )
 
     # init
     p_init = sub.add_parser("init", help="Detect rooms from your folder structure")
@@ -177,12 +264,23 @@ def main():
     p_init.add_argument(
         "--yes",
         action="store_true",
-        help="Backward-compatible flag: accepted but no longer required (init is non-interactive by default)",
+        help=(
+            "Accept detected rooms and entities without prompting "
+            "(init is non-interactive by default; overrides --interactive)"
+        ),
     )
     p_init.add_argument(
         "--interactive",
         action="store_true",
-        help="Prompt to review, edit, or add rooms before saving mempalace.yaml",
+        help="Prompt to review, edit, or add rooms before saving mempalace.yaml (needs a terminal)",
+    )
+    p_init.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Regenerate rooms in an existing mempalace.yaml; keeps its wing and other "
+            "settings and backs the old file up first"
+        ),
     )
     p_init.add_argument(
         "--detect-entities",
@@ -199,20 +297,35 @@ def main():
     # onboarding
     p_onboarding = sub.add_parser(
         "onboarding",
-        help="Guided onboarding: set up people, projects, and wing taxonomy interactively",
+        help=(
+            "Record people and projects (entity registry, AAAK codes), plus reference notes, "
+            "interactively"
+        ),
     )
-    p_onboarding.add_argument("dir", help="Project directory to configure")
+    p_onboarding.add_argument(
+        "dir", help="Directory to scan for more names if you accept the optional scan"
+    )
 
     # mine
     p_mine = sub.add_parser("mine", help="Mine files into the palace")
-    p_mine.add_argument("dir", help="Directory to mine")
+    p_mine.add_argument(
+        "dir", help="Directory to mine (with --mode convos, also one transcript file)"
+    )
     p_mine.add_argument(
         "--mode",
         choices=["projects", "convos"],
         default="projects",
         help="Ingest mode: 'projects' for code/docs (default), 'convos' for chat exports",
     )
-    p_mine.add_argument("--wing", default=None, help="Wing name (default: directory name)")
+    p_mine.add_argument(
+        "--wing",
+        default=None,
+        help=(
+            "Wing name, normalized like 'wing:' in mempalace.yaml (lowercase, spaces to _, "
+            "punctuation dropped; default: 'wing:' in mempalace.yaml, else the "
+            "repository/directory name)"
+        ),
+    )
     p_mine.add_argument(
         "--no-gitignore",
         action="store_true",
@@ -229,22 +342,28 @@ def main():
         default="mempalace",
         help="Your name — recorded on every drawer (default: mempalace)",
     )
-    p_mine.add_argument("--limit", type=int, default=0, help="Max files to process (0 = all)")
+    p_mine.add_argument(
+        "--limit", type=_non_negative_int, default=0, help="Max files to process (0 = all)"
+    )
     p_mine.add_argument(
         "--dry-run", action="store_true", help="Show what would be filed without filing"
     )
     p_mine.add_argument(
         "--full",
         action="store_true",
-        help="Force full rebuild — re-mine all files even if content is unchanged",
+        help=(
+            "Force full rebuild — re-mine all files even if content is unchanged; with "
+            "--mode convos, also remove the drawers of transcripts no longer on disk"
+        ),
     )
     p_mine.add_argument(
         "--extract",
         choices=["exchange", "general"],
         default="exchange",
         help=(
-            "Extraction strategy for convos mode: 'exchange' (default) or 'general' "
-            "(decision, preference, milestone, problem by default)"
+            "Extraction strategy for convos mode: 'exchange' (default, verbatim) or "
+            "'general' (classified excerpts stored next to the exchange drawers: "
+            "decision, preference, milestone, problem by default)"
         ),
     )
     p_mine.add_argument(
@@ -258,13 +377,13 @@ def main():
         dest="spellcheck",
         action="store_true",
         default=None,
-        help="Enable spellcheck for conversation normalization",
+        help="Deprecated no-op: mined text is always stored verbatim (prints a notice)",
     )
     spellcheck_group.add_argument(
         "--no-spellcheck",
         dest="spellcheck",
         action="store_false",
-        help="Disable spellcheck for conversation normalization",
+        help="Deprecated no-op kept for compatibility (spellcheck is always off)",
     )
     p_mine.add_argument(
         "--watch",
@@ -337,23 +456,33 @@ def main():
         ),
     )
     p_search.add_argument(
-        "--results", type=_positive_int, default=5, help="Number of results (minimum 1)"
+        "--results", type=search_results_count, default=5, help="Number of results (1-50)"
     )
-    p_search.add_argument(
+    search_format = p_search.add_mutually_exclusive_group()
+    search_format.add_argument(
         "--compact",
         action="store_true",
         help="Print bounded 300-character previews with read recovery commands",
+    )
+    search_format.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit one JSON object (hits with id, source_file, line_range, similarity, text)",
     )
 
     # read
     p_read = sub.add_parser(
         "read",
-        help="Print stored source lines for a file and line range (requires freshly mined chunks with line metadata)",
+        help=(
+            "Print stored source lines for a file and line range (project files; "
+            "conversation drawers have no line ranges)"
+        ),
     )
     p_read.add_argument(
         "source_file",
         help=(
             "Source file to read — the exact stored path from search output, "
+            "a symlinked or non-normalized spelling of it, "
             "or a unique basename/suffix within the wing (e.g. 'auth.py' or 'src/auth.py'). "
             "macOS /var and /private/var spellings are treated as equivalent."
         ),
@@ -373,26 +502,56 @@ def main():
 
     # compress
     p_compress = sub.add_parser(
-        "compress", help="Lossy structured summarization/abbreviation of drawers via AAAK Dialect"
+        "compress",
+        help=(
+            "Print lossy AAAK Dialect summaries of drawers (read-only: drawers keep their "
+            "verbatim text)"
+        ),
     )
-    p_compress.add_argument("--wing", default=None, help="Wing to compress (default: all wings)")
+    p_compress.add_argument("--wing", default=None, help="Wing to summarize (default: all wings)")
     p_compress.add_argument(
-        "--dry-run", action="store_true", help="Preview compression without storing"
+        "--dry-run",
+        action="store_true",
+        help="Accepted for compatibility; compress never stores anything. With --recover-from, "
+        "preview the recovery without writing",
     )
     p_compress.add_argument(
-        "--config", default=None, help="Entity config JSON (e.g. entities.json)"
+        "--config",
+        default=None,
+        help='Entity config JSON: the {"people": [...], "projects": [...]} entities.json '
+        'written by init --detect-entities, or {"entities": {"Alice": "ALC"}}',
+    )
+    p_compress.add_argument(
+        "--recover-from",
+        default=None,
+        metavar="ARCHIVE",
+        help="Restore the verbatim text of drawers that compress before 1.15.0 overwrote "
+        "with AAAK, from this backup archive (see backup list)",
     )
 
     # wake-up
-    p_wakeup = sub.add_parser("wake-up", help="Show L0 + L1 wake-up context (~600-900 tokens)")
+    p_wakeup = sub.add_parser(
+        "wake-up",
+        help="Print L0 + L1 wake-up context (~600-900 tokens) on stdout; token estimate on stderr",
+    )
     p_wakeup.add_argument("--wing", default=None, help="Wake-up for a specific project/wing")
 
     # split
     p_split = sub.add_parser(
         "split",
         help="Split concatenated transcript mega-files into per-session files (run before mine)",
+        description=(
+            "Split Claude Code terminal transcripts holding several sessions into one file "
+            "per session. Every line is kept. Each split original is renamed to "
+            "<name>.mega_backup next to the source (kept, not mined), also with --output-dir; "
+            "an existing backup is never replaced (<name>.1.mega_backup). A split that fails "
+            "midway removes the files it wrote and leaves the original in place."
+        ),
     )
-    p_split.add_argument("dir", help="Directory containing transcript files")
+    p_split.add_argument(
+        "dir",
+        help="Directory whose top-level .txt files are scanned, or one transcript file",
+    )
     p_split.add_argument(
         "--output-dir",
         default=None,
@@ -488,6 +647,12 @@ def main():
         ),
     )
     p_cleanup.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="List the versions cleanup would remove and the reclaimable bytes; change nothing",
+    )
+    p_cleanup.add_argument(
         "--json",
         action="store_true",
         help="Emit raw JSON result instead of human-readable output",
@@ -496,18 +661,32 @@ def main():
     # repair
     p_repair = sub.add_parser(
         "repair",
-        help="Rebuild palace vector index from stored data (fixes segfaults after corruption)",
+        help=(
+            "Rebuild the palace drawer table from stored data; stops without changes "
+            "if any drawer is unreadable"
+        ),
     )
     p_repair.add_argument(
         "--rollback",
         action="store_true",
-        help="Attempt version rollback to last healthy version before falling back to full rebuild",
+        help=(
+            "Roll back to the most recent healthy version instead of rebuilding; "
+            "a healthy palace is left unchanged (never falls back to a full rebuild)"
+        ),
     )
     p_repair.add_argument(
         "--dry-run",
         action="store_true",
         dest="dry_run",
-        help="With --rollback: show candidate version without restoring",
+        help="With --rollback: show the candidate version and rows that would be lost",
+    )
+    p_repair.add_argument(
+        "--salvage",
+        action="store_true",
+        help=(
+            "Full rebuild only: rebuild from the readable drawers when some are unreadable; "
+            "unreadable drawers stay only in the pre-repair copy"
+        ),
     )
 
     # status
@@ -612,12 +791,14 @@ def main():
         "backup",
         help="Palace backup commands: create, list, schedule",
     )
-    # Top-level --out for back-compat: 'mempalace-code backup --out X' still works
+    # Top-level --out for back-compat: 'mempalace-code backup --out X' still works.
+    # Its own dest lets cmd_backup reject it where it would be ignored or conflict.
     p_backup.add_argument(
         "--out",
+        dest="group_out",
         default=None,
         metavar="FILE",
-        help="Output .tar.gz path (default: <palace_parent>/backups/mempalace_backup_<ts>.tar.gz)",
+        help="Same as 'backup create --out'; only valid with no subcommand or with 'create'",
     )
     backup_sub = p_backup.add_subparsers(dest="backup_command")
 
@@ -630,7 +811,10 @@ def main():
         "--out",
         default=argparse.SUPPRESS,
         metavar="FILE",
-        help="Output .tar.gz path (default: <palace_parent>/backups/<kind_prefix><ts>.tar.gz)",
+        help=(
+            "Output .tar.gz path; never overwritten "
+            "(default: <palace_parent>/backups/<palace_name>/<kind_prefix><ts>.tar.gz)"
+        ),
     )
     p_backup_create.add_argument(
         "--kind",
@@ -649,6 +833,11 @@ def main():
         default=None,
         metavar="PATH",
         help="Include an extra directory in backup discovery (e.g. a legacy CWD backup location)",
+    )
+    p_backup_list.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the archive list as JSON",
     )
 
     # backup schedule
@@ -685,9 +874,8 @@ def main():
         default=None,
         help=(
             "Destination for the restored knowledge-graph SQLite file. "
-            "When --palace is given, defaults to <palace>/knowledge_graph.sqlite3. "
-            "Without --palace, defaults to the global ~/.mempalace/knowledge_graph.sqlite3. "
-            "Use this flag to override either default."
+            "Defaults to <palace>/knowledge_graph.sqlite3 of the selected palace "
+            "(--palace, or the configured palace). Use this flag to override it."
         ),
     )
 
@@ -697,7 +885,7 @@ def main():
         "--out",
         required=True,
         metavar="FILE",
-        help="Output JSONL file path (use '-' for stdout)",
+        help="Output JSONL file path; never overwritten (use '-' for stdout)",
     )
     p_export.add_argument(
         "--only-manual",
@@ -725,7 +913,10 @@ def main():
     p_import.add_argument(
         "--skip-dedup",
         action="store_true",
-        help="Skip duplicate detection (import all records regardless of similarity)",
+        help=(
+            "Skip only the similarity check; records whose id is already stored "
+            "or repeats in the file are still skipped"
+        ),
     )
     p_import.add_argument("--skip-kg", action="store_true", help="Skip KG triple import")
     p_import.add_argument(
@@ -839,9 +1030,13 @@ def main():
             "--json", action="store_true", help="Emit machine-readable JSON"
         )
 
+    # The operator owns its own parser: pass every token, including --help, through
+    # so `wing-migration --help` lists its actions ('+' is never a prefix here).
     p_wing_migration = sub.add_parser(
         "wing-migration",
         help="Run receipt-bound wing migration on disposable or owner-authorized copies",
+        add_help=False,
+        prefix_chars="+",
     )
     p_wing_migration.add_argument(
         "wing_migration_args",
@@ -850,13 +1045,16 @@ def main():
     )
 
     args = parser.parse_args(_hoist_palace_before_subcommand(sys.argv[1:]))
+    if args.palace is not None:
+        # One normalizer for every palace path: '~' and relative paths resolve once here.
+        args.palace = expand_palace_path(args.palace)
 
     if not args.command:
         parser.print_help()
         return
 
     if args.command == "help":
-        parser.print_help()
+        _print_topic_help(parser, p_help, p_wing_migration, list(args.topic or []))
         return
 
     if args.command == "diary" and not args.diary_command:
@@ -935,9 +1133,28 @@ def main():
 
     try:
         dispatch[args.command](args)
-    except ChromaRuntimeRetiredError as exc:
+    except (
+        ChromaRuntimeRetiredError,
+        CanonicalModelCacheError,
+        PalaceReadError,
+        KnowledgeGraphUnavailableError,
+    ) as exc:
+        # Each message already names its recovery command; a traceback adds nothing.
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
+    except InvalidProjectConfigError as exc:
+        # A malformed mempalace.yaml is an expected user error, not a crash.
+        print(f"Error: {exc}", file=sys.stderr)
+        print(
+            f"  Next: fix {exc.config_path}, or move it aside and regenerate it with: "
+            f"mempalace-code init {shlex.quote(str(Path(exc.config_path).parent))}",
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from None
+    except KeyboardInterrupt:
+        # Commands flush and report their own partial progress before re-raising.
+        print("\n  Stopped by Ctrl-C (exit 130).", file=sys.stderr)
+        raise SystemExit(130) from None
 
     # Automatic check runs after the command succeeds; skipped on SystemExit.
     if (
@@ -951,10 +1168,11 @@ def main():
         )
 
 
-def _one_shot_main():
+def _one_shot_main(prog: str | None = None):
     """Run one CLI process and collect unreachable native handles before shutdown."""
     try:
-        return main()
+        # Plain main() keeps replaced or wrapped zero-argument entry points working.
+        return main(prog=prog) if prog is not None else main()
     finally:
         gc.collect()
 

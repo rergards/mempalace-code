@@ -1,0 +1,653 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "GREPTILE-MP-0822CD3BBD7E",
+      "version": "v1:b804d9483fec736113de5002ea10a81c81486b6c1fc7b8812bcc0726965b8d46",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Проверить: Certificate checks are disabled\n\nFinding 0822cd3bbd7e; assessment source-confirmed; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md\nHistorical ConvoMem benchmark disables default HTTPS verification. Scope is benchmark downloads, not production app HTTPS.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/convomem_bench.py; snapshot line 39. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6fd2ae1c14003edfef73abbff86103bf8a2df785307cddb86809427b5ac7b520",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "benchmarks/convomem_bench.py"
+          },
+          {
+            "type": "file",
+            "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md"
+          }
+        ],
+        "exclusions": [
+          "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+          "Other repositories and architecture or ownership boundary changes without owner approval.",
+          "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+          "Unrelated implementation, dependencies, backlog tasks or worksets."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+          "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+        },
+        {
+          "id": "A02",
+          "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+          "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+        },
+        {
+          "id": "A03",
+          "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+          "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+        "result": "Verified outcome: fixed. Removed the process-wide unverified HTTPS context; mocked downloads preserve default TLS verification without network access. Change/evidence revision: b5501b3cef3bf6b242c085352ffc445c39566354. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e. No live palace, push or release mutation.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A03",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-01T23:51:53.652185Z"
+      },
+      "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+      "ready": false,
+      "created_at": "2026-10-01T22:36:01.134413Z",
+      "updated_at": "2026-10-01T23:51:53.652185Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-0822CD3BBD7E",
+          "version": "v1:831fab0d6297e9d2b4af0bfe85f5d06637e88d77e5d24ffc3362a74c68920cd1",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Проверить: Certificate checks are disabled\n\nFinding 0822cd3bbd7e; assessment source-confirmed; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md\nHistorical ConvoMem benchmark disables default HTTPS verification. Scope is benchmark downloads, not production app HTTPS.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/convomem_bench.py; snapshot line 39. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6fd2ae1c14003edfef73abbff86103bf8a2df785307cddb86809427b5ac7b520",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "benchmarks/convomem_bench.py"
+              },
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+              "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+            },
+            {
+              "id": "A02",
+              "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A03",
+              "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+              "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+          "ready": false,
+          "created_at": "2026-10-01T22:36:01.134413Z",
+          "updated_at": "2026-10-01T22:36:01.134413Z"
+        },
+        "operation": {
+          "id": "op_9cb9f528fe1d12dd7466b5038767bd95",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-0822cd3bbd7e-create-v1",
+          "kind": "create",
+          "payload": {
+            "id": "GREPTILE-MP-0822CD3BBD7E",
+            "outcome": "Проверить: Certificate checks are disabled\n\nFinding 0822cd3bbd7e; assessment source-confirmed; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md\nHistorical ConvoMem benchmark disables default HTTPS verification. Scope is benchmark downloads, not production app HTTPS.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/convomem_bench.py; snapshot line 39. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6fd2ae1c14003edfef73abbff86103bf8a2df785307cddb86809427b5ac7b520",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "benchmarks/convomem_bench.py"
+                }
+              ],
+              "exclusions": [
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": null
+          },
+          "request_hash": "0bebc4ad4f72247f4d7f243bed013a30c02776d017e759d20193a9d318652e52",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-0822CD3BBD7E",
+            "version": "v1:831fab0d6297e9d2b4af0bfe85f5d06637e88d77e5d24ffc3362a74c68920cd1",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Проверить: Certificate checks are disabled\n\nFinding 0822cd3bbd7e; assessment source-confirmed; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md\nHistorical ConvoMem benchmark disables default HTTPS verification. Scope is benchmark downloads, not production app HTTPS.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/convomem_bench.py; snapshot line 39. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6fd2ae1c14003edfef73abbff86103bf8a2df785307cddb86809427b5ac7b520",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "benchmarks/convomem_bench.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+            "ready": false,
+            "created_at": "2026-10-01T22:36:01.134413Z",
+            "updated_at": "2026-10-01T22:36:01.134413Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_af0e7de399e8e4f93d596e65dbb6c559",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-0822CD3BBD7E",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:831fab0d6297e9d2b4af0bfe85f5d06637e88d77e5d24ffc3362a74c68920cd1",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-0822CD3BBD7E"
+          },
+          "created_at": "2026-10-01T22:36:01.134413Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_ab8a91b4085806b61991e9f253cbc46b",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-0822CD3BBD7E",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:624c98248224e4452b51e3f3122624d27b7f55d0338088daa61c95c116238b83",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-0822CD3BBD7E"
+            },
+            "created_at": "2026-10-01T22:36:01.278227Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-0822CD3BBD7E",
+          "version": "v1:624c98248224e4452b51e3f3122624d27b7f55d0338088daa61c95c116238b83",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Проверить: Certificate checks are disabled\n\nFinding 0822cd3bbd7e; assessment source-confirmed; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md\nHistorical ConvoMem benchmark disables default HTTPS verification. Scope is benchmark downloads, not production app HTTPS.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/convomem_bench.py; snapshot line 39. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6fd2ae1c14003edfef73abbff86103bf8a2df785307cddb86809427b5ac7b520",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "benchmarks/convomem_bench.py"
+              },
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+              "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+            },
+            {
+              "id": "A02",
+              "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A03",
+              "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+              "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+          "ready": false,
+          "created_at": "2026-10-01T22:36:01.134413Z",
+          "updated_at": "2026-10-01T22:36:01.278227Z"
+        },
+        "operation": {
+          "id": "op_1df060499233ec65be5a82379de978bc",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-0822cd3bbd7e-open-v1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:831fab0d6297e9d2b4af0bfe85f5d06637e88d77e5d24ffc3362a74c68920cd1",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "c468832cd36cfd56b11a21569935faf1ff5d0a4aef4a389f56720cd44ecddfd9",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-0822CD3BBD7E",
+            "version": "v1:624c98248224e4452b51e3f3122624d27b7f55d0338088daa61c95c116238b83",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Проверить: Certificate checks are disabled\n\nFinding 0822cd3bbd7e; assessment source-confirmed; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md\nHistorical ConvoMem benchmark disables default HTTPS verification. Scope is benchmark downloads, not production app HTTPS.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/convomem_bench.py; snapshot line 39. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6fd2ae1c14003edfef73abbff86103bf8a2df785307cddb86809427b5ac7b520",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "benchmarks/convomem_bench.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+            "ready": true,
+            "created_at": "2026-10-01T22:36:01.134413Z",
+            "updated_at": "2026-10-01T22:36:01.278227Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_f9e7cb1b4a3614f0373478f42cc93442",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-0822CD3BBD7E",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:624c98248224e4452b51e3f3122624d27b7f55d0338088daa61c95c116238b83",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-0822CD3BBD7E"
+          },
+          "created_at": "2026-10-01T22:36:01.278227Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_545c2570d959b0925c03f5dd2e7e2be5",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-0822CD3BBD7E",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:b804d9483fec736113de5002ea10a81c81486b6c1fc7b8812bcc0726965b8d46",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-0822CD3BBD7E"
+            },
+            "created_at": "2026-10-01T23:51:53.652185Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-0822CD3BBD7E",
+          "version": "v1:b804d9483fec736113de5002ea10a81c81486b6c1fc7b8812bcc0726965b8d46",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Проверить: Certificate checks are disabled\n\nFinding 0822cd3bbd7e; assessment source-confirmed; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md\nHistorical ConvoMem benchmark disables default HTTPS verification. Scope is benchmark downloads, not production app HTTPS.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/convomem_bench.py; snapshot line 39. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6fd2ae1c14003edfef73abbff86103bf8a2df785307cddb86809427b5ac7b520",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "benchmarks/convomem_bench.py"
+              },
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+              "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+            },
+            {
+              "id": "A02",
+              "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A03",
+              "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+              "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+            "result": "Verified outcome: fixed. Removed the process-wide unverified HTTPS context; mocked downloads preserve default TLS verification without network access. Change/evidence revision: b5501b3cef3bf6b242c085352ffc445c39566354. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-01T23:51:53.652185Z"
+          },
+          "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+          "ready": false,
+          "created_at": "2026-10-01T22:36:01.134413Z",
+          "updated_at": "2026-10-01T23:51:53.652185Z"
+        },
+        "operation": {
+          "id": "op_d07c35dc8809afde120854e262bfc250",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-0822cd3bbd7e-root-complete-v1",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:624c98248224e4452b51e3f3122624d27b7f55d0338088daa61c95c116238b83",
+            "expected_revision": 2,
+            "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+            "result": "Verified outcome: fixed. Removed the process-wide unverified HTTPS context; mocked downloads preserve default TLS verification without network access. Change/evidence revision: b5501b3cef3bf6b242c085352ffc445c39566354. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "f5fc6d88c9d19e87fdd7ca444b5cba6da0b4dbcd61e8591fbcd90d22598db447",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-0822CD3BBD7E",
+            "version": "v1:b804d9483fec736113de5002ea10a81c81486b6c1fc7b8812bcc0726965b8d46",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Проверить: Certificate checks are disabled\n\nFinding 0822cd3bbd7e; assessment source-confirmed; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md\nHistorical ConvoMem benchmark disables default HTTPS verification. Scope is benchmark downloads, not production app HTTPS.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/convomem_bench.py; snapshot line 39. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6fd2ae1c14003edfef73abbff86103bf8a2df785307cddb86809427b5ac7b520",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "benchmarks/convomem_bench.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-0822CD3BBD7E.md"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+              "result": "Verified outcome: fixed. Removed the process-wide unverified HTTPS context; mocked downloads preserve default TLS verification without network access. Change/evidence revision: b5501b3cef3bf6b242c085352ffc445c39566354. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e. No live palace, push or release mutation.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A03",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#0822cd3bbd7e",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-01T23:51:53.652185Z"
+            },
+            "contract_digest": "sha256:aff1e192039eb11377903140aace18e7543f780595acb1e7201afb5c3575dc31",
+            "ready": false,
+            "created_at": "2026-10-01T22:36:01.134413Z",
+            "updated_at": "2026-10-01T23:51:53.652185Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_da3761ea658c335b175e5dfe9d130023",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-0822CD3BBD7E",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:b804d9483fec736113de5002ea10a81c81486b6c1fc7b8812bcc0726965b8d46",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-0822CD3BBD7E"
+          },
+          "created_at": "2026-10-01T23:51:53.652185Z"
+        }
+      }
+    ],
+    "seal": "544649a4bbf778672048b69f3e9fe0197451257d3d301f915b7183e5aa5936b0"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "GREPTILE-MP-0822CD3BBD7E",
+    "head": "wf2:be6e202a8c7917a00e912ed016b8ff91201eaad2fc37ad264de9cfe9cf59ade5",
+    "nodes": [
+      {
+        "version": "wf2:be6e202a8c7917a00e912ed016b8ff91201eaad2fc37ad264de9cfe9cf59ade5",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-greptile-20261002",
+        "request_id": "greptile-20261002-root-0822cd3bbd7e-plan-v1",
+        "request_hash": "dd42ed6c5c7153693e5708e55dd29c5c2c5ca6457e7a53c6127056a39378194b",
+        "payload": {
+          "request_id": "greptile-20261002-root-0822cd3bbd7e-plan-v1",
+          "id": "GREPTILE-MP-0822CD3BBD7E",
+          "expected_planning_version": "unplanned",
+          "reason": "Authorized root-main intake of the same nineteen accepted finding contracts; fixes ordered before bounded verification work.",
+          "priority": "P2",
+          "order": 13
+        },
+        "state": {
+          "order": 13,
+          "priority": "P2",
+          "required": true,
+          "version": "wf2:be6e202a8c7917a00e912ed016b8ff91201eaad2fc37ad264de9cfe9cf59ade5"
+        },
+        "created_at": "2026-10-01T22:36:01.422461Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_be6e202a8c7917a00e912ed016b8ff91201eaad2fc37ad264de9cfe9cf59ade5",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-0822CD3BBD7E",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:be6e202a8c7917a00e912ed016b8ff91201eaad2fc37ad264de9cfe9cf59ade5",
+            "data": {
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-0822CD3BBD7E",
+              "subject_id": "GREPTILE-MP-0822CD3BBD7E",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T22:36:01.422461Z"
+          }
+        ]
+      }
+    ],
+    "seal": "b4524986ca5b919a22b14cb815ba544029461a7819482a1040b79b559b17f50c"
+  },
+  "seal": "872884de89842a082cddce54d3bbf28924bdd80a2469c6440ca13f86192cceef"
+}

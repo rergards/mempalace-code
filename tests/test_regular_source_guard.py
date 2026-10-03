@@ -258,8 +258,9 @@ def _project_marker_classification_worker(parent: str, root_names: list[str], re
                 name: classify_project_root(parent_path / name) for name in root_names
             },
             "projects": detect_projects(parent),
+            # The only valid project has no git metadata, so it is watched on save.
             "schedule": render_watch_schedule(
-                parent, "linux", mempalace_bin="/usr/bin/mempalace-code"
+                parent, "linux", mempalace_bin="/usr/bin/mempalace-code", on_save=True
             ),
         }
     )
@@ -501,6 +502,32 @@ def test_scan_discovery_rejects_non_regular_sources(tmp_path, capsys):
     assert skipped.count("not a regular file") >= 5
 
 
+def test_source_named_directories_are_traversed_but_directory_symlinks_are_not(tmp_path):
+    project = tmp_path / "project"
+    expected = []
+    for dirname in ("charts.js", "notes.py"):
+        directory = project / dirname
+        directory.mkdir(parents=True)
+        source = directory / "child.py"
+        source.write_text("print('ordinary directory child')\n", encoding="utf-8")
+        expected.append(source)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "hidden.py").write_text("print('outside project')\n", encoding="utf-8")
+    linked = project / "linked.js"
+    linked.symlink_to(outside, target_is_directory=True)
+    diagnostics = []
+
+    found = scan_project(str(project), symlink_diagnostics=diagnostics)
+
+    assert set(found) == set(expected)
+    assert {item["path"]: item["reason"] for item in diagnostics} == {
+        str(project / "charts.js"): "directory",
+        str(project / "notes.py"): "directory",
+        str(linked): "symlink",
+    }
+
+
 def test_detect_projects_rejects_non_regular_git_marker_without_blocking(tmp_path):
     _require_fifo()
     unsafe = tmp_path / "unsafe"
@@ -559,7 +586,8 @@ def test_project_marker_classification_rejects_non_regular_nodes_without_blockin
     assert result["projects"] == [
         {"path": str(valid), "markers": ["pyproject.toml"], "initialized": True}
     ]
-    assert result["schedule"].startswith("@reboot /usr/bin/mempalace-code watch ")
+    assert result["schedule"].startswith("@reboot ")
+    assert " /usr/bin/mempalace-code watch " in result["schedule"]
 
 
 def test_direct_readers_non_regular_hard_timeout(tmp_path):

@@ -34,6 +34,7 @@ import json
 import os
 import pwd
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -93,9 +94,15 @@ UPDATE_STATUS_RECOVERY_COMMAND = "mempalace-code update status --json"
 LAUNCHD_WATCH_LABEL = "com.mempalace.watch"
 # The disposable contour deliberately runs under a HOME that is not the effective
 # uid's passwd home, so the macOS watcher adapter must fail closed before launchd.
+# Its recovery names the passwd home, so a rerun with that HOME succeeds.
 DARWIN_DISPOSABLE_WATCHER_DETAIL = (
     "watcher discovery unavailable: HOME does not match the effective uid passwd "
-    f"directory; recovery: {UPDATE_STATUS_RECOVERY_COMMAND}"
+    "directory; recovery: rerun with HOME set to the account home: "
+    f"HOME={shlex.quote(pwd.getpwuid(os.geteuid()).pw_dir)} {UPDATE_STATUS_RECOVERY_COMMAND}"
+)
+# `update apply` refuses a plain venv before any watcher precondition.
+AMBIGUOUS_VENV_REFUSAL = (
+    "ambiguous virtual environment; supported installers are uv tool, pipx, and bootstrap venv"
 )
 _FORBIDDEN_UPDATE_DIAGNOSTICS = (
     "FileNotFoundError",
@@ -396,7 +403,13 @@ def _env_with_script_dir(script_dir: Path, base: dict[str, str] | None = None) -
     return env
 
 
-def _isolate_probe_state(env: dict[str, str], root: Path, script_dir: Path) -> dict[str, str]:
+def _isolate_probe_state(
+    env: dict[str, str],
+    root: Path,
+    script_dir: Path,
+    *,
+    manager: tuple[str, str] | None = None,
+) -> dict[str, str]:
     """Confine all user and tool state while retaining system tools needed by installers."""
     isolated = dict(env)
     state_dirs = {
@@ -412,7 +425,15 @@ def _isolate_probe_state(env: dict[str, str], root: Path, script_dir: Path) -> d
     for name, path in state_dirs.items():
         path.mkdir(parents=True, exist_ok=True)
         isolated[name] = str(path)
-    isolated["PATH"] = os.pathsep.join((str(script_dir), os.defpath))
+    paths = [str(script_dir)]
+    if manager is not None:
+        name, executable = manager
+        manager_dir = root / "selected-manager"
+        manager_dir.mkdir()
+        (manager_dir / name).symlink_to(Path(executable).resolve())
+        paths.append(str(manager_dir))
+    paths.append(os.defpath)
+    isolated["PATH"] = os.pathsep.join(paths)
     return isolated
 
 
@@ -991,13 +1012,22 @@ def _probe_recovery_refusals(
             payload = json.loads(out)
         except json.JSONDecodeError:
             payload = None
-        expected = f"mempalace-code {label} --yes --json"
+        # Without systemd-user the scheduler never offers `--yes`; it reports the boundary.
+        platform_refusal = label.startswith("update scheduler") and not sys.platform.startswith(
+            "linux"
+        )
+        expected_stage = "unsupported-platform" if platform_refusal else "confirmation"
+        expected = (
+            UPDATE_STATUS_RECOVERY_COMMAND
+            if platform_refusal
+            else f"mempalace-code {label} --yes --json"
+        )
         if (
             rc != 2
             or err != ""
             or not isinstance(payload, dict)
             or payload.get("ok") is not False
-            or payload.get("stage") != "confirmation"
+            or payload.get("stage") != expected_stage
             or payload.get("exit_code") != 2
             or payload.get("recovery_command") != expected
         ):
@@ -1024,6 +1054,8 @@ def _probe_platform_update_boundaries(
     probe_cwd: str,
     run_subprocess: RunSubprocess,
     env: dict[str, str],
+    *,
+    installer_supported: bool = True,
 ) -> SurfaceResult:
     """Prove both update boundaries on an installed non-Linux host.
 
@@ -1071,7 +1103,7 @@ def _probe_platform_update_boundaries(
         or not isinstance(status, dict)
         or status.get("ok") is not True
         or status.get("stage") != "status"
-        or status.get("manual_update_supported") is not manual_supported
+        or status.get("manual_update_supported") is not (manual_supported and installer_supported)
         or status.get("eligible") is not False
         or not isinstance(status.get("installation"), dict)
         or not isinstance(status.get("provenance"), dict)
@@ -1115,6 +1147,8 @@ def _probe_platform_update_boundaries(
     before_mutations = _snapshot_mutable_state(env)
     manual_stage = "preflight" if manual_supported else "unsupported-platform"
     manual_detail = DARWIN_DISPOSABLE_WATCHER_DETAIL if manual_supported else manual_message
+    # A plain venv is refused as an installer before the watcher, naming its pip upgrade.
+    installer_refusal = manual_supported and not installer_supported
     manual_payload_fields: dict[str, object] = {} if manual_supported else manual_fields
     actions: tuple[tuple[str, list[str], str, str, dict[str, object]], ...] = (
         (
@@ -1145,6 +1179,57 @@ def _probe_platform_update_boundaries(
             payload = json.loads(out)
         except json.JSONDecodeError:
             payload = None
+        text = payload.get("message") if isinstance(payload, dict) else None
+        if installer_refusal and label == "manual update apply":
+            installation = status["installation"]
+            provenance = status["provenance"]
+            cli = installation.get("cli")
+            target = provenance.get("target_version")
+            reason = provenance.get("reason")
+            expected_recovery = None
+            recovery_field = "manual_upgrade_command" if target else "manual_upgrade_note"
+            other_field = "manual_upgrade_note" if target else "manual_upgrade_command"
+            if (
+                target
+                and isinstance(target, str)
+                and re.fullmatch(r"[0-9][A-Za-z0-9.!+_-]*", target)
+            ):
+                if (
+                    isinstance(cli, list)
+                    and len(cli) == 3
+                    and isinstance(cli[0], str)
+                    and Path(cli[0]).is_absolute()
+                    and cli[1:] == ["-m", MODULE_NAME]
+                ):
+                    expected_recovery = (
+                        f'"{cli[0]}" -m pip install --upgrade "{DEFAULT_PACKAGE}=={target}"'
+                    )
+            elif target is None and isinstance(reason, str) and reason:
+                expected_recovery = (
+                    f"no newer compatible release to upgrade this pip install to ({reason}); "
+                    "check again with `mempalace-code version-check --check-now`"
+                )
+            recovery_ok = (
+                isinstance(payload, dict)
+                and installation.get("kind") == "unsupported"
+                and installation.get("supported") is False
+                and installation.get("reason") == AMBIGUOUS_VENV_REFUSAL
+                and payload.get("installation") == installation
+                and expected_recovery is not None
+                and payload.get(recovery_field) == expected_recovery
+                and status.get(recovery_field) == expected_recovery
+                and other_field not in payload
+                and other_field not in status
+            )
+            suffix = (
+                f"upgrade this ordinary pip install yourself: {expected_recovery}"
+                if target
+                else expected_recovery
+            )
+            message_ok = text == f"{AMBIGUOUS_VENV_REFUSAL}; {suffix}"
+        else:
+            message_ok = text == message
+            recovery_ok = UPDATE_STATUS_RECOVERY_COMMAND in out
         if (
             rc != 2
             or err != ""
@@ -1152,9 +1237,9 @@ def _probe_platform_update_boundaries(
             or payload.get("ok") is not False
             or payload.get("stage") != stage
             or payload.get("exit_code") != 2
-            or payload.get("message") != message
+            or not message_ok
             or any(payload.get(key) != value for key, value in fields.items())
-            or UPDATE_STATUS_RECOVERY_COMMAND not in out
+            or not recovery_ok
             or any(marker in out for marker in _FORBIDDEN_UPDATE_DIAGNOSTICS)
         ):
             return fail(f"confirmed {label} did not return its exact refusal contract")
@@ -1866,7 +1951,7 @@ def probe_alias_provenance(
         installer_env["PATH"] = os.pathsep.join((str(conflict_bin), str(installer_bin)))
 
         rc, out, err = run_subprocess(
-            [str(installer_launcher)],
+            [str(installer_launcher), "--yes"],
             env=installer_env,
             cwd=probe_cwd,
         )
@@ -2057,6 +2142,7 @@ def _append_recovery_safety(
     state_root: Path,
     run_subprocess: RunSubprocess,
     env: dict[str, str],
+    installer_supported: bool = True,
 ) -> None:
     resolved_console = Path(console_bin).resolve()
     if not _path_is_relative_to(resolved_console, state_root):
@@ -2081,7 +2167,13 @@ def _append_recovery_safety(
     surfaces.append(_probe_recovery_refusals(console_bin, probe_cwd, run_subprocess, env))
     if not sys.platform.startswith("linux"):
         surfaces.append(
-            _probe_platform_update_boundaries(console_bin, probe_cwd, run_subprocess, env)
+            _probe_platform_update_boundaries(
+                console_bin,
+                probe_cwd,
+                run_subprocess,
+                env,
+                installer_supported=installer_supported,
+            )
         )
     surfaces.append(
         _probe_version_check_no_network(
@@ -2176,6 +2268,7 @@ def run_venv_smoke(
                 state_root=tmp_root,
                 run_subprocess=run_subprocess,
                 env=probe_env,
+                installer_supported=False,
             )
         return evaluate_smoke(surfaces, package, install_spec, INSTALLER_VENV)
 
@@ -2290,8 +2383,6 @@ def run_pipx_smoke(
         env = _credential_free_env()
         env["PIPX_HOME"] = str(pipx_home)
         env["PIPX_BIN_DIR"] = str(pipx_bin)
-        env = _isolate_probe_state(env, tmp_root, pipx_bin)
-
         pipx_exe = find_pipx_executable()
         if pipx_exe is None:
             surfaces = [
@@ -2303,6 +2394,7 @@ def run_pipx_smoke(
             ]
             return SmokeResult(False, None, INSTALLER_PIPX, install_spec, surfaces, [])
 
+        env = _isolate_probe_state(env, tmp_root, pipx_bin, manager=("pipx", pipx_exe))
         rc, out, err = run_subprocess([pipx_exe, "install", install_spec], env=env)
         if rc != 0:
             detail = sanitize((err or out).strip()) or f"pipx install exited {rc}"
@@ -2378,13 +2470,12 @@ def run_uv_tool_smoke(
         env["UV_TOOL_DIR"] = str(tool_dir)
         env["UV_TOOL_BIN_DIR"] = str(bin_dir)
         env["UV_CACHE_DIR"] = str(cache_dir)
-        env = _isolate_probe_state(env, tmp_root, bin_dir)
-
         uv_exe = find_uv_executable()
         if uv_exe is None:
             surfaces = [SurfaceResult(SURFACE_INSTALL, STATUS_ERROR, "uv not found on PATH")]
             return SmokeResult(False, None, INSTALLER_UV_TOOL, install_spec, surfaces, [])
 
+        env = _isolate_probe_state(env, tmp_root, bin_dir, manager=("uv", uv_exe))
         rc, out, err = run_subprocess([uv_exe, "tool", "install", "--force", install_spec], env=env)
         if rc != 0:
             detail = sanitize((err or out).strip()) or f"uv tool install exited {rc}"

@@ -518,8 +518,15 @@ def test_verification_commands_match_verify_skill():
         encoding="utf-8"
     )
     commands = sc.verification_commands()
+    guard = _load_module_from_path("scorecard_docs_guard", ROOT / "scripts" / "docs_drift_guard.py")
+    assert f"```bash\n{guard.VERIFY_BASELINE_BLOCK}\n```" in instructions
+    assert guard.VERIFY_CHANGED_RANGE_COMMAND in instructions
+    template = next(row["command"] for row in commands if row["name"] == "gitleaks_changed_range")
+    assert template == guard.VERIFY_CHANGED_RANGE_COMMAND.replace('"$BASELINE"', "BASE")
+    # Only the accepted executable binding is normalized; all other gates stay literal.
+    normalized = instructions.replace(guard.VERIFY_CHANGED_RANGE_COMMAND, template)
     for row in commands:
-        assert row["command"] in instructions, (
+        assert row["command"] in normalized, (
             f"verification command not in /verify verbatim: {row['command']!r}"
         )
     source = (ROOT / "scripts" / "quality_scorecard.py").read_text(encoding="utf-8")

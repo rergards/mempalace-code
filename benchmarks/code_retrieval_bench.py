@@ -666,7 +666,7 @@ def mine_with_miner(repo_dir: Path, palace_path: Path, mode: str):
             )
 
     strategies = _chunker_strategies(store)
-    tree_sitter_available = "treesitter_v1" in strategies
+    tree_sitter_available = mining_chunkers.STRATEGY_TREESITTER in strategies
     return (
         store,
         total,

@@ -45,11 +45,11 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
   ✓ [   1/6] Makefile                                           +1
   ✓ [   2/6] config.yaml                                        +1
   ✓ [   3/6] architecture.md                                    +1
-  ✓ [   4/6] auth.py                                            +1
-  ✓ [   5/6] models.py                                          +1
-  ✓ [   6/6] calculator.py                                      +1
+  ✓ [   4/6] auth.py                                            +4
+  ✓ [   5/6] models.py                                          +5
+  ✓ [   6/6] calculator.py                                      +6
   >> Embedding batch 1 (<COUNT> chunks)... done (<TIMING>)
-  >> Architecture: 7 KG triples emitted
+  >> Knowledge graph: 8 file facts extracted, 7 architecture facts (15 new, 0 expired)
   >> Backing up before optimize...
   >> Optimizing storage... done (<TIMING>)
 
@@ -57,7 +57,7 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
   Done.
   Files processed: 6
   Files skipped (already filed): 0
-  Drawers filed: 6
+  Drawers filed: 18
   Time: <TIMING>
 
   By room:
@@ -65,7 +65,7 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
     config               1 files
     docs                 1 files
 
-  Next: mempalace-code search "what you're looking for"
+  Next: mempalace-code --palace <PALACE_DIR> search 'what you are looking for'
 =======================================================
 ```
 
@@ -77,9 +77,9 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 **Expected file in top-3**: `auth.py`
 
 **Top hits:**
-- `<FIXTURE_DIR>/src/auth.py` — `hash_password` (sim=0.15)
-- `<FIXTURE_DIR>/src/models.py` — `serialize_user` (sim=-0.21)
-- `<FIXTURE_DIR>/docs/architecture.md` (sim=-0.73)
+- `<FIXTURE_DIR>/src/auth.py` — `hash_password` (sim=0.59)
+- `<FIXTURE_DIR>/src/auth.py` — `verify_password` (sim=0.5)
+- `<FIXTURE_DIR>/src/models.py` — `User` (sim=0.36)
 
 <details><summary>Full CLI output</summary>
 
@@ -92,7 +92,8 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 
   [1] calcdemo / general
       Source: <FIXTURE_DIR>/src/auth.py
-      Match:  0.147
+      Match:  0.59
+      Lines:  1-20
 
       """Authentication utilities: password hashing, token generation and validation."""
 
@@ -101,6 +102,7 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
       import secrets
       import time
       from typing import Optional
+
 
       def hash_password(password: str, salt: Optional[str] = None) -> tuple:
           """
@@ -114,6 +116,12 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
           return dk.hex(), salt
 
+  ────────────────────────────────────────────────────────
+  [2] calcdemo / general
+      Source: <FIXTURE_DIR>/src/auth.py
+      Match:  0.496
+      Lines:  23-30
+
       def verify_password(password: str, hashed: str, salt: str) -> bool:
           """
           Verify a password against its stored hash and salt.
@@ -123,48 +131,18 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           expected, _ = hash_password(password, salt)
           return hmac.compare_digest(expected, hashed)
 
-      def generate_token(user_id: int, secret: str, expires_in: int = 3600) -> str:
-          """
-          Generate a signed authentication token for a user.
-
-          Encodes user_id and expiry timestamp; signs with HMAC-SHA256.
-          """
-          expiry = int(time.time()) + expires_in
-          payload = f"{user_id}:{expiry}"
-          sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
-          return f"{payload}:{sig}"
-
-      def validate_token(token: str, secret: str) -> Optional[int]:
-          """
-          Validate an authentication token; return user_id if valid, None otherwise.
-
-          Returns None when the token is expired or carries an invalid HMAC signature.
-          """
-          try:
-              parts = token.split(":")
-              if len(parts) != 3:
-                  return None
-              user_id_str, expiry_str, sig = parts
-              payload = f"{user_id_str}:{expiry_str}"
-              expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
-              if not hmac.compare_digest(sig, expected):
-                  return None
-              if int(expiry_str) < int(time.time()):
-                  return None
-              return int(user_id_str)
-          except (ValueError, KeyError):
-              return None
-
   ────────────────────────────────────────────────────────
-  [2] calcdemo / general
+  [3] calcdemo / general
       Source: <FIXTURE_DIR>/src/models.py
-      Match:  -0.211
+      Match:  0.356
+      Lines:  1-17
 
       """Data models: User, Product, Order — and serialization helpers."""
 
       import json
       from dataclasses import dataclass, field
       from typing import Optional
+
 
       @dataclass
       class User:
@@ -177,25 +155,11 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           salt: str = ""
           is_active: bool = True
 
-      @dataclass
-      class Product:
-          """A product in the catalog."""
-
-          product_id: int
-          name: str
-          price: float
-          stock: int = 0
-          category: str = "general"
-
-      @dataclass
-      class Order:
-          """An order placed by a user."""
-
-          order_id: int
-          user_id: int
-          items: list = field(default_factory=list)
-          total: float = 0.0
-          status: str = "pending"
+  ────────────────────────────────────────────────────────
+  [4] calcdemo / general
+      Source: <FIXTURE_DIR>/src/models.py
+      Match:  0.302
+      Lines:  42-55
 
       def serialize_user(user: User) -> str:
           """
@@ -212,132 +176,22 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           }
           return json.dumps(safe_dict)
 
-      def deserialize_user(data: str) -> User:
-          """Deserialize a JSON string into a User dataclass."""
-          obj = json.loads(data)
-          return User(
-              user_id=obj["user_id"],
-              username=obj["username"],
-              email=obj["email"],
-              is_active=obj.get("is_active", True),
-          )
-
-  ────────────────────────────────────────────────────────
-  [3] calcdemo / docs
-      Source: <FIXTURE_DIR>/docs/architecture.md
-      Match:  -0.731
-
-      # System Architecture
-
-      The calcdemo application is a microservices system with three core layers.
-
-      ## API Gateway
-
-      The API gateway handles all incoming HTTP requests and routes them to the
-      appropriate backend service. It enforces authentication, rate limiting, and
-      request validation before forwarding to downstream services.
-
-      Key responsibilities:
-      - Route requests to auth-service, calculator-service, or catalog-service
-      - Validate JWT tokens issued by the auth service
-      - Apply rate limiting per IP and per authenticated user
-      - Log structured request/response data for observability
-
-      ## Auth Service
-
-      The auth service manages user authentication and session tokens. It exposes
-      endpoints for login, logout, token refresh, and password change.
-
-      Token validation uses HMAC-SHA256 signatures with a shared secret. Tokens
-      carry user_id and expiry timestamp. The gateway validates tokens on every
-      request to avoid database round-trips in the hot path.
-
-      ## Calculator Service
-
-      Exposes a REST API for mathematical operations: add, subtract, multiply,
-      divide, factorial, and fibonacci. All inputs are validated; divide guards
-      against zero divisors and factorial requires non-negative integers.
-
-      ## Data Layer
-
-      User accounts and product catalog are stored in PostgreSQL. Orders use an
-      event-sourced model in an append-only table. The models layer (User, Product,
-      Order) maps database rows to Python dataclasses.
-
-  ────────────────────────────────────────────────────────
-  [4] calcdemo / config
-      Source: <FIXTURE_DIR>/config.yaml
-      Match:  -0.906
-
-      # calcdemo application configuration
-
-      app:
-        name: calcdemo
-        version: "1.0.0"
-        debug: false
-
-      server:
-        host: "0.0.0.0"
-        port: 8080
-        workers: 4
-
-      database:
-        host: "localhost"
-        port: 5432
-        name: calcdemo_db
-        pool_size: 10
-
-      auth:
-        token_expiry_seconds: 3600
-        max_login_attempts: 5
-
-      calculator:
-        max_factorial_n: 100
-        max_fibonacci_n: 100
-
   ────────────────────────────────────────────────────────
   [5] calcdemo / general
-      Source: <FIXTURE_DIR>/src/calculator.py
-      Match:  -1.014
+      Source: <FIXTURE_DIR>/src/auth.py
+      Match:  0.302
+      Lines:  33-42
 
-      """Mathematical utility functions for the calcdemo application."""
+      def generate_token(user_id: int, secret: str, expires_in: int = 3600) -> str:
+          """
+          Generate a signed authentication token for a user.
 
-      def add(a: float, b: float) -> float:
-          """Return the sum of two numbers."""
-          return a + b
-
-      def subtract(a: float, b: float) -> float:
-          """Return the difference of two numbers."""
-          return a - b
-
-      def multiply(a: float, b: float) -> float:
-          """Return the product of two numbers."""
-          return a * b
-
-      def divide(a: float, b: float) -> float:
-          """Return the quotient. Raises ZeroDivisionError when b is 0."""
-          if b == 0:
-              raise ZeroDivisionError("Cannot divide by zero")
-          return a / b
-
-      def factorial(n: int) -> int:
-          """Return n! using recursion. n must be a non-negative integer."""
-          if n < 0:
-              raise ValueError("Factorial undefined for negative numbers")
-          if n == 0:
-              return 1
-          return n * factorial(n - 1)
-
-      def fibonacci(n: int) -> int:
-          """Return the nth Fibonacci number (0-indexed), iteratively."""
-          if n < 0:
-              raise ValueError("Fibonacci undefined for negative indices")
-          if n == 0:
-              return 0
-          a, b = 0, 1
-          for _ in range(n - 1):
-              a, b = b, a + b
-          return b
+          Encodes user_id and expiry timestamp; signs with HMAC-SHA256.
+          """
+          expiry = int(time.time()) + expires_in
+          payload = f"{user_id}:{expiry}"
+          sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+          return f"{payload}:{sig}"
 
   ────────────────────────────────────────────────────────
 ```
@@ -350,9 +204,9 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 **Expected file in top-3**: `calculator.py`
 
 **Top hits:**
-- `<FIXTURE_DIR>/src/calculator.py` — `add` (sim=-0.2)
-- `<FIXTURE_DIR>/config.yaml` (sim=-0.65)
-- `<FIXTURE_DIR>/docs/architecture.md` (sim=-0.82)
+- `<FIXTURE_DIR>/src/calculator.py` — `fibonacci` (sim=0.7)
+- `<FIXTURE_DIR>/src/calculator.py` — `factorial` (sim=0.32)
+- `<FIXTURE_DIR>/config.yaml` (sim=0.17)
 
 <details><summary>Full CLI output</summary>
 
@@ -365,35 +219,8 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 
   [1] calcdemo / general
       Source: <FIXTURE_DIR>/src/calculator.py
-      Match:  -0.2
-
-      """Mathematical utility functions for the calcdemo application."""
-
-      def add(a: float, b: float) -> float:
-          """Return the sum of two numbers."""
-          return a + b
-
-      def subtract(a: float, b: float) -> float:
-          """Return the difference of two numbers."""
-          return a - b
-
-      def multiply(a: float, b: float) -> float:
-          """Return the product of two numbers."""
-          return a * b
-
-      def divide(a: float, b: float) -> float:
-          """Return the quotient. Raises ZeroDivisionError when b is 0."""
-          if b == 0:
-              raise ZeroDivisionError("Cannot divide by zero")
-          return a / b
-
-      def factorial(n: int) -> int:
-          """Return n! using recursion. n must be a non-negative integer."""
-          if n < 0:
-              raise ValueError("Factorial undefined for negative numbers")
-          if n == 0:
-              return 1
-          return n * factorial(n - 1)
+      Match:  0.698
+      Lines:  35-44
 
       def fibonacci(n: int) -> int:
           """Return the nth Fibonacci number (0-indexed), iteratively."""
@@ -407,9 +234,24 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           return b
 
   ────────────────────────────────────────────────────────
-  [2] calcdemo / config
+  [2] calcdemo / general
+      Source: <FIXTURE_DIR>/src/calculator.py
+      Match:  0.32
+      Lines:  26-32
+
+      def factorial(n: int) -> int:
+          """Return n! using recursion. n must be a non-negative integer."""
+          if n < 0:
+              raise ValueError("Factorial undefined for negative numbers")
+          if n == 0:
+              return 1
+          return n * factorial(n - 1)
+
+  ────────────────────────────────────────────────────────
+  [3] calcdemo / config
       Source: <FIXTURE_DIR>/config.yaml
-      Match:  -0.654
+      Match:  0.173
+      Lines:  1-25
 
       # calcdemo application configuration
 
@@ -438,179 +280,27 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
         max_fibonacci_n: 100
 
   ────────────────────────────────────────────────────────
-  [3] calcdemo / docs
-      Source: <FIXTURE_DIR>/docs/architecture.md
-      Match:  -0.821
-
-      # System Architecture
-
-      The calcdemo application is a microservices system with three core layers.
-
-      ## API Gateway
-
-      The API gateway handles all incoming HTTP requests and routes them to the
-      appropriate backend service. It enforces authentication, rate limiting, and
-      request validation before forwarding to downstream services.
-
-      Key responsibilities:
-      - Route requests to auth-service, calculator-service, or catalog-service
-      - Validate JWT tokens issued by the auth service
-      - Apply rate limiting per IP and per authenticated user
-      - Log structured request/response data for observability
-
-      ## Auth Service
-
-      The auth service manages user authentication and session tokens. It exposes
-      endpoints for login, logout, token refresh, and password change.
-
-      Token validation uses HMAC-SHA256 signatures with a shared secret. Tokens
-      carry user_id and expiry timestamp. The gateway validates tokens on every
-      request to avoid database round-trips in the hot path.
-
-      ## Calculator Service
-
-      Exposes a REST API for mathematical operations: add, subtract, multiply,
-      divide, factorial, and fibonacci. All inputs are validated; divide guards
-      against zero divisors and factorial requires non-negative integers.
-
-      ## Data Layer
-
-      User accounts and product catalog are stored in PostgreSQL. Orders use an
-      event-sourced model in an append-only table. The models layer (User, Product,
-      Order) maps database rows to Python dataclasses.
-
-  ────────────────────────────────────────────────────────
   [4] calcdemo / general
-      Source: <FIXTURE_DIR>/src/auth.py
-      Match:  -0.968
+      Source: <FIXTURE_DIR>/src/calculator.py
+      Match:  0.105
+      Lines:  9-11
 
-      """Authentication utilities: password hashing, token generation and validation."""
-
-      import hashlib
-      import hmac
-      import secrets
-      import time
-      from typing import Optional
-
-      def hash_password(password: str, salt: Optional[str] = None) -> tuple:
-          """
-          Hash a user password with a salt using PBKDF2-HMAC-SHA256.
-
-          Returns (hashed_password, salt). Generates a random salt when none is given.
-          Suitable for persisting passwords; use verify_password to check them.
-          """
-          if salt is None:
-              salt = secrets.token_hex(16)
-          dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
-          return dk.hex(), salt
-
-      def verify_password(password: str, hashed: str, salt: str) -> bool:
-          """
-          Verify a password against its stored hash and salt.
-
-          Uses constant-time comparison to prevent timing-based side-channel attacks.
-          """
-          expected, _ = hash_password(password, salt)
-          return hmac.compare_digest(expected, hashed)
-
-      def generate_token(user_id: int, secret: str, expires_in: int = 3600) -> str:
-          """
-          Generate a signed authentication token for a user.
-
-          Encodes user_id and expiry timestamp; signs with HMAC-SHA256.
-          """
-          expiry = int(time.time()) + expires_in
-          payload = f"{user_id}:{expiry}"
-          sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
-          return f"{payload}:{sig}"
-
-      def validate_token(token: str, secret: str) -> Optional[int]:
-          """
-          Validate an authentication token; return user_id if valid, None otherwise.
-
-          Returns None when the token is expired or carries an invalid HMAC signature.
-          """
-          try:
-              parts = token.split(":")
-              if len(parts) != 3:
-                  return None
-              user_id_str, expiry_str, sig = parts
-              payload = f"{user_id_str}:{expiry_str}"
-              expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
-              if not hmac.compare_digest(sig, expected):
-                  return None
-              if int(expiry_str) < int(time.time()):
-                  return None
-              return int(user_id_str)
-          except (ValueError, KeyError):
-              return None
+      def subtract(a: float, b: float) -> float:
+          """Return the difference of two numbers."""
+          return a - b
 
   ────────────────────────────────────────────────────────
   [5] calcdemo / general
-      Source: <FIXTURE_DIR>/src/models.py
-      Match:  -1.108
+      Source: <FIXTURE_DIR>/src/calculator.py
+      Match:  0.097
+      Lines:  1-6
 
-      """Data models: User, Product, Order — and serialization helpers."""
+      """Mathematical utility functions for the calcdemo application."""
 
-      import json
-      from dataclasses import dataclass, field
-      from typing import Optional
 
-      @dataclass
-      class User:
-          """Application user with authentication credentials."""
-
-          user_id: int
-          username: str
-          email: str
-          hashed_password: str = ""
-          salt: str = ""
-          is_active: bool = True
-
-      @dataclass
-      class Product:
-          """A product in the catalog."""
-
-          product_id: int
-          name: str
-          price: float
-          stock: int = 0
-          category: str = "general"
-
-      @dataclass
-      class Order:
-          """An order placed by a user."""
-
-          order_id: int
-          user_id: int
-          items: list = field(default_factory=list)
-          total: float = 0.0
-          status: str = "pending"
-
-      def serialize_user(user: User) -> str:
-          """
-          Serialize a User to a JSON string, omitting sensitive fields.
-
-          The hashed_password and salt fields are excluded from the output
-          so that the serialized form is safe to return in API responses.
-          """
-          safe_dict = {
-              "user_id": user.user_id,
-              "username": user.username,
-              "email": user.email,
-              "is_active": user.is_active,
-          }
-          return json.dumps(safe_dict)
-
-      def deserialize_user(data: str) -> User:
-          """Deserialize a JSON string into a User dataclass."""
-          obj = json.loads(data)
-          return User(
-              user_id=obj["user_id"],
-              username=obj["username"],
-              email=obj["email"],
-              is_active=obj.get("is_active", True),
-          )
+      def add(a: float, b: float) -> float:
+          """Return the sum of two numbers."""
+          return a + b
 
   ────────────────────────────────────────────────────────
 ```
@@ -623,9 +313,9 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 **Expected file in top-3**: `models.py`
 
 **Top hits:**
-- `<FIXTURE_DIR>/src/models.py` — `serialize_user` (sim=0.13)
-- `<FIXTURE_DIR>/docs/architecture.md` (sim=-0.48)
-- `<FIXTURE_DIR>/src/auth.py` — `hash_password` (sim=-0.66)
+- `<FIXTURE_DIR>/src/models.py` — `serialize_user` (sim=0.71)
+- `<FIXTURE_DIR>/src/models.py` — `deserialize_user` (sim=0.59)
+- `<FIXTURE_DIR>/src/models.py` — `User` (sim=0.5)
 
 <details><summary>Full CLI output</summary>
 
@@ -638,44 +328,8 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 
   [1] calcdemo / general
       Source: <FIXTURE_DIR>/src/models.py
-      Match:  0.129
-
-      """Data models: User, Product, Order — and serialization helpers."""
-
-      import json
-      from dataclasses import dataclass, field
-      from typing import Optional
-
-      @dataclass
-      class User:
-          """Application user with authentication credentials."""
-
-          user_id: int
-          username: str
-          email: str
-          hashed_password: str = ""
-          salt: str = ""
-          is_active: bool = True
-
-      @dataclass
-      class Product:
-          """A product in the catalog."""
-
-          product_id: int
-          name: str
-          price: float
-          stock: int = 0
-          category: str = "general"
-
-      @dataclass
-      class Order:
-          """An order placed by a user."""
-
-          order_id: int
-          user_id: int
-          items: list = field(default_factory=list)
-          total: float = 0.0
-          status: str = "pending"
+      Match:  0.707
+      Lines:  42-55
 
       def serialize_user(user: User) -> str:
           """
@@ -692,6 +346,12 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           }
           return json.dumps(safe_dict)
 
+  ────────────────────────────────────────────────────────
+  [2] calcdemo / general
+      Source: <FIXTURE_DIR>/src/models.py
+      Match:  0.589
+      Lines:  58-66
+
       def deserialize_user(data: str) -> User:
           """Deserialize a JSON string into a User dataclass."""
           obj = json.loads(data)
@@ -703,80 +363,34 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           )
 
   ────────────────────────────────────────────────────────
-  [2] calcdemo / docs
-      Source: <FIXTURE_DIR>/docs/architecture.md
-      Match:  -0.479
-
-      # System Architecture
-
-      The calcdemo application is a microservices system with three core layers.
-
-      ## API Gateway
-
-      The API gateway handles all incoming HTTP requests and routes them to the
-      appropriate backend service. It enforces authentication, rate limiting, and
-      request validation before forwarding to downstream services.
-
-      Key responsibilities:
-      - Route requests to auth-service, calculator-service, or catalog-service
-      - Validate JWT tokens issued by the auth service
-      - Apply rate limiting per IP and per authenticated user
-      - Log structured request/response data for observability
-
-      ## Auth Service
-
-      The auth service manages user authentication and session tokens. It exposes
-      endpoints for login, logout, token refresh, and password change.
-
-      Token validation uses HMAC-SHA256 signatures with a shared secret. Tokens
-      carry user_id and expiry timestamp. The gateway validates tokens on every
-      request to avoid database round-trips in the hot path.
-
-      ## Calculator Service
-
-      Exposes a REST API for mathematical operations: add, subtract, multiply,
-      divide, factorial, and fibonacci. All inputs are validated; divide guards
-      against zero divisors and factorial requires non-negative integers.
-
-      ## Data Layer
-
-      User accounts and product catalog are stored in PostgreSQL. Orders use an
-      event-sourced model in an append-only table. The models layer (User, Product,
-      Order) maps database rows to Python dataclasses.
-
-  ────────────────────────────────────────────────────────
   [3] calcdemo / general
-      Source: <FIXTURE_DIR>/src/auth.py
-      Match:  -0.662
+      Source: <FIXTURE_DIR>/src/models.py
+      Match:  0.498
+      Lines:  1-17
 
-      """Authentication utilities: password hashing, token generation and validation."""
+      """Data models: User, Product, Order — and serialization helpers."""
 
-      import hashlib
-      import hmac
-      import secrets
-      import time
+      import json
+      from dataclasses import dataclass, field
       from typing import Optional
 
-      def hash_password(password: str, salt: Optional[str] = None) -> tuple:
-          """
-          Hash a user password with a salt using PBKDF2-HMAC-SHA256.
 
-          Returns (hashed_password, salt). Generates a random salt when none is given.
-          Suitable for persisting passwords; use verify_password to check them.
-          """
-          if salt is None:
-              salt = secrets.token_hex(16)
-          dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
-          return dk.hex(), salt
+      @dataclass
+      class User:
+          """Application user with authentication credentials."""
 
-      def verify_password(password: str, hashed: str, salt: str) -> bool:
-          """
-          Verify a password against its stored hash and salt.
+          user_id: int
+          username: str
+          email: str
+          hashed_password: str = ""
+          salt: str = ""
+          is_active: bool = True
 
-          Uses constant-time comparison to prevent timing-based side-channel attacks.
-          """
-          expected, _ = hash_password(password, salt)
-          return hmac.compare_digest(expected, hashed)
+  ────────────────────────────────────────────────────────
+  [4] calcdemo / general
+      Source: <FIXTURE_DIR>/src/auth.py
+      Match:  0.35
+      Lines:  33-42
 
       def generate_token(user_id: int, secret: str, expires_in: int = 3600) -> str:
           """
@@ -788,6 +402,12 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           payload = f"{user_id}:{expiry}"
           sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
           return f"{payload}:{sig}"
+
+  ────────────────────────────────────────────────────────
+  [5] calcdemo / general
+      Source: <FIXTURE_DIR>/src/auth.py
+      Match:  0.284
+      Lines:  45-64
 
       def validate_token(token: str, secret: str) -> Optional[int]:
           """
@@ -811,81 +431,6 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
               return None
 
   ────────────────────────────────────────────────────────
-  [4] calcdemo / config
-      Source: <FIXTURE_DIR>/config.yaml
-      Match:  -1.066
-
-      # calcdemo application configuration
-
-      app:
-        name: calcdemo
-        version: "1.0.0"
-        debug: false
-
-      server:
-        host: "0.0.0.0"
-        port: 8080
-        workers: 4
-
-      database:
-        host: "localhost"
-        port: 5432
-        name: calcdemo_db
-        pool_size: 10
-
-      auth:
-        token_expiry_seconds: 3600
-        max_login_attempts: 5
-
-      calculator:
-        max_factorial_n: 100
-        max_fibonacci_n: 100
-
-  ────────────────────────────────────────────────────────
-  [5] calcdemo / general
-      Source: <FIXTURE_DIR>/src/calculator.py
-      Match:  -1.168
-
-      """Mathematical utility functions for the calcdemo application."""
-
-      def add(a: float, b: float) -> float:
-          """Return the sum of two numbers."""
-          return a + b
-
-      def subtract(a: float, b: float) -> float:
-          """Return the difference of two numbers."""
-          return a - b
-
-      def multiply(a: float, b: float) -> float:
-          """Return the product of two numbers."""
-          return a * b
-
-      def divide(a: float, b: float) -> float:
-          """Return the quotient. Raises ZeroDivisionError when b is 0."""
-          if b == 0:
-              raise ZeroDivisionError("Cannot divide by zero")
-          return a / b
-
-      def factorial(n: int) -> int:
-          """Return n! using recursion. n must be a non-negative integer."""
-          if n < 0:
-              raise ValueError("Factorial undefined for negative numbers")
-          if n == 0:
-              return 1
-          return n * factorial(n - 1)
-
-      def fibonacci(n: int) -> int:
-          """Return the nth Fibonacci number (0-indexed), iteratively."""
-          if n < 0:
-              raise ValueError("Fibonacci undefined for negative indices")
-          if n == 0:
-              return 0
-          a, b = 0, 1
-          for _ in range(n - 1):
-              a, b = b, a + b
-          return b
-
-  ────────────────────────────────────────────────────────
 ```
 
 </details>
@@ -896,9 +441,9 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 **Expected file in top-3**: `architecture.md`
 
 **Top hits:**
-- `<FIXTURE_DIR>/docs/architecture.md` (sim=-0.07)
-- `<FIXTURE_DIR>/src/auth.py` — `hash_password` (sim=-0.58)
-- `<FIXTURE_DIR>/src/models.py` — `serialize_user` (sim=-0.72)
+- `<FIXTURE_DIR>/docs/architecture.md` (sim=0.46)
+- `<FIXTURE_DIR>/src/auth.py` — `generate_token` (sim=0.29)
+- `<FIXTURE_DIR>/src/auth.py` — `validate_token` (sim=0.28)
 
 <details><summary>Full CLI output</summary>
 
@@ -911,7 +456,8 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 
   [1] calcdemo / docs
       Source: <FIXTURE_DIR>/docs/architecture.md
-      Match:  -0.071
+      Match:  0.464
+      Lines:  1-36
 
       # System Architecture
 
@@ -953,36 +499,8 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
   ────────────────────────────────────────────────────────
   [2] calcdemo / general
       Source: <FIXTURE_DIR>/src/auth.py
-      Match:  -0.577
-
-      """Authentication utilities: password hashing, token generation and validation."""
-
-      import hashlib
-      import hmac
-      import secrets
-      import time
-      from typing import Optional
-
-      def hash_password(password: str, salt: Optional[str] = None) -> tuple:
-          """
-          Hash a user password with a salt using PBKDF2-HMAC-SHA256.
-
-          Returns (hashed_password, salt). Generates a random salt when none is given.
-          Suitable for persisting passwords; use verify_password to check them.
-          """
-          if salt is None:
-              salt = secrets.token_hex(16)
-          dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
-          return dk.hex(), salt
-
-      def verify_password(password: str, hashed: str, salt: str) -> bool:
-          """
-          Verify a password against its stored hash and salt.
-
-          Uses constant-time comparison to prevent timing-based side-channel attacks.
-          """
-          expected, _ = hash_password(password, salt)
-          return hmac.compare_digest(expected, hashed)
+      Match:  0.288
+      Lines:  33-42
 
       def generate_token(user_id: int, secret: str, expires_in: int = 3600) -> str:
           """
@@ -994,6 +512,12 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           payload = f"{user_id}:{expiry}"
           sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
           return f"{payload}:{sig}"
+
+  ────────────────────────────────────────────────────────
+  [3] calcdemo / general
+      Source: <FIXTURE_DIR>/src/auth.py
+      Match:  0.281
+      Lines:  45-64
 
       def validate_token(token: str, secret: str) -> Optional[int]:
           """
@@ -1017,46 +541,37 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
               return None
 
   ────────────────────────────────────────────────────────
-  [3] calcdemo / general
-      Source: <FIXTURE_DIR>/src/models.py
-      Match:  -0.718
+  [4] calcdemo / general
+      Source: <FIXTURE_DIR>/src/auth.py
+      Match:  0.194
+      Lines:  1-20
 
-      """Data models: User, Product, Order — and serialization helpers."""
+      """Authentication utilities: password hashing, token generation and validation."""
 
-      import json
-      from dataclasses import dataclass, field
+      import hashlib
+      import hmac
+      import secrets
+      import time
       from typing import Optional
 
-      @dataclass
-      class User:
-          """Application user with authentication credentials."""
 
-          user_id: int
-          username: str
-          email: str
-          hashed_password: str = ""
-          salt: str = ""
-          is_active: bool = True
+      def hash_password(password: str, salt: Optional[str] = None) -> tuple:
+          """
+          Hash a user password with a salt using PBKDF2-HMAC-SHA256.
 
-      @dataclass
-      class Product:
-          """A product in the catalog."""
+          Returns (hashed_password, salt). Generates a random salt when none is given.
+          Suitable for persisting passwords; use verify_password to check them.
+          """
+          if salt is None:
+              salt = secrets.token_hex(16)
+          dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+          return dk.hex(), salt
 
-          product_id: int
-          name: str
-          price: float
-          stock: int = 0
-          category: str = "general"
-
-      @dataclass
-      class Order:
-          """An order placed by a user."""
-
-          order_id: int
-          user_id: int
-          items: list = field(default_factory=list)
-          total: float = 0.0
-          status: str = "pending"
+  ────────────────────────────────────────────────────────
+  [5] calcdemo / general
+      Source: <FIXTURE_DIR>/src/models.py
+      Match:  0.167
+      Lines:  42-55
 
       def serialize_user(user: User) -> str:
           """
@@ -1072,91 +587,6 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
               "is_active": user.is_active,
           }
           return json.dumps(safe_dict)
-
-      def deserialize_user(data: str) -> User:
-          """Deserialize a JSON string into a User dataclass."""
-          obj = json.loads(data)
-          return User(
-              user_id=obj["user_id"],
-              username=obj["username"],
-              email=obj["email"],
-              is_active=obj.get("is_active", True),
-          )
-
-  ────────────────────────────────────────────────────────
-  [4] calcdemo / config
-      Source: <FIXTURE_DIR>/config.yaml
-      Match:  -1.027
-
-      # calcdemo application configuration
-
-      app:
-        name: calcdemo
-        version: "1.0.0"
-        debug: false
-
-      server:
-        host: "0.0.0.0"
-        port: 8080
-        workers: 4
-
-      database:
-        host: "localhost"
-        port: 5432
-        name: calcdemo_db
-        pool_size: 10
-
-      auth:
-        token_expiry_seconds: 3600
-        max_login_attempts: 5
-
-      calculator:
-        max_factorial_n: 100
-        max_fibonacci_n: 100
-
-  ────────────────────────────────────────────────────────
-  [5] calcdemo / general
-      Source: <FIXTURE_DIR>/src/calculator.py
-      Match:  -1.092
-
-      """Mathematical utility functions for the calcdemo application."""
-
-      def add(a: float, b: float) -> float:
-          """Return the sum of two numbers."""
-          return a + b
-
-      def subtract(a: float, b: float) -> float:
-          """Return the difference of two numbers."""
-          return a - b
-
-      def multiply(a: float, b: float) -> float:
-          """Return the product of two numbers."""
-          return a * b
-
-      def divide(a: float, b: float) -> float:
-          """Return the quotient. Raises ZeroDivisionError when b is 0."""
-          if b == 0:
-              raise ZeroDivisionError("Cannot divide by zero")
-          return a / b
-
-      def factorial(n: int) -> int:
-          """Return n! using recursion. n must be a non-negative integer."""
-          if n < 0:
-              raise ValueError("Factorial undefined for negative numbers")
-          if n == 0:
-              return 1
-          return n * factorial(n - 1)
-
-      def fibonacci(n: int) -> int:
-          """Return the nth Fibonacci number (0-indexed), iteratively."""
-          if n < 0:
-              raise ValueError("Fibonacci undefined for negative indices")
-          if n == 0:
-              return 0
-          a, b = 0, 1
-          for _ in range(n - 1):
-              a, b = b, a + b
-          return b
 
   ────────────────────────────────────────────────────────
 ```
@@ -1169,9 +599,9 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 **Expected file in top-3**: `calculator.py`
 
 **Top hits:**
-- `<FIXTURE_DIR>/src/calculator.py` — `add` (sim=-0.06)
-- `<FIXTURE_DIR>/config.yaml` (sim=-0.7)
-- `<FIXTURE_DIR>/docs/architecture.md` (sim=-0.77)
+- `<FIXTURE_DIR>/src/calculator.py` — `factorial` (sim=0.69)
+- `<FIXTURE_DIR>/src/calculator.py` — `fibonacci` (sim=0.36)
+- `<FIXTURE_DIR>/src/calculator.py` — `multiply` (sim=0.2)
 
 <details><summary>Full CLI output</summary>
 
@@ -1184,27 +614,8 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
 
   [1] calcdemo / general
       Source: <FIXTURE_DIR>/src/calculator.py
-      Match:  -0.061
-
-      """Mathematical utility functions for the calcdemo application."""
-
-      def add(a: float, b: float) -> float:
-          """Return the sum of two numbers."""
-          return a + b
-
-      def subtract(a: float, b: float) -> float:
-          """Return the difference of two numbers."""
-          return a - b
-
-      def multiply(a: float, b: float) -> float:
-          """Return the product of two numbers."""
-          return a * b
-
-      def divide(a: float, b: float) -> float:
-          """Return the quotient. Raises ZeroDivisionError when b is 0."""
-          if b == 0:
-              raise ZeroDivisionError("Cannot divide by zero")
-          return a / b
+      Match:  0.691
+      Lines:  26-32
 
       def factorial(n: int) -> int:
           """Return n! using recursion. n must be a non-negative integer."""
@@ -1213,6 +624,12 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           if n == 0:
               return 1
           return n * factorial(n - 1)
+
+  ────────────────────────────────────────────────────────
+  [2] calcdemo / general
+      Source: <FIXTURE_DIR>/src/calculator.py
+      Match:  0.359
+      Lines:  35-44
 
       def fibonacci(n: int) -> int:
           """Return the nth Fibonacci number (0-indexed), iteratively."""
@@ -1226,9 +643,33 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
           return b
 
   ────────────────────────────────────────────────────────
-  [2] calcdemo / config
+  [3] calcdemo / general
+      Source: <FIXTURE_DIR>/src/calculator.py
+      Match:  0.2
+      Lines:  14-16
+
+      def multiply(a: float, b: float) -> float:
+          """Return the product of two numbers."""
+          return a * b
+
+  ────────────────────────────────────────────────────────
+  [4] calcdemo / general
+      Source: <FIXTURE_DIR>/src/calculator.py
+      Match:  0.176
+      Lines:  1-6
+
+      """Mathematical utility functions for the calcdemo application."""
+
+
+      def add(a: float, b: float) -> float:
+          """Return the sum of two numbers."""
+          return a + b
+
+  ────────────────────────────────────────────────────────
+  [5] calcdemo / config
       Source: <FIXTURE_DIR>/config.yaml
-      Match:  -0.699
+      Match:  0.15
+      Lines:  1-25
 
       # calcdemo application configuration
 
@@ -1255,137 +696,6 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
       calculator:
         max_factorial_n: 100
         max_fibonacci_n: 100
-
-  ────────────────────────────────────────────────────────
-  [3] calcdemo / docs
-      Source: <FIXTURE_DIR>/docs/architecture.md
-      Match:  -0.774
-
-      # System Architecture
-
-      The calcdemo application is a microservices system with three core layers.
-
-      ## API Gateway
-
-      The API gateway handles all incoming HTTP requests and routes them to the
-      appropriate backend service. It enforces authentication, rate limiting, and
-      request validation before forwarding to downstream services.
-
-      Key responsibilities:
-      - Route requests to auth-service, calculator-service, or catalog-service
-      - Validate JWT tokens issued by the auth service
-      - Apply rate limiting per IP and per authenticated user
-      - Log structured request/response data for observability
-
-      ## Auth Service
-
-      The auth service manages user authentication and session tokens. It exposes
-      endpoints for login, logout, token refresh, and password change.
-
-      Token validation uses HMAC-SHA256 signatures with a shared secret. Tokens
-      carry user_id and expiry timestamp. The gateway validates tokens on every
-      request to avoid database round-trips in the hot path.
-
-      ## Calculator Service
-
-      Exposes a REST API for mathematical operations: add, subtract, multiply,
-      divide, factorial, and fibonacci. All inputs are validated; divide guards
-      against zero divisors and factorial requires non-negative integers.
-
-      ## Data Layer
-
-      User accounts and product catalog are stored in PostgreSQL. Orders use an
-      event-sourced model in an append-only table. The models layer (User, Product,
-      Order) maps database rows to Python dataclasses.
-
-  ────────────────────────────────────────────────────────
-  [4] calcdemo / general
-      Source: <FIXTURE_DIR>/src/models.py
-      Match:  -1.02
-
-      """Data models: User, Product, Order — and serialization helpers."""
-
-      import json
-      from dataclasses import dataclass, field
-      from typing import Optional
-
-      @dataclass
-      class User:
-          """Application user with authentication credentials."""
-
-          user_id: int
-          username: str
-          email: str
-          hashed_password: str = ""
-          salt: str = ""
-          is_active: bool = True
-
-      @dataclass
-      class Product:
-          """A product in the catalog."""
-
-          product_id: int
-          name: str
-          price: float
-          stock: int = 0
-          category: str = "general"
-
-      @dataclass
-      class Order:
-          """An order placed by a user."""
-
-          order_id: int
-          user_id: int
-          items: list = field(default_factory=list)
-          total: float = 0.0
-          status: str = "pending"
-
-      def serialize_user(user: User) -> str:
-          """
-          Serialize a User to a JSON string, omitting sensitive fields.
-
-          The hashed_password and salt fields are excluded from the output
-          so that the serialized form is safe to return in API responses.
-          """
-          safe_dict = {
-              "user_id": user.user_id,
-              "username": user.username,
-              "email": user.email,
-              "is_active": user.is_active,
-          }
-          return json.dumps(safe_dict)
-
-      def deserialize_user(data: str) -> User:
-          """Deserialize a JSON string into a User dataclass."""
-          obj = json.loads(data)
-          return User(
-              user_id=obj["user_id"],
-              username=obj["username"],
-              email=obj["email"],
-              is_active=obj.get("is_active", True),
-          )
-
-  ────────────────────────────────────────────────────────
-  [5] calcdemo / general
-      Source: <FIXTURE_DIR>/Makefile
-      Match:  -1.049
-
-      # Build targets for calcdemo
-
-      .PHONY: install test lint clean
-
-      install:
-      	pip install -e ".[dev]"
-
-      test:
-      	python -m pytest tests/ -x -q
-
-      lint:
-      	ruff check src/
-
-      clean:
-      	find . -type d -name "__pycache__" -exec rm -rf {} +
-      	find . -name "*.pyc" -delete
 
   ────────────────────────────────────────────────────────
 ```
@@ -1405,23 +715,22 @@ Synthetic polyglot project: **calcdemo** (`synthetic polyglot project: Python so
      6: import time
      7: from typing import Optional
      8:
-     9: def hash_password(password: str, salt: Optional[str] = None) -> tuple:
-    10:     """
-    11:     Hash a user password with a salt using PBKDF2-HMAC-SHA256.
-    12:
-    13:     Returns (hashed_password, salt). Generates a random salt when none is given.
-    14:     Suitable for persisting passwords; use verify_password to check them.
-    15:     """
-    16:     if salt is None:
-    17:         salt = secrets.token_hex(16)
-    18:     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
-    19:     return dk.hex(), salt
-    20:
-    21: def verify_password(password: str, hashed: str, salt: str) -> bool:
-    22:     """
-    23:     Verify a password against its stored hash and salt.
-    24:
-    25:     Uses constant-time comparison to prevent timing-based side-channel attacks.
+     9:
+    10: def hash_password(password: str, salt: Optional[str] = None) -> tuple:
+    11:     """
+    12:     Hash a user password with a salt using PBKDF2-HMAC-SHA256.
+    13:
+    14:     Returns (hashed_password, salt). Generates a random salt when none is given.
+    15:     Suitable for persisting passwords; use verify_password to check them.
+    16:     """
+    17:     if salt is None:
+    18:         salt = secrets.token_hex(16)
+    19:     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    20:     return dk.hex(), salt
+     …: (lines 21-22 not stored; usually blank lines between indexed chunks)
+    23: def verify_password(password: str, hashed: str, salt: str) -> bool:
+    24:     """
+    25:     Verify a password against its stored hash and salt.
 ```
 
 ## 4. MCP stdio Exhibit (code profile)
@@ -1491,6 +800,7 @@ Three JSON-RPC exchanges with `python -m mempalace_code.mcp_server --profile cod
       "mempalace_find_implementations",
       "mempalace_find_references",
       "mempalace_mine",
+      "mempalace_read",
       "mempalace_show_project_graph",
       "mempalace_show_type_dependencies",
       "mempalace_status"
@@ -1526,7 +836,7 @@ Three JSON-RPC exchanges with `python -m mempalace_code.mcp_server --profile cod
     "content": [
       {
         "type": "text",
-        "text": "{\"query\": \"hash password authentication\", \"filters\": {\"language\": null, \"symbol_name\": null, \"symbol_type\": null, \"file_glob\": null, \"wing\": null}, \"results\": [{\"text\": \"\\\"\\\"\\\"Authentication utilities: password hashing, token generation and validation.\\\"\\\"\\\"\\n\\nimport hashlib\\nimport hmac\\nimport secrets\\nimport time\\nfrom typing import Optional\\n\\ndef hash_password(password: str, …\", \"wing\": \"calcdemo\", \"room\": \"general\", \"source_file\": \"<FIXTURE_DIR>/src/auth.py\", \"symbol_name\": \"hash_password\", \"symbol_type\": \"function\", \"language\": \"python\", \"line_range\": {\"start\": 1, \"end\": 64}, \"similarity\": 0.11}, {\"text\": \"\\\"\\\"\\\"Data models: User, Product, Order — and serialization helpers.\\\"\\\"\\\"\\n\\nimport json\\nfrom dataclasses import dataclass, field\\nfrom typing import Optional\\n\\n@dataclass\\nclass User:\\n    \\\"\\\"\\\"Application user w…\", \"wing\": \"calcdemo\", \"room\": \"general\", \"source_file\": \"<FIXTURE_DIR>/src/models.py\", \"symbol_name\": \"serialize_user\", \"symbol_type\": \"function\", \"language\": \"python\", \"line_range\": {\"start\": 1, \"end\": 66}, \"similarity\": -0.29}, {\"text\": \"# System Architecture\\n\\nThe calcdemo application is a microservices system with three core layers.\\n\\n## API Gateway\\n\\nThe API gateway handles all incoming HTTP requests and routes them to the\\nappropriate…\", \"wing\": \"calcdemo\", \"room\": \"docs\", \"source_file\": \"<FIXTURE_DIR>/docs/architecture.md\", \"symbol_name\": \"\", \"symbol_type\": \"\", \"language\": \"markdown\", \"line_range\": {\"start\": 1, \"end\": 36}, \"similarity\": -0.32}]}"
+        "text": "{\"query\": \"hash password authentication\", \"filters\": {\"language\": null, \"symbol_name\": null, \"symbol_type\": null, \"file_glob\": null, \"wing\": null}, \"results\": [{\"id\": \"<DRAWER_ID>\", \"text\": \"\\\"\\\"\\\"Authentication utilities: password hashing, token generation and validation.\\\"\\\"\\\"\\n\\nimport hashlib\\nimport hmac\\nimport secrets\\nimport time\\nfrom typing import Optional\\n\\n\\ndef hash_password(password: str,…\", \"wing\": \"calcdemo\", \"room\": \"general\", \"source_file\": \"<FIXTURE_DIR>/src/auth.py\", \"symbol_name\": \"hash_password\", \"symbol_type\": \"function\", \"language\": \"python\", \"line_range\": {\"start\": 1, \"end\": 20}, \"similarity\": 0.56, \"ranking\": {\"storage_rank\": 1, \"vector_distance\": 0.87}}, {\"id\": \"<DRAWER_ID>\", \"text\": \"def verify_password(password: str, hashed: str, salt: str) -> bool:\\n    \\\"\\\"\\\"\\n    Verify a password against its stored hash and salt.\\n\\n    Uses constant-time comparison to prevent timing-based side-chan…\", \"wing\": \"calcdemo\", \"room\": \"general\", \"source_file\": \"<FIXTURE_DIR>/src/auth.py\", \"symbol_name\": \"verify_password\", \"symbol_type\": \"function\", \"language\": \"python\", \"line_range\": {\"start\": 23, \"end\": 30}, \"similarity\": 0.54, \"ranking\": {\"storage_rank\": 2, \"vector_distance\": 0.92}}, {\"id\": \"<DRAWER_ID>\", \"text\": \"def generate_token(user_id: int, secret: str, expires_in: int = 3600) -> str:\\n    \\\"\\\"\\\"\\n    Generate a signed authentication token for a user.\\n\\n    Encodes user_id and expiry timestamp; signs with HMAC-…\", \"wing\": \"calcdemo\", \"room\": \"general\", \"source_file\": \"<FIXTURE_DIR>/src/auth.py\", \"symbol_name\": \"generate_token\", \"symbol_type\": \"function\", \"language\": \"python\", \"line_range\": {\"start\": 33, \"end\": 42}, \"similarity\": 0.39, \"ranking\": {\"storage_rank\": 3, \"vector_distance\": 1.22}}]}"
       }
     ]
   }

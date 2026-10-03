@@ -38,14 +38,19 @@ untouched original draft when authorized, then update only the canonical final
 plan. Authority for local evidence does not authorize tracked plan writes.
 
 Use `docs/plans/README.md` as the lifecycle contract for every tracked
-implementation plan. New plans start with `status: active` only when the slug
-exactly matches an open item in `docs/BACKLOG.yaml`, and always include
-`authority: non_authoritative` before body content. Transition to `completed`
-only from exact completion evidence in `docs/BACKLOG-archived.yaml`; use
-`superseded` only with an explicit repository-backed `superseded_by` reference;
-use `historical` when repository evidence is absent or ambiguous. Missing,
-stale, malformed, duplicate, or contradictory lifecycle evidence stops plan
-execution and requires an owner decision from the current backlog files.
+implementation plan. Read canonical `.backlog` through `backlog_context`,
+`backlog_workset_context`, and `backlog_workset_queue`; verify project binding and
+follow pages. New plans use `status: active` for an exact canonical open task,
+including open+held tasks, and include `authority: non_authoritative` before body
+content. `active` never grants execution; owner holds and prerequisites still
+block eligible work. Completion requires current valid canonical completion or
+exact historical completion evidence in `docs/BACKLOG-archived.yaml` when no
+canonical task exists. `docs/BACKLOG.yaml` is section metadata only.
+Use `superseded` with an explicit repository-backed `superseded_by` reference;
+use `historical` when repository evidence is absent. Missing, stale, malformed,
+duplicate or contradictory evidence stops plan execution and requires an owner decision. Never fall back from a present invalid store to YAML.
+Recovery: discover and verify the absolute utility binary, then run
+`<absolute-backlog-utility> validate --store .backlog`.
 
 Acceptance criteria must be observable, testable, and scoped. Plans describe
 outcomes and high-level approach; they do not grant implementation authority.

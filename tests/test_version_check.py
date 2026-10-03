@@ -725,7 +725,7 @@ def test_pip_fallback_command_defaults_to_the_running_interpreter():
     assert sys.executable in pip_fallback_command("2.0.0")
 
 
-def test_automatic_hint_offers_the_pip_fallback_below_the_managed_commands(tmp_path, monkeypatch):
+def test_automatic_hint_offers_only_the_pip_fallback_to_a_plain_pip_install(tmp_path, monkeypatch):
     monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
     monkeypatch.setattr(version_check, "should_offer_pip_fallback", lambda: True)
     now = time.time()
@@ -744,11 +744,11 @@ def test_automatic_hint_offers_the_pip_fallback_below_the_managed_commands(tmp_p
     combined = "\n".join(stderr_lines)
     assert PIP_FALLBACK_PREFIX in combined
     assert '"mempalace-code==2.0.0"' in combined
-    # Managed guidance stays first; the fallback is the last resort.
-    assert combined.index("update apply --yes") < combined.index(PIP_FALLBACK_PREFIX)
+    # `update apply` refuses a plain pip install, so it is not offered.
+    assert "update apply --yes" not in combined
 
 
-def test_check_now_offers_the_pip_fallback_below_the_managed_commands(monkeypatch):
+def test_check_now_offers_only_the_pip_fallback_to_a_plain_pip_install(monkeypatch):
     monkeypatch.setattr(version_check, "should_offer_pip_fallback", lambda: True)
     stdout_lines: list[str] = []
 
@@ -761,7 +761,7 @@ def test_check_now_offers_the_pip_fallback_below_the_managed_commands(monkeypatc
     combined = "\n".join(stdout_lines)
     assert PIP_FALLBACK_PREFIX in combined
     assert '"mempalace-code==2.0.0"' in combined
-    assert combined.index("update apply --yes") < combined.index(PIP_FALLBACK_PREFIX)
+    assert "update apply --yes" not in combined
 
 
 # ---------------------------------------------------------------------------

@@ -187,6 +187,15 @@ def build_discover_result() -> dict:
     return result.model_dump(by_alias=True, exclude_none=True)
 
 
+def build_empty_result() -> dict:
+    """Build the modern empty result a ``ping`` answers with."""
+    from mcp import types as mcp_types
+
+    return mcp_types.EmptyResult(result_type="complete").model_dump(
+        by_alias=True, exclude_none=True
+    )
+
+
 def build_tools_list_result(registry: dict) -> dict:
     """Build the modern ``tools/list`` result from the active registry, in registry order."""
     from mcp import types as mcp_types
@@ -206,15 +215,18 @@ def build_tools_list_result(registry: dict) -> dict:
     return result.model_dump(by_alias=True, exclude_none=True)
 
 
-def build_call_tool_result(value: Any) -> dict:
-    """Build the modern ``tools/call`` success result: legacy text content plus structuredContent."""
+def build_call_tool_result(value: Any, *, is_error: bool = False) -> dict:
+    """Build the modern ``tools/call`` result: legacy text content plus structuredContent.
+
+    ``is_error`` marks a tool-level failure the handler reported as data.
+    """
     from mcp import types as mcp_types
 
-    text = json.dumps(value, indent=2, ensure_ascii=False)
+    text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     result = mcp_types.CallToolResult(
         content=[mcp_types.TextContent(type="text", text=text)],
         structured_content=value,
-        is_error=False,
+        is_error=is_error,
         result_type="complete",
     )
     return result.model_dump(by_alias=True, exclude_none=True)

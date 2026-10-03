@@ -718,6 +718,15 @@ def _diagnostic(error: BaseException) -> str:
 DEFAULT_READER = PublicReader()
 
 
+def _version_tag_order(tag: str) -> tuple[tuple[int, ...], str]:
+    """Order plain ``vX.Y.Z`` tags numerically, so the last line is the newest release tag.
+
+    Every other tag (pre-release or not a version) sorts first, by name.
+    """
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag)
+    return (tuple(int(part) for part in match.groups()) if match else (), tag)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Expose fixed public facts needed by release operators and agents."""
     parser = argparse.ArgumentParser(description="Read fixed public release evidence safely.")
@@ -760,9 +769,12 @@ def main(argv: list[str] | None = None) -> int:
             print("release-public-read: ERROR — invalid tag evidence", file=sys.stderr)
             return 1
         tags = sorted(
-            item["ref"].removeprefix("refs/tags/")
-            for item in result.data
-            if isinstance(item, dict) and isinstance(item.get("ref"), str)
+            (
+                item["ref"].removeprefix("refs/tags/")
+                for item in result.data
+                if isinstance(item, dict) and isinstance(item.get("ref"), str)
+            ),
+            key=_version_tag_order,
         )
         print("\n".join(tags))
     elif isinstance(result.data, str):

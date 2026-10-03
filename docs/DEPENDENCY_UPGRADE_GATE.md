@@ -27,9 +27,9 @@ lock file. A dependency change must not land without a passing report.
    `pyproject_hash`, `lockfile_hash`, verdict, and sanitized summaries. No
    private paths, resolver caches, or credentials appear in the report.
 
-6. **Refresh uv.lock only after success** — the lock file should be updated
-   (step 2 above) before the audit so the report captures the final hashes.
-   Do not push a lock-file refresh without a passing report.
+6. **Push a lock refresh only with a passing report** — the lock file is
+   updated in step 2, before the audit, so the report captures the final
+   hashes. Do not push a lock-file refresh without a passing report.
 
 7. **Commit pyproject.toml, uv.lock, and the report together** — CI's
    `ci-check` requires that the report's recorded hashes match the committed
@@ -151,9 +151,15 @@ The Tests workflow runs `ci-check` on every pull request and push:
   `"success"`. A missing report, hash mismatch, or non-success status fails
   the gate.
 
-- **Base ref unresolvable** (e.g., all-zeros SHA on a force-push) → the gate
-  treats the dependency files as changed and fails closed, so a broken base
-  ref can never let an unaudited bump through.
+- **Push that creates a branch** (e.g., a `release/v*` candidate) → GitHub
+  sends an all-zeros `before` SHA. The Tests workflow diffs that case against
+  `origin/main`, the candidate's parent, instead of passing the all-zeros SHA
+  to the gate.
+
+- **Base ref unresolvable** (e.g., an unfetched force-pushed `before` SHA, or
+  an all-zeros SHA passed to the script directly) → the gate treats the
+  dependency files as changed and fails closed, so a broken base ref can never
+  let an unaudited bump through.
 
 ## Verification Boundary
 
@@ -172,15 +178,37 @@ Actions, runs a `current-audit` on a weekly schedule and on
 `workflow_dispatch`. Unlike the upgrade gate, this audit:
 
 - Does **not** change dependency bounds, specifiers, or `uv.lock`.
-- Checks the **current resolved packages** against advisory databases and yanked
-  package metadata.
+- Checks **every package pinned in `uv.lock`**, direct and transitive, against
+  OSV advisories in one `querybatch` request. A failed request, or a response
+  that does not answer every package in full (a missing result, or one OSV
+  paginates), fails the audit; an unanswered package is never treated as clean.
+  Only the project's own local (editable or virtual) lock entry is skipped.
+- Scopes each advisory finding for the allowlist: a direct dependency carries its
+  declared specifier and every group that declares it (`runtime`, `dev`,
+  `extra:<name>`); a transitive package carries `transitive` and its exact lock
+  pin (`==<version>`). A package declared in several groups is one finding, not
+  one per group.
+- Checks the locked version of each direct dependency against PyPI yanked
+  metadata. A lookup that does not complete (network, HTTP, timeout, or a
+  malformed response) is a blocking `yanked_lookup_failed` finding, never a
+  silent "not yanked"; rerun the audit once PyPI answers, and if the failure
+  persists, check that the locked version still exists on PyPI.
+- Runs fresh, unpinned resolver audits (`pip-audit`) for the default install,
+  `dev`, and every optional extra, so the versions a new `pip install` resolves
+  are covered as well as the lock pins.
 - Reports range-drift findings when a custom range-drift querier is provided;
   the default scheduled run does not perform range-drift checks (range
   intersection requires a live advisory range-scan that is not included in
   the default implementation).
 - Uploads a sanitized JSON/Markdown artifact on every run.
 - Creates or updates a single GitHub issue (`[dependency-audit] current dependency
-  audit findings`) when actionable findings exist.
+  audit findings`, labelled `dependency-audit`) when actionable findings exist,
+  matching it by exact title. A missing label is a visible warning, not a
+  silent fallback.
+- Closes that issue, with a comment linking the run, on the next clean run of
+  `main` (scheduled, or dispatched from `main`); a clean dispatch from another
+  branch audits that branch's lock and leaves the issue open. The close step
+  cannot fail a clean run, because release admission reads the run conclusion.
 
 ### Scheduled Audit Commands
 
@@ -192,11 +220,11 @@ python scripts/dependency_upgrade_gate.py current-audit \
   [--out-dir dependency-audit-output]
 ```
 
-Output files (never committed; uploaded as workflow artifacts):
+Output files (git-ignored, never committed; uploaded as workflow artifacts):
 
 | File | Description |
 |------|-------------|
-| `dependency-audit-output/current-audit-report.json` | Sanitized JSON with findings, resolver audit results, and allowlist summary. |
+| `dependency-audit-output/current-audit-report.json` | Sanitized JSON with the number of locked packages audited, findings, resolver audit results, and allowlist summary. |
 | `dependency-audit-output/current-audit-issue-body.md` | GitHub issue body for failure notification. |
 
 ### Public-Safe Output Contract
@@ -235,7 +263,7 @@ Each entry requires all five fields; missing or partial entries are rejected.
 |-------|----------|-------------|
 | `advisory_id` | Yes | Exact advisory ID from OSV (e.g., `GHSA-…`). |
 | `package` | Yes | Package name (normalized, case-insensitive). |
-| `affected_range` | Yes | Must exactly match the declared specifier in `pyproject.toml`. |
+| `affected_range` | Yes | Must exactly match the finding's range: the declared specifier in `pyproject.toml` for a direct dependency, or `==<locked version>` for a transitive package, so a lock refresh re-opens the review. |
 | `reason` | Yes | Non-empty explanation of why the risk is accepted. |
 | `expires` | Yes | ISO date (`YYYY-MM-DD`). Entry is rejected on or after this date. |
 

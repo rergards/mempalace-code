@@ -1,6 +1,6 @@
 [project]
 name = "mempalace-code"
-version = "1.14.2"
+version = "1.15.0"
 description = "Developer memory tool — mine codebases and conversations into a LanceDB-backed searchable palace. No API key required."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,7 @@ dependencies = [
     "pyarrow<25",
     "overrides>=7.7",
     "fastembed>=0.8,<0.9",
+    "huggingface-hub>=0.20,<2",
     "onnxruntime>=1.20,<2",
     "pyyaml>=6.0",
     "packaging>=21.0",
@@ -44,7 +45,7 @@ dependencies = [
 Homepage = "https://github.com/rergards/mempalace-code"
 Repository = "https://github.com/rergards/mempalace-code"
 "Bug Tracker" = "https://github.com/rergards/mempalace-code/issues"
-Upstream = "https://github.com/milla-jovovich/mempalace"
+Upstream = "https://github.com/MemPalace/mempalace"
 
 [project.scripts]
 mempalace-code = "mempalace_code:main"
@@ -77,12 +78,14 @@ packages = ["mempalace_code"]
 [tool.hatch.build.targets.sdist]
 exclude = [
     # Local-only control artifacts must not appear in published sdists.
-    # `.codex/` is agent tooling state carrying absolute local paths. It is
-    # ignored through `.git/info/exclude`, which hatchling does not read — only
-    # `.gitignore` — so it lands in the sdist unless it is excluded here.
+    # `.codex/` is agent tooling state carrying absolute local paths. `.gitignore`
+    # covers it; excluding it here as well keeps it out of the sdist even when
+    # that ignore rule is bypassed or the build runs outside a git checkout.
     ".codex/",
     ".codex-local/",
+    ".backlog/",
     ".claude/**",
+    ".agents/**",
     ".playwright-mcp/",
     ".github/",
     ".tasks/",
@@ -91,6 +94,7 @@ exclude = [
     "/.gitleaksignore",
     "scripts/codex-review.sh",
     "docs/audits/",
+    "docs/handoffs/",
     "docs/BACKLOG.yaml",
     "docs/BACKLOG-archived.yaml",
     "docs/dependency-upgrade-reports/",

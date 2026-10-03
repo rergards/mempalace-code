@@ -2,16 +2,20 @@
 """Run release checks before creating or publishing a tag.
 
 Default checks validate only the checked-out tree and stay deterministic and
-network-free. Explicit public-admission flags add bounded credential-free reads
-of their named public surfaces. This guard never tags, pushes, creates a release,
-or mutates a package registry.
+network-free. With ``--tag`` they also require the committed installed-candidate
+acceptance report for the exact package tree at ``HEAD``. Explicit
+public-admission flags add bounded credential-free reads of their named public
+surfaces. This guard never tags, pushes, creates a release, or mutates a package
+registry.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -24,6 +28,31 @@ if TYPE_CHECKING:
 
 _ADMISSION_CHECKS_MODULE = None
 _PUBLIC_READ_MODULE = None
+_PUBLIC_SAFETY_MODULE = None
+
+ACCEPTANCE_REPORT_DIR = "docs/quality/acceptance"
+ACCEPTANCE_FORMAT_DOC = f"{ACCEPTANCE_REPORT_DIR}/README.md"
+# Header field -> the HEAD path whose git object id the report must record. These
+# are the package inputs: any change to them after testing needs a new round, while
+# documentation-only commits leave every id unchanged.
+ACCEPTANCE_BOUND_OBJECTS: tuple[tuple[str, str], ...] = (
+    ("mempalace_code_tree", "mempalace_code"),
+    ("pyproject_toml_blob", "pyproject.toml"),
+    ("uv_lock_blob", "uv.lock"),
+)
+ACCEPTANCE_REQUIRED_FIELDS: tuple[str, ...] = (
+    "version",
+    "date",
+    "result",
+    *(field for field, _path in ACCEPTANCE_BOUND_OBJECTS),
+    "wheel_sha256",
+)
+ACCEPTANCE_REQUIRED_SECTIONS: tuple[str, ...] = ("Coverage", "Issues", "Re-test")
+_GIT_OBJECT_ID_RE = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_FENCED_BLOCK_RE = re.compile(r"^(```|~~~).*?^\1[ \t]*$", re.MULTILINE | re.DOTALL)
+_MAX_REPORTED_PROBLEMS = 5
 
 
 def repo_root() -> Path:
@@ -58,6 +87,21 @@ def _load_public_read():
         spec.loader.exec_module(module)
         _PUBLIC_READ_MODULE = module
     return _PUBLIC_READ_MODULE
+
+
+def _load_public_safety():
+    global _PUBLIC_SAFETY_MODULE
+    if _PUBLIC_SAFETY_MODULE is None:
+        module_name = "public_safety_scan"
+        path = Path(__file__).resolve().parent / f"{module_name}.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Could not load {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        _PUBLIC_SAFETY_MODULE = module
+    return _PUBLIC_SAFETY_MODULE
 
 
 def package_version(root: Path) -> str:
@@ -195,6 +239,153 @@ def check_tag_identity(
     }
 
 
+def acceptance_report_path(version: str) -> str:
+    """Return the repository-relative acceptance report path for ``version``."""
+    return f"{ACCEPTANCE_REPORT_DIR}/v{version}.md"
+
+
+def _bounded(value: str, limit: int = 60) -> str:
+    return value if len(value) <= limit else value[: limit - 3] + "..."
+
+
+def _is_iso_date(value: str) -> bool:
+    if not _ISO_DATE_RE.fullmatch(value):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def parse_acceptance_header(text: str) -> tuple[dict[str, str], list[str]]:
+    """Return the ``key: value`` front-matter fields of an acceptance report.
+
+    The header is the block between the first line ``---`` and the next ``---``
+    line. Values may be wrapped in one pair of matching quotes. The second item
+    lists format problems; an empty list means the header parsed cleanly.
+    """
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, ["the report does not start with a '---' front-matter header"]
+    end = next((index for index in range(1, len(lines)) if lines[index].strip() == "---"), None)
+    if end is None:
+        return {}, ["the front-matter header is not closed by a '---' line"]
+
+    fields: dict[str, str] = {}
+    problems: list[str] = []
+    for line in lines[1:end]:
+        if not line.strip():
+            continue
+        key, separator, value = line.partition(":")
+        key = key.strip()
+        if not separator or not key:
+            problems.append(f"malformed header line {_bounded(line.strip())!r}")
+            continue
+        if key in fields:
+            problems.append(f"duplicate header field {key!r}")
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        fields[key] = value
+    return fields, problems
+
+
+def check_acceptance_report(
+    root: Path,
+    version: str,
+    run: Callable[[list[str], Path], tuple[int, str]] = _run,
+) -> dict[str, object]:
+    """Require the committed acceptance report that binds this exact package tree.
+
+    The report must be committed at ``HEAD``, name ``version``, record result
+    PASS, and record the git object ids of ``mempalace_code/``,
+    ``pyproject.toml``, and ``uv.lock`` exactly as ``HEAD`` has them. Every read
+    is a local git plumbing call, so the check stays offline and credential-free.
+    """
+    report = acceptance_report_path(version)
+    remediation = (
+        "Run the installed-candidate acceptance test (docs/RELEASING.md section 1a) against "
+        f"a wheel built from this exact tree, then commit {report} with result PASS and "
+        f"the HEAD ids in the {ACCEPTANCE_FORMAT_DOC} format."
+    )
+
+    def row(status: str, detail: str) -> dict[str, object]:
+        result: dict[str, object] = {
+            "name": "acceptance_report",
+            "status": status,
+            "detail": detail,
+        }
+        if status != "ok":
+            result["remediation"] = remediation
+        return result
+
+    try:
+        rc, text = run(["git", "cat-file", "blob", f"HEAD:{report}"], root)
+    except UnicodeDecodeError:
+        return row("fail", f"{report} is not UTF-8 text")
+    if rc != 0:
+        return row("fail", f"{report} is not committed at HEAD")
+
+    fields, problems = parse_acceptance_header(text)
+    if not problems:
+        missing = [field for field in ACCEPTANCE_REQUIRED_FIELDS if not fields.get(field)]
+        if missing:
+            problems.append(f"missing header fields: {', '.join(missing)}")
+        recorded_version = fields.get("version")
+        if recorded_version and recorded_version != version:
+            problems.append(f"records version {_bounded(recorded_version)!r}, not {version!r}")
+        date = fields.get("date")
+        if date and not _is_iso_date(date):
+            problems.append(f"date {_bounded(date)!r} is not a valid YYYY-MM-DD date")
+        result = fields.get("result")
+        if result and result != "PASS":
+            problems.append(f"result is {_bounded(result)!r}, not 'PASS'")
+        wheel_sha256 = fields.get("wheel_sha256")
+        if wheel_sha256 and not _SHA256_RE.fullmatch(wheel_sha256):
+            problems.append("wheel_sha256 is not a lowercase 64-hex digest")
+        for field, path in ACCEPTANCE_BOUND_OBJECTS:
+            recorded = fields.get(field)
+            if not recorded:
+                continue
+            if not _GIT_OBJECT_ID_RE.fullmatch(recorded):
+                problems.append(f"{field} is not a lowercase git object id")
+                continue
+            rc, head_id = run(["git", "rev-parse", "--verify", "-q", f"HEAD:{path}"], root)
+            head_id = head_id.strip()
+            if rc != 0 or not _GIT_OBJECT_ID_RE.fullmatch(head_id):
+                problems.append(f"could not resolve HEAD:{path}")
+            elif head_id != recorded:
+                problems.append(
+                    f"{path} changed after acceptance testing (report {recorded[:12]}, "
+                    f"HEAD {head_id[:12]})"
+                )
+    unfenced = _FENCED_BLOCK_RE.sub("", text)
+    for section in ACCEPTANCE_REQUIRED_SECTIONS:
+        if not re.search(rf"^## {re.escape(section)}\b", unfenced, re.MULTILINE):
+            problems.append(f"missing '## {section}' section")
+    safety = _load_public_safety()
+    hits = safety.scan_text(report, text, safety.rendered_rules())
+    if hits:
+        first = min(hits, key=lambda hit: (hit.line, hit.column))
+        problems.append(
+            f"not public-safe: {len(hits)} absolute local path or token match(es), "
+            f"first at line {first.line} ({first.rule_id})"
+        )
+
+    if problems:
+        shown = problems[:_MAX_REPORTED_PROBLEMS]
+        if len(problems) > len(shown):
+            shown.append(f"(+{len(problems) - len(shown)} more)")
+        return row("fail", f"{report}: {'; '.join(shown)}")
+    return row(
+        "ok",
+        f"{report} records PASS on {fields['date']} for the HEAD mempalace_code tree, "
+        "pyproject.toml, and uv.lock",
+    )
+
+
 def check_expected_sha_identity(
     root: Path,
     *,
@@ -316,6 +507,10 @@ def evaluate(
     the explicit pre-tag opt-in that delegates the one bounded read-only lookup
     to the shared upstream comparison guard.
 
+    A ``tag`` adds the ``acceptance_report`` row: the release is admissible only
+    with a committed PASS installed-candidate acceptance report whose recorded
+    package ids equal ``HEAD`` (``check_acceptance_report``).
+
     ``check_public_orphan_tags`` opts into the existing bounded GitHub/PyPI
     identity predicate. A matching validated tag may be incomplete only during
     this prepublication transaction; every other orphan still fails closed.
@@ -358,6 +553,8 @@ def evaluate(
     expected_sha_valid = not any(
         row["name"] == "expected_sha_format" and row["status"] != "ok" for row in sha_rows
     )
+    if tag is not None:
+        checks.append(check_acceptance_report(root, version, run))
 
     commands = [
         ("docs_drift", [sys.executable, "scripts/docs_drift_guard.py"]),
@@ -484,7 +681,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--root", type=Path, default=repo_root(), help="Repository root to inspect."
     )
-    parser.add_argument("--tag", help="Expected release tag, for example v1.2.3.")
+    parser.add_argument(
+        "--tag",
+        help=(
+            "Expected release tag, for example v1.2.3. Also requires the committed "
+            f"acceptance report {ACCEPTANCE_REPORT_DIR}/v<version>.md for the HEAD package tree."
+        ),
+    )
     parser.add_argument(
         "--require-clean", action="store_true", help="Fail when git worktree is dirty."
     )

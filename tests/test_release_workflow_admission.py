@@ -12,6 +12,7 @@ import copy
 import importlib.util
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -1038,6 +1039,32 @@ def test_no_job_runs_a_standalone_twine_check(workflow: Path):
     for job in _workflow(workflow)["jobs"].values():
         for step in job.get("steps", []):
             assert "twine check" not in str(step.get("run", ""))
+
+
+@pytest.mark.parametrize(
+    ("workflow", "job"),
+    [(CI_WORKFLOW, "package"), (PUBLISH_WORKFLOW, "build"), (PUBLISH_WORKFLOW, "github-release")],
+    ids=["ci-package", "publish-build", "publish-github-release"],
+)
+def test_release_build_tooling_is_the_reviewed_lock_pin(workflow: Path, job: str):
+    """build and twine are installed at their uv.lock versions, not tag-day latest.
+
+    The CI package job rehearses the tag build, so it installs the same versions.
+    """
+    with (ROOT / "uv.lock").open("rb") as fh:
+        locked = {pkg["name"]: pkg["version"] for pkg in tomllib.load(fh)["package"]}
+    tooling = [
+        requirement
+        for step in _workflow(workflow)["jobs"][job]["steps"]
+        for line in str(step.get("run", "")).splitlines()
+        if line.strip().startswith("pip install")
+        for requirement in line.split()[2:]
+        if re.split(r"[=<>!~\[]", requirement)[0] in {"build", "twine"}
+    ]
+    assert tooling, f"{workflow.name}:{job} installs no build tooling"
+    for requirement in tooling:
+        name = re.split(r"[=<>!~\[]", requirement)[0]
+        assert requirement == f"{name}=={locked[name]}", requirement
 
 
 def test_publish_never_gains_a_manual_or_release_trigger():

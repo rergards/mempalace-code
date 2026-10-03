@@ -25,6 +25,28 @@ def test_malformed_config_json_falls_back_to_empty_file_config():
     assert cfg.topic_wings == DEFAULT_TOPIC_WINGS
 
 
+def test_malformed_config_json_warns_once_on_stderr(tmp_path, capsys):
+    """A config.json with // comments is ignored as a whole, so say so once per process."""
+    config_file = tmp_path / "config.json"
+    config_file.write_text('{"palace_path": "/p", // commented\n}', encoding="utf-8")
+
+    first = MempalaceConfig(config_dir=tmp_path)
+    MempalaceConfig(config_dir=tmp_path)
+
+    err = capsys.readouterr().err
+    assert err.count("Warning: ignoring") == 1
+    assert str(config_file) in err
+    assert "line 1" in err
+    assert first.palace_path == DEFAULT_PALACE_PATH
+
+
+def test_valid_config_json_does_not_warn(tmp_path, capsys):
+    (tmp_path / "config.json").write_text('{"palace_path": "/p"}', encoding="utf-8")
+
+    assert MempalaceConfig(config_dir=tmp_path).palace_path == "/p"
+    assert capsys.readouterr().err == ""
+
+
 def test_hall_keywords_default_and_file_override():
     """hall_keywords returns the built-in defaults, or the file override when present."""
     cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
@@ -250,14 +272,19 @@ def test_spellcheck_enabled_env_overrides_config(monkeypatch):
     assert cfg.spellcheck_enabled is False
 
 
-def test_spellcheck_enabled_invalid_env_falls_back_to_none(monkeypatch):
+def test_spellcheck_enabled_invalid_env_warns_and_falls_through(monkeypatch, capsys):
+    """An invalid env value is reported and the next level (config file) applies."""
     tmpdir = tempfile.mkdtemp()
     with open(os.path.join(tmpdir, "config.json"), "w") as f:
         json.dump({"spellcheck_enabled": True}, f)
 
     monkeypatch.setenv("MEMPALACE_SPELLCHECK_ENABLED", "sometimes")
     cfg = MempalaceConfig(config_dir=tmpdir)
-    assert cfg.spellcheck_enabled is None
+    assert cfg.spellcheck_enabled is True
+    assert "'sometimes' for MEMPALACE_SPELLCHECK_ENABLED" in capsys.readouterr().err
+
+    monkeypatch.setenv("MEMPALACE_SPELLCHECK_ENABLED", "sometimes-else")
+    assert MempalaceConfig(config_dir=tempfile.mkdtemp()).spellcheck_enabled is None
 
 
 def test_entity_detection_default_false():
@@ -309,14 +336,19 @@ def test_entity_detection_env_overrides_config_file(monkeypatch):
     assert cfg.entity_detection is False
 
 
-def test_entity_detection_invalid_env_falls_back_false(monkeypatch):
+def test_entity_detection_invalid_env_warns_and_falls_through(monkeypatch, capsys):
+    """An invalid env value is reported and the next level (config file) applies."""
     tmpdir = tempfile.mkdtemp()
     with open(os.path.join(tmpdir, "config.json"), "w") as f:
         json.dump({"entity_detection": True}, f)
 
     monkeypatch.setenv("MEMPALACE_ENTITY_DETECTION", "sometimes")
     cfg = MempalaceConfig(config_dir=tmpdir)
-    assert cfg.entity_detection is False
+    assert cfg.entity_detection is True
+    assert "'sometimes' for MEMPALACE_ENTITY_DETECTION" in capsys.readouterr().err
+
+    monkeypatch.setenv("MEMPALACE_ENTITY_DETECTION", "sometimes-else")
+    assert MempalaceConfig(config_dir=tempfile.mkdtemp()).entity_detection is False
 
 
 def test_init_writes_entity_detection_default_false():
@@ -425,6 +457,20 @@ def test_watch_disk_min_free_bytes_falls_back_to_global(monkeypatch):
     assert cfg.watch_disk_min_free_bytes == cfg.disk_min_free_bytes
 
 
+def test_watch_disk_min_free_setting_names_its_source(monkeypatch):
+    """watch_disk_min_free_setting reports which setting chose the watcher floor."""
+    monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.delenv("MEMPALACE_WATCH_DISK_MIN_FREE_BYTES", raising=False)
+    cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
+    assert cfg.watch_disk_min_free_setting == (_ONE_GIB, "disk_min_free_bytes (1 GiB default)")
+
+    monkeypatch.setenv("MEMPALACE_WATCH_DISK_MIN_FREE_BYTES", "2GiB")
+    assert cfg.watch_disk_min_free_setting == (
+        2 * _ONE_GIB,
+        "MEMPALACE_WATCH_DISK_MIN_FREE_BYTES",
+    )
+
+
 def test_backup_disk_min_free_bytes_falls_back_to_global(monkeypatch):
     """backup_disk_min_free_bytes falls back to disk_min_free_bytes when not explicitly set."""
     monkeypatch.delenv("MEMPALACE_DISK_MIN_FREE_BYTES", raising=False)
@@ -468,6 +514,17 @@ def test_backup_disk_min_free_bytes_new_env_overrides_legacy_env(monkeypatch):
     monkeypatch.setenv("MEMPALACE_BACKUP_MIN_FREE_BYTES", "200000000")
     cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
     assert cfg.backup_disk_min_free_bytes == 300_000_000
+
+
+def test_backup_disk_min_free_bytes_legacy_env_overrides_new_file_key(monkeypatch):
+    """Both env keys outrank both file keys, as BACKUP_RESTORE.md documents."""
+    monkeypatch.delenv("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES", raising=False)
+    monkeypatch.setenv("MEMPALACE_BACKUP_MIN_FREE_BYTES", "200000000")
+    tmpdir = tempfile.mkdtemp()
+    with open(os.path.join(tmpdir, "config.json"), "w") as f:
+        json.dump({"backup_disk_min_free_bytes": 3000}, f)
+    cfg = MempalaceConfig(config_dir=tmpdir)
+    assert cfg.backup_disk_min_free_bytes == 200_000_000
 
 
 def test_watch_overrides_global_disk_budget(monkeypatch):

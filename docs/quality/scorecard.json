@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 29439,
-    "package_files": 82,
-    "package_total_lines": 35098,
-    "test_files": 92,
-    "test_total_lines": 86949
+    "package_code_lines": 40383,
+    "package_files": 87,
+    "package_total_lines": 47956,
+    "test_files": 123,
+    "test_total_lines": 111285
   },
   "demo_gates": {
     "architecture_guard": {
@@ -58,44 +58,44 @@
   },
   "largest_modules": [
     {
-      "lines": 5398,
+      "lines": 5788,
       "path": "mempalace_code/wing_migration.py"
     },
     {
-      "lines": 2241,
+      "lines": 3813,
       "path": "mempalace_code/storage.py"
     },
     {
-      "lines": 1780,
-      "path": "mempalace_code/updater.py"
-    },
-    {
-      "lines": 1466,
-      "path": "mempalace_code/mining/chunkers.py"
-    },
-    {
-      "lines": 1333,
+      "lines": 2482,
       "path": "mempalace_code/watcher.py"
     },
     {
-      "lines": 1074,
-      "path": "mempalace_code/dialect.py"
+      "lines": 1933,
+      "path": "mempalace_code/updater.py"
     },
     {
-      "lines": 989,
-      "path": "mempalace_code/backup.py"
+      "lines": 1737,
+      "path": "mempalace_code/knowledge_graph.py"
     },
     {
-      "lines": 963,
-      "path": "mempalace_code/cli.py"
+      "lines": 1626,
+      "path": "mempalace_code/mining/chunkers.py"
     },
     {
-      "lines": 963,
+      "lines": 1480,
       "path": "mempalace_code/mining/orchestrator.py"
     },
     {
-      "lines": 904,
-      "path": "mempalace_code/mining/symbols.py"
+      "lines": 1408,
+      "path": "mempalace_code/backup.py"
+    },
+    {
+      "lines": 1181,
+      "path": "mempalace_code/cli.py"
+    },
+    {
+      "lines": 1144,
+      "path": "mempalace_code/dialect.py"
     }
   ],
   "performance_budgets": {
@@ -271,18 +271,18 @@
   ],
   "suppressions": {
     "noqa_blanket": 0,
-    "noqa_total": 39,
+    "noqa_total": 43,
     "scope": [
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 171,
+    "type_pyright_total": 180,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 92,
-    "test_functions": 3937
+    "test_files": 123,
+    "test_functions": 4924
   },
   "verification_commands": [
     {

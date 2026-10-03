@@ -17,7 +17,8 @@ PALACE_PROTOCOL = """IMPORTANT — MemPalace Memory Protocol:
 
 This protocol ensures the AI KNOWS before it speaks. Storage is not memory — but storage + this protocol = memory."""
 
-AAAK_SPEC = """AAAK is a compressed memory dialect that MemPalace uses for efficient storage.
+AAAK_SPEC = """AAAK is a lossy summary dialect: `mempalace-code compress` prints it for compact context.
+Drawers always keep their verbatim text; AAAK is never stored in them.
 It is designed to be readable by both humans and LLMs without decoding.
 
 FORMAT:
@@ -26,7 +27,7 @@ FORMAT:
   STRUCTURE: Pipe-separated fields. FAM: family | PROJ: projects | ⚠: warnings/reminders.
   DATES: ISO format (2026-03-31). COUNTS: Nx = N mentions (e.g., 570x).
   IMPORTANCE: ★ to ★★★★★ (1-5 scale).
-  HALLS: hall_facts, hall_events, hall_discoveries, hall_preferences, hall_advice.
+  HALLS: optional drawer label; only diary entries carry one today (hall_diary).
   WINGS: wing_user, wing_agent, wing_team, wing_code, wing_myproject, wing_hardware, wing_ue5, wing_ai_research.
   ROOMS: Hyphenated slugs representing named ideas (e.g., chromadb-setup, gpu-pricing).
 
@@ -34,4 +35,5 @@ EXAMPLE:
   FAM: ALC→♡JOR | 2D(kids): RIL(18,sports) MAX(11,chess+swimming) | BEN(contributor)
 
 Read AAAK naturally — expand codes mentally, treat *markers* as emotional context.
-When WRITING AAAK: use entity codes, mark emotions, keep structure tight."""
+When WRITING AAAK in replies: use entity codes, mark emotions, keep structure tight.
+Never file AAAK as drawer content — drawers hold verbatim text."""
