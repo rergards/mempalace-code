@@ -6,3 +6,5 @@
 fd9a87eeb1c4f905731f10e5cc1512f57355ae40:docs/BACKLOG.yaml:generic-api-key:1064
 # gitleaks-ignore-metadata: {"owner":"security-maintainers","rationale":"Archived documentation preserves a synthetic example reported by the native generic rule.","review_condition":"Remove when the archived example or its historical commit is removed."}
 cddbbbbcf812bc84def50bbea09e4c13629e810b:docs/BACKLOG-archived.yaml:generic-api-key:229
+# gitleaks-ignore-metadata: {"owner":"security-maintainers","rationale":"Synthetic Kubernetes Secret manifest in the mining exclusion regression test; no account or provider credential is used.","review_condition":"Remove when this fixture or its historical commit is removed."}
+7f7fa25512eb832edab740c33bf3d9b1d915131e:tests/test_uat2_mining.py:generic-api-key:513

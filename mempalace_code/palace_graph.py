@@ -5,7 +5,7 @@ palace_graph.py — Graph traversal layer for MemPalace
 Builds a navigable graph from the palace structure:
   - Nodes = rooms (named ideas)
   - Edges = shared rooms across wings (tunnels)
-  - Edge types = halls (the corridors)
+  - Edge labels = halls; only diary entries carry a hall, so other crossings have none
 
 Enables queries like:
   "Start at storage-setup in wing_code, walk to wing_myproject"
@@ -29,6 +29,9 @@ class _RoomData(TypedDict):
     dates: set[str]
 
 
+GENERAL_ROOM = "general"
+
+
 def _get_store(config=None):
     config = config or MempalaceConfig()
     try:
@@ -37,19 +40,37 @@ def _get_store(config=None):
         return None
 
 
-def build_graph(col=None, config=None):
-    """
-    Build the palace graph from drawer metadata.
+def _room_data_from_pairs(col) -> dict[str, _RoomData] | None:
+    """Build per-room data from projected (room, column) counts, or None if unsupported.
 
-    Returns:
-        nodes: dict of {room: {wings: list[str], halls: list[str], count: int, dates: list[str]}}
-        edges: list of {room, wing_a, wing_b, hall, count} — one per tunnel crossing
+    Uses ``count_by_pair`` column projections instead of reading every drawer's
+    metadata, so the graph stays cheap on large palaces.
     """
-    if col is None:
-        col = _get_store(config)
-    if not col:
-        return {}, []
+    try:
+        room_wings = col.count_by_pair("room", "wing")
+        room_halls = col.count_by_pair("room", "hall")
+        room_dates = col.count_by_pair("room", "date")
+    except Exception:
+        return None
+    if not isinstance(room_wings, dict):
+        return None
+    room_data: dict[str, _RoomData] = {}
+    for room, wings in room_wings.items():
+        if not room or room == GENERAL_ROOM:
+            continue
+        counted = {wing: n for wing, n in wings.items() if wing}
+        if not counted:
+            continue
+        room_data[room] = _RoomData(
+            wings=set(counted),
+            halls={hall for hall in (room_halls.get(room) or {}) if hall},
+            count=sum(counted.values()),
+            dates={date for date in (room_dates.get(room) or {}) if date},
+        )
+    return room_data
 
+
+def _room_data_from_rows(col) -> dict[str, _RoomData]:
     total = col.count()
     room_data: defaultdict[str, _RoomData] = defaultdict(
         lambda: _RoomData(wings=set(), halls=set(), count=0, dates=set())
@@ -65,7 +86,7 @@ def build_graph(col=None, config=None):
             wing = meta.get("wing", "")
             hall = meta.get("hall", "")
             date = meta.get("date", "")
-            if room and room != "general" and wing:
+            if room and room != GENERAL_ROOM and wing:
                 room_data[room]["wings"].add(wing)
                 if hall:
                     room_data[room]["halls"].add(hall)
@@ -75,6 +96,29 @@ def build_graph(col=None, config=None):
         if not batch["ids"]:
             break
         offset += len(batch["ids"])
+    return dict(room_data)
+
+
+def build_graph(col=None, config=None):
+    """
+    Build the palace graph from drawer metadata.
+
+    The catch-all ``general`` room is not a node: every wing has one, so it would
+    connect everything.
+
+    Returns:
+        nodes: dict of {room: {wings: list[str], halls: list[str], count: int, dates: list[str]}}
+        edges: list of {room, wing_a, wing_b, hall, count} — one per tunnel crossing (a room
+            shared by two wings) and hall; ``hall`` is "" for a crossing without halls
+    """
+    if col is None:
+        col = _get_store(config)
+    if not col:
+        return {}, []
+
+    room_data = _room_data_from_pairs(col)
+    if room_data is None:
+        room_data = _room_data_from_rows(col)
 
     # Build edges from rooms that span multiple wings
     edges = []
@@ -83,7 +127,7 @@ def build_graph(col=None, config=None):
         if len(wings) >= 2:
             for i, wa in enumerate(wings):
                 for wb in wings[i + 1 :]:
-                    for hall in data["halls"]:
+                    for hall in sorted(data["halls"]) or [""]:
                         edges.append(
                             {
                                 "room": room,
@@ -112,8 +156,21 @@ def traverse(start_room: str, col=None, config=None, max_hops: int = 2):
     Walk the graph from a starting room. Find connected rooms
     through shared wings.
 
-    Returns list of paths: [{room, wing, hall, hop_distance}]
+    Returns list of paths: [{room, wing, hall, hop_distance}], or an error dict for a
+    negative *max_hops*, the excluded ``general`` room, or an unknown room.
     """
+    if isinstance(max_hops, bool) or not isinstance(max_hops, int) or max_hops < 0:
+        return {"error": "max_hops must be an integer of 0 or greater", "max_hops": max_hops}
+    if start_room == GENERAL_ROOM:
+        return {
+            "error": (
+                "Room 'general' is the catch-all room every wing has, so it is not part of "
+                "the palace graph"
+            ),
+            "hint": "Start from a named room; list a wing's rooms with mempalace_list_rooms.",
+            "suggestions": [],
+        }
+
     nodes, _ = build_graph(col, config)
 
     if start_room not in nodes:

@@ -541,7 +541,8 @@ def test_ci_check_still_requires_report_when_dependency_contract_changes(tmp_pat
 
 
 def test_ci_check_fails_closed_on_all_zeros_base_ref(tmp_path, capsys):
-    """All-zeros SHA (force-push before-SHA) must cause ci-check to fail closed."""
+    """All-zeros SHA (the branch-creation `before`) must make a direct ci-check call
+    fail closed; the CI job maps that case to origin/main before calling it."""
     _write_pyproject(tmp_path / "pyproject.toml", runtime=["lancedb>=0.20"])
     _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0"})
 
@@ -906,6 +907,46 @@ def test_dependency_audit_workflow_declares_schedule_dispatch_artifact_and_notif
 
     # Must contain gh issue create or gh issue edit for issue notification
     assert "gh issue" in combined, "workflow must use gh to create or update an issue"
+
+
+def test_dependency_audit_workflow_closes_the_tracked_issue_after_a_clean_run():
+    """A clean run of main closes the tracked issue, and that bookkeeping can never fail the
+    run whose conclusion release admission reads. Both paths match the exact title,
+    and a label problem is reported instead of being silenced."""
+    import yaml
+
+    workflow_path = ROOT / ".github" / "workflows" / "dependency-audit.yml"
+    wf = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    steps = wf["jobs"]["current-audit"]["steps"]
+    by_name = {step.get("name"): step for step in steps}
+    title = "[dependency-audit] current dependency audit findings"
+
+    notify = by_name["Create or update dependency-audit issue"]
+    close = by_name["Close resolved dependency-audit issue"]
+
+    assert notify["if"] == "steps.audit.outcome == 'failure'"
+    # Only a clean run of main speaks for main's lock; a clean dispatch from a
+    # feature branch must not close the issue that tracks main's findings.
+    assert close["if"] == "steps.audit.outcome == 'success' && github.ref == 'refs/heads/main'"
+    assert close.get("continue-on-error") is True, "issue bookkeeping must not fail a clean run"
+    assert "continue-on-error" not in notify
+
+    for step in (notify, close):
+        assert f'ISSUE_TITLE="{title}"' in step["run"]
+        assert 'select(.title == \\"$ISSUE_TITLE\\")' in step["run"], "match the exact title"
+        assert step["env"]["GH_REPO"] == "${{ github.repository }}"
+
+    assert "gh issue close" in close["run"]
+    assert "--comment" in close["run"]
+    assert "RUN_URL" in close["env"]
+
+    # A missing label degrades to a visible warning, never a silenced error.
+    assert '--label "$ISSUE_LABEL" 2>/dev/null' not in notify["run"]
+    assert "::warning::" in notify["run"]
+    assert '--add-label "$ISSUE_LABEL"' in notify["run"]
+
+    # Least privilege: the only write scope is the one the issue steps need.
+    assert wf["permissions"] == {"contents": "read", "issues": "write"}
 
 
 # ── AC-2 / VER-2: resolver plan ────────────────────────────────────────────────
@@ -1405,3 +1446,257 @@ def test_dependency_audit_docs_define_allowlist_and_report_boundaries():
     allowlist = json.loads(allowlist_path.read_text(encoding="utf-8"))
     assert allowlist.get("schema_version") == 1, "allowlist must have schema_version: 1"
     assert isinstance(allowlist.get("entries"), list), "allowlist must have entries list"
+
+
+# ── Lock-wide coverage, deduplication, and fail-closed lookups ─────────────────
+
+
+def _write_lock_text(path: Path, entries: list[tuple[str, str, str]]) -> None:
+    """Write a uv.lock whose entries are (name, version, source-kind)."""
+    lines = ["version = 1", 'requires-python = ">=3.11"', ""]
+    for name, version, kind in entries:
+        source = (
+            '{ editable = "." }'
+            if kind == "editable"
+            else '{ registry = "https://pypi.org/simple" }'
+        )
+        lines += [
+            "[[package]]",
+            f'name = "{name}"',
+            f'version = "{version}"',
+            f"source = {source}",
+            "",
+        ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _vulns_for(hits: dict[str, list[str]]):
+    def _querier(queries: list[dict]) -> list[dict]:
+        return [{"vulns": [{"id": i} for i in hits.get(q["name"], [])]} for q in queries]
+
+    return _querier
+
+
+def test_current_audit_queries_every_locked_package_including_transitive_pins(tmp_path, capsys):
+    """Every package pinned in uv.lock is checked, not only direct dependencies.
+
+    A transitive advisory is scoped to its exact lock pin, so only an allowlist
+    entry for `==<locked version>` can accept it; the project itself is skipped.
+    """
+    _write_pyproject(tmp_path / "pyproject.toml", runtime=["mcp>=2,<3"])
+    _write_lock_text(
+        tmp_path / "uv.lock",
+        [
+            ("test-pkg", "0.1.0", "editable"),
+            ("mcp", "2.0.0", "registry"),
+            ("anyio", "4.13.0", "registry"),
+        ],
+    )
+    allowlist = tmp_path / "docs" / "dependency-audit-allowlist.json"
+    _write_allowlist(allowlist)
+    queried: list[tuple[str, str]] = []
+
+    def _capturing(queries: list[dict]) -> list[dict]:
+        queried.extend((q["name"], q["version"]) for q in queries)
+        return _vulns_for({"anyio": ["GHSA-transitive-0001"]})(queries)
+
+    def _run() -> int:
+        return gate.cmd_current_audit(
+            root=tmp_path,
+            allowlist_path=allowlist,
+            out_dir=tmp_path / "out",
+            advisory_querier=_capturing,
+            yanked_checker=_no_yanked,
+            range_drift_querier=_no_range_drift,
+            resolver_runner=_current_resolver_ok,
+            today_iso="2030-01-01",
+        )
+
+    assert _run() != 0
+    capsys.readouterr()
+    assert sorted(queried) == [("anyio", "4.13.0"), ("mcp", "2.0.0")]
+    report = json.loads((tmp_path / "out" / "current-audit-report.json").read_text())
+    assert report["locked_packages_audited"] == 2
+    [finding] = report["findings"]
+    assert finding["package"] == "anyio"
+    assert finding["group"] == "transitive"
+    assert finding["affected_range"] == "==4.13.0"
+    issue_body = (tmp_path / "out" / "current-audit-issue-body.md").read_text()
+    assert "GHSA-transitive-0001" in issue_body
+    assert "across 2 locked packages" in issue_body
+
+    entry = {
+        "advisory_id": "GHSA-transitive-0001",
+        "package": "anyio",
+        "reason": "accepted for test",
+        "expires": "2099-01-01",
+    }
+    _write_allowlist(allowlist, [{**entry, "affected_range": ">=4.0"}])
+    queried.clear()
+    assert _run() != 0, "a range that is not the exact lock pin must not accept the advisory"
+    _write_allowlist(allowlist, [{**entry, "affected_range": "==4.13.0"}])
+    queried.clear()
+    assert _run() == 0
+    assert "2 locked packages" in capsys.readouterr().out
+
+
+def test_current_audit_reports_a_package_declared_in_several_groups_once(tmp_path, capsys):
+    """A dependency listed in dev and in an extra is one finding naming both groups."""
+    _write_pyproject(
+        tmp_path / "pyproject.toml",
+        runtime=["lancedb>=0.20"],
+        dev=["watchfiles>=1.0"],
+        extras={"watch": ["watchfiles>=1.0"]},
+    )
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0", "watchfiles": "1.0.0"})
+    _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
+    yanked_queries: list[dict] = []
+
+    def _capturing_yanked(queries: list[dict]) -> list[bool]:
+        yanked_queries.extend(queries)
+        return _no_yanked(queries)
+
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_vulns_for({"watchfiles": ["GHSA-dup-0001", "GHSA-dup-0001"]}),
+        yanked_checker=_capturing_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc != 0
+    capsys.readouterr()
+
+    report = json.loads((tmp_path / "out" / "current-audit-report.json").read_text())
+    assert [(f["package"], f["advisory_id"], f["group"]) for f in report["findings"]] == [
+        ("watchfiles", "GHSA-dup-0001", "dev, extra:watch")
+    ]
+    assert sorted(q["name"] for q in yanked_queries) == ["lancedb", "watchfiles"]
+    issue_body = (tmp_path / "out" / "current-audit-issue-body.md").read_text()
+    assert len([line for line in issue_body.splitlines() if "GHSA-dup-0001" in line]) == 1
+    assert "Found 1 blocking finding(s)" in issue_body
+    assert "(dev, extra:watch; `>=1.0`)" in issue_body
+
+
+def test_current_audit_blocks_when_a_yanked_lookup_does_not_complete(tmp_path, capsys):
+    """An unknown yanked status is a blocking finding, never a silent "not yanked"."""
+    _write_pyproject(tmp_path / "pyproject.toml", runtime=["lancedb>=0.20", "pyyaml>=6.0"])
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0", "pyyaml": "6.0.1"})
+    _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
+
+    def _one_unknown(queries: list[dict]) -> list[bool | None]:
+        return [None if q["name"] == "pyyaml" else False for q in queries]
+
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=_no_current_advisories,
+        yanked_checker=_one_unknown,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc != 0
+    assert "1 blocking finding" in capsys.readouterr().err
+    report = json.loads((tmp_path / "out" / "current-audit-report.json").read_text())
+    assert [(f["type"], f["package"]) for f in report["findings"]] == [
+        ("yanked_lookup_failed", "pyyaml")
+    ]
+    # A persistent failure (for example a version removed from PyPI) needs more
+    # than a rerun, so the remediation names both actions.
+    remediation = report["findings"][0]["remediation"]
+    assert "rerun the audit" in remediation
+    assert "still exists on PyPI" in remediation
+    issue_body = (tmp_path / "out" / "current-audit-issue-body.md").read_text()
+    assert "### Incomplete Yanked Lookups" in issue_body
+    assert "pyyaml 6.0.1" in issue_body
+
+
+def test_current_audit_fails_closed_when_advisory_results_are_incomplete(tmp_path, capsys):
+    _write_pyproject(tmp_path / "pyproject.toml", runtime=["lancedb>=0.20"])
+    _write_lockfile(tmp_path / "uv.lock", {"lancedb": "0.20.0", "pyarrow": "20.0.0"})
+    _write_allowlist(tmp_path / "docs" / "dependency-audit-allowlist.json")
+
+    rc = gate.cmd_current_audit(
+        root=tmp_path,
+        allowlist_path=tmp_path / "docs" / "dependency-audit-allowlist.json",
+        out_dir=tmp_path / "out",
+        advisory_querier=lambda queries: [{"vulns": []}],
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=_current_resolver_ok,
+        today_iso="2030-01-01",
+    )
+    assert rc == 1
+    assert "answered 1 of 2 locked packages" in capsys.readouterr().err
+    assert not (tmp_path / "out" / "current-audit-report.json").exists()
+
+
+class _Response:
+    def __init__(self, payload: object) -> None:
+        self._body = json.dumps(payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def test_default_yanked_checker_reports_failed_lookups_as_unknown(monkeypatch):
+    responses: dict[str, object] = {
+        "yanked-pkg": _Response({"info": {"yanked": True}}),
+        "live-pkg": _Response({"info": {"yanked": False}}),
+        "timeout-pkg": TimeoutError("read timed out"),
+        "http-pkg": gate.urllib.request.HTTPError("u", 503, "unavailable", {}, None),
+        "malformed-pkg": _Response({"info": {}}),
+    }
+
+    def fake_urlopen(request, timeout):
+        outcome = responses[request.full_url.split("/")[4]]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(gate.urllib.request, "urlopen", fake_urlopen)
+    queries = [{"name": name, "version": "1.0"} for name in responses]
+    assert gate._default_yanked_checker(queries) == [True, False, None, None, None]
+
+
+def test_default_advisory_querier_fails_closed_on_failed_or_short_responses(monkeypatch, capsys):
+    queries = [{"name": "a", "version": "1"}, {"name": "b", "version": "2"}]
+
+    def short(request, timeout):
+        return _Response({"results": [{"vulns": []}]})
+
+    def timeout(request, timeout):
+        raise TimeoutError("read timed out")
+
+    def paginated(request, timeout):
+        return _Response({"results": [{"vulns": []}, {"vulns": [{}], "next_page_token": "p2"}]})
+
+    for fake in (short, timeout, paginated):
+        monkeypatch.setattr(gate.urllib.request, "urlopen", fake)
+        try:
+            gate._default_advisory_querier(queries)
+        except SystemExit as exc:
+            assert exc.code == 1
+        else:
+            raise AssertionError(f"{fake.__name__} response must fail closed")
+    err = capsys.readouterr().err
+    assert "answered 1 of 2 queries" in err
+    assert "OSV query failed" in err
+    assert "OSV paginated the advisories for b" in err
+
+    monkeypatch.setattr(
+        gate.urllib.request,
+        "urlopen",
+        lambda request, timeout: _Response({"results": [{"vulns": []}, {}]}),
+    )
+    assert gate._default_advisory_querier(queries) == [{"vulns": []}, {}]

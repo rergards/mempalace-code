@@ -204,7 +204,10 @@ def test_chunkers_module_owns_chunk_file():
     chunks = chunk_file(content, ".py", "test.py", language="python")
     assert isinstance(chunks, list)
     assert len(chunks) > 0
+    source_lines = content.split("\n")
     for chunk in chunks:
         assert "content" in chunk
         assert "chunk_index" in chunk
-        assert len(chunk["content"]) >= MIN_CHUNK
+        assert len(chunk["content"]) <= MIN_CHUNK * 40
+        span = source_lines[chunk["line_start"] - 1 : chunk["line_end"]]
+        assert chunk["content"] == "\n".join(span)

@@ -17,12 +17,19 @@ Contract:
     but the supplied filter value is never rewritten, normalized, or
     silently substituted.
 
+The write-side checks at the end of this module (``clean_write_name`` and
+``near_duplicate_names``) are the matching contract for writes that name a
+wing or room.
+
 Error payload shape (returned as a dict, propagated unchanged by every
 caller):
     {"error": "unknown_wing" | "unknown_room" | "unknown_wing_room",
      "filter": "wing" | "room" | "wing_room",
      "value": <original supplied value(s), unmodified>,
      "suggestions": [<at most 3 candidate identifiers>]}
+unknown_wing_room payloads also carry "wing_rooms": every room of the
+supplied wing, sorted, so the valid pairs are visible even when no room name
+is close enough to suggest.
 """
 
 from __future__ import annotations
@@ -30,6 +37,8 @@ from __future__ import annotations
 import difflib
 import re
 from typing import Any
+
+from .errors import InvalidArgumentError
 
 _SUGGESTION_LIMIT = 3
 _SUGGESTION_MIN_RATIO = 0.4
@@ -108,11 +117,13 @@ def validate_wing_room_against_taxonomy(
     if room:
         all_rooms = {r for rooms in taxonomy.values() for r in rooms}
         if room not in all_rooms:
+            # With a wing filter, only that wing's rooms are useful suggestions.
+            candidates = taxonomy[wing].keys() if wing else all_rooms
             return {
                 "error": "unknown_room",
                 "filter": "room",
                 "value": room,
-                "suggestions": _rank_suggestions(room, sorted(all_rooms)),
+                "suggestions": _rank_suggestions(room, sorted(candidates)),
             }
 
     if wing and room:
@@ -123,6 +134,7 @@ def validate_wing_room_against_taxonomy(
                 "filter": "wing_room",
                 "value": {"wing": wing, "room": room},
                 "suggestions": _rank_suggestions(room, sorted(wing_rooms.keys())),
+                "wing_rooms": sorted(wing_rooms.keys()),
             }
 
     return None
@@ -202,6 +214,9 @@ def format_cli_lines(payload: dict) -> list[str]:
 
     if suggestions:
         lines.append(f"  Did you mean: {', '.join(suggestions)}?")
+    wing_rooms = payload.get("wing_rooms")
+    if code == "unknown_wing_room" and wing_rooms:
+        lines.append(f"  Rooms in wing {wing!r}: {', '.join(wing_rooms)}")
 
     lines.append(
         "  Next: run mempalace-code status, or check mempalace_list_wings / "
@@ -209,3 +224,58 @@ def format_cli_lines(payload: dict) -> list[str]:
         "— filters are validated against the palace taxonomy and suggestions are advisory only."
     )
     return lines
+
+
+# ── Write-side name checks ───────────────────────────────────────────────────
+#
+# Writes that name a wing or room (MCP add_drawer, CLI diary write --wing)
+# share one rule so a guessed spelling cannot silently splinter the taxonomy:
+# names are case-sensitive identifiers, surrounding whitespace is trimmed,
+# path separators and control characters are refused, and a *new* name that
+# differs from an existing one only by case, spacing, or punctuation (other
+# than '+' and '#', which tell 'c++' and 'c#' from 'c') is reported with that
+# existing name instead of being created.
+
+_UNSAFE_NAME_RE = re.compile(r"[/\\\x00-\x1f\x7f]")
+
+
+def clean_write_name(value: str, argument: str) -> str:
+    """Return *value* trimmed for use as a wing or room name in a write.
+
+    Raises ``InvalidArgumentError`` naming *argument* when the trimmed name is
+    blank or contains a path separator or control character.
+    """
+    name = value.strip()
+    if not name:
+        raise InvalidArgumentError(f"{argument} must not be blank", argument=argument)
+    if _UNSAFE_NAME_RE.search(name):
+        raise InvalidArgumentError(
+            f"{argument} {name!r} must not contain '/', '\\' or control characters",
+            argument=argument,
+        )
+    return name
+
+
+# Punctuation that carries meaning in common names ('c++', 'c#', 'f#').
+_SIGNIFICANT_NAME_PUNCTUATION = frozenset("+#")
+
+
+def _name_key(value: str) -> str:
+    return "".join(
+        ch for ch in value.casefold() if ch.isalnum() or ch in _SIGNIFICANT_NAME_PUNCTUATION
+    )
+
+
+def near_duplicate_names(name: str, existing) -> list[str]:
+    """Existing names that differ from *name* only by case, spacing, or punctuation.
+
+    ``+`` and ``#`` count as part of the name, so ``c++`` is not ``c``.
+
+    Empty when *name* itself exists (an exact reuse is always fine) or when
+    its comparison key is empty.
+    """
+    existing = set(existing)
+    key = _name_key(name)
+    if name in existing or not key:
+        return []
+    return sorted(candidate for candidate in existing if _name_key(candidate) == key)

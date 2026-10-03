@@ -7,8 +7,11 @@ import re
 # Ordered most-specific first within each language.
 
 _PY_EXTRACT = [
+    # Indentation is allowed so a chunk that starts inside a class still names its
+    # first method; the earliest definition in the chunk wins (see extract_symbol).
     (re.compile(r"^(?:async\s+)?def\s+(\w+)", re.MULTILINE), "function"),
-    (re.compile(r"^class\s+(\w+)", re.MULTILINE), "class"),
+    (re.compile(r"^[ \t]+(?:async\s+)?def\s+(\w+)", re.MULTILINE), "method"),
+    (re.compile(r"^[ \t]*class\s+(\w+)", re.MULTILINE), "class"),
 ]
 
 _TS_EXTRACT = [
@@ -34,11 +37,17 @@ _GO_EXTRACT = [
 
 _RUST_EXTRACT = [
     (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)", re.MULTILINE), "function"),
+    # An indented fn is a method of the impl or trait around it.
+    (
+        re.compile(r"^[ \t]+(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)", re.MULTILINE),
+        "method",
+    ),
     (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?struct\s+(\w+)", re.MULTILINE), "struct"),
     (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?enum\s+(\w+)", re.MULTILINE), "enum"),
     (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?trait\s+(\w+)", re.MULTILINE), "trait"),
     (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?impl(?:\s*<[^>]*>)?\s+(\w+)", re.MULTILINE), "impl"),
-    (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)", re.MULTILINE), "mod"),
+    # Inline module block; a `mod name;` declaration is a header (see _LANG_HEADER_EXTRACT).
+    (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*\{", re.MULTILINE), "mod"),
     (re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?type\s+(\w+)", re.MULTILINE), "type"),
 ]
 
@@ -247,8 +256,8 @@ _FSHARP_EXTRACT = [
     ),
     # Interface: type Foo = interface
     (re.compile(r"^type\s+(\w+)\s*=\s*interface", re.MULTILINE | re.IGNORECASE), "interface"),
-    # Module
-    (re.compile(r"^module\s+(\w+)", re.MULTILINE), "module"),
+    # Nested module block; a file-level `module A.B` line is a header (see _LANG_HEADER_EXTRACT).
+    (re.compile(r"^module\s+(\w+)\s*=", re.MULTILINE), "module"),
     # Exception
     (re.compile(r"^exception\s+(\w+)", re.MULTILINE), "exception"),
     # Type (catch-all: class, struct, abbreviation, etc.) — after all specific type patterns
@@ -652,7 +661,6 @@ _LUA_EXTRACT = [
     (re.compile(r"^function\s+(\w+:\w+)\s*\(", re.MULTILINE), "method"),
     (re.compile(r"^function\s+(\w+\.\w+)\s*\(", re.MULTILINE), "method"),
     (re.compile(r"^function\s+(\w+)\s*\(", re.MULTILINE), "function"),
-    (re.compile(r"^(?:local\s+)?([A-Z]\w*)\s*=\s*\{\}", re.MULTILINE), "module"),
 ]
 
 # Ansible: task keys that are NOT the module name
@@ -797,6 +805,38 @@ _RB_EXTRACT = [
     ),
 ]
 
+# Perl: packages and named subroutines.
+_PERL_EXTRACT = [
+    (re.compile(r"^[ \t]*package\s+([\w:]+)", re.MULTILINE), "module"),
+    (re.compile(r"^[ \t]*sub\s+(\w+)", re.MULTILINE), "function"),
+]
+
+# Terraform / HCL top-level blocks. Names use Terraform addresses so a symbol_name
+# filter such as "alpha_worker" matches resource "aws_instance" "alpha_worker".
+_HCL_BLOCK_RE = re.compile(
+    r'^(resource|data|module|variable|output|provider|check)\s+"?([\w.-]+)"?'
+    r'(?:\s+"?([\w.-]+)"?)?\s*\{',
+    re.MULTILINE,
+)
+
+
+def _extract_hcl_symbol(content: str) -> tuple:
+    """Extract (address, block type) from the first Terraform/HCL block in a chunk."""
+    m = _HCL_BLOCK_RE.search(content)
+    if not m:
+        return ("", "")
+    kind, first, second = m.group(1), m.group(2), m.group(3)
+    if kind == "resource":
+        return (f"{first}.{second}" if second else first, "resource")
+    if kind == "data":
+        return (f"data.{first}.{second}" if second else f"data.{first}", "data")
+    if kind == "variable":
+        return (f"var.{first}", "variable")
+    if kind in ("module", "output", "check"):
+        return (f"{kind}.{first}", kind)
+    return (first, "provider")
+
+
 _LANG_EXTRACT_MAP = {
     "python": _PY_EXTRACT,
     "typescript": _TS_EXTRACT,
@@ -819,7 +859,28 @@ _LANG_EXTRACT_MAP = {
     "dart": _DART_EXTRACT,
     "lua": _LUA_EXTRACT,
     "ruby": _RB_EXTRACT,
+    "perl": _PERL_EXTRACT,
 }
+
+# Declarations that name a chunk only when it defines nothing more specific: a PHP
+# namespace line precedes the class it wraps, and a Ruby constant or attr declared
+# before a class should not hide that class.
+_FALLBACK_SYMBOL_TYPES = frozenset({"namespace", "constant", "attr"})
+
+# File-header declarations: an F# file-level `module A.B` line, a Rust `mod name;`
+# declaration, and a Lua module table (`local M = {}`) open a file but should not
+# hide the type or function defined after them. They rank below every ordinary
+# definition and above the fallback types.
+_LANG_HEADER_EXTRACT = {
+    "fsharp": [(re.compile(r"^module\s+(?:rec\s+)?(\w+)", re.MULTILINE), "module")],
+    "rust": [(re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?mod\s+(\w+)\s*;", re.MULTILINE), "mod")],
+    "lua": [(re.compile(r"^(?:local\s+)?([A-Z]\w*)\s*=\s*\{\}", re.MULTILINE), "module")],
+}
+
+# Definitions that rank below a file header: F# `let` bindings and members, so a
+# module of bindings is still named after its module (while a type in the same
+# chunk names it).
+_LANG_BELOW_HEADER_TYPES = {"fsharp": frozenset({"function", "method"})}
 
 
 def _extract_k8s_symbol(content: str) -> tuple:
@@ -875,7 +936,10 @@ def _extract_helm_template_symbol(content: str) -> tuple:
 
 def extract_symbol(content: str, language: str) -> tuple:
     """
-    Extract the primary symbol defined in a code chunk.
+    Extract the primary symbol defined in a code chunk: the definition that starts
+    on the earliest line (patterns listed first win ties on the same line). File
+    headers (see _LANG_HEADER_EXTRACT) and fallback declarations name a chunk only
+    when it defines nothing more specific.
     Returns (symbol_name, symbol_type) or ("", "") if none found.
     Non-code languages (markdown, text, json, yaml, unknown, etc.) return ("", "").
     TS/JS import-only chunks return ("", "import").
@@ -885,6 +949,9 @@ def extract_symbol(content: str, language: str) -> tuple:
 
     if language == "ansible":
         return _extract_ansible_symbol(content)
+
+    if language in ("terraform", "hcl"):
+        return _extract_hcl_symbol(content)
 
     patterns = _LANG_EXTRACT_MAP.get(language)
     if patterns is None:
@@ -896,9 +963,28 @@ def extract_symbol(content: str, language: str) -> tuple:
         first_non_empty = next((line for line in content.splitlines() if line.strip()), "")
         is_import_chunk = bool(_TS_IMPORT_RE.match(first_non_empty.strip()))
 
-    for pattern, sym_type in patterns:
+    # Rank matches by (tier, line, pattern order): ordinary definitions, then file
+    # headers, then definitions ranked below headers, then fallback declarations.
+    below_header = _LANG_BELOW_HEADER_TYPES.get(language, frozenset())
+    best: tuple | None = None
+    for order, (pattern, sym_type) in enumerate(
+        [*patterns, *_LANG_HEADER_EXTRACT.get(language, [])]
+    ):
         m = re.search(pattern, content)
-        if m:
-            return (m.group(1), sym_type)
+        if not m:
+            continue
+        if order >= len(patterns):
+            tier = 1
+        elif sym_type in below_header:
+            tier = 2
+        elif sym_type in _FALLBACK_SYMBOL_TYPES:
+            tier = 3
+        else:
+            tier = 0
+        key = (tier, content.count("\n", 0, m.start(1)), order)
+        if best is None or key < best[0]:
+            best = (key, m.group(1), sym_type)
+    if best is not None:
+        return (best[1], best[2])
 
     return ("", "import") if is_import_chunk else ("", "")

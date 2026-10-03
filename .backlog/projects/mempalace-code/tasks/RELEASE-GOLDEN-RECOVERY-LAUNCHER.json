@@ -1,0 +1,709 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+      "version": "v1:bcd0f116dbf2c36b501988f53708fb0e7573c392e4725c9ebb59755e34dec5ee",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Correct golden release verification of invocation-preserving scheduler recovery commands.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_readiness_gate.py:1383-1405 _run_installed_path_contract_scenario. docs/UPDATES.md Confirmation refusal contract and mempalace_code/cli_commands/alias.py recovery_cli_command require the invoked launcher when PATH does not resolve the same CLI. Actual absolute CLI invocation on macOS with PATH=os.defpath: scheduler install/remove without --yes exit 2, empty stderr, JSON ok=false, stage=unsupported-platform, exit_code=2 and absolute-invoked-launcher + update status --json. Product satisfies contract; golden predicate requires literal bare mempalace-code update status --json and fails both. Control update apply without --yes emits stage confirmation and recovery ending --yes --json and passes current predicate. Previous exact installed wheel golden isolated-source run fails this verifier row. No unsafe update or scheduler mutation observed or executed.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (cli_refusals), .codex-local/release-prep-20261002/installed-golden-isolated.json. Smallest correction: verifier evaluates recovery argv against established launcher identity and action instead of one literal spelling, preserving platform, code, JSON, no-mutation and launcher safety checks. No runtime change justified by this finding.",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "docs/UPDATES.md"
+          },
+          {
+            "type": "file",
+            "uri": "mempalace_code/cli_commands/alias.py"
+          },
+          {
+            "type": "file",
+            "uri": "scripts/release_readiness_gate.py"
+          },
+          {
+            "type": "file",
+            "uri": "tests/test_release_readiness_gate.py"
+          }
+        ],
+        "exclusions": [
+          "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+          "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+          "Push, tag, release publication and changes to live palaces or services."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Golden path accepts supported short and absolute invocation-preserving update-status recovery commands on platforms without systemd-user.",
+          "verification": "Actual CLI with absolute launch and PATH excluding/differing from it, plus canonical same-PATH control; assert code 2, no stderr, valid single JSON, platform stage and state unchanged."
+        },
+        {
+          "id": "A02",
+          "assertion": "Verifier rejects a different launcher, wrong action/flags, inappropriate --yes recovery, malformed JSON, incorrect exit or changed state.",
+          "verification": "Run tests/test_release_readiness_gate.py with negative controls. Parse and validate existing recovery contract; do not replace strict checks with suffix-only matching."
+        },
+        {
+          "id": "A03",
+          "assertion": "The exact rebuilt wheel passes installed_golden_path_contracts using unchanged accepted runtime behavior.",
+          "verification": "Run python scripts/release_readiness_gate.py --installed-golden-wheel \u003cexact-wheel\u003e --json against frozen clean source and isolated data; report subsequent independent blockers accurately, Linux gate separately."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+        "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#RELEASE-GOLDEN-RECOVERY-LAUNCHER. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A03",
+            "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-02T22:03:37.760985Z"
+      },
+      "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+      "ready": false,
+      "created_at": "2026-10-02T16:16:03.872046Z",
+      "updated_at": "2026-10-02T22:03:37.760985Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+          "version": "v1:e6808074cb815060f90aff595c432f23e03ee3fffe63dabfeac7d7ee3316a3bc",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Correct golden release verification of invocation-preserving scheduler recovery commands.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_readiness_gate.py:1383-1405 _run_installed_path_contract_scenario. docs/UPDATES.md Confirmation refusal contract and mempalace_code/cli_commands/alias.py recovery_cli_command require the invoked launcher when PATH does not resolve the same CLI. Actual absolute CLI invocation on macOS with PATH=os.defpath: scheduler install/remove without --yes exit 2, empty stderr, JSON ok=false, stage=unsupported-platform, exit_code=2 and absolute-invoked-launcher + update status --json. Product satisfies contract; golden predicate requires literal bare mempalace-code update status --json and fails both. Control update apply without --yes emits stage confirmation and recovery ending --yes --json and passes current predicate. Previous exact installed wheel golden isolated-source run fails this verifier row. No unsafe update or scheduler mutation observed or executed.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (cli_refusals), .codex-local/release-prep-20261002/installed-golden-isolated.json. Smallest correction: verifier evaluates recovery argv against established launcher identity and action instead of one literal spelling, preserving platform, code, JSON, no-mutation and launcher safety checks. No runtime change justified by this finding.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/UPDATES.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/cli_commands/alias.py"
+              },
+              {
+                "type": "file",
+                "uri": "scripts/release_readiness_gate.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_release_readiness_gate.py"
+              }
+            ],
+            "exclusions": [
+              "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+              "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+              "Push, tag, release publication and changes to live palaces or services."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Golden path accepts supported short and absolute invocation-preserving update-status recovery commands on platforms without systemd-user.",
+              "verification": "Actual CLI with absolute launch and PATH excluding/differing from it, plus canonical same-PATH control; assert code 2, no stderr, valid single JSON, platform stage and state unchanged."
+            },
+            {
+              "id": "A02",
+              "assertion": "Verifier rejects a different launcher, wrong action/flags, inappropriate --yes recovery, malformed JSON, incorrect exit or changed state.",
+              "verification": "Run tests/test_release_readiness_gate.py with negative controls. Parse and validate existing recovery contract; do not replace strict checks with suffix-only matching."
+            },
+            {
+              "id": "A03",
+              "assertion": "The exact rebuilt wheel passes installed_golden_path_contracts using unchanged accepted runtime behavior.",
+              "verification": "Run python scripts/release_readiness_gate.py --installed-golden-wheel \u003cexact-wheel\u003e --json against frozen clean source and isolated data; report subsequent independent blockers accurately, Linux gate separately."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+          "ready": false,
+          "created_at": "2026-10-02T16:16:03.872046Z",
+          "updated_at": "2026-10-02T16:16:03.872046Z"
+        },
+        "operation": {
+          "id": "op_0e302f8aa8a435ece9cfdbf74d530b1f",
+          "principal": "codex-macmac",
+          "request_id": "mp-bug-intake-20261002-create-3",
+          "kind": "create",
+          "payload": {
+            "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "outcome": "Correct golden release verification of invocation-preserving scheduler recovery commands.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_readiness_gate.py:1383-1405 _run_installed_path_contract_scenario. docs/UPDATES.md Confirmation refusal contract and mempalace_code/cli_commands/alias.py recovery_cli_command require the invoked launcher when PATH does not resolve the same CLI. Actual absolute CLI invocation on macOS with PATH=os.defpath: scheduler install/remove without --yes exit 2, empty stderr, JSON ok=false, stage=unsupported-platform, exit_code=2 and absolute-invoked-launcher + update status --json. Product satisfies contract; golden predicate requires literal bare mempalace-code update status --json and fails both. Control update apply without --yes emits stage confirmation and recovery ending --yes --json and passes current predicate. Previous exact installed wheel golden isolated-source run fails this verifier row. No unsafe update or scheduler mutation observed or executed.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (cli_refusals), .codex-local/release-prep-20261002/installed-golden-isolated.json. Smallest correction: verifier evaluates recovery argv against established launcher identity and action instead of one literal spelling, preserving platform, code, JSON, no-mutation and launcher safety checks. No runtime change justified by this finding.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "scripts/release_readiness_gate.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_release_readiness_gate.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/UPDATES.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/cli_commands/alias.py"
+                }
+              ],
+              "exclusions": [
+                "Push, tag, release publication and changes to live palaces or services.",
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Golden path accepts supported short and absolute invocation-preserving update-status recovery commands on platforms without systemd-user.",
+                "verification": "Actual CLI with absolute launch and PATH excluding/differing from it, plus canonical same-PATH control; assert code 2, no stderr, valid single JSON, platform stage and state unchanged."
+              },
+              {
+                "id": "A02",
+                "assertion": "Verifier rejects a different launcher, wrong action/flags, inappropriate --yes recovery, malformed JSON, incorrect exit or changed state.",
+                "verification": "Run tests/test_release_readiness_gate.py with negative controls. Parse and validate existing recovery contract; do not replace strict checks with suffix-only matching."
+              },
+              {
+                "id": "A03",
+                "assertion": "The exact rebuilt wheel passes installed_golden_path_contracts using unchanged accepted runtime behavior.",
+                "verification": "Run python scripts/release_readiness_gate.py --installed-golden-wheel \u003cexact-wheel\u003e --json against frozen clean source and isolated data; report subsequent independent blockers accurately, Linux gate separately."
+              }
+            ],
+            "blocked_by": null,
+            "questions": null
+          },
+          "request_hash": "a7cba665bca11d6322178f4b56629770eeaf5415f197a6e64bc15301f307b4ad",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "version": "v1:e6808074cb815060f90aff595c432f23e03ee3fffe63dabfeac7d7ee3316a3bc",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Correct golden release verification of invocation-preserving scheduler recovery commands.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_readiness_gate.py:1383-1405 _run_installed_path_contract_scenario. docs/UPDATES.md Confirmation refusal contract and mempalace_code/cli_commands/alias.py recovery_cli_command require the invoked launcher when PATH does not resolve the same CLI. Actual absolute CLI invocation on macOS with PATH=os.defpath: scheduler install/remove without --yes exit 2, empty stderr, JSON ok=false, stage=unsupported-platform, exit_code=2 and absolute-invoked-launcher + update status --json. Product satisfies contract; golden predicate requires literal bare mempalace-code update status --json and fails both. Control update apply without --yes emits stage confirmation and recovery ending --yes --json and passes current predicate. Previous exact installed wheel golden isolated-source run fails this verifier row. No unsafe update or scheduler mutation observed or executed.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (cli_refusals), .codex-local/release-prep-20261002/installed-golden-isolated.json. Smallest correction: verifier evaluates recovery argv against established launcher identity and action instead of one literal spelling, preserving platform, code, JSON, no-mutation and launcher safety checks. No runtime change justified by this finding.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/UPDATES.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/cli_commands/alias.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_readiness_gate.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_release_readiness_gate.py"
+                }
+              ],
+              "exclusions": [
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+                "Push, tag, release publication and changes to live palaces or services."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Golden path accepts supported short and absolute invocation-preserving update-status recovery commands on platforms without systemd-user.",
+                "verification": "Actual CLI with absolute launch and PATH excluding/differing from it, plus canonical same-PATH control; assert code 2, no stderr, valid single JSON, platform stage and state unchanged."
+              },
+              {
+                "id": "A02",
+                "assertion": "Verifier rejects a different launcher, wrong action/flags, inappropriate --yes recovery, malformed JSON, incorrect exit or changed state.",
+                "verification": "Run tests/test_release_readiness_gate.py with negative controls. Parse and validate existing recovery contract; do not replace strict checks with suffix-only matching."
+              },
+              {
+                "id": "A03",
+                "assertion": "The exact rebuilt wheel passes installed_golden_path_contracts using unchanged accepted runtime behavior.",
+                "verification": "Run python scripts/release_readiness_gate.py --installed-golden-wheel \u003cexact-wheel\u003e --json against frozen clean source and isolated data; report subsequent independent blockers accurately, Linux gate separately."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+            "ready": false,
+            "created_at": "2026-10-02T16:16:03.872046Z",
+            "updated_at": "2026-10-02T16:16:03.872046Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_391f08f2dcf4fb0df2fb724f614cb304",
+          "project": "mempalace-code",
+          "task_id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:e6808074cb815060f90aff595c432f23e03ee3fffe63dabfeac7d7ee3316a3bc",
+          "data": {
+            "resource": "backlog://mempalace-code/task/RELEASE-GOLDEN-RECOVERY-LAUNCHER"
+          },
+          "created_at": "2026-10-02T16:16:03.872046Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_ce8c6fc9032cebe99d731394a3c8a174",
+            "project": "mempalace-code",
+            "task_id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:15b442b9546dec51892c3ea9d7e6209787ec74ba97e7a06b270d3fb22760dde5",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/RELEASE-GOLDEN-RECOVERY-LAUNCHER"
+            },
+            "created_at": "2026-10-02T16:16:25.196162Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+          "version": "v1:15b442b9546dec51892c3ea9d7e6209787ec74ba97e7a06b270d3fb22760dde5",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Correct golden release verification of invocation-preserving scheduler recovery commands.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_readiness_gate.py:1383-1405 _run_installed_path_contract_scenario. docs/UPDATES.md Confirmation refusal contract and mempalace_code/cli_commands/alias.py recovery_cli_command require the invoked launcher when PATH does not resolve the same CLI. Actual absolute CLI invocation on macOS with PATH=os.defpath: scheduler install/remove without --yes exit 2, empty stderr, JSON ok=false, stage=unsupported-platform, exit_code=2 and absolute-invoked-launcher + update status --json. Product satisfies contract; golden predicate requires literal bare mempalace-code update status --json and fails both. Control update apply without --yes emits stage confirmation and recovery ending --yes --json and passes current predicate. Previous exact installed wheel golden isolated-source run fails this verifier row. No unsafe update or scheduler mutation observed or executed.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (cli_refusals), .codex-local/release-prep-20261002/installed-golden-isolated.json. Smallest correction: verifier evaluates recovery argv against established launcher identity and action instead of one literal spelling, preserving platform, code, JSON, no-mutation and launcher safety checks. No runtime change justified by this finding.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/UPDATES.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/cli_commands/alias.py"
+              },
+              {
+                "type": "file",
+                "uri": "scripts/release_readiness_gate.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_release_readiness_gate.py"
+              }
+            ],
+            "exclusions": [
+              "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+              "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+              "Push, tag, release publication and changes to live palaces or services."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Golden path accepts supported short and absolute invocation-preserving update-status recovery commands on platforms without systemd-user.",
+              "verification": "Actual CLI with absolute launch and PATH excluding/differing from it, plus canonical same-PATH control; assert code 2, no stderr, valid single JSON, platform stage and state unchanged."
+            },
+            {
+              "id": "A02",
+              "assertion": "Verifier rejects a different launcher, wrong action/flags, inappropriate --yes recovery, malformed JSON, incorrect exit or changed state.",
+              "verification": "Run tests/test_release_readiness_gate.py with negative controls. Parse and validate existing recovery contract; do not replace strict checks with suffix-only matching."
+            },
+            {
+              "id": "A03",
+              "assertion": "The exact rebuilt wheel passes installed_golden_path_contracts using unchanged accepted runtime behavior.",
+              "verification": "Run python scripts/release_readiness_gate.py --installed-golden-wheel \u003cexact-wheel\u003e --json against frozen clean source and isolated data; report subsequent independent blockers accurately, Linux gate separately."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+          "ready": false,
+          "created_at": "2026-10-02T16:16:03.872046Z",
+          "updated_at": "2026-10-02T16:16:25.196162Z"
+        },
+        "operation": {
+          "id": "op_dd3e901d24f925f7a14ca9d6f716af94",
+          "principal": "codex-macmac",
+          "request_id": "mp-bug-intake-20261002-open-3",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:e6808074cb815060f90aff595c432f23e03ee3fffe63dabfeac7d7ee3316a3bc",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "3adfc2eb3be7a046967777de18ef56b85b546326703371c1be9b85c6bd2f1920",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "version": "v1:15b442b9546dec51892c3ea9d7e6209787ec74ba97e7a06b270d3fb22760dde5",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Correct golden release verification of invocation-preserving scheduler recovery commands.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_readiness_gate.py:1383-1405 _run_installed_path_contract_scenario. docs/UPDATES.md Confirmation refusal contract and mempalace_code/cli_commands/alias.py recovery_cli_command require the invoked launcher when PATH does not resolve the same CLI. Actual absolute CLI invocation on macOS with PATH=os.defpath: scheduler install/remove without --yes exit 2, empty stderr, JSON ok=false, stage=unsupported-platform, exit_code=2 and absolute-invoked-launcher + update status --json. Product satisfies contract; golden predicate requires literal bare mempalace-code update status --json and fails both. Control update apply without --yes emits stage confirmation and recovery ending --yes --json and passes current predicate. Previous exact installed wheel golden isolated-source run fails this verifier row. No unsafe update or scheduler mutation observed or executed.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (cli_refusals), .codex-local/release-prep-20261002/installed-golden-isolated.json. Smallest correction: verifier evaluates recovery argv against established launcher identity and action instead of one literal spelling, preserving platform, code, JSON, no-mutation and launcher safety checks. No runtime change justified by this finding.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/UPDATES.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/cli_commands/alias.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_readiness_gate.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_release_readiness_gate.py"
+                }
+              ],
+              "exclusions": [
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+                "Push, tag, release publication and changes to live palaces or services."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Golden path accepts supported short and absolute invocation-preserving update-status recovery commands on platforms without systemd-user.",
+                "verification": "Actual CLI with absolute launch and PATH excluding/differing from it, plus canonical same-PATH control; assert code 2, no stderr, valid single JSON, platform stage and state unchanged."
+              },
+              {
+                "id": "A02",
+                "assertion": "Verifier rejects a different launcher, wrong action/flags, inappropriate --yes recovery, malformed JSON, incorrect exit or changed state.",
+                "verification": "Run tests/test_release_readiness_gate.py with negative controls. Parse and validate existing recovery contract; do not replace strict checks with suffix-only matching."
+              },
+              {
+                "id": "A03",
+                "assertion": "The exact rebuilt wheel passes installed_golden_path_contracts using unchanged accepted runtime behavior.",
+                "verification": "Run python scripts/release_readiness_gate.py --installed-golden-wheel \u003cexact-wheel\u003e --json against frozen clean source and isolated data; report subsequent independent blockers accurately, Linux gate separately."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+            "ready": true,
+            "created_at": "2026-10-02T16:16:03.872046Z",
+            "updated_at": "2026-10-02T16:16:25.196162Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_a7aad7235330a9de6726d4a86a3bbb4a",
+          "project": "mempalace-code",
+          "task_id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:15b442b9546dec51892c3ea9d7e6209787ec74ba97e7a06b270d3fb22760dde5",
+          "data": {
+            "resource": "backlog://mempalace-code/task/RELEASE-GOLDEN-RECOVERY-LAUNCHER"
+          },
+          "created_at": "2026-10-02T16:16:25.196162Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_de68d3db88714c99fb48f58c49764d8d",
+            "project": "mempalace-code",
+            "task_id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:bcd0f116dbf2c36b501988f53708fb0e7573c392e4725c9ebb59755e34dec5ee",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/RELEASE-GOLDEN-RECOVERY-LAUNCHER"
+            },
+            "created_at": "2026-10-02T22:03:37.760985Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+          "version": "v1:bcd0f116dbf2c36b501988f53708fb0e7573c392e4725c9ebb59755e34dec5ee",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Correct golden release verification of invocation-preserving scheduler recovery commands.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_readiness_gate.py:1383-1405 _run_installed_path_contract_scenario. docs/UPDATES.md Confirmation refusal contract and mempalace_code/cli_commands/alias.py recovery_cli_command require the invoked launcher when PATH does not resolve the same CLI. Actual absolute CLI invocation on macOS with PATH=os.defpath: scheduler install/remove without --yes exit 2, empty stderr, JSON ok=false, stage=unsupported-platform, exit_code=2 and absolute-invoked-launcher + update status --json. Product satisfies contract; golden predicate requires literal bare mempalace-code update status --json and fails both. Control update apply without --yes emits stage confirmation and recovery ending --yes --json and passes current predicate. Previous exact installed wheel golden isolated-source run fails this verifier row. No unsafe update or scheduler mutation observed or executed.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (cli_refusals), .codex-local/release-prep-20261002/installed-golden-isolated.json. Smallest correction: verifier evaluates recovery argv against established launcher identity and action instead of one literal spelling, preserving platform, code, JSON, no-mutation and launcher safety checks. No runtime change justified by this finding.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/UPDATES.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/cli_commands/alias.py"
+              },
+              {
+                "type": "file",
+                "uri": "scripts/release_readiness_gate.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_release_readiness_gate.py"
+              }
+            ],
+            "exclusions": [
+              "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+              "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+              "Push, tag, release publication and changes to live palaces or services."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Golden path accepts supported short and absolute invocation-preserving update-status recovery commands on platforms without systemd-user.",
+              "verification": "Actual CLI with absolute launch and PATH excluding/differing from it, plus canonical same-PATH control; assert code 2, no stderr, valid single JSON, platform stage and state unchanged."
+            },
+            {
+              "id": "A02",
+              "assertion": "Verifier rejects a different launcher, wrong action/flags, inappropriate --yes recovery, malformed JSON, incorrect exit or changed state.",
+              "verification": "Run tests/test_release_readiness_gate.py with negative controls. Parse and validate existing recovery contract; do not replace strict checks with suffix-only matching."
+            },
+            {
+              "id": "A03",
+              "assertion": "The exact rebuilt wheel passes installed_golden_path_contracts using unchanged accepted runtime behavior.",
+              "verification": "Run python scripts/release_readiness_gate.py --installed-golden-wheel \u003cexact-wheel\u003e --json against frozen clean source and isolated data; report subsequent independent blockers accurately, Linux gate separately."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+            "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#RELEASE-GOLDEN-RECOVERY-LAUNCHER. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-02T22:03:37.760985Z"
+          },
+          "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+          "ready": false,
+          "created_at": "2026-10-02T16:16:03.872046Z",
+          "updated_at": "2026-10-02T22:03:37.760985Z"
+        },
+        "operation": {
+          "id": "op_63440fa7f1574f56b37aa466fb99d3d1",
+          "principal": "codex-macmac",
+          "request_id": "remaining-release-20261002-complete-release-golden-recovery-launcher",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:15b442b9546dec51892c3ea9d7e6209787ec74ba97e7a06b270d3fb22760dde5",
+            "expected_revision": 2,
+            "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+            "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#RELEASE-GOLDEN-RECOVERY-LAUNCHER. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "aa880414a2047b9b6341cd5fd807cc1ee920cedbbdec3e64657205931392c147",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "version": "v1:bcd0f116dbf2c36b501988f53708fb0e7573c392e4725c9ebb59755e34dec5ee",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Correct golden release verification of invocation-preserving scheduler recovery commands.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_readiness_gate.py:1383-1405 _run_installed_path_contract_scenario. docs/UPDATES.md Confirmation refusal contract and mempalace_code/cli_commands/alias.py recovery_cli_command require the invoked launcher when PATH does not resolve the same CLI. Actual absolute CLI invocation on macOS with PATH=os.defpath: scheduler install/remove without --yes exit 2, empty stderr, JSON ok=false, stage=unsupported-platform, exit_code=2 and absolute-invoked-launcher + update status --json. Product satisfies contract; golden predicate requires literal bare mempalace-code update status --json and fails both. Control update apply without --yes emits stage confirmation and recovery ending --yes --json and passes current predicate. Previous exact installed wheel golden isolated-source run fails this verifier row. No unsafe update or scheduler mutation observed or executed.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (cli_refusals), .codex-local/release-prep-20261002/installed-golden-isolated.json. Smallest correction: verifier evaluates recovery argv against established launcher identity and action instead of one literal spelling, preserving platform, code, JSON, no-mutation and launcher safety checks. No runtime change justified by this finding.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/UPDATES.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/cli_commands/alias.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_readiness_gate.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_release_readiness_gate.py"
+                }
+              ],
+              "exclusions": [
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+                "Push, tag, release publication and changes to live palaces or services."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Golden path accepts supported short and absolute invocation-preserving update-status recovery commands on platforms without systemd-user.",
+                "verification": "Actual CLI with absolute launch and PATH excluding/differing from it, plus canonical same-PATH control; assert code 2, no stderr, valid single JSON, platform stage and state unchanged."
+              },
+              {
+                "id": "A02",
+                "assertion": "Verifier rejects a different launcher, wrong action/flags, inappropriate --yes recovery, malformed JSON, incorrect exit or changed state.",
+                "verification": "Run tests/test_release_readiness_gate.py with negative controls. Parse and validate existing recovery contract; do not replace strict checks with suffix-only matching."
+              },
+              {
+                "id": "A03",
+                "assertion": "The exact rebuilt wheel passes installed_golden_path_contracts using unchanged accepted runtime behavior.",
+                "verification": "Run python scripts/release_readiness_gate.py --installed-golden-wheel \u003cexact-wheel\u003e --json against frozen clean source and isolated data; report subsequent independent blockers accurately, Linux gate separately."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+              "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#RELEASE-GOLDEN-RECOVERY-LAUNCHER. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A03",
+                  "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-02T22:03:37.760985Z"
+            },
+            "contract_digest": "sha256:6dbab79aba42d31e61ab71ebc350f4e7fa5ac18b2b44bd733909a1617557e808",
+            "ready": false,
+            "created_at": "2026-10-02T16:16:03.872046Z",
+            "updated_at": "2026-10-02T22:03:37.760985Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_da1f3f2fd76a441bd30c7cec3cdccf8f",
+          "project": "mempalace-code",
+          "task_id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:bcd0f116dbf2c36b501988f53708fb0e7573c392e4725c9ebb59755e34dec5ee",
+          "data": {
+            "resource": "backlog://mempalace-code/task/RELEASE-GOLDEN-RECOVERY-LAUNCHER"
+          },
+          "created_at": "2026-10-02T22:03:37.760985Z"
+        }
+      }
+    ],
+    "seal": "47f2826d714b278489614ddd6a5dadd0a2f8e3762566a942777d25668fedd574"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+    "head": "wf2:405e32231703125d8996287c0c2f3549d809bd5642d93cf8aea78abc45f03741",
+    "nodes": [
+      {
+        "version": "wf2:405e32231703125d8996287c0c2f3549d809bd5642d93cf8aea78abc45f03741",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-macmac",
+        "request_id": "mp-bug-intake-20261002-plan-3",
+        "request_hash": "aa75f57992d30153e4c36695ae72110fba18f73fe26ca620ce64f192d6d186e8",
+        "payload": {
+          "request_id": "mp-bug-intake-20261002-plan-3",
+          "id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+          "expected_planning_version": "unplanned",
+          "reason": "Confirmed blocker of the next release qualification; intake only, implementation is not authorized by this request.",
+          "priority": "P1",
+          "required": true
+        },
+        "state": {
+          "order": 0,
+          "priority": "P1",
+          "required": true,
+          "version": "wf2:405e32231703125d8996287c0c2f3549d809bd5642d93cf8aea78abc45f03741"
+        },
+        "created_at": "2026-10-02T16:16:25.391003Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_405e32231703125d8996287c0c2f3549d809bd5642d93cf8aea78abc45f03741",
+            "project": "mempalace-code",
+            "task_id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:405e32231703125d8996287c0c2f3549d809bd5642d93cf8aea78abc45f03741",
+            "data": {
+              "resource": "backlog://mempalace-code/task/RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+              "subject_id": "RELEASE-GOLDEN-RECOVERY-LAUNCHER",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-02T16:16:25.391003Z"
+          }
+        ]
+      }
+    ],
+    "seal": "34f60368f505e40f0f91d944ec8337a852e69cf15acdb0f860ad6aefc7451e24"
+  },
+  "seal": "8cf1f5acd8e5eaa11d42f86b2ed781b34655e5a90b11b9895b344ac10b21e8e8"
+}

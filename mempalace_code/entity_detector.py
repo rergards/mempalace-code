@@ -43,11 +43,9 @@ PERSON_VERB_PATTERNS = [
     r"\b{name}\s+decided\b",
     r"\b{name}\s+pushed\b",
     r"\b{name}\s+wrote\b",
-    r"\bhey\s+{name}\b",
-    r"\bthanks?\s+{name}\b",
-    r"\bhi\s+{name}\b",
-    r"\bdear\s+{name}\b",
 ]
+# Greetings and thanks ("hey Alice", "thanks Alice") are the separate "addressed directly"
+# signal (see _build_patterns), so they are not counted again as actions.
 
 # Person signals — pronouns resolving nearby
 PRONOUN_PATTERNS = [
@@ -445,10 +443,17 @@ SKIP_DIRS = {
 # ==================== CANDIDATE EXTRACTION ====================
 
 
+# A capitalized word must recur this often in the sampled text to become a candidate.
+MIN_CANDIDATE_MENTIONS = 3
+
+# Files init itself writes; scanning them would feed detection its own earlier output.
+GENERATED_DETECTION_FILES = frozenset({"entities.json", "mempalace.yaml", "mempal.yaml"})
+
+
 def extract_candidates(text: str) -> dict:
     """
     Extract all capitalized proper noun candidates from text.
-    Returns {name: frequency} for names appearing 3+ times.
+    Returns {name: frequency} for names appearing MIN_CANDIDATE_MENTIONS+ times.
     """
     # Find all capitalized words (not at sentence start — harder, so we use frequency as filter)
     raw = re.findall(r"\b([A-Z][a-z]{1,19})\b", text)
@@ -464,8 +469,7 @@ def extract_candidates(text: str) -> dict:
         if not any(w.lower() in STOPWORDS for w in phrase.split()):
             counts[phrase] += 1
 
-    # Filter: must appear at least 3 times to be a candidate
-    return {name: count for name, count in counts.items() if count >= 3}
+    return {name: count for name, count in counts.items() if count >= MIN_CANDIDATE_MENTIONS}
 
 
 # ==================== SIGNAL SCORING ====================
@@ -482,7 +486,9 @@ def _build_patterns(name: str) -> dict:
         "project_verbs": [
             re.compile(p.format(name=n), re.IGNORECASE) for p in PROJECT_VERB_PATTERNS
         ],
-        "direct": re.compile(rf"\bhey\s+{n}\b|\bthanks?\s+{n}\b|\bhi\s+{n}\b", re.IGNORECASE),
+        "direct": re.compile(
+            rf"\bhey\s+{n}\b|\bthanks?\s+{n}\b|\bhi\s+{n}\b|\bdear\s+{n}\b", re.IGNORECASE
+        ),
         "versioned": re.compile(rf"\b{n}[-v]\w+", re.IGNORECASE),
         "code_ref": re.compile(
             rf"\b{n}\.(py|js|ts|java|kt|kts|yaml|yml|json|sh)\b",
@@ -513,10 +519,12 @@ def score_entity(name: str, text: str, lines: list) -> dict:
 
     # Person verbs
     for rx in patterns["person_verbs"]:
-        matches = len(rx.findall(text))
-        if matches > 0:
-            person_score += matches * 2
-            person_signals.append(f"'{name} ...' action ({matches}x)")
+        found = rx.findall(text)
+        if found:
+            person_score += len(found) * 2
+            first = rx.search(text)
+            phrase = " ".join(first.group(0).split()) if first else name
+            person_signals.append(f"'{phrase}' action ({len(found)}x)")
 
     # Pronoun proximity — pronouns within 3 lines of the name
     name_lower = name.lower()
@@ -559,9 +567,25 @@ def score_entity(name: str, text: str, lines: list) -> dict:
     return {
         "person_score": person_score,
         "project_score": project_score,
+        # Signal kinds come from every signal, before the display lists are shortened.
+        "person_signal_types": sorted(_person_signal_types(person_signals)),
         "person_signals": person_signals[:3],
         "project_signals": project_signals[:3],
     }
+
+
+def _person_signal_types(signals: list) -> set:
+    types = set()
+    for signal in signals:
+        if signal.startswith("dialogue"):
+            types.add("dialogue")
+        elif signal.startswith("pronoun"):
+            types.add("pronoun")
+        elif signal.startswith("addressed"):
+            types.add("addressed")
+        elif "action" in signal:
+            types.add("action")
+    return types
 
 
 # ==================== CLASSIFY ====================
@@ -592,16 +616,9 @@ def classify_entity(name: str, frequency: int, scores: dict) -> dict:
     # Require TWO different signal categories to confidently classify as a person.
     # One signal type with many hits (e.g. "Click, click, click...") is not enough —
     # it just means that word appears often in a particular syntactic position.
-    signal_categories = set()
-    for s in scores["person_signals"]:
-        if "dialogue" in s:
-            signal_categories.add("dialogue")
-        elif "action" in s:
-            signal_categories.add("action")
-        elif "pronoun" in s:
-            signal_categories.add("pronoun")
-        elif "addressed" in s:
-            signal_categories.add("addressed")
+    signal_categories = set(
+        scores.get("person_signal_types") or _person_signal_types(scores["person_signals"])
+    )
 
     has_two_signal_types = len(signal_categories) >= 2
     _ = signal_categories - {"pronoun"}  # reserved for future thresholds
@@ -611,10 +628,11 @@ def classify_entity(name: str, frequency: int, scores: dict) -> dict:
         confidence = min(0.99, 0.5 + person_ratio * 0.5)
         signals = scores["person_signals"] or [f"appears {frequency}x"]
     elif person_ratio >= 0.7 and (not has_two_signal_types or ps < 5):
-        # Pronoun-only match — downgrade to uncertain
+        # One kind of person signal (or too few hits) — downgrade to uncertain
         entity_type = "uncertain"
         confidence = 0.4
-        signals = scores["person_signals"] + [f"appears {frequency}x — pronoun-only match"]
+        reason = "single person signal type" if not has_two_signal_types else "weak person signals"
+        signals = scores["person_signals"] + [f"appears {frequency}x — {reason}"]
     elif person_ratio <= 0.3:
         entity_type = "project"
         confidence = min(0.99, 0.5 + (1 - person_ratio) * 0.5)
@@ -849,6 +867,8 @@ def scan_for_detection(project_dir: str, max_files: int = 10) -> list:
     for root, dirs, filenames in os.walk(project_path):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for filename in filenames:
+            if filename in GENERATED_DETECTION_FILES:
+                continue
             filepath = Path(root) / filename
             ext = filepath.suffix.lower()
             if ext in PROSE_EXTENSIONS:

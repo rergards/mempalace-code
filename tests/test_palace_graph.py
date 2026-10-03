@@ -124,8 +124,8 @@ class TestBuildGraphOutputShape:
         assert edge["hall"] == "shared"
         assert edge["count"] == 2
 
-    def test_no_edge_when_room_has_no_hall(self):
-        """A tunnel room with empty hall produces no edges."""
+    def test_tunnel_room_without_hall_is_one_edge(self):
+        """A tunnel room with empty hall still connects its wings (hall is "")."""
         store = _FakeGraphStore(
             metadatas=[
                 {"wing": "alpha", "room": "schema", "hall": "", "date": ""},
@@ -137,7 +137,9 @@ class TestBuildGraphOutputShape:
 
         assert "schema" in nodes
         assert set(nodes["schema"]["wings"]) == {"alpha", "beta"}
-        assert edges == []
+        assert [(e["room"], e["wing_a"], e["wing_b"], e["hall"]) for e in edges] == [
+            ("schema", "alpha", "beta", "")
+        ]
 
     def test_dates_limited_to_five_most_recent(self):
         """dates field keeps only the 5 most recent sorted date strings, not just any 5."""

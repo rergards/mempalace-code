@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import base64
 import copy
 import hashlib
@@ -10,6 +11,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -197,6 +199,12 @@ def full_copy_fixture(tmp_path: Path, monkeypatch) -> tuple[Path, Path, dict]:
         capture_output=True,
         check=True,
     ).stdout.strip()
+    source_pyproject = subprocess.run(
+        ["git", "show", f"{source_commit}:pyproject.toml"],
+        cwd=SCRIPT.parents[1],
+        capture_output=True,
+        check=True,
+    ).stdout
     inventory.update(
         {
             "logical_source_root": str(logical_root),
@@ -223,9 +231,7 @@ def full_copy_fixture(tmp_path: Path, monkeypatch) -> tuple[Path, Path, dict]:
                 "model_cache_seal": seed_receipt["runtime"]["model_cache_seal"],
                 "original_interpreter": "/owner-original/runtime/bin/python",
                 "original_version": seed_receipt["runtime"]["distribution_version"],
-                "pyproject_sha256": wing_migration._file_digest(
-                    SCRIPT.parents[1] / "pyproject.toml"
-                ),
+                "pyproject_sha256": hashlib.sha256(source_pyproject).hexdigest(),
                 "qualification_distribution_hashes": seed_receipt["runtime"]["distribution_hashes"],
                 "qualification_distribution_origin": seed_receipt["runtime"]["distribution_origin"],
                 "qualification_interpreter": seed_receipt["runtime"]["interpreter"],
@@ -301,11 +307,15 @@ def filesystem_manifest(root: Path, *absent: Path) -> dict[str, tuple | None]:
                 content = os.readlink(path)
             elif path.is_file():
                 content = hashlib.sha256(path.read_bytes()).hexdigest()
+            # Taking the fixture lease creates and removes the owner record beside the
+            # stable lock anchors; refusal cleanup restores that record, not the mtime of
+            # the directory holding it (the fixture HOME state directory).
+            lock_directory = (path / "operation.lock.metadata.lock").exists()
             state[str(path.relative_to(root))] = (
                 metadata.st_mode,
                 metadata.st_nlink,
                 metadata.st_size,
-                metadata.st_mtime_ns,
+                None if lock_directory else metadata.st_mtime_ns,
                 content,
             )
     for path in absent:
@@ -2740,8 +2750,12 @@ def test_absent_and_aliased_kg_candidates_have_explicit_proof(tmp_path):
 
 
 def test_cli_qualification_and_authority_refusals(tmp_path):
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    environment = {**os.environ, "TMPDIR": str(temporary)}
     qualified = subprocess.run(
         [sys.executable, str(SCRIPT), "qualify", "--mode", "synthetic"],
+        env=environment,
         text=True,
         capture_output=True,
         check=False,
@@ -2755,9 +2769,15 @@ def test_cli_qualification_and_authority_refusals(tmp_path):
     assert report["runtime"]["predicates"]["zero_drawer_writes"] is True
     assert report["runtime"]["predicates"]["source_baseline_real_mine"] is True
     assert report["runtime"]["predicates"]["resolver_destination"] is True
-    assert report["runtime"]["identity"]["isolated_non_editable"] is True
-    assert report["runtime"]["identity"]["package_hashes"]
-    assert "--inventory" in report["recovery_command"]
+    assert report["runtime"]["isolated_non_editable"] is True
+    assert len(report["runtime"]["identity_sha256"]) == 64
+    # REG ops-24: the removed fixture leaves no recovery command and no host internals.
+    assert report["recovery_command"] is None
+    assert not list(temporary.glob("mempalace-wing-migration-*"))
+    assert str(temporary) not in qualified.stdout
+    assert "model_cache_seal" not in qualified.stdout
+    assert "package_hashes" not in qualified.stdout
+    assert len(qualified.stdout) < 4096
 
     missing_inventory_environment = dict(os.environ)
     missing_inventory_environment.pop("WING_MIGRATION_INVENTORY_PATH", None)
@@ -2769,7 +2789,11 @@ def test_cli_qualification_and_authority_refusals(tmp_path):
         check=False,
     )
     assert full_copy.returncode == 2
-    assert json.loads(full_copy.stdout)["failed_predicate"] == "full_copy_inventory_required"
+    refused = json.loads(full_copy.stdout)
+    assert refused["failed_predicate"] == "full_copy_inventory_required"
+    # REG ops-14: name the environment variable instead of absent private evidence.
+    assert refused["allowed_next_action"] == "set_inventory_environment"
+    assert "WING_MIGRATION_INVENTORY_PATH=" in refused["recovery_command"]
 
     live = subprocess.run(
         [sys.executable, str(SCRIPT), "qualify", "--mode", "live"],
@@ -2778,7 +2802,25 @@ def test_cli_qualification_and_authority_refusals(tmp_path):
         check=False,
     )
     assert live.returncode == 2
-    assert json.loads(live.stdout)["failed_predicate"] == "live_authority_required"
+    refused = json.loads(live.stdout)
+    assert refused["failed_predicate"] == "live_authority_required"
+    assert refused["allowed_next_action"] == "live-run"
+    assert "wing-migration live-run --authority" in refused["recovery_command"]
+
+
+def test_subcommand_help_names_the_installed_wing_migration_command(capsys):
+    """REG: nested usage lines must show the invocable command, not 'mempalace-code qualify'."""
+    from mempalace_code.cli_commands.wing_migration import cmd_wing_migration
+
+    argv0 = sys.argv[0]
+    with pytest.raises(SystemExit) as exc_info:
+        cmd_wing_migration(argparse.Namespace(wing_migration_args=["qualify", "--help"]))
+    assert sys.argv[0] == argv0
+
+    assert exc_info.value.code == 0
+    # argparse wraps the usage line to the terminal width, so compare unwrapped text.
+    usage = " ".join(capsys.readouterr().out.split())
+    assert usage.startswith("usage: mempalace-code wing-migration qualify [-h] --mode")
 
 
 def test_cli_full_copy_malformed_inventory_is_sanitized_and_artifact_free(tmp_path):
@@ -3123,6 +3165,48 @@ def test_live_runtime_noop_uses_live_timeout(monkeypatch, tmp_path):
     assert observed_timeout == wing_migration.FULL_COPY_RUNTIME_MINE_TIMEOUT_SECONDS
 
 
+def test_live_runtime_noop_hands_only_its_child_the_fence_token(monkeypatch, tmp_path):
+    from mempalace_code.operation_lock import INHERITED_LEASE_ENV
+
+    receipt = {"runtime": {"model_cache_home": str(tmp_path / "hf")}}
+    monkeypatch.setenv(INHERITED_LEASE_ENV, "f" * 32)
+    plain = wing_migration._runtime_environment(receipt, tmp_path)
+    assert INHERITED_LEASE_ENV not in plain
+    inherited = wing_migration._runtime_environment(receipt, tmp_path, inherited_lease="a" * 32)
+    assert inherited[INHERITED_LEASE_ENV] == "a" * 32
+
+    observed: dict[str, object] = {}
+
+    def completed(_receipt, _command, **kwargs):
+        observed.update(kwargs)
+        return subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="Wing:    new-wing\nDrawers filed: 0\n", stderr=""
+        )
+
+    monkeypatch.setattr(wing_migration, "_validate_runtime", lambda _receipt: None)
+    monkeypatch.setattr(wing_migration, "_run_runtime_subprocess", completed)
+    live_receipt = {
+        "qualification_mode": "live",
+        "inventory": {
+            "palace": str(tmp_path / "palace"),
+            "project_root": str(tmp_path / "project"),
+            "fixture_root": str(tmp_path),
+            "destination_wing": "new-wing",
+        },
+        "runtime": {"interpreter": sys.executable},
+    }
+    wing_migration._runtime_live_noop(live_receipt, inherited_lease="b" * 32)
+    assert observed["inherited_lease"] == "b" * 32
+
+
+def test_runner_filters_quote_through_the_storage_helper(tmp_path):
+    palace = tmp_path / "palace"
+    db = lancedb.connect(str(palace / "lance"))
+    db.create_table(wing_migration.TABLE_NAME, data=[{"id": "it's", "wing": "o'hara"}])
+    assert wing_migration._read_lance_row(palace, "it's")["wing"] == "o'hara"
+    assert wing_migration._sql_literal("o'hara") == "'o''hara'"
+
+
 def test_live_process_inventory_matches_argv_identity_only(monkeypatch):
     class Observed:
         returncode = 0
@@ -3300,3 +3384,418 @@ def test_runbook_records_full_copy_private_recovery_and_live_gates():
     assert "one exact recovery command" in normalized
     assert "Full-copy qualification alone grants no live authority" in runbook
     assert "live-run --authority" in runbook
+
+
+# ── UAT regressions: refusal guidance, stage names, lock identity, help ──────
+
+
+def _refusal(capsys, argv: list[str]) -> dict:
+    assert wing_migration.main(argv) == 2
+    return json.loads(capsys.readouterr().out)
+
+
+def test_stop_after_unknown_stage_refuses_before_any_write(tmp_path, capsys):
+    """REG ops-15: a typo in --stop-after must not run the full merge."""
+    inventory_path, receipt_path, inventory = fixture(tmp_path)
+    inventory_receipt(inventory_path, receipt_path)
+    wing_migration.snapshot(str(receipt_path))
+    before_state = wing_migration._capture(inventory)
+    before_receipt = receipt_path.read_bytes()
+
+    refused = _refusal(
+        capsys,
+        [
+            "apply",
+            "--inventory",
+            str(inventory_path),
+            "--receipt",
+            str(receipt_path),
+            "--stop-after",
+            "bogus",
+        ],
+    )
+
+    assert refused["failed_predicate"] == "stop_after_invalid"
+    assert refused["allowed_next_action"] == "correct_stage_and_retry"
+    assert "lance:1:data" in refused["detail"]
+    assert "marker" in refused["detail"]
+    assert wing_migration._capture(inventory) == before_state
+    assert receipt_path.read_bytes() == before_receipt
+    assert wing_migration.classify(str(receipt_path)) == "original"
+
+    with pytest.raises(wing_migration.MigrationError) as caught:
+        wing_migration.recover(str(receipt_path), stop_after="recover:bogus")
+    assert caught.value.code == "stop_after_invalid"
+    # Every documented stage stays accepted.
+    with pytest.raises(wing_migration.InjectedStop):
+        wing_migration.apply(str(receipt_path), stop_after="kg:0:data")
+    assert wing_migration.classify(str(receipt_path)) == "partial"
+
+
+def test_stop_after_help_lists_stage_names(capsys):
+    with pytest.raises(SystemExit):
+        wing_migration.main(["apply", "--help"])
+    usage = " ".join(capsys.readouterr().out.split())
+    for stage in ("lance:N[:data]", "kg:I[:data]", "tiny_hashes[:data]", "runtime_proved"):
+        assert stage in usage
+    assert "refused before any write" in usage
+
+
+def test_fixture_lock_must_be_the_fixture_home_default_lock(tmp_path, monkeypatch):
+    """REG ops-16: the inventoried lock must be the lease MemPalace processes take."""
+    inventory_path, receipt_path, inventory = fixture(tmp_path)
+    home = Path(inventory["fixture_root"]) / "home"
+    monkeypatch.setenv("HOME", str(home))
+    from mempalace_code.operation_lock import OperationLock
+
+    assert Path(inventory["lock"]) == OperationLock.default().path
+
+    stray = Path(inventory["fixture_root"]) / "operation.lock"
+    wing_migration._create_lock_anchors(stray)
+    moved = {**inventory, "lock": str(stray)}
+    rewrite_inventory(inventory_path, moved)
+    with pytest.raises(wing_migration.MigrationError) as caught:
+        inventory_receipt(inventory_path, receipt_path)
+    assert caught.value.code == "lock_path_invalid"
+    assert not receipt_path.exists()
+
+
+def test_apply_refuses_while_fixture_home_mcp_lease_is_held(tmp_path, monkeypatch, capsys):
+    """REG ops-16: an MCP server started with the fixture HOME blocks apply."""
+    inventory_path, receipt_path, inventory = fixture(tmp_path)
+    inventory_receipt(inventory_path, receipt_path)
+    wing_migration.snapshot(str(receipt_path))
+    before = wing_migration._capture(inventory)
+    monkeypatch.setenv("HOME", str(Path(inventory["fixture_root"]) / "home"))
+    from mempalace_code.operation_lock import OperationLock
+
+    command = ["apply", "--inventory", str(inventory_path), "--receipt", str(receipt_path)]
+    with OperationLock.default().acquire_shared("mcp-stdio"):
+        refused = _refusal(capsys, command)
+
+    assert refused["failed_predicate"] == "writer_conflict"
+    # REG ops-14 (5): stop the writer and retry, not a recover that has nothing to do.
+    assert refused["allowed_next_action"] == "stop_writer_and_retry"
+    assert "mempalace-code wing-migration apply" in refused["recovery_command"]
+    assert wing_migration._capture(inventory) == before
+
+
+def test_refusal_guidance_follows_the_failed_predicate(tmp_path, capsys):
+    """REG ops-14: each predicate names its own next action instead of looping."""
+    inventory_path, receipt_path, inventory = fixture(tmp_path)
+    inventory_receipt(inventory_path, receipt_path)
+    apply_command = ["apply", "--inventory", str(inventory_path), "--receipt", str(receipt_path)]
+
+    refused = _refusal(capsys, apply_command)
+    assert refused["failed_predicate"] == "snapshot_required"
+    assert refused["allowed_next_action"] == "snapshot"
+    assert refused["recovery_command"] == (
+        f"mempalace-code wing-migration snapshot --receipt {receipt_path}"
+    )
+
+    wing_migration.snapshot(str(receipt_path))
+    with pytest.raises(wing_migration.InjectedStop):
+        wing_migration.apply(str(receipt_path), stop_after="lance:1")
+    table_for(inventory).update(where="id = 'unrelated'", values={"text": "unexpected drift"})
+    refused = _refusal(
+        capsys,
+        ["recover", "--inventory", str(inventory_path), "--receipt", str(receipt_path)],
+    )
+    assert refused["failed_predicate"] == "unknown_state_refused"
+    assert refused["allowed_next_action"] == "owner_disposition"
+    assert "wing_migration.py recover" not in refused["recovery_command"]
+    # REG ops-14 review: apply on the same unknown state must not point to recover either.
+    refused = _refusal(capsys, apply_command)
+    assert refused["failed_predicate"] == "apply_unknown_refused"
+    assert refused["allowed_next_action"] == "owner_disposition"
+    assert "recover" not in refused["detail"]
+    assert "wing_migration.py recover" not in refused["recovery_command"]
+
+
+@pytest.mark.parametrize(
+    ("argv", "option"),
+    [
+        (["inventory", "--inventory", "{missing}", "--receipt", "{fresh}"], "inventory"),
+        (["classify", "--receipt", "{missing}"], "receipt"),
+        (["snapshot", "--receipt", "{missing}"], "receipt"),
+        (["live-run", "--authority", "{missing}"], "authority"),
+    ],
+)
+def test_missing_input_file_is_reported_as_not_found(tmp_path, monkeypatch, capsys, argv, option):
+    """REG ops-14 (6)(7): a missing file is not invalid JSON or a live recovery."""
+    monkeypatch.delenv("WING_MIGRATION_INVENTORY_PATH", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    missing = tmp_path / "private-missing-sentinel.json"
+    command = [
+        value.format(missing=missing, fresh=tmp_path / "fresh-receipt.json") for value in argv
+    ]
+
+    refused = _refusal(capsys, command)
+
+    assert refused["failed_predicate"] == "file_not_found"
+    assert refused["allowed_next_action"] == "correct_path_and_retry"
+    assert refused["detail"] == f"--{option} file does not exist"
+    assert str(missing) not in json.dumps(refused)
+
+
+def test_live_writer_conflict_with_pending_marker_keeps_live_recover(tmp_path, monkeypatch, capsys):
+    """REG ops-14 review: a lease holder after the live receipt still resolves by live-recover."""
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    lock = home / ".mempalace" / "operation.lock"
+    lock.parent.mkdir(parents=True)
+    authority = tmp_path / "authority.json"
+    wing_migration._atomic_json(authority, {"lock": str(lock)})
+    marker_recovery = "mempalace-code wing-migration live-recover --authority AUTH"
+    wing_migration._atomic_json(
+        wing_migration._live_maintenance_path(lock),
+        {"phase": "receipt", "recovery_command": marker_recovery},
+    )
+
+    def refuse(_path):
+        raise wing_migration.MigrationError("writer_conflict", "lease held")
+
+    monkeypatch.setattr(wing_migration, "live_run", refuse)
+
+    refused = _refusal(capsys, ["live-run", "--authority", str(authority)])
+
+    assert refused["failed_predicate"] == "writer_conflict"
+    assert refused["allowed_next_action"] == "live-recover"
+    assert refused["recovery_command"].endswith(f"then run {marker_recovery}")
+    assert "fixture" not in refused["recovery_command"]
+
+
+def test_synthetic_baseline_model_load_failure_names_fetch_model(tmp_path, monkeypatch):
+    """REG ops-13 review: a cache whose model cannot load names fetch-model, compactly."""
+    cache_source = tmp_path / "hf-source"
+    cache_source.mkdir()
+    monkeypatch.setattr(wing_migration, "_model_cache_home", lambda: cache_source)
+
+    def materialize(_source, target):
+        target.mkdir(parents=True)
+        return target
+
+    monkeypatch.setattr(wing_migration, "_materialize_model_cache", materialize)
+    monkeypatch.setattr(wing_migration, "_seal_model_cache", lambda _home: {})
+    traceback_text = (
+        "Traceback (most recent call last):\n"
+        + '  File "/removed/fixture/x.py", line 1, in <module>\n' * 200
+        + "onnxruntime.capi.onnxruntime_pybind11_state.InvalidProtobuf: [ONNXRuntimeError] "
+        ": 7 : INVALID_PROTOBUF : Load model failed: Protobuf parsing failed."
+    )
+
+    def failed_mine(_authority, command, **_kwargs):
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr=traceback_text)
+
+    monkeypatch.setattr(wing_migration, "_run_runtime_subprocess", failed_mine)
+
+    with pytest.raises(wing_migration.MigrationError) as caught:
+        wing_migration._create_synthetic_fixture(tmp_path / "fx", real_source_mine=True)
+
+    assert caught.value.code == "prepared_model_cache_required"
+    assert "Protobuf parsing failed" in caught.value.detail
+    assert "Traceback" not in caught.value.detail
+    assert len(caught.value.detail) <= 600
+
+
+def test_refused_live_run_without_pending_marker_does_not_send_to_live_recover(
+    tmp_path, monkeypatch, capsys
+):
+    """REG ops-14: a live-run refused before any live write has nothing to recover."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    authority = tmp_path / "authority.json"
+    wing_migration._atomic_json(authority, {"lock": str(tmp_path / "home" / "operation.lock")})
+
+    def refuse(_path):
+        raise wing_migration.MigrationError("live_authority_invalid", "fields differ")
+
+    monkeypatch.setattr(wing_migration, "live_run", refuse)
+    refused = _refusal(capsys, ["live-run", "--authority", str(authority)])
+
+    assert refused["allowed_next_action"] == "live-run"
+    assert "no live recovery is pending" in refused["recovery_command"]
+
+
+def test_recover_without_inventory_labels_synthetic_authority(tmp_path, capsys):
+    """REG ops-23: the authority label comes from the receipt, not from --inventory."""
+    inventory_path, receipt_path, _ = fixture(tmp_path)
+    inventory_receipt(inventory_path, receipt_path)
+    wing_migration.snapshot(str(receipt_path))
+    with pytest.raises(wing_migration.InjectedStop):
+        wing_migration.apply(str(receipt_path), stop_after="kg:0:data")
+
+    assert wing_migration.main(["recover", "--receipt", str(receipt_path)]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["authority"] == "explicit disposable fixture only"
+    assert output["state"] == "original"
+
+
+def test_installed_help_lists_every_action(capsys, monkeypatch):
+    """REG ops-23: `mempalace-code wing-migration --help` describes the actions."""
+    from mempalace_code import cli
+
+    monkeypatch.setattr(sys, "argv", ["mempalace-code", "wing-migration", "--help"])
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert out.startswith("usage: mempalace-code wing-migration")
+    for action in (
+        "inventory",
+        "snapshot",
+        "apply",
+        "classify",
+        "recover",
+        "qualify",
+        "live-run",
+        "live-recover",
+    ):
+        assert f"\n    {action} " in out
+
+
+def test_synthetic_refusal_before_fixture_leaves_no_temporary_tree(tmp_path, monkeypatch, capsys):
+    """REG ops-13: a missing model cache refuses before creating a fixture."""
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "empty-hf-home"))
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temporary))
+
+    refused = _refusal(capsys, ["qualify", "--mode", "synthetic"])
+
+    assert refused["failed_predicate"] == "prepared_model_cache_required"
+    assert refused["allowed_next_action"] == "fetch-model"
+    assert "mempalace-code fetch-model" in refused["recovery_command"]
+    assert list(temporary.iterdir()) == []
+
+
+def test_synthetic_refusal_without_receipt_removes_fixture(tmp_path, monkeypatch, capsys):
+    """REG ops-13: a refused fixture that holds no receipt is removed, not leaked."""
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temporary))
+
+    original = wing_migration._create_synthetic_fixture
+
+    def failing_fixture(root, *, real_source_mine=False):
+        original(root)
+        raise wing_migration.MigrationError("synthetic_source_baseline_failed", "mine exploded")
+
+    monkeypatch.setattr(wing_migration, "_create_synthetic_fixture", failing_fixture)
+
+    refused = _refusal(capsys, ["qualify", "--mode", "synthetic"])
+
+    assert refused["failed_predicate"] == "synthetic_source_baseline_failed"
+    assert refused["detail"] == "mine exploded"
+    assert refused["allowed_next_action"] == "qualify"
+    assert "retained_fixture" not in refused
+    assert list(temporary.iterdir()) == []
+
+
+def test_synthetic_refusal_with_receipt_reports_retained_fixture(tmp_path, monkeypatch, capsys):
+    """REG ops-13: a retained fixture is named with its receipt-bound recovery."""
+    temporary = tmp_path / "tmp"
+    temporary.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temporary))
+    original = wing_migration._create_synthetic_fixture
+    monkeypatch.setattr(
+        wing_migration,
+        "_create_synthetic_fixture",
+        lambda root, *, real_source_mine=False: original(root),
+    )
+
+    def failing_snapshot(_receipt_path):
+        raise wing_migration.MigrationError("snapshot_corrupt", "late refusal")
+
+    monkeypatch.setattr(wing_migration, "snapshot", failing_snapshot)
+
+    refused = _refusal(capsys, ["qualify", "--mode", "synthetic"])
+
+    retained = Path(refused["retained_fixture"])
+    assert retained.parent.resolve() == temporary.resolve()
+    assert (retained / "evidence" / "receipt.json").is_file()
+    assert refused["allowed_next_action"] == "recover"
+    assert str(retained / "evidence" / "receipt.json") in refused["recovery_command"]
+
+
+def test_reinventory_of_an_inventoried_fixture_names_the_existing_receipt(tmp_path, capsys):
+    """REG ops-5: a second inventory says the fixture is already inventoried."""
+    inventory_path, receipt_path, _ = fixture(tmp_path)
+    inventory_receipt(inventory_path, receipt_path)
+
+    same = _refusal(
+        capsys, ["inventory", "--inventory", str(inventory_path), "--receipt", str(receipt_path)]
+    )
+    assert same["failed_predicate"] == "receipt_exists"
+    assert same["allowed_next_action"] == "snapshot"
+    assert f"snapshot --receipt {receipt_path.resolve()}" in same["recovery_command"]
+
+    other = receipt_path.with_name("receipt2.json")
+    fresh = _refusal(
+        capsys, ["inventory", "--inventory", str(inventory_path), "--receipt", str(other)]
+    )
+    assert fresh["failed_predicate"] == "runtime_target_exists"
+    assert fresh["allowed_next_action"] == "new_fixture"
+    assert "already inventoried" in fresh["detail"]
+    assert "create a new disposable fixture" in fresh["recovery_command"]
+
+
+def test_inventory_help_limits_mode_0600_to_full_copy(capsys):
+    """REG ops-6: the help states the mode rule the runner enforces."""
+    with pytest.raises(SystemExit):
+        wing_migration.main(["inventory", "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "a full-copy inventory must be a mode-0600 regular file" in help_text
+
+
+def test_full_copy_input_refusal_names_fields_not_private_evidence(tmp_path, monkeypatch, capsys):
+    """REG ops-7: a pre-admission inventory error names what to fix; nothing was created."""
+    inventory = tmp_path / "inv.json"
+    inventory.write_text("{}", encoding="utf-8")
+    os.chmod(inventory, 0o600)
+    monkeypatch.setenv("WING_MIGRATION_INVENTORY_PATH", str(inventory))
+
+    refused = _refusal(capsys, ["qualify", "--mode", "full-copy"])
+
+    assert refused["failed_predicate"] == "inventory_missing_fields"
+    assert refused["allowed_next_action"] == "correct_inventory_and_retry"
+    assert "evidence_root" in refused["detail"]
+    assert "private evidence" not in refused["recovery_command"]
+    assert str(tmp_path) not in json.dumps(refused)
+    assert sorted(tmp_path.iterdir()) == [inventory]
+
+
+def test_full_copy_missing_selection_detail_is_specific(monkeypatch, capsys):
+    """REG ops-7(a): the missing environment selection is named in detail."""
+    monkeypatch.delenv("WING_MIGRATION_INVENTORY_PATH", raising=False)
+    refused = _refusal(capsys, ["qualify", "--mode", "full-copy"])
+    assert refused["allowed_next_action"] == "set_inventory_environment"
+    assert refused["detail"] == "private inventory is not selected"
+
+
+def test_live_authority_refusal_names_the_differing_fields(tmp_path, monkeypatch, capsys):
+    """REG ops-7(c): the live authority refusal names missing fields, not their values."""
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    authority = tmp_path / "authority.json"
+    wing_migration._atomic_json(authority, {"version": 1})
+
+    refused = _refusal(capsys, ["live-run", "--authority", str(authority)])
+
+    assert refused["failed_predicate"] == "live_authority_invalid"
+    assert "missing" in refused["detail"]
+    assert "approved_host" in refused["detail"]
+    assert "private evidence" not in refused["detail"]
+
+
+def test_receipt_bound_inventory_refusal_does_not_claim_nothing_was_created():
+    """REG ops-7 review: snapshot/apply re-check the inventory after a receipt exists."""
+    import argparse
+
+    for action, created in (("qualify", True), ("snapshot", False), ("apply", False)):
+        args = argparse.Namespace(action=action, receipt=None)
+        guidance = wing_migration._refusal_guidance(
+            "inventory_permissions_invalid", args, [action], private=True
+        )
+        assert guidance is not None
+        next_action, command = guidance
+        assert next_action == "correct_inventory_and_retry"
+        assert ("nothing was created" in command) is created, action

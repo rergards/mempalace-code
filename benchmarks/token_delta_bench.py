@@ -40,7 +40,8 @@ from mempalace_code.storage import open_store  # noqa: E402
 
 
 # =============================================================================
-# QUERY SET (reused from embed_ab_bench.py)
+# QUERY SET — the 20 queries embed_ab_bench.py used before it moved to
+# benchmarks/data/code_retrieval_queries.json; kept fixed so published figures stay comparable.
 # =============================================================================
 
 QUERIES = [

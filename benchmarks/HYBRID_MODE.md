@@ -3,6 +3,14 @@
 **Written by Lu (DTL) — March 24, 2026**
 **For: Ben**
 
+> Historical benchmark note: this is an inherited upstream working memo from the
+> original MemPal benchmark session, kept for its design rationale. It is not the
+> current mempalace-code product benchmark, its "current best" results and file
+> map describe the upstream branch at that time, and the result files it lists
+> were never committed here. The harness needs the disposable legacy ChromaDB
+> environment described in [`README.md`](README.md#setup). Read every number with
+> the caveats in [`BENCHMARKS.md`](BENCHMARKS.md#methodology-caveats).
+
 ---
 
 ## What This Is
@@ -194,12 +202,11 @@ python benchmarks/longmemeval_bench.py data/longmemeval_s_cleaned.json --mode hy
 
 ## Reproducing the Results
 
-```bash
-# Setup
-git clone -b ben/benchmarking https://github.com/aya-thekeeper/mempal.git
-cd mempal
-pip install chromadb
+The original `ben/benchmarking` branch no longer exists. Run these commands from
+a checkout of this repository with the disposable legacy environment described in
+[`README.md`](README.md#setup).
 
+```bash
 # Download data
 mkdir -p /tmp/longmemeval-data
 curl -fsSL -o /tmp/longmemeval-data/longmemeval_s_cleaned.json \
@@ -508,6 +515,11 @@ The 5 remaining failures include at least 2 that are arguably ambiguous — the 
 
 ## File Map
 
+Historical: this is the upstream branch layout at the time of the memo. Of these
+files, only `longmemeval_bench.py`, `locomo_bench.py`, and this memo exist in this
+repository; the result files, the diary cache, and the notes file were never
+committed.
+
 ```
 benchmarks/
   longmemeval_bench.py                         — main benchmark + all modes
@@ -548,4 +560,6 @@ Temporal proximity is a strong signal but not definitive. A 40% maximum reductio
 
 ## Contact
 
-Questions → Milla (Aya) will relay to Lu. Or push changes to `ben/benchmarking` and Lu will review next session.
+Historical: the original memo routed questions to its upstream authors through the
+`ben/benchmarking` branch, which no longer exists. For this repository, open an
+issue at [rergards/mempalace-code](https://github.com/rergards/mempalace-code/issues).

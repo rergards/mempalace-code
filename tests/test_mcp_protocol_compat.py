@@ -451,7 +451,10 @@ def _run_mcp_raw(raw_lines, palace_path, fresh_home, server_args=None, timeout=6
 
 
 def test_required_schema_tools_no_traceback_on_empty_args(palace_path, fresh_home):
-    """All 20 required-schema tools called with empty args return -32602, no traceback (AC-1, AC-4)."""
+    """All 19 required-schema tools called with empty args return -32602, no traceback (AC-1, AC-4).
+
+    mempalace_diary_read has no required argument: agent_name defaults to MEMPALACE_AGENT_NAME.
+    """
     open_store(palace_path, create=True)
 
     required_tools = [
@@ -459,8 +462,8 @@ def test_required_schema_tools_no_traceback_on_empty_args(palace_path, fresh_hom
         for name, spec in TOOLS.items()
         if spec["input_schema"].get("required")
     ]
-    assert len(required_tools) == 20, (
-        f"Expected 20 required-schema tools, got {len(required_tools)}; "
+    assert len(required_tools) == 19, (
+        f"Expected 19 required-schema tools, got {len(required_tools)}; "
         "update this guard if the registry changes"
     )
 
@@ -482,7 +485,7 @@ def test_required_schema_tools_no_traceback_on_empty_args(palace_path, fresh_hom
 
     responses, result = _run_mcp_stdio(requests, palace_path, fresh_home)
 
-    # initialize (id=1) + 20 tool responses; notifications/initialized emits no response
+    # initialize (id=1) + 19 tool responses; notifications/initialized emits no response
     assert len(responses) == 1 + len(required_tools), (
         f"Expected {1 + len(required_tools)} responses, got {len(responses)}\n"
         f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"

@@ -2,12 +2,18 @@
 # Dependabot opens PRs that bump each pinned commit SHA and rewrites the adjacent
 # version comment. Repository workflow admission tests enforce repository-specific
 # shape and comment predicates; actionlint and zizmor remain generic analyzers.
+#
+# Every entry waits seven days after an upstream release before proposing it, so
+# a compromised or quickly retracted release has time to be caught upstream first.
+# Cooldown never delays Dependabot security updates.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
   # The Gitleaks CLI is a checksum-locked Go tool module, so its version lives in
   # tools/gitleaks/go.mod alone. Dependabot bumps it there and tools/gitleaks/go.sum
   # keeps the module checksums locked; no workflow ever names a mutable @tag.
@@ -15,5 +21,7 @@ updates:
     directory: /tools/gitleaks
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     allow:
       - dependency-type: direct

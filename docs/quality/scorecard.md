@@ -8,26 +8,26 @@ Schema version: 4
 
 | Metric | Value |
 |--------|------:|
-| Package files (`mempalace_code/`) | 82 |
-| Package total lines | 35098 |
-| Package code lines | 29439 |
-| Test files (`tests/`) | 92 |
-| Test total lines | 86949 |
+| Package files (`mempalace_code/`) | 87 |
+| Package total lines | 47956 |
+| Package code lines | 40383 |
+| Test files (`tests/`) | 123 |
+| Test total lines | 111298 |
 
 ## Largest Modules (top 10)
 
 | Module | Lines |
 |--------|------:|
-| `mempalace_code/wing_migration.py` | 5398 |
-| `mempalace_code/storage.py` | 2241 |
-| `mempalace_code/updater.py` | 1780 |
-| `mempalace_code/mining/chunkers.py` | 1466 |
-| `mempalace_code/watcher.py` | 1333 |
-| `mempalace_code/dialect.py` | 1074 |
-| `mempalace_code/backup.py` | 989 |
-| `mempalace_code/cli.py` | 963 |
-| `mempalace_code/mining/orchestrator.py` | 963 |
-| `mempalace_code/mining/symbols.py` | 904 |
+| `mempalace_code/wing_migration.py` | 5788 |
+| `mempalace_code/storage.py` | 3813 |
+| `mempalace_code/watcher.py` | 2482 |
+| `mempalace_code/updater.py` | 1933 |
+| `mempalace_code/knowledge_graph.py` | 1737 |
+| `mempalace_code/mining/chunkers.py` | 1626 |
+| `mempalace_code/mining/orchestrator.py` | 1480 |
+| `mempalace_code/backup.py` | 1408 |
+| `mempalace_code/cli.py` | 1181 |
+| `mempalace_code/dialect.py` | 1144 |
 
 ## Ruff Ignores
 
@@ -117,9 +117,9 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| type/pyright ignores (total) | 171 |
+| type/pyright ignores (total) | 180 |
 | type/pyright unreasoned | 0 |
-| noqa (total) | 39 |
+| noqa (total) | 43 |
 | noqa blanket | 0 |
 | **Unreasoned suppressions (total)** | **0** |
 
@@ -127,8 +127,8 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| Test files | 92 |
-| Test functions | 3937 |
+| Test files | 123 |
+| Test functions | 4924 |
 
 ## Available Suites
 

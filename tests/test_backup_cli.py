@@ -8,6 +8,7 @@ error.  Library-level behaviour is covered by tests/test_backup.py.
 
 import errno
 import io
+import json
 import os
 import sys
 import tarfile
@@ -16,9 +17,9 @@ from unittest.mock import patch
 import pytest
 
 import mempalace_code.backup as backup_module
-from mempalace_code.backup import create_backup
+from mempalace_code.backup import create_backup, managed_backups_dir
 from mempalace_code.cli import main
-from mempalace_code.knowledge_graph import DEFAULT_KG_PATH, KnowledgeGraph
+from mempalace_code.knowledge_graph import KnowledgeGraph, palace_kg_path
 from mempalace_code.storage import open_store
 
 # ── helpers ────────────────────────────────────────────────────────────────────
@@ -67,7 +68,7 @@ def test_backup_cli_default_out(seeded_collection, palace_path, tmp_dir, capsys)
 
     assert os.path.isfile(archive_path), f"Archive not found at {archive_path}"
     assert archive_path.endswith(".tar.gz")
-    backups_dir = os.path.join(tmp_dir, "backups")
+    backups_dir = managed_backups_dir(palace_path)
     assert os.path.abspath(archive_path).startswith(os.path.abspath(backups_dir)), (
         f"Expected archive under {backups_dir}, got {archive_path}"
     )
@@ -108,7 +109,7 @@ def test_backup_create_default_out(seeded_collection, palace_path, tmp_dir, caps
     captured = capsys.readouterr()
     archive_path = _archive_line(captured.out)
     assert os.path.isfile(archive_path), f"Archive not found at {archive_path}"
-    backups_dir = os.path.join(tmp_dir, "backups")
+    backups_dir = managed_backups_dir(palace_path)
     assert os.path.abspath(archive_path).startswith(os.path.abspath(backups_dir)), (
         f"Expected archive under {backups_dir}, got {archive_path}"
     )
@@ -218,7 +219,9 @@ def test_restore_cli_rejects_nonbackup_without_success_or_side_effects(tmp_dir, 
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "Restored palace to:" not in captured.out
-    assert captured.err.count("mempalace-code backup create") == 1
+    assert f"{archive} is not a restorable MemPalace backup" in captured.err
+    assert f"tar -tzf {archive}" in captured.err
+    assert captured.err.count("backup list") == 1
     assert "missing_metadata" in captured.err
     assert not os.path.lexists(restore_target)
     assert not os.path.lexists(os.path.join(tmp_dir, "mempalace-direct-escaped.txt"))
@@ -228,9 +231,13 @@ def test_restore_cli_rejects_nonbackup_without_success_or_side_effects(tmp_dir, 
 def test_restore_cli_reports_canonical_empty_backup_without_palace_success(
     force_existing, tmp_dir, capsys
 ):
-    source = os.path.join(tmp_dir, "empty-source")
+    # backup create now refuses an empty source; older releases wrote such archives.
     archive = os.path.join(tmp_dir, "empty-backup.tar.gz")
-    create_backup(source, out_path=archive, kg_path=os.path.join(tmp_dir, "missing-kg"))
+    with tarfile.open(archive, "w:gz") as tar:
+        payload = json.dumps({"drawer_count": 0, "wings": []}).encode()
+        member = tarfile.TarInfo("mempalace_backup/metadata.json")
+        member.size = len(payload)
+        tar.addfile(member, io.BytesIO(payload))
     restore_target = os.path.join(tmp_dir, "empty-target")
     sentinel = os.path.join(restore_target, "lance", "sentinel.bin")
     if force_existing:
@@ -257,6 +264,15 @@ def test_restore_cli_reports_canonical_empty_backup_without_palace_success(
 # ── KG path scoping regression (RESTORE-KG-PATH-SCOPING) ──────────────────────
 
 
+@pytest.fixture
+def legacy_kg(tmp_dir, monkeypatch):
+    """Point the legacy global KG at a disposable path for this test."""
+    path = os.path.join(tmp_dir, "legacy_home", ".mempalace", "knowledge_graph.sqlite3")
+    os.makedirs(os.path.dirname(path))
+    monkeypatch.setattr("mempalace_code.knowledge_graph.DEFAULT_KG_PATH", path)
+    return path
+
+
 def _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys):
     """Create a backup archive that includes seeded_kg and return its path."""
     archive = os.path.join(tmp_dir, "kg_backup.tar.gz")
@@ -266,17 +282,16 @@ def _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys):
 
 
 def test_restore_cli_explicit_palace_scopes_kg(
-    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys, legacy_kg
 ):
-    """AC-1: explicit --palace restore writes archived KG to <palace>/knowledge_graph.sqlite3 and leaves DEFAULT_KG_PATH untouched."""
+    """AC-1: explicit --palace restore writes archived KG to <palace>/knowledge_graph.sqlite3 and leaves the legacy global KG untouched."""
     archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
     restore_target = os.path.join(tmp_dir, "restore_palace_kg_scope")
     scoped_kg = os.path.join(restore_target, "knowledge_graph.sqlite3")
 
-    # Plant a sentinel at DEFAULT_KG_PATH; it must not be overwritten by --palace restore.
+    # Plant a sentinel at the legacy global KG; it must not be overwritten by --palace restore.
     sentinel_content = b"AC1_DEFAULT_SENTINEL"
-    os.makedirs(os.path.dirname(os.path.abspath(DEFAULT_KG_PATH)), exist_ok=True)
-    with open(DEFAULT_KG_PATH, "wb") as f:
+    with open(legacy_kg, "wb") as f:
         f.write(sentinel_content)
 
     _run(["mempalace-code", "--palace", restore_target, "restore", archive])
@@ -284,9 +299,9 @@ def test_restore_cli_explicit_palace_scopes_kg(
 
     # KG must be written to the custom palace, not to the global default
     assert os.path.isfile(scoped_kg), f"Expected KG at {scoped_kg}"
-    with open(DEFAULT_KG_PATH, "rb") as f:
+    with open(legacy_kg, "rb") as f:
         assert f.read() == sentinel_content, (
-            "DEFAULT_KG_PATH sentinel was overwritten by --palace restore"
+            "legacy global KG sentinel was overwritten by --palace restore"
         )
 
     # Verify the restored KG contains the expected data
@@ -297,7 +312,7 @@ def test_restore_cli_explicit_palace_scopes_kg(
 
 
 def test_restore_cli_refusal_does_not_touch_kg(
-    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys, legacy_kg
 ):
     """AC-2: non-forced restore refusal exits 1 before touching scoped or default KG files."""
     archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
@@ -313,8 +328,7 @@ def test_restore_cli_refusal_does_not_touch_kg(
     with open(scoped_kg, "wb") as f:
         f.write(sentinel_content)
 
-    os.makedirs(os.path.dirname(os.path.abspath(DEFAULT_KG_PATH)), exist_ok=True)
-    with open(DEFAULT_KG_PATH, "wb") as f:
+    with open(legacy_kg, "wb") as f:
         f.write(sentinel_content)
 
     # Attempt refused restore
@@ -326,8 +340,8 @@ def test_restore_cli_refusal_does_not_touch_kg(
     # Neither sentinel should have been modified
     with open(scoped_kg, "rb") as f:
         assert f.read() == sentinel_content, "scoped KG sentinel was modified"
-    with open(DEFAULT_KG_PATH, "rb") as f:
-        assert f.read() == sentinel_content, "DEFAULT_KG_PATH sentinel was modified"
+    with open(legacy_kg, "rb") as f:
+        assert f.read() == sentinel_content, "legacy global KG sentinel was modified"
 
 
 def test_restore_cli_kg_path_overrides_palace_scope(
@@ -363,17 +377,16 @@ def test_restore_cli_kg_path_overrides_palace_scope(
 
 
 def test_restore_cli_kg_path_without_palace(
-    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys, legacy_kg
 ):
     """--kg-path explicit destination is honoured even without top-level --palace."""
     archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
     default_restore_target = os.path.join(tmp_dir, "kg_path_no_palace")
     explicit_kg = os.path.join(tmp_dir, "no_palace_explicit_kg.sqlite3")
 
-    # Plant a sentinel at DEFAULT_KG_PATH; --kg-path without --palace must not touch it.
-    os.makedirs(os.path.dirname(os.path.abspath(DEFAULT_KG_PATH)), exist_ok=True)
+    # Plant a sentinel at the legacy global KG; --kg-path without --palace must not touch it.
     sentinel_content = b"NO_PALACE_KG_PATH_SENTINEL"
-    with open(DEFAULT_KG_PATH, "wb") as f:
+    with open(legacy_kg, "wb") as f:
         f.write(sentinel_content)
 
     with patch("mempalace_code.cli_commands.backup_restore.MempalaceConfig") as mock_cfg:
@@ -382,36 +395,35 @@ def test_restore_cli_kg_path_without_palace(
     capsys.readouterr()
 
     assert os.path.isfile(explicit_kg), f"KG must be written to --kg-path {explicit_kg}"
-    with open(DEFAULT_KG_PATH, "rb") as f:
+    with open(legacy_kg, "rb") as f:
         assert f.read() == sentinel_content, (
-            "--kg-path without --palace must not touch DEFAULT_KG_PATH"
+            "--kg-path without --palace must not touch the legacy global KG"
         )
+    assert not os.path.exists(palace_kg_path(default_restore_target))
     restored_kg = KnowledgeGraph(db_path=explicit_kg)
     triples = restored_kg.query_entity("Max")
     assert len(triples) >= 2, "Expected at least 2 triples for Max in restored KG"
 
 
-def test_restore_cli_default_without_palace_keeps_default_kg(
-    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
+def test_restore_cli_without_palace_scopes_kg_to_configured_palace(
+    seeded_collection, palace_path, seeded_kg, tmp_dir, capsys, legacy_kg
 ):
-    """AC-4: restore without top-level --palace writes KG to DEFAULT_KG_PATH (backward compat)."""
+    """AC-4: restore without top-level --palace writes the KG into the configured palace."""
     archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
 
     # Use a fresh empty dir as the default palace so the restore is not refused.
     default_restore_target = os.path.join(tmp_dir, "default_palace_ac4")
-    if os.path.lexists(DEFAULT_KG_PATH):
-        os.unlink(DEFAULT_KG_PATH)
+    with open(legacy_kg, "wb") as f:
+        f.write(b"AC4_LEGACY_SENTINEL")
 
     with patch("mempalace_code.cli_commands.backup_restore.MempalaceConfig") as mock_cfg:
         mock_cfg.return_value.palace_path = default_restore_target
         _run(["mempalace-code", "restore", archive])
     capsys.readouterr()
 
-    # DEFAULT_KG_PATH is isolated by conftest HOME redirect; the KG must land there.
-    assert os.path.isfile(DEFAULT_KG_PATH), (
-        f"KG should be written to DEFAULT_KG_PATH {DEFAULT_KG_PATH}"
-    )
-    restored_kg = KnowledgeGraph(db_path=DEFAULT_KG_PATH)
+    with open(legacy_kg, "rb") as f:
+        assert f.read() == b"AC4_LEGACY_SENTINEL", "restore must not touch the legacy global KG"
+    restored_kg = KnowledgeGraph(db_path=palace_kg_path(default_restore_target))
     triples = restored_kg.query_entity("Max")
     subjects_predicates = {(t["subject"], t["predicate"]) for t in triples}
     assert ("Max", "does") in subjects_predicates
@@ -489,15 +501,18 @@ class TestRestoreTargetStateCollisionGuard:
         assert _path_snapshot(selected_kg) == ("file", b"EXPLICIT_KG_SENTINEL")
         assert selected_kg in capsys.readouterr().err
 
-    def test_default_kg_collision_refuses_unchanged(
-        self, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys, monkeypatch
+    def test_configured_palace_kg_collision_refuses_unchanged(
+        self, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys, legacy_kg
     ):
         archive = _make_kg_archive(palace_path, seeded_kg, tmp_dir, capsys)
         target = os.path.join(tmp_dir, "default_kg_target")
-        default_kg_path = os.path.join(tmp_dir, "default_kg.sqlite3")
-        monkeypatch.setattr("mempalace_code.knowledge_graph.DEFAULT_KG_PATH", default_kg_path)
-        with open(default_kg_path, "wb") as file:
-            file.write(b"DEFAULT_KG_SENTINEL")
+        scoped_kg = palace_kg_path(target)
+        os.makedirs(target)
+        with open(scoped_kg, "wb") as file:
+            file.write(b"PALACE_KG_SENTINEL")
+        with open(legacy_kg, "wb") as file:
+            file.write(b"LEGACY_KG_SENTINEL")
+        before = _path_snapshot(target)
 
         with patch("mempalace_code.cli_commands.backup_restore.MempalaceConfig") as config:
             config.return_value.palace_path = target
@@ -505,9 +520,9 @@ class TestRestoreTargetStateCollisionGuard:
                 _run(["mempalace-code", "restore", archive])
 
         assert exc.value.code == 1
-        assert _path_snapshot(target) == ("missing",)
-        assert _path_snapshot(default_kg_path) == ("file", b"DEFAULT_KG_SENTINEL")
-        assert default_kg_path in capsys.readouterr().err
+        assert _path_snapshot(target) == before
+        assert _path_snapshot(legacy_kg) == ("file", b"LEGACY_KG_SENTINEL")
+        assert scoped_kg in capsys.readouterr().err
 
     def test_repeated_restore_is_refused_without_changes(
         self, seeded_collection, palace_path, seeded_kg, tmp_dir, capsys
@@ -837,7 +852,13 @@ class TestRestoreForceCollisionGuard:
         assert _path_snapshot(target) == target_before
         assert _path_snapshot(referent) == referent_before
         assert _path_snapshot(selected_kg) == ("file", b"KG_SENTINEL")
-        assert "Restore palace root is not a directory" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        if shape == "file":
+            assert "Restore palace root is not a directory" in err
+        else:
+            resolved = os.path.realpath(referent)
+            assert f"is a symlink to {resolved!r}" in err
+            assert f"--palace {resolved} restore" in err
 
     @pytest.mark.parametrize("archive_shape", ["unsafe_member", "malformed_metadata"])
     def test_force_rejects_invalid_archive_before_mutation(self, archive_shape, tmp_dir, capsys):

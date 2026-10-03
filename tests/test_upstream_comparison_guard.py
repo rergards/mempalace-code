@@ -146,7 +146,9 @@ def _root(tmp_path: Path, *, manifest: dict | None = None, document: str | None 
     (quality_dir / "upstream-comparison.json").write_text(json.dumps(manifest), encoding="utf-8")
 
     (tmp_path / "README.md").write_text(
-        "# Example\n\n## This Fork vs Upstream\n\nSee the comparison doc.\n",
+        "# Example\n\n## This Fork vs Upstream\n\n"
+        f"Snapshot reviewed on {manifest.get('reviewed_date')} at `{manifest.get('commit')}`. "
+        "See the comparison doc.\n",
         encoding="utf-8",
     )
 
@@ -528,8 +530,8 @@ def test_canonical_document_records_the_exact_commit_inventory():
         expected_inventory_lines.append(line)
 
     assert len(merge_groups) == len(set(merge_groups)) == len(decisions)
-    assert len(full_inventory) == 3
-    assert "range contains exactly 3 commits" in document
+    assert len(full_inventory) == 10
+    assert "range contains exactly 10 commits" in document
     assert inventory_lines == expected_inventory_lines
 
 
@@ -548,6 +550,24 @@ def test_evaluate_rejects_missing_readme_marker(tmp_path: Path):
     _, errors = guard.evaluate(root, today=date(2026, 7, 10))
 
     assert any("readme-pointer" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("stale", "field"),
+    [(PREVIOUS_COMMIT, "commit"), (PREVIOUS_REVIEWED_DATE, "reviewed_date")],
+)
+def test_evaluate_rejects_readme_snapshot_behind_manifest(tmp_path: Path, stale: str, field: str):
+    root = _root(tmp_path)
+    readme = root / "README.md"
+    current = COMMIT if field == "commit" else REVIEWED_DATE
+    readme.write_text(readme.read_text(encoding="utf-8").replace(current, stale), encoding="utf-8")
+
+    _, errors = guard.evaluate(root, today=date(2026, 7, 10))
+
+    assert errors == [
+        f"readme-snapshot: README.md does not state the manifest {field} {current!r}; "
+        "refresh its fork-vs-upstream snapshot with the manifest"
+    ]
 
 
 def test_evaluate_rejects_a_pin_that_did_not_move(tmp_path: Path):
@@ -916,7 +936,7 @@ def test_repository_manifest_and_document_agree():
     assert errors == []
     assert facts["inventory_anchor_algorithm"] == "sha256"
     assert facts["inventory_anchor_version"] == 1
-    assert facts["inventory_anchor_declared_count"] == 3
-    assert facts["inventory_anchor_derived_count"] == 3
+    assert facts["inventory_anchor_declared_count"] == 10
+    assert facts["inventory_anchor_derived_count"] == 10
     assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
     assert facts["commit_inventory_exact"] is True

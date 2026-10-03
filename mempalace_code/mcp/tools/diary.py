@@ -1,100 +1,71 @@
 """mempalace_code.mcp.tools.diary — Diary write/read handlers."""
 
-import uuid
-from datetime import datetime
-
-from ...version import __version__
+from ... import diary
+from ...errors import InvalidArgumentError
 from .. import runtime
+from .write import MAX_DRAWER_CHARS
 
 
-def tool_diary_write(agent_name: str, entry: str, topic: str = "general"):
+def tool_diary_write(agent_name: str | None = None, entry: str = "", topic: str = "general"):
     """
     Write a diary entry for this agent. Each agent gets its own wing
     with a diary room. Entries are timestamped and accumulate over time.
+    ``agent_name`` defaults to MEMPALACE_AGENT_NAME from the server environment.
     """
-    wing = f"wing_{agent_name.lower().replace(' ', '_')}"
-    room = "diary"
+    # Validated before the palace is opened or the model loads.
+    diary.prepare_entry(agent_name, entry, topic)
+    return _diary_write(agent_name, entry, topic)
+
+
+@runtime.holds_embedding_write_lease
+def _diary_write(agent_name: str | None, entry: str, topic: str):
     col = runtime._get_store(create=True)
     if not col:
         return runtime._no_palace()
-
-    now = datetime.now()
-    entry_id = f"diary_{wing}_{uuid.uuid4().hex}"
+    # Under the lease: keep the agent's diary in the wing that already holds it.
+    entry_id, metadata = diary.prepare_entry(agent_name, entry, topic, store=col)
 
     try:
-        col.add(
-            ids=[entry_id],
-            documents=[entry],
-            metadatas=[
-                {
-                    "wing": wing,
-                    "room": room,
-                    "hall": "hall_diary",
-                    "topic": topic,
-                    "type": "diary_entry",
-                    "agent": agent_name,
-                    "filed_at": now.isoformat(),
-                    "date": now.strftime("%Y-%m-%d"),
-                    "extractor_version": __version__,
-                    "chunker_strategy": "diary_v1",
-                }
-            ],
+        col.add(ids=[entry_id], documents=[entry], metadatas=[metadata])
+        runtime.logger.info(
+            f"Diary entry: {entry_id} → {metadata['wing']}/diary/{metadata['topic']}"
         )
-        runtime.logger.info(f"Diary entry: {entry_id} → {wing}/diary/{topic}")
         return {
             "success": True,
             "entry_id": entry_id,
-            "agent": agent_name,
-            "topic": topic,
-            "timestamp": now.isoformat(),
+            "agent": metadata["agent"],
+            "wing": metadata["wing"],
+            "topic": metadata["topic"],
+            "timestamp": metadata["filed_at"],
         }
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return runtime._write_failure(e)
 
 
-def tool_diary_read(agent_name: str, last_n: int = 10):
+def tool_diary_read(agent_name: str | None = None, last_n: int = 10):
     """
-    Read an agent's recent diary entries. Returns the last N entries
-    in chronological order — the agent's personal journal.
+    Read an agent's recent diary entries, newest first, from its default diary
+    wing and from any wing an entry for the same agent was filed under.
+    ``agent_name`` defaults to MEMPALACE_AGENT_NAME from the server environment.
     """
-    wing = f"wing_{agent_name.lower().replace(' ', '_')}"
+    agent = diary.resolve_agent_name(agent_name)
     col = runtime._get_store()
     if not col:
         return runtime._no_palace()
 
     try:
-        results = col.get(
-            where={"$and": [{"wing": wing}, {"room": "diary"}]},
-            include=["documents", "metadatas"],
-            limit=col.count(),
-        )
-
-        if not results["ids"]:
-            return {"agent": agent_name, "entries": [], "message": "No diary entries yet."}
-
-        # Combine and sort by timestamp
-        entries = []
-        for doc, meta in zip(results["documents"], results["metadatas"]):
-            entries.append(
-                {
-                    "date": meta.get("date", ""),
-                    "timestamp": meta.get("filed_at", ""),
-                    "topic": meta.get("topic", ""),
-                    "content": doc,
-                }
-            )
-
-        entries.sort(key=lambda x: x["timestamp"], reverse=True)
-        entries = entries[:last_n]
-
-        return {
-            "agent": agent_name,
-            "entries": entries,
-            "total": len(results["ids"]),
-            "showing": len(entries),
-        }
+        return diary.read_entries(col, agent, last_n)
+    except InvalidArgumentError:
+        raise
     except Exception as e:
         return {"error": str(e)}
+
+
+_AGENT_NAME_DESCRIPTION = (
+    "Your agent identity. Optional when the MCP server's environment sets "
+    "MEMPALACE_AGENT_NAME; the response's agent field shows the identity used. Matched "
+    "ignoring case, with spaces, hyphens and underscores alike ('Claude Code' = 'claude-code')."
+)
 
 
 TOOL_SPECS = {
@@ -103,38 +74,38 @@ TOOL_SPECS = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "agent_name": {
-                    "type": "string",
-                    "description": "Your name — each agent gets their own diary wing",
-                },
+                "agent_name": {"type": "string", "description": _AGENT_NAME_DESCRIPTION},
                 "entry": {
                     "type": "string",
+                    "maxLength": MAX_DRAWER_CHARS,
                     "description": "Your diary entry — plain text",
                 },
                 "topic": {
                     "type": "string",
-                    "description": "Topic tag (optional, default: general)",
+                    "description": "Topic tag (optional, default: general; must not be blank)",
                 },
             },
-            "required": ["agent_name", "entry"],
+            "required": ["entry"],
         },
         "handler": tool_diary_write,
     },
     "mempalace_diary_read": {
-        "description": "Read your recent diary entries. See what past versions of yourself recorded — your journal across sessions.",
+        "description": (
+            "Read your recent diary entries, newest first. See what past versions of yourself "
+            "recorded — your journal across sessions, including entries filed from the CLI "
+            "under a custom wing."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "agent_name": {
-                    "type": "string",
-                    "description": "Your name — each agent gets their own diary wing",
-                },
+                "agent_name": {"type": "string", "description": _AGENT_NAME_DESCRIPTION},
                 "last_n": {
                     "type": "integer",
+                    "minimum": 1,
                     "description": "Number of recent entries to read (default: 10)",
                 },
             },
-            "required": ["agent_name"],
+            "required": [],
         },
         "handler": tool_diary_read,
     },

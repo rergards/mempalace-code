@@ -62,12 +62,12 @@
       "archived_date": "2026-06-11",
       "status": "pass",
       "commands": [
-        "python scripts/workflow_review_protocol_guard.py --check"
+        "python -m pytest tests/test_workflow_summary_guard.py -q"
       ],
       "before": "No public documentation of multi-agent quality-review workflow or review criteria.",
       "after": "docs/quality/workflow-review-protocol.md documents adversarial review workflow; linked from docs/quality/README.md.",
-      "behavioral_evidence": "Workflow review guard validates the protocol document for required sections and actionable language.",
-      "enforcing_gate": "python scripts/workflow_review_protocol_guard.py --check"
+      "behavioral_evidence": "tests/test_workflow_summary_guard.py checks that the protocol document names every required finding field and states that passive review output is not sufficient.",
+      "enforcing_gate": "python -m pytest tests/test_workflow_summary_guard.py -q"
     },
     {
       "key": "AUTOPILOT-DEMO-CODE-INTELLIGENCE-GOLDEN-PACKET",
@@ -133,7 +133,7 @@
       ],
       "before": "Scorecard schema v1 lacked strict-slice, public-safety, and demo-gate metrics.",
       "after": "Schema v2 adds strict-slice coverage, public-safety gate status, and demo-gate inventory; 12 new tests; committed artifacts regenerated.",
-      "behavioral_evidence": "python scripts/quality_scorecard.py --check exits 0 with v3 schema and all required metric sections present.",
+      "behavioral_evidence": "python scripts/quality_scorecard.py --check exits 0 with all required metric sections present.",
       "enforcing_gate": "python scripts/quality_scorecard.py --check"
     },
     {
@@ -222,12 +222,12 @@
       "archived_date": "2026-08-09",
       "status": "pass",
       "commands": [
-        "python -m pytest tests/test_workflow_review_protocol.py -q"
+        "python -m pytest tests/test_workflow_summary_guard.py -q"
       ],
       "before": "Workflow review summaries had no enforced structure; ceremonial wording could satisfy the form without actionable findings.",
-      "after": "Guard validates workflow-review-protocol.md for required sections, actionable language, and absence of vague approval phrases; 33 tests pass.",
-      "behavioral_evidence": "All 33 workflow review guard tests pass. Protocol document wording was updated to replace insufficient phrasing.",
-      "enforcing_gate": "python -m pytest tests/test_workflow_review_protocol.py -q"
+      "after": "scripts/workflow_summary_guard.py validates publishable review summaries for required fields, actionable language, and absence of vague approval phrases; 33 tests pass.",
+      "behavioral_evidence": "All 33 tests in tests/test_workflow_summary_guard.py pass. Protocol document wording was updated to replace insufficient phrasing.",
+      "enforcing_gate": "python -m pytest tests/test_workflow_summary_guard.py -q"
     },
     {
       "key": "AUTOPILOT-DEMO-END-TO-END-GATE-CLOSURE",

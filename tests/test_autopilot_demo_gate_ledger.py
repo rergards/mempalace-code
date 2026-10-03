@@ -8,6 +8,8 @@ Validates that:
 4. The current task AUTOPILOT-DEMO-END-TO-END-GATE-CLOSURE is covered.
 5. Enforcing gate commands are non-empty strings.
 6. The Markdown ledger covers the same set of keys.
+7. Every repository script or test a command cites exists, and the Markdown ledger
+   shows the same enforcing gate as the JSON ledger.
 
 No subprocess calls, no network access, no palace imports.
 """
@@ -15,6 +17,7 @@ No subprocess calls, no network access, no palace imports.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -154,6 +157,33 @@ def test_every_item_has_nonempty_enforcing_gate():
         gate = item.get("enforcing_gate", "")
         assert isinstance(gate, str), f"Item '{item['key']}' enforcing_gate must be a string"
         assert gate.strip(), f"Item '{item['key']}' must have a non-empty enforcing_gate"
+
+
+# Repository-relative script and test files named inside a command string.
+_CITED_PATH_RE = re.compile(r"\b(?:scripts|tests|benchmarks)/[\w./-]+\.py\b")
+
+
+def test_every_cited_script_and_test_path_exists():
+    ledger = _load_ledger()
+    missing = sorted(
+        f"{item['key']}: {path}"
+        for item in ledger["items"]
+        for command in [*item.get("commands", []), item.get("enforcing_gate", "")]
+        for path in _CITED_PATH_RE.findall(command)
+        if not (ROOT / path).is_file()
+    )
+    assert not missing, f"Ledger cites repository paths that do not exist: {missing}"
+
+
+def test_markdown_ledger_shows_the_json_enforcing_gate():
+    ledger = _load_ledger()
+    md_text = LEDGER_MD.read_text(encoding="utf-8")
+    drifted = sorted(
+        item["key"]
+        for item in ledger["items"]
+        if f"**Enforcing gate:** `{item['enforcing_gate']}`" not in md_text
+    )
+    assert not drifted, f"Markdown enforcing gate differs from the JSON ledger: {drifted}"
 
 
 def test_every_item_has_nonempty_behavioral_evidence():

@@ -14,14 +14,15 @@ Read the JSON `path` field and use that directory. It contains `plugin.json`, `m
 `skills/mempalace/SKILL.md` instruction bundle. The portable MCP config uses
 `mempalace-code-mcp --profile=minimal`, exposing only
 `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`, and
-`mempalace_add_drawer`. Use direct MCP registration below when a client needs
-`--profile=kg`, `--profile=code`, `--profile=notes`, `--profile=full`, or
+`mempalace_add_drawer`. That bare command must be on the client's `PATH`
+(`command -v mempalace-code-mcp`). Use direct MCP registration below when it is not, or when a
+client needs `--profile=kg`, `--profile=code`, `--profile=notes`, `--profile=full`, or
 custom `--tools` / `--include` / `--exclude` selectors.
 
 Resolve and run the installed MCP launcher (full 29-tool default):
 
 ```bash
-MEMPALACE_MCP="$(dirname "$MEMPALACE_BIN")/mempalace-code-mcp"
+MEMPALACE_MCP="$(dirname "$(realpath "$MEMPALACE_BIN")")/mempalace-code-mcp"
 test -x "$MEMPALACE_BIN" && test -x "$MEMPALACE_MCP"
 "$MEMPALACE_MCP"
 ```
@@ -31,6 +32,15 @@ Or add it to Claude Code:
 ```bash
 claude mcp add --scope user mempalace-code -- "$MEMPALACE_MCP"
 ```
+
+## Palace Path
+
+The server opens `MEMPALACE_PALACE_PATH` from its own environment, else `palace_path` in
+`~/.mempalace/config.json`, else `~/.mempalace/palace`. MCP clients start it without your shell's
+environment and `mempalace-code-mcp` has no `--palace` option, so persist a custom palace path in
+`config.json` (`docs/AGENT_INSTALL.md` Step 4a) before registering the server. JSON-configured
+clients may pass an absolute `MEMPALACE_PALACE_PATH` in the server's `env` object instead. Check
+the `palace_path` that `mempalace_status` reports.
 
 ## Protocol Compatibility
 
@@ -77,7 +87,7 @@ Paths remain separate quoted argv values.
 | `full` _(default)_ | 29 | Full capability |
 | `minimal` | 4 | Search + store only |
 | `kg` | 8 | Minimal + temporal KG |
-| `code` | 10 | Code archaeology; no drawer-write/diary (`mine` included) |
+| `code` | 11 | Code archaeology; no drawer-write/diary (`mine` included) |
 | `notes` | 12 | Knowledge mgmt + diary; no code-search |
 
 ## Available Tools

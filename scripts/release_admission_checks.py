@@ -461,11 +461,13 @@ def check_dependency_audit_freshness(
     max_age_hours: int = DEFAULT_AUDIT_MAX_AGE_HOURS,
     now: datetime | None = None,
 ) -> AdmissionRow:
-    """Require a recent successful scheduled or dispatched Dependency Audit run."""
+    """Require a recent successful scheduled or dispatched Dependency Audit on main."""
     row_name = "dependency_audit_freshness"
     public = _load_public_read()
     try:
-        query = public.workflow_runs(repo, DEPENDENCY_AUDIT_WORKFLOW, MAX_WORKFLOW_RUN_LIST)
+        query = public.workflow_runs(
+            repo, DEPENDENCY_AUDIT_WORKFLOW, MAX_WORKFLOW_RUN_LIST, branch=DEFAULT_BRANCH
+        )
     except ValueError as exc:
         return error_row(row_name, str(exc), REMEDIATE_AUDIT)
     data, error = _public_data(
@@ -487,6 +489,8 @@ def check_dependency_audit_freshness(
     undatable = 0
     for run in data:
         if not isinstance(run, dict):
+            continue
+        if run.get("headBranch") != DEFAULT_BRANCH:
             continue
         if run.get("event") not in {"schedule", "workflow_dispatch"}:
             continue
@@ -513,7 +517,8 @@ def check_dependency_audit_freshness(
     if not eligible:
         return fail_row(
             row_name,
-            f"no completed scheduled or dispatched {DEPENDENCY_AUDIT_WORKFLOW!r} run found",
+            f"no completed scheduled or dispatched {DEPENDENCY_AUDIT_WORKFLOW!r} "
+            f"run found on {DEFAULT_BRANCH}",
             REMEDIATE_AUDIT,
         )
 

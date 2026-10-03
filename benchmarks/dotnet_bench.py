@@ -47,7 +47,7 @@ HYBRID_POOL_SIZE = 20
 # KNOWN-ANSWER QUERY SET — 20 queries across 4 .NET-specific categories
 #
 # Target: jasontaylordev/CleanArchitecture
-# expected_files are basenames — consistent with embed_ab_bench.py.
+# expected_files are basenames, matched by exact basename in hit_at_k().
 # =============================================================================
 
 QUERIES = [

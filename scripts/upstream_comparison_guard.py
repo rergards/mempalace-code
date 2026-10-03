@@ -644,6 +644,12 @@ def evaluate(
                     f"readme-pointer: {readme_path} is missing the required marker {marker!r}; "
                     "the fork-vs-upstream section must keep its heading and its pointers"
                 )
+        for field_name, expected in (("commit", commit), ("reviewed_date", reviewed_date_text)):
+            if expected not in readme:
+                errors.append(
+                    f"readme-snapshot: {readme_path} does not state the manifest {field_name} "
+                    f"{expected!r}; refresh its fork-vs-upstream snapshot with the manifest"
+                )
 
     document, document_error = _read_text(root, canonical_document, "comparison-document")
     if document_error:

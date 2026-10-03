@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -49,6 +50,10 @@ PACKET_MD = PACKET_DIR / "code-intelligence-packet.md"
 
 # CLI to invoke — use the same Python that is running this script.
 _PYTHON = sys.executable
+# How the CLI started as ``_PYTHON -m mempalace_code.cli`` spells itself in recovery hints.
+_LAUNCHER_SPELLINGS = tuple(
+    f"{python} -m mempalace_code.cli" for python in dict.fromkeys((shlex.quote(_PYTHON), _PYTHON))
+)
 
 # Env vars for deterministic, offline, prompt-free operation.
 _OFFLINE_ENV = {
@@ -70,6 +75,10 @@ KNOWN_ANSWER_QUERIES: list[tuple[str, str, str]] = [
 
 # Top-N to check for known-answer validation.
 _KNOWN_ANSWER_TOP_N = 3
+
+# The MCP exhibit's code_search request and the file it must return in the top-N.
+_MCP_SEARCH_QUERY = "hash password authentication"
+_MCP_SEARCH_EXPECTED_FILE = "auth.py"
 
 # Owner-acceptance checklist — static, artifact-oriented rows added to every packet.
 OWNER_ACCEPTANCE_CHECKLIST: list[dict] = [
@@ -477,6 +486,11 @@ def normalize_output(text: str, fixture_dir: str, palace_dir: str) -> str:
         if stripped in ("Loading embedding model...", "Model ready."):
             continue
 
+        # Recovery hints name this installation's launcher (the interpreter running
+        # this script); the packet shows the public command name instead.
+        for launcher in _LAUNCHER_SPELLINGS:
+            line = line.replace(launcher, "mempalace-code")
+
         # Replace absolute paths — both the raw form and the canonical (realpath) form.
         line = line.replace(fixture_real, "<FIXTURE_DIR>")
         line = line.replace(palace_real, "<PALACE_DIR>")
@@ -740,23 +754,22 @@ def _mcp_exchange(palace_dir: Path) -> dict:
             "method": "tools/call",
             "params": {
                 "name": "mempalace_code_search",
-                "arguments": {"query": "hash password authentication", "n_results": 3},
+                "arguments": {"query": _MCP_SEARCH_QUERY, "n_results": 3},
             },
         },
     ]
 
     stdin_data = "\n".join(json.dumps(req) for req in requests) + "\n"
 
-    # Preserve the real HuggingFace model cache while redirecting HOME so the
-    # MCP server finds the mined palace config but still loads the cached model.
-    # HF_HUB_CACHE must point to the hub/ subdirectory (not the parent).
-    real_home = os.path.expanduser("~")
-    real_hf_hub_cache = os.path.join(real_home, ".cache", "huggingface", "hub")
+    # Redirecting HOME lets the MCP server find the mined palace config. Pin HF_HOME to the
+    # canonical cache root resolved here, or the server would look under the fake HOME.
+    from mempalace_code.storage import canonical_fastembed_cache_root
+
     mcp_env = _make_env(
         {
             "HOME": str(mcp_home),
             "USERPROFILE": str(mcp_home),
-            "HF_HUB_CACHE": real_hf_hub_cache,
+            "HF_HOME": str(canonical_fastembed_cache_root().parents[1]),
         }
     )
 
@@ -799,6 +812,17 @@ def _mcp_exchange(palace_dir: Path) -> dict:
         if "error" in resp:
             raise RuntimeError(f"MCP response {i + 1} contains JSON-RPC error: {resp['error']}")
 
+    # A tool failure is a successful JSON-RPC result whose text carries the error.
+    search_result = responses[2].get("result", {})
+    content = search_result.get("content") or [{}]
+    try:
+        payload = json.loads(content[0].get("text", ""))
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise RuntimeError(f"MCP code_search returned no JSON payload: {search_result}") from exc
+    if search_result.get("isError") or not isinstance(payload, dict) or "error" in payload:
+        raise RuntimeError(f"MCP code_search failed: {payload}")
+    check_known_answer(payload, _MCP_SEARCH_EXPECTED_FILE, _MCP_SEARCH_QUERY)
+
     return {
         "initialize": {"request": requests[0], "response": responses[0]},
         "tools_list": {"request": requests[1], "response": responses[1]},
@@ -833,8 +857,17 @@ def _normalize_mcp_exhibit(exhibit: dict, palace_dir_str: str, fixture_dir_str: 
                                 src = src.replace(fixture_dir_str, "<FIXTURE_DIR>")
                                 src = src.replace(palace_dir_str, "<PALACE_DIR>")
                                 hit["source_file"] = src
+                            if "id" in hit:
+                                # Drawer ids hash the temporary fixture path.
+                                hit["id"] = "<DRAWER_ID>"
                             if "similarity" in hit:
                                 hit["similarity"] = round(hit["similarity"], 2)
+                            ranking = hit.get("ranking")
+                            if isinstance(ranking, dict) and isinstance(
+                                ranking.get("vector_distance"), float
+                            ):
+                                # Raw ONNX distances vary in the last digits between runs.
+                                ranking["vector_distance"] = round(ranking["vector_distance"], 2)
                             if "text" in hit:
                                 hit["text"] = (
                                     hit["text"][:200] + "…"

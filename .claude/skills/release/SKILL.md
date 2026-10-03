@@ -17,7 +17,10 @@ procedure here.
 ## Guards
 
 - Bind qualification to one reviewed 40-hex candidate SHA.
-- Run `autopilot doctor --json`; require `safe_to_edit=true` before local edits.
+- Before local edits, run `autopilot doctor --json` and require `safe_to_edit=true`.
+  Without the maintainer-local `autopilot` CLI, require an empty
+  `git status --porcelain` and confirm no other session or worktree is writing
+  to this checkout; otherwise stop.
 - Never invoke Codex, Claude, Gemini, another model/provider, or an authenticated
   client as a release check.
 - Never read, copy, inspect, require, or transmit API keys, OAuth tokens,
@@ -28,6 +31,9 @@ procedure here.
   ruleset from this skill.
 - Stop on a dirty candidate, SHA drift, artifact mismatch, red gate, ambiguous
   partial publication, or missing authority. Preserve current state.
+- Stop when `docs/quality/acceptance/v$VERSION.md` is missing, is not PASS, or
+  records package ids other than the candidate's; hand back to `/release-prep`
+  for the installed-candidate acceptance test (`docs/RELEASING.md` section 1a).
 
 ## Local qualification
 
@@ -39,14 +45,17 @@ python scripts/release_preflight.py --tag "v$VERSION" --require-clean --expect-s
 ```
 
 The readiness gate must build and inspect the artifacts and exercise the exact
-installed wheel without credentials. Hosted CI must report `release-required`
-for the same SHA before the next authorized mutation.
+installed wheel without credentials. The tag preflight's `acceptance_report` row
+must be `ok`: the committed acceptance report binds this exact package tree.
+Hosted CI must report `release-required` for the same SHA before the next
+authorized mutation.
 
 ## Output
 
 Report:
 
 - version and candidate SHA;
+- acceptance report result;
 - local qualification result;
 - hosted required-check result;
 - artifact filenames and hashes;

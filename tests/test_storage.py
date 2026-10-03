@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mempalace_code.backup import managed_backups_dir
 from mempalace_code.storage import (
     _META_DEFAULTS,
     _META_FIELD_SPEC,
@@ -553,8 +554,8 @@ class TestConcurrentLanceTableCreate:
             def create_table(self, name, schema=None, exist_ok=False):
                 return self._connection.create_table(name, schema=schema, exist_ok=exist_ok)
 
-        def synchronized_connect(uri):
-            return BarrierConnection(original_connect(uri))
+        def synchronized_connect(uri, **kwargs):
+            return BarrierConnection(original_connect(uri, **kwargs))
 
         def synchronized_get_embedder(store):
             nonlocal embedder_calls
@@ -1758,10 +1759,30 @@ class TestStaleSweepProvenance:
 
         assert store.get_source_file_hashes("w", project_root=project) == {}
 
-    def test_guarded_inventory_rejects_missing_intermediate_ownership(self, tmp_path):
+    def test_guarded_inventory_owns_sources_under_a_deleted_directory(self, tmp_path):
+        """A deleted or renamed directory must not hide its files from the stale sweep."""
         project = (tmp_path / "project").resolve()
         project.mkdir()
         source = str(project / "removed-directory" / "deleted.py")
+        table = _ProjectedTable(
+            [
+                {
+                    "source_file": source,
+                    "source_hash": "f" * 32,
+                    "wing": "w",
+                    "ingest_mode": "file",
+                    "type": "",
+                }
+            ]
+        )
+        store = _store_with_projected_table(table)
+
+        assert store.get_source_file_hashes("w", project_root=project) == {source: "f" * 32}
+
+    def test_guarded_inventory_still_rejects_existing_nested_git_below_missing_dir(self, tmp_path):
+        project = (tmp_path / "project").resolve()
+        (project / "vendored" / ".git").mkdir(parents=True)
+        source = str(project / "vendored" / "gone" / "deleted.py")
         table = _ProjectedTable(
             [
                 {
@@ -1838,8 +1859,8 @@ class TestSafeOptimize:
             metadatas=[{"wing": "w", "room": "r"}],
         )
 
-    def _pre_optimize_archives(self, tmp_dir):
-        return sorted(os.listdir(os.path.join(tmp_dir, "backups")))
+    def _pre_optimize_archives(self, palace_path):
+        return sorted(os.listdir(managed_backups_dir(palace_path)))
 
     def test_happy_path_returns_true_and_readable(self, palace_path):
         """AC-1: safe_optimize(backup_first=False) returns True; row count unchanged; table readable."""
@@ -1911,7 +1932,7 @@ class TestSafeOptimize:
         result = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is True
-        backup_dir = os.path.join(tmp_dir, "backups")
+        backup_dir = managed_backups_dir(palace_path)
         assert os.path.isdir(backup_dir), f"backups/ dir not created at {backup_dir}"
         archives = glob.glob(os.path.join(backup_dir, "pre_optimize_*.tar.gz"))
         assert len(archives) == 1, f"Expected 1 backup archive, found: {archives}"
@@ -1955,7 +1976,7 @@ class TestSafeOptimize:
             results = [store.safe_optimize(palace_path, backup_first=True) for _ in range(3)]  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert results == [True, True, True]
-        archives = self._pre_optimize_archives(tmp_dir)
+        archives = self._pre_optimize_archives(palace_path)
         assert archives == [
             "pre_optimize_20260101_120001_000000.tar.gz",
             "pre_optimize_20260101_120002_000000.tar.gz",
@@ -1991,7 +2012,7 @@ class TestSafeOptimize:
             results = [store.safe_optimize(palace_path, backup_first=True) for _ in range(6)]  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert results == [True] * 6
-        archives = self._pre_optimize_archives(tmp_dir)
+        archives = self._pre_optimize_archives(palace_path)
         # Oldest (cycle 0) pruned; newest five remain.
         assert archives == [
             "pre_optimize_20260101_120101_000000.tar.gz",
@@ -2030,14 +2051,14 @@ class TestSafeOptimize:
             results = [store.safe_optimize(palace_path, backup_first=True) for _ in range(6)]  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert results == [True] * 6
-        archives = self._pre_optimize_archives(tmp_dir)
+        archives = self._pre_optimize_archives(palace_path)
         assert len(archives) == 6
 
     def test_retention_preserves_non_pre_optimize_files(self, palace_path, tmp_dir, monkeypatch):
         """AC-3: retention only removes old pre_optimize_*.tar.gz files."""
         store = open_store(palace_path, create=True)
         self._add_optimize_fixture(store, "retain_scope")
-        backup_dir = os.path.join(tmp_dir, "backups")
+        backup_dir = managed_backups_dir(palace_path)
         os.makedirs(backup_dir)
         for name in (
             "pre_optimize_20260101_115900.tar.gz",
@@ -2069,7 +2090,7 @@ class TestSafeOptimize:
         """AC-4: failed pruning logs WARNING and does not mask successful optimize."""
         store = open_store(palace_path, create=True)
         self._add_optimize_fixture(store, "retain_warning")
-        backup_dir = os.path.join(tmp_dir, "backups")
+        backup_dir = managed_backups_dir(palace_path)
         os.makedirs(backup_dir)
         for name in (
             "pre_optimize_20260101_115800.tar.gz",
@@ -2121,7 +2142,7 @@ class TestSafeOptimize:
         result = store.safe_optimize(palace_path + "/", backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is True
-        backup_dir = os.path.join(tmp_dir, "backups")
+        backup_dir = managed_backups_dir(palace_path)
         archives = glob.glob(os.path.join(backup_dir, "pre_optimize_*.tar.gz"))
         assert len(archives) == 1, f"backup should be sibling of palace, found: {archives}"
 
@@ -2322,7 +2343,14 @@ class TestLanceHealth:
         assert table.calls == [["wing", "room"]]
 
     def test_recover_dry_run_uses_projected_scan_for_version_probe(self):
-        table = _ProjectedTable(
+        class _DamagedCurrentVersion(_ProjectedTable):
+            def scanner(self, *, columns):
+                if not self.checked_out:  # the current version is the damaged one
+                    self.calls.append(list(columns))
+                    raise RuntimeError("lance error: Not found: data/lost.lance")
+                return super().scanner(columns=columns)
+
+        table = _DamagedCurrentVersion(
             [{"wing": "test", "room": "general", "vector": [1.0]}],
             versions=[{"version": 1}, {"version": 2}],
         )
@@ -2331,11 +2359,32 @@ class TestLanceHealth:
         result = store.recover_to_last_working_version(dry_run=True)
 
         assert result["recovered"] is False
+        assert result["healthy"] is False
         assert result["candidate_version"] == 1
+        assert result["candidate_rows"] == 1
+        assert result["current_rows"] == 1
+        assert result["discarded_versions"] == [2]
         assert result["checked_versions"] == [1]
         assert table.checked_out == [1]
         assert table.latest_checkouts == 1
-        assert table.calls == [["wing", "room"]]
+        assert table.calls == [["wing", "room"], ["wing", "room"]]
+
+    def test_recover_healthy_current_version_is_a_no_op(self):
+        """A healthy palace is never rolled back: the newest write must survive."""
+        table = _ProjectedTable(
+            [{"wing": "test", "room": "general", "vector": [1.0]}],
+            versions=[{"version": 1}, {"version": 2}],
+        )
+        store = _store_with_projected_table(table)
+
+        result = store.recover_to_last_working_version(dry_run=False)
+
+        assert result["healthy"] is True
+        assert result["recovered"] is False
+        assert result["candidate_version"] is None
+        assert result["current_version"] == 2
+        assert result["current_rows"] == 1
+        assert table.checked_out == []
 
     def test_health_check_projected_scan_fallback_without_scanner(self):
         table = _FallbackProjectedTable(
@@ -2352,6 +2401,45 @@ class TestLanceHealth:
         assert report["total_rows"] == 2
         assert report["errors"] == []
         assert table.calls == [["wing", "room"]]
+
+    def test_health_check_reports_duplicate_ids_and_chunks_as_a_warning(self, palace_path):
+        store = open_store(palace_path, create=True)
+        assert isinstance(store, LanceStore)
+        store.add(
+            ids=["dup_a", "dup_b", "note"],
+            documents=["chunk zero", "chunk one", "a manual note"],
+            metadatas=[
+                {"wing": "w", "room": "r", "source_file": "/p/a.py", "chunk_index": 0},
+                {"wing": "w", "room": "r", "source_file": "/p/a.py", "chunk_index": 1},
+                {"wing": "w", "room": "notes"},
+            ],
+        )
+        clean = store.health_check()
+        assert clean["duplicates"] == {
+            "rows": 3,
+            "distinct_ids": 3,
+            "duplicate_id_rows": 0,
+            "duplicate_chunk_rows": 0,
+        }
+        assert not any(w["probe"] == "duplicates" for w in clean["warnings"])
+
+        # A palace written before ids were unique: every row stored twice.
+        table = store._table
+        assert table is not None
+        table.add(table.to_arrow())
+        report = store.health_check()
+
+        assert report["ok"] is True  # still usable: a warning, not an error
+        assert report["total_rows"] == 6
+        assert report["duplicates"] == {
+            "rows": 6,
+            "distinct_ids": 3,
+            "duplicate_id_rows": 3,
+            "duplicate_chunk_rows": 2,  # the manual note has no source file
+        }
+        [warning] = [w for w in report["warnings"] if w["probe"] == "duplicates"]
+        assert warning["kind"] == "duplicates"
+        assert f"--palace {palace_path} mine <dir> --full" in warning["message"]
 
     def test_health_check_healthy_palace_returns_ok(self, palace_path):
         """AC-1: health_check() on a healthy palace returns ok=True, no errors."""
@@ -2571,11 +2659,11 @@ class TestLanceHealth:
 
 
 # =============================================================================
-# $in operator in _where_to_arrow_mask (STORE-WHERE-ARROW-IN)
+# $in filtering in iter_all (STORE-WHERE-ARROW-IN)
 # =============================================================================
 
 
-class TestWhereToArrowMaskIn:
+class TestIterAllIn:
     """Verify that $in filtering works correctly via iter_all()."""
 
     def _make_store(self, palace_path):
@@ -2720,8 +2808,18 @@ def test_replace_source_uses_one_scoped_composite_merge():
         ["drawer-1", "drawer-2"],
         ["first replacement", "second replacement"],
         [
-            {"source_file": "/tmp/conversation's.json", "wing": "team's-wing", "room": "r"},
-            {"source_file": "/tmp/conversation's.json", "wing": "team's-wing", "room": "r"},
+            {
+                "source_file": "/tmp/conversation's.json",
+                "wing": "team's-wing",
+                "room": "r",
+                "ingest_mode": "convos",
+            },
+            {
+                "source_file": "/tmp/conversation's.json",
+                "wing": "team's-wing",
+                "room": "r",
+                "ingest_mode": "convos",
+            },
         ],
     )
 
@@ -2730,8 +2828,25 @@ def test_replace_source_uses_one_scoped_composite_merge():
     assert table.execute_calls == 1
     assert table.delete_condition == (
         "source_file = '/tmp/conversation''s.json' AND wing = 'team''s-wing'"
+        " AND ingest_mode = 'convos' AND NOT (chunker_strategy IN ('manual_v1', 'diary_v1'))"
     )
     assert [row["id"] for row in table.rows] == ["drawer-1", "drawer-2"]
+
+
+def test_replace_source_requires_one_ingest_mode_so_manual_rows_stay_out_of_scope():
+    table = _MergeInsertTable()
+    store = _replacement_store(table)
+
+    with pytest.raises(ValueError, match="one non-empty ingest_mode"):
+        store.replace_source(
+            "/tmp/conversation.json",
+            "expected-wing",
+            ["drawer-1"],
+            ["replacement"],
+            [{"source_file": "/tmp/conversation.json", "wing": "expected-wing", "room": "r"}],
+        )
+
+    assert table.execute_calls == 0
 
 
 def test_replace_source_rejects_scope_mismatch_before_merge():
@@ -2773,6 +2888,7 @@ def test_replace_source_failure_reraises_without_retry_for_non_fragment_error():
                     "source_file": "/tmp/conversation.json",
                     "wing": "expected-wing",
                     "room": "r",
+                    "ingest_mode": "convos",
                 }
             ],
         )
@@ -2797,6 +2913,7 @@ def test_replace_source_missing_fragment_reopens_and_retries_once():
                 "source_file": "/tmp/conversation.json",
                 "wing": "expected-wing",
                 "room": "r",
+                "ingest_mode": "convos",
             }
         ],
     )
@@ -2922,6 +3039,16 @@ class TestStorageStats:
             assert key in s, f"health_check storage missing key: {key}"
 
 
+def _prunable_versions():
+    """Versions whose oldest entry is past both the day window and the reader grace."""
+    now = datetime.now(UTC)
+    return [
+        {"version": 1, "timestamp": now - timedelta(days=9)},
+        {"version": 2, "timestamp": now - timedelta(hours=1)},
+        {"version": 3, "timestamp": now},
+    ]
+
+
 class TestCleanupStaleFragments:
     def test_fresh_default_cleanup_is_stable_no_op(self):
         now = datetime.now(UTC)
@@ -2952,38 +3079,46 @@ class TestCleanupStaleFragments:
             "estimated_reclaimable_bytes_after": 0,
             "cleanup_older_than_days": 7,
             "delete_unverified": False,
+            "versions_kept_for_readers": 0,
         }
 
     def test_default_params_passed_to_optimize(self):
-        """AC-2: Default cleanup_stale_fragments() passes cleanup_older_than=timedelta(7), delete_unverified=False."""
-        table = _OptimizableTable(
-            [{"wing": "w", "room": "r"}],
-            versions=[
-                {
-                    "version": 1,
-                    "timestamp": datetime.now(UTC) - timedelta(days=8),
-                    "metadata": {
-                        "total_files_size": "0",
-                        "total_data_files": "1",
-                        "total_deletion_files": "0",
-                    },
-                },
-                {"version": 2, "timestamp": datetime.now(UTC)},
-            ],
-        )
+        """AC-2: Default cleanup compacts keeping every version, then prunes with timedelta(7)."""
+        table = _OptimizableTable([{"wing": "w", "room": "r"}], versions=_prunable_versions())
         store = LanceStore.__new__(LanceStore)
         store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
         store._table_dir = "/nonexistent/path"
 
         store.cleanup_stale_fragments(older_than_days=7, unsafe_now=False)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
 
-        assert len(table.optimize_calls) == 1
-        call = table.optimize_calls[0]
+        assert len(table.optimize_calls) == 2
+        assert table.optimize_calls[0]["cleanup_older_than"] >= timedelta(days=365)
+        call = table.optimize_calls[1]
         assert call["cleanup_older_than"] == timedelta(days=7)
         assert call["delete_unverified"] is False
 
+    def test_previous_current_version_is_spared_even_when_old(self):
+        """A version that stopped being current just now stays, however old it is."""
+        now = datetime.now(UTC)
+        table = _OptimizableTable(
+            [{"wing": "w", "room": "r"}],
+            versions=[
+                {"version": 1, "timestamp": now - timedelta(days=30)},
+                {"version": 2, "timestamp": now},
+            ],
+        )
+        store = LanceStore.__new__(LanceStore)
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
+        store._table_dir = "/nonexistent/path"
+
+        result = store.cleanup_stale_fragments(older_than_days=7)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
+
+        assert result["ok"] is True
+        assert table.optimize_calls == []
+
     @pytest.mark.parametrize("timestamp", [None, "not-a-timestamp"])
-    def test_unknown_timestamp_falls_back_to_optimize(self, timestamp):
+    def test_unknown_timestamp_prunes_nothing(self, timestamp):
+        """Without usable timestamps no version can be proven unused by readers."""
         table = _OptimizableTable(
             [{"wing": "w", "room": "r"}],
             versions=[
@@ -2998,9 +3133,10 @@ class TestCleanupStaleFragments:
         result = store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
 
         assert result["ok"] is True
-        assert len(table.optimize_calls) == 1
+        assert table.optimize_calls == []
 
-    def test_zero_day_boundary_uses_optimize(self):
+    def test_zero_day_cleanup_spares_versions_inside_reader_grace(self):
+        """older_than_days=0 (the post-optimize cleanup) keeps just-superseded versions."""
         table = _OptimizableTable(
             [{"wing": "w", "room": "r"}],
             versions=[
@@ -3015,7 +3151,31 @@ class TestCleanupStaleFragments:
         result = store.cleanup_stale_fragments(older_than_days=0)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
 
         assert result["ok"] is True
-        assert len(table.optimize_calls) == 1
+        assert table.optimize_calls == []
+
+    def test_zero_day_cleanup_prunes_only_versions_superseded_before_the_grace(self):
+        """The prune cutoff stops at the newest version created before the reader grace."""
+        now = datetime.now(UTC)
+        table = _OptimizableTable(
+            [{"wing": "w", "room": "r"}],
+            versions=[
+                {"version": 1, "timestamp": now - timedelta(hours=2)},
+                {"version": 2, "timestamp": now - timedelta(hours=1)},
+                {"version": 3, "timestamp": now - timedelta(seconds=20)},
+                {"version": 4, "timestamp": now},
+            ],
+        )
+        store = LanceStore.__new__(LanceStore)
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: test injects a fault-injection mock for _table; runtime type is protocol-compatible
+        store._table_dir = "/nonexistent/path"
+
+        result = store.cleanup_stale_fragments(older_than_days=0)  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
+
+        assert result["ok"] is True
+        prune = table.optimize_calls[-1]["cleanup_older_than"]
+        # Version 2 (current until 20 s ago) must survive; version 1 may go.
+        assert timedelta(hours=1) < prune < timedelta(hours=2)
+        assert table.optimize_calls[-1]["delete_unverified"] is False
 
     def test_unsafe_now_passes_zero_timedelta_and_delete_unverified(self):
         """AC-3: unsafe_now=True passes cleanup_older_than=timedelta(0) and delete_unverified=True."""
@@ -3072,9 +3232,7 @@ class TestCleanupStaleFragments:
         """AC-4: ModuleNotFoundError with 'lance' raises LanceStoreDependencyError with install hint."""
         from mempalace_code.storage import LanceStoreDependencyError
 
-        table = _OptimizableTable(
-            [{"wing": "w", "room": "r"}], versions=[{"version": 1}, {"version": 2}]
-        )
+        table = _OptimizableTable([{"wing": "w", "room": "r"}], versions=_prunable_versions())
 
         def _raise(*args, **kwargs):
             raise ModuleNotFoundError("No module named 'lance'")
@@ -3095,9 +3253,7 @@ class TestCleanupStaleFragments:
         """AC-4: ModuleNotFoundError with 'pylance' also raises LanceStoreDependencyError."""
         from mempalace_code.storage import LanceStoreDependencyError
 
-        table = _OptimizableTable(
-            [{"wing": "w", "room": "r"}], versions=[{"version": 1}, {"version": 2}]
-        )
+        table = _OptimizableTable([{"wing": "w", "room": "r"}], versions=_prunable_versions())
 
         def _raise(*args, **kwargs):
             raise ImportError("cannot import name 'pylance'")
@@ -3123,9 +3279,7 @@ class TestCleanupStaleFragments:
 
     def test_optimize_exception_returns_ok_false(self):
         """optimize() raising a generic exception returns ok=False in result dict."""
-        table = _OptimizableTable(
-            [{"wing": "w", "room": "r"}], versions=[{"version": 1}, {"version": 2}]
-        )
+        table = _OptimizableTable([{"wing": "w", "room": "r"}], versions=_prunable_versions())
 
         def _raise(*args, **kwargs):
             raise RuntimeError("disk full")
@@ -3139,12 +3293,11 @@ class TestCleanupStaleFragments:
         result = store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.cleanup_stale_fragments; method exists on concrete type
         assert result["ok"] is False
         assert "disk full" in result.get("error", "")
+        assert result["version_count_after"] is None  # unknown, never a fake 0
 
     def test_reopen_failure_after_cleanup_returns_ok_false(self):
         """cleanup_stale_fragments verifies a fresh Lance handle after cleanup."""
-        table = _OptimizableTable(
-            [{"wing": "w", "room": "r"}], versions=[{"version": 1}, {"version": 2}]
-        )
+        table = _OptimizableTable([{"wing": "w", "room": "r"}], versions=_prunable_versions())
         store = LanceStore.__new__(LanceStore)
         store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
         store._table_dir = "/nonexistent/path"
@@ -3213,3 +3366,67 @@ class TestCleanupStaleFragments:
         assert before == after_first == after_second
         assert first == second
         assert store.get(limit=10)["ids"] == ["fresh-1", "fresh-2"]
+
+
+@pytest.mark.parametrize("drawer_id", ["O'Brien", "x') OR true --", "back\\slash'quote"])
+def test_literal_id_get_delete_preserves_neighbors(palace_path, drawer_id):
+    store = open_store(palace_path)
+    store.add(
+        ids=[drawer_id, "neighbor"],
+        documents=["literal target", "untouched neighbor"],
+        metadatas=[{"wing": "test", "room": "test"}] * 2,
+    )
+    assert store.get(ids=[drawer_id])["ids"] == [drawer_id]
+    assert store.delete([drawer_id]) == 1
+    assert store.get(ids=[drawer_id])["ids"] == []
+    assert store.get(ids=["neighbor"], include=["documents"])["documents"] == ["untouched neighbor"]
+
+
+@pytest.mark.parametrize("include_vectors", [False, True])
+def test_iter_all_uses_bounded_projected_reader(palace_path, monkeypatch, include_vectors):
+    store = open_store(palace_path)
+    store.add(
+        ids=["a", "b", "c"],
+        documents=["one", "two", "three"],
+        metadatas=[{"wing": "target"}, {"wing": "other"}, {"wing": "target"}],
+    )
+    table = store._table
+    assert table is not None
+
+    def refuse_full_materialization():
+        raise AssertionError("iter_all must not materialize the table")
+
+    monkeypatch.setattr(table, "to_arrow", refuse_full_materialization)
+    batches = list(
+        store.iter_all(where={"wing": "target"}, batch_size=1, include_vectors=include_vectors)
+    )
+    assert len(batches) == 2
+    assert all(len(batch) == 1 for batch in batches)
+    assert {row["id"] for batch in batches for row in batch} == {"a", "c"}
+    assert all(("vector" in row) is include_vectors for batch in batches for row in batch)
+
+
+@pytest.mark.parametrize(
+    "where", [{"wing": {"$in": ["test", 1]}}, {"wing": {"$unsupported": "test"}}]
+)
+def test_iter_all_rejects_filters_as_input_errors(palace_path, where):
+    store = open_store(palace_path)
+    store.add(ids=["a"], documents=["row"], metadatas=[{"wing": "test"}])
+    with pytest.raises(ValueError, match="not mixed|unsupported where operator"):
+        list(store.iter_all(where=where))
+
+
+def test_iter_all_retains_storage_error_guard(palace_path, monkeypatch):
+    from mempalace_code.storage import PalaceReadError
+
+    store = open_store(palace_path)
+    store.add(ids=["a"], documents=["row"], metadatas=[{"wing": "test"}])
+    table = store._table
+    assert table is not None
+
+    def unreadable(*args, **kwargs):
+        raise OSError("injected unreadable table")
+
+    monkeypatch.setattr(table, "search", unreadable)
+    with pytest.raises(PalaceReadError, match="injected unreadable table"):
+        list(store.iter_all())

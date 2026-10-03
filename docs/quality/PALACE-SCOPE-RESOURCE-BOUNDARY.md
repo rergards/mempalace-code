@@ -155,9 +155,15 @@ The real subprocess regression is in
 with real watchfiles and the cached default embedding model, then performs ten
 output-observed save batches containing twenty events after `state=watch-ready`.
 It samples RSS through `ps`, file descriptors through `/proc/<pid>/fd` or `lsof`
-when available, and combined bytes for the palace plus its sibling managed
-`backups/` directory. Managed pre-optimize backups are sibling `backups/` archives
-and are included in the regression's disk measurement and retention assertion.
+when available, and combined bytes for the palace plus its managed backup directory.
+Each sample follows completion of the batch's optimization, so transient backup and
+storage handles are closed before retained resources are measured. The `lsof` metric
+counts numeric descriptors; `cwd`, `txt`, and `mem` records are excluded.
+Unavailable or incomplete descriptor measurements fail the measurement check;
+they cannot produce zero growth or a passing descriptor result.
+Managed pre-optimize backups use `backups/<palace name>/` and are included in the
+regression's disk measurement and retention assertion, which requires at least one
+archive. The fixture uses a disposable HOME and palace.
 
 Before the production fix, RSS grew from 555.97 to 902.08 MiB (+346.11 MiB), FDs
 remained 190 to 190, palace bytes grew from 90233 to 90921, and combined cycle-5
@@ -166,6 +172,8 @@ started at 521.59 MiB and ended at its 527.53 MiB peak (+5.94 MiB).
 FDs remained 190 to 190, five pre-optimize archives were retained, combined
 palace-plus-backup growth from cycle 5 to cycle 10 was 40
 bytes, and the watcher completed a clean 10-cycle/20-event SIGINT shutdown.
+These historical FD figures count all `lsof` file records and are not directly
+comparable with the current numeric-descriptor metric.
 
 Run the regression with:
 

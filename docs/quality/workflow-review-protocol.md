@@ -105,17 +105,10 @@ local paths such as `.tasks/`, `.protocols/`, or `docs/audits/`.
 
 ## Verification
 
-Minimum verification after acting on a workflow review:
-
-```bash
-ruff check mempalace_code/ tests/ scripts/
-ruff format --check mempalace_code/ tests/ scripts/
-python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
-python -m pyright -p pyrightconfig.strict.json
-python scripts/public_safety_scan.py --tracked --staged
-python scripts/quality_scorecard.py --check
-python -m pytest tests/ -x -q -m "not needs_network"
-```
+After acting on a workflow review, run the full canonical `/verify` gate set in
+`.claude/skills/verify/INSTRUCTIONS.md`. Its commands come from
+`scripts/gate_inventory.py`, and `scripts/docs_drift_guard.py` keeps them in step,
+so this protocol does not keep its own copy.
 
 If hosted workflow behavior matters, verify the real GitHub Actions run before
 calling the change published.

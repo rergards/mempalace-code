@@ -46,19 +46,22 @@ def test_empty():
     os.unlink(f.name)
 
 
-def test_json_normalize_spellcheck_enabled_calls_user_text_speller():
+def test_json_normalize_spellcheck_flag_keeps_user_text_verbatim():
     data = [{"role": "user", "content": "pleese help"}, {"role": "assistant", "content": "Ok"}]
     f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     json.dump(data, f)
     f.close()
     try:
-        with patch("mempalace_code.spellcheck.spellcheck_user_text", return_value="please help"):
+        with patch(
+            "mempalace_code.spellcheck.spellcheck_user_text", return_value="please help"
+        ) as speller:
             result = normalize(f.name, spellcheck=True)
     finally:
         os.unlink(f.name)
 
-    assert "> please help" in result
-    assert "pleese help" not in result
+    assert "> pleese help" in result
+    assert "please help" not in result
+    speller.assert_not_called()
 
 
 def test_json_normalize_spellcheck_disabled_preserves_user_text():
@@ -76,25 +79,25 @@ def test_json_normalize_spellcheck_disabled_preserves_user_text():
     assert "> please help" not in result
 
 
-def test_plain_spellcheck_preserves_marker_spacing(tmp_path):
+def test_plain_transcript_is_verbatim_with_spellcheck_flag(tmp_path):
     cases = (
-        (">pleese help\nAssistant: pleese stays\n", ">please help\nAssistant: pleese stays\n"),
-        ("> pleese help\n", "> please help\n"),
-        (">  pleese help\n", ">  please help\n"),
-        ("\t>\tpleese help\n", "\t>\tplease help\n"),
-        ("\t> \tpleese help\n", "\t> \tplease help\n"),
+        ">pleese help\nAssistant: pleese stays\n",
+        "> pleese help\n",
+        ">  pleese help\n",
+        "\t>\tpleese help\n",
+        "\t> \tpleese help\n",
     )
     with patch(
         "mempalace_code.spellcheck.spellcheck_user_text",
         side_effect=lambda text: text.replace("pleese", "please"),
     ):
-        for index, (content, expected) in enumerate(cases):
+        for index, content in enumerate(cases):
             path = tmp_path / f"transcript-{index}.txt"
             path.write_text(content)
-            assert normalize(str(path), spellcheck=True) == expected
+            assert normalize(str(path), spellcheck=True) == content
 
 
-def test_invalid_json_plain_fallback_spellchecks_user_turns(tmp_path):
+def test_invalid_json_plain_fallback_is_verbatim(tmp_path):
     content = '{"broken":\n>pleese help\nAssistant: pleese stays\n'
     path = tmp_path / "broken.json"
     path.write_text(content)
@@ -105,7 +108,7 @@ def test_invalid_json_plain_fallback_spellchecks_user_turns(tmp_path):
     ):
         result = normalize(str(path), spellcheck=True)
 
-    assert result == content.replace(">pleese", ">please", 1)
+    assert result == content
 
 
 @pytest.mark.parametrize(
@@ -146,7 +149,7 @@ def test_plain_spellcheck_disabled_preserves_content_exactly(tmp_path):
     assert normalize(str(path), spellcheck=False) == content
 
 
-def test_json_spellcheck_does_not_run_plain_transcript_spellcheck(tmp_path):
+def test_json_spellcheck_flag_runs_no_speller(tmp_path):
     data = [{"role": "user", "content": "pleese help"}, {"role": "assistant", "content": "Ok"}]
     path = tmp_path / "conversation.json"
     path.write_text(json.dumps(data))
@@ -158,8 +161,8 @@ def test_json_spellcheck_does_not_run_plain_transcript_spellcheck(tmp_path):
     ):
         result = normalize(str(path), spellcheck=True)
 
-    assert "> please help" in result
-    user_spell.assert_called_once_with("pleese help")
+    assert "> pleese help" in result
+    user_spell.assert_not_called()
     transcript_spell.assert_not_called()
 
 
@@ -583,12 +586,13 @@ def test_strip_ctrl_hint():
 
 
 # ---------------------------------------------------------------------------
-# AC-6: Spellcheck applies to Gemini user turns, not assistant
+# AC-6: Gemini user turns stay verbatim whatever the spellcheck flag says
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_jsonl_spellcheck_enabled():
-    """AC-6: spellcheck applies to Gemini user turns when enabled."""
+@pytest.mark.parametrize("spellcheck", [True, False])
+def test_gemini_jsonl_user_text_verbatim(spellcheck):
+    """AC-6: the spellcheck flag never alters Gemini user text."""
     lines = [
         '{"type": "session_metadata"}',
         '{"type": "user", "content": [{"type": "text", "text": "pleese help"}]}',
@@ -597,24 +601,7 @@ def test_gemini_jsonl_spellcheck_enabled():
     path = _write_jsonl(lines)
     try:
         with patch("mempalace_code.spellcheck.spellcheck_user_text", return_value="please help"):
-            result = normalize(path, spellcheck=True)
-    finally:
-        os.unlink(path)
-    assert "> please help" in result
-    assert "pleese help" not in result
-
-
-def test_gemini_jsonl_spellcheck_disabled():
-    """AC-6: spellcheck does not alter user text when disabled."""
-    lines = [
-        '{"type": "session_metadata"}',
-        '{"type": "user", "content": [{"type": "text", "text": "pleese help"}]}',
-        '{"type": "gemini", "content": [{"type": "text", "text": "Of course"}]}',
-    ]
-    path = _write_jsonl(lines)
-    try:
-        with patch("mempalace_code.spellcheck.spellcheck_user_text", return_value="please help"):
-            result = normalize(path, spellcheck=False)
+            result = normalize(path, spellcheck=spellcheck)
     finally:
         os.unlink(path)
     assert "> pleese help" in result
@@ -632,7 +619,7 @@ def test_extract_content_string():
 
 def test_extract_content_list_text_only():
     blocks = [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]
-    assert _extract_content(blocks) == "a b"
+    assert _extract_content(blocks) == "a\nb"
 
 
 def test_extract_content_list_tool_use_ignored_without_map():

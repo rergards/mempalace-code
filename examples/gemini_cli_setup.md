@@ -1,6 +1,6 @@
 # Gemini CLI Integration Guide
 
-This guide explains how to connect mempalace-code to the [Gemini CLI](https://github.com/google/gemini-cli) through MCP.
+This guide explains how to connect mempalace-code to the [Gemini CLI](https://github.com/google-gemini/gemini-cli) through MCP.
 
 ## Prerequisites
 
@@ -18,18 +18,24 @@ python3 -m venv ~/.local/share/mempalace-code
 
 # Reuse these paths in the commands below (run them in this shell)
 export MPALACE=~/.local/share/mempalace-code/bin/mempalace-code
-export MPALACE_PYTHON=~/.local/share/mempalace-code/bin/python
+export MPALACE_MCP=~/.local/share/mempalace-code/bin/mempalace-code-mcp
 ```
 
 ## 2. Initialization
 
-Set up the palace, then mine the project you want the agent to search.
+Set up the project, cache the embedding model once, then mine the project you want the agent to
+search. `init --skip-model-download` never downloads; `fetch-model` caches the ~80 MB model with
+network access (see `docs/OFFLINE_USAGE.md` for airgapped machines).
 
 ```bash
-# Initialize a project and cache the local embedding model if needed
-"$MPALACE" init ~/projects/my-project
+"$MPALACE" init ~/projects/my-project --skip-model-download
+"$MPALACE" fetch-model
 "$MPALACE" mine ~/projects/my-project
 ```
+
+The palace lives at `~/.mempalace/palace` unless `palace_path` in `~/.mempalace/config.json` names
+another one (see `docs/AGENT_INSTALL.md` Step 4a). Gemini CLI starts the MCP server without your
+shell's environment, so do not rely on an exported `MEMPALACE_PALACE_PATH`.
 
 ### Optional Identity
 `mempalace-code wake-up` can include a local identity note:
@@ -49,16 +55,20 @@ unrelated settings.
 {
   "mcpServers": {
     "mempalace-code": {
-      "command": "/absolute/path/to/mempalace-code/bin/python",
-      "args": ["-m", "mempalace_code.mcp_server"]
+      "command": "/absolute/path/to/mempalace-code/bin/mempalace-code-mcp",
+      "args": ["--profile=minimal"]
     }
   }
 }
 ```
 
-Replace the placeholder with the absolute value of `$MPALACE_PYTHON` printed by
-your shell. An absolute Python path lets the server start from any working
-directory.
+Replace the placeholder with the absolute value of `$MPALACE_MCP` printed by
+your shell (`echo "$MPALACE_MCP"`); JSON does not expand `~`. An absolute launcher
+path lets the server start from any working directory. `--profile=minimal` exposes
+four tools (status, search, duplicate check, add drawer); use `--profile=kg`,
+`--profile=code`, `--profile=notes`, or `--profile=full` (all 29 tools) as described
+in `examples/mcp_setup.md`. To use a palace other than the one `config.json` names,
+add `"env": {"MEMPALACE_PALACE_PATH": "/absolute/path/to/palace"}` to this entry.
 
 ## 4. Instruction Boundary
 

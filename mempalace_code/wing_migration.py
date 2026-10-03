@@ -42,7 +42,7 @@ sys.dont_write_bytecode = True
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-RECEIPT_VERSION = 17
+RECEIPT_VERSION = 18
 INVENTORY_VERSION = 1
 TABLE_NAME = "mempalace_drawers"
 MAX_RECEIPT_BYTES = 256 * 1024 * 1024
@@ -86,6 +86,10 @@ LEGACY_FILE_CHUNKER_STRATEGIES = frozenset(
 
 class MigrationError(RuntimeError):
     """A fail-closed migration predicate."""
+
+    # Set by synthetic qualification when a refused fixture is kept for recovery.
+    retained_fixture: str | None = None
+    receipt_path: str | None = None
 
     def __init__(self, code: str, detail: str) -> None:
         self.code = code
@@ -837,9 +841,10 @@ def _validate_inventory(raw: dict[str, Any], inventory_path: Path) -> dict[str, 
         _reject_symlink_chain(path, None if full_copy else root)
         kg_paths.append(path)
 
+    fixture_home = root / "home"
     required_candidates = {
         paths["palace"] / "knowledge_graph.sqlite3",
-        root / "home" / ".mempalace" / "knowledge_graph.sqlite3",
+        fixture_home / ".mempalace" / "knowledge_graph.sqlite3",
     }
     missing_candidates = sorted(str(path) for path in required_candidates - set(kg_paths))
     if missing_candidates:
@@ -909,6 +914,15 @@ def _validate_inventory(raw: dict[str, Any], inventory_path: Path) -> dict[str, 
         _assert_private_tree(paths["palace"])
         _assert_private_tree(paths["project_root"])
 
+    # MemPalace CLI, MCP, and watcher processes started with HOME=<fixture>/home
+    # coordinate through OperationLock.default(), so only that lock makes the
+    # unaccounted-owner check meaningful (live mode applies the same rule).
+    effective_lock = fixture_home / ".mempalace" / "operation.lock"
+    if paths["lock"] != effective_lock:
+        raise MigrationError(
+            "lock_path_invalid",
+            f"lock must be the fixture HOME operation lock: {effective_lock}",
+        )
     _require_lock_anchors(paths["lock"], root)
 
     private_files = [inventory_path, paths["marker"], paths["tiny_hashes"], paths["configuration"]]
@@ -1344,13 +1358,29 @@ def _cleanup_failed_lock_artifacts(
         os.close(descriptor)
 
 
+def _ensure_repo_importable() -> None:
+    """Let the runner, also run as a standalone script, import this checkout's package."""
+    repo_root = str(RUNNER_PATH.parent.parent)
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+
+
+def _sql_literal(value: str) -> str:
+    """Quote a filter value with the package's one LanceDB quoting helper."""
+    _ensure_repo_importable()
+    from mempalace_code.storage import sql_literal
+
+    return sql_literal(value)
+
+
 @contextmanager
 def _fence(
     inventory: dict[str, Any],
     *,
     allow_missing_kg: bool = False,
     live_phases: frozenset[str] = frozenset({"receipt"}),
-) -> Iterator[None]:
+) -> Iterator[str]:
+    """Hold the exclusive fixture lease; yield its owner token for the live runtime mine."""
     _check_fixture_identity(inventory)
     if inventory.get("qualification_mode") == "live":
         _assert_live_maintenance(inventory, live_phases)
@@ -1361,9 +1391,7 @@ def _fence(
         else Path(inventory["fixture_root"])
     )
     _require_lock_anchors(Path(inventory["lock"]), lock_root)
-    repo_root = RUNNER_PATH.parent.parent
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
+    _ensure_repo_importable()
     from mempalace_code.operation_lock import OperationLock, OperationLockedError
 
     lock = OperationLock(inventory["lock"])
@@ -1385,7 +1413,7 @@ def _fence(
                     _observe_live_clients(inventory)
                 else:
                     _observe_fixture_clients(inventory)
-                yield
+                yield lease.token
             except BaseException:
                 failed = True
                 raise
@@ -1430,8 +1458,7 @@ def _read_lance_row(palace: Path, row_id: str) -> dict[str, Any]:
     import lancedb
 
     table = lancedb.connect(str(palace / "lance")).open_table(TABLE_NAME)
-    quoted = row_id.replace("'", "''")
-    rows = table.search().where(f"id = '{quoted}'").limit(2).to_arrow().to_pylist()
+    rows = table.search().where(f"id = {_sql_literal(row_id)}").limit(2).to_arrow().to_pylist()
     if len(rows) != 1:
         raise MigrationError("row_identity_invalid", "sealed row ID is not unique")
     return rows[0]
@@ -2010,9 +2037,15 @@ def inventory(
     full_copy = inv.get("qualification_mode") == "full-copy"
     if full_copy:
         _full_copy_inventory_path(inventory_path)
-    if not full_copy and Path(inv["runtime_root"]).exists():
-        raise MigrationError("runtime_target_exists", inv["runtime_root"])
     receipt_target = _real(receipt_path)
+    if receipt_target.exists():
+        raise MigrationError("receipt_exists", "refusing to replace an existing receipt")
+    if not full_copy and Path(inv["runtime_root"]).exists():
+        raise MigrationError(
+            "runtime_target_exists",
+            f"runtime already exists at {inv['runtime_root']}: this fixture was already "
+            "inventoried",
+        )
     if not _inside(receipt_target, Path(inv["fixture_root"])):
         raise MigrationError("outside_fixture", "receipt must be inside fixture root")
     evidence_root = Path(inv["evidence_root"])
@@ -2516,6 +2549,10 @@ def _kg_partial(observed: list[dict], pre: list[dict], expected: list[dict]) -> 
     return True
 
 
+def _lance_batch_size(inventory: dict[str, Any]) -> int:
+    return max(1, int(inventory.get("lance_batch_size", 2)))
+
+
 def _lance_update(
     inventory: dict[str, Any], receipt: dict[str, Any], stop_after: str | None
 ) -> int:
@@ -2530,10 +2567,10 @@ def _lance_update(
 
     table = lancedb.connect(str(Path(inventory["palace"]) / "lance")).open_table(TABLE_NAME)
     writes = 0
-    batch_size = max(1, int(inventory.get("lance_batch_size", 2)))
+    batch_size = _lance_batch_size(inventory)
     for batch_number, start in enumerate(range(0, len(source_ids), batch_size), 1):
         batch = source_ids[start : start + batch_size]
-        quoted = ",".join("'" + str(row_id).replace("'", "''") + "'" for row_id in batch)
+        quoted = ",".join(_sql_literal(str(row_id)) for row_id in batch)
         table.update(where=f"id IN ({quoted})", values={"wing": inventory["destination_wing"]})
         writes += len(batch)
         _inject(stop_after, f"lance:{batch_number}:data")
@@ -2592,6 +2629,15 @@ def _apply_kg(receipt: dict[str, Any], stop_after: str | None) -> int:
 def _inject(requested: str | None, stage: str) -> None:
     if requested == stage:
         raise InjectedStop("injected_stop", stage)
+
+
+def _require_known_stage(requested: str | None, stages: list[str]) -> None:
+    """Refuse an unknown --stop-after name before any write instead of ignoring it."""
+    if requested is not None and requested not in stages:
+        raise MigrationError(
+            "stop_after_invalid",
+            f"unknown --stop-after stage {requested!r}; this receipt accepts: {', '.join(stages)}",
+        )
 
 
 def _assert_inventory_binding(receipt: dict[str, Any], inventory_path: str | None) -> None:
@@ -2665,10 +2711,15 @@ def _apply_receipt(
     receipt_path: str, *, inventory_path: str | None = None, stop_after: str | None = None
 ) -> dict[str, Any]:
     receipt = _load_receipt(receipt_path)
+    if stop_after is not None:
+        _require_known_stage(
+            stop_after,
+            _apply_interruption_stages(receipt) if receipt.get("expected") else [],
+        )
     _assert_inventory_binding(receipt, inventory_path)
     _validate_snapshot(receipt)
     inv = receipt["inventory"]
-    with _fence(inv):
+    with _fence(inv) as fence_token:
         _assert_trial_parent_binding(receipt)
         _assert_full_copy_unrelated_unchanged(receipt)
         _assert_sealed_configuration(receipt)
@@ -2679,7 +2730,9 @@ def _apply_receipt(
         if state != "original":
             raise MigrationError(
                 f"apply_{state}_refused",
-                f"run {_recovery_command(receipt)}",
+                f"run {_recovery_command(receipt)}"
+                if state == "partial"
+                else "state is outside the sealed transition envelope",
             )
         _validate_runtime(receipt)
         _lance_update(inv, receipt, stop_after)
@@ -2714,7 +2767,9 @@ def _apply_receipt(
             before_runtime = observed
             receipt["phase"] = "runtime_activating"
             _save_receipt(receipt)
-            receipt["runtime_proof"]["post_activation"] = _runtime_live_noop(receipt)
+            receipt["runtime_proof"]["post_activation"] = _runtime_live_noop(
+                receipt, inherited_lease=fence_token
+            )
             after_runtime = _capture(inv)
             reasons = _runtime_delta_allowed(before_runtime, after_runtime, receipt)
             if reasons:
@@ -2746,6 +2801,13 @@ def _recover_receipt(
     receipt_path: str, *, inventory_path: str | None = None, stop_after: str | None = None
 ) -> dict[str, Any]:
     receipt = _load_receipt(receipt_path)
+    if stop_after is not None:
+        _require_known_stage(
+            stop_after,
+            _recovery_interruption_stages(receipt)
+            if receipt.get("pre") and receipt.get("expected")
+            else [],
+        )
     _assert_inventory_binding(receipt, inventory_path)
     inv = receipt["inventory"]
     no_snapshot_live = (
@@ -2879,8 +2941,7 @@ def _recover_receipt(
 def _runtime_identity() -> dict[str, Any]:
     repo_root = RUNNER_PATH.parent.parent
     prefix = Path(sys.prefix).absolute()
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
+    _ensure_repo_importable()
     try:
         distribution = importlib.metadata.distribution("mempalace-code")
         distribution_version = distribution.version
@@ -2983,6 +3044,9 @@ def _model_cache_home() -> Path:
     return _real(candidates[0])
 
 
+_MODEL_LOAD_FAILURE_MARKERS = ("ONNXRuntimeError", "INVALID_PROTOBUF", "NO_SUCHFILE")
+
+
 def _prepared_model_cache_root(cache_home: Path) -> Path:
     root = cache_home / MODEL_CACHE_RELATIVE
     try:
@@ -3079,8 +3143,18 @@ def _hash_regular_tree(root: Path) -> dict[str, str]:
     }
 
 
-def _runtime_environment(receipt: dict[str, Any], home: Path) -> dict[str, str]:
+def _runtime_environment(
+    receipt: dict[str, Any], home: Path, *, inherited_lease: str | None = None
+) -> dict[str, str]:
+    _ensure_repo_importable()
+    from mempalace_code.operation_lock import INHERITED_LEASE_ENV
+
     environment = dict(os.environ)
+    environment.pop(INHERITED_LEASE_ENV, None)
+    if inherited_lease is not None:
+        # The live no-op mine runs inside this runner's exclusive fence; the token
+        # lets only that child skip the shared install lease the fence excludes.
+        environment[INHERITED_LEASE_ENV] = inherited_lease
     environment["HOME"] = str(home)
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
@@ -3152,7 +3226,12 @@ def _assert_runtime_files_unchanged(receipt: dict[str, Any]) -> None:
 
 
 def _run_runtime_subprocess(
-    receipt: dict[str, Any], command: list[str], *, home: Path, **kwargs: Any
+    receipt: dict[str, Any],
+    command: list[str],
+    *,
+    home: Path,
+    inherited_lease: str | None = None,
+    **kwargs: Any,
 ) -> subprocess.CompletedProcess[str]:
     if receipt.get("runtime", {}).get("isolated_non_editable") is True:
         _assert_runtime_files_unchanged(receipt)
@@ -3160,7 +3239,7 @@ def _run_runtime_subprocess(
     try:
         return subprocess.run(
             command,
-            env=_runtime_environment(receipt, home),
+            env=_runtime_environment(receipt, home, inherited_lease=inherited_lease),
             **kwargs,
         )
     finally:
@@ -3454,16 +3533,16 @@ def _runtime_probe(receipt: dict[str, Any]) -> dict[str, Any]:
         import lancedb
 
         table = lancedb.connect(str(palace / "lance")).open_table(TABLE_NAME)
-        quoted_source = source.replace("'", "''")
-        quoted_destination = destination.replace("'", "''")
-        source_rows_before = table.count_rows(f"wing = '{quoted_source}'")
-        destination_rows_before = table.count_rows(f"wing = '{quoted_destination}'")
+        quoted_source = _sql_literal(source)
+        quoted_destination = _sql_literal(destination)
+        source_rows_before = table.count_rows(f"wing = {quoted_source}")
+        destination_rows_before = table.count_rows(f"wing = {quoted_destination}")
         if source_rows_before <= 0:
             raise MigrationError(
                 "runtime_source_baseline_failed", "real mine produced no source rows"
             )
         table.update(
-            where=f"wing = '{quoted_source}'",
+            where=f"wing = {quoted_source}",
             values={"wing": destination},
         )
         tiny_path = palace / ".mempalace" / "tiny_hashes.json"
@@ -3521,8 +3600,8 @@ def _runtime_probe(receipt: dict[str, Any]) -> dict[str, Any]:
             )
             raise MigrationError("runtime_probe_failed", detail)
         table = lancedb.connect(str(palace / "lance")).open_table(TABLE_NAME)
-        source_rows_after = table.count_rows(f"wing = '{quoted_source}'")
-        destination_rows_after = table.count_rows(f"wing = '{quoted_destination}'")
+        source_rows_after = table.count_rows(f"wing = {quoted_source}")
+        destination_rows_after = table.count_rows(f"wing = {quoted_destination}")
     destination_filed = re.search(r"Drawers filed:\s*(\d+)", result.stdout)
     measurements = {
         "source_rows_before": source_rows_before,
@@ -3565,7 +3644,9 @@ def _runtime_probe(receipt: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _runtime_live_noop(receipt: dict[str, Any]) -> dict[str, Any]:
+def _runtime_live_noop(
+    receipt: dict[str, Any], *, inherited_lease: str | None = None
+) -> dict[str, Any]:
     _validate_runtime(receipt)
     inv = receipt["inventory"]
     command = [
@@ -3587,6 +3668,7 @@ def _runtime_live_noop(receipt: dict[str, Any]) -> dict[str, Any]:
             if receipt.get("qualification_mode") == "live"
             else Path(inv["fixture_root"]) / "home"
         ),
+        inherited_lease=inherited_lease,
         cwd=inv["fixture_root"],
         text=True,
         capture_output=True,
@@ -3789,7 +3871,8 @@ def _apply_interruption_stages(receipt: dict[str, Any]) -> list[str]:
     source_rows = [
         row for row in receipt["pre"]["lance_rows"] if row.get("wing") == inv["source_wing"]
     ]
-    batches = (len(source_rows) + inv["lance_batch_size"] - 1) // inv["lance_batch_size"]
+    batch_size = _lance_batch_size(inv)
+    batches = (len(source_rows) + batch_size - 1) // batch_size
     stages: list[str] = []
     for number in range(1, batches + 1):
         stages.extend((f"lance:{number}:data", f"lance:{number}"))
@@ -4486,9 +4569,7 @@ def _qualify_full_copy(inventory_argument: str | None) -> dict[str, Any]:
 
 
 def _raw_row(row_id: str, wing: str, source_file: str, source_hash: str, text: str) -> dict:
-    repo_root = RUNNER_PATH.parent.parent
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
+    _ensure_repo_importable()
     from mempalace_code.storage import _META_FIELD_SPEC
 
     defaults = {name: default for name, _, default in _META_FIELD_SPEC}
@@ -4514,7 +4595,12 @@ def _raw_row(row_id: str, wing: str, source_file: str, source_hash: str, text: s
 def _create_synthetic_fixture(root: Path, *, real_source_mine: bool = False) -> tuple[Path, Path]:
     fixture_id = hashlib.sha256(os.urandom(32)).hexdigest()[:24]
     root.mkdir(parents=True, mode=0o700, exist_ok=True)
-    _create_lock_anchors(root / "operation.lock")
+    # The fixture HOME's default operation lock is the lease every MemPalace
+    # process started for this fixture uses, so the anchors live there.
+    state_dir = root / "home" / ".mempalace"
+    state_dir.mkdir(parents=True, mode=0o700)
+    lock = state_dir / "operation.lock"
+    _create_lock_anchors(lock)
     _atomic_json(root / FIXTURE_MARKER, {"disposable": True, "fixture_id": fixture_id})
     project = root / "repository"
     project.mkdir()
@@ -4523,15 +4609,12 @@ def _create_synthetic_fixture(root: Path, *, real_source_mine: bool = False) -> 
     source.write_text("def synthetic_value():\n    return 'wing migration fixture'\n" * 8)
     marker = project / "mempalace.yaml"
     marker.write_text("wing: old-wing\nrooms:\n  - name: general\n")
-    configuration = root / "home" / ".mempalace" / "config.json"
-    configuration.parent.mkdir(parents=True)
+    configuration = state_dir / "config.json"
     configuration.write_text("{}\n", encoding="utf-8")
     tiny_source = project / "tiny.txt"
     tiny_source.write_text("tiny\n")
     palace = root / "palace"
-    repo_root = RUNNER_PATH.parent.parent
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
+    _ensure_repo_importable()
     import lancedb
 
     from mempalace_code.storage import _target_drawer_schema
@@ -4574,9 +4657,17 @@ def _create_synthetic_fixture(root: Path, *, real_source_mine: bool = False) -> 
         finally:
             shutil.rmtree(model_cache_home, ignore_errors=True)
         if baseline.returncode != 0 or "Wing:    old-wing" not in baseline.stdout:
-            detail = "\n".join(
+            output = "\n".join(
                 part for part in (baseline.stdout.strip(), baseline.stderr.strip()) if part
             )
+            lines = [line.strip() for line in output.splitlines() if line.strip()]
+            detail = (lines[-1] if lines else "mine exited without output")[-500:]
+            if any(marker in output for marker in _MODEL_LOAD_FAILURE_MARKERS):
+                # A cache with valid provenance whose model cannot load needs a re-fetch.
+                raise MigrationError(
+                    "prepared_model_cache_required",
+                    f"model cache failed to load: {detail}",
+                )
             raise MigrationError("synthetic_source_baseline_failed", detail)
         table = lancedb.connect(str(palace / "lance")).open_table(TABLE_NAME)
         mined_rows = table.to_arrow().to_pylist()
@@ -4610,7 +4701,7 @@ def _create_synthetic_fixture(root: Path, *, real_source_mine: bool = False) -> 
 
     kg_paths = [
         palace / "knowledge_graph.sqlite3",
-        root / "home" / ".mempalace" / "knowledge_graph.sqlite3",
+        state_dir / "knowledge_graph.sqlite3",
     ]
     for index, kg_path in enumerate(kg_paths):
         graph = KnowledgeGraph(str(kg_path))
@@ -4669,7 +4760,7 @@ def _create_synthetic_fixture(root: Path, *, real_source_mine: bool = False) -> 
         "marker": str(marker),
         "tiny_hashes": str(tiny_path),
         "kg_candidates": [str(path) for path in kg_paths],
-        "lock": str(root / "operation.lock"),
+        "lock": str(lock),
         "snapshot_root": str(root / "snapshot"),
         "runtime_root": str(root / "runtime"),
         "evidence_root": str(evidence_root),
@@ -4751,26 +4842,47 @@ def _validate_live_authority(
         "qualified_runner_sha256",
     }
     if set(authority) != required:
-        raise MigrationError("live_authority_invalid", "live authority fields differ")
+        # Field names are public; their values stay private.
+        missing = ", ".join(sorted(required - set(authority))) or "none"
+        unexpected = ", ".join(sorted(set(authority) - required)) or "none"
+        raise MigrationError(
+            "live_authority_invalid",
+            f"live authority fields differ: missing {missing}; unexpected {unexpected}",
+        )
     source = authority["source_wing"]
     destination = authority["destination_wing"]
-    if (
-        authority["version"] != 1
-        or authority["scope"] != LIVE_SCOPE
-        or authority["live_mutation"] is not True
-        or authority["mcp_downtime"] is not True
-        or authority["retention_rule"] != FULL_COPY_RETENTION_RULE
-        or authority["approved_host"] != socket.gethostname()
-        or not isinstance(authority["owner_approval"], str)
-        or not authority["owner_approval"]
-        or authority["approved_operation"] != f"merge wing {source} into {destination}"
-        or not isinstance(source, str)
-        or not source
-        or not isinstance(destination, str)
-        or not destination
-        or source == destination
-    ):
-        raise MigrationError("live_authority_invalid", "live authority values differ")
+    wings_valid = (
+        isinstance(source, str)
+        and bool(source)
+        and isinstance(destination, str)
+        and bool(destination)
+        and source != destination
+    )
+    invalid = [
+        name
+        for name, valid in (
+            ("version", authority["version"] == 1),
+            ("scope", authority["scope"] == LIVE_SCOPE),
+            ("live_mutation", authority["live_mutation"] is True),
+            ("mcp_downtime", authority["mcp_downtime"] is True),
+            ("retention_rule", authority["retention_rule"] == FULL_COPY_RETENTION_RULE),
+            ("approved_host", authority["approved_host"] == socket.gethostname()),
+            (
+                "owner_approval",
+                isinstance(authority["owner_approval"], str) and bool(authority["owner_approval"]),
+            ),
+            (
+                "approved_operation",
+                authority["approved_operation"] == f"merge wing {source} into {destination}",
+            ),
+            ("source_wing/destination_wing", wings_valid),
+        )
+        if not valid
+    ]
+    if invalid:
+        raise MigrationError(
+            "live_authority_invalid", f"live authority values differ: {', '.join(invalid)}"
+        )
     home = Path.home()
     canonical = {
         "palace": home / ".mempalace" / "palace",
@@ -5059,7 +5171,10 @@ def qualify(mode: str, inventory_path: str | None = None) -> dict[str, Any]:
             "synthetic_inventory_forbidden", "synthetic mode creates its own fixture"
         )
 
+    # Refuse before creating any fixture when the prepared model cache is absent.
+    _prepared_model_cache_root(_model_cache_home())
     root = Path(tempfile.mkdtemp(prefix="mempalace-wing-migration-")).resolve()
+    receipt_file = root / "evidence" / "receipt.json"
     succeeded = False
     try:
         inventory_file, receipt_file = _create_synthetic_fixture(root, real_source_mine=True)
@@ -5113,22 +5228,48 @@ def qualify(mode: str, inventory_path: str | None = None) -> dict[str, Any]:
                 "fixture_contained": True,
             },
             "apply": applied,
-            "runtime": {
-                **after_runtime["runtime_proof"],
-                "post_activation": live_runtime,
-            },
+            "runtime": _public_runtime_proof(after_runtime["runtime_proof"], live_runtime),
             "removal_condition": "remove runner, focused tests, and operations note together",
             "authority_boundary": "synthetic proof does not authorize full-copy or live rollout",
-            "recovery_command": _recovery_command(_load_receipt(receipt_file)),
+            # The fixture and its receipt are removed below, so no recovery applies.
+            "recovery_command": None,
             "fixture_retention": "successful synthetic fixture removed at command exit",
         }
         succeeded = True
-        return report
-    except MigrationError as exc:
-        raise MigrationError(exc.code, f"{exc.detail}; retained_fixture={root}") from exc
+    except Exception as exc:
+        if not receipt_file.exists():
+            raise
+        # A receipt may need receipt-bound recovery: keep the fixture and name it.
+        error = (
+            exc
+            if isinstance(exc, MigrationError)
+            else MigrationError("operation_failed", f"{type(exc).__name__}: {exc}")
+        )
+        error.retained_fixture = str(root)
+        error.receipt_path = str(receipt_file)
+        if error is exc:
+            raise
+        raise error from exc
     finally:
-        if succeeded:
+        # Without a receipt nothing can need recovery; never leak the fixture.
+        if succeeded or not receipt_file.exists():
             shutil.rmtree(root, ignore_errors=True)
+    if root.exists():
+        report["fixture_retention"] = f"fixture removal incomplete; remove {root}"
+    return report
+
+
+def _public_runtime_proof(proof: dict[str, Any], post_activation: dict[str, Any]) -> dict[str, Any]:
+    """Summarize the removed fixture's runtime proof without host internals."""
+    identity = proof["identity"]
+    return {
+        "predicates": proof["predicates"],
+        "measurements": proof.get("measurements"),
+        "identity_sha256": _digest(identity),
+        "distribution_version": identity.get("distribution_version"),
+        "isolated_non_editable": identity.get("isolated_non_editable") is True,
+        "post_activation": {"predicates": post_activation["predicates"]},
+    }
 
 
 def _recovery_command(receipt: dict[str, Any]) -> str:
@@ -5203,8 +5344,7 @@ def _arguments_target_full_copy(args: argparse.Namespace) -> bool:
     inventory_path = getattr(args, "inventory", None)
     if selected:
         return True
-    if getattr(args, "action", None) == "recover" and inventory_path is None:
-        return True
+    # A recover without --inventory is labelled by its receipt's sealed mode below.
     if inventory_path:
         try:
             return _full_copy_requested(_load_json(_real(inventory_path)))
@@ -5243,35 +5383,240 @@ def _synthetic_recovery_command(receipt_path: str | None) -> str | None:
     return _recovery_command(receipt)
 
 
+PROG = "mempalace-code wing-migration"
+APPLY_STAGE_HELP = (
+    "test-only fault injection: stop after one durable apply stage of this receipt "
+    "(lance:N[:data], kg:I[:data], tiny_hashes[:data], runtime_proved, marker[:data]); "
+    "an unknown stage is refused before any write"
+)
+RECOVER_STAGE_HELP = (
+    "test-only fault injection: stop after one recovery stage of this receipt "
+    "(recover:lance[:removed|:installed], recover:kg:I[:backup|:removed|:installed], "
+    "recover:tiny_hashes, recover:marker); an unknown stage is refused before any write"
+)
+INVENTORY_HELP = (
+    "absolute path of the inventory JSON (a full-copy inventory must be a mode-0600 regular file)"
+)
+RECEIPT_HELP = "absolute path of the sealed receipt"
+AUTHORITY_HELP = "absolute path of the mode-0600 live authority JSON"
+
+
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog=PROG,
+        description=__doc__,
+        epilog="Runbook: docs/operations/wing-migration.md. Every result is one JSON object.",
+    )
     subparsers = parser.add_subparsers(dest="action", required=True)
-    inventory_parser = subparsers.add_parser("inventory")
-    inventory_parser.add_argument("--inventory", required=True)
-    inventory_parser.add_argument("--receipt", required=True)
-    snapshot_parser = subparsers.add_parser("snapshot")
-    snapshot_parser.add_argument("--receipt", required=True)
-    apply_parser = subparsers.add_parser("apply")
-    apply_parser.add_argument("--inventory", required=True)
-    apply_parser.add_argument("--receipt", required=True)
-    apply_parser.add_argument("--stop-after")
-    classify_parser = subparsers.add_parser("classify")
-    classify_parser.add_argument("--receipt", required=True)
-    recover_parser = subparsers.add_parser("recover")
-    recover_parser.add_argument("--inventory")
-    recover_parser.add_argument("--receipt", required=True)
-    recover_parser.add_argument("--stop-after")
-    qualify_parser = subparsers.add_parser("qualify")
-    qualify_parser.add_argument("--mode", choices=("synthetic", "full-copy", "live"), required=True)
-    qualify_parser.add_argument("--inventory")
-    live_parser = subparsers.add_parser("live-run")
-    live_parser.add_argument("--authority", required=True)
-    live_recover_parser = subparsers.add_parser("live-recover")
-    live_recover_parser.add_argument("--authority", required=True)
+
+    def action(name: str, summary: str) -> argparse.ArgumentParser:
+        return subparsers.add_parser(name, help=summary, description=summary)
+
+    inventory_parser = action(
+        "inventory", "Seal an inventory into a new receipt; performs no migration writes"
+    )
+    inventory_parser.add_argument("--inventory", required=True, help=INVENTORY_HELP)
+    inventory_parser.add_argument(
+        "--receipt",
+        required=True,
+        help="absolute path of the new receipt inside the inventory's evidence_root",
+    )
+    snapshot_parser = action(
+        "snapshot", "Snapshot every inventoried store and prove a restore; required before apply"
+    )
+    snapshot_parser.add_argument("--receipt", required=True, help=RECEIPT_HELP)
+    apply_parser = action(
+        "apply",
+        "Merge the source wing into the destination; accepts only original state with a "
+        "proved snapshot, or an exact merged retry that writes nothing",
+    )
+    apply_parser.add_argument("--inventory", required=True, help=INVENTORY_HELP)
+    apply_parser.add_argument("--receipt", required=True, help=RECEIPT_HELP)
+    apply_parser.add_argument("--stop-after", metavar="STAGE", help=APPLY_STAGE_HELP)
+    classify_parser = action(
+        "classify", "Report the receipt's current state: original, partial, merged, or unknown"
+    )
+    classify_parser.add_argument("--receipt", required=True, help=RECEIPT_HELP)
+    recover_parser = action(
+        "recover",
+        "Restore the snapshotted preimage of a partial or merged receipt; unknown state is refused",
+    )
+    recover_parser.add_argument(
+        "--inventory",
+        help="inventory the receipt was sealed from: an equality guard for synthetic receipts, "
+        "required for full-copy receipts",
+    )
+    recover_parser.add_argument("--receipt", required=True, help=RECEIPT_HELP)
+    recover_parser.add_argument("--stop-after", metavar="STAGE", help=RECOVER_STAGE_HELP)
+    qualify_parser = action(
+        "qualify",
+        "Qualify the operator: synthetic builds and removes its own disposable fixture; "
+        "full-copy uses the private inventory named by WING_MIGRATION_INVENTORY_PATH",
+    )
+    qualify_parser.add_argument(
+        "--mode",
+        choices=("synthetic", "full-copy", "live"),
+        required=True,
+        help="live is always refused; a live merge runs through live-run",
+    )
+    qualify_parser.add_argument(
+        "--inventory",
+        help="full-copy only: optional guard that must equal WING_MIGRATION_INVENTORY_PATH",
+    )
+    live_parser = action("live-run", "Run an owner-authorized exact-host live wing merge")
+    live_parser.add_argument("--authority", required=True, help=AUTHORITY_HELP)
+    live_recover_parser = action(
+        "live-recover", "Recover or clear an interrupted live merge named by its authority"
+    )
+    live_recover_parser.add_argument("--authority", required=True, help=AUTHORITY_HELP)
     return parser
 
 
+def _missing_input_option(args: argparse.Namespace) -> str | None:
+    """Name the operator-supplied input file option whose path does not exist."""
+    options = ["inventory", "authority"]
+    if args.action != "inventory":
+        # inventory --receipt names the receipt it creates.
+        options.append("receipt")
+    for option in options:
+        value = getattr(args, option, None)
+        if value and not Path(value).expanduser().exists() and not Path(value).is_symlink():
+            return option
+    return None
+
+
+# Inventory input refusals: their detail holds only fixed text
+# or field names, so it is shown even for full-copy and live runs.
+_INPUT_CORRECTION_CODES = frozenset(
+    {
+        "inventory_missing_fields",
+        "inventory_permissions_invalid",
+        "full_copy_inventory_mismatch",
+        "full_copy_inventory_unavailable",
+    }
+)
+_PUBLIC_DETAIL_CODES = _INPUT_CORRECTION_CODES | {
+    "full_copy_inventory_required",
+    "live_authority_required",
+    "live_authority_invalid",
+    "live_authority_permissions",
+    "live_path_invalid",
+}
+
+
+def _refusal_guidance(
+    code: str,
+    args: argparse.Namespace,
+    argv: list[str],
+    *,
+    private: bool,
+    live_recovery: str | None = None,
+) -> tuple[str, str] | None:
+    """Return the next action and command a failed predicate itself determines.
+
+    Receipt-context guidance (recover, live-recover, private evidence) applies only when
+    the predicate leaves recovery as the correct next step. ``live_recovery`` is the
+    pending live marker's or receipt's recovery command; a writer conflict then still
+    resolves through live-recover.
+    """
+    same_command = "the same command" if private else shlex.join([*PROG.split(), *argv])
+    if code == "file_not_found":
+        return (
+            "correct_path_and_retry",
+            "rerun the same command with the absolute path of an existing file",
+        )
+    if code == "writer_conflict":
+        if live_recovery is not None:
+            return (
+                "live-recover",
+                "stop the process holding the operation lock (its owners.json names it), "
+                f"then run {live_recovery}",
+            )
+        lock = "operation lock" if _arguments_target_live(args) else "fixture operation lock"
+        return (
+            "stop_writer_and_retry",
+            f"stop the process holding the {lock} "
+            f"(its owners.json names it), then rerun {same_command}",
+        )
+    if code in {"unknown_state_refused", "apply_unknown_refused"}:
+        return (
+            "owner_disposition",
+            "none: unknown state is outside the sealed envelope; keep the fixture, receipt, "
+            "and snapshot unchanged and obtain owner disposition",
+        )
+    if (
+        code in _INPUT_CORRECTION_CODES
+        and live_recovery is None
+        and not _arguments_target_live(args)
+    ):
+        # Receipt-bound actions re-check the inventory binding after a receipt exists.
+        created = "nothing was created; " if args.action in {"inventory", "qualify"} else ""
+        return (
+            "correct_inventory_and_retry",
+            f"{created}correct the inventory as the detail names "
+            f"(field names only), then rerun {same_command}",
+        )
+    if code == "receipt_exists" and not private and args.action == "inventory":
+        receipt = str(_real(args.receipt)) if getattr(args, "receipt", None) else "RECEIPT"
+        return (
+            "snapshot",
+            "this fixture already has that receipt; continue with "
+            f"{shlex.join([*PROG.split(), 'snapshot', '--receipt', receipt])} and then apply, "
+            "or create a new disposable fixture",
+        )
+    if code == "runtime_target_exists" and args.action == "inventory":
+        return (
+            "new_fixture",
+            "this fixture was already inventoried: continue with snapshot and apply on its "
+            "existing receipt, or create a new disposable fixture",
+        )
+    if code == "stop_after_invalid":
+        return (
+            "correct_stage_and_retry",
+            f"rerun without --stop-after, or with a stage listed by {PROG} {args.action} --help",
+        )
+    if code == "full_copy_inventory_required":
+        return (
+            "set_inventory_environment",
+            "export WING_MIGRATION_INVENTORY_PATH=/absolute/private/full-copy-inventory.json; "
+            f"{PROG} qualify --mode full-copy",
+        )
+    if code == "live_authority_required":
+        return (
+            "live-run",
+            f"{PROG} live-run --authority /absolute/private/live-authority.json",
+        )
+    if code == "snapshot_required":
+        receipt = getattr(args, "receipt", None)
+        command = (
+            "run snapshot for the same receipt, then rerun apply"
+            if private or not receipt
+            else shlex.join([*PROG.split(), "snapshot", "--receipt", str(_real(receipt))])
+        )
+        return "snapshot", command
+    if code == "prepared_model_cache_required" and not private:
+        return (
+            "fetch-model",
+            f"HF_HOME={shlex.quote(str(_model_cache_home()))} mempalace-code fetch-model "
+            f"(online), then rerun {same_command}",
+        )
+    return None
+
+
+def _live_marker_path(args: argparse.Namespace) -> Path:
+    authority_value = getattr(args, "authority", None)
+    if authority_value:
+        try:
+            authority = _load_json(_real(authority_value))
+            return _live_maintenance_path(Path(authority["lock"]))
+        except (MigrationError, OSError, ValueError, TypeError, KeyError):
+            pass
+    # Live authority admits only the canonical lock, so its marker has one location.
+    return _live_maintenance_path(Path.home() / ".mempalace" / "operation.lock")
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
     args = _parser().parse_args(argv)
     try:
         live = _arguments_target_live(args)
@@ -5348,40 +5693,83 @@ def main(argv: list[str] | None = None) -> int:
         subprocess.SubprocessError,
     ) as exc:
         receipt = getattr(args, "receipt", None)
+        code = exc.code if isinstance(exc, MigrationError) else "operation_failed"
+        missing_option = _missing_input_option(args)
+        if missing_option is not None:
+            # A missing input is reported as such, not as a decode or generic failure.
+            code = "file_not_found"
+            exc = MigrationError(code, f"--{missing_option} file does not exist")
+        retained_fixture = getattr(exc, "retained_fixture", None)
         live = _arguments_target_live(args)
         full_copy = not live and _arguments_target_full_copy(args)
         recovery = "use the receipt-bound recovery action in private evidence"
         synthetic_recovery = None
+        live_pending = False
+        synthetic_qualify = args.action == "qualify" and args.mode == "synthetic"
         if live:
             try:
                 if receipt:
+                    live_pending = True
                     recovery = _load_receipt(receipt)["recovery_command"]
                 else:
-                    authority = _load_json(_real(args.authority))
-                    marker = _live_maintenance_path(Path(authority["lock"]))
-                    recovery = _load_json(marker)["recovery_command"]
+                    marker = _live_marker_path(args)
+                    if marker.exists() or marker.is_symlink():
+                        live_pending = True
+                        recovery = _load_json(marker)["recovery_command"]
             except (MigrationError, OSError, ValueError, TypeError, KeyError):
+                live_pending = True
                 recovery = "rerun live-recover with the exact mode-0600 authority"
         elif not full_copy:
-            synthetic_recovery = _synthetic_recovery_command(receipt)
+            synthetic_recovery = _synthetic_recovery_command(
+                getattr(exc, "receipt_path", None) or receipt
+            )
             if synthetic_recovery is not None:
                 recovery = synthetic_recovery
-            elif receipt:
+            elif receipt and args.action != "inventory":
+                # An unreadable existing receipt is private by default; inventory's
+                # --receipt names the receipt it would have created.
                 full_copy = True
-        if live:
+        if live and not live_pending:
+            # A refused live-run removed its marker and evidence: nothing is pending.
+            allowed_next_action = "live-run" if args.action == "live-run" else "none"
+            recovery = (
+                f"no live recovery is pending; resolve {code}, then rerun "
+                f"{PROG} live-run --authority AUTHORITY"
+                if args.action == "live-run"
+                else "none: no live maintenance marker or receipt is pending"
+            )
+        elif live:
             allowed_next_action = "live-recover"
         elif synthetic_recovery is not None:
             allowed_next_action = "recover"
+        elif synthetic_qualify and not full_copy:
+            # The refused fixture held no receipt and was removed.
+            allowed_next_action = "qualify"
+            recovery = f"resolve {code}, then rerun {PROG} qualify --mode synthetic"
         elif full_copy:
             allowed_next_action = "inspect_private_evidence"
         else:
             allowed_next_action = "inventory"
+            recovery = f"resolve {code}, then rerun {PROG} inventory with a new receipt path"
+        guidance = _refusal_guidance(
+            code,
+            args,
+            argv,
+            private=full_copy or live,
+            live_recovery=recovery if live_pending else None,
+        )
+        if guidance is not None:
+            allowed_next_action, recovery = guidance
+        # Disposable-fixture diagnostics are public; full-copy and live stay private.
+        detail = (
+            "operation refused; inspect private evidence for diagnostics"
+            if (full_copy or live) and code not in _PUBLIC_DETAIL_CODES | {"file_not_found"}
+            else (exc.detail if isinstance(exc, MigrationError) else str(exc))[-4000:]
+        )
         output = {
             "status": "refused",
-            "failed_predicate": (
-                exc.code if isinstance(exc, MigrationError) else "operation_failed"
-            ),
-            "detail": "operation refused; inspect private evidence for diagnostics",
+            "failed_predicate": code,
+            "detail": detail,
             "allowed_next_action": allowed_next_action,
             "authority_boundary": (
                 "exact-host live authority"
@@ -5390,6 +5778,8 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "recovery_command": recovery,
         }
+        if retained_fixture and not full_copy:
+            output["retained_fixture"] = retained_fixture
         print(json.dumps(output, ensure_ascii=False, sort_keys=True))
         return 2
 

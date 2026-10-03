@@ -170,10 +170,14 @@ def test_mcp_non_ascii_preserved_in_json_rpc(monkeypatch):
     assert cjk in tool_value, f"CJK text must be preserved, got: {tool_value!r}"
 
 
-def test_mcp_stdout_write_uses_ensure_ascii_false():
+def test_mcp_stdout_write_uses_ensure_ascii_false(monkeypatch):
     """AC-2: the stdio loop writes ensure_ascii=False JSON so non-ASCII chars appear
     as literal UTF-8 in the raw stdout line (not as \\uXXXX escapes)."""
     import mempalace_code.mcp.dispatch as dispatch
+
+    # main() installs its fake registry as the module-wide active registry; restore
+    # it afterwards so later handle_request() callers see the real TOOLS again.
+    monkeypatch.setattr(dispatch, "_active_registry", None)
 
     cyrillic = "Привет"
     cjk = "世界"

@@ -8,6 +8,12 @@ Structure:
     installed so base .[dev] CI stays green.
 """
 
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 import mempalace_code.treesitter as ts_mod
@@ -80,13 +86,84 @@ def test_chunk_code_chunker_strategy_is_regex(monkeypatch):
     assert all("content" in c and "chunk_index" in c for c in chunks)
 
 
+def test_missing_dependency_collects_and_executes_fallbacks(tmp_path):
+    """A real pytest import without tree-sitter must retain fallback coverage."""
+    fallback_names = [
+        "test_get_parser_returns_none_when_unavailable",
+        "test_get_parser_returns_none_for_unsupported_language",
+        "test_get_parser_returns_none_when_grammar_import_fails",
+        "test_chunk_code_regex_fallback_when_treesitter_unavailable",
+        "test_chunk_code_chunker_strategy_is_regex",
+    ]
+    report = tmp_path / "report.json"
+    script = r"""
+import importlib.abc
+import json
+from pathlib import Path
+import sys
+
+class BlockTreeSitter(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "tree_sitter" or fullname.startswith("tree_sitter."):
+            raise ModuleNotFoundError("tree_sitter blocked for regression", name=fullname)
+
+sys.meta_path.insert(0, BlockTreeSitter())
+import pytest
+
+class Report:
+    collected = []
+    passed = []
+    skipped = []
+    def pytest_collection_finish(self, session):
+        self.collected = [item.name for item in session.items]
+    def pytest_runtest_logreport(self, report):
+        name = report.nodeid.split("::")[-1]
+        if report.when == "call" and report.passed:
+            self.passed.append(name)
+        if report.skipped:
+            self.skipped.append(name)
+
+report = Report()
+exit_code = pytest.main(sys.argv[2:], plugins=[report])
+Path(sys.argv[1]).write_text(json.dumps({
+    "collected": report.collected, "passed": report.passed, "skipped": report.skipped,
+}))
+raise SystemExit(exit_code)
+"""
+    parser_name = "test_get_parser_python_returns_parser"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(report),
+            "-q",
+            *[f"{__file__}::{name}" for name in [*fallback_names, parser_name]],
+        ],
+        cwd=Path(__file__).resolve().parent.parent,
+        env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", "HF_HUB_OFFLINE": "1"},
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    outcomes = json.loads(report.read_text())
+    assert set(outcomes["collected"]) == {*fallback_names, parser_name}
+    assert set(outcomes["passed"]) == set(fallback_names)
+    assert outcomes["skipped"] == [parser_name]
+
+
 # =============================================================================
 # Parser tests — skipped unless tree-sitter is installed
 # =============================================================================
 
-pytest.importorskip("tree_sitter")
+
+@pytest.fixture
+def require_tree_sitter():
+    pytest.importorskip("tree_sitter")
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_python_returns_parser():
     """get_parser('python') returns a non-None Parser on Python 3.10+."""
     import sys
@@ -97,6 +174,7 @@ def test_get_parser_python_returns_parser():
     assert parser is not None
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_python_parses_source():
     """Parser for 'python' produces a valid Tree from Python source bytes."""
     import sys
@@ -112,6 +190,7 @@ def test_get_parser_python_parses_source():
     assert any(child.type == "function_definition" for child in root.children)
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_typescript_returns_parser():
     """get_parser('typescript') returns a non-None Parser when grammar is installed."""
     parser = ts_mod.get_parser("typescript")
@@ -120,6 +199,7 @@ def test_get_parser_typescript_returns_parser():
     assert parser is not None
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_typescript_parses_source():
     """Parser for 'typescript' produces a valid Tree from TypeScript source bytes."""
     parser = ts_mod.get_parser("typescript")
@@ -131,6 +211,7 @@ def test_get_parser_typescript_parses_source():
     assert len(root.children) > 0
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_tsx_returns_parser():
     """get_parser('tsx') returns a non-None Parser when grammar is installed."""
     parser = ts_mod.get_parser("tsx")
@@ -139,6 +220,7 @@ def test_get_parser_tsx_returns_parser():
     assert parser is not None
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_caches_parser():
     """Repeated calls to get_parser() return the same Parser instance (cached)."""
     ts_mod._parser_cache.clear()
@@ -147,12 +229,13 @@ def test_get_parser_caches_parser():
     assert p1 is p2
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_chunk_code_python_ast_semantic_parity():
     """Python AST chunking preserves all definitions (semantic parity with regex path).
 
     The AST path may split chunks differently than the regex path, but all function
     and class names must appear in the joined output, and each chunk must carry
-    chunker_strategy='treesitter_v1'.
+    chunker_strategy='treesitter_v3'.
     """
     import sys
 
@@ -184,9 +267,10 @@ def test_chunk_code_python_ast_semantic_parity():
 
     # Every chunk carries the AST strategy tag
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_chunk_code_python_ast_extension_input():
     """chunk_code() with '.py' extension activates the AST path on Python 3.10+."""
     import sys
@@ -201,9 +285,10 @@ def test_chunk_code_python_ast_extension_input():
     # Callers that pass ".py" (extension style) must also hit the AST path
     chunks = chunk_code(src, ".py", "test.py")
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_javascript_returns_parser():
     """get_parser('javascript') returns a non-None Parser when grammar is installed."""
     parser = ts_mod.get_parser("javascript")
@@ -212,6 +297,7 @@ def test_get_parser_javascript_returns_parser():
     assert parser is not None
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_jsx_returns_parser():
     """get_parser('jsx') returns a non-None Parser (TSX grammar) when grammar is installed."""
     parser = ts_mod.get_parser("jsx")
@@ -220,6 +306,7 @@ def test_get_parser_jsx_returns_parser():
     assert parser is not None
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_javascript_parses_js():
     """Parser for 'javascript' produces a valid Tree from plain JS source."""
     parser = ts_mod.get_parser("javascript")
@@ -231,6 +318,7 @@ def test_get_parser_javascript_parses_js():
     assert any(child.type == "function_declaration" for child in root.children)
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_jsx_parses_jsx():
     """Parser for 'jsx' (TSX grammar) produces a valid Tree from JSX source."""
     parser = ts_mod.get_parser("jsx")
@@ -249,6 +337,7 @@ def test_get_parser_jsx_parses_jsx():
     assert not has_error(root)
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_go_returns_parser():
     """get_parser('go') returns a non-None Parser when tree-sitter-go is installed."""
     parser = ts_mod.get_parser("go")
@@ -257,6 +346,7 @@ def test_get_parser_go_returns_parser():
     assert parser is not None
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_go_parses_source():
     """Parser for 'go' produces a valid Tree from Go source bytes."""
     parser = ts_mod.get_parser("go")
@@ -268,6 +358,7 @@ def test_get_parser_go_parses_source():
     assert any(child.type == "function_declaration" for child in root.children)
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_go_returns_none_when_import_fails(monkeypatch):
     """get_parser('go') returns None (no exception) when tree_sitter_go raises ImportError."""
     monkeypatch.setattr(ts_mod, "TREE_SITTER_AVAILABLE", True)
@@ -289,6 +380,7 @@ def test_get_parser_go_returns_none_when_import_fails(monkeypatch):
     assert "go" in str(caught[0].message)
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_rust_returns_parser():
     """get_parser('rust') returns a non-None Parser when tree-sitter-rust is installed."""
     parser = ts_mod.get_parser("rust")
@@ -297,6 +389,7 @@ def test_get_parser_rust_returns_parser():
     assert parser is not None
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_rust_parses_source():
     """Parser for 'rust' produces a valid Tree from Rust source bytes."""
     parser = ts_mod.get_parser("rust")
@@ -308,6 +401,7 @@ def test_get_parser_rust_parses_source():
     assert any(child.type == "function_item" for child in root.children)
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_get_parser_rust_returns_none_when_import_fails(monkeypatch):
     """get_parser('rust') returns None (no exception) when tree_sitter_rust raises ImportError."""
     monkeypatch.setattr(ts_mod, "TREE_SITTER_AVAILABLE", True)
@@ -329,12 +423,13 @@ def test_get_parser_rust_returns_none_when_import_fails(monkeypatch):
     assert "rust" in str(caught[0].message)
 
 
+@pytest.mark.usefixtures("require_tree_sitter")
 def test_chunk_code_typescript_ast_semantic_parity():
     """TS AST chunking preserves all top-level definitions (semantic parity check).
 
     All exported and non-exported functions, classes, interfaces, and type aliases
     must appear in the joined output, and each chunk must carry
-    chunker_strategy='treesitter_v1'.
+    chunker_strategy='treesitter_v3'.
     """
     parser = ts_mod.get_parser("typescript")
     if parser is None:
@@ -364,4 +459,4 @@ def test_chunk_code_typescript_ast_semantic_parity():
     assert "type Name" in joined
 
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"

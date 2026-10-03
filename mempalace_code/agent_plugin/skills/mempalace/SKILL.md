@@ -18,13 +18,17 @@ Use this skill only when the MCP client exposes these tools:
 - Try two focused query phrasings before treating a miss as unindexed or stale context.
 - Scope by wing only when the user or current repo clearly identifies the project.
 - Call `mempalace_status` only for explicit inventory or diagnostics requests.
+- Every search hit carries its drawer `id`; cite that id when reporting an existing drawer.
 
 ## Store
 
 - Store durable decisions, root causes, supplied facts, and reusable handoff context verbatim.
 - Before a substantial write, call `mempalace_check_duplicate` with the intended content.
-- If a near duplicate exists, merge the new fact into one concise drawer instead of creating drift.
+- If a match already states the fact, do not write it again; report the existing drawer id.
+- If a match covers the topic and your content adds a fact, file only the new fact in a short drawer that cites the existing drawer id. This profile cannot edit or merge stored drawers.
 - Call `mempalace_add_drawer` with one topic per drawer and clear wing/room metadata.
+- `mempalace_add_drawer` refuses near-identical content with `reason: duplicate` and the matching ids: report them and stop. Never reword content to pass the check.
+- A wing or room that re-spells an existing one is refused with that name as a suggestion. Retry once with the exact suggested name when it is the same place; otherwise ask.
 
 ## Guards
 

@@ -10,6 +10,25 @@ _KG_EXTRACT_EXTENSIONS = frozenset(
     {".csproj", ".fsproj", ".vbproj", ".sln", ".xaml", ".cs", ".fs", ".fsi", ".vb", ".py"}
 )
 
+# Predicates the per-file extraction below emits; mining owns these facts for a source file.
+FILE_KG_PREDICATES = frozenset(
+    {
+        "binds_viewmodel",
+        "contains_project",
+        "depends_on",
+        "extends",
+        "has_code_behind",
+        "has_named_control",
+        "has_output_type",
+        "implements",
+        "inherits",
+        "references_project",
+        "references_resource",
+        "targets_framework",
+        "uses_command",
+    }
+)
+
 # .sln project-line regex: captures (project_name, relative_path)
 _SLN_PROJECT_RE = re.compile(
     r'Project\("[^"]*"\)\s*=\s*"([^"]+)",\s*"([^"]+)"',
@@ -361,6 +380,23 @@ _PY_FROM_IMPORT_RE = re.compile(r"^from\s+([a-zA-Z][\w.]*)\s+import\s+", re.MULT
 _PY_ABC_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 
 
+def python_module_name(filepath: Path) -> str:
+    """Return the dotted import name of a Python file, e.g. ``shop.web.models``.
+
+    Walks up while the parent directory is a package (holds ``__init__.py``), so two
+    same-named modules in different packages stay distinct and the name matches how
+    other modules import it. A file outside any package keeps its bare stem.
+    """
+    parts = [] if filepath.stem == "__init__" else [filepath.stem]
+    parent = filepath.parent
+    while is_regular_source_path(parent / "__init__.py"):
+        parts.insert(0, parent.name)
+        if parent.parent == parent:
+            break
+        parent = parent.parent
+    return ".".join(parts) or filepath.parent.name
+
+
 def _python_type_rels(filepath: Path) -> list:
     """Extract inheritance/implementation and import triples from a Python source file.
 
@@ -370,7 +406,8 @@ def _python_type_rels(filepath: Path) -> list:
     Predicates:
       - ``implements``: class inherits from ABC, ABCMeta, or Protocol
       - ``inherits``: class inherits from any other named base class
-      - ``depends_on``: module imports another module (``import x`` and ``from x import``)
+      - ``depends_on``: module imports another module (``import x`` and ``from x import``);
+        the subject is the module's dotted import name (:func:`python_module_name`)
 
     Relative imports (``from . import x``, ``from ..foo import bar``) are skipped.
     Multiline class declarations are out of scope; single-line covers >95% of real Python.
@@ -384,9 +421,7 @@ def _python_type_rels(filepath: Path) -> list:
     triples = []
     seen: set = set()
 
-    # Module name: filename stem, or parent directory name for __init__.py.
-    stem = filepath.stem
-    module_name = filepath.parent.name if stem == "__init__" else stem
+    module_name = python_module_name(filepath)
 
     # Class inheritance extraction.
     for m in _PY_CLASS_RE.finditer(text):

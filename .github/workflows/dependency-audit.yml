@@ -13,11 +13,11 @@ jobs:
   current-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
           cache: pip
@@ -47,10 +47,13 @@ jobs:
           path: dependency-audit-output/
           if-no-files-found: warn
 
+      # One issue tracks the findings: it is matched by its exact title, updated
+      # on every failing run, and closed by the first clean run below.
       - name: Create or update dependency-audit issue
         if: steps.audit.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           ISSUE_TITLE="[dependency-audit] current dependency audit findings"
           ISSUE_BODY_FILE="dependency-audit-output/current-audit-issue-body.md"
@@ -61,25 +64,55 @@ jobs:
             exit 0
           fi
 
-          # Find existing open issue with the stable title
+          # Search is fuzzy, so keep only the exact stable title.
           EXISTING=$(gh issue list \
             --state open \
             --search "\"$ISSUE_TITLE\" in:title" \
-            --json number \
-            --jq '.[0].number // empty' 2>/dev/null || true)
+            --json number,title \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].number // empty" \
+            2>/dev/null || true)
 
           if [ -n "$EXISTING" ]; then
             gh issue edit "$EXISTING" --body-file "$ISSUE_BODY_FILE"
             echo "Updated existing issue #$EXISTING"
-          else
-            gh issue create \
-              --title "$ISSUE_TITLE" \
-              --body-file "$ISSUE_BODY_FILE" \
-              --label "$ISSUE_LABEL" 2>/dev/null || \
+            gh issue edit "$EXISTING" --add-label "$ISSUE_LABEL" || \
+              echo "::warning::Could not add the '$ISSUE_LABEL' label to issue #$EXISTING"
+          elif ! gh issue create \
+            --title "$ISSUE_TITLE" \
+            --body-file "$ISSUE_BODY_FILE" \
+            --label "$ISSUE_LABEL"; then
+            echo "::warning::Could not create the issue with the '$ISSUE_LABEL' label; creating it without the label"
             gh issue create \
               --title "$ISSUE_TITLE" \
               --body-file "$ISSUE_BODY_FILE"
           fi
+
+      # A clean run of main resolves the tracked findings, so it closes the open
+      # issue with a link to the evidence. A clean dispatch from another branch
+      # says nothing about main's lock and leaves the issue alone. Issue bookkeeping
+      # must never turn a clean audit into a failed run: release admission reads
+      # this workflow's conclusion.
+      - name: Close resolved dependency-audit issue
+        if: steps.audit.outcome == 'success' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          ISSUE_TITLE="[dependency-audit] current dependency audit findings"
+          OPEN_ISSUES=$(gh issue list \
+            --state open \
+            --search "\"$ISSUE_TITLE\" in:title" \
+            --json number,title \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[].number")
+
+          for number in $OPEN_ISSUES; do
+            gh issue close "$number" \
+              --reason completed \
+              --comment "Dependency Audit run $RUN_URL found no actionable findings; closing."
+            echo "Closed resolved issue #$number"
+          done
 
       - name: Fail workflow on audit findings
         if: steps.audit.outcome == 'failure'

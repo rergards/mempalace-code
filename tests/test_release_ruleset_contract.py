@@ -710,6 +710,62 @@ def _audit_gh(runs: list[dict] | tuple[int, str, str]):
     return public_read
 
 
+def test_dependency_audit_query_is_bound_to_main():
+    def public_read(query):
+        assert query.values[3] == "main"
+        return _fixture_result([])
+
+    row = ADMISSION.check_dependency_audit_freshness("acme/tool", public_read)
+    assert row.status == ADMISSION.STATUS_FAIL
+
+
+@pytest.mark.parametrize("main_conclusion", ["failure", "success"])
+def test_other_branch_audit_cannot_answer_for_main(main_conclusion):
+    runs = [
+        {
+            "status": "completed",
+            "conclusion": main_conclusion,
+            "event": "schedule",
+            "headBranch": "main",
+            "headSha": OLD_SHA,
+            "updatedAt": "2026-08-15T00:00:00Z",
+        },
+        {
+            "status": "completed",
+            "conclusion": "success",
+            "event": "workflow_dispatch",
+            "headBranch": "topic/audit",
+            "headSha": NEW_SHA,
+            "updatedAt": "2026-08-16T00:00:00Z",
+        },
+    ]
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool", _audit_gh(runs), now=datetime(2026, 8, 16, tzinfo=UTC)
+    )
+    expected = ADMISSION.STATUS_OK if main_conclusion == "success" else ADMISSION.STATUS_FAIL
+    assert row.status == expected, row.detail
+
+
+@pytest.mark.parametrize("branch", ["topic/audit", None])
+def test_dependency_audit_without_main_evidence_fails_closed(branch):
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool",
+        _audit_gh(
+            [
+                {
+                    "status": "completed",
+                    "conclusion": "success",
+                    "event": "schedule",
+                    "headBranch": branch,
+                    "updatedAt": "2026-08-16T00:00:00Z",
+                }
+            ]
+        ),
+        now=datetime(2026, 8, 16, tzinfo=UTC),
+    )
+    assert row.status == ADMISSION.STATUS_FAIL
+
+
 def test_yesterdays_sha_does_not_inherit_todays_green_check():
     """A stale SHA has no check-run of its own; today's green run must not count."""
     gh = _gh(
@@ -1050,6 +1106,7 @@ def test_future_stamped_dependency_audit_is_untrusted_evidence():
                     "status": "completed",
                     "conclusion": "success",
                     "event": "schedule",
+                    "headBranch": "main",
                     "updatedAt": "2026-08-20T00:00:00Z",
                 }
             ]
@@ -1070,6 +1127,7 @@ def test_undatable_dependency_audit_runs_error_instead_of_passing():
                     "status": "completed",
                     "conclusion": "success",
                     "event": "schedule",
+                    "headBranch": "main",
                     "updatedAt": "not-a-timestamp",
                 }
             ]
@@ -1097,12 +1155,14 @@ def test_an_undatable_audit_run_is_not_dropped_in_favour_of_an_older_datable_suc
                     "status": "completed",
                     "conclusion": "success",
                     "event": "schedule",
+                    "headBranch": "main",
                     "updatedAt": "2026-08-15T00:00:00Z",
                 },
                 {
                     "status": "completed",
                     "conclusion": "failure",
                     "event": "workflow_dispatch",
+                    "headBranch": "main",
                     "updatedAt": "not-a-timestamp",
                     "createdAt": "also-not-a-timestamp",
                 },
@@ -1126,12 +1186,14 @@ def test_a_fully_datable_audit_history_still_passes():
                     "status": "completed",
                     "conclusion": "failure",
                     "event": "workflow_dispatch",
+                    "headBranch": "main",
                     "updatedAt": "2026-08-10T00:00:00Z",
                 },
                 {
                     "status": "completed",
                     "conclusion": "success",
                     "event": "schedule",
+                    "headBranch": "main",
                     "updatedAt": "2026-08-15T00:00:00Z",
                 },
             ]
@@ -1151,6 +1213,7 @@ def test_manual_push_event_audit_run_does_not_satisfy_the_scheduled_requirement(
                     "status": "completed",
                     "conclusion": "success",
                     "event": "push",
+                    "headBranch": "main",
                     "updatedAt": "2026-08-16T00:00:00Z",
                 }
             ]

@@ -12,8 +12,8 @@ from .mcp.dispatch import handle_request, main  # noqa: F401
 from .mcp.protocol_text import AAAK_SPEC, PALACE_PROTOCOL  # noqa: F401
 from .mcp.registry import TOOLS  # noqa: F401
 from .mcp.runtime import (  # noqa: F401
-    _DEGRADED_HINT,
     _config,
+    _degraded_hint,
     _degraded_response,
     _get_kg,
     _get_store,

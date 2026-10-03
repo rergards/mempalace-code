@@ -59,6 +59,11 @@ def _make_project(root: Path, *, content: str = "def foo():\n    return 1\n" * 3
     )
 
 
+def _make_git_metadata(root: Path) -> None:
+    """Give *root* the minimal git layout commit-mode watching resolves (refs/heads)."""
+    (root / ".git" / "refs" / "heads").mkdir(parents=True, exist_ok=True)
+
+
 def _fake_watch_factory(change_batches):
     """Return a watchfiles.watch replacement that yields each batch then stops."""
 
@@ -220,6 +225,29 @@ class TestIsRelevantChange:
     def test_deleted_pyc_is_irrelevant(self, proj):
         """Delete event for a .pyc file is still filtered out."""
         assert not _is_relevant_change(str(proj / "gone.pyc"), proj)
+
+    # --- Extension-less shebang scripts (mirrors scan_project) ---
+
+    def test_accepts_extensionless_shebang_script(self, proj):
+        script = proj / "deploy"
+        script.write_text("#!/usr/bin/env python3\nprint('hi')\n", encoding="utf-8")
+        assert _is_relevant_change(str(script), proj)
+
+    def test_rejects_extensionless_file_without_known_shebang(self, proj):
+        blob = proj / "notes"
+        blob.write_text("plain text without an interpreter line\n", encoding="utf-8")
+        assert not _is_relevant_change(str(blob), proj)
+
+    def test_gitignored_extensionless_script_is_rejected(self, proj):
+        (proj / ".gitignore").write_text("deploy\n", encoding="utf-8")
+        script = proj / "deploy"
+        script.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+        assert not _is_relevant_change(str(script), proj)
+
+    def test_absolute_include_ignored_path_inside_project(self, proj):
+        """--include-ignored accepts an absolute path inside the project, as mine does."""
+        target = proj / "node_modules" / "special.js"
+        assert _is_relevant_change(str(target), proj, include_ignored=[str(target)])
 
     # --- Outside-project path ---
 
@@ -622,9 +650,12 @@ class TestWatcherShutdownSignals:
         if hasattr(signal, "SIGHUP"):
             supported_signals.append(signal.SIGHUP)
 
-        original_handlers = {
+        original_handlers: dict[int, Callable[[int, FrameType | None], object] | int | None] = {
             shutdown_signal: signal.SIG_DFL for shutdown_signal in supported_signals
         }
+        # Ctrl-C keeps Python's KeyboardInterrupt semantics; the watcher wraps the default
+        # handler only to acknowledge a stop during a captured mine, then restores it.
+        original_handlers[signal.SIGINT] = signal.default_int_handler
         current_handlers = dict(original_handlers)
         signal_calls = []
         emitted_states = []
@@ -659,7 +690,7 @@ class TestWatcherShutdownSignals:
             else:
                 watch_all(str(project), str(tmp_path / "palace"), on_commit=False)
 
-        assert emitted_states[-1] == "watch-ready"
+        assert emitted_states[-2:] == ["watch-ready", "stopped"]
         watch_mock.assert_not_called()
         assert [call[0] for call in signal_calls[: len(supported_signals)]] == supported_signals
         assert [call[0] for call in signal_calls[-len(supported_signals) :]] == list(
@@ -695,6 +726,7 @@ class TestWatcherShutdownSignals:
             )
             for shutdown_signal in supported_signals
         }
+        original_handlers[signal.SIGINT] = signal.default_int_handler
         current_handlers = dict(original_handlers)
         signal_calls = []
 
@@ -735,7 +767,11 @@ class TestWatcherShutdownSignals:
             reversed(supported_signals)
         )
         assert current_handlers == original_handlers
-        assert all(shutdown_signal != signal.SIGINT for shutdown_signal, _ in signal_calls)
+        sigint_handlers = [handler for sig, handler in signal_calls if sig == signal.SIGINT]
+        # Installed once and restored once; the installed one still raises KeyboardInterrupt.
+        assert len(sigint_handlers) == 2
+        with pytest.raises(KeyboardInterrupt):
+            sigint_handlers[0](signal.SIGINT, None)
 
     def test_watch_iteration_error_restores_every_handler(self, tmp_path):
         project = tmp_path / "project"
@@ -746,6 +782,7 @@ class TestWatcherShutdownSignals:
         original_handlers: dict[int, Callable[[int, FrameType | None], object] | int | None] = {
             shutdown_signal: signal.SIG_DFL for shutdown_signal in supported_signals
         }
+        original_handlers[signal.SIGINT] = signal.default_int_handler
         current_handlers = dict(original_handlers)
 
         def fake_signal(shutdown_signal, handler):
@@ -824,18 +861,23 @@ class TestWatcherShutdownSignals:
 
 
 class TestImportError:
-    def test_import_error_message(self, tmp_path, capsys):
-        """Clear error message is printed when watchfiles is not installed."""
+    @pytest.mark.parametrize("entry", [watch_and_mine, watch_all])
+    def test_import_error_message(self, entry, tmp_path, capsys, monkeypatch):
+        """The missing-watchfiles hint names one install command for this environment."""
         project = tmp_path / "proj"
         project.mkdir()
+        # Outside a uv tool environment (no uv-receipt.toml), the hint targets this interpreter.
+        monkeypatch.setattr(sys, "prefix", str(tmp_path))
 
         with patch.dict(sys.modules, {"watchfiles": None}), pytest.raises(SystemExit) as exc_info:
-            watch_and_mine(str(project), str(tmp_path / "palace"))
+            entry(str(project), str(tmp_path / "palace"))
 
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "watchfiles" in captured.err
-        assert "mempalace-code[watch]" in captured.err
+        assert "uv tool, pipx, or venv" in captured.err
+        assert watcher_module.extra_install_command("watch") in captured.err
+        assert shlex.quote(sys.executable) in captured.err
 
 
 # ---------------------------------------------------------------------------
@@ -883,8 +925,9 @@ class TestRenderWatchSchedule:
     def test_default_bin_falls_back_to_mempalace_code_module(self, tmp_path, monkeypatch):
         """Generated daemon snippets should run the renamed package module."""
         monkeypatch.setattr("shutil.which", lambda _name: None)
-        # Write an init marker so the root guard allows rendering.
+        # Write an init marker and git metadata so the root guard allows commit mode.
         (tmp_path / "mempalace.yaml").write_text("wing: test\n")
+        _make_git_metadata(tmp_path)
 
         out = render_watch_schedule(str(tmp_path), "linux")
 
@@ -894,12 +937,14 @@ class TestRenderWatchSchedule:
     def test_darwin_plist_bounds_respawn_with_throttle_interval(self, tmp_path):
         """Darwin plist contains ThrottleInterval so crash-looping jobs can't respawn unbounded."""
         (tmp_path / "mempalace.yaml").write_text("wing: test\n")
+        _make_git_metadata(tmp_path)
         plist = render_watch_schedule(str(tmp_path), "darwin")
         assert "<key>ThrottleInterval</key>" in plist
         assert "<integer>60</integer>" in plist
 
     def test_invoked_launcher_precedes_conflicting_path(self, tmp_path, monkeypatch):
         (tmp_path / "mempalace.yaml").write_text("wing: test\n")
+        _make_git_metadata(tmp_path)
         invoked_dir = tmp_path / "invoked bin"
         ambient_dir = tmp_path / "ambient-bin"
         invoked_dir.mkdir()
@@ -922,6 +967,7 @@ class TestRenderWatchSchedule:
         watch_root = tmp_path / "watch root ; path"
         watch_root.mkdir()
         (watch_root / "mempalace.yaml").write_text("wing: test\n", encoding="utf-8")
+        _make_git_metadata(watch_root)
         launcher = tmp_path / "launcher ; path" / "mempalace-code"
         record = tmp_path / "recorded argv"
         launcher.parent.mkdir()
@@ -931,9 +977,14 @@ class TestRenderWatchSchedule:
         )
         launcher.chmod(0o755)
 
-        snippet = render_watch_schedule(str(watch_root), platform, mempalace_bin=str(launcher))
+        # An explicit environment keeps the rendered prefix independent of the CI shell
+        # (which sets HF_HOME, sorting before HF_HUB_OFFLINE).
+        snippet = render_watch_schedule(
+            str(watch_root), platform, mempalace_bin=str(launcher), environment={}
+        )
         if platform == "linux":
             command = snippet.removeprefix("@reboot ").rstrip()
+            assert command.startswith("HF_HUB_OFFLINE=1 ")
             subprocess.run(["/bin/sh", "-c", command], check=True)
         else:
             arguments = plistlib.loads(snippet.encode())["ProgramArguments"]
@@ -950,6 +1001,7 @@ class TestRenderWatchSchedule:
         watch_root = tmp_path / "watch root ; quoted"
         watch_root.mkdir()
         (watch_root / "mempalace.yaml").write_text("wing: test\n")
+        _make_git_metadata(watch_root)
         invoked = tmp_path / "invoked bin" / "mempalace-code"
         ambient = tmp_path / "ambient-bin" / "mempalace-code"
         home = tmp_path / "home with spaces"
@@ -975,9 +1027,10 @@ class TestRenderWatchSchedule:
         assert shlex.quote(str(invoked)) in first.err
         assert str(ambient) not in first.out + first.err
         assert shlex.quote(str(watch_root.resolve())) in first.out + first.err
-        assert (
-            shlex.quote(str(home / "Library/LaunchAgents/com.mempalace.watch.plist")) in first.err
-        )
+        label = watcher_module.watch_launchd_label(watch_root)
+        assert label.startswith("com.mempalace.watch.watch-root-quoted-")
+        assert shlex.quote(str(home / f"Library/LaunchAgents/{label}.plist")) in first.err
+        assert f"<string>{label}</string>" in first.out
         assert tuple(sorted(tmp_path.rglob("*"))) == before
 
     def test_install_refusal_names_selected_launcher_and_explicit_targets(
@@ -998,7 +1051,7 @@ class TestRenderWatchSchedule:
         assert captured.out == ""
         assert shlex.quote(str(invoked)) in captured.err
         assert shlex.quote(str(watch_root.resolve())) in captured.err
-        assert "com.mempalace.watch.plist" in captured.err
+        assert f"{watcher_module.watch_launchd_label(watch_root)}.plist" in captured.err
 
 
 # ---------------------------------------------------------------------------
@@ -1020,6 +1073,7 @@ class TestRenderWatchScheduleRootGuard:
     def test_initialized_root_renders_snippet(self, tmp_path):
         """Initialized project root renders a schedule snippet."""
         (tmp_path / "mempalace.yaml").write_text("wing: test\n")
+        _make_git_metadata(tmp_path)
         snippet = render_watch_schedule(str(tmp_path), "linux")
         assert "@reboot" in snippet
 
@@ -1028,6 +1082,7 @@ class TestRenderWatchScheduleRootGuard:
         child = tmp_path / "myproject"
         child.mkdir()
         (child / "mempalace.yaml").write_text("wing: child_wing\n")
+        _make_git_metadata(child)
 
         fake_projects = [{"path": str(child), "initialized": True}]
 
@@ -1064,7 +1119,10 @@ class TestWatchRootProjectMarkerClassification:
             watch_all(str(tmp_path), str(tmp_path / "palace"))
 
         assert exc_info.value.code == 1
-        assert f"mempalace-code init {tmp_path}" in capsys.readouterr().err
+        assert (
+            f"{shlex.quote(sys.executable)} -m mempalace_code init {tmp_path}"
+            in capsys.readouterr().err
+        )
 
     def test_irregular_project_marker_fails_closed_as_parent(self, tmp_path, capsys):
         target = tmp_path / "git-data"
@@ -1111,7 +1169,7 @@ class TestWatchRootProjectMarkerClassification:
 
         assert [call["project_dir"] for call in mine_calls] == [str(child)]
         assert mine_calls[0]["wing_override"] == "child-wing"
-        assert render_watch_schedule(str(tmp_path), "linux").startswith("@reboot ")
+        assert render_watch_schedule(str(tmp_path), "linux", on_save=True).startswith("@reboot ")
 
 
 # ---------------------------------------------------------------------------
@@ -1684,6 +1742,10 @@ class TestWatchAndMineDiskBudget:
 class TestWatchStatusCli:
     def _run_status(self, tmp_path, argv_extra=None):
         palace = str(tmp_path / "palace")
+        # The watched root must be a valid watch root for launchd guidance to apply.
+        (tmp_path / "mempalace.yaml").write_text("wing: status_root\n", encoding="utf-8")
+        # A commit-mode job (the default) needs git, as the watcher itself does.
+        (tmp_path / ".git" / "refs" / "heads").mkdir(parents=True, exist_ok=True)
         argv = ["mempalace-code", "--palace", palace, "watch", str(tmp_path), "status"]
         if argv_extra:
             argv += argv_extra
@@ -1744,12 +1806,16 @@ class TestWatchStatusCli:
             self._run_status(tmp_path)
 
         out = capsys.readouterr().out
-        assert "LaunchAgent: com.mempalace.watch  (not loaded)" in out
+        label = watcher_module.watch_launchd_label(tmp_path)
+        assert f"LaunchAgent: {label}  (not loaded)" in out
         assert "Next:" in out
         assert "already points at the intended root" in out
-        assert "launchctl load" in out
-        assert "mempalace-code watch" in out
-        assert "schedule >" in out
+        plist = os.path.expanduser(f"~/Library/LaunchAgents/{label}.plist")
+        assert f"launchctl load {shlex.quote(plist)}" in out
+        palace = shlex.quote(str(tmp_path / "palace"))
+        assert f" --palace {palace} watch {shlex.quote(str(tmp_path))} schedule >" in out
+        # A refused render must never truncate the saved plist.
+        assert f"schedule > {shlex.quote(plist + '.tmp')} && mv " in out
 
     def test_status_disk_budget_prints_disk_next_action(self, tmp_path, capsys):
         """Disk-budget blocks should point at disk recovery before launchd actions."""
@@ -1843,7 +1909,9 @@ class TestWatchStatusCli:
         assert "com.mempalace.watch" in out
         assert str(palace) in out
         assert "Next:" in out
-        assert "/tmp/mempalace-watch.log" in out
+        label = watcher_module.watch_launchd_label(tmp_path)
+        assert f"inspect {watcher_module.watch_launchd_log_path(label)}" in out
+        assert "/tmp/mempalace-watch.log" not in out
 
     def test_status_uses_service_state_not_coalition_state(self, tmp_path, capsys):
         """watch status reports the top-level launchd state, not nested coalition state."""
@@ -1993,10 +2061,14 @@ class TestWatchInitialMineRecovery:
         out = capsys.readouterr()
         assert "Watcher did not start" in (out.out + out.err)
 
-    def test_missing_fragment_initial_mine_rolls_back_and_retries_once(self, tmp_path, capsys):
-        """AC-3: missing-fragment → DEGRADED → rollback → single retry → watch loop entered."""
+    def test_transient_missing_fragment_retries_on_fresh_handle_without_rollback(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """A 'Not found' while the palace head is readable is retried, never rolled back."""
+        monkeypatch.setattr(watcher_module, "_TRANSIENT_RETRY_DELAY_SECS", 0)
         palace = tmp_path / "palace"
-        palace.mkdir(parents=True)
+        (palace / "lance").mkdir(parents=True)
+        (palace / "lance" / "data.lance").write_bytes(b"x")
         project = tmp_path / "proj"
         project.mkdir()
 
@@ -2005,17 +2077,14 @@ class TestWatchInitialMineRecovery:
         def fake_mine(**kwargs):
             mine_call_count.append(1)
             if len(mine_call_count) == 1:
-                raise Exception("no such file or directory: fragment.lance")
+                raise Exception("lance error: Not found: data/fragment.lance")
             return {}
 
         fake_store = MagicMock()
-        fake_store.recover_to_last_working_version.return_value = {
-            "recovered": True,
-            "restored_to": 5,
-            "rows_after": 10,
-        }
+        fake_store.health_check.return_value = {"ok": True, "total_rows": 105, "errors": []}
 
         with (
+            patch("mempalace_code.watcher.create_backup", return_value=({}, "archive.tar.gz")),
             patch("mempalace_code.watcher.mine", side_effect=fake_mine),
             patch("mempalace_code.storage.open_store", return_value=fake_store),
             patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
@@ -2023,14 +2092,21 @@ class TestWatchInitialMineRecovery:
             watch_and_mine(str(project), str(palace))
 
         assert len(mine_call_count) == 2, "initial mine + one retry"
-        fake_store.recover_to_last_working_version.assert_called_once_with(dry_run=False)
+        fake_store.recover_to_last_working_version.assert_not_called()
+        fake_store.restore.assert_not_called()
         out = capsys.readouterr()
-        assert "DEGRADED" in (out.out + out.err)
+        combined = out.out + out.err
+        assert "Transient storage error" in combined
+        assert "105 row(s)" in combined
+        assert "No rollback is performed" in combined
+        assert "DEGRADED" not in combined
+        assert "state=watch-ready" in combined
 
-    def test_initial_recovery_recreates_lifecycle_store_before_retry(self, tmp_path):
-        """Rollback retries with a fresh collection instead of the stale failing handle."""
+    def test_transient_retry_recreates_lifecycle_store_before_retry(self, tmp_path, monkeypatch):
+        """The retry uses a fresh collection instead of the stale failing handle."""
         from mempalace_code import watcher
 
+        monkeypatch.setattr(watcher, "_TRANSIENT_RETRY_DELAY_SECS", 0)
         palace = tmp_path / "palace"
         stale_store = MagicMock(name="stale_store")
         fresh_store = MagicMock(name="fresh_store")
@@ -2042,12 +2118,7 @@ class TestWatchInitialMineRecovery:
                 raise Exception("no such file or directory: fragment.lance")
             return {"embedder_warmed": kwargs["warmup"]}
 
-        recovery_store = MagicMock()
-        recovery_store.recover_to_last_working_version.return_value = {
-            "recovered": True,
-            "restored_to": 5,
-            "rows_after": 10,
-        }
+        probe_store = MagicMock()
 
         with (
             patch(
@@ -2055,7 +2126,7 @@ class TestWatchInitialMineRecovery:
                 side_effect=[stale_store, fresh_store],
             ) as get_collection,
             patch("mempalace_code.watcher.mine", side_effect=fake_mine),
-            patch("mempalace_code.storage.open_store", return_value=recovery_store),
+            patch("mempalace_code.storage.open_store", return_value=probe_store),
         ):
             mining_store = watcher._WatcherMiningStore(str(palace))
             stats = watcher._run_initial_mine_with_recovery(
@@ -2066,7 +2137,40 @@ class TestWatchInitialMineRecovery:
         assert [call["collection"] for call in mine_calls] == [stale_store, fresh_store]
         assert all(call["warmup"] for call in mine_calls)
         assert get_collection.call_count == 2
-        recovery_store.recover_to_last_working_version.assert_called_once_with(dry_run=False)
+        probe_store.recover_to_last_working_version.assert_not_called()
+
+    def test_transient_error_that_persists_fails_without_rollback(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """Bounded retries: a readable head that keeps failing is an error, not a rollback."""
+        monkeypatch.setattr(watcher_module, "_TRANSIENT_RETRY_DELAY_SECS", 0)
+        palace = tmp_path / "palace"
+        (palace / "lance").mkdir(parents=True)
+        (palace / "lance" / "data.lance").write_bytes(b"x")
+        project = tmp_path / "proj"
+        project.mkdir()
+        fake_store = MagicMock()
+        fake_store.health_check.return_value = {"ok": True, "total_rows": 3, "errors": []}
+        mine = MagicMock(side_effect=Exception("Commit conflict for version 7"))
+
+        with (
+            patch("mempalace_code.watcher._make_run_id", return_value="PERSIST"),
+            patch("mempalace_code.watcher.create_backup", return_value=({}, "archive.tar.gz")),
+            patch("mempalace_code.watcher.mine", mine),
+            patch("mempalace_code.storage.open_store", return_value=fake_store),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                watch_and_mine(str(project), str(palace))
+
+        assert exc_info.value.code == 1
+        assert mine.call_count == watcher_module._TRANSIENT_MINE_ATTEMPTS
+        fake_store.recover_to_last_working_version.assert_not_called()
+        out = capsys.readouterr()
+        combined = out.out + out.err
+        assert "initial mine failed" in combined
+        assert "WATCH_RUN run_id=PERSIST state=initial-mine-failed" in combined
+        assert "DEGRADED" not in combined
 
     def test_watcher_lifecycle_reuses_one_collection_and_warms_once(self, tmp_path):
         """Changed cycles share the watcher collection after its first explicit warmup."""
@@ -2104,10 +2208,10 @@ class TestWatchInitialMineRecovery:
         collection.warmup.assert_called_once()
         get_collection.assert_called_once_with(str(tmp_path / "palace"))
 
-    def test_missing_fragment_without_candidate_exits_with_recovery_commands(
+    def test_unreadable_head_exits_degraded_with_recovery_commands_and_no_rollback(
         self, tmp_path, capsys
     ):
-        """AC-4: no rollback candidate → exit before watching, commands include palace/archive."""
+        """A verified-unreadable head → DEGRADED exit before watching; the operator recovers."""
         palace = tmp_path / "palace"
         lance_dir = palace / "lance"
         lance_dir.mkdir(parents=True)
@@ -2122,14 +2226,15 @@ class TestWatchInitialMineRecovery:
             return {}, backup_archive
 
         fake_store = MagicMock()
-        fake_store.recover_to_last_working_version.return_value = {
-            "recovered": False,
-            "candidate_version": None,
+        fake_store.health_check.return_value = {
+            "ok": False,
+            "errors": [{"probe": "head", "message": "Not found: fragment.lance"}],
         }
 
         watch_called = []
 
         with (
+            patch("mempalace_code.watcher._make_run_id", return_value="DEGRADED-RUN"),
             patch("mempalace_code.watcher.create_backup", side_effect=fake_create_backup),
             patch(
                 "mempalace_code.watcher.mine",
@@ -2146,6 +2251,8 @@ class TestWatchInitialMineRecovery:
 
         assert exc_info.value.code == 1
         assert not watch_called, "watch loop must not be entered"
+        fake_store.recover_to_last_working_version.assert_not_called()
+        fake_store.restore.assert_not_called()
 
         out = capsys.readouterr()
         all_output = out.out + out.err
@@ -2153,6 +2260,9 @@ class TestWatchInitialMineRecovery:
         assert backup_archive in all_output
         assert "repair --rollback --dry-run" in all_output
         assert "restore" in all_output
+        assert "head probe head: Not found: fragment.lance" in all_output
+        assert "WATCH_RUN run_id=DEGRADED-RUN state=degraded" in all_output
+        assert "never rolls back a shared palace" in all_output
 
     def test_first_ever_watch_without_existing_lance_data_skips_pre_watch_backup(self, tmp_path):
         """AC-5: no existing lance data → no backup required, initial mine runs normally."""
@@ -2221,10 +2331,7 @@ class TestWatchInitialMineRecovery:
             return {}, backup_archive
 
         fake_store = MagicMock()
-        fake_store.recover_to_last_working_version.return_value = {
-            "recovered": False,
-            "candidate_version": None,
-        }
+        fake_store.health_check.return_value = {"ok": False, "errors": []}
 
         lance_dir = palace / "lance"
         lance_dir.mkdir(parents=True)
@@ -2550,7 +2657,7 @@ class TestWatchAllInitializedRoot:
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         combined = captured.out + captured.err
-        assert f"mempalace-code init {project}" in combined
+        assert f"{shlex.quote(sys.executable)} -m mempalace_code init {project}" in combined
 
     def test_parent_directory_still_watches_initialized_children(self, tmp_path):
         """AC-3: plain parent directory still discovers and mines initialized child projects."""
@@ -2659,10 +2766,7 @@ class TestWatchAllInitialMineRecovery:
             return {}
 
         fake_store = MagicMock()
-        fake_store.recover_to_last_working_version.return_value = {
-            "recovered": False,
-            "candidate_version": None,
-        }
+        fake_store.health_check.return_value = {"ok": False, "errors": []}
 
         watch_called = []
 
@@ -2695,6 +2799,7 @@ class TestWatchAllInitialMineRecovery:
         assert exc_info.value.code == 1
         assert len(backup_call_count) == 1, "exactly one pre_watch backup before initial batch"
         assert not watch_called, "watch loop must not be entered on unrecovered failure"
+        fake_store.recover_to_last_working_version.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

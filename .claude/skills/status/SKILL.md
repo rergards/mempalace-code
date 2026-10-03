@@ -15,31 +15,24 @@ Quickly summarize project status: what was done recently, what's in progress, an
    git log --oneline -10 main
    ```
 
-2. **Backlog priorities** — Run `backlog list --status open --file docs/BACKLOG.yaml` and find:
-   - Highest priority open items across sections
-   - Any items with `status: in_progress`
-   - Blocked items and their dependencies
+2. **Canonical backlog** — Read `backlog_context {}`,
+   `backlog_workset_context {}`, and `backlog_workset_queue {}` from the verified
+   `.backlog` project connection. Follow bounded pages using returned tokens.
+   Report task states, P0..P3 priorities, holds, dependencies and eligible queue.
+   An empty queue requires reporting blockers; open+held tasks remain unfinished.
+   Queue readiness does not establish executor authority, ownership or capacity.
 
-3. **Section progress**
-   ```bash
-   backlog list --status all --file docs/BACKLOG.yaml
-   ```
-   Count done vs open per section.
+3. **Fallback and history** — Discover and verify the absolute `backlog-utility`
+   binary; use `call --store .backlog --project mempalace-code --principal
+   <principal> --name <tool> --arguments-file <json>` with `{}` for initial reads.
+   Missing, malformed or mismatched access means unknown; do not read active YAML
+   as a fallback. `docs/BACKLOG.yaml` supplies historical section metadata only.
+   `docs/BACKLOG-archived.yaml` supplies historical completion evidence only.
+   Recovery: `<absolute-backlog-utility> validate --store .backlog`.
 
-## Output Format
+## Output
 
-### Recent (last few commits)
-- Bullet list of recent changes
-
-### In Progress
-- Tasks currently being worked on
-
-### Next Up (highest priority pending)
-- Top 3-5 pending items sorted by priority
-- Note any blocking dependencies
-
-### Section Progress
-- code_mining: N/M done
-- mcp_tools: N/M done
-- storage_reliability: N/M done
-- documentation: N/M done
+Report recent commits, canonical task state/hold counts, highest priorities and
+eligible queue entries. Distinguish archive history from canonical current
+completion. Report executor ownership unknown unless independently observed.
+Invocation authorizes read-only status inspection only.
