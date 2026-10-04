@@ -56,6 +56,23 @@ class TestValidateWingRoomAgainstTaxonomy:
         assert result["filter"] == "room"
         assert result["value"] == "r3"
 
+    def test_unknown_room_suggestions_are_scoped_to_the_wing_filter(self):
+        """convos-31: with --wing, suggest only rooms of that wing."""
+        taxonomy = {
+            "convos": {"decisions": 3, "technical": 2},
+            "wing_orin": {"diary": 4},
+        }
+        scoped = validate_wing_room_against_taxonomy(taxonomy, wing="convos", room="diar")
+        assert scoped is not None
+        assert scoped["error"] == "unknown_room"
+        assert "diary" not in scoped["suggestions"]
+        near = validate_wing_room_against_taxonomy(taxonomy, wing="convos", room="decision")
+        assert near is not None
+        assert near["suggestions"] == ["decisions"]
+        unscoped = validate_wing_room_against_taxonomy(taxonomy, room="diar")
+        assert unscoped is not None
+        assert unscoped["suggestions"] == ["diary"]
+
     def test_room_valid_globally_without_wing(self):
         """AC-4: room-only validation succeeds for any existing room, even in another wing."""
         taxonomy = {"w1": {"r1": 1}, "w2": {"r2": 1}}

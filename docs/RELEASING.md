@@ -19,6 +19,9 @@ each external mutation requires the operator's explicit approval.
   admission.
 - The checked-out, committed tree passes public-safety and documentation-drift
   checks.
+- A committed installed-candidate acceptance report,
+  `docs/quality/acceptance/vX.Y.Z.md`, records PASS for the exact package tree
+  (`mempalace_code/`, `pyproject.toml`, `uv.lock`) that the tag carries (section 1a).
 - The published package contains both a wheel and an sdist, and a fresh virtual
   environment can install the wheel.
 - The wheel and sdist contain the Agent Plugin package root with `plugin.json`,
@@ -36,6 +39,10 @@ each external mutation requires the operator's explicit approval.
   tools - see `scripts/release_install_metadata_smoke.py`.
 - The PyPI publication is followed by a non-draft GitHub Release and the
   complete machine-readable publication/admission check.
+- The GitHub Release body is the version's `CHANGELOG.md` section plus any
+  tagged-but-unpublished sections back to the previous published release, and
+  GitHub's generated compare link starts at that release, never at an
+  unpublished tag (`scripts/release_notes.py`).
 
 ## 1. Prepare the release commit
 
@@ -43,15 +50,18 @@ Update the version, changelog, public documentation, and generated scorecard in
 one reviewable change. Keep `## Unreleased` at the top of `CHANGELOG.md`; move
 the completed items into the new version heading when cutting the release.
 
-Run the deterministic local checks from the release commit:
+Run the local checks from the release commit. None of them needs the candidate
+SHA or public `main`; the exact-SHA public admission runs in section 3c, after
+public `main` carries the candidate:
 
 ```bash
 python scripts/docs_drift_guard.py
 python scripts/public_safety_scan.py --tracked --staged
 python scripts/quality_scorecard.py --check
+python scripts/gen_code_intelligence_packet.py --check
 python scripts/release_preflight.py --tag vX.Y.Z --require-clean
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --check-public-main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
 python scripts/release_install_metadata_smoke.py --all-installers --install-spec . --json
+python -m build --wheel --outdir dist
 WHEEL=dist/mempalace_code-X.Y.Z-py3-none-any.whl
 python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
 python -m pytest tests/ -x -q -m "not needs_network"
@@ -62,6 +72,17 @@ ruff format --check mempalace_code/ tests/ scripts/
 python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
 python -m pyright -p pyrightconfig.strict.json
 ```
+
+With `--tag`, the preflight also reports an `acceptance_report` row. It fails until
+section 1a's report for this exact package tree is committed, so run section 1a
+once the other checks pass, then rerun the preflight.
+
+`gen_code_intelligence_packet.py --check` regenerates the code-intelligence demo
+packet in a temp directory and compares it with the committed
+`docs/demo/code-intelligence-packet.{md,json}`. It needs the cached embedding model
+(see the cache note below) and is not part of `/verify` or branch CI. The wheel built
+here comes from the reviewed tree, which is the tree the candidate carries; section 3
+rebuilds and re-checks it for the exact candidate SHA.
 
 Immediately before creating the immutable tag, run the opt-in live pre-tag
 check. It is the canonical pre-tag command and fails closed when upstream
@@ -85,6 +106,9 @@ interpreter-site socket guard before proving that disabled
 `version-check --check-now` stops before network access. Missing `pipx` or `uv` fails closed;
 run `python -m pip install pipx` or `python -m pip install uv`, then retry the
 same aggregate command. Use `--installer pipx` only for bounded diagnostics.
+Each manager probe uses disposable HOME and cache directories. Its controlled PATH exposes
+only the selected manager through a temporary executable symlink, the installed command
+directory, and system tools. Other programs in the manager's original directory remain excluded.
 
 The aggregate also requires one supported Linux systemd-user lifecycle receipt. Run it as
 a disposable Linux OS user whose passwd `HOME`, effective uid, `/run/user/<uid>`, and user
@@ -135,16 +159,16 @@ The exact same owner runs inside `release_readiness_gate.py --check` and the
 required `installed-application` CI job; missing or failing evidence therefore
 blocks `release-required`.
 
-On CPU-only Linux, the same owner qualifies `[custom-models]` by installing PyTorch from
-the official CPU wheel index before installing the exact candidate wheel extra. Prepare an
-owner-private scratch directory on a filesystem with adequate free space and preserve one
-`TMPDIR` across the ordered contour:
+On CPU-only Linux, the same owner also qualifies `[custom-models]` inside its disposable
+venv: it installs PyTorch from the official CPU wheel index
+(`https://download.pytorch.org/whl/cpu`) and then the exact candidate wheel with the
+`custom-models` extra. It never installs the published PyPI package; that end-user
+contour lives in `docs/OFFLINE_USAGE.md`. Prepare an owner-private scratch directory on a
+filesystem with adequate free space and preserve one `TMPDIR` across the ordered contour:
 
 ```bash
 install -d -m 700 "$HOME/.cache/mempalace/tmp"
 df -h "$HOME/.cache/mempalace/tmp"
-TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-TMPDIR="$HOME/.cache/mempalace/tmp" python -m pip install 'mempalace-code[custom-models]'
 ```
 
 An `Errno 28` or `No space left on device` result identifies the failed prerequisite or
@@ -156,20 +180,16 @@ TMPDIR="$HOME/.cache/mempalace/tmp" python scripts/release_readiness_gate.py --i
 ```
 
 The default tag preflight is deterministic, local, and non-mutating. It checks
-tag/version agreement, the documentation contract, the committed-tree
-public-safety scan, and optionally a clean worktree. The explicit
+tag/version agreement, the committed acceptance report for the package tree, the
+documentation contract, the committed-tree public-safety scan, and optionally a
+clean worktree. The explicit
 `--check-live-upstream` mode reuses the read-only shared upstream comparison
 guard; it adds one live branch-head lookup and never rewrites source or Git
 state.
 
-The exact-SHA release admission command is the publication boundary after the
-operator has reviewed the candidate commit and fetched the public target:
-
-```bash
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --candidate-ref publish/main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
-```
-
-This command binds `HEAD`, the intended `vX.Y.Z` tag target, the
+The exact-SHA release admission command in section 3c is the publication
+boundary. It runs only after the candidate exists, is green, and is public
+`main`. It binds `HEAD`, the intended `vX.Y.Z` tag target, the
 operator-reviewed candidate SHA, and the fixed public `main` head. It also uses
 `scripts/release_admission_checks.py` to query the `release-required` aggregate
 check, public `main` branch rules, `refs/tags/v*` ruleset state, orphan public
@@ -209,6 +229,79 @@ work end to end and not only unit internals. It is included in the default
 workflow-evidence boundary named in the release checklist even if that default
 selection changes.
 
+## 1a. Installed-candidate acceptance test
+
+Automated gates prove the paths someone already thought to test. This section is
+the required full user acceptance test: nobody builds or pushes a candidate until it
+passes. It runs against the exact wheel the reviewed tree builds, installed the way
+users install it, and exercises the complete functional surface the way a user or
+an LLM agent would, following the public documentation literally.
+
+1. **Build the exact candidate wheel** from the reviewed tree and record its
+   identity in the report header:
+
+   ```bash
+   python -m build --wheel --outdir dist
+   WHEEL=dist/mempalace_code-X.Y.Z-py3-none-any.whl
+   python -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())" "$WHEEL"
+   git rev-parse HEAD:mempalace_code HEAD:pyproject.toml HEAD:uv.lock
+   ```
+
+2. **Install into disposable environments.** Use a fresh venv, `pipx`, and
+   `uv tool`, each with the base package and with the extras (`watch`,
+   `treesitter`, `spellcheck`, and `custom-models` on a platform that supports it).
+   Every environment gets a disposable `HOME`, XDG directories, and model cache
+   (`HF_HOME`). Provision the model through the documented
+   `mempalace-code fetch-model` path. Never touch the operator's real palace,
+   agent configuration, crontab, launchd, or systemd user units; render schedules
+   and daemon files without installing them.
+3. **Exercise every area** below and record what ran in the report's coverage
+   table:
+
+   | Area | Scope |
+   |---|---|
+   | Install and onboarding | README quick start, `docs/AGENT_INSTALL.md`, `scripts/bootstrap.sh`, `init`, `onboarding`, `fetch-model`, `install-alias`, `version-check`, `agent-plugin path` |
+   | Project mining, search, read | `mine` and `mine-all` (first run, incremental re-mine, `--full` rebuild), `search` with filters, `read`, `status`, `wake-up`, `compress` |
+   | Conversations | `mine --mode convos` for every supported transcript format, `split`, re-mining changed files |
+   | MCP over real stdio | `mempalace-code-mcp` for every tool in every profile, both protocol handshakes, and malformed input (bad JSON, unknown tools, wrong argument types, oversized values) |
+   | KG, architecture, graph | Knowledge-graph, architecture, and graph tools, plus an upgrade from the previous release's palace |
+   | Data lifecycle | `backup`, `restore`, `export`, `import`, rebuild, `health`, `repair`, `cleanup` |
+   | Watch, schedules, updates, concurrency | `watch` modes, rendered schedules, `update`, and concurrent CLI and MCP writers |
+   | Migration, offline, custom models | `wing-migration`, offline and air-gapped use (`docs/OFFLINE_USAGE.md`), custom models |
+   | LLM-agent perspective and hooks | Follow `docs/AGENT_INSTALL.md`, `docs/LLM_USAGE_RULES.md`, and the packaged skill; feed the `hooks/` scripts the input their client sends |
+   | Everything else | Every other subcommand that `mempalace-code --help` lists (for example `diary`, `preflight`, and `migrate-storage`) and every MCP tool the server's `tools/list` returns, so coverage follows the real surface rather than this table |
+
+   The LLM-agent perspective is exercised by following those instructions and
+   driving the MCP server over stdio with a credential-free client. The release
+   credential boundary in `AGENTS.md` holds here too: no external AI client is
+   launched or authenticated as part of this test.
+4. **Record every problem** in the report's issue list with a reproduction
+   (commands, input, expected and actual result) and a severity: critical, high,
+   medium, or low.
+5. **Fix, then re-test directly.** Land each fix with a regression test, rebuild
+   the wheel, and re-run the original reproduction against the rebuilt wheel in a
+   fresh environment, plus the areas the fix touched. Record each round in the
+   report's re-test section.
+6. **Repeat** until no confirmed critical or high issue remains and every other
+   finding is fixed or explicitly deferred with a reason and a follow-up.
+7. **Commit the report** at `docs/quality/acceptance/vX.Y.Z.md` in the format of
+   [`docs/quality/acceptance/README.md`](quality/acceptance/README.md). It is public:
+   no local paths, hostnames, user names, credentials, or private transcript text.
+
+The report records the result and the git object ids of the `mempalace_code/`,
+`pyproject.toml`, and `uv.lock` it tested. The `acceptance_report` row of the tag
+preflight, which the tag workflow repeats, fails unless the committed report names
+the version, says PASS, and records the ids `HEAD` has:
+
+```bash
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean
+```
+
+Any package change after testing therefore needs a new round. Documentation-only
+commits keep the ids and need none. A change to a user-run file outside the
+package, such as `hooks/` or `scripts/bootstrap.sh`, needs a re-test of that area
+recorded in the report.
+
 ## 2. Review public repository surfaces
 
 Before asking for tag/publish approval, inspect the public repository as a
@@ -239,7 +332,26 @@ history rewrites.
 
 Instead, build a candidate commit whose **tree** is the reviewed local tree and
 whose **parent** is current public `main`. Its later promotion is then always a
-fast-forward. Two distinct SHAs are in play from here on — keep them apart:
+fast-forward.
+
+Because the candidate takes its whole tree from the reviewed local commit, a
+change that exists only on public `main` is silently reverted by the next
+release. Never merge a pull request on public `main`, including Dependabot
+action or module bumps. Port an accepted change into the reviewed local tree,
+ship it in the next candidate, then close the pull request with a note naming
+that release. Before building a candidate, list what public `main` carries beyond
+the newest public `v*` tag (`python scripts/release_public_read.py --version-tags`);
+normally this prints nothing:
+
+```bash
+git fetch publish main
+git diff --stat <newest-public-vX.Y.Z-tag> publish/main
+```
+
+Anything it prints must already be in the reviewed local tree (for example, a
+candidate that was promoted but never tagged) or be ported there first.
+
+Two distinct SHAs are in play from here on — keep them apart:
 
 | Name | Meaning |
 |---|---|
@@ -294,7 +406,8 @@ python scripts/release_readiness_gate.py --check --candidate-sha "$CANDIDATE_SHA
 The readiness gate builds in a disposable environment, inspects the wheel and
 source distribution, then installs the exact wheel in a clean virtual environment.
 It exercises package metadata and public CLI surfaces only. A successful run is
-required before the candidate branch is pushed.
+required before the candidate branch is pushed. It complements, and never replaces,
+the section 1a acceptance test, which must already have passed for this tree.
 
 ## 3a. Push the candidate branch and prove it green
 
@@ -321,7 +434,7 @@ owner:
 
 ```bash
 test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-python scripts/release_preflight.py --require-clean --expect-sha "$CANDIDATE_SHA" --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha "$CANDIDATE_SHA" --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
 ```
 
 A non-zero exit means the release is not admissible. Fix the reported row and
@@ -345,19 +458,21 @@ git fetch publish main
 git rev-parse publish/main                          # must print $CANDIDATE_SHA
 ```
 
-Pushing a SHA that already carries its own green **Tests** and `release-required`
-results is what keeps this sequence working if required status checks are later
-added to public `main`: the checks for that commit already exist and are green
-before the branch update is attempted, so the update is never blocked waiting for
-checks that can only run after it.
+Public `main` requires a successful `release-required` check under a strict
+policy (see `docs/release-admission-rulesets.md`), so GitHub accepts this
+fast-forward only for a SHA whose own **Tests** and `release-required` results
+already exist and are green. That is why section 3a proves the candidate branch
+green first: those checks can only run on a pushed commit, so the update to
+`main` never waits for checks that could only run after it.
 
 ## 3c. Re-admit against `main`, then tag
 
-Public `main` has moved, so re-run exact-SHA admission — this time bound to
-`publish/main` — before any tag exists:
+Public `main` has moved, so re-run exact-SHA admission — this time bound to the
+fetched `publish/main` and the live public `main`, with the same checks the tag
+workflow runs — before any tag exists:
 
 ```bash
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --candidate-ref publish/main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha <40-hex-candidate-sha> --check-public-main --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags --candidate-ref publish/main
 ```
 
 A non-zero exit means the release is not admissible. Fix the reported row; do
@@ -400,18 +515,18 @@ provenance for every exact-version distribution, and the install metadata smoke
 must agree. The provenance row uses the exact-pinned official verifier from the
 frozen `uv.lock` resolution and requires publisher repository
 `rergards/mempalace-code` plus workflow `.github/workflows/publish.yml` for every
-public wheel and sdist, with trusted-publisher environment `release`. The install
+public wheel and sdist, with trusted-publisher environment `release`, whose
+deployment policy admits only `v*` tags. The install
 smoke installs `package==X.Y.Z`
 into a disposable venv and requires `importlib.metadata.version`,
 `mempalace_code.__version__`, and `mempalace-code version-check --status` to
 all report `X.Y.Z`. Record any remaining blocker instead of claiming a
 completed release.
 
-For the first release after the provenance gate lands, run the exact command
-above against public PyPI without `--skip-smoke` or any mutation, and retain the
-bounded `pypi_provenance` row with the release evidence. This is the live
-read-only boundary for the hosted verifier path; automated tests use hermetic
-fixtures and do not replace it.
+For every release, run the exact command above against public PyPI without
+`--skip-smoke` or any mutation, and retain the bounded `pypi_provenance` row with
+the release evidence. This is the live read-only boundary for the hosted verifier
+path; automated tests use hermetic fixtures and do not replace it.
 
 The status gate always resolves the public tag itself, peeling an annotated tag
 to the commit it publishes. With `--expect-sha` it reconciles that target against
@@ -506,6 +621,12 @@ deliberately: it is the public record of what was rejected.
 
 - [ ] Explicit approval for tag, push, trusted PyPI publication, and any GitHub
       settings edit.
+- [ ] The installed-candidate acceptance test (section 1a) ran against the exact
+      candidate wheel in disposable venv, `pipx`, and `uv tool` installs across
+      every area; no confirmed critical or high issue is open, every other finding
+      is fixed or explicitly deferred, and `docs/quality/acceptance/vX.Y.Z.md` is
+      committed with result PASS and the ids `HEAD` has (`acceptance_report` row
+      of the tag preflight is `ok`).
 - [ ] The candidate was pushed as `$CANDIDATE_BRANCH` and proven green for that
       exact SHA *before* it was fast-forwarded onto public `main`.
 - [ ] Any candidate rebuild took a new immutable branch name
@@ -515,8 +636,14 @@ deliberately: it is the public record of what was rejected.
       promotion and `release_status_gate.py` both passed.
 - [ ] `main` CI, package build/install smoke, and relevant benchmark workflow
       are green for the release commit.
-- [ ] `docs_drift_guard`, public-safety scan, scorecard freshness, tests, lint,
+- [ ] `docs_drift_guard`, public-safety scan, scorecard freshness,
+      code-intelligence packet freshness
+      (`python scripts/gen_code_intelligence_packet.py --check`), tests, lint,
       format, and type checks pass.
+- [ ] Before the candidate was built, everything public `main` carried beyond
+      the newest public `v*` tag was already in the reviewed tree; accepted pull
+      requests, including Dependabot bumps, were ported into it and closed,
+      never merged on public `main`.
 - [ ] Version, changelog, README badge, MCP/profile counts, and Python minimum
       agree.
 - [ ] Agent Plugin package data is present in wheel and sdist, and

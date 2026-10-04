@@ -1,18 +1,38 @@
 """mempalace_code.mcp.tools.search — Semantic search, code search, duplicate check, file context."""
 
+from typing import Any
+
+from ...errors import InvalidArgumentError
 from ...language_catalog import code_search_language_description
+from ...searcher import MAX_QUERY_CHARS, MAX_SEARCH_RESULTS
+from ...storage import distance_to_similarity
 from .. import runtime
+from .write import MAX_DRAWER_CHARS
 
 
-def tool_search(query: str, limit: int = 5, wing: str | None = None, room: str | None = None):
+def tool_search(
+    query: str,
+    limit: int | None = None,
+    wing: str | None = None,
+    room: str | None = None,
+    *,
+    max_results: int | None = None,
+):
     from ...searcher import search_memories
 
+    if limit is not None and max_results is not None and limit != max_results:
+        raise InvalidArgumentError(
+            "limit and max_results must match when both are supplied", argument="max_results"
+        )
+    result_limit = limit if limit is not None else max_results
+    if result_limit is None:
+        result_limit = 5
     return search_memories(
         query,
         palace_path=runtime._config.palace_path,
         wing=wing,
         room=room,
-        n_results=limit,
+        n_results=result_limit,
     )
 
 
@@ -41,7 +61,7 @@ def tool_code_search(
     )
 
 
-def tool_check_duplicate(content: str, threshold: float = 0.9):
+def tool_check_duplicate(content: str, threshold: float = 0.9) -> dict[str, Any]:
     col = runtime._get_store()
     if not col:
         return runtime._no_palace()
@@ -50,12 +70,13 @@ def tool_check_duplicate(content: str, threshold: float = 0.9):
             query_texts=[content],
             n_results=5,
             include=["metadatas", "documents", "distances"],
+            intent_rerank=False,
         )
         duplicates = []
         if results["ids"] and results["ids"][0]:
             for i, drawer_id in enumerate(results["ids"][0]):
                 dist = results["distances"][0][i]
-                similarity = round(1 - dist, 3)
+                similarity = distance_to_similarity(dist)
                 if similarity >= threshold:
                     meta = results["metadatas"][0][i]
                     doc = results["documents"][0][i]
@@ -76,13 +97,35 @@ def tool_check_duplicate(content: str, threshold: float = 0.9):
         return {"error": str(e)}
 
 
-def tool_file_context(source_file: str, wing: str | None = None):
-    """Return all indexed chunks for a source file, ordered by chunk_index."""
+FILE_CONTEXT_DEFAULT_LIMIT = 20
+FILE_CONTEXT_MAX_LIMIT = 100
+
+
+def tool_file_context(
+    source_file: str,
+    wing: str | None = None,
+    limit: int = FILE_CONTEXT_DEFAULT_LIMIT,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Return one page of the indexed chunks for a source file, ordered by chunk_index.
+
+    source_file resolves like mempalace_read (exact, symlinked/normalized, or a
+    unique suffix); an unknown file is not_found and a shared suffix is
+    ambiguous_source rather than an empty success.
+    """
     if not source_file:
         return {
             "error": "source_file must be a non-empty path",
             "hint": "Provide an exact file path like 'mempalace/storage.py'",
         }
+    try:
+        limit = int(limit)
+        offset = int(offset)
+    except (TypeError, ValueError):
+        return {"error": "invalid_page", "detail": "limit and offset must be integers"}
+    if offset < 0:
+        return {"error": "invalid_page", "detail": "offset must be >= 0"}
+    limit = max(1, min(FILE_CONTEXT_MAX_LIMIT, limit))
 
     col = runtime._get_store()
     if not col:
@@ -95,30 +138,21 @@ def tool_file_context(source_file: str, wing: str | None = None):
         if taxonomy_error is not None:
             return taxonomy_error
 
-    where = (
-        {"$and": [{"source_file": source_file}, {"wing": wing}]}
-        if wing
-        else {"source_file": source_file}
-    )
+    from ...reader import SourceRows, resolve_source_rows
 
-    try:
-        results = col.get(
-            where=where,
-            include=["documents", "metadatas"],
-            limit=10000,
-        )
-    except Exception as e:
-        return {"error": str(e), "hint": runtime._DEGRADED_HINT}
-
-    if not results["ids"]:
-        return {"source_file": source_file, "wing": wing, "total": 0, "chunks": []}
+    rows = resolve_source_rows(col, source_file, wing)
+    if not isinstance(rows, SourceRows):
+        if rows["error"] == "store_error":
+            return {**rows, "hint": runtime._degraded_hint()}
+        return dict(rows)
 
     chunks = []
-    for doc, meta in zip(results["documents"], results["metadatas"]):
+    for drawer_id, doc, meta in zip(rows.ids, rows.documents, rows.metadatas):
         ls = int(meta.get("line_start", 0) or 0)
         le = int(meta.get("line_end", 0) or 0)
         chunks.append(
             {
+                "id": drawer_id,
                 "chunk_index": meta.get("chunk_index", 0),
                 "content": doc,
                 "symbol_name": meta.get("symbol_name", ""),
@@ -126,13 +160,23 @@ def tool_file_context(source_file: str, wing: str | None = None):
                 "wing": meta.get("wing", ""),
                 "room": meta.get("room", ""),
                 "language": meta.get("language", ""),
-                "line_range": {"start": ls, "end": le} if ls > 0 and le > 0 else None,
+                "line_range": {"start": ls, "end": le} if ls > 0 and le >= ls else None,
             }
         )
 
     chunks.sort(key=lambda x: x["chunk_index"])
+    page = chunks[offset : offset + limit]
+    next_offset = offset + len(page)
 
-    return {"source_file": source_file, "wing": wing, "total": len(chunks), "chunks": chunks}
+    return {
+        "source_file": rows.source_file,
+        "wing": wing,
+        "total": len(chunks),
+        "offset": offset,
+        "limit": limit,
+        "next_offset": next_offset if next_offset < len(chunks) else None,
+        "chunks": page,
+    }
 
 
 def tool_read(
@@ -140,7 +184,7 @@ def tool_read(
     start_line: int,
     end_line: int,
     wing: str | None = None,
-):
+) -> dict[str, Any]:
     """Surgical read: return only the stored lines in [start_line, end_line] for source_file."""
     if not source_file:
         return {
@@ -154,14 +198,20 @@ def tool_read(
 
     from ...reader import read_slice
 
-    return read_slice(col, source_file, start_line, end_line, wing=wing)
+    result = read_slice(col, source_file, start_line, end_line, wing=wing)
+    if result.get("error") == "store_error":
+        return {**result, "hint": runtime._degraded_hint()}
+    return result
 
 
 TOOL_SPECS = {
     "mempalace_search": {
         "description": (
-            "Semantic search. Returns verbatim drawer content with similarity scores. Each hit "
-            "includes wing, room, source_file, symbol_name, symbol_type, language, and similarity. "
+            "Semantic search. Returns verbatim drawer content with similarity scores, in "
+            "descending similarity. Each hit includes the drawer id, wing, room, source_file "
+            "(null for drawers filed without a source), symbol_name, symbol_type, "
+            "language, line_range, and similarity; Markdown hits add heading, heading_level, "
+            "heading_path, doc_section_type, and contains_mermaid/code/table. "
             "An explicit wing/room filter is validated against the palace taxonomy before search; "
             "an unknown wing/room returns a structured error with advisory suggestions, while a "
             "valid empty scope returns a successful {results: []}."
@@ -169,8 +219,26 @@ TOOL_SPECS = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "What to search for"},
-                "limit": {"type": "integer", "description": "Max results (default 5)"},
+                "query": {
+                    "type": "string",
+                    "maxLength": MAX_QUERY_CHARS,
+                    "description": "What to search for",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_SEARCH_RESULTS,
+                    "description": "Max results, 1–50 (default 5)",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_SEARCH_RESULTS,
+                    "description": (
+                        "Alias for limit, 1 to 50 (default 5). "
+                        "If both are supplied, their values must match."
+                    ),
+                },
                 "wing": {
                     "type": "string",
                     "description": (
@@ -192,17 +260,26 @@ TOOL_SPECS = {
     },
     "mempalace_code_search": {
         "description": (
-            "Code-optimized search. Returns symbol name, type, language, file path, and ranking "
-            "evidence per hit. Results use storage-ranked order by default; ranking.storage_rank "
+            "Code-optimized search. Returns the drawer id, symbol name, type, language, file "
+            "path, line_range, Markdown section fields for Markdown hits, and ranking evidence "
+            "per hit. All filters (language, symbol_name, symbol_type, file_glob, wing) narrow "
+            "the rows before ranking, so a filter finds every matching indexed chunk. "
+            "Results use storage-ranked order by default; ranking.storage_rank "
             "is the position in this call's returned candidate pool and ranking.vector_distance "
-            "is the storage distance. Hybrid reranking additionally reports lexical_score, "
-            "input_rank_score, and hybrid_score. Use this instead of mempalace_search when "
-            "looking for code symbols, functions, or files."
+            "is the storage distance. Storage order is cosine order except that .NET "
+            "project-file and CamelCase symbol-intent queries get a deterministic bonus rerank, "
+            "so similarity is not always monotonic. Hybrid reranking additionally reports "
+            "lexical_score, input_rank_score, and hybrid_score. Prefer this over plain "
+            "semantic search when looking for code symbols, functions, or files."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "What to search for"},
+                "query": {
+                    "type": "string",
+                    "maxLength": MAX_QUERY_CHARS,
+                    "description": "What to search for",
+                },
                 "language": {
                     "type": "string",
                     "description": code_search_language_description(),
@@ -224,12 +301,18 @@ TOOL_SPECS = {
                         "deployment, service, configmap, secret, ingress, customresourcedefinition, "
                         "helm_chart, helm_values, "
                         "ansible_play, ansible_task, ansible_handler, ansible_role, "
-                        "ansible_vars, ansible_inventory)"
+                        "ansible_vars, ansible_inventory, "
+                        "resource, data, variable, output, check, provider)"
                     ),
                 },
                 "file_glob": {
                     "type": "string",
-                    "description": "Filter by file path glob (e.g. */mempalace/*.py)",
+                    "description": (
+                        "Filter by file path glob, e.g. src/*.py, storage.py, or */tests/*. "
+                        "A glob that does not start with '/' or '*' matches the end of the "
+                        "stored path at a '/' boundary (repo-relative paths work); '*' also "
+                        "matches '/'. An absolute glob matches the whole stored path"
+                    ),
                 },
                 "wing": {
                     "type": "string",
@@ -240,6 +323,8 @@ TOOL_SPECS = {
                 },
                 "n_results": {
                     "type": "integer",
+                    "minimum": 1,
+                    "maximum": MAX_SEARCH_RESULTS,
                     "description": "Max results to return, 1–50 (default 10)",
                 },
                 "rerank": {
@@ -256,18 +341,37 @@ TOOL_SPECS = {
     },
     "mempalace_file_context": {
         "description": (
-            "Get all indexed chunks for a source file, ordered by chunk_index. "
-            "Use to review what was mined for a file, understand deleted/renamed files, "
+            "Get the indexed chunks for a source file, ordered by chunk_index, one page at a "
+            "time. Use to review what was mined for a file, understand deleted/renamed files, "
             "or get ordered file context without reading the file from disk. "
-            "Returns {source_file, wing, total, chunks} where each chunk has "
-            "chunk_index, content, symbol_name, symbol_type, wing, room, language, line_range."
+            "Returns {source_file, wing, total, offset, limit, next_offset, chunks} where total "
+            "counts every chunk of the file, next_offset is null on the last page, and each "
+            "chunk has id, chunk_index, content, symbol_name, symbol_type, wing, room, language, "
+            "line_range. source_file may be the stored path, a symlinked or Unicode-normalized "
+            "spelling of it, or a unique path suffix; {error: not_found} for an "
+            "unknown file, {error: ambiguous_source} when a suffix matches several files, and "
+            "{error: store_error, detail, hint} when the palace cannot be read."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "source_file": {
                     "type": "string",
-                    "description": "Exact source file path to retrieve chunks for",
+                    "description": (
+                        "Source file: the stored path from a search hit, a symlinked or "
+                        "non-normalized spelling of it, or a unique basename/suffix"
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": FILE_CONTEXT_MAX_LIMIT,
+                    "description": "Chunks per page, 1–100 (default 20)",
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Chunks to skip; pass the previous next_offset (default 0)",
                 },
                 "wing": {
                     "type": "string",
@@ -286,10 +390,19 @@ TOOL_SPECS = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "content": {"type": "string", "description": "Content to check"},
+                "content": {
+                    "type": "string",
+                    "maxLength": MAX_DRAWER_CHARS,
+                    "description": "Content to check",
+                },
                 "threshold": {
                     "type": "number",
-                    "description": "Similarity threshold 0-1 (default 0.9)",
+                    "minimum": -1,
+                    "maximum": 1,
+                    "description": (
+                        "Minimum cosine similarity counted as a duplicate, -1 to 1 "
+                        "(1.0 = identical; default 0.9)"
+                    ),
                 },
             },
             "required": ["content"],
@@ -301,10 +414,19 @@ TOOL_SPECS = {
             "Surgical read: return only the stored source lines in the given range for a file. "
             "Use after a code_search or file_context hit to read exactly the lines you need "
             "without loading the whole file. "
-            "Returns {source_file, start, end, lines} on success; "
+            "Returns {source_file, start, end, first_indexed_line, last_indexed_line, lines, "
+            "gaps} on success: end is clamped to last_indexed_line and gaps lists requested "
+            "lines no stored chunk covers (blank lines between chunks, or lines before "
+            "first_indexed_line that mining did not store); unplaced_chunks counts stored "
+            "chunks with no line range, whose text only search or file_context shows; "
             "{error: not_found} when the file has no indexed chunks; "
-            "{error: stale_pointer} when no stored chunk overlaps the requested range; "
+            "{error: ambiguous_source} when a suffix matches several files; "
+            "{error: out_of_range} when start is past last_indexed_line (with unplaced_chunks "
+            "when later content may sit in chunks without line ranges); "
+            "{error: no_line_metadata} when the file's drawers carry no line ranges "
+            "(conversation drawers never do) — use search or file_context instead; "
             "{error: invalid_range} for bad line numbers; "
+            "{error: store_error, detail, hint} when the palace cannot be read; "
             "{error: unknown_wing} when an explicit wing filter is not in the palace taxonomy."
         ),
         "input_schema": {
@@ -312,7 +434,10 @@ TOOL_SPECS = {
             "properties": {
                 "source_file": {
                     "type": "string",
-                    "description": "Exact source file path as stored in the palace (from a search hit's source_file field)",
+                    "description": (
+                        "Source file: the stored path from a search hit's source_file field, a "
+                        "symlinked or non-normalized spelling of it, or a unique basename/suffix"
+                    ),
                 },
                 "start_line": {
                     "type": "integer",

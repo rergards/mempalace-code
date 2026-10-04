@@ -8,9 +8,10 @@ Covers:
   AC-4: /tmp <-> /private/tmp macOS path spellings are treated as filesystem-equivalent by reader.
 """
 
-import hashlib
 import os
+import sqlite3
 import tarfile
+from contextlib import closing
 from pathlib import Path
 
 import yaml
@@ -53,16 +54,27 @@ def _archive_member_names(path: str) -> set:
         return {m.name for m in tar.getmembers()}
 
 
-def _archive_kg_digest(path: str) -> str | None:
+def _archive_kg_bytes(path: str) -> bytes | None:
     with tarfile.open(path, "r:gz") as tar:
         try:
             member = tar.getmember("mempalace_backup/knowledge_graph.sqlite3")
             f = tar.extractfile(member)
             if f is None:
                 return None
-            return hashlib.md5(f.read()).hexdigest()
+            with f:
+                return f.read()
         except KeyError:
             return None
+
+
+def _kg_contents(path: str) -> tuple:
+    with closing(sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)) as db:
+        assert db.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        return (
+            db.execute("PRAGMA user_version").fetchone(),
+            db.execute("PRAGMA application_id").fetchone(),
+            tuple(db.iterdump()),
+        )
 
 
 # ─── AC-1: Scoped backup uses palace-local KG ─────────────────────────────────
@@ -85,16 +97,24 @@ class TestScopedBackupKg:
         backups_dir = os.path.join(tmp_dir, "backups")
         archive_out = os.path.join(backups_dir, "test_scoped.tar.gz")
 
+        local_bytes = Path(local_kg_path).read_bytes()
+        global_bytes = Path(global_kg_path).read_bytes()
+        local_contents = _kg_contents(local_kg_path)
+        global_contents = _kg_contents(global_kg_path)
+        assert local_contents != global_contents, "test setup: global and local KG must differ"
+
         _, archive_path = create_backup(palace_path, out_path=archive_out, kg_path=local_kg_path)
 
-        local_digest = hashlib.md5(Path(local_kg_path).read_bytes()).hexdigest()
-        global_digest = hashlib.md5(Path(global_kg_path).read_bytes()).hexdigest()
-        assert local_digest != global_digest, "test setup: global and local KG must differ"
-
-        archive_digest = _archive_kg_digest(archive_path)
-        assert archive_digest is not None, "archive must include a KG member when local KG exists"
-        assert archive_digest == local_digest, "archive must contain the palace-local KG"
-        assert archive_digest != global_digest, "archive must NOT contain the global KG"
+        payload = _archive_kg_bytes(archive_path)
+        assert payload is not None, "archive must include a KG member when local KG exists"
+        archived_kg = os.path.join(tmp_dir, "archived-local-kg.sqlite3")
+        Path(archived_kg).write_bytes(payload)
+        # SQLite snapshots can alter file-header counters; compare all schema and data.
+        archived_contents = _kg_contents(archived_kg)
+        assert archived_contents == local_contents, "archive must contain the palace-local KG"
+        assert archived_contents != global_contents, "archive must exclude the global KG"
+        assert Path(local_kg_path).read_bytes() == local_bytes
+        assert Path(global_kg_path).read_bytes() == global_bytes
 
     def test_explicit_palace_backup_omits_kg_when_absent(self, tmp_dir):
         """AC-1: When no palace-local KG exists, the archive omits the KG member entirely."""
@@ -386,21 +406,22 @@ class TestTmpPrivateTmpAlias:
 class TestLazyKnowledgeGraph:
     def test_lazy_kg_does_not_create_db_on_construction(self, tmp_dir):
         """LazyKnowledgeGraph must not create the SQLite file until a method is called."""
-        db_path = os.path.join(tmp_dir, "lazy.sqlite3")
-        LazyKnowledgeGraph(db_path=db_path)
-        assert not os.path.exists(db_path), "SQLite must not be created on construction"
+        palace = os.path.join(tmp_dir, "lazy_palace")
+        LazyKnowledgeGraph(palace)
+        assert not os.path.exists(palace_kg_path(palace)), (
+            "SQLite must not be created on construction"
+        )
 
     def test_lazy_kg_creates_db_on_first_method_call(self, tmp_dir):
-        """LazyKnowledgeGraph creates the SQLite file lazily on first access."""
-        db_path = os.path.join(tmp_dir, "lazy.sqlite3")
-        lkg = LazyKnowledgeGraph(db_path=db_path)
+        """LazyKnowledgeGraph creates the palace SQLite file lazily on first access."""
+        palace = os.path.join(tmp_dir, "lazy_palace")
+        lkg = LazyKnowledgeGraph(palace)
         lkg.add_triple("A", "rel", "B")
-        assert os.path.exists(db_path), "SQLite must exist after first method call"
+        assert os.path.exists(palace_kg_path(palace)), "SQLite must exist after first method call"
 
     def test_lazy_kg_proxies_methods_to_real_kg(self, tmp_dir):
         """LazyKnowledgeGraph correctly proxies KG method calls."""
-        db_path = os.path.join(tmp_dir, "proxy.sqlite3")
-        lkg = LazyKnowledgeGraph(db_path=db_path)
+        lkg = LazyKnowledgeGraph(os.path.join(tmp_dir, "proxy_palace"))
         lkg.add_triple("Subject", "predicate", "Object")
         results = lkg.query_entity("Subject")
         assert any(r.get("object") == "Object" for r in results), (

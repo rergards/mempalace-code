@@ -9,6 +9,7 @@ import shlex
 
 import pytest
 
+from mempalace_code.cli_invocation import cli_command
 from mempalace_code.language_catalog import sorted_searchable_languages
 from mempalace_code.searcher import SearchError, code_search, search, search_memories
 from mempalace_code.storage import LanceStore, open_store
@@ -51,9 +52,14 @@ class TestSearchMemories:
 
     def test_no_palace_returns_error(self, tmp_path):
         palace_path = tmp_path / "missing" / "palace"
+        from mempalace_code.cli_invocation import cli_command
+
         expected = {
             "error": "No palace found",
-            "hint": "Run: mempalace-code init <dir> && mempalace-code mine <dir>",
+            "hint": (
+                f"Next: run {cli_command('init', '<dir>', palace=str(palace_path))}, "
+                f"then {cli_command('mine', '<dir>', palace=str(palace_path))}"
+            ),
         }
 
         for _ in range(2):
@@ -72,6 +78,25 @@ class TestSearchMemories:
         assert "language" in hit
         assert "similarity" in hit
         assert isinstance(hit["similarity"], float)
+
+    def test_similarity_scores_are_true_cosine(self, palace_path, pin_cosine):
+        """LanceDB returns squared L2 on unit vectors; every search surface reports cosine."""
+        from mempalace_code.layers import Layer3
+
+        query = pin_cosine("billing database choice", 1.0, axis=1)
+        close = pin_cosine("we chose postgres for billing", 0.82, axis=2)
+        unrelated = pin_cosine("gluon field theory", 0.0, axis=3)
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["close", "unrelated"],
+            documents=[close, unrelated],
+            metadatas=[{"wing": "w", "room": "r"}, {"wing": "w", "room": "r"}],
+        )
+
+        expected = [0.82, 0.0]
+        assert [h["similarity"] for h in search_memories(query, palace_path)["results"]] == expected
+        assert [h["similarity"] for h in code_search(palace_path, query)["results"]] == expected
+        assert [h["similarity"] for h in Layer3(palace_path).search_raw(query)] == expected
 
     def test_result_fields_code_drawer_values_populated(self, palace_path, code_seeded_collection):
         """Code drawers must return non-empty symbol_name, symbol_type, and language."""
@@ -107,7 +132,8 @@ class TestSearchMemories:
 
         result = search_memories("authentication", "/fake/palace")
 
-        assert result["results"][0]["source_file"] == "?"
+        # A drawer without a source reports null, never a '?' an agent might open.
+        assert result["results"][0]["source_file"] is None
 
 
 class TestCodeSearch:
@@ -265,12 +291,19 @@ class TestSearchCompactCLI:
         assert all(len(preview) == 300 and preview.endswith("...") for preview in previews)
         assert output.count("Source: /project/odd path/o'hare.py") == 3
         assert output.count("Lines:  12-18") == 3
-        assert output.count("Match:  0.875") == 3
-        command = (
-            f"mempalace-code --palace {shlex.quote('/fake/palace path')} read "
-            f"{shlex.quote(source)} --start 12 --end 18 "
-            f"--wing {shlex.quote(wing)}"
+        assert output.count("Match:  0.938") == 3
+        command = cli_command(
+            "read",
+            source,
+            "--start",
+            "12",
+            "--end",
+            "18",
+            "--wing",
+            wing,
+            palace="/fake/palace path",
         )
+        assert shlex.quote("/fake/palace path") in command
         assert output.count(f"Recovery: {command}") == 3
 
     def test_compact_success_does_not_echo_long_query(self, monkeypatch, capsys):
@@ -320,8 +353,8 @@ class TestSearchCompactCLI:
     def test_compact_malformed_metadata_never_invents_recovery(self, monkeypatch, capsys, metadata):
         output, _store = self._render(monkeypatch, capsys, ["document"], [metadata], compact=True)
 
-        assert output.count("Recovery: unavailable") == 1
-        assert "mempalace-code read" not in output
+        assert output.count("Recovery: unavailable (") == 1
+        assert " read " not in output
 
     def test_compact_empty_document_and_equal_range_are_safe(self, monkeypatch, capsys):
         metadata = {
@@ -335,10 +368,10 @@ class TestSearchCompactCLI:
         output, _store = self._render(monkeypatch, capsys, [None], [metadata], compact=True)
 
         assert "Lines:  7-7" in output
-        assert (
-            "Recovery: mempalace-code --palace /fake/palace read a.py "
-            "--start 7 --end 7 --wing project"
-        ) in output
+        recovery = cli_command(
+            "read", "a.py", "--start", "7", "--end", "7", "--wing", "project", palace="/fake/palace"
+        )
+        assert f"Recovery: {recovery}" in output
 
     def test_default_output_remains_full_text(self, monkeypatch, capsys):
         document = "first line\n" + "x" * 400
@@ -354,7 +387,7 @@ class TestSearchCompactCLI:
 
         assert 'Results for: "needle"' in output
         assert f"      {document.splitlines()[1]}" in output
-        assert "Lines:" not in output
+        assert "      Lines:  1-2" in output
         assert "Recovery:" not in output
 
     def test_default_no_results_message_is_unchanged(self, monkeypatch, capsys):
@@ -554,6 +587,55 @@ class TestReactLanguageSupport:
         assert "supported_languages" in result
         assert "jsx" in result["supported_languages"]
         assert "tsx" in result["supported_languages"]
+
+
+class TestTerraformSymbolTypes:
+    """code_search accepts the Terraform/HCL block types the miner stores."""
+
+    def test_resource_symbol_type_finds_the_terraform_drawer(self, palace_path):
+        from mempalace_code.mining.symbols import _extract_hcl_symbol
+        from mempalace_code.storage import open_store
+
+        block = 'resource "aws_s3_bucket" "logs" {\n  bucket = "app-logs"\n}\n'
+        symbol_name, symbol_type = _extract_hcl_symbol(block)
+        store = open_store(palace_path, create=True)
+        store.add(
+            ids=["tf_logs"],
+            documents=[block],
+            metadatas=[
+                {
+                    "wing": "infra",
+                    "room": "terraform",
+                    "source_file": "/infra/main.tf",
+                    "language": "terraform",
+                    "symbol_name": symbol_name,
+                    "symbol_type": symbol_type,
+                    "chunk_index": 0,
+                }
+            ],
+        )
+
+        result = code_search(palace_path, "log bucket", symbol_type="resource")
+
+        assert [hit["symbol_name"] for hit in result["results"]] == ["aws_s3_bucket.logs"]
+
+    @pytest.mark.parametrize(
+        "block",
+        [
+            'data "aws_ami" "base" {}',
+            'variable "region" {}',
+            'output "url" {}',
+            'check "health" {}',
+            'provider "aws" {}',
+            'module "vpc" {}',
+        ],
+    )
+    def test_every_hcl_block_type_is_a_valid_filter(self, palace_path, block):
+        from mempalace_code.mining.symbols import _extract_hcl_symbol
+
+        _, symbol_type = _extract_hcl_symbol(block)
+        result = code_search(palace_path, "anything", symbol_type=symbol_type)
+        assert "Invalid symbol_type" not in result.get("error", "")
 
 
 class TestDotNetLanguages:
@@ -1013,6 +1095,13 @@ class _FakeNoneMetaStore:
             "distances": [self._distances],
         }
 
+    def count_by(self, column):
+        counts = {}
+        for meta in self._metadatas:
+            value = (meta or {}).get(column, "")
+            counts[value] = counts.get(value, 0) + 1
+        return counts
+
 
 class TestNoneMetadataRobustness:
     """AC-1/AC-2/AC-3: search_memories() and code_search() tolerate None metadata/documents."""
@@ -1034,9 +1123,9 @@ class TestNoneMetadataRobustness:
         assert hit["text"] == "def authenticate(): return current_user"
         assert hit["wing"] == "unknown"
         assert hit["room"] == "unknown"
-        assert hit["source_file"] == "?"
+        assert hit["source_file"] is None
         assert hit["symbol_name"] == ""
-        assert hit["similarity"] == round(1 - 0.125, 3)
+        assert hit["similarity"] == 0.938  # cosine = 1 - squared_l2 / 2
 
     def test_code_search_tolerates_none_document_and_metadata(self, monkeypatch):
         """AC-2: None document and None metadata row returns empty-text result without raising."""
@@ -1058,7 +1147,7 @@ class TestNoneMetadataRobustness:
         assert hit["source_file"] == ""
         assert hit["symbol_name"] == ""
         assert hit["line_range"] is None
-        assert hit["similarity"] == round(1 - 0.2, 3)
+        assert hit["similarity"] == 0.9
 
     def test_code_search_skips_none_metadata_when_post_filters_require_fields(self, monkeypatch):
         """AC-3: None-metadata hit is filtered out when symbol_name or file_glob is specified."""
@@ -1124,7 +1213,7 @@ class TestNoneMetadataRobustness:
         captured = capsys.readouterr()
         assert "[1] ? / ?" in captured.out
         assert "Source: ?" in captured.out
-        assert "Match:  0.7" in captured.out
+        assert "Match:  0.85" in captured.out
 
     def test_search_cli_full_source_file_path(self, tmp_path, monkeypatch, capsys):
         """CLI search() prints the full stored source_file path, not just the basename (AC-1)."""
@@ -1160,7 +1249,7 @@ class TestNoneMetadataRobustness:
         assert captured.out == ""
         assert "No palace found" in captured.err
         assert "Next:" in captured.err
-        assert "mempalace-code init <dir>" in captured.err
+        assert cli_command("init", "<dir>", palace="/nonexistent/path") in captured.err
 
     def test_search_cli_store_error_uses_stderr_next_action(self, tmp_path, monkeypatch, capsys):
         """CLI search() runtime failures should tell the user how to recover."""
@@ -1181,6 +1270,31 @@ class TestNoneMetadataRobustness:
         assert "Search error" in captured.err
         assert "Next:" in captured.err
         assert "repair --rollback --dry-run" in captured.err
+
+    def test_search_cli_missing_model_cache_names_only_fetch_model(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """A missing model cache is not palace damage, so no repair hint follows it."""
+        from mempalace_code.storage import CanonicalModelCacheError
+
+        message = (
+            "Canonical FastEmbed cache is not owned: cache root is missing. "
+            "Run `mempalace-code fetch-model` while online, then retry offline."
+        )
+
+        class NoModelStore:
+            def query(self, **_kwargs):
+                raise CanonicalModelCacheError(message)
+
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: NoModelStore())
+        palace = tmp_path / "palace"
+        palace.mkdir()
+
+        with pytest.raises(SearchError):
+            search("anything", str(palace))
+
+        captured = capsys.readouterr()
+        assert captured.err == f"\n  Search error: {message}\n"
 
 
 class TestCodeSearchHybridRerank:
@@ -1216,7 +1330,14 @@ class TestCodeSearchHybridRerank:
             "filed_at": "2026-01-01T00:00:00",
         }
 
+        def __init__(self):
+            self.query_calls = []
+
+        def count_by(self, column):
+            return {self.README_META[column]: 1, self.CSPROJ_META[column]: 1}
+
         def query(self, **kwargs):
+            self.query_calls.append(kwargs)
             # README has better vector distance (closer = lower cosine distance)
             return {
                 "documents": [[self.README_DOC, self.CSPROJ_DOC]],
@@ -1248,7 +1369,7 @@ class TestCodeSearchHybridRerank:
             {"storage_rank": 1, "vector_distance": 0.10},
             {"storage_rank": 2, "vector_distance": 0.35},
         ]
-        assert [hit["similarity"] for hit in result["results"]] == [0.9, 0.65]
+        assert [hit["similarity"] for hit in result["results"]] == [0.95, 0.825]
 
     def test_hybrid_rerank_promotes_csproj_over_readme(self, csproj_palace_path):
         """AC-6: Hybrid reranking promotes .csproj over README for PackageReference query."""
@@ -1330,7 +1451,9 @@ class TestCodeSearchHybridRerank:
             "wing",
         }
 
-    def test_post_filter_preserves_original_storage_rank(self, csproj_palace_path):
+    def test_post_filter_preserves_original_storage_rank(self, csproj_palace_path, monkeypatch):
+        store = self.FakeCsprojStore()
+        monkeypatch.setattr("mempalace_code.searcher.open_store", lambda *_a, **_kw: store)
         result = code_search(
             csproj_palace_path,
             "PackageReference",
@@ -1338,6 +1461,11 @@ class TestCodeSearchHybridRerank:
             n_results=1,
         )
 
+        # The glob is applied as a storage prefilter; this fake ignores `where`,
+        # so the exact re-check still drops the README row.
+        assert store.query_calls[0]["where"] == {
+            "source_file": {"$in": ["/src/Infrastructure/Infrastructure.csproj"]}
+        }
         assert len(result["results"]) == 1
         assert result["results"][0]["ranking"] == {
             "storage_rank": 2,
@@ -1715,8 +1843,10 @@ class TestStructuredLineRangeMetadata:
         return code_search(str(palace_path), "needle", n_results=50)
 
     @staticmethod
-    def _expected_hit(api_name, text, line_range):
-        hit = {
+    def _expected_hit(_api_name, text, line_range):
+        # Both APIs share one hit projection, including Markdown section fields.
+        return {
+            "id": None,
             "text": text,
             "wing": "project",
             "room": "backend",
@@ -1724,22 +1854,16 @@ class TestStructuredLineRangeMetadata:
             "symbol_name": "example",
             "symbol_type": "function",
             "language": "python",
+            "heading": "Example",
+            "heading_level": 2,
+            "heading_path": "API / Example",
+            "doc_section_type": "reference",
+            "contains_mermaid": True,
+            "contains_code": True,
+            "contains_table": False,
             "line_range": line_range,
-            "similarity": 0.875,
+            "similarity": 0.938,
         }
-        if api_name == "search_memories":
-            hit.update(
-                {
-                    "heading": "Example",
-                    "heading_level": 2,
-                    "heading_path": "API / Example",
-                    "doc_section_type": "reference",
-                    "contains_mermaid": True,
-                    "contains_code": True,
-                    "contains_table": False,
-                }
-            )
-        return hit
 
     @staticmethod
     def _expected_envelope(api_name, results):

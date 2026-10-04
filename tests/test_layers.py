@@ -278,3 +278,22 @@ class TestEmptyPalaceNoEmbedder:
         status = stack.status()
 
         assert status["total_drawers"] == 0
+
+
+def test_layer3_queries_in_plain_cosine_order(monkeypatch):
+    """L3 reports cosine similarity, so it must not ask for the code-intent rerank."""
+    from mempalace_code import layers
+
+    calls = []
+
+    class Store:
+        def query(self, **kwargs):
+            calls.append(kwargs)
+            return {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+
+    monkeypatch.setattr(layers, "open_store", lambda *_a, **_k: Store())
+    layer = layers.Layer3(palace_path="/fake")
+    layer.search("parseConfig", wing="w")
+    layer.search_raw("parseConfig", room="r")
+    assert len(calls) == 2
+    assert all(call["intent_rerank"] is False for call in calls)

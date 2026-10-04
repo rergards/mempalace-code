@@ -33,7 +33,10 @@ Config block in mempalace.yaml:
         type_suffixes: [Service]
         priority: 2
 
-Omitting the architecture: block entirely uses the built-in defaults.
+Omitting the architecture: block entirely uses the built-in defaults. A non-empty
+``patterns:`` or ``layers:`` list replaces the matching default list, so re-list any
+default rule you want to keep. A namespace glob also matches sub-namespaces:
+``*.Infrastructure`` matches ``Shop.Infrastructure.Email``; exact matches win first.
 Invalid rule entries are silently ignored; the pass continues with valid rules.
 """
 
@@ -53,9 +56,9 @@ _NS_PROJECT_SENTINEL = "__arch_ns_project__"
 def namespace_project_source_file(project_name: str) -> str:
     """Return the sentinel source_file string for a namespace→project triple.
 
-    Each wing/project gets a distinct sentinel so that
-    ``invalidate_arch_by_project_root`` can expire only the current wing's
-    namespace→project triples without touching other wings'.
+    Each wing/project gets a distinct sentinel so that :func:`refresh_arch_facts`
+    can expire only the current wing's namespace→project triples without touching
+    other wings'.
     """
     return f"{_NS_PROJECT_SENTINEL}:{project_name}"
 
@@ -316,14 +319,21 @@ def detect_layer(type_name: str, namespace: str, layers: list) -> str | None:
     Layer selection is exclusive — at most one is_layer fact per type.
     Priority: lower ``priority`` number wins.  Namespace glob matching
     is evaluated before type-suffix matching so that an explicit namespace
-    placement always beats a name-based heuristic.
+    placement always beats a name-based heuristic.  A glob that matches the whole
+    namespace wins over one that matches only a parent namespace
+    (``*.Domain`` also matches ``Shop.Domain.Entities``).
     """
     sorted_layers = sorted(layers, key=lambda lr: (lr.get("priority", 99), lr.get("name", "")))
 
-    for layer in sorted_layers:
-        for glob in layer.get("namespace_globs", []):
-            if namespace and isinstance(glob, str) and fnmatch.fnmatch(namespace, glob):
-                return layer["name"]
+    if namespace:
+        for sub_namespaces in (False, True):
+            for layer in sorted_layers:
+                for glob in layer.get("namespace_globs", []):
+                    if not isinstance(glob, str) or not glob:
+                        continue
+                    pattern = f"{glob}.*" if sub_namespaces else glob
+                    if fnmatch.fnmatch(namespace, pattern):
+                        return layer["name"]
 
     for layer in sorted_layers:
         for suffix in layer.get("type_suffixes", []):
@@ -336,26 +346,18 @@ def detect_layer(type_name: str, namespace: str, layers: list) -> str | None:
 # ── KG emission ───────────────────────────────────────────────────────────────
 
 
-def run_arch_pass(inventory: list, arch_config: dict, project_name: str, kg) -> int:
-    """Emit architecture KG triples for all types in *inventory*.
+def arch_facts(inventory: list, arch_config: dict, project_name: str) -> list:
+    """Return the ``(subject, predicate, object, source_file)`` architecture facts.
 
-    Returns the number of new triples written (dedup-skipped triples
-    are not counted since add_triple returns the existing ID for those).
-
-    Before calling this function, the caller should expire stale arch facts for
-    the current project by calling ``kg.invalidate_arch_by_project_root`` with
-    ``list(ARCH_PREDICATES)``, the project root path, and
-    ``sentinels=[namespace_project_source_file(project_name)]``.  This scopes
-    invalidation to the current wing so that other wings' arch facts survive
-    sequential single-wing mines.
+    Empty when the pass is disabled.
     """
     if not arch_config.get("enabled", True):
-        return 0
+        return []
 
     patterns = arch_config.get("patterns", DEFAULT_PATTERNS)
     layers = arch_config.get("layers", DEFAULT_LAYERS)
 
-    emitted = 0
+    facts: list = []
     seen_ns_project = set()
 
     for entry in inventory:
@@ -364,35 +366,60 @@ def run_arch_pass(inventory: list, arch_config: dict, project_name: str, kg) -> 
         source_file = entry["source_file"]
 
         for pattern_name in detect_patterns(type_name, patterns):
-            tid = kg.add_triple(type_name, "is_pattern", pattern_name, source_file=source_file)
-            if tid:
-                emitted += 1
+            facts.append((type_name, "is_pattern", pattern_name, source_file))
 
         layer = detect_layer(type_name, namespace, layers)
         if layer:
-            tid = kg.add_triple(type_name, "is_layer", layer, source_file=source_file)
-            if tid:
-                emitted += 1
+            facts.append((type_name, "is_layer", layer, source_file))
 
         if namespace:
-            tid = kg.add_triple(type_name, "in_namespace", namespace, source_file=source_file)
-            if tid:
-                emitted += 1
+            facts.append((type_name, "in_namespace", namespace, source_file))
 
             ns_proj_key = (namespace, project_name)
             if ns_proj_key not in seen_ns_project:
                 seen_ns_project.add(ns_proj_key)
-                tid = kg.add_triple(
-                    namespace,
-                    "in_project",
-                    project_name,
-                    source_file=namespace_project_source_file(project_name),
+                facts.append(
+                    (
+                        namespace,
+                        "in_project",
+                        project_name,
+                        namespace_project_source_file(project_name),
+                    )
                 )
-                if tid:
-                    emitted += 1
 
-        tid = kg.add_triple(type_name, "in_project", project_name, source_file=source_file)
-        if tid:
+        facts.append((type_name, "in_project", project_name, source_file))
+
+    return facts
+
+
+def refresh_arch_facts(
+    inventory: list, arch_config: dict, project_name: str, project_root, kg
+) -> dict:
+    """Make the current architecture facts of one project equal a fresh extraction.
+
+    Scoped to the project root and the project's namespace sentinel, so other wings'
+    facts are untouched. Unchanged facts keep their rows; only facts no longer derived
+    are expired and only new ones inserted, so re-mining an unchanged project leaves
+    the KG as it was. A disabled pass expires every current architecture fact of the
+    project. Returns the counts from ``KnowledgeGraph.sync_facts``.
+    """
+    return kg.sync_facts(
+        arch_facts(inventory, arch_config, project_name),
+        source_files=[namespace_project_source_file(project_name)],
+        project_root=str(project_root),
+        predicates=list(ARCH_PREDICATES),
+    )
+
+
+def run_arch_pass(inventory: list, arch_config: dict, project_name: str, kg) -> int:
+    """Emit architecture KG triples for all types in *inventory*.
+
+    Returns the number of triples passed to ``add_triple`` (dedup-skipped triples
+    return the existing ID and are counted too). Kept for API compatibility: mining
+    uses :func:`refresh_arch_facts`, which also expires facts no longer extracted.
+    """
+    emitted = 0
+    for subject, predicate, obj, source_file in arch_facts(inventory, arch_config, project_name):
+        if kg.add_triple(subject, predicate, obj, source_file=source_file):
             emitted += 1
-
     return emitted

@@ -20,7 +20,7 @@ instruction-file operation.
 
 Appendices A–C remain reading material for this canonical document.
 
-**Agent identity for diary:** set `MEMPALACE_AGENT_NAME` in the environment of the host that runs the MCP server (e.g. `claude-code`, `codex`, `cursor-ai`, `zed-assistant`). The rules reference this variable rather than hardcoding a name.
+**Agent identity for diary:** set `MEMPALACE_AGENT_NAME` in the environment of the process that runs the MCP server (e.g. `claude-code`, `codex`, `cursor-ai`, `zed-assistant`). `mempalace_diary_write` and `mempalace_diary_read` use it when a call omits `agent_name`, and each response's `agent` field shows the identity used. An MCP client cannot read the server's environment, so the rules never ask an agent to.
 
 ---
 
@@ -60,6 +60,7 @@ mempalace-code is a local semantic memory system exposed over MCP. Content is st
 | "How did X change over time?"                       | `mempalace_kg_timeline`              |
 | Find a function/class/symbol/file                   | `mempalace_code_search`              |
 | All indexed chunks for a specific file              | `mempalace_file_context`             |
+| Stored lines in a range of a file (surgical read)   | `mempalace_read`                     |
 | Refresh/re-mine an indexed source/docs directory    | `mempalace_mine`                     |
 | Explain how a subsystem works                       | `mempalace_explain_subsystem`        |
 | Classify dependencies as core / platform / glue     | `mempalace_extract_reusable`         |
@@ -85,9 +86,11 @@ Call `mempalace_search` **before substantial repo exploration** (reading many fi
 - Scope with `wing=<project_slug>` for project-local topics; omit for cross-cutting ones.
 - On persistent miss, proceed with host tools and consider writing a drawer after the task so the next agent finds it.
 - For entity-specific facts, also call `mempalace_kg_query`.
-- Treat `unknown_wing`, `unknown_room`, and `unknown_wing_room_pair` as filter errors.
+- Every `mempalace_search` and `mempalace_code_search` hit carries its drawer `id`. Cite it
+  instead of re-filing the content; it is the `drawer_id` that `mempalace_delete_drawer` takes.
+- Treat `unknown_wing`, `unknown_room`, and `unknown_wing_room` as filter errors.
   For `unknown_wing`, call `mempalace_list_wings` when exposed. For `unknown_room` or
-  `unknown_wing_room_pair`, call `mempalace_get_taxonomy` when exposed; otherwise use
+  `unknown_wing_room`, call `mempalace_get_taxonomy` when exposed; otherwise use
   `mempalace_list_rooms` only when its supplied wing is already confirmed and the result can
   identify the intended room. An empty `mempalace_list_rooms` result validates neither a wing
   nor a room. Retry once only with the exact identifier confirmed by the returned taxonomy or
@@ -97,6 +100,17 @@ Call `mempalace_search` **before substantial repo exploration** (reading many fi
   or room filter, invent an identifier, or broaden the search without owner intent.
 
 Skip search for pure mechanical operations (run tests, format files, rename within one file).
+
+## Code reading rules
+
+- `mempalace_file_context` is paged: pass the returned `next_offset` as `offset` until it is
+  `null`; `total` counts every chunk of the file.
+- `mempalace_read` returns stored lines only, clamped to `last_indexed_line`, with `gaps` for
+  uncovered lines. Its errors: `out_of_range` (start is past `last_indexed_line`; an
+  `unplaced_chunks` count means later text sits in chunks without line ranges, so read it with
+  search or `mempalace_file_context`), `no_line_metadata` (conversation drawers: use search),
+  `store_error` (the palace could not be read: follow its `hint`), plus `not_found`,
+  `ambiguous_source`, and `invalid_range`. There is no `stale_pointer` error.
 
 ## Index freshness rules
 
@@ -124,10 +138,13 @@ returned facts where `current` is `true`; never send `current` as an input
 argument. Pass `as_of` when the question names another date.
 
 Update protocol: `mempalace_kg_query` → select the intended returned triple
-whose `current` field is `true` → `mempalace_kg_invalidate` (omit `ended` to
-retire it now; pass a date for an inclusive end-of-day bound) →
-`mempalace_kg_add` (new triple, validity window). Never leave two current
-triples for the same `(subject, predicate)`.
+whose `current` field is `true` → `mempalace_kg_invalidate` with its exact stored
+subject, predicate, and object (omit `ended` to retire it now; a date is an
+inclusive end-of-day bound, so for a change effective on date D pass the day
+before D or omit it) → check `success` is `true`, else reconcile with the
+returned `current_objects` → `mempalace_kg_add` (new triple, validity window) and
+check its `other_current` list is empty. Never leave two current triples for the
+same `(subject, predicate)`.
 
 Bad for KG: code patterns, debugging notes, prose — those belong in a drawer.
 
@@ -139,7 +156,12 @@ Write a drawer after:
 - Durable context about people, timelines, or project goals.
 - Significant session wrap-up others might need.
 
-**Before filing substantial new prose, call `mempalace_check_duplicate`** and merge rather than overwrite if a near-duplicate exists.
+**Before filing substantial new prose, call `mempalace_check_duplicate`.** If a match already
+states the fact, do not file it again. If your content adds a fact to a matching drawer, file
+only the new fact and cite the existing drawer id; replacing wrong content follows the
+Corrections rules below. `mempalace_add_drawer` refuses a near-identical drawer
+(`reason: duplicate`, cosine similarity ≥ 0.9 with no number or identifier the match lacks): report
+the returned ids and do not reword content to pass the check.
 
 Content rules: store verbatim; one topic per drawer; keep it ≤ ~60 lines; reference file paths and issue/PR IDs rather than pasting large blobs.
 
@@ -157,11 +179,19 @@ identifiers or a richer registration. Reuse existing rooms (`backend`, `frontend
 `architecture`, `debugging`, `meetings`, `infrastructure`, `general`) unless a genuinely new
 topic warrants a new one.
 
+Wing and room names are case-sensitive identifiers. `mempalace_add_drawer` trims surrounding
+whitespace, rejects `/`, `\` and control characters with `-32602`, and refuses a new name that
+differs from an existing wing or room only by case, spacing, or punctuation other than `+` and
+`#` (`similar_wing_exists` / `similar_room_exists` with the existing name in `suggestions`).
+`mempalace-code diary write --wing` applies the same wing rule and exits 2. Retry once with the
+exact suggested name when it is the same place; otherwise ask.
+
 ## Diary rules
 
 `mempalace_diary_write` creates an agent-scoped first-person session record.
 
-- Pass `agent_name` = the value of `MEMPALACE_AGENT_NAME` from the environment. Do not guess, do not hardcode another agent's identity.
+- Omit `agent_name` when the server sets `MEMPALACE_AGENT_NAME`; the response's `agent` field confirms the identity. Otherwise pass your own stable identity. Do not guess, do not use another agent's identity.
+- Identity ignores case and treats spaces, hyphens, and underscores alike (`Claude Code` = `claude-code`). `mempalace_diary_read` returns that agent's entries from every wing, including CLI `diary write --wing` entries.
 - Write once at end of a meaningful session — not per message.
 - Content: what was attempted, what shipped, what remains, where you left off.
 - Read with `mempalace_diary_read` at session start when continuity matters.
@@ -184,18 +214,25 @@ Diary ≠ drawer. Diary is for the same agent's next run; drawer is for the team
 ## Malformed input recovery
 
 A rejected call is bounded, not fatal. `-32602` names exactly what was wrong with the
-arguments — not an object, undeclared name, type mismatch, or a missing required one. Correct
-the named arguments and retry the same exposed tool once. Malformed JSON returns `-32700`
-with a null id. For an unknown method (`-32601`), refresh `tools/list` at most once and stop
-that operation if the method remains absent. Do not restart the server, invent or repeat the
-method, choose a nearby tool, remove a filter, or broaden scope after a rejected call.
+arguments — not an object, undeclared name, type mismatch, a missing or blank required one, a
+number outside the schema's `minimum`/`maximum`, text with an unpaired surrogate escape, or a
+value the tool cannot use (a malformed date, an inverted validity window, a path-like wing).
+Correct the named arguments and retry the same exposed tool once. A line that is not valid
+UTF-8 JSON returns `-32700` with a null id. A message without an `id` is a notification: it gets no reply and never runs a tool. For
+an unknown method (`-32601`), refresh `tools/list` at most once and stop that operation if the
+method remains absent. A result with `isError: true` is a tool-level failure described in its
+payload (for example `unknown_wing` or `reason: duplicate`); follow the rules for that error.
+`-32000` is an internal server fault, not an argument problem: do not retry it more than once;
+report it. Do not restart the server, invent or repeat the method, choose a nearby tool, remove
+a filter, or broaden scope after a rejected call.
 
 ## Direct CLI recovery
 
 After `mempalace-code diary write` reports `Diary entry stored.`, it prints stable `ID`, `Wing`,
 `Room`, and `Topic` poststate plus a bounded `Verify before retry` search command. If that output is
-retained after an ambiguous result, run the printed search before considering a retry. An exact hit
-means success; do not repeat the write. If the response or printed command is unavailable, do not
+retained after an ambiguous result, run the printed search (it prints JSON hits) before considering a
+retry. An exact hit means success — a hit whose `id` equals the printed `ID`, not merely similar
+text; do not repeat the write. If the response or printed command is unavailable, do not
 retry; inspect recent same-agent entries with exposed `mempalace_diary_read`, or stop for owner
 reconciliation. The direct diary command has no stable deduplication identity, so do not invent a
 retry.
@@ -235,7 +272,7 @@ exposed.
 ## Profile-specific routing
 
 The MCP server can be started with a named tool profile to reduce prompt/tool-surface cost
-(see [README — MCP tool profiles](../README.md#mcp-tool-profiles) and GitHub issue #6).
+(see [README — MCP tool profiles](../README.md#mcp-server--29-tools) and GitHub issue #6).
 Each profile exposes a subset of the 29 tools. Use only the tools listed in the active profile;
 all others will return a "not enabled" error if called.
 
@@ -287,15 +324,16 @@ tracking evolving facts (versions, assignments, deadlines) alongside drawer note
 ### Profile: code
 
 Active tools: `mempalace_status`, `mempalace_code_search`, `mempalace_file_context`,
-`mempalace_find_implementations`, `mempalace_find_references`, `mempalace_show_project_graph`,
-`mempalace_show_type_dependencies`, `mempalace_explain_subsystem`, `mempalace_extract_reusable`,
-`mempalace_mine`.
+`mempalace_read`, `mempalace_find_implementations`, `mempalace_find_references`,
+`mempalace_show_project_graph`, `mempalace_show_type_dependencies`,
+`mempalace_explain_subsystem`, `mempalace_extract_reusable`, `mempalace_mine`.
 
 | Task | Tool |
 |------|------|
 | Palace overview when explicitly requested | `mempalace_status` |
 | Find a function/class/symbol | `mempalace_code_search` |
 | All indexed chunks for a file | `mempalace_file_context` |
+| Stored lines in a range of a file | `mempalace_read` |
 | Find types implementing an interface | `mempalace_find_implementations` |
 | Find all usages of a type | `mempalace_find_references` |
 | Project dependency graph (.NET) | `mempalace_show_project_graph` |

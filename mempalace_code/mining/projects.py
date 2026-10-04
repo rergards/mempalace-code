@@ -3,11 +3,16 @@
 import fnmatch
 import os
 import re
+import shlex
 import sys
+import unicodedata
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 
+from ..errors import InvalidArgumentError
 from ..source_io import is_regular_source_path, read_regular_text
+from ..taxonomy_filters import clean_write_name, near_duplicate_names
 from .kg_extract import parse_sln_file
 
 # Markers that indicate a directory is a software project
@@ -122,9 +127,110 @@ def _load_yaml_mapping(config_path: Path) -> dict:
     return data
 
 
+def _config_scalar_text(value: object) -> str | None:
+    """Return a YAML scalar (string or number) as text, or None for other types."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    return str(value)
+
+
+def _validated_project_config(data: dict, config_path: Path, project_dir: str | Path) -> dict:
+    """Check the fields mining reads and fill the documented defaults.
+
+    A missing or empty ``wing`` defaults to the wing ``init`` would write: the root
+    ``.sln`` name when ``dotnet_structure`` is set, else :func:`derive_wing_name` (git
+    origin of a repository root, else the folder name); a numeric wing such as
+    ``wing: 12345`` is read as text. ``rooms`` must be a list whose items are mappings with a non-empty
+    ``name`` or plain room-name strings; ``keywords`` must be a list of scalars (a
+    single string is accepted). Anything else raises :class:`InvalidProjectConfigError`
+    naming the offending field, instead of a KeyError/TypeError deep inside mining.
+    """
+    config = dict(data)
+    wing = config.get("wing")
+    if wing is None or (isinstance(wing, str) and not wing.strip()):
+        project_path = Path(project_dir).expanduser().resolve()
+        sln_wing = _detect_sln_wing(project_path) if config.get("dotnet_structure") else None
+        config["wing"] = sln_wing or derive_wing_name(str(project_path))
+    else:
+        wing_text = _config_scalar_text(wing)
+        if wing_text is None:
+            raise InvalidProjectConfigError(
+                config_path, f"'wing' must be a text value, got {type(wing).__name__}"
+            )
+        config["wing"] = wing_text
+
+    rooms = config.get("rooms")
+    if rooms is None:
+        return config
+    if not isinstance(rooms, list):
+        raise InvalidProjectConfigError(
+            config_path, f"'rooms' must be a list of rooms, got {type(rooms).__name__}"
+        )
+    validated_rooms = []
+    for index, item in enumerate(rooms):
+        room = {"name": item.strip()} if isinstance(item, str) else item
+        name = room.get("name") if isinstance(room, dict) else None
+        if not isinstance(room, dict) or not isinstance(name, str) or not name.strip():
+            raise InvalidProjectConfigError(
+                config_path,
+                f"rooms[{index}] must be a mapping with a non-empty 'name' (or a plain room name)",
+            )
+        keywords = room.get("keywords")
+        if keywords is None:
+            keywords = []
+        elif isinstance(keywords, str):
+            keywords = [keywords]
+        if not isinstance(keywords, list):
+            raise InvalidProjectConfigError(
+                config_path, f"rooms[{index}].keywords must be a list of words"
+            )
+        keyword_texts = [_config_scalar_text(keyword) for keyword in keywords]
+        if any(text is None for text in keyword_texts):
+            raise InvalidProjectConfigError(
+                config_path, f"rooms[{index}].keywords must contain only words"
+            )
+        validated_rooms.append({**room, "name": name, "keywords": keyword_texts})
+    config["rooms"] = validated_rooms
+    return config
+
+
+def _nearest_initialized_ancestor(path: Path) -> Path | None:
+    for candidate in path.parents:
+        if any((candidate / marker).is_file() for marker in INIT_MARKERS):
+            return candidate
+    return None
+
+
 def load_config(project_dir: str) -> dict:
-    """Load mempalace.yaml from project directory (falls back to mempal.yaml)."""
-    config_path = Path(project_dir).expanduser().resolve() / "mempalace.yaml"
+    """Load mempalace.yaml from project directory (falls back to mempal.yaml).
+
+    The result is validated by :func:`_validated_project_config`; malformed files
+    raise :class:`InvalidProjectConfigError`.
+    """
+    project_path = Path(project_dir).expanduser().resolve()
+    if not project_path.exists():
+        print(f"ERROR: directory not found: {project_dir}", file=sys.stderr)
+        print(
+            "Next: check the path; mine takes an existing project directory "
+            "(set up a new one with: mempalace-code init <dir>).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not project_path.is_dir():
+        print(
+            f"ERROR: not a directory: {project_dir} (mine takes a project directory, not a file)",
+            file=sys.stderr,
+        )
+        ancestor = _nearest_initialized_ancestor(project_path)
+        if ancestor is not None:
+            print(f"Next: mine the project that contains it: {ancestor}", file=sys.stderr)
+        else:
+            print(
+                f"Next: run mempalace-code init {project_path.parent}, then mine that directory.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+    config_path = project_path / "mempalace.yaml"
     if not config_path.exists():
         # Fallback to legacy name
         legacy_path = Path(project_dir).expanduser().resolve() / "mempal.yaml"
@@ -134,12 +240,25 @@ def load_config(project_dir: str) -> dict:
             print(f"ERROR: No mempalace.yaml found in {project_dir}")
             print(f"Run: mempalace-code init {project_dir}")
             sys.exit(1)
-    return _load_yaml_mapping(config_path)
+    return _validated_project_config(_load_yaml_mapping(config_path), config_path, project_dir)
+
+
+_TOKEN_RE = re.compile(r"[^\W_]+")
+# init describes a folder-derived room as "Files from <dir>/" (or "<a>/, <b>/").
+_FOLDER_ROOM_DESCRIPTION_RE = re.compile(r"^Files from .+/$")
 
 
 def _tokenize(text: str) -> list[str]:
-    """Split text into lowercase alphanumeric tokens at separator boundaries."""
-    return re.findall(r"[a-z0-9]+", text.lower())
+    """Split text into lowercase letter/digit tokens (any script) at separator boundaries."""
+    return _TOKEN_RE.findall(unicodedata.normalize("NFC", text).lower())
+
+
+def _is_folder_room(room: dict) -> bool:
+    """True for a room that stands for directories (``init`` wrote "Files from <dir>/")."""
+    description = room.get("description")
+    return isinstance(description, str) and bool(
+        _FOLDER_ROOM_DESCRIPTION_RE.match(description.strip())
+    )
 
 
 def _token_seq_in(needle: list[str], haystack: list[str]) -> bool:
@@ -150,11 +269,41 @@ def _token_seq_in(needle: list[str], haystack: list[str]) -> bool:
     return any(haystack[i : i + n] == needle for i in range(h - n + 1))
 
 
-def _tokens_match(a_tokens: list[str], b_tokens: list[str]) -> bool:
-    """Return True if either token sequence appears contiguously inside the other."""
-    if not a_tokens or not b_tokens:
-        return False
-    return _token_seq_in(a_tokens, b_tokens) or _token_seq_in(b_tokens, a_tokens)
+def _name_match_strength(
+    name_tokens: list[str], rooms: list, *, is_folder: bool
+) -> tuple[int, str] | None:
+    """Best (strength, room) for a path component or filename; None when nothing matches.
+
+    Strength 2: the tokens equal a room name or keyword exactly. Strength 1: a room
+    name or keyword appears inside the tokens (``ui_components`` contains keyword
+    ``components``). A component that is only part of a room name (``acme`` inside
+    room ``acme_web``) never matches, so an unrelated folder cannot claim a room.
+    Ties go to the room listed first in mempalace.yaml.
+
+    A folder room (``Files from <dir>/``) matches only a folder (*is_folder*) whose
+    name equals its name or a keyword, so it never claims ``mempalace_notes.md`` or a
+    ``mempalace_old/`` folder.
+    """
+    if not name_tokens:
+        return None
+    best: tuple[int, str] | None = None
+    for room in rooms:
+        folder_room = _is_folder_room(room)
+        if folder_room and not is_folder:
+            continue
+        for candidate in [room["name"]] + room.get("keywords", []):
+            candidate_tokens = _tokenize(candidate) if candidate else []
+            if not candidate_tokens:
+                continue
+            if candidate_tokens == name_tokens:
+                strength = 2
+            elif not folder_room and _token_seq_in(candidate_tokens, name_tokens):
+                strength = 1
+            else:
+                continue
+            if best is None or strength > best[0]:
+                best = (strength, room["name"])
+    return best
 
 
 def _count_keyword_occurrences(text_tokens: list[str], kw_tokens: list[str]) -> int:
@@ -185,7 +334,9 @@ def detect_room(
     0. .csproj-derived map lookup (when dotnet_structure is enabled)
     1. Folder path matches a room name or keyword (separator-bounded tokens)
     2. Filename matches a room name or keyword (separator-bounded tokens)
-    3. Content keyword scoring (bounded token occurrences)
+    3. Content keyword scoring (bounded token occurrences); a tie is not a signal.
+    Folder rooms (described "Files from <dir>/") take only files inside a folder named
+    exactly like the room or one of its keywords: they skip steps 2 and 3.
     4. Fallback: "general"
     """
     # Priority 0: .csproj-derived room map
@@ -202,26 +353,31 @@ def detect_room(
     filename = filepath.stem.lower()
     content_lower = content[:2000].lower()
 
-    # Priority 1: folder path matches room name or keywords
+    # Priority 1: folder path matches room name or keywords. The outermost folder
+    # with an exact match wins; otherwise the outermost partial match.
     path_parts = relative.replace("\\", "/").split("/")
-    for part in path_parts[:-1]:  # skip filename itself
-        part_tokens = _tokenize(part)
-        for room in rooms:
-            candidates = [room["name"]] + room.get("keywords", [])
-            if any(_tokens_match(part_tokens, _tokenize(c)) for c in candidates if c):
-                return room["name"]
+    folder_matches = [
+        match
+        for match in (
+            _name_match_strength(_tokenize(part), rooms, is_folder=True) for part in path_parts[:-1]
+        )
+        if match is not None
+    ]
+    if folder_matches:
+        strongest = max(strength for strength, _room in folder_matches)
+        return next(room for strength, room in folder_matches if strength == strongest)
 
     # Priority 2: filename matches room name or keyword
-    filename_tokens = _tokenize(filename)
-    for room in rooms:
-        candidates = [room["name"]] + room.get("keywords", [])
-        if any(_tokens_match(filename_tokens, _tokenize(c)) for c in candidates if c):
-            return room["name"]
+    filename_match = _name_match_strength(_tokenize(filename), rooms, is_folder=False)
+    if filename_match is not None:
+        return filename_match[1]
 
     # Priority 3: keyword scoring from room keywords + name
     scores = defaultdict(int)
     content_tokens = _tokenize(content_lower)
     for room in rooms:
+        if _is_folder_room(room):
+            continue
         keywords = room.get("keywords", []) + [room["name"]]
         for kw in keywords:
             kw_tokens = _tokenize(kw)
@@ -229,7 +385,8 @@ def detect_room(
 
     if scores:
         best = max(scores, key=lambda k: scores[k])
-        if scores[best] > 0:
+        tied = sum(1 for score in scores.values() if score == scores[best])
+        if scores[best] > 0 and tied == 1:
             return best
 
     return "general"
@@ -287,17 +444,26 @@ def detect_projects(parent_dir: str) -> list:
 def derive_wing_name(project_dir: str) -> str:
     """Derive a wing name for *project_dir*.
 
-    Tries ``git -C <dir> remote get-url origin`` first.  Parses the URL to
-    extract the repository name (strips ``.git`` suffix).  Falls back to the
-    folder basename when git is unavailable or the remote is not set.
+    When *project_dir* is a repository root (it has a ``.git`` entry), tries
+    ``git -C <dir> remote get-url origin`` first and parses the URL to extract the
+    repository name (strips ``.git`` suffix).  Falls back to the folder basename for
+    subdirectories of a repository, when git is unavailable, or when the remote is
+    not set.
 
     The returned name is lowercased and normalized so that spaces and hyphens
-    become underscores and non-alphanumeric/underscore characters are stripped.
-    This matches the convention used by ``room_detector_local.detect_rooms_local()``.
+    become underscores and characters other than letters, digits and underscores
+    (of any script) are stripped.
+    ``init`` writes this name into a new ``mempalace.yaml``, so ``mine``, ``mine-all``
+    and the ``mine-all --dry-run`` preview agree.
     """
     import subprocess
 
     project_path = Path(project_dir).expanduser().resolve()
+
+    # Only a repository root is named after its origin: subprojects of a monorepo keep
+    # their own folder names instead of every one of them sharing the repository's wing.
+    if not os.path.lexists(project_path / ".git"):
+        return _normalize_wing_name(project_path.name)
 
     # Attempt to get the repo name from the git remote URL
     try:
@@ -340,30 +506,120 @@ def resolve_wing_for_project(project_dir: str) -> str:
         config_path = project_path / config_name
         if not config_path.exists():
             continue
-        config = _load_yaml_mapping(config_path)
-        wing = config.get("wing", "")
-        if wing and isinstance(wing, str) and wing.strip():
-            if config.get("dotnet_structure", False):
-                return _normalize_wing_name(wing.strip())
-            return _normalize_configured_wing(wing)
-        # config file exists but has no usable wing — stop looking, fall through
-        break
+        config = _validated_project_config(
+            _load_yaml_mapping(config_path), config_path, project_path
+        )
+        return configured_wing(config)
 
     return derive_wing_name(project_dir)
 
 
+def configured_wing(config: dict) -> str:
+    """Return the wing a validated project config selects, normalized as ``mine`` stores it.
+
+    An explicit ``wing:`` always wins; :func:`load_config` fills a missing one (the root
+    ``.sln`` name for ``dotnet_structure``). .NET wings use the .sln normalization.
+    """
+    wing = config["wing"]
+    if config.get("dotnet_structure", False):
+        return _normalize_wing_name(wing.strip())
+    return _normalize_configured_wing(wing)
+
+
+def _name_characters(name: str, *, hyphen: str) -> str:
+    """Lowercase *name* (Unicode NFC) and keep only letters, digits, marks, ``_`` and ``-``.
+
+    Whitespace becomes ``_``; a hyphen becomes *hyphen*. Letters of every script survive
+    (``café``, ``日本語``), so two non-ASCII names never collapse to the same fallback.
+    """
+    name = unicodedata.normalize("NFC", unicodedata.normalize("NFC", name).lower())
+    kept = []
+    for char in name:
+        if char.isspace():
+            kept.append("_")
+        elif char == "-":
+            kept.append(hyphen)
+        elif char == "_" or char.isalnum() or unicodedata.category(char).startswith("M"):
+            kept.append(char)
+    return "".join(kept)
+
+
 def _normalize_wing_name(name: str) -> str:
     """Lowercase, replace spaces/hyphens with underscores, strip other special chars."""
-    name = name.lower().replace("-", "_").replace(" ", "_")
-    name = re.sub(r"[^a-z0-9_]", "", name)
-    return name or "project"
+    return _name_characters(name, hyphen="_") or "project"
 
 
 def _normalize_configured_wing(name: str) -> str:
     """Canonicalize an explicit non-.NET wing while preserving hyphens."""
-    name = name.strip().lower().replace(" ", "_")
-    name = re.sub(r"[^a-z0-9_-]", "", name)
-    return name or "project"
+    return _name_characters(name.strip(), hyphen="-") or "project"
+
+
+def mine_wing(config: dict, wing_override: str | None = None) -> str:
+    """Return the wing a mine files into: ``--wing`` when given, else the config's wing.
+
+    ``--wing`` is normalized exactly like a ``wing:`` in mempalace.yaml, so ``"Other Wing"``,
+    ``"other wing"`` and ``other_wing`` name one wing. An empty override falls back to the
+    config. A blank override or one containing ``/``, ``\\`` or a control character raises
+    :class:`~mempalace_code.errors.InvalidArgumentError` naming ``wing``.
+    """
+    if not wing_override:
+        return configured_wing(config)
+    return configured_wing({**config, "wing": clean_write_name(wing_override, "wing")})
+
+
+def validate_mine_arguments(wing_override: str | None, agent: str) -> None:
+    """Refuse a blank or unsafe ``--wing`` and a blank ``--agent`` before anything is mined."""
+    if wing_override:
+        clean_write_name(wing_override, "wing")
+    if not isinstance(agent, str) or not agent.strip():
+        raise InvalidArgumentError("agent must not be blank", argument="agent")
+
+
+def settle_mine_wing(
+    existing_wings,
+    wing: str,
+    wing_override: str | None = None,
+    *,
+    retry_command: Callable[[str], str] | None = None,
+) -> str:
+    """Return the wing to file into, refusing a new wing that re-spells an existing one.
+
+    *existing_wings* are the palace's wing names. A wing that already exists is used as is.
+    A ``--wing`` that names an existing wing exactly (such as one stored verbatim by an
+    older release) keeps filing into that wing. A new wing that differs from an existing
+    wing only by case, spacing or punctuation raises
+    :class:`~mempalace_code.errors.InvalidArgumentError` naming the existing wing and, when
+    *retry_command* is given, the command that files under it (the rule
+    ``diary write --wing`` and ``mempalace_add_drawer`` apply).
+    """
+    existing = set(existing_wings)
+    raw = wing_override.strip() if wing_override else ""
+    if raw and raw in existing:
+        return raw
+    if wing in existing:
+        return wing
+    similar = near_duplicate_names(wing, existing)
+    if not similar:
+        return wing
+    target = similar[0]
+    source = "--wing" if wing_override else "the mempalace.yaml wing"
+    retry = (
+        f"run {retry_command(target)}"
+        if retry_command is not None
+        else f"pass --wing {shlex.quote(target)}"
+    )
+    yaml_retry = ""
+    if configured_wing({"wing": target}) == target:
+        import yaml
+
+        yaml_config = yaml.safe_dump({"wing": target}, allow_unicode=True).strip()
+        yaml_retry = f" (or set {yaml_config!r} in mempalace.yaml)"
+    raise InvalidArgumentError(
+        f"wing {wing!r} (from {source}) differs from the existing wing {target!r} only by "
+        f"case, spacing or punctuation; to file under the existing wing {retry}{yaml_retry}, "
+        f"or choose a clearly different name",
+        argument="wing",
+    )
 
 
 def _normalize_room_name(name: str) -> str:
@@ -372,9 +628,7 @@ def _normalize_room_name(name: str) -> str:
     Lowercases, replaces dots/hyphens/spaces with underscores, strips other chars.
     E.g. MyApp.Infrastructure -> myapp_infrastructure, My-Project.Api -> my_project_api.
     """
-    name = name.lower().replace(".", "_").replace("-", "_").replace(" ", "_")
-    name = re.sub(r"[^a-z0-9_]", "", name)
-    return name or "general"
+    return _name_characters(name.replace(".", "_"), hyphen="_") or "general"
 
 
 def _detect_sln_wing(project_path: Path):

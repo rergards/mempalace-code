@@ -56,6 +56,34 @@ VERIFICATION_COMMAND_SURFACES: dict[str, tuple[str, ...]] = {
     "docs/quality/README.md": ("scorecard", "public_safety"),
 }
 
+# Exact executable baseline contract for the active verify skill only.
+VERIFY_BASELINE_BLOCK = """set -eu
+# Explicit operator/task input takes precedence over saved state, even when invalid.
+if [ "${TASK_BASELINE+x}" = x ]; then
+  BASELINE=$TASK_BASELINE
+else
+  BASELINE=$(cat .verify-state 2>/dev/null) || BASELINE=
+fi
+baseline_error() {
+  echo "FAIL: missing/invalid verification baseline; request the operator's task baseline." >&2
+  echo "Recovery: set TASK_BASELINE to the operator-supplied full commit SHA and rerun Step 1." >&2
+  exit 1
+}
+case "$BASELINE" in
+  ''|*[!0-9a-f]*) baseline_error ;;
+esac
+[ "${#BASELINE}" -eq 40 ] || baseline_error
+VERIFIED_BASELINE=$(git rev-parse --verify "$BASELINE^{commit}" 2>/dev/null) || baseline_error
+[ "$VERIFIED_BASELINE" = "$BASELINE" ] || baseline_error
+git merge-base --is-ancestor "$BASELINE" HEAD || baseline_error
+# Only after identity and ancestry validation: working tree, staged, committed.
+git diff --name-only HEAD
+git diff --name-only --cached
+git diff --name-only "$BASELINE"..HEAD"""
+VERIFY_CHANGED_RANGE_COMMAND = (
+    'python scripts/gitleaks_scan.py changed-range --base-ref "$BASELINE" --head-ref HEAD'
+)
+
 CANONICAL_LIVE_RELEASE_PREFLIGHT_COMMAND = (
     "python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream"
 )
@@ -266,19 +294,25 @@ CHROMA_RUNTIME_SUPPORT_MARKERS: dict[str, tuple[str, ...]] = {
     ),
 }
 CHROMA_RECOVERY_COMMAND = (
-    "uvx --from 'mempalace-code[chroma]==1.13.4' mempalace-code migrate-storage SRC DST --verify"
+    "uvx --python 3.12 --from 'mempalace-code[chroma]==1.13.4' "
+    "mempalace-code migrate-storage SRC DST --verify"
 )
 
 BACKUP_RESTORE_REBUILD_SEQUENCE: tuple[str, ...] = (
+    'mempalace-code --palace "$PALACE" status | sed -n \'s/^  WING: //p\' | sort > "$WINGS_BEFORE"',
     'mempalace-code --palace "$PALACE" export --only-manual --with-kg --out "$EXPORT_JSONL"',
     'mempalace-code --palace "$PALACE" import "$EXPORT_JSONL" --dry-run',
     'mempalace-code --palace "$PALACE" backup create --out "$BACKUP_TAR"',
     'tar -tzf "$BACKUP_TAR"',
     'mv "$PALACE" "$QUARANTINE"',
-    'mempalace-code --palace "$PALACE" mine "$SOURCE"',
+    # Every mined source is re-mined; a single SOURCE silently dropped other projects.
+    'mempalace-code --palace "$PALACE" mine "$project"',
+    'mempalace-code --palace "$PALACE" mine "$convos" --mode convos',
     'mempalace-code --palace "$PALACE" import "$EXPORT_JSONL"',
     'mempalace-code --palace "$PALACE" health',
-    'mempalace-code --palace "$PALACE" search "$KNOWN_QUERY" --limit 5',
+    'mempalace-code --palace "$PALACE" status | sed -n \'s/^  WING: //p\' | sort > "$WINGS_AFTER"',
+    'diff -u "$WINGS_BEFORE" "$WINGS_AFTER"',
+    'mempalace-code --palace "$PALACE" search "$KNOWN_QUERY" --results 5',
 )
 BACKUP_RESTORE_RECOVERY_SEQUENCE: tuple[str, ...] = (
     'test -d "$QUARANTINE/lance"',
@@ -1383,6 +1417,13 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
         f"subset of the {tool_count} tools",
         "docs/LLM_USAGE_RULES.md",
     )
+    # GitHub derives the README anchor from the heading text, tool count included.
+    _require(
+        errors,
+        docs["docs/LLM_USAGE_RULES.md"],
+        f"../README.md#mcp-server--{tool_count}-tools",
+        "docs/LLM_USAGE_RULES.md",
+    )
     _require(
         errors,
         docs["examples/mcp_setup.md"],
@@ -1633,7 +1674,20 @@ def evaluate(root: Path) -> tuple[dict[str, object], list[str]]:
                     f"scripts/gate_inventory.py: canonical verification command missing: {name}"
                 )
                 continue
-            if command not in text:
+            if (
+                relative_path == ".claude/skills/verify/INSTRUCTIONS.md"
+                and name == "gitleaks_changed_range"
+            ):
+                # Normalize only this exact executable command and its verified binder.
+                # Inventory/template surfaces and all other commands remain literal.
+                matches = (
+                    f"```bash\n{VERIFY_BASELINE_BLOCK}\n```" in text
+                    and VERIFY_CHANGED_RANGE_COMMAND in text
+                    and VERIFY_CHANGED_RANGE_COMMAND.replace('"$BASELINE"', "BASE") == command
+                )
+            else:
+                matches = command in text
+            if not matches:
                 errors.append(
                     f"{relative_path}: canonical verification command drift ({name}): "
                     f"missing {command!r}"

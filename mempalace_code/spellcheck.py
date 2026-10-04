@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 """
-spellcheck.py — Spell-correct user messages before palace filing.
+spellcheck.py — Optional autocorrect helper (the ``[spellcheck]`` extra).
+
+MemPalace never applies it to stored drawer text: mining keeps conversation and
+source text verbatim, whatever ``--spellcheck`` or ``spellcheck_enabled`` say.
+These functions exist only for callers that explicitly want corrected text.
 
 Preserves:
   - Technical terms (words with digits, hyphens, underscores)
   - CamelCase and ALL_CAPS identifiers
   - Known entity names (from EntityRegistry if available)
   - URLs and file paths
-  - Words shorter than 3 chars (common abbreviations, pronouns, etc.)
-  - Proper nouns already capitalized in context
+  - Words shorter than 4 chars (common abbreviations, pronouns, etc.)
+  - Capitalized words (likely proper nouns)
 
 Corrects:
   - Genuine typos in lowercase, flowing text
-  - Common fat-finger words (3am → 3am, knoe → know)
+  - Common fat-finger words (knoe → know)
 
 Usage:
     from mempalace_code.spellcheck import spellcheck_user_text
     corrected = spellcheck_user_text("lsresdy knoe the question befor")
-    # → "already know the question before"  (best effort)
+    # → "already know the question before"  (best effort; unchanged without autocorrect)
 """
 
 import re

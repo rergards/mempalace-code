@@ -10,11 +10,13 @@ Any LLM reads it natively — no decoder required.
 Works with: Claude, ChatGPT, Gemini, Llama, Mistral -- any model that reads text.
 
 NOTE: AAAK is NOT lossless compression. The original text cannot be reconstructed
-from AAAK output. It is a structured summary layer (closets) that points to the
-original verbatim content (drawers). The 96.6% benchmark score is from raw mode,
-not AAAK mode.
+from AAAK output. It is a derived summary of the original verbatim content
+(drawers), never a replacement for it: MemPalace never writes AAAK into drawers.
+`mempalace-code compress` only prints AAAK summaries; read, search, export and
+wake-up always return the verbatim drawer text. The 96.6% benchmark score is from
+raw mode, not AAAK mode.
 
-Adapted for mempalace: works standalone on plain text and ChromaDB drawers.
+Adapted for mempalace: works standalone on plain text and palace drawers.
 No dependency on palace.py or layers.py.
 
 FORMAT:
@@ -293,6 +295,54 @@ _STOP_WORDS = {
     "need",
 }
 
+_CONFIG_KEYS = ("entities", "skip_names", "people", "projects")
+
+
+def _generated_code(name: str, used: set) -> str:
+    """Return a short uppercase code for *name* that is not in *used*."""
+    letters = [c for c in name.upper() if c.isalnum()] or list("ENT")
+    base = "".join(letters[:3])
+    if base not in used:
+        return base
+    for extra in letters[3:]:
+        candidate = base[:2] + extra
+        if candidate not in used:
+            return candidate
+    suffix = 2
+    while f"{base}{suffix}" in used:
+        suffix += 1
+    return f"{base}{suffix}"
+
+
+def _entity_config(config: object) -> tuple:
+    """Validate an entity config object and return ``(entities, skip_names)``."""
+    if not isinstance(config, dict):
+        raise ValueError("expected a JSON object")
+    if not any(key in config for key in _CONFIG_KEYS):
+        raise ValueError(
+            'expected an "entities" map (name -> code) or "people"/"projects" name lists'
+        )
+    entities = config.get("entities", {})
+    if not isinstance(entities, dict) or not all(
+        isinstance(name, str) and name.strip() and isinstance(code, str) and code.strip()
+        for name, code in entities.items()
+    ):
+        raise ValueError('"entities" must map each name to a non-empty code string')
+    lists = {}
+    for key in ("people", "projects", "skip_names"):
+        value = config.get(key, [])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError(f'"{key}" must be a list of name strings')
+        lists[key] = [item.strip() for item in value if item.strip()]
+
+    codes = {name.strip(): code.strip() for name, code in entities.items()}
+    used = set(codes.values())
+    for name in lists["people"] + lists["projects"]:
+        if name not in codes:
+            codes[name] = _generated_code(name, used)
+            used.add(codes[name])
+    return codes, lists["skip_names"]
+
 
 class Dialect:
     """
@@ -335,18 +385,28 @@ class Dialect:
     def from_config(cls, config_path: str) -> "Dialect":
         """Load entity mappings from a JSON config file.
 
-        Config format:
-        {
-            "entities": {"Alice": "ALC", "Bob": "BOB"},
-            "skip_names": ["Gandalf", "Sherlock"]
-        }
+        Two shapes are accepted, alone or combined:
+
+        {"entities": {"Alice": "ALC", "Bob": "BOB"}, "skip_names": ["Gandalf"]}
+        {"people": ["Alice", "Bob"], "projects": ["Apollo"]}
+
+        The second is the ``entities.json`` that ``mempalace-code init --detect-entities``
+        writes; its names get generated codes that never collide with an explicit or
+        earlier code.
+
+        Raises:
+            OSError: the file cannot be read.
+            ValueError: the file is not valid JSON or has an unsupported shape.
         """
-        with open(config_path, "r") as f:
-            config = json.load(f)
-        return cls(
-            entities=config.get("entities", {}),
-            skip_names=config.get("skip_names", []),
-        )
+        with open(config_path, "r", encoding="utf-8") as f:
+            try:
+                config = json.load(f)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"not valid JSON: {exc.msg} (line {exc.lineno}, column {exc.colno})"
+                ) from exc
+        entities, skip_names = _entity_config(config)
+        return cls(entities=entities, skip_names=skip_names)
 
     def save_config(self, config_path: str):
         """Save current entity mappings to a JSON config file."""
@@ -434,8 +494,8 @@ class Dialect:
 
     def _extract_topics(self, text: str, max_topics: int = 3) -> List[str]:
         """Extract key topic words from plain text."""
-        # Tokenize: alphanumeric words, lowercase
-        words = re.findall(r"[a-zA-Z][a-zA-Z_-]{2,}", text)
+        # Tokenize: words of 3+ characters that do not end in a hyphen ("Apache-2.0" -> "Apache")
+        words = re.findall(r"[a-zA-Z][a-zA-Z_-]*[a-zA-Z_]", text)
         # Count frequency, skip stop words
         freq = {}
         for w in words:
@@ -461,8 +521,9 @@ class Dialect:
 
     def _extract_key_sentence(self, text: str) -> str:
         """Extract the most important sentence fragment from text."""
-        # Split into sentences
-        sentences = re.split(r"[.!?\n]+", text)
+        # Split into sentences only at end punctuation followed by whitespace or the end
+        # of the text, so version numbers such as "Apache-2.0" or "v1.2.3" stay whole.
+        sentences = re.split(r"[.!?]+(?=\s|$)|\n+", text)
         sentences = [s.strip() for s in sentences if len(s.strip()) > 10]
         if not sentences:
             return ""
@@ -507,19 +568,28 @@ class Dialect:
 
         scored.sort(key=lambda x: -x[0])
         best = scored[0][1]
-        # Truncate if too long
+        # Truncate if too long, preferring a word boundary over cutting inside a token
         if len(best) > 55:
-            best = best[:52] + "..."
+            cut = best[:52]
+            space = cut.rfind(" ")
+            if space >= 30:
+                cut = cut[:space]
+            best = cut.rstrip() + "..."
         return best
 
     def _detect_entities_in_text(self, text: str) -> List[str]:
         """Find known entities in text, or detect capitalized names."""
         found = []
-        # Check known entities
+        # Check known entities as whole words ("Eli" must not match "delivery")
+        text_lower = text.lower()
+        checked = set()
         for name, code in self.entity_codes.items():
-            if not name.islower() and name.lower() in text.lower():
-                if code not in found:
-                    found.append(code)
+            key = name.lower()
+            if key in checked:
+                continue
+            checked.add(key)
+            if re.search(rf"(?<!\w){re.escape(key)}(?!\w)", text_lower) and code not in found:
+                found.append(code)
         if found:
             return found
 

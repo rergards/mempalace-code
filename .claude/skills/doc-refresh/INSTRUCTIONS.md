@@ -20,16 +20,20 @@ git log --oneline -1 -- docs/BACKUP_RESTORE.md docs/AGENT_INSTALL.md AGENTS.md C
 ```bash
 git log --oneline -30 main
 ```
-```bash
-backlog list --status open --file docs/BACKLOG.yaml
-```
+Read `backlog_context {}`, `backlog_workset_context {}`, and
+`backlog_workset_queue {}` from the verified project-bound `.backlog` connection;
+follow bounded pages. CLI fallback uses a verified absolute `backlog-utility`
+binary with `call --store .backlog --project mempalace-code --principal
+<principal> --name <tool> --arguments-file <json>` (`{}` for initial reads).
+Unavailable, malformed or mismatched access means unknown; do not fall back to
+active YAML. Report blocked/held tasks and an empty queue explicitly.
 
 For each doc, diff changed source files since last doc commit:
 
 | Doc | Diff scope |
 |-----|-----------|
 | BACKUP_RESTORE.md | `mempalace_code/backup.py`, `mempalace_code/storage.py` |
-| AGENT_INSTALL.md | `mempalace_code/mcp_server.py`, MCP tools |
+| AGENT_INSTALL.md | `mempalace_code/mcp/` (`registry.py`, `tools/`), `mempalace_code/mcp_tool_profiles.py` |
 | AGENTS.md | `.claude/skills/`, `mempalace_code/**/*.py` modules |
 | CLAUDE.md | `AGENTS.md` pointer contract only |
 | README.md | CLI commands, MCP tools, installation |
@@ -49,7 +53,7 @@ boundaries. Require `CLAUDE.md` to contain exactly `@AGENTS.md` plus one newline
 
 ### AGENT_INSTALL.md
 
-Check: MCP tool list matches `mcp_server.py`, installation steps work.
+Check: MCP tool list matches the `TOOLS` registry in `mempalace_code/mcp/registry.py`, installation steps work.
 
 ### BACKUP_RESTORE.md
 
@@ -57,19 +61,25 @@ Check: CLI commands match implementation, filter semantics current.
 
 ## Step 3 — Backlog doc gaps
 
-Mark resolved documentation-gap backlog items: `backlog done <SLUG> --summary "summary" --file docs/BACKLOG.yaml`.
+Only with explicit backlog-completion authority, refresh the exact canonical task
+and use `backlog_complete` with current version, revision, contract digest and
+passing evidence for every acceptance ID. Preserve owner holds and unresolved
+prerequisites. A docs refresh or YAML retirement never establishes completion.
+Persist the exact typed request and stable request ID before mutation; reconcile
+fresh context after uncertain results. Never edit canonical JSON by hand.
 
 ## Step 4 — Maintenance
 
-Execute all substeps every run.
+Run read-only checks every run. Execute mutating substeps only within the active request; otherwise report proposed changes and validation findings.
 
 ### 4a. Backlog validate
 
 ```bash
-backlog validate --file docs/BACKLOG.yaml
+<absolute-backlog-utility> validate --store .backlog
 ```
 
-Fix any schema errors. Dangling links are warnings — ignore.
+Discover and verify the absolute binary first. Report validator failures; repair
+only through supported operations with explicit authority. Preserve the store.
 
 ### 4b. Durable-context audit
 
@@ -79,15 +89,7 @@ files; keep original evidence, decisions, and root causes in focused drawers.
 
 ### 4c. Verify check
 
-```bash
-BASELINE=$(cat .verify-state 2>/dev/null)
-if [ -n "$BASELINE" ]; then
-  COUNT=$(git log --oneline "$BASELINE"..HEAD 2>/dev/null | wc -l | tr -d ' ')
-  echo "Unverified commits: $COUNT"
-else
-  echo "No verify baseline — run /verify"
-fi
-```
+Read verification-baseline status with the command in `.claude/skills/start/INSTRUCTIONS.md` → Step 1. Preserve its Git exit-status and ancestry checks; failed reads mean unknown.
 
 If >= 30 unverified commits: flag prominently, recommend `/verify` before next deploy.
 

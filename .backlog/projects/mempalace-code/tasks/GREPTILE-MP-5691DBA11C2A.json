@@ -1,0 +1,593 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "GREPTILE-MP-5691DBA11C2A",
+      "version": "v1:9a1b717dbad657c2cb5afd7bcfd6cfb51a96f654ce64cd80fecae50683b11da5",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Исправить: IDs alter storage predicates\n\nFinding 5691dba11c2a; assessment reproduced-qualified; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md\nActual get/delete on installed LanceDB 0.39.0 fail for quoted ID and predicate-shaped ID deletes two rows. Locked 0.33.0 and external input reachability untested.\nget/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.\n\nCurrent intake: fix; assessed severity P2; source owner mempalace_code/storage.py; snapshot line 1315. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6ddfa8fbabc3260351cd54519541cbac43f4222d863aa3cbccba0bbfb4434fc2",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md"
+          },
+          {
+            "type": "file",
+            "uri": "mempalace_code/storage.py"
+          }
+        ],
+        "exclusions": [
+          "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+          "Other repositories and architecture or ownership boundary changes without owner approval.",
+          "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+          "Unrelated implementation, dependencies, backlog tasks or worksets."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+          "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+        },
+        {
+          "id": "A02",
+          "assertion": "get/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.",
+          "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+        "result": "Verified outcome: already protected; verified. Current SQL literal owner already escapes drawer IDs. Actual quoted, predicate-shaped and backslash IDs retrieve/delete exactly and preserve neighbours on LanceDB 0.33.0 and 0.39.0. Added regressions; no unsupported exploit claim. Change/evidence revision: 1b6ec49c6e9e1be5588ca9d3e68a85d953e5fcb4. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a. No live palace, push or release mutation.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-01T23:51:52.54499Z"
+      },
+      "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+      "ready": false,
+      "created_at": "2026-10-01T22:35:59.161175Z",
+      "updated_at": "2026-10-01T23:51:52.54499Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-5691DBA11C2A",
+          "version": "v1:7bf6f9b83959be798a5bc60604fc4f7741f0420ecc9fa9e92961d9187b693610",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Исправить: IDs alter storage predicates\n\nFinding 5691dba11c2a; assessment reproduced-qualified; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md\nActual get/delete on installed LanceDB 0.39.0 fail for quoted ID and predicate-shaped ID deletes two rows. Locked 0.33.0 and external input reachability untested.\nget/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.\n\nCurrent intake: fix; assessed severity P2; source owner mempalace_code/storage.py; snapshot line 1315. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6ddfa8fbabc3260351cd54519541cbac43f4222d863aa3cbccba0bbfb4434fc2",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/storage.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A02",
+              "assertion": "get/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.",
+              "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:59.161175Z",
+          "updated_at": "2026-10-01T22:35:59.161175Z"
+        },
+        "operation": {
+          "id": "op_f89271e3a704e833f3ea71a4d6d16d3e",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-5691dba11c2a-create-v1",
+          "kind": "create",
+          "payload": {
+            "id": "GREPTILE-MP-5691DBA11C2A",
+            "outcome": "Исправить: IDs alter storage predicates\n\nFinding 5691dba11c2a; assessment reproduced-qualified; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md\nActual get/delete on installed LanceDB 0.39.0 fail for quoted ID and predicate-shaped ID deletes two rows. Locked 0.33.0 and external input reachability untested.\nget/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.\n\nCurrent intake: fix; assessed severity P2; source owner mempalace_code/storage.py; snapshot line 1315. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6ddfa8fbabc3260351cd54519541cbac43f4222d863aa3cbccba0bbfb4434fc2",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/storage.py"
+                }
+              ],
+              "exclusions": [
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "get/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": null
+          },
+          "request_hash": "665d431b906cbc7dfaf9e780b86818ead6da17fa1a117560c169c2f221692a0b",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-5691DBA11C2A",
+            "version": "v1:7bf6f9b83959be798a5bc60604fc4f7741f0420ecc9fa9e92961d9187b693610",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Исправить: IDs alter storage predicates\n\nFinding 5691dba11c2a; assessment reproduced-qualified; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md\nActual get/delete on installed LanceDB 0.39.0 fail for quoted ID and predicate-shaped ID deletes two rows. Locked 0.33.0 and external input reachability untested.\nget/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.\n\nCurrent intake: fix; assessed severity P2; source owner mempalace_code/storage.py; snapshot line 1315. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6ddfa8fbabc3260351cd54519541cbac43f4222d863aa3cbccba0bbfb4434fc2",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/storage.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "get/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+            "ready": false,
+            "created_at": "2026-10-01T22:35:59.161175Z",
+            "updated_at": "2026-10-01T22:35:59.161175Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_51f0719beccbfc2d8005aea7758ffba4",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-5691DBA11C2A",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:7bf6f9b83959be798a5bc60604fc4f7741f0420ecc9fa9e92961d9187b693610",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-5691DBA11C2A"
+          },
+          "created_at": "2026-10-01T22:35:59.161175Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_76be42b224dc37010f58f4f2b1ad68ea",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-5691DBA11C2A",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:1742f9278e675cfd8c2cc1c5f6b8f8e408f4289eb5abbc37918b9867499f4456",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-5691DBA11C2A"
+            },
+            "created_at": "2026-10-01T22:35:59.259626Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-5691DBA11C2A",
+          "version": "v1:1742f9278e675cfd8c2cc1c5f6b8f8e408f4289eb5abbc37918b9867499f4456",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Исправить: IDs alter storage predicates\n\nFinding 5691dba11c2a; assessment reproduced-qualified; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md\nActual get/delete on installed LanceDB 0.39.0 fail for quoted ID and predicate-shaped ID deletes two rows. Locked 0.33.0 and external input reachability untested.\nget/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.\n\nCurrent intake: fix; assessed severity P2; source owner mempalace_code/storage.py; snapshot line 1315. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6ddfa8fbabc3260351cd54519541cbac43f4222d863aa3cbccba0bbfb4434fc2",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/storage.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A02",
+              "assertion": "get/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.",
+              "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:59.161175Z",
+          "updated_at": "2026-10-01T22:35:59.259626Z"
+        },
+        "operation": {
+          "id": "op_eba38eefc1ea73d47f3ccfd8e2e07401",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-5691dba11c2a-open-v1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:7bf6f9b83959be798a5bc60604fc4f7741f0420ecc9fa9e92961d9187b693610",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "915d754d070e68c5c68535819e5bdde8f636bfbca565a4d036da42b16b7df8b8",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-5691DBA11C2A",
+            "version": "v1:1742f9278e675cfd8c2cc1c5f6b8f8e408f4289eb5abbc37918b9867499f4456",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Исправить: IDs alter storage predicates\n\nFinding 5691dba11c2a; assessment reproduced-qualified; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md\nActual get/delete on installed LanceDB 0.39.0 fail for quoted ID and predicate-shaped ID deletes two rows. Locked 0.33.0 and external input reachability untested.\nget/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.\n\nCurrent intake: fix; assessed severity P2; source owner mempalace_code/storage.py; snapshot line 1315. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6ddfa8fbabc3260351cd54519541cbac43f4222d863aa3cbccba0bbfb4434fc2",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/storage.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "get/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+            "ready": true,
+            "created_at": "2026-10-01T22:35:59.161175Z",
+            "updated_at": "2026-10-01T22:35:59.259626Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_039c7a1804aca904a03a86ec38957fdd",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-5691DBA11C2A",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:1742f9278e675cfd8c2cc1c5f6b8f8e408f4289eb5abbc37918b9867499f4456",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-5691DBA11C2A"
+          },
+          "created_at": "2026-10-01T22:35:59.259626Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_98137bc5b42f5fc7389d628cd1dfa4ac",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-5691DBA11C2A",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:9a1b717dbad657c2cb5afd7bcfd6cfb51a96f654ce64cd80fecae50683b11da5",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-5691DBA11C2A"
+            },
+            "created_at": "2026-10-01T23:51:52.54499Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-5691DBA11C2A",
+          "version": "v1:9a1b717dbad657c2cb5afd7bcfd6cfb51a96f654ce64cd80fecae50683b11da5",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Исправить: IDs alter storage predicates\n\nFinding 5691dba11c2a; assessment reproduced-qualified; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md\nActual get/delete on installed LanceDB 0.39.0 fail for quoted ID and predicate-shaped ID deletes two rows. Locked 0.33.0 and external input reachability untested.\nget/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.\n\nCurrent intake: fix; assessed severity P2; source owner mempalace_code/storage.py; snapshot line 1315. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6ddfa8fbabc3260351cd54519541cbac43f4222d863aa3cbccba0bbfb4434fc2",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/storage.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A02",
+              "assertion": "get/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.",
+              "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+            "result": "Verified outcome: already protected; verified. Current SQL literal owner already escapes drawer IDs. Actual quoted, predicate-shaped and backslash IDs retrieve/delete exactly and preserve neighbours on LanceDB 0.33.0 and 0.39.0. Added regressions; no unsupported exploit claim. Change/evidence revision: 1b6ec49c6e9e1be5588ca9d3e68a85d953e5fcb4. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-01T23:51:52.54499Z"
+          },
+          "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:59.161175Z",
+          "updated_at": "2026-10-01T23:51:52.54499Z"
+        },
+        "operation": {
+          "id": "op_bfc53422f1f6efd4925f7fe3ff2a8df4",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-5691dba11c2a-root-complete-v1",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:1742f9278e675cfd8c2cc1c5f6b8f8e408f4289eb5abbc37918b9867499f4456",
+            "expected_revision": 2,
+            "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+            "result": "Verified outcome: already protected; verified. Current SQL literal owner already escapes drawer IDs. Actual quoted, predicate-shaped and backslash IDs retrieve/delete exactly and preserve neighbours on LanceDB 0.33.0 and 0.39.0. Added regressions; no unsupported exploit claim. Change/evidence revision: 1b6ec49c6e9e1be5588ca9d3e68a85d953e5fcb4. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "c5cdfa02662cd75a07d565431d8ab8fef3b8f56eb872f4526f45d69798039928",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-5691DBA11C2A",
+            "version": "v1:9a1b717dbad657c2cb5afd7bcfd6cfb51a96f654ce64cd80fecae50683b11da5",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Исправить: IDs alter storage predicates\n\nFinding 5691dba11c2a; assessment reproduced-qualified; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md\nActual get/delete on installed LanceDB 0.39.0 fail for quoted ID and predicate-shaped ID deletes two rows. Locked 0.33.0 and external input reachability untested.\nget/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.\n\nCurrent intake: fix; assessed severity P2; source owner mempalace_code/storage.py; snapshot line 1315. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 6ddfa8fbabc3260351cd54519541cbac43f4222d863aa3cbccba0bbfb4434fc2",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-5691DBA11C2A.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/storage.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "get/delete принимают literal arbitrary IDs: ID с апострофом читается и удаляется точно; predicate-shaped ID не затрагивает соседние строки. Проверить pinned dependency и supported constraint; не объявлять external exploit без доказанного ввода.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+              "result": "Verified outcome: already protected; verified. Current SQL literal owner already escapes drawer IDs. Actual quoted, predicate-shaped and backslash IDs retrieve/delete exactly and preserve neighbours on LanceDB 0.33.0 and 0.39.0. Added regressions; no unsupported exploit claim. Change/evidence revision: 1b6ec49c6e9e1be5588ca9d3e68a85d953e5fcb4. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a. No live palace, push or release mutation.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#5691dba11c2a",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-01T23:51:52.54499Z"
+            },
+            "contract_digest": "sha256:21853524eb4be750c31a3acdc3864982c4be67f63360b7724d76645c2e8d9f41",
+            "ready": false,
+            "created_at": "2026-10-01T22:35:59.161175Z",
+            "updated_at": "2026-10-01T23:51:52.54499Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_87c998c13fba635d1a42acf3f827f485",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-5691DBA11C2A",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:9a1b717dbad657c2cb5afd7bcfd6cfb51a96f654ce64cd80fecae50683b11da5",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-5691DBA11C2A"
+          },
+          "created_at": "2026-10-01T23:51:52.54499Z"
+        }
+      }
+    ],
+    "seal": "a0f4dd95e4bc77d492a5a4632101cdba0a07cb4276bcfd04319f28c81fc40084"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "GREPTILE-MP-5691DBA11C2A",
+    "head": "wf2:1e0f3e8a6e6f8442a33d32a5d8a8639995904d6f20607b01dc6bc800eb9a2aa7",
+    "nodes": [
+      {
+        "version": "wf2:1e0f3e8a6e6f8442a33d32a5d8a8639995904d6f20607b01dc6bc800eb9a2aa7",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-greptile-20261002",
+        "request_id": "greptile-20261002-root-5691dba11c2a-plan-v1",
+        "request_hash": "e0c65611097bbb726067cec96074f42e80cc8d917779d24ba4d659da51296849",
+        "payload": {
+          "request_id": "greptile-20261002-root-5691dba11c2a-plan-v1",
+          "id": "GREPTILE-MP-5691DBA11C2A",
+          "expected_planning_version": "unplanned",
+          "reason": "Authorized root-main intake of the same nineteen accepted finding contracts; fixes ordered before bounded verification work.",
+          "priority": "P2",
+          "order": 7
+        },
+        "state": {
+          "order": 7,
+          "priority": "P2",
+          "required": true,
+          "version": "wf2:1e0f3e8a6e6f8442a33d32a5d8a8639995904d6f20607b01dc6bc800eb9a2aa7"
+        },
+        "created_at": "2026-10-01T22:35:59.364992Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_1e0f3e8a6e6f8442a33d32a5d8a8639995904d6f20607b01dc6bc800eb9a2aa7",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-5691DBA11C2A",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:1e0f3e8a6e6f8442a33d32a5d8a8639995904d6f20607b01dc6bc800eb9a2aa7",
+            "data": {
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-5691DBA11C2A",
+              "subject_id": "GREPTILE-MP-5691DBA11C2A",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T22:35:59.364992Z"
+          }
+        ]
+      }
+    ],
+    "seal": "7e5205aa56965852c39d21b152c4da44282942383080f38818173c277dc592ae"
+  },
+  "seal": "cfb35fb29994e45f4a260dbf8feea0dc815e2995d7544f279c409cb64fed8cb1"
+}

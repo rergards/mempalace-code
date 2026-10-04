@@ -77,6 +77,34 @@ def _use_deterministic_test_embedder(monkeypatch, request):
     monkeypatch.setattr(LanceStore, "_get_embedder", lambda self: _DeterministicTestEmbedder())
 
 
+@pytest.fixture
+def pin_cosine(monkeypatch):
+    """Return ``pin(text, cosine, axis, base=0)`` for exact-cosine similarity tests.
+
+    ``pin`` embeds *text* as a unit vector whose cosine with basis vector *base*
+    is exactly *cosine*; the remainder lies on basis vector *axis*. Two texts
+    pinned to one base on different axes therefore have cosine ``c1 * c2``.
+    Unpinned texts keep the deterministic hash embedder.
+    """
+    from mempalace_code.storage import LanceStore
+
+    pinned: dict[str, list[float]] = {}
+
+    class _PinnedEmbedder(_DeterministicTestEmbedder):
+        def _embed(self, text):
+            return pinned.get(text) or super()._embed(text)
+
+    def pin(text: str, cosine: float, axis: int, base: int = 0) -> str:
+        vec = [0.0] * _DeterministicTestEmbedder._DIM
+        vec[base] = cosine
+        vec[axis] = math.sqrt(1.0 - cosine * cosine)
+        pinned[text] = vec
+        return text
+
+    monkeypatch.setattr(LanceStore, "_get_embedder", lambda self: _PinnedEmbedder())
+    return pin
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _isolate_home():
     """Ensure HOME points to a temp dir for the entire test session.
@@ -92,6 +120,55 @@ def _isolate_home():
         else:
             os.environ[var] = orig
     shutil.rmtree(_session_tmp, ignore_errors=True)
+
+
+_EXCLUSIVE_INSTALL_HOLDER = """
+import sys, time
+from pathlib import Path
+from mempalace_code.operation_lock import OperationLock
+
+with OperationLock.default().acquire_exclusive("update"):
+    Path(sys.argv[1]).write_text("held")
+    while not Path(sys.argv[2]).exists():
+        time.sleep(0.02)
+"""
+
+
+@pytest.fixture
+def exclusive_install_lease_elsewhere(tmp_path):
+    """Return a context manager that holds the exclusive install lease from another process.
+
+    Holding it in the test process would not refuse a writer: a process that already
+    holds the install lease (an update running maintenance) may write.
+    """
+    import contextlib
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    repo_root = str(Path(__file__).resolve().parent.parent)
+
+    @contextlib.contextmanager
+    def hold():
+        ready, release = tmp_path / "install-lease.ready", tmp_path / "install-lease.release"
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [repo_root, env.get("PYTHONPATH")]))
+        proc = subprocess.Popen(
+            [sys.executable, "-c", _EXCLUSIVE_INSTALL_HOLDER, str(ready), str(release)], env=env
+        )
+        try:
+            deadline = time.monotonic() + 30
+            while not ready.exists():
+                assert proc.poll() is None, "install lease holder exited early"
+                assert time.monotonic() < deadline, "timed out waiting for the lease holder"
+                time.sleep(0.02)
+            yield
+        finally:
+            release.write_text("go")
+            proc.wait(timeout=30)
+
+    return hold
 
 
 @pytest.fixture

@@ -1,0 +1,593 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "GREPTILE-MP-464AF1EBC626",
+      "version": "v1:cfb8e11ea1d3486c222f316573b0ca5ee70e70ba76c7d405be5e2273589920da",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Исправить: Backup loses committed graph facts\n\nFinding 464af1ebc626; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md\nActual isolated WAL-reader or injected mine/upsert failure reproduced; see evidence/mempalace-verified-findings.json.\nBackup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.\n\nCurrent intake: fix; assessed severity P1; source owner mempalace_code/backup.py; snapshot line 421. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 12daeed04ce01727b0f5e649ad9737cb91bd1637fecc5340357ed0b67f3976ee",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md"
+          },
+          {
+            "type": "file",
+            "uri": "mempalace_code/backup.py"
+          }
+        ],
+        "exclusions": [
+          "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+          "Other repositories and architecture or ownership boundary changes without owner approval.",
+          "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+          "Unrelated implementation, dependencies, backlog tasks or worksets."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+          "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+        },
+        {
+          "id": "A02",
+          "assertion": "Backup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.",
+          "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+        "result": "Verified outcome: fixed. An actual held WAL reader reproduced a missing committed row. SQLite backup snapshots include both committed rows; peak disk accounting includes concurrent snapshot and archive; refusal precedes output and retention. Change/evidence revision: 1b6ec49c6e9e1be5588ca9d3e68a85d953e5fcb4. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626. No live palace, push or release mutation.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-01T23:51:51.70337Z"
+      },
+      "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+      "ready": false,
+      "created_at": "2026-10-01T22:35:58.204134Z",
+      "updated_at": "2026-10-01T23:51:51.70337Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-464AF1EBC626",
+          "version": "v1:3f570f76cd2eb4c4f325c265a983104be3fdc08b42a617180cdb7d075eb19b3b",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Исправить: Backup loses committed graph facts\n\nFinding 464af1ebc626; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md\nActual isolated WAL-reader or injected mine/upsert failure reproduced; see evidence/mempalace-verified-findings.json.\nBackup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.\n\nCurrent intake: fix; assessed severity P1; source owner mempalace_code/backup.py; snapshot line 421. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 12daeed04ce01727b0f5e649ad9737cb91bd1637fecc5340357ed0b67f3976ee",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/backup.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A02",
+              "assertion": "Backup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.",
+              "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:58.204134Z",
+          "updated_at": "2026-10-01T22:35:58.204134Z"
+        },
+        "operation": {
+          "id": "op_a812e57c61c50a4c3acecaae7a76e250",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-464af1ebc626-create-v1",
+          "kind": "create",
+          "payload": {
+            "id": "GREPTILE-MP-464AF1EBC626",
+            "outcome": "Исправить: Backup loses committed graph facts\n\nFinding 464af1ebc626; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md\nActual isolated WAL-reader or injected mine/upsert failure reproduced; see evidence/mempalace-verified-findings.json.\nBackup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.\n\nCurrent intake: fix; assessed severity P1; source owner mempalace_code/backup.py; snapshot line 421. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 12daeed04ce01727b0f5e649ad9737cb91bd1637fecc5340357ed0b67f3976ee",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/backup.py"
+                }
+              ],
+              "exclusions": [
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "Backup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": null
+          },
+          "request_hash": "d2fa32db9155f9d458a2f70a2d65fd2d46ee798d8121c5de5a228bda4c392a68",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-464AF1EBC626",
+            "version": "v1:3f570f76cd2eb4c4f325c265a983104be3fdc08b42a617180cdb7d075eb19b3b",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Исправить: Backup loses committed graph facts\n\nFinding 464af1ebc626; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md\nActual isolated WAL-reader or injected mine/upsert failure reproduced; see evidence/mempalace-verified-findings.json.\nBackup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.\n\nCurrent intake: fix; assessed severity P1; source owner mempalace_code/backup.py; snapshot line 421. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 12daeed04ce01727b0f5e649ad9737cb91bd1637fecc5340357ed0b67f3976ee",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/backup.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "Backup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+            "ready": false,
+            "created_at": "2026-10-01T22:35:58.204134Z",
+            "updated_at": "2026-10-01T22:35:58.204134Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_736ba4b9650588adbd374211bcac9e97",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-464AF1EBC626",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:3f570f76cd2eb4c4f325c265a983104be3fdc08b42a617180cdb7d075eb19b3b",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-464AF1EBC626"
+          },
+          "created_at": "2026-10-01T22:35:58.204134Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_2f499c4f841a132519ce35a2df4e1cb2",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-464AF1EBC626",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:fff1a7c5d787df6b5eede7ea2548d52f3408ad73fa591750afd031f894aa8c13",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-464AF1EBC626"
+            },
+            "created_at": "2026-10-01T22:35:58.280945Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-464AF1EBC626",
+          "version": "v1:fff1a7c5d787df6b5eede7ea2548d52f3408ad73fa591750afd031f894aa8c13",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Исправить: Backup loses committed graph facts\n\nFinding 464af1ebc626; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md\nActual isolated WAL-reader or injected mine/upsert failure reproduced; see evidence/mempalace-verified-findings.json.\nBackup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.\n\nCurrent intake: fix; assessed severity P1; source owner mempalace_code/backup.py; snapshot line 421. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 12daeed04ce01727b0f5e649ad9737cb91bd1637fecc5340357ed0b67f3976ee",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/backup.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A02",
+              "assertion": "Backup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.",
+              "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:58.204134Z",
+          "updated_at": "2026-10-01T22:35:58.280945Z"
+        },
+        "operation": {
+          "id": "op_65c3b258a32adbba8c8d2ddd8d0c43ed",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-464af1ebc626-open-v1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:3f570f76cd2eb4c4f325c265a983104be3fdc08b42a617180cdb7d075eb19b3b",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "4c2ecc70bfee37fa8901babb59ead5ff8dda56c8b94995c46399b9819ea964f4",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-464AF1EBC626",
+            "version": "v1:fff1a7c5d787df6b5eede7ea2548d52f3408ad73fa591750afd031f894aa8c13",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Исправить: Backup loses committed graph facts\n\nFinding 464af1ebc626; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md\nActual isolated WAL-reader or injected mine/upsert failure reproduced; see evidence/mempalace-verified-findings.json.\nBackup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.\n\nCurrent intake: fix; assessed severity P1; source owner mempalace_code/backup.py; snapshot line 421. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 12daeed04ce01727b0f5e649ad9737cb91bd1637fecc5340357ed0b67f3976ee",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/backup.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "Backup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+            "ready": true,
+            "created_at": "2026-10-01T22:35:58.204134Z",
+            "updated_at": "2026-10-01T22:35:58.280945Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_80b5f10cb1a93970bb5780417edc9d50",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-464AF1EBC626",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:fff1a7c5d787df6b5eede7ea2548d52f3408ad73fa591750afd031f894aa8c13",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-464AF1EBC626"
+          },
+          "created_at": "2026-10-01T22:35:58.280945Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_3437ac08a5324d797fbe98edc1125364",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-464AF1EBC626",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:cfb8e11ea1d3486c222f316573b0ca5ee70e70ba76c7d405be5e2273589920da",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-464AF1EBC626"
+            },
+            "created_at": "2026-10-01T23:51:51.70337Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-464AF1EBC626",
+          "version": "v1:cfb8e11ea1d3486c222f316573b0ca5ee70e70ba76c7d405be5e2273589920da",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Исправить: Backup loses committed graph facts\n\nFinding 464af1ebc626; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md\nActual isolated WAL-reader or injected mine/upsert failure reproduced; see evidence/mempalace-verified-findings.json.\nBackup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.\n\nCurrent intake: fix; assessed severity P1; source owner mempalace_code/backup.py; snapshot line 421. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 12daeed04ce01727b0f5e649ad9737cb91bd1637fecc5340357ed0b67f3976ee",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/backup.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A02",
+              "assertion": "Backup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.",
+              "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+            "result": "Verified outcome: fixed. An actual held WAL reader reproduced a missing committed row. SQLite backup snapshots include both committed rows; peak disk accounting includes concurrent snapshot and archive; refusal precedes output and retention. Change/evidence revision: 1b6ec49c6e9e1be5588ca9d3e68a85d953e5fcb4. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-01T23:51:51.70337Z"
+          },
+          "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:58.204134Z",
+          "updated_at": "2026-10-01T23:51:51.70337Z"
+        },
+        "operation": {
+          "id": "op_48fceecd0aa43969ee6c64cecedf8916",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-464af1ebc626-root-complete-v1",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:fff1a7c5d787df6b5eede7ea2548d52f3408ad73fa591750afd031f894aa8c13",
+            "expected_revision": 2,
+            "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+            "result": "Verified outcome: fixed. An actual held WAL reader reproduced a missing committed row. SQLite backup snapshots include both committed rows; peak disk accounting includes concurrent snapshot and archive; refusal precedes output and retention. Change/evidence revision: 1b6ec49c6e9e1be5588ca9d3e68a85d953e5fcb4. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "a41d2d6eaf733bb2002606c7d5369583c0a7f814a62417ce20f6e38d1d165173",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-464AF1EBC626",
+            "version": "v1:cfb8e11ea1d3486c222f316573b0ca5ee70e70ba76c7d405be5e2273589920da",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Исправить: Backup loses committed graph facts\n\nFinding 464af1ebc626; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md\nActual isolated WAL-reader or injected mine/upsert failure reproduced; see evidence/mempalace-verified-findings.json.\nBackup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.\n\nCurrent intake: fix; assessed severity P1; source owner mempalace_code/backup.py; snapshot line 421. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 12daeed04ce01727b0f5e649ad9737cb91bd1637fecc5340357ed0b67f3976ee",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-464AF1EBC626.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/backup.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "Backup сохраняет committed KG facts при открытом WAL reader; после restore все подтверждённые перед snapshot строки читаются. Параллельная запись не повреждает исходную базу. Простое копирование main sqlite без snapshot неприемлемо.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+              "result": "Verified outcome: fixed. An actual held WAL reader reproduced a missing committed row. SQLite backup snapshots include both committed rows; peak disk accounting includes concurrent snapshot and archive; refusal precedes output and retention. Change/evidence revision: 1b6ec49c6e9e1be5588ca9d3e68a85d953e5fcb4. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626. No live palace, push or release mutation.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#464af1ebc626",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-01T23:51:51.70337Z"
+            },
+            "contract_digest": "sha256:43aa37fd086f1ce85a1b2dadf21f4d76393babf7d65c1421c31fec08c1a4b1e2",
+            "ready": false,
+            "created_at": "2026-10-01T22:35:58.204134Z",
+            "updated_at": "2026-10-01T23:51:51.70337Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_0e6108d10fe41708ebf13795d1b67aa5",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-464AF1EBC626",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:cfb8e11ea1d3486c222f316573b0ca5ee70e70ba76c7d405be5e2273589920da",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-464AF1EBC626"
+          },
+          "created_at": "2026-10-01T23:51:51.70337Z"
+        }
+      }
+    ],
+    "seal": "396865cdf3d95582022329204f434bde3884794a39572c1aaafbe42831fe3ef3"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "GREPTILE-MP-464AF1EBC626",
+    "head": "wf2:01570295fe1eb409d7ace5c1e3f49559deb27d787219efb29bc3f923fb47e0c1",
+    "nodes": [
+      {
+        "version": "wf2:01570295fe1eb409d7ace5c1e3f49559deb27d787219efb29bc3f923fb47e0c1",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-greptile-20261002",
+        "request_id": "greptile-20261002-root-464af1ebc626-plan-v1",
+        "request_hash": "c92f75dca08ffed1a8880cc8bb094e6895814d921edb1c8cd03af68f1098d330",
+        "payload": {
+          "request_id": "greptile-20261002-root-464af1ebc626-plan-v1",
+          "id": "GREPTILE-MP-464AF1EBC626",
+          "expected_planning_version": "unplanned",
+          "reason": "Authorized root-main intake of the same nineteen accepted finding contracts; fixes ordered before bounded verification work.",
+          "priority": "P1",
+          "order": 3
+        },
+        "state": {
+          "order": 3,
+          "priority": "P1",
+          "required": true,
+          "version": "wf2:01570295fe1eb409d7ace5c1e3f49559deb27d787219efb29bc3f923fb47e0c1"
+        },
+        "created_at": "2026-10-01T22:35:58.361147Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_01570295fe1eb409d7ace5c1e3f49559deb27d787219efb29bc3f923fb47e0c1",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-464AF1EBC626",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:01570295fe1eb409d7ace5c1e3f49559deb27d787219efb29bc3f923fb47e0c1",
+            "data": {
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-464AF1EBC626",
+              "subject_id": "GREPTILE-MP-464AF1EBC626",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T22:35:58.361147Z"
+          }
+        ]
+      }
+    ],
+    "seal": "626cd210c3c8ecfc2ef73c4f20dda40976e6288b955f0006dfbef08da1444bda"
+  },
+  "seal": "94cdf45f59891f26c68a214bb10beef08caa56dbe106a0048a8950761b47eb16"
+}

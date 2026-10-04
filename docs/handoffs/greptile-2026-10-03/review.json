@@ -1,0 +1,69 @@
+{
+  "repository": "rergards/mempalace-code",
+  "newActionableCount": 5,
+  "decisions": [
+    {
+      "findingId": "MP-MINE-K8S-SECRET-SPACING",
+      "title": "Обход Secret guard валидным YAML",
+      "action": "fix",
+      "assessment": "reproduced",
+      "severity": "P1",
+      "handoff": "issues/MP-MINE-K8S-SECRET-SPACING.md"
+    },
+    {
+      "findingId": "MP-MCP-KG-BEFORE-LEASE",
+      "title": "KG меняется до отказавшей lease",
+      "action": "fix",
+      "assessment": "reproduced",
+      "severity": "P1",
+      "handoff": "issues/MP-MCP-KG-BEFORE-LEASE.md"
+    },
+    {
+      "findingId": "MP-MCP-FILE-CONTEXT-CAP",
+      "title": "Пагинация скрывает chunks после 10000",
+      "action": "fix",
+      "assessment": "reproduced",
+      "severity": "P2",
+      "handoff": "issues/MP-MCP-FILE-CONTEXT-CAP.md"
+    },
+    {
+      "findingId": "MP-MCP-DEGRADED-RETRY",
+      "title": "Повреждённая таблица получает retry hint",
+      "action": "fix",
+      "assessment": "reproduced",
+      "severity": "P2",
+      "handoff": "issues/MP-MCP-DEGRADED-RETRY.md"
+    },
+    {
+      "findingId": "MP-MCP-CACHED-KG-NO-PALACE",
+      "title": "Cached KG пропускает no-palace response",
+      "action": "fix",
+      "assessment": "reproduced",
+      "severity": "P3",
+      "handoff": "issues/MP-MCP-CACHED-KG-NO-PALACE.md"
+    },
+    {
+      "findingId": "MP-MAINTENANCE-THREAD-BYPASS",
+      "title": "Другой thread пишет во время maintenance",
+      "action": "recheck",
+      "assessment": "previously-reproduced; current fixes in progress/unverified",
+      "severity": "P1",
+      "handoff": "issues/MP-MAINTENANCE-THREAD-BYPASS.md"
+    },
+    {
+      "findingId": "MP-ARCHIVE-PUBLISH-RACE",
+      "title": "Fallback заменяет чужой готовый archive",
+      "action": "recheck",
+      "assessment": "previously-reproduced; current fixes in progress/unverified",
+      "severity": "P2",
+      "handoff": "issues/MP-ARCHIVE-PUBLISH-RACE.md"
+    },
+    {
+      "findingId": "MP-RELATIVE-CWD-SEMANTICS",
+      "action": "hold",
+      "reason": "CWD exact precedence specified in reader owner; ambiguity P1 contract violation not established."
+    }
+  ],
+  "wholeRepositoryAuditComplete": false,
+  "coverageEvidence": "Provider self-report only; original response in evidence/; no independent full-read trace"
+}

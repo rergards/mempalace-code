@@ -13,7 +13,195 @@ from typing import Any, cast
 import pytest
 
 import mempalace_code.knowledge_graph as knowledge_graph_module
+from mempalace_code.errors import InvalidArgumentError
 from mempalace_code.storage import open_store
+
+
+def test_mine_defers_kg_until_needed_inside_lease(monkeypatch, tmp_path):
+    from contextlib import contextmanager
+
+    from mempalace_code import miner
+    from mempalace_code.mcp import runtime
+    from mempalace_code.mcp.tools.write import tool_mine
+    from mempalace_code.operation_lock import PalaceBusyError
+
+    palace = tmp_path / "palace"
+    palace.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "mempalace.yaml").write_text("project: fixture\n")
+    monkeypatch.setattr(runtime, "_config", type("Config", (), {"palace_path": str(palace)})())
+    monkeypatch.setattr(runtime, "_kg", None)
+    legacy = tmp_path / "legacy.sqlite3"
+    old_kg = knowledge_graph_module.KnowledgeGraph(str(legacy))
+    old_kg.add_triple("Legacy", "depends_on", "Dependency")
+    monkeypatch.setattr(knowledge_graph_module, "DEFAULT_KG_PATH", str(legacy))
+    monkeypatch.setattr(knowledge_graph_module, "_is_configured_palace", lambda path: True)
+    before = {p.name: p.read_bytes() for p in tmp_path.glob("legacy*")}
+    held = False
+    refuse = True
+    opens = []
+    original_open = knowledge_graph_module.open_palace_kg
+
+    @contextmanager
+    def lease(*args, **kwargs):
+        nonlocal held
+        if refuse:
+            raise PalaceBusyError(str(palace))
+        held = True
+        try:
+            yield
+        finally:
+            held = False
+
+    def observed_open(path):
+        assert held
+        opens.append(path)
+        return original_open(path)
+
+    monkeypatch.setattr(runtime, "palace_write_lease", lease)
+    monkeypatch.setattr(knowledge_graph_module, "open_palace_kg", observed_open)
+    monkeypatch.setattr(runtime, "_mine_with_quiet_fds", lambda mine, kwargs: mine(**kwargs))
+    monkeypatch.setattr(miner, "mine", lambda **kwargs: {"drawers_filed": 0})
+    assert tool_mine(str(project))["retryable"] is True
+    assert opens == []
+    assert list(palace.iterdir()) == []
+    assert {p.name: p.read_bytes() for p in tmp_path.glob("legacy*")} == before
+    refuse = False
+    assert tool_mine(str(project))["success"] is True
+    assert opens == []
+    assert list(palace.iterdir()) == []
+
+    def write_facts(**kwargs):
+        assert held
+        kwargs["kg"].add_triple("New", "depends_on", "Dependency")
+        return {"drawers_filed": 1}
+
+    monkeypatch.setattr(miner, "mine", write_facts)
+    assert tool_mine(str(project))["success"] is True
+    assert len(opens) == 1
+    assert (palace / "knowledge_graph.sqlite3").is_file()
+    assert (tmp_path / "legacy.sqlite3.adopted").is_file()
+    assert not held
+
+
+def test_cached_and_cold_kg_missing_palace_contract(monkeypatch, tmp_path):
+    from mempalace_code.mcp import runtime
+
+    palace = tmp_path / "palace"
+    moved = tmp_path / "moved"
+    palace.mkdir()
+    kg = knowledge_graph_module.KnowledgeGraph(str(palace / "knowledge_graph.sqlite3"))
+    monkeypatch.setattr(runtime, "_config", type("Config", (), {"palace_path": str(palace)})())
+    monkeypatch.setattr(runtime, "_kg", kg)
+    assert runtime._get_kg().stats()["triples"] == 0
+    palace.rename(moved)
+    with pytest.raises(runtime.NoPalaceError):
+        runtime._get_kg()
+    assert not palace.exists()
+    moved.rename(palace)
+    assert runtime._get_kg().stats()["triples"] == 0
+    palace.rename(moved)
+    monkeypatch.setattr(runtime, "_kg", None)
+    with pytest.raises(runtime.NoPalaceError):
+        runtime._get_kg()
+    assert not palace.exists()
+    palace.mkdir()
+    replacement = knowledge_graph_module.KnowledgeGraph(str(palace / "knowledge_graph.sqlite3"))
+    replacement.add_triple("Replacement", "depends_on", "Dependency")
+    monkeypatch.setattr(runtime, "_kg", kg)
+    assert runtime._get_kg().stats()["triples"] == 1
+
+
+def test_real_incremental_mcp_noop_does_not_open_or_adopt_kg(
+    monkeypatch, config, palace_path, tmp_path
+):
+    from pathlib import Path
+
+    from mempalace_code import miner
+    from mempalace_code.mcp.tools.write import tool_mine
+
+    _patch_mcp_server(monkeypatch, config, palace_path, None)
+    project = _make_mine_project(tmp_path)
+    miner.mine(project_dir=project, palace_path=palace_path, kg=None)
+    assert not (Path(palace_path) / "knowledge_graph.sqlite3").exists()
+    calls = []
+
+    def unexpected_open(path):
+        calls.append(path)
+        raise AssertionError("a no-op must not open or adopt KG")
+
+    monkeypatch.setattr(knowledge_graph_module, "open_palace_kg", unexpected_open)
+    result = tool_mine(project)
+    assert result["success"] is True
+    assert result["drawers_filed"] == 0
+    assert calls == []
+    assert not (Path(palace_path) / "knowledge_graph.sqlite3").exists()
+
+
+def test_file_context_above_cap_on_real_lance(monkeypatch, collection):
+    from mempalace_code.mcp import runtime
+    from mempalace_code.mcp.tools.search import tool_file_context
+
+    count = 10001
+    collection.add(
+        ids=[f"page-{i}" for i in range(count)],
+        documents=[f"indexed fixture line {i}" for i in range(count)],
+        metadatas=[
+            {"source_file": "large.py", "chunk_index": i, "wing": "fixture", "room": "code"}
+            for i in range(count)
+        ],
+    )
+    monkeypatch.setattr(runtime, "_get_store", lambda: collection)
+    result = tool_file_context("large.py", offset=10000)
+    assert result["total"] == count
+    assert result["next_offset"] is None
+    assert [c["id"] for c in result["chunks"]] == ["page-10000"]
+
+
+@pytest.mark.parametrize("state", ["healthy", "unopenable", "missing"])
+def test_degraded_retry_requires_a_usable_fresh_table(monkeypatch, tmp_path, state):
+    from types import SimpleNamespace
+
+    from mempalace_code.mcp import runtime
+    from mempalace_code.storage import LanceStore
+
+    palace = tmp_path / "absent-palace"
+    monkeypatch.setattr(runtime, "_config", SimpleNamespace(palace_path=str(palace)))
+    store = object.__new__(LanceStore)
+    store._read_only = True
+
+    def failed_table(name):
+        raise OSError("unopenable fixture table")
+
+    monkeypatch.setattr(
+        store,
+        "_db",
+        SimpleNamespace(open_table=failed_table) if state == "unopenable" else None,
+        raising=False,
+    )
+    store._table = store._open_or_create(False)
+    assert store._table is None
+    if state == "healthy":
+        monkeypatch.setattr(store, "_table", object())
+        monkeypatch.setattr(store, "count_by_pair", lambda *args: {})
+    calls = []
+
+    def fresh(path, *, create, read_only):
+        calls.append((path, create, read_only))
+        return store
+
+    monkeypatch.setattr(runtime, "open_store", fresh)
+    monkeypatch.setattr(runtime, "_store", store)
+    result = runtime._degraded_response(RuntimeError("old handle failed"))
+    assert calls == [(str(palace), False, True)]
+    assert runtime._store is None
+    assert not palace.exists()
+    if state == "healthy":
+        assert result["hint"] == runtime._RETRY_HINT
+    else:
+        assert result["hint"] == runtime._degraded_hint()
+        assert "server has reopened" not in result["hint"]
 
 
 class _FixedKGDateTime(datetime):
@@ -253,7 +441,11 @@ class TestHandleRequest:
         resp = handle_request({"method": "tools/call", "id": 17, "params": None})
         assert resp is not None
         assert "error" in resp
-        assert resp["error"]["code"] == -32601
+        # No tool name is a malformed call (invalid params), not an unknown tool.
+        assert resp["error"] == {
+            "code": -32602,
+            "message": "Invalid params: missing required argument(s): name",
+        }
 
 
 # ── Read Tools ──────────────────────────────────────────────────────────
@@ -597,6 +789,23 @@ class TestWriteTools:
         assert result["success"] is False
         assert "simulated storage failure" in result["error"]
 
+    def test_delete_drawer_lookup_read_error_is_a_tool_error(
+        self, monkeypatch, config, palace_path, seeded_collection, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.mcp_server import tool_delete_drawer
+        from mempalace_code.storage import LanceStore, PalaceReadError
+
+        def unreadable(self_store, *args, **kwargs):
+            raise PalaceReadError(palace_path, RuntimeError("lance fragment missing"))
+
+        monkeypatch.setattr(LanceStore, "get", unreadable)
+
+        result = tool_delete_drawer("drawer_proj_backend_aaa")
+        assert result["success"] is False
+        assert "lance fragment missing" in result["error"]
+        assert f"--palace {palace_path} health" in result["error"]
+
     def test_check_duplicate(self, monkeypatch, config, palace_path, seeded_collection, kg):
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace_code.mcp_server import tool_check_duplicate
@@ -615,6 +824,28 @@ class TestWriteTools:
             threshold=0.99,
         )
         assert result["is_duplicate"] is False
+
+    def test_duplicate_threshold_is_cosine(self, monkeypatch, config, palace_path, kg, pin_cosine):
+        """The 0.9 default means cosine 0.9: a 0.92 paraphrase is a duplicate, 0.85 is not."""
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        _ensure_store(palace_path)
+        from mempalace_code.mcp_server import tool_add_drawer, tool_check_duplicate
+
+        original = pin_cosine("Nightly backups run at 02:00 and keep 14 days.", 1.0, axis=1)
+        paraphrase = pin_cosine("Nightly backups run at 02:00.", 0.92, axis=2)
+        distinct = pin_cosine("Weekly backups run on Sundays.", 0.85, axis=3)
+        assert tool_add_drawer(wing="ops", room="backups", content=original)["success"] is True
+
+        duplicate = tool_check_duplicate(paraphrase)
+        assert duplicate["is_duplicate"] is True
+        matches = cast("list[dict[str, Any]]", duplicate["matches"])
+        assert [match["similarity"] for match in matches] == [0.92]
+        assert tool_check_duplicate(distinct) == {"is_duplicate": False, "matches": []}
+
+        refused = tool_add_drawer(wing="ops", room="backups", content=paraphrase)
+        assert refused["success"] is False
+        assert refused["reason"] == "duplicate"
+        assert tool_add_drawer(wing="ops", room="backups", content=distinct)["success"] is True
 
 
 # ── KG Tools ────────────────────────────────────────────────────────────
@@ -1071,7 +1302,7 @@ class TestCodeSearchTool:
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace_code.mcp_server import tool_code_search
 
-        result = tool_code_search(query="something", symbol_type="variable")
+        result = tool_code_search(query="something", symbol_type="no_such_kind")
         assert "error" in result
         assert "valid_symbol_types" in result
         assert "function" in result["valid_symbol_types"]
@@ -1082,9 +1313,8 @@ class TestCodeSearchTool:
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace_code.mcp_server import tool_code_search
 
-        result_zero = tool_code_search(query="code", n_results=0)
-        assert "results" in result_zero
-        assert len(result_zero["results"]) <= 1
+        with pytest.raises(InvalidArgumentError, match="n_results"):
+            tool_code_search(query="code", n_results=0)
 
         result_huge = tool_code_search(query="code", n_results=999)
         assert "results" in result_huge
@@ -1374,6 +1604,29 @@ class TestDegradedPalace:
         assert "error" not in result
         assert result["total_drawers"] == 4
 
+    def test_degraded_hint_names_the_palace_and_read_error_is_not_prefixed(
+        self, monkeypatch, config, palace_path, kg
+    ):
+        _patch_mcp_server(monkeypatch, config, palace_path, kg)
+        from mempalace_code.cli_invocation import cli_command
+        from mempalace_code.mcp import runtime
+        from mempalace_code.storage import PalaceReadError
+
+        def _unopenable(*args, **kwargs):
+            raise RuntimeError("still broken")
+
+        monkeypatch.setattr(runtime, "open_store", _unopenable)
+        exc = PalaceReadError(palace_path, RuntimeError("fragment missing"))
+
+        result = runtime._degraded_response(exc)
+        assert result["error"] == str(exc)
+        assert cli_command("health", palace=palace_path) in result["hint"]
+        assert (
+            cli_command("repair", "--rollback", "--dry-run", palace=palace_path) in (result["hint"])
+        )
+        other = runtime._degraded_response(RuntimeError("fragment missing"))
+        assert other["error"] == "palace degraded: fragment missing"
+
 
 # ── Architecture Tools (MCP-ARCH-TOOLS) ──────────────────────────────────
 
@@ -1572,13 +1825,14 @@ class TestArchTools:
         assert any(r["object"] == "MyApp" for r in contains)
 
     def test_show_project_graph_unknown_solution(self, monkeypatch, config, palace_path, dotnet_kg):
-        """F-2: solution= with no matching solution returns empty graph, no error."""
+        """arch-4: an unknown solution= is an unknown_solution error with suggestions."""
         _patch_mcp_server(monkeypatch, config, palace_path, dotnet_kg)
         from mempalace_code.mcp_server import tool_show_project_graph
 
-        result = tool_show_project_graph(solution="NoSuchSolution")
-        assert result["solution"] == "NoSuchSolution"
-        assert result["graph"] == {}
+        result = tool_show_project_graph(solution="Zzzz")
+        assert result == {"error": "unknown_solution", "solution": "Zzzz", "suggestions": []}
+        assert tool_show_project_graph(solution="MySolutoin")["suggestions"] == ["MySolution"]
+        assert "graph" in tool_show_project_graph(solution="mysolution")
 
     def test_show_type_dependencies_ancestors_and_descendants(
         self, monkeypatch, config, palace_path, dotnet_kg
@@ -2300,16 +2554,14 @@ class TestFileContextTool:
             assert field in chunk, f"Missing field: {field}"
         assert chunk["line_range"] is None  # type: ignore[reportArgumentType]  # reason: MCP tool handlers return dict[str, Any]; string key subscript is correct
 
-    def test_missing_file_returns_empty(self, monkeypatch, config, palace_path, collection, kg):
-        """AC-2: source_file not in palace → {total: 0, chunks: []} with no error key."""
+    def test_missing_file_returns_not_found(self, monkeypatch, config, palace_path, collection, kg):
+        """AC-2: source_file not in palace → not_found, like mempalace_read (no empty success)."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         from mempalace_code.mcp_server import tool_file_context
 
         result = tool_file_context(source_file="nonexistent/file.py")
 
-        assert "error" not in result
-        assert result["total"] == 0
-        assert result["chunks"] == []
+        assert result == {"error": "not_found", "source_file": "nonexistent/file.py"}
 
     def test_wing_filter_isolates_wing(self, monkeypatch, config, palace_path, collection, kg):
         """AC-3: file in two wings + wing filter → only the specified wing's chunks."""
@@ -3094,6 +3346,16 @@ except SystemExit as e:
         assert "EXIT:1" in result.stdout
         assert "cannot be combined" in result.stderr
 
+    def test_help_usage_names_installed_launcher(self, capsys):
+        """Usage names this package's console script, not upstream's mempalace-mcp."""
+        from mempalace_code.mcp import dispatch
+
+        with pytest.raises(SystemExit) as caught:
+            dispatch.main(["--help"])
+
+        assert caught.value.code == 0
+        assert capsys.readouterr().out.startswith("usage: mempalace-code-mcp ")
+
     # AC-1b (lazy startup): profile-filtered startup must not import miner/torch.
     def test_ac1b_minimal_profile_lazy_startup(self):
         import subprocess
@@ -3394,14 +3656,15 @@ class TestMCPReadSlice:
         result = tool_read("/nonexistent/source.py", start_line=1, end_line=5)
         assert result["error"] == "not_found"
 
-    def test_read_slice_stale_pointer(self, monkeypatch, config, palace_path, kg):
-        """read_slice: returns stale_pointer when range does not overlap any stored chunk (AC-5)."""
+    def test_read_slice_out_of_range(self, monkeypatch, config, palace_path, kg):
+        """read_slice: a range past the last indexed line returns out_of_range (AC-5)."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         self._seed_sliceable(palace_path)
         from mempalace_code.mcp_server import tool_read
 
         result = tool_read("/project/src/sliceable.py", start_line=100, end_line=200)
-        assert result["error"] == "stale_pointer"
+        assert result["error"] == "out_of_range"
+        assert result["last_indexed_line"] > 0
 
     def test_read_slice_invalid_range(self, monkeypatch, config, palace_path, kg):
         """read_slice: returns invalid_range when start > end (AC-5)."""

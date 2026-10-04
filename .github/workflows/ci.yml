@@ -43,10 +43,10 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip # zizmor: ignore[cache-poisoning]
@@ -55,7 +55,7 @@ jobs:
             uv.lock
       - name: Restore required MiniLM cache
         id: test-hf-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
           key: fastembed-${{ runner.os }}-x64-py${{ matrix.python-version }}-minilm-${{ hashFiles('pyproject.toml', 'uv.lock', 'benchmarks/minilm_runtime_compatibility_fixture.json') }} # zizmor: ignore[cache-poisoning]
@@ -98,10 +98,10 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
           cache: pip # zizmor: ignore[cache-poisoning]
@@ -120,8 +120,9 @@ jobs:
         # unpinned action references, expression injection, excessive job
         # permissions, and credential-persisting checkouts. Repository-local
         # composite actions are audited too, since a workflow is only as safe as
-        # the actions it calls. No audit is disabled repository-wide.
-        run: zizmor --offline --min-severity=medium .github/workflows/ .github/actions/
+        # the actions it calls, and so is the Dependabot config that proposes
+        # every pin bump. No audit is disabled repository-wide.
+        run: zizmor --offline --min-severity=medium .github/workflows/ .github/actions/ .github/dependabot.yml
       - name: Public-safety scan (tracked + staged)
         run: python scripts/public_safety_scan.py --tracked --staged
       - name: Quality scorecard (shape + determinism + public-safety)
@@ -133,14 +134,14 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: tools/gitleaks/go.mod
           # The scanner binary is built here, so a restored build cache would be
@@ -190,17 +191,19 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
           cache: pip # zizmor: ignore[cache-poisoning]
           cache-dependency-path: |
             pyproject.toml
             uv.lock
-      - run: pip install build twine
+      # The same reviewed build and twine versions as the tag build in publish.yml;
+      # both are the dev pins in uv.lock.
+      - run: pip install build==1.4.2 twine==7.0.0
       - name: Release metadata preflight
         run: python scripts/release_preflight.py
       - name: Build wheel and source distribution
@@ -219,10 +222,10 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
           cache: pip # zizmor: ignore[cache-poisoning]
@@ -239,11 +242,11 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name != 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
           cache: pip # zizmor: ignore[cache-poisoning]
@@ -284,16 +287,16 @@ jobs:
       HF_HOME: ${{ github.workspace }}/.cache/huggingface
       MEMPALACE_TEST_HF_HOME: ${{ github.workspace }}/.cache/huggingface
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
       - name: Restore required MiniLM cache
         id: hf-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
           key: fastembed-${{ runner.os }}-${{ matrix.arch }}-py${{ matrix.python }}-minilm-${{ hashFiles('pyproject.toml', 'uv.lock', 'benchmarks/minilm_runtime_compatibility_fixture.json') }} # zizmor: ignore[cache-poisoning]
@@ -576,11 +579,11 @@ jobs:
       CLEAN_ARCHITECTURE_COMMIT: 5a600ab8749c110384bc3bd436b9c67f3067b489
       R5_THRESHOLD: "0.900"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
           cache: pip # zizmor: ignore[cache-poisoning]
@@ -590,7 +593,7 @@ jobs:
 
       - name: Restore canonical FastEmbed model cache
         id: hf-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
           key: hf-${{ runner.os }}-py3.13-fastembed-minilm-v1-${{ hashFiles('pyproject.toml', 'uv.lock') }} # zizmor: ignore[cache-poisoning]
@@ -702,10 +705,10 @@ jobs:
       HF_HOME: ${{ github.workspace }}/.cache/huggingface
       MEMPALACE_TEST_HF_HOME: ${{ github.workspace }}/.cache/huggingface
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
           cache: pip # zizmor: ignore[cache-poisoning]
@@ -714,7 +717,7 @@ jobs:
             uv.lock
       - name: Restore HuggingFace model cache
         id: hf-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.cache/huggingface/mempalace-fastembed/all-MiniLM-L6-v2-v1
           key: fastembed-${{ runner.os }}-py3.13-minilm-${{ hashFiles('pyproject.toml', 'uv.lock') }} # zizmor: ignore[cache-poisoning]

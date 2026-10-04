@@ -2,4 +2,5 @@
 
 from .cli import _one_shot_main
 
-_one_shot_main()
+# Name the command, not the file: argparse would otherwise report "__main__.py".
+_one_shot_main(prog="mempalace-code")

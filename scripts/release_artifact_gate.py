@@ -30,11 +30,12 @@ from pathlib import Path
 FORBIDDEN_MEMBER_PREFIXES: tuple[str, ...] = (
     ".tasks/",
     ".protocols/",
-    # Agent tooling state holding absolute local paths. Ignored via
-    # `.git/info/exclude`, which build backends do not read, so the archive is
-    # the only place this is caught.
+    # Agent tooling state holding absolute local paths. `.gitignore` and the
+    # sdist exclude keep it out, but either can be bypassed, so the archive is
+    # the last place this is caught.
     ".codex/",
     ".codex-local/",
+    ".backlog/",
     ".claude/",
     ".github/",
     "scripts/codex-review.sh",

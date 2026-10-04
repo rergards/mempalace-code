@@ -25,6 +25,7 @@ from unittest.mock import patch
 import pytest
 
 import mempalace_code.storage as storage_owner
+from mempalace_code.mirror_preflight import classify_mirror_command
 
 ROOT = Path(__file__).parent.parent
 SHA = "a" * 40
@@ -41,6 +42,204 @@ def _load_module(name: str, path: Path):
 rrg = _load_module("release_readiness_gate", ROOT / "scripts" / "release_readiness_gate.py")
 _RUN_INSTALLED_APPLICATION = rrg._run_installed_application
 _RUN_INSTALLED_GOLDEN = rrg._run_installed_golden
+
+
+def test_installed_mirror_sample_satisfies_public_preflight_contract():
+    result = classify_mirror_command(rrg.INSTALLED_SAFE_MIRROR_COMMAND)
+    assert result.ok
+    assert not result.dangerous
+    assert result.missing_excludes == []
+
+
+def test_installed_mcp_seed_uses_project_facts_for_the_project_graph(tmp_path, monkeypatch):
+    from mempalace_code.knowledge_graph import KnowledgeGraph
+    from mempalace_code.mcp import runtime
+    from mempalace_code.mcp.tools.architecture import tool_show_project_graph
+
+    palace = tmp_path / "palace"
+    kg = KnowledgeGraph(str(palace / "knowledge_graph.sqlite3"))
+    records = [json.loads(line) for line in rrg._installed_mcp_seed_records().splitlines()]
+    triples = [record for record in records if record.get("type") == "kg_triple"]
+    triples.append(
+        {
+            "subject": "PythonModule",
+            "predicate": "depends_on",
+            "object": "PythonDependency",
+            "source_file": "fixture.py",
+        }
+    )
+    kg.import_facts(triples)
+    monkeypatch.setattr(runtime, "_config", SimpleNamespace(palace_path=str(palace)))
+    monkeypatch.setattr(runtime, "_kg", kg)
+    graph = tool_show_project_graph()["graph"]
+    assert [(row["subject"], row["object"]) for row in graph["depends_on"]] == [
+        ("SeedProject", "SeedDependency")
+    ]
+
+
+def test_installed_mcp_decoder_requires_the_exact_missing_source_guard(monkeypatch, collection):
+    from mempalace_code.mcp import runtime
+    from mempalace_code.mcp_server import handle_request
+
+    collection.add(
+        ids=["kept-fixture", "deleted-fixture"],
+        documents=["kept source", "deleted source"],
+        metadatas=[
+            {"source_file": "fixture.py", "wing": "seed", "room": "code"},
+            {"source_file": "deleted.py", "wing": "seed", "room": "code"},
+        ],
+    )
+    monkeypatch.setattr(runtime, "_get_store", lambda *args, **kwargs: collection)
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "mempalace_file_context", "arguments": {"source_file": "deleted.py"}},
+    }
+    assert rrg._installed_mcp_text_result(handle_request(request))["total"] == 1
+    collection.delete(ids=["deleted-fixture"])
+    response = handle_request(request)
+    expected = {"error": "not_found", "source_file": "deleted.py"}
+    with pytest.raises(ValueError, match="invalid result envelope"):
+        rrg._installed_mcp_text_result(response)
+    assert rrg._installed_mcp_text_result(response, expected_error=expected) == expected
+    for wrong_payload in (
+        {"error": "store_error", "source_file": "deleted.py"},
+        {"error": "not_found", "source_file": "fixture.py"},
+    ):
+        wrong = json.loads(json.dumps(response))
+        wrong["result"]["content"][0]["text"] = json.dumps(wrong_payload)
+        with pytest.raises(ValueError, match="did not match the expected error"):
+            rrg._installed_mcp_text_result(wrong, expected_error=expected)
+    for wrong_marker in (None, False, 1):
+        wrong = json.loads(json.dumps(response))
+        if wrong_marker is None:
+            wrong["result"].pop("isError")
+        else:
+            wrong["result"]["isError"] = wrong_marker
+        with pytest.raises(ValueError, match="invalid result envelope"):
+            rrg._installed_mcp_text_result(wrong, expected_error=expected)
+
+
+@pytest.mark.parametrize(
+    ("exclude", "family"),
+    [
+        ("--exclude=palace.backup-*/", "repair-backups"),
+        ("--exclude=palace.quarantine-*/", "quarantines"),
+    ],
+)
+def test_installed_mirror_sample_requires_saved_palace_copies(exclude, family):
+    command = rrg.INSTALLED_SAFE_MIRROR_COMMAND.replace(exclude + " ", "")
+    result = classify_mirror_command(command)
+    assert not result.ok
+    assert result.dangerous
+    assert family in result.missing_excludes
+
+
+@pytest.mark.parametrize("fault", ["released", "held", "malformed", "data-drift", "quarantine"])
+def test_installed_inventory_preserves_data_and_releases_leases(tmp_path, fault):
+    repository = tmp_path / "repository"
+    palace = tmp_path / "palace"
+    project = tmp_path / "project"
+    scenario = tmp_path / "scenario"
+    neutral = tmp_path / "neutral"
+    env = {
+        name: str(tmp_path / name.lower())
+        for name in ("HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME")
+    }
+    for root in (repository, palace, project, *(Path(value) for value in env.values())):
+        root.mkdir()
+    state = Path(env["HOME"]) / ".mempalace"
+    state.mkdir()
+    sentinel = state / "operator-state.txt"
+    sentinel.write_text("preserve\n", encoding="utf-8")
+    console = tmp_path / "candidate" / "bin" / "mempalace-code"
+    plugin = console.parent.parent / "plugins"
+    plugin.mkdir(parents=True)
+    attempts = tmp_path / "attempts.log"
+
+    def run(command, **kwargs):
+        args = command[1:]
+        payload = None
+        code = 0
+        output = ""
+        if args[0] == "help":
+            output = "usage: mempalace-code\n"
+        elif args[0] == "onboarding":
+            assert kwargs["input"] == ""
+            code = 1
+            output = "Onboarding aborted. No changes were saved.\n"
+        elif "wake-up" in args:
+            output = "Wake-up text\n"
+        elif args[0] == "migrate-storage":
+            code = 1
+            output = "Error: optional backend unavailable\n"
+        elif args[0] in ("wing-migration", "agent-plugin") and len(args) == 1:
+            code = 2
+            output = "usage: command; the following arguments are required: action\n"
+        elif args[:2] == ["agent-plugin", "path"]:
+            payload = {"path": str(plugin)}
+        elif "watch" in args:
+            output = "Palace: fixture\nRunnable: true\n"
+        elif "backup" in args and "create" in args:
+            Path(args[args.index("--out") + 1]).write_bytes(b"fixture archive")
+            locks = state / "locks"
+            locks.mkdir()
+            (locks / "palace-fixture.lock").write_bytes(b"")
+            (locks / "palace-fixture.lock.metadata.lock").write_bytes(b"")
+            owners = {"held-token": {"pid": 42}} if fault == "held" else {}
+            (locks / "palace-fixture.lock.owners.json").write_text(
+                "invalid" if fault == "malformed" else json.dumps(owners), encoding="utf-8"
+            )
+            if fault == "data-drift":
+                sentinel.write_text("changed\n", encoding="utf-8")
+            if fault == "quarantine":
+                (state / "palace.quarantine-fixture").mkdir()
+            output = "Archive: fixture\n"
+        elif "backup" in args and "list" in args:
+            output = str(scenario / "explicit-create.tar.gz")
+        elif args[0] == "preflight":
+            if len(args) == 1:
+                code = 2
+                output = "usage: preflight\n"
+            else:
+                mirror = classify_mirror_command(args[args.index("--command") + 1])
+                payload = {"ok": mirror.ok, "dangerous": mirror.dangerous}
+        elif args[0] == "version-check":
+            output = "Version checks:\nCurrent version:\n"
+        elif args[:2] == ["update", "status"]:
+            payload = {"ok": True, "stage": "status"}
+        elif args[:2] == ["update", "check"]:
+            attempts.write_text("blocked pypi.org:443\n", encoding="utf-8")
+            payload = {"ok": True, "stage": "check"}
+        elif args[:3] == ["update", "scheduler", "status"]:
+            payload = {"stage": "scheduler-status"}
+        elif args[:3] == ["update", "scheduler", "render"]:
+            payload = {"mempalace-update.service": "service", "mempalace-update.timer": "timer"}
+        else:
+            raise AssertionError(f"Unexpected fixture invocation: {args}")
+        if payload is not None:
+            output = json.dumps(payload)
+        return SimpleNamespace(returncode=code, stdout=output, stderr="")
+
+    failure = rrg._run_installed_cli_inventory_gap_scenario(
+        [str(console)],
+        env,
+        scenario,
+        neutral,
+        palace=palace,
+        project=project,
+        repository_root=repository,
+        network_attempts=attempts,
+        run_subprocess=run,
+    )
+    if fault == "released":
+        assert failure is None
+        assert sentinel.read_text(encoding="utf-8") == "preserve\n"
+    elif fault in ("held", "malformed"):
+        assert "left a palace write lease held" in failure
+    else:
+        assert "changed a protected disposable root" in failure
 
 
 @pytest.fixture(autouse=True)
@@ -227,7 +426,14 @@ def _golden_runner_with_model_probe_diagnostic(
 
 
 def _compress_retry_runner(fault: str):
-    state = {"compressed": False, "mixed": False, "exports": 0}
+    state = {"exports": 0, "compress_runs": 0}
+    unknown_stderr = (
+        "\n  Unknown wing: 'definitely-missing'\n"
+        "  Next: run mempalace-code status, or check mempalace_list_wings / "
+        "mempalace_list_rooms / mempalace_get_taxonomy for valid taxonomy "
+        "identifiers — filters are validated against the palace taxonomy and "
+        "suggestions are advisory only.\n"
+    )
 
     def result(returncode=0, stdout="", stderr=""):
         return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
@@ -252,11 +458,7 @@ def _compress_retry_runner(fault: str):
         palace.mkdir(parents=True, exist_ok=True)
         palace_marker = palace / "state.bin"
         if args[2] == "mine":
-            if palace_marker.exists():
-                state["mixed"] = True
-                palace_marker.write_bytes(b"initial-mixed")
-            else:
-                palace_marker.write_bytes(b"initial")
+            palace_marker.write_bytes(b"initial")
             return result(stdout="Drawers filed: 2")
 
         if args[2] == "export":
@@ -266,26 +468,15 @@ def _compress_retry_runner(fault: str):
                 {"type": "drawer", "id": "one", "text": "first", "original_tokens": 0},
                 {"type": "drawer", "id": "two", "text": "second", "original_tokens": 0},
             ]
-            if state["compressed"]:
-                records = [dict(record, original_tokens=10) for record in records]
-            if state["mixed"]:
-                records.append(
-                    {
-                        "type": "drawer",
-                        "id": "three",
-                        "text": "pending",
-                        "original_tokens": 7 if state.get("mixed_compressed") else 0,
-                    }
-                )
             if fault == "null_original_tokens" and state["exports"] == 1:
                 records[0]["original_tokens"] = None
             if fault == "string_original_tokens" and state["exports"] == 2:
-                records[0]["original_tokens"] = "10"
-            if fault == "boolean_original_tokens" and state["exports"] == 3:
-                records[0]["original_tokens"] = True
-            if fault == "negative_original_tokens" and state["exports"] == 4:
-                records[-1]["original_tokens"] = -1
-            if fault == "record_drift" and state["exports"] == 3:
+                records[0]["original_tokens"] = "0"
+            if fault == "boolean_original_tokens" and state["exports"] == 1:
+                records[0]["original_tokens"] = False
+            if fault == "compressed_original_tokens" and state["exports"] == 2:
+                records[-1]["original_tokens"] = 7
+            if fault == "record_drift" and state["exports"] == 2:
                 records[0]["text"] = "changed"
             header = {"type": "export_header", "drawer_count": len(records), "kg_count": 0}
             if fault == "count_mismatch" and state["exports"] == 1:
@@ -306,82 +497,30 @@ def _compress_retry_runner(fault: str):
             return result(stderr=stderr)
 
         if args[2] == "compress":
-            backup_root = palace.parent / "backups"
-            if "--dry-run" in args:
-                return result(stdout="Pending: 2\nskipped already compressed: 0\nTotal: 2")
             wing = args[args.index("--wing") + 1]
             if wing == "definitely-missing":
                 stdout = "unexpected stdout" if fault == "unknown_wing_extra_stdout" else ""
-                return result(
-                    2,
-                    stdout=stdout,
-                    stderr=(
-                        "\n  Unknown wing: 'definitely-missing'\n"
-                        "  Next: run mempalace-code status, or check mempalace_list_wings / "
-                        "mempalace_list_rooms / mempalace_get_taxonomy for valid taxonomy "
-                        "identifiers — filters are validated against the palace taxonomy and "
-                        "suggestions are advisory only.\n"
-                    ),
-                )
-            backup_root.mkdir(exist_ok=True)
-            if not state["compressed"]:
-                archive = backup_root / "first.tar.gz"
-                archive.write_bytes(b"first")
-                state["compressed"] = True
-                recovery_argv = [
-                    "mempalace-code",
-                    "--palace",
-                    str(palace.resolve()),
-                    "restore",
-                    str(archive),
-                    "--force",
-                ]
-                if fault == "recovery_wrong_order":
-                    recovery_argv[3], recovery_argv[4] = recovery_argv[4], recovery_argv[3]
-                elif fault == "recovery_wrong_flag":
-                    recovery_argv[1] = "--palaces"
-                elif fault == "recovery_different_palace":
-                    different_palace = palace.parent / "different-palace"
-                    different_palace.mkdir()
-                    recovery_argv[2] = str(different_palace)
-                elif fault == "recovery_different_archive":
-                    different_archive = palace.parent / "different-archive"
-                    different_archive.write_bytes(b"different")
-                    recovery_argv[4] = str(different_archive)
-                elif fault == "recovery_extra_tokens":
-                    recovery_argv.append("extra")
-                elif fault == "recovery_missing_palace":
-                    recovery_argv[2] = str(palace.parent / "missing-palace")
-                elif fault == "recovery_missing_archive":
-                    recovery_argv[4] = str(palace.parent / "missing-archive")
-                elif fault == "recovery_unresolvable_alias":
-                    loop_a = palace.parent / "loop-a"
-                    loop_b = palace.parent / "loop-b"
-                    loop_a.symlink_to(loop_b)
-                    loop_b.symlink_to(loop_a)
-                    recovery_argv[2] = str(loop_a)
-                elif fault == "canonical_recovery_alias":
-                    palace_alias = palace.parent / "palace-alias"
-                    archive_alias = palace.parent / "archive-alias"
-                    palace_alias.symlink_to(palace, target_is_directory=True)
-                    archive_alias.symlink_to(archive)
-                    recovery_argv[2] = str(palace_alias)
-                    recovery_argv[4] = str(archive_alias)
-                return result(
-                    stdout=(
-                        f"Recovery archive: {archive}\n"
-                        f"Recovery command: {shlex.join(recovery_argv)}\nStored and verified"
-                    )
-                )
-            if state["mixed"]:
-                (backup_root / "mixed.tar.gz").write_bytes(b"mixed")
-                state["mixed_compressed"] = True
-                return result(
-                    stdout="Pending: 1\nskipped already compressed: 2\nStored and verified"
-                )
-            if fault == "backup_drift":
-                (backup_root / "retry.tar.gz").write_bytes(b"retry")
-            return result(stdout="Pending: 0\nskipped already compressed: 2")
+                return result(2, stdout=stdout, stderr=unknown_stderr)
+            state["compress_runs"] += 1
+            marker = "drawers keep their verbatim text and nothing is stored"
+            if fault == "missing_verbatim_marker":
+                marker = "drawers were summarized"
+            stdout = f"  Selected 2 drawers in wing '{wing}'.\n  {marker}\n  Total: 9t -> 3t\n"
+            if "--dry-run" in args:
+                if fault == "dry_run_writes":
+                    palace_marker.write_bytes(b"initial-changed")
+                return result(stdout=stdout + "  (dry run -- nothing stored)\n")
+            if fault == "apply_writes_archive":
+                backup_root = palace.parent / "backups"
+                backup_root.mkdir(exist_ok=True)
+                (backup_root / "apply.tar.gz").write_bytes(b"apply")
+            if fault == "apply_mutates_palace":
+                palace_marker.write_bytes(b"compressed-in-place")
+            if fault == "stored_output":
+                stdout += "  Stored and verified 2 compressed drawers.\n"
+            if fault == "retry_output_drift" and state["compress_runs"] == 3:
+                stdout += "  extra summary\n"
+            return result(stdout=stdout)
 
         if args[2] == "search":
             stdout = "Results for: xylophonic_glyph_9182\nxylophonic_glyph_9182"
@@ -406,19 +545,16 @@ def _compress_retry_runner(fault: str):
         "null_original_tokens",
         "string_original_tokens",
         "boolean_original_tokens",
-        "negative_original_tokens",
+        "compressed_original_tokens",
         "malformed_export",
         "count_mismatch",
         "record_drift",
-        "recovery_wrong_order",
-        "recovery_wrong_flag",
-        "recovery_different_palace",
-        "recovery_different_archive",
-        "recovery_extra_tokens",
-        "recovery_missing_palace",
-        "recovery_missing_archive",
-        "recovery_unresolvable_alias",
-        "backup_drift",
+        "missing_verbatim_marker",
+        "dry_run_writes",
+        "apply_writes_archive",
+        "apply_mutates_palace",
+        "stored_output",
+        "retry_output_drift",
         "missing_search",
         "launch",
         "timeout",
@@ -443,21 +579,23 @@ def test_installed_compress_retry_fails_closed(tmp_path, fault):
     assert str(tmp_path) not in row["detail"]
 
 
-def test_installed_compress_retry_accepts_canonical_recovery_path_alias(tmp_path):
+def test_installed_compress_retry_passes_when_drawers_stay_verbatim(tmp_path):
     row = rrg._run_installed_compress_retry_scenario(
         ["mempalace-code"],
         {},
         tmp_path / "scenario",
         tmp_path / "neutral",
         repository_root=ROOT,
-        run_subprocess=_compress_retry_runner("canonical_recovery_alias"),
+        run_subprocess=_compress_retry_runner("none"),
     )
 
     assert row == {
         "id": "installed_golden_compress_retry",
         "command": rrg.INSTALLED_COMPRESS_RETRY_COMMAND,
         "status": "pass",
-        "detail": "dry-run, recovery, unchanged retry, refusal, mixed state, and search passed",
+        "detail": (
+            "dry-run, apply, and unchanged retry kept drawers verbatim; refusal and search passed"
+        ),
     }
 
 
@@ -741,7 +879,7 @@ def test_installed_recovery_safety_scenario_fails_closed(tmp_path, monkeypatch, 
             if fault == "forbidden-output":
                 stdout += "Traceback (most recent call last)\n"
             if fault == "unbounded-output":
-                stdout += "x" * 4001
+                stdout += "x" * (rrg.INSTALLED_PATH_CONTRACT_OUTPUT_LIMIT + 1)
             if dry_runs == 1 and fault == "scenario-byte-drift":
                 import_path.write_text("changed\n", encoding="utf-8")
             if dry_runs == 1 and fault == "neutral-cwd-drift":
@@ -761,6 +899,11 @@ def test_installed_recovery_safety_scenario_fails_closed(tmp_path, monkeypatch, 
                 stderr = "usage error\n"
             return result(2, stderr=stderr)
         if "backup" in args:
+            source = Path(args[args.index("--palace") + 1])
+            if not source.is_dir():
+                return result(
+                    1, stderr=f"  Error: No palace found at {source}; nothing to back up.\n"
+                )
             archive = Path(args[args.index("--out") + 1])
             archive.write_bytes(b"archive")
             return result(stdout=f"Backed up palace\nArchive: {archive}\n")
@@ -796,7 +939,7 @@ def test_installed_recovery_safety_scenario_fails_closed(tmp_path, monkeypatch, 
     assert str(tmp_path) not in row["detail"]
     assert len(row["detail"]) < 1400
     if fault == "success":
-        assert len(calls) == 7
+        assert len(calls) == 8
         assert all(command[0] == str(console.resolve()) for command, _kwargs in calls)
         assert all(kwargs["cwd"] == str(neutral_cwd) for _command, kwargs in calls)
         assert all(kwargs["env"] is env for _command, kwargs in calls)
@@ -1512,10 +1655,13 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
         return payloads[name]
 
     def tool_response(request, payload):
+        result: dict = {"content": [{"type": "text", "text": json.dumps(payload)}]}
+        if isinstance(payload, dict) and payload.get("error"):
+            result["isError"] = True
         return {
             "jsonrpc": "2.0",
             "id": request["id"],
-            "result": {"content": [{"type": "text", "text": json.dumps(payload)}]},
+            "result": result,
         }
 
     for tool_name in tools:
@@ -1612,7 +1758,7 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
                 elif name == "mempalace_check_duplicate":
                     payload = {"is_duplicate": arguments["content"].startswith("mcp added")}
                 elif name == "mempalace_file_context":
-                    payload = {"total": 0, "chunks": []}
+                    payload = {"error": "not_found", "source_file": "deleted.py"}
                 elif name == "mempalace_list_wings":
                     payload = {"wings": {"added_wing": 1}}
                 elif name == "mempalace_kg_query" and arguments["entity"] == "AddedEntity":
@@ -1839,8 +1985,8 @@ def test_installed_diary_blank_required_fields_scenario(tmp_path, monkeypatch, f
         option = command[5]
         stderr = (
             f"Error: {option} must not be blank.\n"
-            "Try: mempalace-code diary write --agent agent-name "
-            "--entry 'your diary entry'\n"
+            f"Try: {shlex.quote(command[0])} --palace {shlex.quote(command[2])} "
+            "diary write --agent agent-name --entry 'your diary entry'\n"
         )
         if len(calls) == 1:
             if fault == "wrong-exit":
@@ -1854,7 +2000,11 @@ def test_installed_diary_blank_required_fields_scenario(tmp_path, monkeypatch, f
                     returncode=2, stdout="", stderr="Traceback (most recent call last)\n"
                 )
             if fault == "unbounded-output":
-                return SimpleNamespace(returncode=2, stdout="x" * 4001, stderr=stderr)
+                return SimpleNamespace(
+                    returncode=2,
+                    stdout="x" * (rrg.INSTALLED_PATH_CONTRACT_OUTPUT_LIMIT + 1),
+                    stderr=stderr,
+                )
             if fault == "palace-poststate":
                 Path(command[2]).mkdir(parents=True)
             if fault == "repository-poststate":
@@ -1959,9 +2109,18 @@ def test_installed_diary_blank_required_fields_scenario(tmp_path, monkeypatch, f
         "socket-attempt",
         "repository-drift",
         "filesystem-evaluation",
+        "absolute-recovery",
+        "absolute-alias-recovery",
+        "other-launcher",
+        "wrong-recovery-action",
+        "wrong-recovery-flags",
+        "malformed-recovery",
+        "bare-other-path",
     ],
 )
-def test_installed_path_contract_scenario_fails_closed(tmp_path, monkeypatch, fault):
+@pytest.mark.parametrize("platform", ["darwin", "linux"])
+def test_installed_path_contract_scenario_fails_closed(tmp_path, monkeypatch, fault, platform):
+    monkeypatch.setattr(rrg.sys, "platform", platform)
     repository_root = tmp_path / "repository"
     repository_root.mkdir()
     (repository_root / "tracked.txt").write_text("stable\n", encoding="utf-8")
@@ -1978,6 +2137,9 @@ def test_installed_path_contract_scenario_fails_closed(tmp_path, monkeypatch, fa
     console = tmp_path / "candidate" / "bin" / "mempalace-code"
     console.parent.mkdir(parents=True)
     console.write_text("console\n", encoding="utf-8")
+    console.chmod(0o755)
+    console_alias = tmp_path / "launcher-alias"
+    console_alias.symlink_to(console.parent, target_is_directory=True)
     calls = []
 
     def result(returncode=0, stdout="", stderr=""):
@@ -2004,7 +2166,9 @@ def test_installed_path_contract_scenario_fails_closed(tmp_path, monkeypatch, fa
             if fault == "forbidden-output":
                 return result(stdout="Config saved:\nTraceback (most recent call last)\n")
             if fault == "unbounded-output":
-                return result(stdout="Config saved:\n" + "x" * 5000)
+                return result(
+                    stdout="Config saved:\n" + "x" * (rrg.INSTALLED_PATH_CONTRACT_OUTPUT_LIMIT + 1)
+                )
             return result(stdout="Config saved:\n")
         if "mine-all" in args:
             if fault == "dry-run-mutation":
@@ -2016,8 +2180,8 @@ def test_installed_path_contract_scenario_fails_closed(tmp_path, monkeypatch, fa
             (palace / "diary-state.bin").write_bytes(b"stable diary")
             acknowledgement = (
                 "Diary entry stored.\n"
-                "ID: diary_wing_contract-agent_123\n"
-                "Wing: wing_contract-agent\n"
+                "ID: diary_wing_contract_agent_123\n"
+                "Wing: wing_contract_agent\n"
                 "Room: diary\n"
                 "Topic: release-contract\n"
                 "Verify before retry: search the entry\n"
@@ -2040,12 +2204,39 @@ def test_installed_path_contract_scenario_fails_closed(tmp_path, monkeypatch, fa
                 (repository_root / "unexpected.txt").write_text("changed\n", encoding="utf-8")
             if fault == "malformed-refusal":
                 return result(returncode=2, stdout="{bad json")
-            payload = {
-                "ok": False,
-                "stage": "wrong" if fault == "wrong-confirmation" else "confirmation",
-                "exit_code": 2,
-                "recovery_command": "mempalace-code update apply --yes --json",
-            }
+            if args[1] == "scheduler" and not sys.platform.startswith("linux"):
+                # Off systemd-user hosts the scheduler reports its platform boundary.
+                payload = {
+                    "ok": False,
+                    "stage": "unsupported-platform",
+                    "exit_code": 2,
+                    "recovery_command": "mempalace-code update status --json",
+                }
+            else:
+                payload = {
+                    "ok": False,
+                    "stage": "wrong" if fault == "wrong-confirmation" else "confirmation",
+                    "exit_code": 2,
+                    "recovery_command": "mempalace-code " + " ".join(args[:-1]) + " --yes --json",
+                }
+            if fault == "absolute-recovery":
+                payload["recovery_command"] = payload["recovery_command"].replace(
+                    "mempalace-code", shlex.quote(str(console.resolve())), 1
+                )
+            elif fault == "absolute-alias-recovery":
+                payload["recovery_command"] = payload["recovery_command"].replace(
+                    "mempalace-code", shlex.quote(str(console_alias / console.name)), 1
+                )
+            elif fault == "other-launcher":
+                payload["recovery_command"] = payload["recovery_command"].replace(
+                    "mempalace-code", "/other/mempalace-code", 1
+                )
+            elif fault == "wrong-recovery-action":
+                payload["recovery_command"] = "mempalace-code update wrong --yes --json"
+            elif fault == "wrong-recovery-flags":
+                payload["recovery_command"] += " --unsafe"
+            elif fault == "malformed-recovery":
+                payload["recovery_command"] = "'unterminated"
             return result(returncode=2, stdout=json.dumps(payload))
         raise AssertionError(f"unexpected command: {command}")
 
@@ -2063,6 +2254,7 @@ def test_installed_path_contract_scenario_fails_closed(tmp_path, monkeypatch, fa
         [str(console.resolve())],
         {
             "SAFE": "1",
+            "PATH": os.defpath if fault == "bare-other-path" else str(console.parent),
             "HOME": str(home),
             "USERPROFILE": str(userprofile),
             "XDG_CONFIG_HOME": str(xdg_config),
@@ -2077,17 +2269,16 @@ def test_installed_path_contract_scenario_fails_closed(tmp_path, monkeypatch, fa
     )
 
     assert row["id"] == "installed_golden_path_contracts"
-    assert row["status"] == ("pass" if fault == "success" else "fail")
-    assert row["detail"].count(f"rerun: {rrg.INSTALLED_GOLDEN_COMMAND}") == (
-        0 if fault == "success" else 1
-    )
+    success = fault in ("success", "absolute-recovery", "absolute-alias-recovery")
+    assert row["status"] == ("pass" if success else "fail")
+    assert row["detail"].count(f"rerun: {rrg.INSTALLED_GOLDEN_COMMAND}") == (0 if success else 1)
     assert str(tmp_path) not in row["detail"]
     assert len(row["detail"]) <= 2000
     assert all(call[0][0] == str(console.resolve()) for call in calls)
     assert all(call[1]["cwd"] == str(neutral) for call in calls)
     assert all(call[1]["env"]["SAFE"] == "1" for call in calls)
     assert all(call[1]["timeout"] == rrg.DEFAULT_TIMEOUT for call in calls)
-    if fault == "success":
+    if success:
         assert len(calls) == 7
 
 
@@ -2160,7 +2351,12 @@ def test_installed_alias_target_containment_fails_closed(tmp_path, monkeypatch, 
             elif fault == "retry-mutation":
                 alias.unlink()
                 alias.symlink_to(expected_canonical.parent / "wrong-console")
-            stdout = f"  Alias ready: {alias} -> mempalace-code\n"
+            link = rrg.os.readlink(alias) if alias.is_symlink() else ""
+            stdout = (
+                f"  Alias ready: {alias} -> {link}\n"
+                f"  Note: {alias.parent} is not on PATH; add it to PATH to run `mempalace` "
+                "by name.\n"
+            )
             if fault == "polluted-output" and target_calls == 1:
                 stdout += "Traceback (most recent call last)\n"
             if fault == "oversized-output" and target_calls == 1:
@@ -2301,6 +2497,7 @@ def _audit_run(conclusion: str = "success", age_hours: int = 1) -> dict[str, obj
         "status": "completed",
         "conclusion": conclusion,
         "event": "schedule",
+        "headBranch": "main",
         "updatedAt": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
@@ -3107,25 +3304,11 @@ def test_installed_rollback_no_candidate_fails_closed(tmp_path, case):
     separator = "=" * 55
 
     def rollback_output(dry_run: bool) -> str:
-        mutation = (
-            "Mutation: preview completed; no changes were made; no restore or full rebuild "
-            "occurred."
-            if dry_run
-            else "Mutation: rollback attempted; no restore or full rebuild occurred; palace "
-            "remained unchanged."
-        )
-        exit_meaning = (
-            "Exit status: 0 (completed non-mutating preview)."
-            if dry_run
-            else "Exit status: 1 (rollback failed because no candidate was found)."
-        )
         markers = [
             "MemPalace Repair — Version Rollback",
             "Mode: dry-run" if dry_run else "Mode: live",
-            "No candidate version: only one version is available.",
-            mutation,
-            exit_meaning,
-            "Try: mempalace-code repair (full rebuild)",
+            "Palace is healthy: current version 1 (1 rows) passes all health probes.",
+            "Nothing to roll back; no changes were made.",
         ]
         return "\n".join([separator, *markers, separator, "details", separator]) + "\n"
 
@@ -3170,18 +3353,20 @@ def test_installed_rollback_no_candidate_fails_closed(tmp_path, case):
         dry_run = "--dry-run" in command
         merged = kwargs.get("stderr") is subprocess.STDOUT
         output = rollback_output(dry_run)
-        returncode = 0 if dry_run else 1
-        stdout = output if dry_run or merged else ""
-        stderr = None if merged else ("" if dry_run else output)
+        returncode = 0
+        stdout = output
+        stderr = None if merged else ""
         if rollback_count == 1:
             if case == "nonzero":
                 returncode = 2
             elif case == "missing-marker":
-                stdout = stdout.replace("No candidate version:", "Candidate absent:")
+                stdout = stdout.replace("Palace is healthy:", "Palace looks fine:")
             elif case == "reordered-marker":
                 stdout = stdout.replace(
-                    "Mode: dry-run\nNo candidate version: only one version is available.",
-                    "No candidate version: only one version is available.\nMode: dry-run",
+                    "Mode: dry-run\nPalace is healthy: current version 1 (1 rows) passes all "
+                    "health probes.",
+                    "Palace is healthy: current version 1 (1 rows) passes all health probes."
+                    "\nMode: dry-run",
                 )
             elif case == "inactive-stream":
                 stderr = "unexpected stderr"
@@ -3507,14 +3692,14 @@ def test_installed_schedule_snippet_scenario_fails_closed(tmp_path, monkeypatch,
         if "backup" in args:
             label = "backup"
             target = Path(args[args.index("--palace") + 1])
-            scheduler = "com.mempalace.backup.plist"
+            scheduler = "com.mempalace.backup.palace-root-quoted-1a2b3c4d.plist"
             raw_target = os.path.abspath(str(target))
             safe_target = shlex.quote(raw_target)
             alternate_target = shlex.quote(str(target.resolve()))
         else:
             label = "watch"
             target = Path(args[args.index("watch") + 1])
-            scheduler = "com.mempalace.watch.plist"
+            scheduler = "com.mempalace.watch.watch-root-quoted-1a2b3c4d.plist"
             raw_target = str(target.resolve())
             safe_target = shlex.quote(raw_target)
             alternate_target = shlex.quote(os.path.abspath(str(target)))
@@ -3742,7 +3927,7 @@ def test_installed_workflow_happy_path_fails_closed(tmp_path, fault):
             source = str((scenario_root / "project" / "app.py").resolve())
             recovery = shlex.join(
                 [
-                    "mempalace-code",
+                    command[0],
                     "--palace",
                     palace,
                     "read",
@@ -3792,7 +3977,15 @@ def test_installed_workflow_happy_path_fails_closed(tmp_path, fault):
                     (scenario_root.parent / "mempalace-direct-escaped.txt").write_text(
                         "escaped", encoding="utf-8"
                     )
-                return result(returncode=2, stderr="use mempalace-code backup create\n")
+                return result(
+                    returncode=1,
+                    stderr=(
+                        f"  Error: {archive} is not a restorable MemPalace backup "
+                        "(missing_metadata: mempalace_backup/metadata.json).\n"
+                        f"  Next: check the archive with: tar -tzf {archive}; list this "
+                        f"palace's archives with: mempalace-code --palace {palace} backup list\n"
+                    ),
+                )
             palace.mkdir(parents=True, exist_ok=True)
             (palace / "data.bin").write_bytes(b"restored")
             return result(stdout=f"Restored palace to: {palace}\n")
@@ -5314,35 +5507,69 @@ def test_installed_optional_extras_exclude_retired_chroma(tmp_path):
 def test_installed_spellcheck_evidence_requires_exact_correction():
     source = "> mispelled quick brown fox\nassistant: unchanged\n"
     expected = "> misspelled quick brown fox\nassistant: unchanged\n"
+    base = {"autocorrect": False, "mined": source, "output": source}
 
     assert (
         rrg._installed_spellcheck_evidence_error(
-            {"autocorrect": False, "output": source},
-            {"autocorrect": True, "output": expected},
+            base,
+            {"autocorrect": True, "mined": source, "output": expected},
             source=source,
             expected=expected,
         )
         is None
     )
     assert rrg._installed_spellcheck_evidence_error(
-        {"autocorrect": False, "output": source},
-        {"autocorrect": True, "output": "> misspeled quick brown fox\nassistant: unchanged\n"},
+        base,
+        {
+            "autocorrect": True,
+            "mined": source,
+            "output": "> misspeled quick brown fox\nassistant: unchanged\n",
+        },
         source=source,
         expected=expected,
     )
 
 
+def test_installed_spellcheck_evidence_rejects_rewritten_mined_text():
+    source = "> mispelled quick brown fox\nassistant: unchanged\n"
+    expected = "> misspelled quick brown fox\nassistant: unchanged\n"
+
+    assert rrg._installed_spellcheck_evidence_error(
+        {"autocorrect": False, "mined": source, "output": source},
+        {"autocorrect": True, "mined": expected, "output": expected},
+        source=source,
+        expected=expected,
+    ) == ("installed spellcheck extra rewrote mined conversation text")
+
+
+def test_installed_spellcheck_probe_reports_verbatim_mining(tmp_path):
+    fixture = tmp_path / "spellcheck-fixture.txt"
+    fixture.write_text("> mispelled quick brown fox\nassistant: unchanged\n", encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, "-c", rrg.INSTALLED_SPELLCHECK_PROBE, str(fixture)],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(ROOT)},
+    )
+    probe = json.loads(completed.stdout)
+
+    assert probe["mined"] == fixture.read_text(encoding="utf-8")
+
+
 def test_installed_treesitter_evidence_requires_complete_ordered_chunks():
     chunks = [
         {
-            "strategy": "treesitter_v1",
+            "strategy": "treesitter_v3",
             "start": 0,
             "end": 100,
             "marker": "alpha",
             "exact": True,
         },
         {
-            "strategy": "treesitter_v1",
+            "strategy": "treesitter_v3",
             "start": 101,
             "end": 200,
             "marker": "beta",

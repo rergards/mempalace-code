@@ -8,7 +8,7 @@
 > - NEVER use `sudo`. All install paths are user-level.
 > - NEVER make path or scope decisions without asking the human first.
 > - When a step says **ASK HUMAN**, pause and wait for a reply before continuing.
-> - All commands target Unix/macOS. Windows is out of scope for v1.0.
+> - All commands target Unix/macOS. Windows is not supported by this runbook.
 
 ---
 
@@ -32,10 +32,10 @@ feature checklist, not an install step.
 Language support summary:
 - `code_search(language=...)` accepts 45 searchable labels from the shared miner catalog.
 - Tree-sitter AST when `[treesitter]` is installed: Python, TypeScript, JavaScript, TSX, JSX, Go, Rust.
-- Regex structural: Java, Kotlin, C#, F#, VB.NET, XAML, Swift, PHP, Scala, Dart, Lua, Ruby, Terraform/HCL.
+- Regex structural: Java, Kotlin, C#, F#, VB.NET, Swift, PHP, Scala, Dart, Lua, Terraform/HCL.
 - YAML-aware/static: Kubernetes manifests, Helm charts/templates, Ansible playbooks/roles/inventory.
 - Prose/metadata: Markdown and plain text keep heading paths and section flags.
-- Adaptive/searchable: C/C++, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, config.
+- Adaptive/searchable: C/C++, Ruby, XAML, shell, SQL, HTML/CSS, JSON/YAML/TOML, CSV, Dockerfile, Make, templates, config.
 - Extensions outside the miner catalog are skipped by normal scans unless an exact file path is force-included.
 
 Evaluation output contract:
@@ -170,7 +170,8 @@ read-only Linux eligibility checks pass.
 **Parse response:**
 - `default` → Set `PALACE_PATH=~/.mempalace/palace`.
 - An absolute path (starts with `/` or `~/`) → Set `PALACE_PATH=<that path>`.
-- A `MEMPALACE_PALACE_PATH=...` export → Record the env var; set `PALACE_PATH` from it.
+- A `MEMPALACE_PALACE_PATH=...` export → Record the env var; set `PALACE_PATH` from it. Step 4a
+  still persists the path: MCP clients do not inherit this shell's environment.
 - Anything else → Repeat once. If still unclear, stop and ask the human for `default`, an absolute path, or an environment-variable export; do not choose a storage path.
 
 **Note:** `PALACE_PATH` is the vector DB storage location. It is separate from the project directory passed to `mempalace-code init`.
@@ -219,7 +220,7 @@ Each notification check reads package metadata only and does not install package
 - `full` — all 29 tools (direct-server default; no surface reduction)
 - `minimal` — 4 tools: status, search, duplicate check, and store
 - `kg` — 8 tools: minimal + temporal knowledge graph
-- `code` — 10 tools: code archaeology (no drawer-write/diary)
+- `code` — 11 tools: code archaeology (no drawer-write/diary)
 - `notes` — 12 tools: knowledge management + diary (no code-search)
 
 If unsure, reply `minimal` for a bounded memory-only trial. Choose `code` for code
@@ -241,7 +242,10 @@ archaeology or `full` only when the workflow needs the broader surfaces."
 
 **Parse response:**
 - `project:/abs/path` → Set `MINE_PATH=<path>` and `MINE_MODE=projects`.
-- `convos:/abs/path` → Set `MINE_PATH=<path>` and `MINE_MODE=convos`.
+- `convos:/abs/path` → Set `MINE_PATH=<path>` and `MINE_MODE=convos`. The path may be a
+  directory or a single conversation file (`.txt`, `.md`, `.json`, `.jsonl`). A later
+  incremental convos mine keeps the drawers of transcripts deleted from disk (it only counts
+  them); only `mine <path> --mode convos --full` over the directory removes them.
 - A bare absolute path → Set `MINE_PATH=<that path>` and `MINE_MODE=projects`.
 - `skip` → Set `MINE_PATH=skip` and `MINE_MODE=projects`.
 - Anything else → Repeat once. If still unclear, stop and ask the human for a path or `skip`; do not infer a corpus to mine.
@@ -342,9 +346,20 @@ Any branch failure stops. Retry the same displayed branch command or return to Q
 human choice; never fall through to another installer.
 
 Bootstrap accepts only an absolute venv path whose final node is absent or a real directory. It
-reuses an existing venv only when its interpreter prefix matches that directory. It never replaces
-`~/.local/bin/mempalace-code` and leaves any existing `mempalace` alias untouched. On a launcher
+reuses an existing venv only when its interpreter prefix matches that directory, and a rerun
+upgrades that venv to the newest release (`pip install --upgrade`). That rerun upgrade bypasses
+`update apply`'s watcher coordination and compatible-major limit: to upgrade an existing
+bootstrap venv, prefer `"$MEMPALACE_BIN" update apply --yes`, or stop running watchers first. It never replaces
+`~/.local/bin/mempalace-code` or `~/.local/bin/mempalace-code-mcp`, and it checks both before it
+creates or populates a venv, so a collision leaves nothing installed. It leaves any existing
+`mempalace` alias untouched, and recognizes the one it created itself. When no
+`mempalace` command is on `PATH` and `~/.local/bin/mempalace` is absent, bootstrap itself creates the
+optional `~/.local/bin/mempalace -> ~/.local/bin/mempalace-code` alias (see Step 3.5). On a launcher
 collision, inspect the reported path and move it aside only with the owner's approval before retrying.
+
+Only the default `~/.mempalace/venv` is a supported `update apply` target. A custom
+`MEMPALACE_VENV` installs and runs, but `update status` reports it as an ambiguous virtual
+environment and package updates refuse it; tell the human before choosing a custom venv.
 
 ---
 
@@ -356,7 +371,8 @@ post-install command that could otherwise show the first-run prompt.
 
 ```bash
 test -x "$MEMPALACE_BIN"
-MEMPALACE_MCP="$(dirname "$MEMPALACE_BIN")/mempalace-code-mcp"
+# ~/.local/bin launchers can be symlinks; the MCP sibling lives beside the real file.
+MEMPALACE_MCP="$(dirname "$(realpath "$MEMPALACE_BIN")")/mempalace-code-mcp"
 test -x "$MEMPALACE_MCP"
 "$MEMPALACE_BIN" version-check --disable  # Q5 default/No/empty/EOF/malformed
 # or, only for an explicit Q5 yes:
@@ -388,6 +404,7 @@ the command name is unused:
 command -v mempalace || "$MEMPALACE_BIN" install-alias
 ```
 
+The bootstrap branch already created this alias when the name was free, so the check finds it.
 If `command -v mempalace` prints a path, leave it untouched. It may belong to
 upstream/vanilla MemPalace or another local install.
 
@@ -405,7 +422,7 @@ The palace storage path resolves in this priority order:
 3. Default: `~/.mempalace/palace`
 
 **Check (custom path case):**
-If `PALACE_PATH != ~/.mempalace/palace`, set the env var so all subsequent commands use it:
+If `PALACE_PATH != ~/.mempalace/palace`, set the env var so the commands in this shell use it:
 ```bash
 test -n "${PALACE_PATH:-}"
 case "$PALACE_PATH" in
@@ -415,8 +432,11 @@ case "$PALACE_PATH" in
 esac
 export MEMPALACE_PALACE_PATH="$PALACE_PATH"
 ```
-To make it permanent, update `~/.mempalace/config.json` atomically. Pass the custom path as
-an argument; never interpolate it into Python or shell source:
+**Required for a custom path:** persist it as well. MCP clients start `mempalace-code-mcp`
+without this shell's environment, and the launcher has no `--palace` option, so with only the
+session variable the MCP server would open the default palace instead. Update
+`~/.mempalace/config.json` atomically. Pass the custom path as an argument; never interpolate it
+into Python or shell source:
 ```bash
 mkdir -p ~/.mempalace
 python3 - "$PALACE_PATH" <<'PY'
@@ -452,21 +472,24 @@ PY
 
 **Pass →** Output is `palace_path written`. Continue to Step 4b.
 
-**Fail →** The previous config remains in place. Exact session-only recovery:
-`export MEMPALACE_PALACE_PATH="$PALACE_PATH"`. Fix the reported permission or JSON error before
+**Fail →** The previous config remains in place. `export MEMPALACE_PALACE_PATH="$PALACE_PATH"`
+keeps the CLI in this shell on the custom palace, but it does not reach MCP clients: do not wire
+MCP (Section 5) until this block succeeds. Fix the reported permission or JSON error before
 rerunning the same bounded persistence block once.
 
-**Default path case:** No action needed — `mempalace-code init` will create `~/.mempalace/palace` automatically.
+**Default path case:** No action needed. `mempalace-code init` writes only project configuration;
+the first successful `mine` (Step 4d) creates the palace directory.
 
 ---
 
 ### Step 4b: Initialize a project directory
 
-**Condition:** `MINE_PATH != skip`
+**Condition:** `MINE_PATH != skip` and `MINE_PATH` is a directory. A single conversation file
+needs no init; continue to Step 4c.
 
 Run:
 ```bash
-"$MEMPALACE_BIN" init "<MINE_PATH>" --skip-model-download
+"$MEMPALACE_BIN" init "$MINE_PATH" --skip-model-download
 ```
 
 Every init uses `--skip-model-download`, including the affirmative model branch. This makes
@@ -474,14 +497,21 @@ declined and offline setup network-safe and retry order independent. `mempalace-
 otherwise non-interactive by default — it detects rooms from the folder structure
 and writes `mempalace.yaml` without prompting. The `--yes` flag is accepted for backward
 compatibility with existing scripts but is no longer required.
+Re-running init is idempotent: it keeps an existing `mempalace.yaml` and `entities.json` and
+exits 0. `init --force` regenerates the rooms while keeping the wing and other settings, backs
+the old file up to `mempalace.yaml.bak`, and needs `mine "$MINE_PATH" --full` afterwards.
+Without a TTY, `--detect-entities` auto-accepts detected names (as with `--yes`), and
+`--interactive` exits 2 before writing rooms unless `--yes` is given.
 Heuristic people/project entity detection is opt-in; add `--detect-entities` only when the
 human explicitly wants entity detection during initialization.
 
 `--detect-entities` is intended for prose-heavy folders (meeting notes, client notes,
 personal notes, conversation exports), not ordinary code repos. It samples up to 10
 readable files, prefers prose extensions (`.md`, `.txt`, `.rst`, `.csv`), reads the first
-5 KB of each sampled file, and looks for heuristic people/project signals. If candidates
-are confirmed, init writes `<MINE_PATH>/entities.json` with:
+5 KB of each sampled file, and looks for heuristic people/project signals. Only names that
+appear at least 3 times in that sample are candidates, and with `--yes` names classified as
+UNCERTAIN are dropped. If candidates are confirmed, init writes
+`<MINE_PATH>/entities.json` with:
 
 ```json
 {"people": ["Alice"], "projects": ["Apollo"]}
@@ -536,10 +566,10 @@ command: `"$MEMPALACE_BIN" fetch-model`. Do not run it during init, verification
 **Condition:** `MINE_PATH != skip` and `MODEL_READY=true`
 
 ```bash
-"$MEMPALACE_BIN" mine "<MINE_PATH>" --mode "<MINE_MODE>"
+"$MEMPALACE_BIN" mine "$MINE_PATH" --mode "$MINE_MODE"
 ```
 
-**Pass →** Exit code 0. Output ends with a filed-drawer count. Continue to Section 5.
+**Pass →** Exit code 0. Output contains a `Drawers filed: N` line. Continue to Section 5.
 
 **Fail →** Mine failed. **ASK HUMAN:** "Mining `<MINE_PATH>` failed. Error: `<paste stderr>`. Reply `retry` or `skip`."
 
@@ -569,6 +599,13 @@ revision, while a legacy client calling `initialize` gets the same handshake
 it always has. Existing operator registrations for either entrypoint do not
 need to change to pick this up.
 
+**Palace path:** the MCP server resolves its palace like the CLI: `MEMPALACE_PALACE_PATH` in its
+own environment, then `palace_path` in `~/.mempalace/config.json`, then `~/.mempalace/palace`.
+Clients start it without your shell's environment, so a custom path must be persisted by Step 4a.
+A client configured through JSON may instead pass an absolute `MEMPALACE_PALACE_PATH` in the
+server's `env` object (see the README's Supported MCP Clients snippet). Verify with the
+`mempalace_status` tool, whose result names the `palace_path` in use.
+
 **Fail →** If `$MEMPALACE_MCP` is missing, return to Step 3.4 and repair the selected install
 owner. Do not switch owners or use ambient Python.
 
@@ -590,8 +627,15 @@ schemas. Its `mcp.json` declares stdio transport with the installed
 only `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`, and
 `mempalace_add_drawer`.
 
-If the human selected `minimal` in Q6 and the client accepts the Agent Plugin
-directory, set MCP wiring complete and continue to Section 6.
+That `mcp.json` names the bare command `mempalace-code-mcp`, so the client must find it on its
+own `PATH`. `uv tool`, `pipx`, and bootstrap installs link it into their bin directory
+(`~/.local/bin` by default); a `project` venv provides it only when that venv's `bin` directory
+is on the client's `PATH`. Check with `command -v mempalace-code-mcp` in the environment that
+starts the client. If it is missing, use Step 5.1 or Step 5.2 with the resolved `$MEMPALACE_MCP`.
+
+If the human selected `minimal` in Q6, the client accepts the Agent Plugin
+directory, and the client can find `mempalace-code-mcp`, set MCP wiring complete and continue
+to Section 6.
 
 If the human selected `kg`, `code`, `notes`, or `full`, use Step 5.1 or Step 5.2
 for direct MCP registration with `--profile=kg`, `--profile=code`,
@@ -714,7 +758,7 @@ For MCP-capable clients:
 
 That's it. No hooks needed.
 
-> **Legacy: Claude Code auto-save hooks.** Claude Code also supports optional bash hooks that fire on Stop/PreCompact events and remind the AI to save at fixed intervals. They are independent of the Agent Plugin instruction-loading boundary and are documented in [`hooks/README.md`](../hooks/README.md).
+> **Legacy: Claude Code auto-save hooks.** Claude Code also supports optional bash hooks: a Stop hook that asks the AI to save every 15 human messages, and a non-blocking PreCompact hook that only logs and can mine a conversations directory. They are independent of the Agent Plugin instruction-loading boundary and are documented in [`hooks/README.md`](../hooks/README.md).
 
 ---
 
@@ -726,16 +770,26 @@ Run all checks. Each one is a pass/fail with an explicit failure action.
 
 ### Step 6.1: Palace integrity
 
+`init` writes only project configuration. The palace directory exists only after Step 4d mined
+successfully or when it existed before this install.
+
 ```bash
 "$MEMPALACE_BIN" --palace "$PALACE_PATH" health --json
 ```
 
 **Pass →** Exit code 0 and JSON contains `"ok": true`. The explicit `--palace` value verifies the target selected in Section 2.
 
-**Fail →** Exit code non-zero or JSON reports `"ok": false`. Likely causes: wrong `PALACE_PATH`,
-an uninitialized palace, or a storage read error. **ASK HUMAN:** "Palace integrity check failed.
-Error: `<paste stderr>`. Check `MEMPALACE_PALACE_PATH` or run
-`\"$MEMPALACE_BIN\" init <project_dir> --skip-model-download`, then reply `retry` or `skip`."
+**Not created yet →** Exit code 1, the JSON on stdout has `"error_code": "no_palace"` (its
+`"error"` reads `No palace found at <path>`; stderr is empty), and Step 4d did not
+mine (`MINE_PATH=skip` or `MODEL_READY=false`). This is the expected state, not a failure. Record
+`PALACE_STATE=not-created`, skip Step 6.2, and continue to Step 6.3. When `MODEL_READY=false`, print
+only the Step 4c recovery command `"$MEMPALACE_BIN" fetch-model`; Step 4d creates the palace after it
+succeeds. When `MINE_PATH=skip`, the human chose to run Steps 4b and 4d later.
+
+**Fail →** Any other non-zero exit, or JSON that reports `"ok": false` with an `error_code`
+other than `no_palace`. Likely causes: wrong `PALACE_PATH` or a storage read error. **ASK HUMAN:**
+"Palace integrity check failed. Error: `<paste the JSON error and error_code>`. Check `MEMPALACE_PALACE_PATH` (Step 4a) and that Step 4d mined into this
+palace, then reply `retry` or `skip`."
 
 `mempalace-code status` prints the full wing/room inventory and can grow with palace size. Do not use it as an automated verification step. When shell-based readiness metrics are needed, prefer `mempalace-code status --summary`, which prints only bounded drawer/wing/room-pair and storage metrics.
 
@@ -743,13 +797,13 @@ Error: `<paste stderr>`. Check `MEMPALACE_PALACE_PATH` or run
 
 ### Step 6.2: Search smoke test
 
-**Condition:** `MODEL_READY=true`
+**Condition:** `MODEL_READY=true` and Step 6.1 did not record `PALACE_STATE=not-created`
 
 ```bash
 "$MEMPALACE_BIN" --palace "$PALACE_PATH" search "test" --results 1
 ```
 
-**Pass →** Exit code 0. Output contains a formatted result block with `wing`, `room`, and `similarity` fields, or an `empty palace` message (acceptable for a fresh palace). Either is a pass.
+**Pass →** Exit code 0. Output contains a result block (`[1] <wing> / <room>` followed by `Source:` and `Match:` lines), or `No results found for: "test"` (acceptable for a fresh palace). Either is a pass.
 
 **Fail →** Exit code non-zero. Common causes: palace not initialized, embedding model not downloaded.
 - If model resolution fails: run `"$MEMPALACE_BIN" fetch-model` (see Step 4c), then retry.
@@ -800,7 +854,7 @@ Scheduled package updates are a **separate**, Linux-only opt-in. Run **read-only
    ```bash
    uname -s
    ```
-   Output must be `Linux`. On macOS, Windows, or any other OS: print manual update commands (see below) and skip to Step 6.6. macOS and Windows are not supported for scheduled updates in this release.
+   Output must be `Linux`. On macOS (`Darwin`): print manual update commands (see below) and skip to Step 6.6; manual `update apply --yes` is supported there, scheduled updates are not. On Windows or any other OS, package updates are unsupported: do not print `update apply`, record `SCHEDULER_CHOICE=unsupported`, and skip to Step 6.6.
 
 2. **systemd-user check:**
    ```bash
@@ -912,8 +966,8 @@ A successful install produces:
 |------|---------------|
 | `"$MEMPALACE_BIN" version-check --status` | Prints installed version and notification state |
 | `test -x "$MEMPALACE_MCP"` | Confirms the sibling installed MCP launcher |
-| `"$MEMPALACE_BIN" --palace "$PALACE_PATH" health --json` | Exit 0, JSON contains `"ok": true` |
-| `"$MEMPALACE_BIN" --palace "$PALACE_PATH" search "test" --results 1` | Required only when `MODEL_READY=true` |
+| `"$MEMPALACE_BIN" --palace "$PALACE_PATH" health --json` | Exit 0, JSON contains `"ok": true`; or `PALACE_STATE=not-created` when nothing was mined (Step 6.1) |
+| `"$MEMPALACE_BIN" --palace "$PALACE_PATH" search "test" --results 1` | Required only when `MODEL_READY=true` and a palace exists |
 | `claude mcp list \| grep mempalace-code` | Shows entry (if Claude Code target) |
 | `~/.codex/config.toml` contains `mcp_servers.mempalace-code` | Present (if Codex target) |
 
@@ -937,7 +991,7 @@ For automated installs, CI pipelines, and non-interactive agents:
   explicit `--check-now`. Run `unset MEMPALACE_VERSION_CHECK` (or set it to `1`) before retrying.
 - Without that process override, `--check-now` bypasses the interval and persisted preference.
 
-### Opt-in package updates (supported Linux installs)
+### Opt-in package updates (Linux systemd-user and macOS launchd-user)
 
 Version checks only report metadata. Package updates use the separate explicit command surface:
 
@@ -962,6 +1016,9 @@ detected extras, validates the new console and palace, then restarts that same u
 post-preflight failure rolls back through the same installer and records the failed stage plus a
 bounded log in `~/.mempalace/updates/logs/`. A watcher requires the retained `watch` extra; missing
 required extras fail before service or package mutation.
+
+On macOS, manual `apply --yes` coordinates every loaded attributable `com.mempalace.watch*`
+LaunchAgent instead of a systemd-user unit; see [`docs/UPDATES.md`](UPDATES.md#manual-update).
 
 Automatic checks are disabled by default. The update timer remains disabled until
 `mempalace-code update scheduler install --yes` completes.
@@ -1015,7 +1072,7 @@ Same as above — likely fragment corruption. Run
 
 ### "Table unreadable" or LanceDB errors
 
-Storage corruption. Use `"$MEMPALACE_BIN" --palace "$PALACE_PATH" repair --rollback`. Data added after corruption point is lost. This is why auto-backup exists (`~/.mempalace/backups/pre_optimize_*.tar.gz`). Pre-optimize archives are bounded by default (newest 5 kept); scheduled archives are bounded by default (newest 14 kept); set `MEMPALACE_BACKUP_RETAIN_COUNT=0` to keep all kinds unbounded. Successful optimize runs also perform best-effort verified stale-version cleanup; use `"$MEMPALACE_BIN" cleanup` manually for older accumulations or emergency disk recovery after stopping writers.
+Storage corruption. Use `"$MEMPALACE_BIN" --palace "$PALACE_PATH" repair --rollback`. Data added after corruption point is lost. This is why auto-backup exists (`~/.mempalace/backups/palace/pre_optimize_*.tar.gz`). Pre-optimize archives are bounded by default (newest 5 kept); scheduled archives are bounded by default (newest 14 kept); set `MEMPALACE_BACKUP_RETAIN_COUNT=0` to keep all kinds unbounded. Successful optimize runs also perform best-effort verified stale-version cleanup; use `"$MEMPALACE_BIN" cleanup` manually for older accumulations or emergency disk recovery after stopping writers.
 
 ### Re-mine doesn't fix the issue
 
@@ -1028,9 +1085,18 @@ Manual drawers are not regenerated by mining. Check if you have a backup:
 
 ### Stale installed metadata vs. imported module
 
-Symptom: `python3 -c "import mempalace_code; print(mempalace_code.__version__)"`
-and `mempalace-code version-check --status` print different versions, or one
-of them lags behind the version you expect. This means the installed tool
+Symptom: the interpreter that owns the install and the console script report
+different versions, or one of them lags behind the version you expect. Ask that
+interpreter, not ambient `python3`, which cannot import a pipx, `uv tool`, or
+bootstrap install:
+
+```bash
+MEMPALACE_PYTHON="$(dirname "$(realpath "$MEMPALACE_BIN")")/python"
+"$MEMPALACE_PYTHON" -c "import mempalace_code; print(mempalace_code.__version__)"
+"$MEMPALACE_BIN" version-check --status
+```
+
+A mismatch means the installed tool
 environment (pipx, `uv tool`, or a venv) is stale — a partial or interrupted
 install left package metadata, the imported module, and the console script
 out of sync.
@@ -1047,17 +1113,21 @@ after confirming that it is stale and owned by this install, then rerun
 `"$MEMPALACE_BIN" install-alias`.
 
 Reinstall with the tool that manages the install, using the exact pinned
-version if known:
+version if known. Keep every extra the install carries: `update status --json`
+lists them under `installation.extras`, and a reinstall without them removes them
+(for example the `watch` extra a configured watcher needs).
 
 ```bash
-# pip / venv install
-python -m pip install --upgrade --force-reinstall mempalace-code
+"$MEMPALACE_BIN" update status --json   # read installation.extras first
 
-# pipx install
+# pip / venv install: list every extra you use
+"$MEMPALACE_PYTHON" -m pip install --upgrade --force-reinstall 'mempalace-code[watch,treesitter]==X.Y.Z'
+
+# pipx install: reinstall keeps the recorded extras and injected packages
 pipx reinstall mempalace-code
 
-# uv tool install
-uv tool install --force mempalace-code
+# uv tool install: uv replaces the tool's extras, so list every extra you use
+uv tool install --force 'mempalace-code[watch,treesitter]==X.Y.Z'
 ```
 
 After reinstalling, re-run Step 3.4's post-install verification and

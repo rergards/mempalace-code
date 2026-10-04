@@ -298,6 +298,109 @@ class TestImportDedupPreventsDoubleCount:
         assert summary["skipped_duplicates"] > 0 or summary["imported_drawers"] == 0
 
 
+def _drawer_records(*drawers):
+    """Build import records from (id, wing, text) tuples."""
+    from mempalace_code.version import __version__
+
+    header = {"type": "export_header", "version": __version__}
+    return [header] + [
+        {"type": "drawer", "id": drawer_id, "wing": wing, "room": "decisions", "text": text}
+        for drawer_id, wing, text in drawers
+    ]
+
+
+class TestImportDedupUsesTargetWingCosine:
+    """Import skips only drawers whose target wing already holds cosine >= 0.9."""
+
+    def test_distinct_paraphrases_import_and_near_identical_dedups(self, tmp_path, pin_cosine):
+        store = _store(str(tmp_path / "palace"))
+        _add_manual_drawer(
+            store, wing="notes", content=pin_cosine("chose postgres for billing", 1.0, axis=1)
+        )
+        records = _drawer_records(
+            ("mysql", "notes", pin_cosine("chose mysql for billing", 0.82, axis=2)),
+            ("rejected", "notes", pin_cosine("rejected postgres for billing", 0.87, axis=3)),
+            ("near", "notes", pin_cosine("chose postgres for billing!", 0.95, axis=4)),
+        )
+
+        summary = import_jsonl(path="unused", store=store, skip_kg=True, records=records)
+
+        assert (summary["imported_drawers"], summary["skipped_duplicates"]) == (2, 1)
+        assert sorted(store.get(ids=["mysql", "rejected", "near"])["ids"]) == [
+            "mysql",
+            "rejected",
+        ]
+
+    def test_near_identical_drawer_in_another_wing_imports(self, tmp_path, pin_cosine):
+        store = _store(str(tmp_path / "palace"))
+        _add_manual_drawer(
+            store, wing="notes", content=pin_cosine("chose postgres for billing", 1.0, axis=1)
+        )
+        records = _drawer_records(
+            ("diary", "diary", pin_cosine("chose postgres for billing!", 0.95, axis=2))
+        )
+
+        summary = import_jsonl(path="unused", store=store, skip_kg=True, records=records)
+
+        assert (summary["imported_drawers"], summary["skipped_duplicates"]) == (1, 0)
+
+    def test_records_in_one_file_never_dedup_each_other(self, tmp_path, pin_cosine):
+        store = _store(str(tmp_path / "palace"))
+        records = _drawer_records(
+            ("first", "notes", pin_cosine("standup: shipped the importer", 1.0, axis=1)),
+            ("second", "notes", pin_cosine("standup: shipped the importer fix", 0.97, axis=2)),
+        )
+
+        summary = import_jsonl(path="unused", store=store, skip_kg=True, records=records)
+
+        assert (summary["imported_drawers"], summary["skipped_duplicates"]) == (2, 0)
+        assert store.count() == 2
+
+    def test_stored_or_repeated_drawer_id_is_skipped(self, tmp_path, pin_cosine):
+        """An id already in the palace or earlier in the file never becomes a second row."""
+        store = _store(str(tmp_path / "palace"))
+        stored_text = pin_cosine("chose postgres for billing", 1.0, axis=1)
+        stored_id = _add_manual_drawer(store, wing="notes", content=stored_text)
+        records = _drawer_records(
+            (stored_id, "notes", stored_text),
+            ("fresh", "notes", pin_cosine("chose mysql for billing", 0.5, axis=2)),
+            ("fresh", "notes", pin_cosine("rejected mysql for billing", 0.4, axis=3)),
+        )
+
+        summary = import_jsonl(
+            path="unused", store=store, skip_kg=True, records=records, wing_override="archive"
+        )
+
+        assert (summary["imported_drawers"], summary["skipped_duplicates"]) == (1, 2)
+        assert sorted(store.get()["ids"]) == sorted([stored_id, "fresh"])
+
+    def test_similarity_check_compares_with_the_nearest_drawer(
+        self, tmp_path, pin_cosine, monkeypatch
+    ):
+        """The dedup query skips the code-intent rerank, so its top hit is the nearest drawer."""
+        store = _store(str(tmp_path / "palace"))
+        _add_manual_drawer(
+            store, wing="notes", content=pin_cosine("chose postgres for billing", 1.0, axis=1)
+        )
+        calls = []
+        real_query = store.query
+
+        def spy(*args, **kwargs):
+            calls.append(kwargs)
+            return real_query(*args, **kwargs)
+
+        monkeypatch.setattr(store, "query", spy)
+        records = _drawer_records(
+            ("near", "notes", pin_cosine("chose postgres for billing!", 0.95, axis=2))
+        )
+
+        summary = import_jsonl(path="unused", store=store, skip_kg=True, records=records)
+
+        assert summary["skipped_duplicates"] == 1
+        assert calls
+        assert all(call.get("intent_rerank") is False for call in calls)
+
+
 # ── Dry-run leaves palace unchanged ──────────────────────────────────────────
 
 
@@ -730,7 +833,7 @@ class TestImportJsonlSecurityBoundary:
             f.write("\n")
             f.write(
                 '{"type": "drawer", "id": "blank_ok", "text": "Valid drawer despite blank lines.", '
-                '"wing": "notes", "room": "general"}\n'
+                '"wing": "notes", "room": "general", "chunker_strategy": "manual_v1"}\n'
             )
             f.write("   \n")
 

@@ -513,28 +513,53 @@ def validate_artifact(data: Any) -> list[str]:
                 continue
             require(m.get("unit") in ("secs", "ms"), f"metrics.{name}.unit must be 'secs' or 'ms'")
             baseline = m.get("baseline")
-            require(
+            baseline_valid = (
                 isinstance(baseline, (int, float))
                 and not isinstance(baseline, bool)
-                and baseline >= 0,
-                f"metrics.{name}.baseline must be a non-negative number",
+                and math.isfinite(baseline)
+                and baseline >= 0
+            )
+            require(
+                baseline_valid,
+                f"metrics.{name}.baseline must be a finite non-negative number",
             )
             before = m.get("before")
             require(
                 before is None
-                or (isinstance(before, (int, float)) and not isinstance(before, bool)),
-                f"metrics.{name}.before must be null or a number",
+                or (
+                    isinstance(before, (int, float))
+                    and not isinstance(before, bool)
+                    and math.isfinite(before)
+                ),
+                f"metrics.{name}.before must be null or a finite number",
             )
             floor = m.get("floor")
+            floor_valid = (
+                isinstance(floor, (int, float))
+                and not isinstance(floor, bool)
+                and math.isfinite(floor)
+                and floor >= 0
+            )
             require(
-                isinstance(floor, (int, float)) and not isinstance(floor, bool) and floor >= 0,
-                f"metrics.{name}.floor must be a non-negative number",
+                floor_valid,
+                f"metrics.{name}.floor must be a finite non-negative number",
             )
             ratio = m.get("ratio")
-            require(
-                isinstance(ratio, (int, float)) and not isinstance(ratio, bool) and ratio >= 1,
-                f"metrics.{name}.ratio must be a number >= 1",
+            ratio_valid = (
+                isinstance(ratio, (int, float))
+                and not isinstance(ratio, bool)
+                and math.isfinite(ratio)
+                and ratio >= 1
             )
+            require(
+                ratio_valid,
+                f"metrics.{name}.ratio must be a finite number >= 1",
+            )
+            if baseline_valid and floor_valid and ratio_valid:
+                require(
+                    math.isfinite(budget_for(m["baseline"], m["floor"], m["ratio"])),
+                    f"metrics.{name}.budget must be finite",
+                )
             require(
                 isinstance(m.get("comparison"), str) and m.get("comparison", "").strip() != "",
                 f"metrics.{name}.comparison must be a non-empty string",

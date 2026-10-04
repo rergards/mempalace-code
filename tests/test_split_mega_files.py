@@ -104,15 +104,17 @@ def test_split_file_dry_run_creates_no_output_files(tmp_path):
     assert mega.exists()
 
 
-def test_split_file_with_only_tiny_fragments_leaves_output_dir_absent(tmp_path):
+def test_split_file_writes_tiny_sessions_instead_of_dropping_them(tmp_path):
     mega = tmp_path / "mega.txt"
     mega.write_text("Claude Code v1\nshort\nClaude Code v1\nshort", encoding="utf-8")
     out_dir = tmp_path / "out"
 
     written = smf.split_file(mega, out_dir)
 
-    assert written == []
-    assert not out_dir.exists()
+    assert [path.read_text(encoding="utf-8") for path in written] == [
+        "Claude Code v1\nshort\n",
+        "Claude Code v1\nshort",
+    ]
     assert mega.read_text(encoding="utf-8") == "Claude Code v1\nshort\nClaude Code v1\nshort"
 
 
@@ -263,12 +265,14 @@ def test_main_fails_closed_when_explicit_output_directory_is_replaced(
     assert raised.value.code == 1
     assert mega.read_text(encoding="utf-8") == original
     assert not mega.with_suffix(".mega_backup").exists()
-    assert len(list(anchored_dir.iterdir())) == 1
+    # The output written before the failure is removed through the anchored descriptor.
+    assert list(anchored_dir.iterdir()) == []
     assert list(out_dir.iterdir()) == []
     captured = capsys.readouterr()
     assert "not a safe output directory" in captured.err
     assert captured.err.count("retry with a new empty --output-dir") == 1
-    assert "created 1 files; failed 1 of 1 mega-files" in captured.out
+    assert "no split files kept; original left in place as mega.txt" in captured.out
+    assert "created 0 files; failed 1 of 1 mega-files" in captured.out
 
 
 def test_split_file_refuses_a_hardlinked_output_target(tmp_path):
@@ -412,7 +416,7 @@ def test_main_keeps_the_source_when_an_output_target_is_refused(tmp_path, monkey
     assert "created 0 files; failed 1 of 1 mega-files" in captured.out
 
 
-def test_main_reports_partial_outputs_and_exits_nonzero(tmp_path, monkeypatch, capsys):
+def test_main_removes_partial_outputs_and_exits_nonzero(tmp_path, monkeypatch, capsys):
     _require_fifo()
     mega = _write_mega(tmp_path)
     out_dir = tmp_path / "out"
@@ -426,10 +430,11 @@ def test_main_reports_partial_outputs_and_exits_nonzero(tmp_path, monkeypatch, c
 
     assert raised.value.code == 1
     assert mega.exists()
-    assert planned[0].is_file()
+    # UAT split-2: the partial output is removed, so a mine cannot file it twice.
+    assert not planned[0].exists()
     assert not os.path.isfile(planned[1])
     captured = capsys.readouterr()
-    assert "created 1 files; failed 1 of 1 mega-files" in captured.out
+    assert "created 0 files; failed 1 of 1 mega-files" in captured.out
 
 
 def test_load_known_people_requires_explicit_config(monkeypatch, tmp_path):

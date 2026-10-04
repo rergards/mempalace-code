@@ -2,40 +2,10 @@
 
 ## 0. Rule Zero — smallest justified solution
 
-Before non-trivial architecture, implementation, review, delegated writer prompts,
-or operational mutation, apply this decision filter. It has no categorical ban on
-implementation forms: choose the lowest total complexity that meets current
-acceptance, correctness, and reversibility.
-
-- State the outcome and acceptance. Find implementations and owners by behavior.
-  Compare delete/simplify, extend/replace, a same-owner module, and any relevant
-  architecture boundary using paths/lines, owners, interfaces/state, tests,
-  rollout/rollback, operations, and removal cost. Record evidence and the
-  cheapest decisive falsifier.
-- DRY keeps one responsibility and owner; reuse when the comparison wins. KISS
-  minimizes end-to-end complexity, not files or lines. YAGNI serves current
-  acceptance only. Remove superseded copies, parallel owners, and temporary
-  artifacts. Use build-versus-buy for a substantial shared capability and count
-  build, integration, operation, migration, lock-in, and removal costs.
-- The drunk-user/LLM path states current status, one action, authority, and one
-  recovery command; it remains safe under stale context, malformed input,
-  retries, duplicates, and reordered actions.
-- A FAIL or decision-critical UNKNOWN blocks only its dependent action. Refresh,
-  narrow, or report the blocker; unrelated work continues explicitly.
-- A same-owner module or abstraction is allowed for distinct responsibility when
-  comparison proves lower complexity, clearer ownership, and safer lifecycle. A
-  new service, state owner/store, durable contract, or live mutation route needs
-  explicit architecture/operations approval; build-versus-buy evidence is required
-  only for a substantial shared capability or new architecture boundary.
-- Size thresholds are review signals only. They may trigger responsibility,
-  readability, ownership, and testability review; no threshold alone mandates
-  extraction, splitting, or approval.
-- Changing implementation path or shape within the same deliverable requires
-  replanning/review. User approval is required only when deliverable, repo/target,
-  authority, acceptance, irreversible/live effect, architecture/ownership boundary,
-  or a user-fixed path changes.
-- Repository rules may add serialization, commands, gates, sources of truth, and
-  stricter safety constraints; those local mechanisms are not universal semantics.
+Rule Zero is owned by the "Rule Zero — smallest justified solution" section of the
+maintainer's user-level `~/.codex/AGENTS.md`; Claude Code reads the identical
+section from `~/.claude/CLAUDE.md`. It is not restated here; every rule in this file
+is a local addition to it.
 
 **Release credential boundary.** Release preparation, qualification, admission,
 and publication gates must never execute external AI clients such as `codex`,
@@ -51,12 +21,25 @@ release gate, and cannot block a release.
 Claude `Co-Authored-By` trailer. Configure automation to omit it; do not add it
 and clean it up later.
 
+## Audience and default scope
+
+- The default audience is developers asking questions about repository code.
+  Ground answers in current source, tests, repository documentation, and Git history.
+- Users preserve valuable project results in repository artifacts and commits.
+  Use those version-controlled artifacts as durable project context.
+- Inspecting or mining stored user conversations, maintaining diaries, and adding,
+  enabling, or repairing conversation-save reminders or persistence guarantees
+  require an explicit request for that workflow. An audit finding about an optional
+  conversation workflow does not bring it into a code-question task.
+
 ## Stack
 
 - **Python** 3.11+ (supports 3.11–3.14)
 - **Storage**: LanceDB (core, crash-safe vector DB — no server required)
 - **Embeddings**: FastEmbed/ONNX by default; SentenceTransformer only in `[custom-models]`
+- **MCP**: the official `mcp` Python SDK
 - **Config**: PyYAML
+- **Runtime dependencies**: declared once in `[project].dependencies` of `pyproject.toml`
 - **Linting / formatting / typing**: Ruff + Pyright
 - **Tests**: pytest
 - **Package manager**: uv (preferred) or pip
@@ -65,11 +48,14 @@ and clean it up later.
 
 ```bash
 # With uv (preferred)
-uv pip install -e ".[dev]"
+uv pip install -e ".[dev,spellcheck,treesitter]"
 
 # With pip
-pip install -e ".[dev]"
+pip install -e ".[dev,spellcheck,treesitter]"
 ```
+
+These are the extras the CI type check installs; with `.[dev]` alone Pyright
+reports the Tree-sitter imports as missing.
 
 No Docker required. Everything runs locally in a venv or with pipx.
 
@@ -77,7 +63,7 @@ Optional extras:
 
 - `.[custom-models]` — arbitrary SentenceTransformer models; follow `docs/OFFLINE_USAGE.md`
 - `.[dev]` — test, lint, type-check, build, and release tooling
-- `.[spellcheck]` — autocorrect support for room/wing names
+- `.[spellcheck]` — autocorrect helper API (`mempalace_code.spellcheck`); mining never applies it
 - `.[treesitter]` — Tree-sitter AST parsing
 - `.[watch]` — automatic mining on file changes
 
@@ -107,6 +93,7 @@ ruff format --check mempalace_code/ tests/ scripts/
 
 # Type check (gating in CI — must exit 0)
 python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')"
+python -m pyright -p pyrightconfig.strict.json
 
 # Auto-fix lint
 ruff check --fix mempalace_code/ tests/ scripts/
@@ -117,21 +104,27 @@ ruff format mempalace_code/ tests/ scripts/
 
 Line length: 100. Target: py311. Quote style: double.
 
+The complete gate set the **Tests** workflow runs on every pull request is listed
+once, in `CONTRIBUTING.md` under "Running Tests".
+
 ## Key Modules
+
+The main owners under `mempalace_code/`. The full module guide is
+`mempalace_code/README.md`.
 
 | Module | Purpose |
 |--------|---------|
 | `storage.py` | LanceDB vector storage — add, search, delete, health_check, recover |
 | `backup.py` | Tarball backup/restore — `mempalace-code backup`, scheduled backups |
-| `miner.py` | Code project miner — walks source files, extracts drawers |
+| `mining/` | Project miner package — scanning, language detection, chunking, symbols, batching, orchestration; `miner.py` is a compatibility shim |
 | `convo_miner.py` | Conversation miner — ingests Claude/ChatGPT/Slack exports |
 | `searcher.py` | Semantic search — query palace with optional wing/room filters |
 | `knowledge_graph.py` | Temporal KG — entity-relationship triples with validity windows |
 | `layers.py` | Tiered context loading — L0/L1/L2/L3 wake-up layers for local models |
 | `palace_graph.py` | Graph traversal and tunnel detection across wings/rooms |
-| `mcp_server.py` | MCP server — exposes palace tools to Claude Code and other MCP clients |
+| `mcp/` | MCP server package — `registry.py` (the `TOOLS` dict), `dispatch.py`, `runtime.py`, `tools/`; `mcp_server.py` is the public entrypoint shim and `mcp_launcher.py` backs `mempalace-code-mcp` |
 | `watcher.py` | File watcher — `watch_and_mine`, `watch_all`, launchd/cron schedule rendering |
-| `cli.py` | `mempalace-code` CLI entry point — init, mine, mine-all, watch, search, health, repair, backup |
+| `cli_commands/` | CLI command handlers; `cli.py` is the thin `mempalace-code` entry point and compatibility facade |
 
 ## Architecture Principles
 
@@ -145,7 +138,7 @@ Line length: 100. Target: py311. Quote style: double.
 - **ChromaDB** support is retired from current packages because every available
   release is advisory-affected. Back up a legacy source palace before upgrading,
   then use the last public bridge release in isolation:
-  `uvx --from 'mempalace-code[chroma]==1.13.4' mempalace-code migrate-storage SRC DST --verify`.
+  `uvx --python 3.12 --from 'mempalace-code[chroma]==1.13.4' mempalace-code migrate-storage SRC DST --verify`.
 
 ## Embedding Model Policy
 
@@ -158,11 +151,30 @@ Line length: 100. Target: py311. Quote style: double.
   follow the ordered installation and recovery contour in `docs/OFFLINE_USAGE.md`; only
   that explicit custom-model path may use `trust_remote_code=True`, and canonical MiniLM
   aliases never do.
-- **No-regression rule**: any embedding model change must match or beat MiniLM on LongMemEval R@5 (text retrieval). Text quality is non-negotiable — this is a code-first fork but natural language search (conversations, commits, decisions) must not degrade.
 - **No code-only models**: CodeBERT, UniXcoder, etc. improve code at the expense of prose. Only general-purpose sentence-transformers that handle both are candidates.
-- **Gate**: model upgrades are gated behind A/B benchmark results.
 
-### Benchmark Results — 2026-04-09 (BENCH-EMBED-AB)
+### Text gate
+
+An embedding model change is gated behind A/B benchmark results
+(`benchmarks/embed_ab_bench.py`) and must pass both the code gate (the A/B
+code-retrieval results) and the text gate: match or beat MiniLM on LongMemEval R@5
+(text retrieval). Text quality is non-negotiable — this is a code-first fork but
+natural language search (conversations, commits, decisions) must not degrade. The
+only LongMemEval harness, `benchmarks/longmemeval_bench.py`, is the legacy upstream
+ChromaDB-based script. It imports `chromadb`, which current packages do not install
+and whose available releases carry known advisories, so it runs only in an isolated,
+disposable legacy environment. No text baseline has been recorded, so a model change
+must first record one there. The gate cannot be skipped: without that environment and
+baseline it has not run, and the model change is blocked.
+
+### Historical Benchmark Results — 2026-04-09 (BENCH-EMBED-AB)
+
+Historical record, measured with the fixed 20-query set that
+`benchmarks/embed_ab_bench.py` used at the time. It is not comparable with the current
+`benchmarks/code_retrieval_bench.py` dataset (symbol and file-only truth,
+schema-2 report), and no current baseline has been recorded.
+Record a fresh dated baseline on the current dataset before the next model
+decision.
 
 Code retrieval on the mempalace repo (20 known-answer queries, 469 chunks):
 
@@ -184,12 +196,18 @@ Per-category R@5:
 
 - mpnet regresses on code R@5 (0.900 vs 0.950) while being 3× slower to embed and 2× slower at query. Eliminated.
 - nomic ties minilm on code R@5 (0.950) but is 5.6× slower to embed and 2.9× slower at query, with a 550 MB model vs 80 MB. No net gain.
-- Text-gate (LongMemEval) evidence was not collected — prerequisites missing (`benchmarks/data/longmemeval_s_cleaned.json` not present, `fastembed` not installed). Any future upgrade must pass the text gate before switching.
+- [Text-gate](#text-gate) (LongMemEval) evidence was not collected — prerequisites missing (`benchmarks/data/longmemeval_s_cleaned.json` not present, `fastembed` not installed).
 - Full results: `benchmarks/results_embed_ab_2026-04-09.json`.
 
 ## Git Workflow
 
-- **Branch naming**: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`, `docs/<slug>`
+- **Two histories**: local `main` is the development trunk; work reaches it from
+  topic branches. Public `main` carries one squashed commit per release and advances
+  only by fast-forwarding a release candidate built and admitted per
+  `docs/RELEASING.md`.
+- **Branch naming**: `feat/<slug>`, `fix/<slug>`, `chore/<slug>`, `docs/<slug>` for
+  development; `release/vX.Y.Z` (rebuilds `release/vX.Y.Z-rc2`, `-rc3`, …) for
+  public release candidates only.
 - **Conventional commits**:
   - `feat:` — new feature or capability
   - `fix:` — bug fix
@@ -197,22 +215,71 @@ Per-category R@5:
   - `test:` — test additions or changes
   - `bench:` — benchmarks
   - `chore:` — maintenance, deps, tooling
+  - Release candidate commits use the subject `release vX.Y.Z`.
 - **No force-push to `main`**.
-- PR merges go through the `feat/*` → `main` flow; squash if the branch is noisy.
+- Pull requests on GitHub, including Dependabot updates, are never merged on
+  public `main`: the next release candidate would silently revert them. Port an
+  accepted change into the development trunk, ship it in the next release, then
+  close the pull request with a note naming that release.
+
+## Maintainer-Local Tools
+
+The `autopilot` and `backlog-utility` tools are maintainer-local; they are not
+distributed with this repository. `/task-plan` and `/task-hardening` admit
+executor state only through `autopilot` and stop when it is unavailable.
+Current task contracts and planning are owned by `.backlog` (backlog-files/v2).
+Read `backlog_context`, `backlog_workset_context`, and `backlog_workset_queue`
+through the verified project-bound MCP connection. CLI fallback uses a verified
+absolute `backlog-utility` binary with `call --store .backlog --project
+mempalace-code --principal <principal> --name <tool> --arguments-file <json>`.
+Unavailable or mismatched access means unknown backlog state; never fall back
+to active YAML or edit canonical JSON by hand. `docs/BACKLOG.yaml` retains section
+metadata; `docs/BACKLOG-archived.yaml` retains historical completion evidence.
+Recovery: `<absolute-backlog-utility> validate --store .backlog`.
+Edits still require admitted authority and no conflicting writer.
 
 ## Operational Lessons
 
-- **Keep this file public-safe.** `AGENTS.md` is the canonical public instruction file; `CLAUDE.md` is only its pointer. Do not write private remotes, hostnames, credentials, local machine paths, customer/project details, incident specifics, or non-public operational history here. Put private or machine-local lessons in a local-only note outside the published tree.
-- **Record reusable lessons only when they are public knowledge.** When a session exposes a project gotcha, publish step, verification boundary, or agent-behavior correction, add a concise durable note here only if it is safe for public readers and useful to future contributors.
-- **Verify the environment that will actually run the change.** GitHub Actions runtime changes are not proven by Python tests alone. Use local YAML/static checks such as `actionlint`, then verify the real hosted workflow run when action runtime behavior matters.
-- **Name the verification boundary.** If a workflow is tag-only or release-only, say that it was syntax-checked and version-checked but not execution-tested unless a real trigger was run. Do not imply full local coverage for hosted-only behavior.
+- **Keep this file and public docs public-safe.** `AGENTS.md` is the canonical public instruction file; `CLAUDE.md` is only its pointer. Public docs may name package ranges, workflow categories, advisory IDs, and reproducible commands. Private remotes, hostnames, tokens, credentials, local machine paths, customer/project details, incident specifics, and non-public operational history never go here or in other public docs; put private or machine-local lessons only in an ignored local-only note outside the published tree, such as `.codex-local/LESSONS.md`.
+- **Record reusable lessons only when they are public knowledge.** When a session exposes a project gotcha, publish step, verification boundary, or agent-behavior correction that is safe for public readers and useful to future contributors, rewrite the matching lesson here in place, or add one when none matches.
+- **Verify on the surface that will run the change, and name what was not run.** Python tests alone do not prove GitHub Actions runtime changes: use local YAML/static checks such as `actionlint`, then verify the real hosted workflow run when action runtime behavior matters. Direct handler calls are useful for MCP compatibility but do not prove a separate stdio MCP client, and CLI help does not prove the command executes. A release-readiness summary must distinguish unit tests, focused integration tests, direct API smoke, real CLI execution, and hosted/daemon behavior that was not run; a tag-only or release-only workflow without a real trigger run is reported as syntax-checked and version-checked, not execution-tested. Never imply full local coverage for hosted-only behavior.
 - **Check the intended public release target.** Before publishing, verify the repository, branch, tag, and workflow that public users will see. Do not assume local remote names or private mirrors represent public release truth.
 - **Treat release status as multiple independent facts.** Branch Tests, tag-triggered PyPI publish, GitHub Release creation, PyPI version visibility, and any deployment/release-environment status can diverge. Check all of them before calling a release published or latest; if one is red or missing, either fix it now or record the explicit remaining blocker.
 - **Test dependency drift with a fresh resolver.** Local `.venv` and `uv.lock` success can hide what GitHub Actions or users get from an unlocked `pip install`. For dependency-sensitive failures, reproduce in a clean pip environment matching the hosted workflow before declaring the tests fixed.
 - **Audit dependency targets before raising bounds.** For runtime, dev, and optional extras, check current and target versions against OSV or an equivalent advisory source, then run a resolver-level audit on a fresh environment. Do not raise optional legacy backends into advisory-affected ranges; hold or cap them and backlog the upgrade gate instead.
-- **Separate public and local release information.** Public docs may name package ranges, workflow categories, advisory IDs, and reproducible commands. Private remotes, tokens, local paths, hostnames, and non-public incident details belong only in ignored local notes such as `.codex-local/LESSONS.md`.
 - **Keep benchmark gates tied to measured baselines.** If a release benchmark fails, reproduce it locally against the pinned fixture, update the CI threshold only to the observed stable baseline, and backlog any desired quality increase separately.
 - **Do not call tests "local feature testing."** When asked to test new features locally, run the public CLI/MCP/API behavior itself, not only pytest. For each new feature, exercise at least one success path and one important failure/guard path when safe, record the exact command or request, and name any behavior that was covered only by tests.
-- **Exercise real integration surfaces before release claims.** Direct handler calls are useful for MCP compatibility, but they are not the same as a separate stdio MCP client. CLI help is not the same as executing the command. A release-readiness summary must distinguish unit tests, focused integration tests, direct API smoke, real CLI execution, and hosted/daemon behavior that was not run.
 - **Clean up smoke-test artifacts immediately.** Real backup, cleanup, and benchmark smokes can create archives, temp palaces, and result JSON. Put them under disposable temp paths, verify success/failure, then remove artifacts or explicitly report what remains.
 - **Treat palace disk growth as storage forensics first.** Compare backup size, live storage stats, row counts, and cleanup output before deleting anything. Preserve non-regenerable manual drawers and KG data, stop active writers when needed, use supported cleanup APIs, and verify health/status afterward.
+
+## LDR adoption and problem handoff
+
+- LDR (`ldr/v1`) is the default format for current durable architectural decisions.
+  Canonical accepted records live under `docs/decisions` when present. Historical
+  ADRs remain evidence; do not migrate them or invent records for routine tasks.
+  Reuse unchanged applicable accepted decisions without a new proposal or repeated
+  record approval. No applicable records means an explicit empty selection with
+  its applicability reason in the existing task context.
+
+- Apply this rule before architecture, durable-contract, lifecycle, ownership or
+  recovery changes. Start with one decision needed by the current task; keep task
+  state and execution evidence with their existing owners.
+- Discover applicability from the task and repository-owned references. Resolve
+  the exact accepted key/revision; inspect status first and apply only active
+  records. Check current committed bytes, owner, local references and fitness.
+  Search results and historical prose cannot accept a decision.
+- A missing or stale binding blocks only the dependent change. Propose a record
+  outside the canonical accepted root; only the operator accepts active records.
+  Same-key changes advance revision by one and preserve lifecycle/recovery.
+- Use the existing adopter and pinned validator when present. Do not replace a
+  pin, install a utility, add a runtime gate, or migrate historical decisions as
+  part of this instruction. Run the current task's existing relevant checks.
+- For a reproduced LDR problem, prepare and deliver the targeted handoff below
+  during the same work session without waiting for a separate request. Identify
+  whether the failure belongs to LDR or the adopter; record uncertainty. Continue
+  independent safe work while the affected action remains blocked.
+
+- Private maintainer routing and the first scoped adoption candidate are in
+  .codex-local/LDR.md when present. Read that note before sending an LDR finding.
+  If no route is configured, retain the sanitized draft and report missing_route.
+  Keep machine paths, private transport and incident evidence out of public docs.

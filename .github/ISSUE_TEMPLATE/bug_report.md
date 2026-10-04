@@ -17,4 +17,6 @@ labels: bug
 **Environment:**
 - OS:
 - Python version:
-- MemPal version: (check `python mempal.py --version` or git SHA)
+- mempalace-code version: (run `mempalace-code --version`, or give the git SHA of a source checkout)
+- Install method: (uv tool / pipx / bootstrap / pip / source checkout)
+- MCP client and tool profile, if relevant:

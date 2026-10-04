@@ -9,6 +9,7 @@ GIT_REF="${MEMPALACE_GIT_REF:-}"
 GIT_REPO="https://github.com/rergards/mempalace-code.git"
 BIN_DIR="$HOME/.local/bin"
 BIN_LINK="$BIN_DIR/mempalace-code"
+MCP_LINK="$BIN_DIR/mempalace-code-mcp"
 ALIAS_LINK="$BIN_DIR/mempalace"
 
 if [ -t 1 ]; then
@@ -54,6 +55,25 @@ info "Using $("$PYTHON" --version) ($PYTHON)"
 if [ -L "$VENV" ] || { [ -e "$VENV" ] && [ ! -d "$VENV" ]; }; then
     fail "MEMPALACE_VENV must be a real directory or an absent path: $VENV"
 fi
+
+VPYTHON="$VENV/bin/python"
+VENV_BIN="$VENV/bin/mempalace-code"
+VENV_MCP_BIN="$VENV/bin/mempalace-code-mcp"
+
+# A launcher this installer did not create blocks the install, so refuse before a
+# venv is created or populated rather than leaving an orphaned installation behind.
+require_link_available() {
+    local target="$1" link="$2"
+    if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
+        return 0
+    fi
+    if [ -e "$link" ] || [ -L "$link" ]; then
+        fail "Refusing to replace existing launcher $link. Move it aside, then rerun."
+    fi
+}
+require_link_available "$VENV_BIN" "$BIN_LINK"
+require_link_available "$VENV_MCP_BIN" "$MCP_LINK"
+
 if [ ! -e "$VENV" ]; then
     info "Creating venv at $VENV"
     "$PYTHON" -m venv "$VENV"
@@ -61,9 +81,6 @@ else
     warn "Venv already exists at $VENV; validating for reuse"
 fi
 
-VPYTHON="$VENV/bin/python"
-VENV_BIN="$VENV/bin/mempalace-code"
-VENV_MCP_BIN="$VENV/bin/mempalace-code-mcp"
 [ -x "$VPYTHON" ] || fail "Existing venv has no executable Python: $VPYTHON"
 ACTUAL_PREFIX=$("$VPYTHON" -c 'import os,sys; print(os.path.realpath(sys.prefix))')
 EXPECTED_PREFIX=$("$PYTHON" -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$VENV")
@@ -74,27 +91,38 @@ info "Upgrading pip inside venv"
 "$VPYTHON" -m pip install --upgrade pip --quiet
 if [ "$SOURCE" = "git" ]; then
     info "Installing reviewed commit $GIT_REF"
-    "$VPYTHON" -m pip install "git+${GIT_REPO}@${GIT_REF}" --quiet
+    "$VPYTHON" -m pip install --upgrade "git+${GIT_REPO}@${GIT_REF}" --quiet
 else
-    info "Installing from PyPI"
-    "$VPYTHON" -m pip install mempalace-code --quiet
+    # --upgrade: a rerun moves an existing venv to the newest release.
+    info "Installing or upgrading from PyPI"
+    "$VPYTHON" -m pip install --upgrade mempalace-code --quiet
 fi
 
 [ -x "$VENV_BIN" ] || fail "Installed launcher is missing: $VENV_BIN"
 [ -x "$VENV_MCP_BIN" ] || fail "Installed MCP launcher is missing: $VENV_MCP_BIN"
 VERSION=$("$VENV_BIN" --version) || fail "Installed launcher smoke failed"
 
-mkdir -p "$BIN_DIR"
-if [ -L "$BIN_LINK" ] && [ "$(readlink "$BIN_LINK")" = "$VENV_BIN" ]; then
-    info "Symlink already correct: $BIN_LINK"
-elif [ -e "$BIN_LINK" ] || [ -L "$BIN_LINK" ]; then
-    fail "Refusing to replace existing launcher $BIN_LINK. Move it aside, then rerun."
-else
-    ln -s "$VENV_BIN" "$BIN_LINK"
-    info "Symlinked $BIN_LINK -> $VENV_BIN"
-fi
+# Publish a launcher symlink; never replace a node this installer does not own.
+link_launcher() {
+    local target="$1" link="$2"
+    if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
+        info "Symlink already correct: $link"
+    elif [ -e "$link" ] || [ -L "$link" ]; then
+        fail "Refusing to replace existing launcher $link. Move it aside, then rerun."
+    else
+        ln -s "$target" "$link"
+        info "Symlinked $link -> $target"
+    fi
+}
 
-if command -v mempalace >/dev/null 2>&1; then
+mkdir -p "$BIN_DIR"
+link_launcher "$VENV_BIN" "$BIN_LINK"
+# MCP clients and the Agent Plugin's mcp.json start the bare mempalace-code-mcp name.
+link_launcher "$VENV_MCP_BIN" "$MCP_LINK"
+
+if [ -L "$ALIAS_LINK" ] && [ "$(readlink "$ALIAS_LINK")" = "$BIN_LINK" ]; then
+    info "Symlink already correct: $ALIAS_LINK"
+elif command -v mempalace >/dev/null 2>&1; then
     warn "Leaving existing mempalace command untouched: $(command -v mempalace)"
 elif [ -e "$ALIAS_LINK" ] || [ -L "$ALIAS_LINK" ]; then
     warn "Leaving existing $ALIAS_LINK untouched"
@@ -113,6 +141,7 @@ fi
 printf '\n'
 info "Done. $VERSION is ready."
 info "Binary: $BIN_LINK"
+info "MCP launcher: $MCP_LINK"
 info "Version notifications: unchanged; choose with $VENV_BIN version-check --enable|--disable"
 info "Scheduled package updates: disabled unless enabled with $VENV_BIN update scheduler install --yes"
 info "Next: $VENV_BIN init <project-dir> --skip-model-download"

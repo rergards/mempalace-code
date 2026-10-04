@@ -918,11 +918,12 @@ def test_java_chunk_code_no_spurious_boundary_on_inner_annotation():
         "}\n"
     )
     chunks = chunk_code(java_code, "java", "Foo.java")
-    # The whole class (including the method body) should be in a single chunk —
-    # @SuppressWarnings on a local variable must not create a boundary.
-    assert len(chunks) == 1
-    assert "process" in chunks[0]["content"]
-    assert "@SuppressWarnings" in chunks[0]["content"]
+    # The class header and the method each keep their own named chunk, and the whole
+    # method body stays in one — @SuppressWarnings on a local variable is no boundary.
+    assert [chunk["symbol_name"] for chunk in chunks] == ["Foo", "process"]
+    assert chunks[1]["content"].startswith("    public List<String> process")
+    assert "@SuppressWarnings" in chunks[1]["content"]
+    assert chunks[1]["content"].endswith("}\n}")
 
 
 # =============================================================================

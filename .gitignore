@@ -4,6 +4,8 @@ build/
 __pycache__/
 *.pyc
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 mempal.yaml
 mempalace.yaml
 entities.json
@@ -24,6 +26,14 @@ palace/
 venv/
 .env
 .verify-state
+
+# Local agent tooling state: absolute local paths and private notes
+.codex/
+.codex-local/
+.playwright-mcp/
+
+# Default `dependency_upgrade_gate.py current-audit` output (a workflow artifact)
+dependency-audit-output/
 
 # IDE
 .idea/
@@ -49,7 +59,7 @@ autopilot.toml
 benchmarks/results_token_delta_*.json
 !benchmarks/results_token_delta_mempalace.json
 
-# Claude Code session data (keep skills, prompts, settings.json tracked)
+# Claude Code session data (keep skills and prompts tracked; a project settings.json may be tracked)
 .claude/*
 !.claude/skills/
 !.claude/prompts/

@@ -7,8 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mempalace_code.convo_miner import (
-    _chunk_by_exchange,
-    file_already_mined,
+    chunk_exchanges,
     mine_convos,
     scan_convos,
 )
@@ -23,7 +22,7 @@ def test_chunk_by_exchange_preserves_exact_user_marker_lines():
     ]
     lines = [item for marker in marker_lines for item in (marker, "A sufficiently long reply.")]
 
-    chunks = _chunk_by_exchange(lines)
+    chunks = chunk_exchanges("\n".join(lines))
 
     assert [chunk["content"].split("\n", 1)[0] for chunk in chunks] == marker_lines
 
@@ -44,22 +43,6 @@ def test_scan_convos_rejects_source_symlinks_by_default(tmp_path, capsys):
 
     assert scan_convos(str(tmp_path)) == [regular]
     assert capsys.readouterr().err == f"{link}: not a regular file (symlink)\n"
-
-
-def test_incremental_skip_query_is_scoped_to_exact_source_and_wing():
-    store = MagicMock()
-    store.get.return_value = {"ids": ["existing"]}
-
-    assert file_already_mined(store, "/tmp/chat.json", "conversations") is True
-    store.get.assert_called_once_with(
-        where={
-            "$and": [
-                {"source_file": "/tmp/chat.json"},
-                {"wing": "conversations"},
-            ]
-        },
-        limit=1,
-    )
 
 
 def test_convo_mining():
@@ -170,31 +153,59 @@ def test_full_replaces_changed_source_and_removes_stale_tail(tmp_path, monkeypat
 
 
 def test_full_normalization_failure_preserves_existing_source(tmp_path, monkeypatch, capsys):
-    source = tmp_path / "chat.txt"
-    source.write_text("input exists", encoding="utf-8")
-    store = MagicMock()
+    monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
+    source_dir = tmp_path / "chats"
+    source_dir.mkdir()
+    source = source_dir / "chat.txt"
+    source.write_text(
+        "> Which queue does Plover use?\nPlover publishes to the orders queue.\n",
+        encoding="utf-8",
+    )
+    palace = str(tmp_path / "palace")
+    mine_convos(str(source_dir), palace, wing="test_convos", spellcheck=False)
 
-    with (
-        patch("mempalace_code.convo_miner.get_collection", return_value=store),
-        patch("mempalace_code.convo_miner.normalize", side_effect=OSError("read failed")),
-        patch("mempalace_code.convo_miner.optimize_store"),
-    ):
-        monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
-        mine_convos(
-            str(tmp_path),
-            str(tmp_path / "palace"),
-            wing="test_convos",
-            incremental=False,
+    def stored():
+        return open_store(palace, create=False).get(
+            where={"source_file": str(source)}, include=["documents", "metadatas"]
         )
 
-    store.replace_source.assert_not_called()
-    assert "Files processed: 0" in capsys.readouterr().out
+    original = stored()
+    assert len(original["ids"]) == 1
+
+    source.write_text("> Rewritten question?\nThe rewritten answer is long.\n", encoding="utf-8")
+    capsys.readouterr()
+    with patch("mempalace_code.convo_miner.normalize", side_effect=OSError("read failed")):
+        summary = mine_convos(
+            str(source_dir), palace, wing="test_convos", spellcheck=False, incremental=False
+        )
+    assert summary["files_failed"] == 1
+    assert summary["drawers_removed"] == 0
+    assert "skipped chat.txt: read failed" in capsys.readouterr().err
+    assert stored() == original
+
+    source.write_bytes("> Café question?\nThe answer is long enough.\n".encode("latin-1"))
+    summary = mine_convos(
+        str(source_dir), palace, wing="test_convos", spellcheck=False, incremental=False
+    )
+    assert summary["files_failed"] == 1
+    assert "skipped chat.txt: not valid UTF-8" in capsys.readouterr().err
+    assert stored() == original
 
 
-def test_full_empty_normalized_source_preserves_existing_source(tmp_path, monkeypatch, capsys):
+def test_full_empty_normalized_source_is_reported_by_name(tmp_path, monkeypatch, capsys):
     source = tmp_path / "chat.txt"
     source.write_text("input exists", encoding="utf-8")
     store = MagicMock()
+    store.scan_wing_metadata.return_value = [
+        {
+            "id": "drawer_test_convos_general_old",
+            "source_file": str(source),
+            "ingest_mode": "convos",
+            "extract_mode": "exchange",
+            "source_hash": "old",
+            "chunker_strategy": "convo_turn_v2",
+        }
+    ]
 
     with (
         patch("mempalace_code.convo_miner.get_collection", return_value=store),
@@ -209,9 +220,14 @@ def test_full_empty_normalized_source_preserves_existing_source(tmp_path, monkey
             incremental=False,
         )
 
-    store.replace_source.assert_not_called()
+    store.upsert.assert_not_called()
+    store.delete.assert_called_once_with(["drawer_test_convos_general_old"])
     mock_optimize.assert_not_called()
-    assert "Files processed: 1" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "skipped chat.txt: no conversation text" in out
+    assert "removing 1 drawers of chat.txt (no conversation text left)" in out
+    assert "Files processed: 0" in out
+    assert "Files with no text to index: 1" in out
 
 
 def test_full_replace_failure_emits_no_success_or_summary_and_does_not_optimize(
@@ -220,7 +236,7 @@ def test_full_replace_failure_emits_no_success_or_summary_and_does_not_optimize(
     source = tmp_path / "chat.txt"
     source.write_text("input exists", encoding="utf-8")
     store = MagicMock()
-    store.replace_source.side_effect = RuntimeError("merge rejected")
+    store.upsert.side_effect = RuntimeError("merge rejected")
     chunk = {"content": "replacement content", "chunk_index": 0}
     monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
 
@@ -306,7 +322,7 @@ def test_mine_convos_default_calls_safe_optimize_backup_first():
         shutil.rmtree(tmpdir)
 
 
-def test_mine_convos_passes_spellcheck_true_by_default(tmp_path):
+def test_mine_convos_passes_spellcheck_false_by_default(tmp_path):
     convo_file = tmp_path / "chat.json"
     convo_file.write_text("{}", encoding="utf-8")
     normalized = "> pleese remember this important decision\nAssistant response.\n" * 3
@@ -314,7 +330,7 @@ def test_mine_convos_passes_spellcheck_true_by_default(tmp_path):
     with patch("mempalace_code.convo_miner.normalize", return_value=normalized) as mock_normalize:
         mine_convos(str(tmp_path), str(tmp_path / "palace"), wing="test", dry_run=True)
 
-    assert mock_normalize.call_args.kwargs["spellcheck"] is True
+    assert mock_normalize.call_args.kwargs["spellcheck"] is False
 
 
 def test_mine_convos_passes_spellcheck_false_when_requested(tmp_path):

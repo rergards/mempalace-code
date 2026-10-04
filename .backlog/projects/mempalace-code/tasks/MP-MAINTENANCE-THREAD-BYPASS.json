@@ -1,0 +1,1538 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "MP-MAINTENANCE-THREAD-BYPASS",
+      "version": "v1:9d19e7e0df3cf3864564eb0dd9cd1f011987379cd60e63344c99c8678da761cb",
+      "completion_valid": false,
+      "revision": 6,
+      "state": "done",
+      "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": ".codex-local/greptile-repeat-20261002/results.json"
+          },
+          {
+            "type": "file",
+            "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MAINTENANCE-THREAD-BYPASS.md"
+          },
+          {
+            "type": "file",
+            "uri": "docs/quality/scorecard.json"
+          },
+          {
+            "type": "file",
+            "uri": "docs/quality/scorecard.md"
+          },
+          {
+            "type": "file",
+            "uri": "mempalace_code/operation_lock.py"
+          },
+          {
+            "type": "file",
+            "uri": "tests/test_operation_lock.py"
+          },
+          {
+            "type": "file",
+            "uri": "tests/test_uat_leases.py"
+          }
+        ],
+        "exclusions": [
+          "KG export and the prior 19 finding dispositions.",
+          "Live palaces, archives, watchers, services, host configuration and other repositories.",
+          "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+          "Push, release publication and commits without existing applicable authorization."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+          "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+        },
+        {
+          "id": "A02",
+          "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+          "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+        },
+        {
+          "id": "A03",
+          "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+          "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:b6d45a142ba0fad97f92e0b9abad3969d98e358d43468f5d1dcb9f7e489aeddc",
+        "result": "Already-fixed candidate revalidated; current auditor shows no maintenance bypass and successful negative control. Existing lock owner and prior source changes unchanged. Candidate greptile-20261003-r2 based on HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; no fix commit. Finding acceptance PASS, 320 affected and 197 prior-fix tests PASS; independent fresh read-only Astra r1/r2 PASS. Exact source hashes, current handoff, reproduction, 6363 passing suite cases with two skips and the unrelated slow watcher resource-gate failure, all gate receipts and preserved-work proof in .codex-local/greptile-20261003-work/results.json. Installed wheel CLI/MCP 26 rows and artifact qualification 9 rows PASS. Whole release qualification remains blocked by watcher resource measurement (growth 7 then 6, allowed 5); no runtime leak claim or adjacent scope expansion. LDR selection explicitly empty. No staging, commit, push, release or live operations.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A03",
+            "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-03T10:47:48.78082Z"
+      },
+      "completion_history": [
+        {
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+            "result": "Fixed and independently verified in uncommitted candidate based on 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. 402 affected-suite tests PASS; independent Astra source review PASS. Exact source hashes, before/after cases, CLI smoke and all gate outcomes retained in .codex-local/greptile-repeat-20261002/results.json. No blockers for this task; no commits/publication/live data changes.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-02T21:42:06.010345Z"
+          },
+          "reopen_reason": "Reconcile the new handoff reference and revalidate the same existing accepted fix; no implementation change, duplicate task or expanded acceptance.",
+          "reopened_at": "2026-10-03T10:16:19.795522Z"
+        }
+      ],
+      "contract_digest": "sha256:b6d45a142ba0fad97f92e0b9abad3969d98e358d43468f5d1dcb9f7e489aeddc",
+      "ready": false,
+      "created_at": "2026-10-02T21:27:10.526738Z",
+      "updated_at": "2026-10-03T10:47:48.78082Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "version": "v1:ce4ea1048a352c7748098ce26599e68e713e04dcf454ef023d15a5ce5479c7e0",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "mempalace_code/operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_uat_leases.py"
+              }
+            ],
+            "exclusions": [
+              "KG export and the prior 19 finding dispositions.",
+              "Live palaces, archives, watchers, services, host configuration and other repositories.",
+              "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+              "Push, release publication and commits without existing applicable authorization."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+              "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+            },
+            {
+              "id": "A02",
+              "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+              "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+            },
+            {
+              "id": "A03",
+              "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+              "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:53e0369bdaef9f06d53af35637236818973ddb0a41d31a91c4930ac7b004074c",
+          "ready": false,
+          "created_at": "2026-10-02T21:27:10.526738Z",
+          "updated_at": "2026-10-02T21:27:10.526738Z"
+        },
+        "operation": {
+          "id": "op_a1f594f7c45eb2d860720b294f0aa016",
+          "principal": "codex-macmac",
+          "request_id": "greptile-repeat-20261002-create-1",
+          "kind": "create",
+          "payload": {
+            "id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_uat_leases.py"
+                }
+              ],
+              "exclusions": [
+                "Live palaces, archives, watchers, services, host configuration and other repositories.",
+                "KG export and the prior 19 finding dispositions.",
+                "Push, release publication and commits without existing applicable authorization.",
+                "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+                "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+              },
+              {
+                "id": "A02",
+                "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+                "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+              },
+              {
+                "id": "A03",
+                "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+                "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+              }
+            ],
+            "blocked_by": null,
+            "questions": null
+          },
+          "request_hash": "b976ef0eeeca140d59cc3df971632b8f25a7f3c489418022b3659469f111b6b5",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "version": "v1:ce4ea1048a352c7748098ce26599e68e713e04dcf454ef023d15a5ce5479c7e0",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_uat_leases.py"
+                }
+              ],
+              "exclusions": [
+                "KG export and the prior 19 finding dispositions.",
+                "Live palaces, archives, watchers, services, host configuration and other repositories.",
+                "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+                "Push, release publication and commits without existing applicable authorization."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+                "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+              },
+              {
+                "id": "A02",
+                "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+                "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+              },
+              {
+                "id": "A03",
+                "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+                "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:53e0369bdaef9f06d53af35637236818973ddb0a41d31a91c4930ac7b004074c",
+            "ready": false,
+            "created_at": "2026-10-02T21:27:10.526738Z",
+            "updated_at": "2026-10-02T21:27:10.526738Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_1571d871e9eb80cb11b2562b63c317bf",
+          "project": "mempalace-code",
+          "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:ce4ea1048a352c7748098ce26599e68e713e04dcf454ef023d15a5ce5479c7e0",
+          "data": {
+            "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+          },
+          "created_at": "2026-10-02T21:27:10.526738Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_36d64ff8f5a6c5affa2dedfaafd57f53",
+            "project": "mempalace-code",
+            "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:20e155a5d86b76e3ea5d891636ab6541c5c0e488b2735d894a38175d572fe20d",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+            },
+            "created_at": "2026-10-02T21:27:10.916483Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "version": "v1:20e155a5d86b76e3ea5d891636ab6541c5c0e488b2735d894a38175d572fe20d",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "mempalace_code/operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_uat_leases.py"
+              }
+            ],
+            "exclusions": [
+              "KG export and the prior 19 finding dispositions.",
+              "Live palaces, archives, watchers, services, host configuration and other repositories.",
+              "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+              "Push, release publication and commits without existing applicable authorization."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+              "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+            },
+            {
+              "id": "A02",
+              "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+              "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+            },
+            {
+              "id": "A03",
+              "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+              "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:53e0369bdaef9f06d53af35637236818973ddb0a41d31a91c4930ac7b004074c",
+          "ready": false,
+          "created_at": "2026-10-02T21:27:10.526738Z",
+          "updated_at": "2026-10-02T21:27:10.916483Z"
+        },
+        "operation": {
+          "id": "op_cca90dc679d4b89e3cb33cea40b3fde4",
+          "principal": "codex-macmac",
+          "request_id": "greptile-repeat-20261002-open-1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:ce4ea1048a352c7748098ce26599e68e713e04dcf454ef023d15a5ce5479c7e0",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "8eef33e653b268ad3a1ef3d77bbc771663ce1afed16e412fdd631411a1b85ba9",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "version": "v1:20e155a5d86b76e3ea5d891636ab6541c5c0e488b2735d894a38175d572fe20d",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_uat_leases.py"
+                }
+              ],
+              "exclusions": [
+                "KG export and the prior 19 finding dispositions.",
+                "Live palaces, archives, watchers, services, host configuration and other repositories.",
+                "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+                "Push, release publication and commits without existing applicable authorization."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+                "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+              },
+              {
+                "id": "A02",
+                "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+                "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+              },
+              {
+                "id": "A03",
+                "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+                "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:53e0369bdaef9f06d53af35637236818973ddb0a41d31a91c4930ac7b004074c",
+            "ready": true,
+            "created_at": "2026-10-02T21:27:10.526738Z",
+            "updated_at": "2026-10-02T21:27:10.916483Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_34fcc6f58aa3b3145dd9dbc0ef95a156",
+          "project": "mempalace-code",
+          "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:20e155a5d86b76e3ea5d891636ab6541c5c0e488b2735d894a38175d572fe20d",
+          "data": {
+            "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+          },
+          "created_at": "2026-10-02T21:27:10.916483Z"
+        }
+      },
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "version": "v1:b68d686e8f970f7ef6811c36166d7c8c2fe8e490ea18d6ce0c8e4db511ae443f",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "open",
+          "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": ".codex-local/greptile-repeat-20261002/results.json"
+              },
+              {
+                "type": "file",
+                "uri": "docs/quality/scorecard.json"
+              },
+              {
+                "type": "file",
+                "uri": "docs/quality/scorecard.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_uat_leases.py"
+              }
+            ],
+            "exclusions": [
+              "KG export and the prior 19 finding dispositions.",
+              "Live palaces, archives, watchers, services, host configuration and other repositories.",
+              "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+              "Push, release publication and commits without existing applicable authorization."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+              "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+            },
+            {
+              "id": "A02",
+              "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+              "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+            },
+            {
+              "id": "A03",
+              "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+              "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+          "ready": false,
+          "created_at": "2026-10-02T21:27:10.526738Z",
+          "updated_at": "2026-10-02T21:41:34.725916Z"
+        },
+        "operation": {
+          "id": "op_49e107cdd1967bf7edfe41221c9d9daa",
+          "principal": "codex-macmac",
+          "request_id": "greptile-repeat-20261002-result-2",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:20e155a5d86b76e3ea5d891636ab6541c5c0e488b2735d894a38175d572fe20d",
+            "expected_revision": 2,
+            "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_uat_leases.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.json"
+                },
+                {
+                  "type": "file",
+                  "uri": ".codex-local/greptile-repeat-20261002/results.json"
+                }
+              ],
+              "exclusions": [
+                "KG export and the prior 19 finding dispositions.",
+                "Live palaces, archives, watchers, services, host configuration and other repositories.",
+                "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+                "Push, release publication and commits without existing applicable authorization."
+              ]
+            }
+          },
+          "request_hash": "1f1064688259558f4f3f6a3efef0ee194cc029223ef220674a95ccfa7bcb7a6b",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "version": "v1:b68d686e8f970f7ef6811c36166d7c8c2fe8e490ea18d6ce0c8e4db511ae443f",
+            "completion_valid": false,
+            "revision": 3,
+            "state": "open",
+            "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": ".codex-local/greptile-repeat-20261002/results.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_uat_leases.py"
+                }
+              ],
+              "exclusions": [
+                "KG export and the prior 19 finding dispositions.",
+                "Live palaces, archives, watchers, services, host configuration and other repositories.",
+                "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+                "Push, release publication and commits without existing applicable authorization."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+                "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+              },
+              {
+                "id": "A02",
+                "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+                "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+              },
+              {
+                "id": "A03",
+                "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+                "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+            "ready": true,
+            "created_at": "2026-10-02T21:27:10.526738Z",
+            "updated_at": "2026-10-02T21:41:34.725916Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_08af06c7ddf55b188e0477fd743f6979",
+          "project": "mempalace-code",
+          "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "type": "task.changed",
+          "revision": 3,
+          "version": "v1:b68d686e8f970f7ef6811c36166d7c8c2fe8e490ea18d6ce0c8e4db511ae443f",
+          "data": {
+            "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+          },
+          "created_at": "2026-10-02T21:41:34.725916Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_d484ddd4f72af4fa8bb2eef0515686ac",
+            "project": "mempalace-code",
+            "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "type": "task.readiness_changed",
+            "revision": 4,
+            "version": "v1:0a6d7d78ff022ae8cb7f057b485123445061437769409b92f5b9404df0ebf91e",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+            },
+            "created_at": "2026-10-02T21:42:06.010345Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "version": "v1:0a6d7d78ff022ae8cb7f057b485123445061437769409b92f5b9404df0ebf91e",
+          "completion_valid": false,
+          "revision": 4,
+          "state": "done",
+          "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": ".codex-local/greptile-repeat-20261002/results.json"
+              },
+              {
+                "type": "file",
+                "uri": "docs/quality/scorecard.json"
+              },
+              {
+                "type": "file",
+                "uri": "docs/quality/scorecard.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_uat_leases.py"
+              }
+            ],
+            "exclusions": [
+              "KG export and the prior 19 finding dispositions.",
+              "Live palaces, archives, watchers, services, host configuration and other repositories.",
+              "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+              "Push, release publication and commits without existing applicable authorization."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+              "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+            },
+            {
+              "id": "A02",
+              "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+              "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+            },
+            {
+              "id": "A03",
+              "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+              "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+            "result": "Fixed and independently verified in uncommitted candidate based on 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. 402 affected-suite tests PASS; independent Astra source review PASS. Exact source hashes, before/after cases, CLI smoke and all gate outcomes retained in .codex-local/greptile-repeat-20261002/results.json. No blockers for this task; no commits/publication/live data changes.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-02T21:42:06.010345Z"
+          },
+          "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+          "ready": false,
+          "created_at": "2026-10-02T21:27:10.526738Z",
+          "updated_at": "2026-10-02T21:42:06.010345Z"
+        },
+        "operation": {
+          "id": "op_3bf6d9bc0936ccfcbff9c15df328fb08",
+          "principal": "codex-macmac",
+          "request_id": "greptile-repeat-20261002-complete-2",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:b68d686e8f970f7ef6811c36166d7c8c2fe8e490ea18d6ce0c8e4db511ae443f",
+            "expected_revision": 3,
+            "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+            "result": "Fixed and independently verified in uncommitted candidate based on 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. 402 affected-suite tests PASS; independent Astra source review PASS. Exact source hashes, before/after cases, CLI smoke and all gate outcomes retained in .codex-local/greptile-repeat-20261002/results.json. No blockers for this task; no commits/publication/live data changes.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "ebc00d252eef877a9083cf4b65d51cea7654fffc63d34567dc8f25f24f4c18d0",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "version": "v1:0a6d7d78ff022ae8cb7f057b485123445061437769409b92f5b9404df0ebf91e",
+            "completion_valid": true,
+            "revision": 4,
+            "state": "done",
+            "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": ".codex-local/greptile-repeat-20261002/results.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_uat_leases.py"
+                }
+              ],
+              "exclusions": [
+                "KG export and the prior 19 finding dispositions.",
+                "Live palaces, archives, watchers, services, host configuration and other repositories.",
+                "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+                "Push, release publication and commits without existing applicable authorization."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+                "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+              },
+              {
+                "id": "A02",
+                "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+                "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+              },
+              {
+                "id": "A03",
+                "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+                "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+              "result": "Fixed and independently verified in uncommitted candidate based on 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. 402 affected-suite tests PASS; independent Astra source review PASS. Exact source hashes, before/after cases, CLI smoke and all gate outcomes retained in .codex-local/greptile-repeat-20261002/results.json. No blockers for this task; no commits/publication/live data changes.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A03",
+                  "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-02T21:42:06.010345Z"
+            },
+            "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+            "ready": false,
+            "created_at": "2026-10-02T21:27:10.526738Z",
+            "updated_at": "2026-10-02T21:42:06.010345Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_fe333677740babff5d05af3601e25848",
+          "project": "mempalace-code",
+          "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "type": "task.completed",
+          "revision": 4,
+          "version": "v1:0a6d7d78ff022ae8cb7f057b485123445061437769409b92f5b9404df0ebf91e",
+          "data": {
+            "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+          },
+          "created_at": "2026-10-02T21:42:06.010345Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_3c243a299953c94eaf217f496df222ab",
+            "project": "mempalace-code",
+            "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "type": "task.readiness_changed",
+            "revision": 5,
+            "version": "v1:a7c89b35f653a033d25b891f71f9b62c0ebddc163f04021eb2e4a81b54cd0625",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+            },
+            "created_at": "2026-10-03T10:16:19.795522Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "version": "v1:a7c89b35f653a033d25b891f71f9b62c0ebddc163f04021eb2e4a81b54cd0625",
+          "completion_valid": false,
+          "revision": 5,
+          "state": "open",
+          "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": ".codex-local/greptile-repeat-20261002/results.json"
+              },
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MAINTENANCE-THREAD-BYPASS.md"
+              },
+              {
+                "type": "file",
+                "uri": "docs/quality/scorecard.json"
+              },
+              {
+                "type": "file",
+                "uri": "docs/quality/scorecard.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_uat_leases.py"
+              }
+            ],
+            "exclusions": [
+              "KG export and the prior 19 finding dispositions.",
+              "Live palaces, archives, watchers, services, host configuration and other repositories.",
+              "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+              "Push, release publication and commits without existing applicable authorization."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+              "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+            },
+            {
+              "id": "A02",
+              "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+              "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+            },
+            {
+              "id": "A03",
+              "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+              "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion_history": [
+            {
+              "completion": {
+                "prerequisites": {},
+                "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+                "result": "Fixed and independently verified in uncommitted candidate based on 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. 402 affected-suite tests PASS; independent Astra source review PASS. Exact source hashes, before/after cases, CLI smoke and all gate outcomes retained in .codex-local/greptile-repeat-20261002/results.json. No blockers for this task; no commits/publication/live data changes.",
+                "evidence": [
+                  {
+                    "acceptance_id": "A01",
+                    "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                    "verification_result": "pass"
+                  },
+                  {
+                    "acceptance_id": "A02",
+                    "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                    "verification_result": "pass"
+                  },
+                  {
+                    "acceptance_id": "A03",
+                    "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                    "verification_result": "pass"
+                  }
+                ],
+                "completed_at": "2026-10-02T21:42:06.010345Z"
+              },
+              "reopen_reason": "Reconcile the new handoff reference and revalidate the same existing accepted fix; no implementation change, duplicate task or expanded acceptance.",
+              "reopened_at": "2026-10-03T10:16:19.795522Z"
+            }
+          ],
+          "contract_digest": "sha256:b6d45a142ba0fad97f92e0b9abad3969d98e358d43468f5d1dcb9f7e489aeddc",
+          "ready": false,
+          "created_at": "2026-10-02T21:27:10.526738Z",
+          "updated_at": "2026-10-03T10:16:19.795522Z"
+        },
+        "operation": {
+          "id": "op_e9a456e6950fd8e3e5eed79679db5f23",
+          "principal": "codex-macmac",
+          "request_id": "greptile-20261003-MP-MAINTENANCE-THREAD-BYPASS-recheck-r1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:0a6d7d78ff022ae8cb7f057b485123445061437769409b92f5b9404df0ebf91e",
+            "expected_revision": 4,
+            "state": "open",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": ".codex-local/greptile-repeat-20261002/results.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_uat_leases.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MAINTENANCE-THREAD-BYPASS.md"
+                }
+              ],
+              "exclusions": [
+                "KG export and the prior 19 finding dispositions.",
+                "Live palaces, archives, watchers, services, host configuration and other repositories.",
+                "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+                "Push, release publication and commits without existing applicable authorization."
+              ]
+            },
+            "reopen_reason": "Reconcile the new handoff reference and revalidate the same existing accepted fix; no implementation change, duplicate task or expanded acceptance."
+          },
+          "request_hash": "cb3b4e464ea81746f8f2ae6db4ad7a73fcc5b5b09248f833e2bea22d7466df5e",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "version": "v1:a7c89b35f653a033d25b891f71f9b62c0ebddc163f04021eb2e4a81b54cd0625",
+            "completion_valid": false,
+            "revision": 5,
+            "state": "open",
+            "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": ".codex-local/greptile-repeat-20261002/results.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MAINTENANCE-THREAD-BYPASS.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_uat_leases.py"
+                }
+              ],
+              "exclusions": [
+                "KG export and the prior 19 finding dispositions.",
+                "Live palaces, archives, watchers, services, host configuration and other repositories.",
+                "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+                "Push, release publication and commits without existing applicable authorization."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+                "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+              },
+              {
+                "id": "A02",
+                "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+                "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+              },
+              {
+                "id": "A03",
+                "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+                "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion_history": [
+              {
+                "completion": {
+                  "prerequisites": {},
+                  "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+                  "result": "Fixed and independently verified in uncommitted candidate based on 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. 402 affected-suite tests PASS; independent Astra source review PASS. Exact source hashes, before/after cases, CLI smoke and all gate outcomes retained in .codex-local/greptile-repeat-20261002/results.json. No blockers for this task; no commits/publication/live data changes.",
+                  "evidence": [
+                    {
+                      "acceptance_id": "A01",
+                      "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                      "verification_result": "pass"
+                    },
+                    {
+                      "acceptance_id": "A02",
+                      "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                      "verification_result": "pass"
+                    },
+                    {
+                      "acceptance_id": "A03",
+                      "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                      "verification_result": "pass"
+                    }
+                  ],
+                  "completed_at": "2026-10-02T21:42:06.010345Z"
+                },
+                "reopen_reason": "Reconcile the new handoff reference and revalidate the same existing accepted fix; no implementation change, duplicate task or expanded acceptance.",
+                "reopened_at": "2026-10-03T10:16:19.795522Z"
+              }
+            ],
+            "contract_digest": "sha256:b6d45a142ba0fad97f92e0b9abad3969d98e358d43468f5d1dcb9f7e489aeddc",
+            "ready": true,
+            "created_at": "2026-10-02T21:27:10.526738Z",
+            "updated_at": "2026-10-03T10:16:19.795522Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_6fcc105edb53482af5cd53eb13667736",
+          "project": "mempalace-code",
+          "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "type": "task.changed",
+          "revision": 5,
+          "version": "v1:a7c89b35f653a033d25b891f71f9b62c0ebddc163f04021eb2e4a81b54cd0625",
+          "data": {
+            "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+          },
+          "created_at": "2026-10-03T10:16:19.795522Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_cf6d76038b6fdc90aecb2bbb421bb5fd",
+            "project": "mempalace-code",
+            "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "type": "task.readiness_changed",
+            "revision": 6,
+            "version": "v1:9d19e7e0df3cf3864564eb0dd9cd1f011987379cd60e63344c99c8678da761cb",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+            },
+            "created_at": "2026-10-03T10:47:48.78082Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "version": "v1:9d19e7e0df3cf3864564eb0dd9cd1f011987379cd60e63344c99c8678da761cb",
+          "completion_valid": false,
+          "revision": 6,
+          "state": "done",
+          "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": ".codex-local/greptile-repeat-20261002/results.json"
+              },
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MAINTENANCE-THREAD-BYPASS.md"
+              },
+              {
+                "type": "file",
+                "uri": "docs/quality/scorecard.json"
+              },
+              {
+                "type": "file",
+                "uri": "docs/quality/scorecard.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_operation_lock.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_uat_leases.py"
+              }
+            ],
+            "exclusions": [
+              "KG export and the prior 19 finding dispositions.",
+              "Live palaces, archives, watchers, services, host configuration and other repositories.",
+              "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+              "Push, release publication and commits without existing applicable authorization."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+              "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+            },
+            {
+              "id": "A02",
+              "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+              "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+            },
+            {
+              "id": "A03",
+              "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+              "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:b6d45a142ba0fad97f92e0b9abad3969d98e358d43468f5d1dcb9f7e489aeddc",
+            "result": "Already-fixed candidate revalidated; current auditor shows no maintenance bypass and successful negative control. Existing lock owner and prior source changes unchanged. Candidate greptile-20261003-r2 based on HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; no fix commit. Finding acceptance PASS, 320 affected and 197 prior-fix tests PASS; independent fresh read-only Astra r1/r2 PASS. Exact source hashes, current handoff, reproduction, 6363 passing suite cases with two skips and the unrelated slow watcher resource-gate failure, all gate receipts and preserved-work proof in .codex-local/greptile-20261003-work/results.json. Installed wheel CLI/MCP 26 rows and artifact qualification 9 rows PASS. Whole release qualification remains blocked by watcher resource measurement (growth 7 then 6, allowed 5); no runtime leak claim or adjacent scope expansion. LDR selection explicitly empty. No staging, commit, push, release or live operations.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-03T10:47:48.78082Z"
+          },
+          "completion_history": [
+            {
+              "completion": {
+                "prerequisites": {},
+                "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+                "result": "Fixed and independently verified in uncommitted candidate based on 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. 402 affected-suite tests PASS; independent Astra source review PASS. Exact source hashes, before/after cases, CLI smoke and all gate outcomes retained in .codex-local/greptile-repeat-20261002/results.json. No blockers for this task; no commits/publication/live data changes.",
+                "evidence": [
+                  {
+                    "acceptance_id": "A01",
+                    "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                    "verification_result": "pass"
+                  },
+                  {
+                    "acceptance_id": "A02",
+                    "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                    "verification_result": "pass"
+                  },
+                  {
+                    "acceptance_id": "A03",
+                    "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                    "verification_result": "pass"
+                  }
+                ],
+                "completed_at": "2026-10-02T21:42:06.010345Z"
+              },
+              "reopen_reason": "Reconcile the new handoff reference and revalidate the same existing accepted fix; no implementation change, duplicate task or expanded acceptance.",
+              "reopened_at": "2026-10-03T10:16:19.795522Z"
+            }
+          ],
+          "contract_digest": "sha256:b6d45a142ba0fad97f92e0b9abad3969d98e358d43468f5d1dcb9f7e489aeddc",
+          "ready": false,
+          "created_at": "2026-10-02T21:27:10.526738Z",
+          "updated_at": "2026-10-03T10:47:48.78082Z"
+        },
+        "operation": {
+          "id": "op_00e179adbf3f7fc89a4f647289d6f105",
+          "principal": "codex-macmac",
+          "request_id": "greptile-20261003-complete-mp-maintenance-thread-bypass-r2",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:a7c89b35f653a033d25b891f71f9b62c0ebddc163f04021eb2e4a81b54cd0625",
+            "expected_revision": 5,
+            "contract_digest": "sha256:b6d45a142ba0fad97f92e0b9abad3969d98e358d43468f5d1dcb9f7e489aeddc",
+            "result": "Already-fixed candidate revalidated; current auditor shows no maintenance bypass and successful negative control. Existing lock owner and prior source changes unchanged. Candidate greptile-20261003-r2 based on HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; no fix commit. Finding acceptance PASS, 320 affected and 197 prior-fix tests PASS; independent fresh read-only Astra r1/r2 PASS. Exact source hashes, current handoff, reproduction, 6363 passing suite cases with two skips and the unrelated slow watcher resource-gate failure, all gate receipts and preserved-work proof in .codex-local/greptile-20261003-work/results.json. Installed wheel CLI/MCP 26 rows and artifact qualification 9 rows PASS. Whole release qualification remains blocked by watcher resource measurement (growth 7 then 6, allowed 5); no runtime leak claim or adjacent scope expansion. LDR selection explicitly empty. No staging, commit, push, release or live operations.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "b85d573f19de8b8926dd10ce451bea54dbcaa49a5964069f8ba0255fb993d14b",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "version": "v1:9d19e7e0df3cf3864564eb0dd9cd1f011987379cd60e63344c99c8678da761cb",
+            "completion_valid": true,
+            "revision": 6,
+            "state": "done",
+            "outcome": "Prevent palace writers from reusing another thread's installation lease. Reproduced at current source 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; owners unchanged from 7c8a506a. Exclusive maintenance in thread A blocks thread B's direct shared acquisition, but thread B enters palace_write_lease. A second regression shows a writer reuses another thread's shared lease and no longer blocks maintenance after the other thread releases. Existing tests/test_uat_leases.py and operation_lock.py module contract independently require maintenance exclusion, same-thread nesting and per-palace serialization. Before evidence: .codex-local/greptile-repeat-20261002/before.log (two failed regressions). Rule Zero: extend current in-process hold registry with acquisition-thread ownership; preserve process-level introspection and explicit migration inheritance. Applicable LDR selection is explicitly empty: docs/decisions absent and no accepted record bound to these owners; this restores current contracts without a new architectural owner.\nGreptile run: 70cc20b9-dbb2-4316-9dd3-55d66c109014.\n\nVerified result: fixed in the uncommitted candidate at HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Source hashes and exact evidence: .codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS. Before: three expected failures and two positive controls. After: seven focused passes and full five-module profile suite 402 passed in 489.91s. Ruff, format, Pyright/basic+strict, architecture/docs/scorecard, static workflow checks, public safety, pinned Gitleaks candidate scan, performance budgets and local preflight pass. Real subprocess CLI backup succeeds and protects existing archive; simulated unsupported-publication public CLI guard and managed cleanup/retention tests pass. Fresh independent read-only gpt-6-astra/medium OpenAI review PASS, fallback none. No commit/push/release or live state changes. Full repository suite, other OS and hosted execution not rerun. No blockers for this finding; previously open release-update defects unchanged.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": ".codex-local/greptile-repeat-20261002/results.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MAINTENANCE-THREAD-BYPASS.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.json"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/quality/scorecard.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_operation_lock.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_uat_leases.py"
+                }
+              ],
+              "exclusions": [
+                "KG export and the prior 19 finding dispositions.",
+                "Live palaces, archives, watchers, services, host configuration and other repositories.",
+                "New lock owners, controllers, confirmation mechanisms or architecture boundaries; weakened verification.",
+                "Push, release publication and commits without existing applicable authorization."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Another thread cannot enter palace_write_lease under exclusive installation maintenance and obtains its own shared lease when a different thread already holds shared.",
+                "verification": "Event-synchronized regressions on actual owner, temporary HOME/lock paths, direct acquire_shared refusal control, successful retry after release; reproduce before and pass after."
+              },
+              {
+                "id": "A02",
+                "assertion": "Permitted same-thread nesting and explicit child-process wing-migration inheritance remain supported; interprocess fencing and per-palace serialization remain intact.",
+                "verification": "Run tests/test_operation_lock.py, tests/test_uat_leases.py and relevant wing-migration tests; live inherited token positive and stale/wrong token negative controls."
+              },
+              {
+                "id": "A03",
+                "assertion": "Wait/deadline behavior and resource cleanup after refusals, body exceptions and cross-thread release remain correct.",
+                "verification": "Run existing wait/owner tests and focused error/retry/thread-ownership release controls; exact relevant logs and candidate source identity recorded."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:b6d45a142ba0fad97f92e0b9abad3969d98e358d43468f5d1dcb9f7e489aeddc",
+              "result": "Already-fixed candidate revalidated; current auditor shows no maintenance bypass and successful negative control. Existing lock owner and prior source changes unchanged. Candidate greptile-20261003-r2 based on HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; no fix commit. Finding acceptance PASS, 320 affected and 197 prior-fix tests PASS; independent fresh read-only Astra r1/r2 PASS. Exact source hashes, current handoff, reproduction, 6363 passing suite cases with two skips and the unrelated slow watcher resource-gate failure, all gate receipts and preserved-work proof in .codex-local/greptile-20261003-work/results.json. Installed wheel CLI/MCP 26 rows and artifact qualification 9 rows PASS. Whole release qualification remains blocked by watcher resource measurement (growth 7 then 6, allowed 5); no runtime leak claim or adjacent scope expansion. LDR selection explicitly empty. No staging, commit, push, release or live operations.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A03",
+                  "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-03T10:47:48.78082Z"
+            },
+            "completion_history": [
+              {
+                "completion": {
+                  "prerequisites": {},
+                  "contract_digest": "sha256:491412d8c3ea947794ee63e68ba108bd2c2934aba60ada6ebfcee5c57212c9c7",
+                  "result": "Fixed and independently verified in uncommitted candidate based on 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. 402 affected-suite tests PASS; independent Astra source review PASS. Exact source hashes, before/after cases, CLI smoke and all gate outcomes retained in .codex-local/greptile-repeat-20261002/results.json. No blockers for this task; no commits/publication/live data changes.",
+                  "evidence": [
+                    {
+                      "acceptance_id": "A01",
+                      "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                      "verification_result": "pass"
+                    },
+                    {
+                      "acceptance_id": "A02",
+                      "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                      "verification_result": "pass"
+                    },
+                    {
+                      "acceptance_id": "A03",
+                      "artifact_ref": "file:.codex-local/greptile-repeat-20261002/results.json#MP-MAINTENANCE-THREAD-BYPASS",
+                      "verification_result": "pass"
+                    }
+                  ],
+                  "completed_at": "2026-10-02T21:42:06.010345Z"
+                },
+                "reopen_reason": "Reconcile the new handoff reference and revalidate the same existing accepted fix; no implementation change, duplicate task or expanded acceptance.",
+                "reopened_at": "2026-10-03T10:16:19.795522Z"
+              }
+            ],
+            "contract_digest": "sha256:b6d45a142ba0fad97f92e0b9abad3969d98e358d43468f5d1dcb9f7e489aeddc",
+            "ready": false,
+            "created_at": "2026-10-02T21:27:10.526738Z",
+            "updated_at": "2026-10-03T10:47:48.78082Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_3719d7bf3c422fa213b2a8ecf10c7cdc",
+          "project": "mempalace-code",
+          "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "type": "task.completed",
+          "revision": 6,
+          "version": "v1:9d19e7e0df3cf3864564eb0dd9cd1f011987379cd60e63344c99c8678da761cb",
+          "data": {
+            "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS"
+          },
+          "created_at": "2026-10-03T10:47:48.78082Z"
+        }
+      }
+    ],
+    "seal": "8094a829fc9ec806508fc2d4e38dfcdf4fd1618474a7f8a99d9d03185c4b9dfd"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "MP-MAINTENANCE-THREAD-BYPASS",
+    "head": "wf2:0a230ccb6d8754e5a00ede5f5d17db60656b3062f3778dfd8d3bb16d72ed5da1",
+    "nodes": [
+      {
+        "version": "wf2:0a230ccb6d8754e5a00ede5f5d17db60656b3062f3778dfd8d3bb16d72ed5da1",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-macmac",
+        "request_id": "greptile-repeat-20261002-plan-1",
+        "request_hash": "31d685f2e5a308ea6787f80cfc2e1a52f637180ae1c58896627b844a78f03ea1",
+        "payload": {
+          "request_id": "greptile-repeat-20261002-plan-1",
+          "id": "MP-MAINTENANCE-THREAD-BYPASS",
+          "expected_planning_version": "unplanned",
+          "reason": "Two bounded repeated-review defects explicitly authorized for implementation; retain historical findings unchanged.",
+          "priority": "P1",
+          "required": true
+        },
+        "state": {
+          "order": 0,
+          "priority": "P1",
+          "required": true,
+          "version": "wf2:0a230ccb6d8754e5a00ede5f5d17db60656b3062f3778dfd8d3bb16d72ed5da1"
+        },
+        "created_at": "2026-10-02T21:27:11.132294Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_0a230ccb6d8754e5a00ede5f5d17db60656b3062f3778dfd8d3bb16d72ed5da1",
+            "project": "mempalace-code",
+            "task_id": "MP-MAINTENANCE-THREAD-BYPASS",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:0a230ccb6d8754e5a00ede5f5d17db60656b3062f3778dfd8d3bb16d72ed5da1",
+            "data": {
+              "resource": "backlog://mempalace-code/task/MP-MAINTENANCE-THREAD-BYPASS",
+              "subject_id": "MP-MAINTENANCE-THREAD-BYPASS",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-02T21:27:11.132294Z"
+          }
+        ]
+      }
+    ],
+    "seal": "86798030b03f7ea1ccb701d42c24dfb1165fc774cbb7a5bb746de866736a8cda"
+  },
+  "seal": "63bbdea34ee51faf6a6b32e0ccc19a24c44e96d2994260dd71d1aeae01db34ee"
+}

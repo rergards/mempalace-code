@@ -321,10 +321,14 @@ The palace classifies each question into one of 5 halls. Pass 1 searches only wi
 
 ### Setup
 
+The original `ben/benchmarking` branch of `aya-thekeeper/mempal` no longer
+exists. The scripts are kept in this repository's `benchmarks/` directory and
+import `chromadb`, which current packages do not install and whose available
+releases carry known advisories. Create the disposable legacy environment
+described in [`README.md`](README.md#setup), run the commands below with its
+interpreter, and delete it afterwards.
+
 ```bash
-git clone -b ben/benchmarking https://github.com/aya-thekeeper/mempal.git
-cd mempal
-pip install chromadb pyyaml
 mkdir -p /tmp/longmemeval-data
 curl -fsSL -o /tmp/longmemeval-data/longmemeval_s_cleaned.json \
   https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json
@@ -352,7 +356,7 @@ python benchmarks/longmemeval_bench.py \
   /tmp/longmemeval-data/longmemeval_s_cleaned.json \
   --mode hybrid_v3 \
   --llm-rerank \
-  --api-key $ANTHROPIC_API_KEY
+  --llm-key "$ANTHROPIC_API_KEY"
 ```
 
 ### Hybrid v4 + Haiku rerank (100%) — needs API key
@@ -362,7 +366,7 @@ python benchmarks/longmemeval_bench.py \
   /tmp/longmemeval-data/longmemeval_s_cleaned.json \
   --mode hybrid_v4 \
   --llm-rerank \
-  --api-key $ANTHROPIC_API_KEY
+  --llm-key "$ANTHROPIC_API_KEY"
 ```
 
 ### Hybrid v4 + Sonnet rerank (100%) — needs API key
@@ -373,7 +377,7 @@ python benchmarks/longmemeval_bench.py \
   --mode hybrid_v4 \
   --llm-rerank \
   --llm-model claude-sonnet-4-6 \
-  --api-key $ANTHROPIC_API_KEY
+  --llm-key "$ANTHROPIC_API_KEY"
 ```
 
 ### Palace + Haiku rerank (99.4%) — needs API key
@@ -383,21 +387,21 @@ python benchmarks/longmemeval_bench.py \
   /tmp/longmemeval-data/longmemeval_s_cleaned.json \
   --mode palace \
   --llm-rerank \
-  --api-key $ANTHROPIC_API_KEY
+  --llm-key "$ANTHROPIC_API_KEY"
 ```
 
 ### Diary + Haiku rerank (needs precomputed cache) — needs API key
 
-```bash
-# First build the diary cache (one-time, ~$5-10 for all 19,195 sessions)
-python /tmp/build_diary_cache.py
+The one-time diary-cache builder (about $5-10 for all 19,195 sessions) was never
+committed, so this result cannot be reproduced from this repository alone. With
+an existing cache, the run was:
 
-# Then run with cache
+```bash
 python benchmarks/longmemeval_bench.py \
   /tmp/longmemeval-data/longmemeval_s_cleaned.json \
   --mode diary \
   --llm-rerank \
-  --api-key $ANTHROPIC_API_KEY \
+  --llm-key "$ANTHROPIC_API_KEY" \
   --skip-precompute
 ```
 
@@ -423,7 +427,7 @@ python benchmarks/locomo_bench.py /tmp/locomo/data/locomo10.json \
   --top-k 50 \
   --llm-rerank \
   --llm-model claude-sonnet-4-6 \
-  --api-key $ANTHROPIC_API_KEY
+  --llm-key "$ANTHROPIC_API_KEY"
 ```
 
 ---
@@ -773,4 +777,4 @@ python benchmarks/locomo_bench.py /tmp/locomo/data/locomo10.json \
 
 ---
 
-*Results verified March 2026. Scripts are committed to this repo; raw result JSONL/JSON files must be regenerated — see [Reproducing Every Result](#reproducing-every-result).*
+*Results verified March 2026. The scripts are kept in `benchmarks/` and need the disposable legacy ChromaDB environment described in [Reproducing Every Result](#reproducing-every-result); raw result JSONL/JSON files must be regenerated there.*

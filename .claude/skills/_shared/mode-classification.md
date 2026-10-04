@@ -9,7 +9,7 @@ Judge these five axes from repo evidence (not user-supplied size labels):
 
 - **boundary risk**: storage operations, schema migrations, embedding model changes, MCP tool contracts, CLI breaking changes, backup/restore paths
 - **ambiguity**: multiple plausible implementations, unclear API design, unresolved contract decisions, or (for hardening) ambiguity still remaining in the behavior
-- **blast radius**: number of subsystems/files likely affected and coupling to shared helpers (storage.py, mcp_server.py, miner.py)
+- **blast radius**: number of subsystems/files likely affected and coupling to shared state owners (`storage.py`, `mcp/runtime.py` and `mcp/registry.py`, `mining/orchestrator.py`); `mcp_server.py` and `miner.py` are compatibility shims
 - **verification difficulty**: whether the change needs non-trivial regression coverage or multi-step validation
 - **failure cost**: user data loss, palace corruption, embedding drift, hard-to-reverse regressions
 
