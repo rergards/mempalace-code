@@ -1,0 +1,826 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+      "version": "v1:ed81ae14d6456d47a90187c71b6547d50c92dc40d8a768c72993e2579891a7af",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "cancelled",
+      "outcome": "Qualify the wing migration runner on an owner-authorized isolated full copy\n\nSource: docs/BACKLOG.yaml; SHA256 1820106d0adc95b7edce8ca50853a3ced3ce19a5f49723d3d607a0b3fe8c687b\nOriginal metadata: {\"assignee\": \"owner\", \"key\": \"WING-MIGRATION-FULL-COPY-QUALIFICATION\", \"priority\": \"medium\", \"section_id\": \"storage_reliability\", \"size\": \"M\", \"status\": \"blocked\", \"summary\": \"Qualify the wing migration runner on an owner-authorized isolated full copy\", \"type\": \"task\"}\n\nOriginal accepted description (verbatim):\n## Problem\nSynthetic fixtures cannot prove preservation of the original rollout's complete Lance, KG,\nsidecar, marker, and runtime state. The retained private inventory predates the final runner\ncontract and lacks source host/filesystem binding, normalized full-preimage evidence, and\nowner-sealed installed-package identity.\n\n## Blocker\nWaits only on the owner-supplied private inventory and isolated full copy below. The runner\nhardening from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` landed on 2026-09-09.\n\n## Scope\nRefresh the exact private inventory against the landed runner schema and revision, then run\none owner-authorized rehearsal against the retained isolated full copy and both candidate KG\nstores. Preserve the sealed receipt and qualification evidence. Do not mutate original paths,\nactivate the original marker, restart a watcher, or perform the live migration.\n\n## Private operator input\nBefore launch, the operator exports `WING_MIGRATION_INVENTORY_PATH` with the absolute path to\nthe owner-authorized private inventory outside Git. Plan and implementation must read that exact\nfile and fail closed when the variable or file is absent. The path and private inventory values\nmust not be copied into tracked plans, logs, fixtures, or other public artifacts.\n\n## Reuse ledger\ncapability | existing owner | completion evidence | residual delta | action\nmigration and recovery | temporary runner from `WING-MIGRATION-EXISTING-DESTINATION-GUARD` | synthetic qualification and focused tests | prove the same contract against complete private state | reuse\nstored provenance identity | landed runner from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` | lexical and relocation contract passes focused gates | verify the frozen behavior against real copied state | reuse\nprivate state authority | owner-supplied inventory and isolated copy | supplied before implementation launch | validate exact copied targets and admit copy-only mutation | reuse\n\n## Owner prerequisite\nRefresh only the missing private authority fields against the landed runner schema. Bind\nthe current qualification host, source host/filesystem and snapshot manifest, normalized\norigin-to-copy preimage, exact copied targets, installed runtime package hashes, final runner\ndigest, retention, and descendant authority. A missing or mismatched field must refuse before\nmutation. Keep the private values outside Git and public logs.\n\n## Acceptance criteria\n- [ ] Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime,\n  source and destination wings, both KG candidates, snapshot roots, and evidence destination.\n- [ ] Full-copy inventory seals the original logical source root separately from the copied\n  project root. Collision, protected-row, and KG eligibility checks use that logical root;\n  resolver and effective-mine probes use only a disposable copy of the copied project root.\n  Stored source paths and hashes remain unchanged.\n- [ ] Device/inode and full preimage checks prove the qualification targets do not overlap original\n  paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.\n- [ ] The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate\n  retry, every staged interruption recovery, complete preservation, and no unrelated drift.\n- [ ] The exact runtime resolves and effectively mines the destination wing on the copied tree.\n  The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do\n  not substitute for the live original-path no-op check.\n- [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no\n  state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.\n- [ ] Live execution remains blocked pending separate authority for the original host, original\n  snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.\n",
+      "scope": {
+        "resources": [
+          {
+            "type": "repository",
+            "uri": "repository:mempalace-code"
+          }
+        ],
+        "exclusions": [
+          "Do not mutate original paths, activate the original marker, restart a watcher, or perform the live migration.",
+          "Private inventory paths and values must remain outside Git and public artifacts."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime, source and destination wings, both KG candidates, snapshot roots, and evidence destination.",
+          "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+        },
+        {
+          "id": "A02",
+          "assertion": "Full-copy inventory seals the original logical source root separately from the copied project root. Collision, protected-row, and KG eligibility checks use that logical root; resolver and effective-mine probes use only a disposable copy of the copied project root. Stored source paths and hashes remain unchanged.",
+          "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+        },
+        {
+          "id": "A03",
+          "assertion": "Device/inode and full preimage checks prove the qualification targets do not overlap original paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.",
+          "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+        },
+        {
+          "id": "A04",
+          "assertion": "The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate retry, every staged interruption recovery, complete preservation, and no unrelated drift.",
+          "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+        },
+        {
+          "id": "A05",
+          "assertion": "The exact runtime resolves and effectively mines the destination wing on the copied tree. The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do not substitute for the live original-path no-op check.",
+          "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+        },
+        {
+          "id": "A06",
+          "assertion": "Absence or mismatch of the private inventory produces a clear nonzero result and changes no state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.",
+          "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+        },
+        {
+          "id": "A07",
+          "assertion": "Live execution remains blocked pending separate authority for the original host, original snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.",
+          "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "contract_digest": "sha256:e8f3a140636f3720e8bc0e76bc6bbfd328dd1a2e8e5eab91a6dd4ec9a108af62",
+      "disposition": "Cancelled by explicit operator decision to ignore the remaining historical qualification artifact-retention/recovery requirement. The successful historical qualification report is preserved. Missing recovery artifacts remain recorded as unavailable; no claim that A06 passed, no new rehearsal, no repeat live migration, and no deletion of evidence or backups.",
+      "ready": false,
+      "created_at": "2026-10-01T13:51:37.588168Z",
+      "updated_at": "2026-10-01T20:02:40.957249Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "version": "v1:434dd3c9355ba4998f2d478f2ada1c0745a5e3ce1e9a69f79382e2f67c9239e0",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Qualify the wing migration runner on an owner-authorized isolated full copy\n\nSource: docs/BACKLOG.yaml; SHA256 1820106d0adc95b7edce8ca50853a3ced3ce19a5f49723d3d607a0b3fe8c687b\nOriginal metadata: {\"assignee\": \"owner\", \"key\": \"WING-MIGRATION-FULL-COPY-QUALIFICATION\", \"priority\": \"medium\", \"section_id\": \"storage_reliability\", \"size\": \"M\", \"status\": \"blocked\", \"summary\": \"Qualify the wing migration runner on an owner-authorized isolated full copy\", \"type\": \"task\"}\n\nOriginal accepted description (verbatim):\n## Problem\nSynthetic fixtures cannot prove preservation of the original rollout's complete Lance, KG,\nsidecar, marker, and runtime state. The retained private inventory predates the final runner\ncontract and lacks source host/filesystem binding, normalized full-preimage evidence, and\nowner-sealed installed-package identity.\n\n## Blocker\nWaits only on the owner-supplied private inventory and isolated full copy below. The runner\nhardening from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` landed on 2026-09-09.\n\n## Scope\nRefresh the exact private inventory against the landed runner schema and revision, then run\none owner-authorized rehearsal against the retained isolated full copy and both candidate KG\nstores. Preserve the sealed receipt and qualification evidence. Do not mutate original paths,\nactivate the original marker, restart a watcher, or perform the live migration.\n\n## Private operator input\nBefore launch, the operator exports `WING_MIGRATION_INVENTORY_PATH` with the absolute path to\nthe owner-authorized private inventory outside Git. Plan and implementation must read that exact\nfile and fail closed when the variable or file is absent. The path and private inventory values\nmust not be copied into tracked plans, logs, fixtures, or other public artifacts.\n\n## Reuse ledger\ncapability | existing owner | completion evidence | residual delta | action\nmigration and recovery | temporary runner from `WING-MIGRATION-EXISTING-DESTINATION-GUARD` | synthetic qualification and focused tests | prove the same contract against complete private state | reuse\nstored provenance identity | landed runner from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` | lexical and relocation contract passes focused gates | verify the frozen behavior against real copied state | reuse\nprivate state authority | owner-supplied inventory and isolated copy | supplied before implementation launch | validate exact copied targets and admit copy-only mutation | reuse\n\n## Owner prerequisite\nRefresh only the missing private authority fields against the landed runner schema. Bind\nthe current qualification host, source host/filesystem and snapshot manifest, normalized\norigin-to-copy preimage, exact copied targets, installed runtime package hashes, final runner\ndigest, retention, and descendant authority. A missing or mismatched field must refuse before\nmutation. Keep the private values outside Git and public logs.\n\n## Acceptance criteria\n- [ ] Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime,\n  source and destination wings, both KG candidates, snapshot roots, and evidence destination.\n- [ ] Full-copy inventory seals the original logical source root separately from the copied\n  project root. Collision, protected-row, and KG eligibility checks use that logical root;\n  resolver and effective-mine probes use only a disposable copy of the copied project root.\n  Stored source paths and hashes remain unchanged.\n- [ ] Device/inode and full preimage checks prove the qualification targets do not overlap original\n  paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.\n- [ ] The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate\n  retry, every staged interruption recovery, complete preservation, and no unrelated drift.\n- [ ] The exact runtime resolves and effectively mines the destination wing on the copied tree.\n  The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do\n  not substitute for the live original-path no-op check.\n- [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no\n  state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.\n- [ ] Live execution remains blocked pending separate authority for the original host, original\n  snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.\n",
+          "scope": {
+            "resources": [
+              {
+                "type": "repository",
+                "uri": "repository:mempalace-code"
+              }
+            ],
+            "exclusions": [
+              "Do not mutate original paths, activate the original marker, restart a watcher, or perform the live migration.",
+              "Private inventory paths and values must remain outside Git and public artifacts."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime, source and destination wings, both KG candidates, snapshot roots, and evidence destination.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A02",
+              "assertion": "Full-copy inventory seals the original logical source root separately from the copied project root. Collision, protected-row, and KG eligibility checks use that logical root; resolver and effective-mine probes use only a disposable copy of the copied project root. Stored source paths and hashes remain unchanged.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A03",
+              "assertion": "Device/inode and full preimage checks prove the qualification targets do not overlap original paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A04",
+              "assertion": "The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate retry, every staged interruption recovery, complete preservation, and no unrelated drift.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A05",
+              "assertion": "The exact runtime resolves and effectively mines the destination wing on the copied tree. The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do not substitute for the live original-path no-op check.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A06",
+              "assertion": "Absence or mismatch of the private inventory produces a clear nonzero result and changes no state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A07",
+              "assertion": "Live execution remains blocked pending separate authority for the original host, original snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:e8f3a140636f3720e8bc0e76bc6bbfd328dd1a2e8e5eab91a6dd4ec9a108af62",
+          "ready": false,
+          "created_at": "2026-10-01T13:51:37.588168Z",
+          "updated_at": "2026-10-01T13:51:37.588168Z"
+        },
+        "operation": {
+          "id": "op_784e9062696f2d29d46df7f532e4c900",
+          "principal": "backlog-migration",
+          "request_id": "mempalace-migrate-20261001-wing-migration-full-copy-qualification-create",
+          "kind": "create",
+          "payload": {
+            "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "outcome": "Qualify the wing migration runner on an owner-authorized isolated full copy\n\nSource: docs/BACKLOG.yaml; SHA256 1820106d0adc95b7edce8ca50853a3ced3ce19a5f49723d3d607a0b3fe8c687b\nOriginal metadata: {\"assignee\": \"owner\", \"key\": \"WING-MIGRATION-FULL-COPY-QUALIFICATION\", \"priority\": \"medium\", \"section_id\": \"storage_reliability\", \"size\": \"M\", \"status\": \"blocked\", \"summary\": \"Qualify the wing migration runner on an owner-authorized isolated full copy\", \"type\": \"task\"}\n\nOriginal accepted description (verbatim):\n## Problem\nSynthetic fixtures cannot prove preservation of the original rollout's complete Lance, KG,\nsidecar, marker, and runtime state. The retained private inventory predates the final runner\ncontract and lacks source host/filesystem binding, normalized full-preimage evidence, and\nowner-sealed installed-package identity.\n\n## Blocker\nWaits only on the owner-supplied private inventory and isolated full copy below. The runner\nhardening from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` landed on 2026-09-09.\n\n## Scope\nRefresh the exact private inventory against the landed runner schema and revision, then run\none owner-authorized rehearsal against the retained isolated full copy and both candidate KG\nstores. Preserve the sealed receipt and qualification evidence. Do not mutate original paths,\nactivate the original marker, restart a watcher, or perform the live migration.\n\n## Private operator input\nBefore launch, the operator exports `WING_MIGRATION_INVENTORY_PATH` with the absolute path to\nthe owner-authorized private inventory outside Git. Plan and implementation must read that exact\nfile and fail closed when the variable or file is absent. The path and private inventory values\nmust not be copied into tracked plans, logs, fixtures, or other public artifacts.\n\n## Reuse ledger\ncapability | existing owner | completion evidence | residual delta | action\nmigration and recovery | temporary runner from `WING-MIGRATION-EXISTING-DESTINATION-GUARD` | synthetic qualification and focused tests | prove the same contract against complete private state | reuse\nstored provenance identity | landed runner from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` | lexical and relocation contract passes focused gates | verify the frozen behavior against real copied state | reuse\nprivate state authority | owner-supplied inventory and isolated copy | supplied before implementation launch | validate exact copied targets and admit copy-only mutation | reuse\n\n## Owner prerequisite\nRefresh only the missing private authority fields against the landed runner schema. Bind\nthe current qualification host, source host/filesystem and snapshot manifest, normalized\norigin-to-copy preimage, exact copied targets, installed runtime package hashes, final runner\ndigest, retention, and descendant authority. A missing or mismatched field must refuse before\nmutation. Keep the private values outside Git and public logs.\n\n## Acceptance criteria\n- [ ] Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime,\n  source and destination wings, both KG candidates, snapshot roots, and evidence destination.\n- [ ] Full-copy inventory seals the original logical source root separately from the copied\n  project root. Collision, protected-row, and KG eligibility checks use that logical root;\n  resolver and effective-mine probes use only a disposable copy of the copied project root.\n  Stored source paths and hashes remain unchanged.\n- [ ] Device/inode and full preimage checks prove the qualification targets do not overlap original\n  paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.\n- [ ] The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate\n  retry, every staged interruption recovery, complete preservation, and no unrelated drift.\n- [ ] The exact runtime resolves and effectively mines the destination wing on the copied tree.\n  The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do\n  not substitute for the live original-path no-op check.\n- [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no\n  state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.\n- [ ] Live execution remains blocked pending separate authority for the original host, original\n  snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.\n",
+            "scope": {
+              "resources": [
+                {
+                  "type": "repository",
+                  "uri": "repository:mempalace-code"
+                }
+              ],
+              "exclusions": [
+                "Do not mutate original paths, activate the original marker, restart a watcher, or perform the live migration.",
+                "Private inventory paths and values must remain outside Git and public artifacts."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime, source and destination wings, both KG candidates, snapshot roots, and evidence destination.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A02",
+                "assertion": "Full-copy inventory seals the original logical source root separately from the copied project root. Collision, protected-row, and KG eligibility checks use that logical root; resolver and effective-mine probes use only a disposable copy of the copied project root. Stored source paths and hashes remain unchanged.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A03",
+                "assertion": "Device/inode and full preimage checks prove the qualification targets do not overlap original paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A04",
+                "assertion": "The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate retry, every staged interruption recovery, complete preservation, and no unrelated drift.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A05",
+                "assertion": "The exact runtime resolves and effectively mines the destination wing on the copied tree. The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do not substitute for the live original-path no-op check.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A06",
+                "assertion": "Absence or mismatch of the private inventory produces a clear nonzero result and changes no state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A07",
+                "assertion": "Live execution remains blocked pending separate authority for the original host, original snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              }
+            ],
+            "blocked_by": [],
+            "questions": null
+          },
+          "request_hash": "f45a02426e2629d6955dbcc00866e3e0a6b91791841c5a2109183aa6b47b66ad",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "version": "v1:434dd3c9355ba4998f2d478f2ada1c0745a5e3ce1e9a69f79382e2f67c9239e0",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Qualify the wing migration runner on an owner-authorized isolated full copy\n\nSource: docs/BACKLOG.yaml; SHA256 1820106d0adc95b7edce8ca50853a3ced3ce19a5f49723d3d607a0b3fe8c687b\nOriginal metadata: {\"assignee\": \"owner\", \"key\": \"WING-MIGRATION-FULL-COPY-QUALIFICATION\", \"priority\": \"medium\", \"section_id\": \"storage_reliability\", \"size\": \"M\", \"status\": \"blocked\", \"summary\": \"Qualify the wing migration runner on an owner-authorized isolated full copy\", \"type\": \"task\"}\n\nOriginal accepted description (verbatim):\n## Problem\nSynthetic fixtures cannot prove preservation of the original rollout's complete Lance, KG,\nsidecar, marker, and runtime state. The retained private inventory predates the final runner\ncontract and lacks source host/filesystem binding, normalized full-preimage evidence, and\nowner-sealed installed-package identity.\n\n## Blocker\nWaits only on the owner-supplied private inventory and isolated full copy below. The runner\nhardening from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` landed on 2026-09-09.\n\n## Scope\nRefresh the exact private inventory against the landed runner schema and revision, then run\none owner-authorized rehearsal against the retained isolated full copy and both candidate KG\nstores. Preserve the sealed receipt and qualification evidence. Do not mutate original paths,\nactivate the original marker, restart a watcher, or perform the live migration.\n\n## Private operator input\nBefore launch, the operator exports `WING_MIGRATION_INVENTORY_PATH` with the absolute path to\nthe owner-authorized private inventory outside Git. Plan and implementation must read that exact\nfile and fail closed when the variable or file is absent. The path and private inventory values\nmust not be copied into tracked plans, logs, fixtures, or other public artifacts.\n\n## Reuse ledger\ncapability | existing owner | completion evidence | residual delta | action\nmigration and recovery | temporary runner from `WING-MIGRATION-EXISTING-DESTINATION-GUARD` | synthetic qualification and focused tests | prove the same contract against complete private state | reuse\nstored provenance identity | landed runner from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` | lexical and relocation contract passes focused gates | verify the frozen behavior against real copied state | reuse\nprivate state authority | owner-supplied inventory and isolated copy | supplied before implementation launch | validate exact copied targets and admit copy-only mutation | reuse\n\n## Owner prerequisite\nRefresh only the missing private authority fields against the landed runner schema. Bind\nthe current qualification host, source host/filesystem and snapshot manifest, normalized\norigin-to-copy preimage, exact copied targets, installed runtime package hashes, final runner\ndigest, retention, and descendant authority. A missing or mismatched field must refuse before\nmutation. Keep the private values outside Git and public logs.\n\n## Acceptance criteria\n- [ ] Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime,\n  source and destination wings, both KG candidates, snapshot roots, and evidence destination.\n- [ ] Full-copy inventory seals the original logical source root separately from the copied\n  project root. Collision, protected-row, and KG eligibility checks use that logical root;\n  resolver and effective-mine probes use only a disposable copy of the copied project root.\n  Stored source paths and hashes remain unchanged.\n- [ ] Device/inode and full preimage checks prove the qualification targets do not overlap original\n  paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.\n- [ ] The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate\n  retry, every staged interruption recovery, complete preservation, and no unrelated drift.\n- [ ] The exact runtime resolves and effectively mines the destination wing on the copied tree.\n  The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do\n  not substitute for the live original-path no-op check.\n- [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no\n  state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.\n- [ ] Live execution remains blocked pending separate authority for the original host, original\n  snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.\n",
+            "scope": {
+              "resources": [
+                {
+                  "type": "repository",
+                  "uri": "repository:mempalace-code"
+                }
+              ],
+              "exclusions": [
+                "Do not mutate original paths, activate the original marker, restart a watcher, or perform the live migration.",
+                "Private inventory paths and values must remain outside Git and public artifacts."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime, source and destination wings, both KG candidates, snapshot roots, and evidence destination.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A02",
+                "assertion": "Full-copy inventory seals the original logical source root separately from the copied project root. Collision, protected-row, and KG eligibility checks use that logical root; resolver and effective-mine probes use only a disposable copy of the copied project root. Stored source paths and hashes remain unchanged.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A03",
+                "assertion": "Device/inode and full preimage checks prove the qualification targets do not overlap original paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A04",
+                "assertion": "The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate retry, every staged interruption recovery, complete preservation, and no unrelated drift.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A05",
+                "assertion": "The exact runtime resolves and effectively mines the destination wing on the copied tree. The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do not substitute for the live original-path no-op check.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A06",
+                "assertion": "Absence or mismatch of the private inventory produces a clear nonzero result and changes no state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A07",
+                "assertion": "Live execution remains blocked pending separate authority for the original host, original snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:e8f3a140636f3720e8bc0e76bc6bbfd328dd1a2e8e5eab91a6dd4ec9a108af62",
+            "ready": false,
+            "created_at": "2026-10-01T13:51:37.588168Z",
+            "updated_at": "2026-10-01T13:51:37.588168Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_272fe7b15783d3e9cd4f4dc0b905bd05",
+          "project": "mempalace-code",
+          "task_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:434dd3c9355ba4998f2d478f2ada1c0745a5e3ce1e9a69f79382e2f67c9239e0",
+          "data": {
+            "resource": "backlog://mempalace-code/task/WING-MIGRATION-FULL-COPY-QUALIFICATION"
+          },
+          "created_at": "2026-10-01T13:51:37.588168Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_31370b5dd8658da95ffc6132e720f07b",
+            "project": "mempalace-code",
+            "task_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:a89b9e400752130f03b2fab408084172f9ed2ac75b29ed669835c6288e0108ca",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/WING-MIGRATION-FULL-COPY-QUALIFICATION"
+            },
+            "created_at": "2026-10-01T13:52:21.678686Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "version": "v1:a89b9e400752130f03b2fab408084172f9ed2ac75b29ed669835c6288e0108ca",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Qualify the wing migration runner on an owner-authorized isolated full copy\n\nSource: docs/BACKLOG.yaml; SHA256 1820106d0adc95b7edce8ca50853a3ced3ce19a5f49723d3d607a0b3fe8c687b\nOriginal metadata: {\"assignee\": \"owner\", \"key\": \"WING-MIGRATION-FULL-COPY-QUALIFICATION\", \"priority\": \"medium\", \"section_id\": \"storage_reliability\", \"size\": \"M\", \"status\": \"blocked\", \"summary\": \"Qualify the wing migration runner on an owner-authorized isolated full copy\", \"type\": \"task\"}\n\nOriginal accepted description (verbatim):\n## Problem\nSynthetic fixtures cannot prove preservation of the original rollout's complete Lance, KG,\nsidecar, marker, and runtime state. The retained private inventory predates the final runner\ncontract and lacks source host/filesystem binding, normalized full-preimage evidence, and\nowner-sealed installed-package identity.\n\n## Blocker\nWaits only on the owner-supplied private inventory and isolated full copy below. The runner\nhardening from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` landed on 2026-09-09.\n\n## Scope\nRefresh the exact private inventory against the landed runner schema and revision, then run\none owner-authorized rehearsal against the retained isolated full copy and both candidate KG\nstores. Preserve the sealed receipt and qualification evidence. Do not mutate original paths,\nactivate the original marker, restart a watcher, or perform the live migration.\n\n## Private operator input\nBefore launch, the operator exports `WING_MIGRATION_INVENTORY_PATH` with the absolute path to\nthe owner-authorized private inventory outside Git. Plan and implementation must read that exact\nfile and fail closed when the variable or file is absent. The path and private inventory values\nmust not be copied into tracked plans, logs, fixtures, or other public artifacts.\n\n## Reuse ledger\ncapability | existing owner | completion evidence | residual delta | action\nmigration and recovery | temporary runner from `WING-MIGRATION-EXISTING-DESTINATION-GUARD` | synthetic qualification and focused tests | prove the same contract against complete private state | reuse\nstored provenance identity | landed runner from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` | lexical and relocation contract passes focused gates | verify the frozen behavior against real copied state | reuse\nprivate state authority | owner-supplied inventory and isolated copy | supplied before implementation launch | validate exact copied targets and admit copy-only mutation | reuse\n\n## Owner prerequisite\nRefresh only the missing private authority fields against the landed runner schema. Bind\nthe current qualification host, source host/filesystem and snapshot manifest, normalized\norigin-to-copy preimage, exact copied targets, installed runtime package hashes, final runner\ndigest, retention, and descendant authority. A missing or mismatched field must refuse before\nmutation. Keep the private values outside Git and public logs.\n\n## Acceptance criteria\n- [ ] Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime,\n  source and destination wings, both KG candidates, snapshot roots, and evidence destination.\n- [ ] Full-copy inventory seals the original logical source root separately from the copied\n  project root. Collision, protected-row, and KG eligibility checks use that logical root;\n  resolver and effective-mine probes use only a disposable copy of the copied project root.\n  Stored source paths and hashes remain unchanged.\n- [ ] Device/inode and full preimage checks prove the qualification targets do not overlap original\n  paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.\n- [ ] The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate\n  retry, every staged interruption recovery, complete preservation, and no unrelated drift.\n- [ ] The exact runtime resolves and effectively mines the destination wing on the copied tree.\n  The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do\n  not substitute for the live original-path no-op check.\n- [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no\n  state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.\n- [ ] Live execution remains blocked pending separate authority for the original host, original\n  snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.\n",
+          "scope": {
+            "resources": [
+              {
+                "type": "repository",
+                "uri": "repository:mempalace-code"
+              }
+            ],
+            "exclusions": [
+              "Do not mutate original paths, activate the original marker, restart a watcher, or perform the live migration.",
+              "Private inventory paths and values must remain outside Git and public artifacts."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime, source and destination wings, both KG candidates, snapshot roots, and evidence destination.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A02",
+              "assertion": "Full-copy inventory seals the original logical source root separately from the copied project root. Collision, protected-row, and KG eligibility checks use that logical root; resolver and effective-mine probes use only a disposable copy of the copied project root. Stored source paths and hashes remain unchanged.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A03",
+              "assertion": "Device/inode and full preimage checks prove the qualification targets do not overlap original paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A04",
+              "assertion": "The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate retry, every staged interruption recovery, complete preservation, and no unrelated drift.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A05",
+              "assertion": "The exact runtime resolves and effectively mines the destination wing on the copied tree. The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do not substitute for the live original-path no-op check.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A06",
+              "assertion": "Absence or mismatch of the private inventory produces a clear nonzero result and changes no state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A07",
+              "assertion": "Live execution remains blocked pending separate authority for the original host, original snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:e8f3a140636f3720e8bc0e76bc6bbfd328dd1a2e8e5eab91a6dd4ec9a108af62",
+          "ready": false,
+          "created_at": "2026-10-01T13:51:37.588168Z",
+          "updated_at": "2026-10-01T13:52:21.678686Z"
+        },
+        "operation": {
+          "id": "op_615a2f1ba954d9fb2a5218b3e1a12752",
+          "principal": "codex-macmac",
+          "request_id": "mempalace-migrate-20261001-wing-migration-full-copy-qualification-open",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:434dd3c9355ba4998f2d478f2ada1c0745a5e3ce1e9a69f79382e2f67c9239e0",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "dc64c875ab34b2ac9eaa9d509682250330ba5a3a0f85abc91c172636a224208b",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "version": "v1:a89b9e400752130f03b2fab408084172f9ed2ac75b29ed669835c6288e0108ca",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Qualify the wing migration runner on an owner-authorized isolated full copy\n\nSource: docs/BACKLOG.yaml; SHA256 1820106d0adc95b7edce8ca50853a3ced3ce19a5f49723d3d607a0b3fe8c687b\nOriginal metadata: {\"assignee\": \"owner\", \"key\": \"WING-MIGRATION-FULL-COPY-QUALIFICATION\", \"priority\": \"medium\", \"section_id\": \"storage_reliability\", \"size\": \"M\", \"status\": \"blocked\", \"summary\": \"Qualify the wing migration runner on an owner-authorized isolated full copy\", \"type\": \"task\"}\n\nOriginal accepted description (verbatim):\n## Problem\nSynthetic fixtures cannot prove preservation of the original rollout's complete Lance, KG,\nsidecar, marker, and runtime state. The retained private inventory predates the final runner\ncontract and lacks source host/filesystem binding, normalized full-preimage evidence, and\nowner-sealed installed-package identity.\n\n## Blocker\nWaits only on the owner-supplied private inventory and isolated full copy below. The runner\nhardening from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` landed on 2026-09-09.\n\n## Scope\nRefresh the exact private inventory against the landed runner schema and revision, then run\none owner-authorized rehearsal against the retained isolated full copy and both candidate KG\nstores. Preserve the sealed receipt and qualification evidence. Do not mutate original paths,\nactivate the original marker, restart a watcher, or perform the live migration.\n\n## Private operator input\nBefore launch, the operator exports `WING_MIGRATION_INVENTORY_PATH` with the absolute path to\nthe owner-authorized private inventory outside Git. Plan and implementation must read that exact\nfile and fail closed when the variable or file is absent. The path and private inventory values\nmust not be copied into tracked plans, logs, fixtures, or other public artifacts.\n\n## Reuse ledger\ncapability | existing owner | completion evidence | residual delta | action\nmigration and recovery | temporary runner from `WING-MIGRATION-EXISTING-DESTINATION-GUARD` | synthetic qualification and focused tests | prove the same contract against complete private state | reuse\nstored provenance identity | landed runner from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` | lexical and relocation contract passes focused gates | verify the frozen behavior against real copied state | reuse\nprivate state authority | owner-supplied inventory and isolated copy | supplied before implementation launch | validate exact copied targets and admit copy-only mutation | reuse\n\n## Owner prerequisite\nRefresh only the missing private authority fields against the landed runner schema. Bind\nthe current qualification host, source host/filesystem and snapshot manifest, normalized\norigin-to-copy preimage, exact copied targets, installed runtime package hashes, final runner\ndigest, retention, and descendant authority. A missing or mismatched field must refuse before\nmutation. Keep the private values outside Git and public logs.\n\n## Acceptance criteria\n- [ ] Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime,\n  source and destination wings, both KG candidates, snapshot roots, and evidence destination.\n- [ ] Full-copy inventory seals the original logical source root separately from the copied\n  project root. Collision, protected-row, and KG eligibility checks use that logical root;\n  resolver and effective-mine probes use only a disposable copy of the copied project root.\n  Stored source paths and hashes remain unchanged.\n- [ ] Device/inode and full preimage checks prove the qualification targets do not overlap original\n  paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.\n- [ ] The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate\n  retry, every staged interruption recovery, complete preservation, and no unrelated drift.\n- [ ] The exact runtime resolves and effectively mines the destination wing on the copied tree.\n  The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do\n  not substitute for the live original-path no-op check.\n- [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no\n  state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.\n- [ ] Live execution remains blocked pending separate authority for the original host, original\n  snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.\n",
+            "scope": {
+              "resources": [
+                {
+                  "type": "repository",
+                  "uri": "repository:mempalace-code"
+                }
+              ],
+              "exclusions": [
+                "Do not mutate original paths, activate the original marker, restart a watcher, or perform the live migration.",
+                "Private inventory paths and values must remain outside Git and public artifacts."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime, source and destination wings, both KG candidates, snapshot roots, and evidence destination.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A02",
+                "assertion": "Full-copy inventory seals the original logical source root separately from the copied project root. Collision, protected-row, and KG eligibility checks use that logical root; resolver and effective-mine probes use only a disposable copy of the copied project root. Stored source paths and hashes remain unchanged.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A03",
+                "assertion": "Device/inode and full preimage checks prove the qualification targets do not overlap original paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A04",
+                "assertion": "The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate retry, every staged interruption recovery, complete preservation, and no unrelated drift.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A05",
+                "assertion": "The exact runtime resolves and effectively mines the destination wing on the copied tree. The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do not substitute for the live original-path no-op check.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A06",
+                "assertion": "Absence or mismatch of the private inventory produces a clear nonzero result and changes no state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A07",
+                "assertion": "Live execution remains blocked pending separate authority for the original host, original snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:e8f3a140636f3720e8bc0e76bc6bbfd328dd1a2e8e5eab91a6dd4ec9a108af62",
+            "ready": true,
+            "created_at": "2026-10-01T13:51:37.588168Z",
+            "updated_at": "2026-10-01T13:52:21.678686Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_617778b835534e91a79b1b5a5f9b297b",
+          "project": "mempalace-code",
+          "task_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:a89b9e400752130f03b2fab408084172f9ed2ac75b29ed669835c6288e0108ca",
+          "data": {
+            "resource": "backlog://mempalace-code/task/WING-MIGRATION-FULL-COPY-QUALIFICATION"
+          },
+          "created_at": "2026-10-01T13:52:21.678686Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_99579bc4f15d4426844c4409dae7e863",
+            "project": "mempalace-code",
+            "task_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:ed81ae14d6456d47a90187c71b6547d50c92dc40d8a768c72993e2579891a7af",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/WING-MIGRATION-FULL-COPY-QUALIFICATION"
+            },
+            "created_at": "2026-10-01T20:02:40.957249Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "version": "v1:ed81ae14d6456d47a90187c71b6547d50c92dc40d8a768c72993e2579891a7af",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "cancelled",
+          "outcome": "Qualify the wing migration runner on an owner-authorized isolated full copy\n\nSource: docs/BACKLOG.yaml; SHA256 1820106d0adc95b7edce8ca50853a3ced3ce19a5f49723d3d607a0b3fe8c687b\nOriginal metadata: {\"assignee\": \"owner\", \"key\": \"WING-MIGRATION-FULL-COPY-QUALIFICATION\", \"priority\": \"medium\", \"section_id\": \"storage_reliability\", \"size\": \"M\", \"status\": \"blocked\", \"summary\": \"Qualify the wing migration runner on an owner-authorized isolated full copy\", \"type\": \"task\"}\n\nOriginal accepted description (verbatim):\n## Problem\nSynthetic fixtures cannot prove preservation of the original rollout's complete Lance, KG,\nsidecar, marker, and runtime state. The retained private inventory predates the final runner\ncontract and lacks source host/filesystem binding, normalized full-preimage evidence, and\nowner-sealed installed-package identity.\n\n## Blocker\nWaits only on the owner-supplied private inventory and isolated full copy below. The runner\nhardening from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` landed on 2026-09-09.\n\n## Scope\nRefresh the exact private inventory against the landed runner schema and revision, then run\none owner-authorized rehearsal against the retained isolated full copy and both candidate KG\nstores. Preserve the sealed receipt and qualification evidence. Do not mutate original paths,\nactivate the original marker, restart a watcher, or perform the live migration.\n\n## Private operator input\nBefore launch, the operator exports `WING_MIGRATION_INVENTORY_PATH` with the absolute path to\nthe owner-authorized private inventory outside Git. Plan and implementation must read that exact\nfile and fail closed when the variable or file is absent. The path and private inventory values\nmust not be copied into tracked plans, logs, fixtures, or other public artifacts.\n\n## Reuse ledger\ncapability | existing owner | completion evidence | residual delta | action\nmigration and recovery | temporary runner from `WING-MIGRATION-EXISTING-DESTINATION-GUARD` | synthetic qualification and focused tests | prove the same contract against complete private state | reuse\nstored provenance identity | landed runner from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` | lexical and relocation contract passes focused gates | verify the frozen behavior against real copied state | reuse\nprivate state authority | owner-supplied inventory and isolated copy | supplied before implementation launch | validate exact copied targets and admit copy-only mutation | reuse\n\n## Owner prerequisite\nRefresh only the missing private authority fields against the landed runner schema. Bind\nthe current qualification host, source host/filesystem and snapshot manifest, normalized\norigin-to-copy preimage, exact copied targets, installed runtime package hashes, final runner\ndigest, retention, and descendant authority. A missing or mismatched field must refuse before\nmutation. Keep the private values outside Git and public logs.\n\n## Acceptance criteria\n- [ ] Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime,\n  source and destination wings, both KG candidates, snapshot roots, and evidence destination.\n- [ ] Full-copy inventory seals the original logical source root separately from the copied\n  project root. Collision, protected-row, and KG eligibility checks use that logical root;\n  resolver and effective-mine probes use only a disposable copy of the copied project root.\n  Stored source paths and hashes remain unchanged.\n- [ ] Device/inode and full preimage checks prove the qualification targets do not overlap original\n  paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.\n- [ ] The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate\n  retry, every staged interruption recovery, complete preservation, and no unrelated drift.\n- [ ] The exact runtime resolves and effectively mines the destination wing on the copied tree.\n  The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do\n  not substitute for the live original-path no-op check.\n- [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no\n  state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.\n- [ ] Live execution remains blocked pending separate authority for the original host, original\n  snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.\n",
+          "scope": {
+            "resources": [
+              {
+                "type": "repository",
+                "uri": "repository:mempalace-code"
+              }
+            ],
+            "exclusions": [
+              "Do not mutate original paths, activate the original marker, restart a watcher, or perform the live migration.",
+              "Private inventory paths and values must remain outside Git and public artifacts."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime, source and destination wings, both KG candidates, snapshot roots, and evidence destination.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A02",
+              "assertion": "Full-copy inventory seals the original logical source root separately from the copied project root. Collision, protected-row, and KG eligibility checks use that logical root; resolver and effective-mine probes use only a disposable copy of the copied project root. Stored source paths and hashes remain unchanged.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A03",
+              "assertion": "Device/inode and full preimage checks prove the qualification targets do not overlap original paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A04",
+              "assertion": "The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate retry, every staged interruption recovery, complete preservation, and no unrelated drift.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A05",
+              "assertion": "The exact runtime resolves and effectively mines the destination wing on the copied tree. The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do not substitute for the live original-path no-op check.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A06",
+              "assertion": "Absence or mismatch of the private inventory produces a clear nonzero result and changes no state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            },
+            {
+              "id": "A07",
+              "assertion": "Live execution remains blocked pending separate authority for the original host, original snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.",
+              "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:e8f3a140636f3720e8bc0e76bc6bbfd328dd1a2e8e5eab91a6dd4ec9a108af62",
+          "disposition": "Cancelled by explicit operator decision to ignore the remaining historical qualification artifact-retention/recovery requirement. The successful historical qualification report is preserved. Missing recovery artifacts remain recorded as unavailable; no claim that A06 passed, no new rehearsal, no repeat live migration, and no deletion of evidence or backups.",
+          "ready": false,
+          "created_at": "2026-10-01T13:51:37.588168Z",
+          "updated_at": "2026-10-01T20:02:40.957249Z"
+        },
+        "operation": {
+          "id": "op_1868404472f7a0bc5669d48b250984d2",
+          "principal": "codex-macmac",
+          "request_id": "mempalace-owner-ignore-20261001-cancel-artifact-work-v1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:a89b9e400752130f03b2fab408084172f9ed2ac75b29ed669835c6288e0108ca",
+            "expected_revision": 2,
+            "state": "cancelled",
+            "disposition": "Cancelled by explicit operator decision to ignore the remaining historical qualification artifact-retention/recovery requirement. The successful historical qualification report is preserved. Missing recovery artifacts remain recorded as unavailable; no claim that A06 passed, no new rehearsal, no repeat live migration, and no deletion of evidence or backups."
+          },
+          "request_hash": "49e26f43d516ef11a81e94d4962ac328dd25fda84ac84c317991614209245add",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "version": "v1:ed81ae14d6456d47a90187c71b6547d50c92dc40d8a768c72993e2579891a7af",
+            "completion_valid": false,
+            "revision": 3,
+            "state": "cancelled",
+            "outcome": "Qualify the wing migration runner on an owner-authorized isolated full copy\n\nSource: docs/BACKLOG.yaml; SHA256 1820106d0adc95b7edce8ca50853a3ced3ce19a5f49723d3d607a0b3fe8c687b\nOriginal metadata: {\"assignee\": \"owner\", \"key\": \"WING-MIGRATION-FULL-COPY-QUALIFICATION\", \"priority\": \"medium\", \"section_id\": \"storage_reliability\", \"size\": \"M\", \"status\": \"blocked\", \"summary\": \"Qualify the wing migration runner on an owner-authorized isolated full copy\", \"type\": \"task\"}\n\nOriginal accepted description (verbatim):\n## Problem\nSynthetic fixtures cannot prove preservation of the original rollout's complete Lance, KG,\nsidecar, marker, and runtime state. The retained private inventory predates the final runner\ncontract and lacks source host/filesystem binding, normalized full-preimage evidence, and\nowner-sealed installed-package identity.\n\n## Blocker\nWaits only on the owner-supplied private inventory and isolated full copy below. The runner\nhardening from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` landed on 2026-09-09.\n\n## Scope\nRefresh the exact private inventory against the landed runner schema and revision, then run\none owner-authorized rehearsal against the retained isolated full copy and both candidate KG\nstores. Preserve the sealed receipt and qualification evidence. Do not mutate original paths,\nactivate the original marker, restart a watcher, or perform the live migration.\n\n## Private operator input\nBefore launch, the operator exports `WING_MIGRATION_INVENTORY_PATH` with the absolute path to\nthe owner-authorized private inventory outside Git. Plan and implementation must read that exact\nfile and fail closed when the variable or file is absent. The path and private inventory values\nmust not be copied into tracked plans, logs, fixtures, or other public artifacts.\n\n## Reuse ledger\ncapability | existing owner | completion evidence | residual delta | action\nmigration and recovery | temporary runner from `WING-MIGRATION-EXISTING-DESTINATION-GUARD` | synthetic qualification and focused tests | prove the same contract against complete private state | reuse\nstored provenance identity | landed runner from `WING-MIGRATION-FULL-COPY-RUNNER-HARDENING` | lexical and relocation contract passes focused gates | verify the frozen behavior against real copied state | reuse\nprivate state authority | owner-supplied inventory and isolated copy | supplied before implementation launch | validate exact copied targets and admit copy-only mutation | reuse\n\n## Owner prerequisite\nRefresh only the missing private authority fields against the landed runner schema. Bind\nthe current qualification host, source host/filesystem and snapshot manifest, normalized\norigin-to-copy preimage, exact copied targets, installed runtime package hashes, final runner\ndigest, retention, and descendant authority. A missing or mismatched field must refuse before\nmutation. Keep the private values outside Git and public logs.\n\n## Acceptance criteria\n- [ ] Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime,\n  source and destination wings, both KG candidates, snapshot roots, and evidence destination.\n- [ ] Full-copy inventory seals the original logical source root separately from the copied\n  project root. Collision, protected-row, and KG eligibility checks use that logical root;\n  resolver and effective-mine probes use only a disposable copy of the copied project root.\n  Stored source paths and hashes remain unchanged.\n- [ ] Device/inode and full preimage checks prove the qualification targets do not overlap original\n  paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.\n- [ ] The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate\n  retry, every staged interruption recovery, complete preservation, and no unrelated drift.\n- [ ] The exact runtime resolves and effectively mines the destination wing on the copied tree.\n  The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do\n  not substitute for the live original-path no-op check.\n- [ ] Absence or mismatch of the private inventory produces a clear nonzero result and changes no\n  state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.\n- [ ] Live execution remains blocked pending separate authority for the original host, original\n  snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.\n",
+            "scope": {
+              "resources": [
+                {
+                  "type": "repository",
+                  "uri": "repository:mempalace-code"
+                }
+              ],
+              "exclusions": [
+                "Do not mutate original paths, activate the original marker, restart a watcher, or perform the live migration.",
+                "Private inventory paths and values must remain outside Git and public artifacts."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Owner supplies an exact inventory naming the isolated palace, repository, marker, runtime, source and destination wings, both KG candidates, snapshot roots, and evidence destination.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A02",
+                "assertion": "Full-copy inventory seals the original logical source root separately from the copied project root. Collision, protected-row, and KG eligibility checks use that logical root; resolver and effective-mine probes use only a disposable copy of the copied project root. Stored source paths and hashes remain unchanged.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A03",
+                "assertion": "Device/inode and full preimage checks prove the qualification targets do not overlap original paths, and all writers/readers are stopped and fenced before snapshot, apply, or recovery.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A04",
+                "assertion": "The full-copy rehearsal proves exact union, collision handling, WAL-safe snapshot, duplicate retry, every staged interruption recovery, complete preservation, and no unrelated drift.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A05",
+                "assertion": "The exact runtime resolves and effectively mines the destination wing on the copied tree. The runtime probe cannot mutate the full-copy state, and relocated absolute source paths do not substitute for the live original-path no-op check.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A06",
+                "assertion": "Absence or mismatch of the private inventory produces a clear nonzero result and changes no state. One receipt-bound recovery command and the owner-controlled retention rule are recorded.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              },
+              {
+                "id": "A07",
+                "assertion": "Live execution remains blocked pending separate authority for the original host, original snapshots, mutation, marker activation, rollback, original-path no-op, and watcher restart.",
+                "verification": "Verify this original accepted criterion through its stated checks and retain exact evidence; record a blocker and recovery command where the criterion explicitly allows it."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:e8f3a140636f3720e8bc0e76bc6bbfd328dd1a2e8e5eab91a6dd4ec9a108af62",
+            "disposition": "Cancelled by explicit operator decision to ignore the remaining historical qualification artifact-retention/recovery requirement. The successful historical qualification report is preserved. Missing recovery artifacts remain recorded as unavailable; no claim that A06 passed, no new rehearsal, no repeat live migration, and no deletion of evidence or backups.",
+            "ready": false,
+            "created_at": "2026-10-01T13:51:37.588168Z",
+            "updated_at": "2026-10-01T20:02:40.957249Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_cdf5bfbc74ce793f4ed5e26d7eb296a5",
+          "project": "mempalace-code",
+          "task_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "type": "task.cancelled",
+          "revision": 3,
+          "version": "v1:ed81ae14d6456d47a90187c71b6547d50c92dc40d8a768c72993e2579891a7af",
+          "data": {
+            "resource": "backlog://mempalace-code/task/WING-MIGRATION-FULL-COPY-QUALIFICATION"
+          },
+          "created_at": "2026-10-01T20:02:40.957249Z"
+        }
+      }
+    ],
+    "seal": "090c8f871afb086cff9a4ed4ee33bfb2fd644a53ef80ee20a8a771704e453ce6"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+    "head": "wf2:8114ea87faf50c11ba85768e7d4b2d9896be96f881dab6555d31e42bd1bc111e",
+    "nodes": [
+      {
+        "version": "wf2:f71467c6e6e91a26e249ddc18951de9142b01eba84cdbfedc109dd11ed838cfa",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-macmac",
+        "request_id": "mempalace-migrate-20261001-wing-migration-full-copy-qualification-hold",
+        "request_hash": "c6833731949e6026e7deeb744d94baf96993071d982bc9fff6961ef29ee6c171",
+        "payload": {
+          "request_id": "mempalace-migrate-20261001-wing-migration-full-copy-qualification-hold",
+          "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "expected_planning_version": "unplanned",
+          "reason": "Preserve original medium priority and blocked owner prerequisites during migration from docs/BACKLOG.yaml.",
+          "priority": "P2",
+          "hold": {
+            "reason": "Owner-supplied private inventory and isolated full copy are required; refresh and seal missing authority fields against the landed runner schema before qualification.",
+            "reconsider_when": "Owner supplies the exact private inventory and isolated full copy, with all original owner prerequisite fields verified. Separate live-execution authority remains required."
+          }
+        },
+        "state": {
+          "hold": {
+            "reason": "Owner-supplied private inventory and isolated full copy are required; refresh and seal missing authority fields against the landed runner schema before qualification.",
+            "reconsider_when": "Owner supplies the exact private inventory and isolated full copy, with all original owner prerequisite fields verified. Separate live-execution authority remains required."
+          },
+          "order": 0,
+          "priority": "P2",
+          "required": true,
+          "version": "wf2:f71467c6e6e91a26e249ddc18951de9142b01eba84cdbfedc109dd11ed838cfa"
+        },
+        "created_at": "2026-10-01T13:52:10.974563Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_f71467c6e6e91a26e249ddc18951de9142b01eba84cdbfedc109dd11ed838cfa",
+            "project": "mempalace-code",
+            "task_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:f71467c6e6e91a26e249ddc18951de9142b01eba84cdbfedc109dd11ed838cfa",
+            "data": {
+              "resource": "backlog://mempalace-code/task/WING-MIGRATION-FULL-COPY-QUALIFICATION",
+              "subject_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T13:52:10.974563Z"
+          }
+        ]
+      },
+      {
+        "version": "wf2:3f6029f35ec031190a9f159a47e6ea5ab9cd46338773a3f78d2a92af26589052",
+        "parents": [
+          "wf2:f71467c6e6e91a26e249ddc18951de9142b01eba84cdbfedc109dd11ed838cfa"
+        ],
+        "kind": "plan",
+        "principal": "codex-macmac",
+        "request_id": "mempalace-reconcile-20261001-historical-fullcopy-findings-v1",
+        "request_hash": "c9ea47ef9e9f5ea6b29c83ce4ed6cb2860acfe7a35819cbf52bf0f514ef51e58",
+        "payload": {
+          "request_id": "mempalace-reconcile-20261001-historical-fullcopy-findings-v1",
+          "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "expected_planning_version": "wf2:f71467c6e6e91a26e249ddc18951de9142b01eba84cdbfedc109dd11ed838cfa",
+          "reason": "A historical full-copy qualification report with all preservation predicates true and a merged live receipt were found. The report binds the historical runner/runtime; the recorded isolated full-copy receipt and directory are no longer available.",
+          "hold": {
+            "reason": "Historical qualification succeeded, but its recorded isolated copy and receipt are unavailable. The current runner differs from the qualified revision; the historical report does not qualify current bytes. Preserve the historical report and live recovery artifacts.",
+            "reconsider_when": "Recover the receipt-bound isolated-copy evidence and reconcile it against the accepted contract, or supply an exact owner-authorized inventory and isolated copy for the current runner. No live migration or watcher authority is inherited from historical evidence."
+          }
+        },
+        "state": {
+          "hold": {
+            "reason": "Historical qualification succeeded, but its recorded isolated copy and receipt are unavailable. The current runner differs from the qualified revision; the historical report does not qualify current bytes. Preserve the historical report and live recovery artifacts.",
+            "reconsider_when": "Recover the receipt-bound isolated-copy evidence and reconcile it against the accepted contract, or supply an exact owner-authorized inventory and isolated copy for the current runner. No live migration or watcher authority is inherited from historical evidence."
+          },
+          "order": 0,
+          "priority": "P2",
+          "required": true,
+          "version": "wf2:3f6029f35ec031190a9f159a47e6ea5ab9cd46338773a3f78d2a92af26589052"
+        },
+        "created_at": "2026-10-01T16:11:22.236179Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_3f6029f35ec031190a9f159a47e6ea5ab9cd46338773a3f78d2a92af26589052",
+            "project": "mempalace-code",
+            "task_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:3f6029f35ec031190a9f159a47e6ea5ab9cd46338773a3f78d2a92af26589052",
+            "data": {
+              "resource": "backlog://mempalace-code/task/WING-MIGRATION-FULL-COPY-QUALIFICATION",
+              "subject_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T16:11:22.236179Z"
+          }
+        ]
+      },
+      {
+        "version": "wf2:91157b706d778aaf31e0a124d7b3628ddd8e3d360095a2f268be2a30fb6e261b",
+        "parents": [
+          "wf2:3f6029f35ec031190a9f159a47e6ea5ab9cd46338773a3f78d2a92af26589052"
+        ],
+        "kind": "plan",
+        "principal": "codex-macmac",
+        "request_id": "mempalace-watch-accept-20261001-fullcopy-a06-hold-v1",
+        "request_hash": "8a2cc6856e72408805aec2d16a700b33f3af7d218c9904c7c6e991d81e9c1759",
+        "payload": {
+          "request_id": "mempalace-watch-accept-20261001-fullcopy-a06-hold-v1",
+          "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "expected_planning_version": "wf2:3f6029f35ec031190a9f159a47e6ea5ab9cd46338773a3f78d2a92af26589052",
+          "reason": "The retained historical qualification report supports the completed historical exercise. Current source drift does not invalidate that historical result. The unresolved criterion is A06: its recorded isolated inventory, receipt and runtime recovery prerequisites are unavailable before the retention deadline.",
+          "hold": {
+            "reason": "A06 receipt-bound recovery/retention evidence remains unavailable: the recorded isolated inventory, qualification receipt and runtime are missing. The retained live receipt is a different receipt. Historical qualification succeeded; repeating the live migration is not the recovery action.",
+            "reconsider_when": "Recover the exact report-bound isolated inventory, qualification receipt and runtime, and verify the recorded recovery command and owner-controlled retention. Keep historical report and live recovery artifacts preserved; no new live mutation is authorized by this task."
+          }
+        },
+        "state": {
+          "hold": {
+            "reason": "A06 receipt-bound recovery/retention evidence remains unavailable: the recorded isolated inventory, qualification receipt and runtime are missing. The retained live receipt is a different receipt. Historical qualification succeeded; repeating the live migration is not the recovery action.",
+            "reconsider_when": "Recover the exact report-bound isolated inventory, qualification receipt and runtime, and verify the recorded recovery command and owner-controlled retention. Keep historical report and live recovery artifacts preserved; no new live mutation is authorized by this task."
+          },
+          "order": 0,
+          "priority": "P2",
+          "required": true,
+          "version": "wf2:91157b706d778aaf31e0a124d7b3628ddd8e3d360095a2f268be2a30fb6e261b"
+        },
+        "created_at": "2026-10-01T16:46:49.153565Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_91157b706d778aaf31e0a124d7b3628ddd8e3d360095a2f268be2a30fb6e261b",
+            "project": "mempalace-code",
+            "task_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:91157b706d778aaf31e0a124d7b3628ddd8e3d360095a2f268be2a30fb6e261b",
+            "data": {
+              "resource": "backlog://mempalace-code/task/WING-MIGRATION-FULL-COPY-QUALIFICATION",
+              "subject_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T16:46:49.153565Z"
+          }
+        ]
+      },
+      {
+        "version": "wf2:8114ea87faf50c11ba85768e7d4b2d9896be96f881dab6555d31e42bd1bc111e",
+        "parents": [
+          "wf2:91157b706d778aaf31e0a124d7b3628ddd8e3d360095a2f268be2a30fb6e261b"
+        ],
+        "kind": "plan",
+        "principal": "codex-macmac",
+        "request_id": "mempalace-owner-ignore-20261001-clear-obsolete-hold-v1",
+        "request_hash": "797003c91606731212509082af1668f7ba28f24a38924da160874aa72a19f3af",
+        "payload": {
+          "request_id": "mempalace-owner-ignore-20261001-clear-obsolete-hold-v1",
+          "id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+          "expected_planning_version": "wf2:91157b706d778aaf31e0a124d7b3628ddd8e3d360095a2f268be2a30fb6e261b",
+          "reason": "Operator explicitly authorized ignoring the remaining historical artifact-retention work. Remove it from active work; preserve the successful historical report and task history.",
+          "clear_hold": true
+        },
+        "state": {
+          "order": 0,
+          "priority": "P2",
+          "required": true,
+          "version": "wf2:8114ea87faf50c11ba85768e7d4b2d9896be96f881dab6555d31e42bd1bc111e"
+        },
+        "created_at": "2026-10-01T20:02:40.907501Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_8114ea87faf50c11ba85768e7d4b2d9896be96f881dab6555d31e42bd1bc111e",
+            "project": "mempalace-code",
+            "task_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:8114ea87faf50c11ba85768e7d4b2d9896be96f881dab6555d31e42bd1bc111e",
+            "data": {
+              "resource": "backlog://mempalace-code/task/WING-MIGRATION-FULL-COPY-QUALIFICATION",
+              "subject_id": "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T20:02:40.907501Z"
+          }
+        ]
+      }
+    ],
+    "seal": "16ab663120b4db13fc1e520c88bf49202537a17ecbb1c7b6e51c63dbc3df2830"
+  },
+  "seal": "84eed60ec54656e2e5dba4f8aeb14d3639ee642d96e5bdfc6748bb592a912634"
+}

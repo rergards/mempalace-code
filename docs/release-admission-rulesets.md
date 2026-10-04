@@ -176,7 +176,9 @@ the absence of one.
 branch and tag rules through the same fixed credential-free reader. No admission
 step requests or consumes a GitHub token.
 
-Applying these rulesets to the live repository is an owner action tracked by
-backlog item `REL-ADMISSION-EXACT-SHA-PROTECTED-REFS-APPLY-RULESETS`. Until it is
-done, `--check-branch-rules` and `--check-tag-ruleset` fail closed, which is the
-intended state: publication is blocked rather than silently unprotected.
+Both rulesets are active on the live repository since 2026-08-21: ruleset
+`21170747` ("Public main release admission", branch `main`) and ruleset
+`21170748` ("Immutable public version tags", `refs/tags/v*`). If either is
+removed, disabled, weakened, or cannot be read, `--check-branch-rules` and
+`--check-tag-ruleset` fail closed: publication is blocked rather than silently
+unprotected.

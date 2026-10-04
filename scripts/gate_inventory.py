@@ -26,16 +26,23 @@ from pathlib import Path
 # `uses:` pins, expression injection, excessive job permissions, and credential-persisting
 # checkouts this repository's release path depends on. The audit covers repository-local
 # composite actions too, because a workflow's security posture is only as good as the
-# actions it calls. The single inline suppression there names one audit on one line and
-# documents why; no audit is disabled repository-wide.
+# actions it calls, and the Dependabot config, because it proposes every pin bump. The
+# single inline suppression there names one audit on one line and documents why; no
+# audit is disabled repository-wide.
 ACTIONLINT_COMMAND = "actionlint .github/workflows/*.yml"
-ZIZMOR_COMMAND = "zizmor --offline --min-severity=medium .github/workflows/ .github/actions/"
+ZIZMOR_COMMAND = (
+    "zizmor --offline --min-severity=medium .github/workflows/ .github/actions/"
+    " .github/dependabot.yml"
+)
 RELEASE_READINESS_COMMAND = (
     'python scripts/release_readiness_gate.py --check --candidate-sha "$CANDIDATE_SHA" --json'
 )
 INSTALLED_GOLDEN_COMMAND = (
     'python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json'
 )
+# The tag preflight's `acceptance_report` row requires the committed installed-candidate
+# acceptance report (docs/quality/acceptance/vX.Y.Z.md) bound to the HEAD package tree.
+RELEASE_ACCEPTANCE_COMMAND = "python scripts/release_preflight.py --tag vX.Y.Z --require-clean"
 # The Gitleaks CLI version is declared in exactly one place — the checksum-locked
 # tool module at tools/gitleaks/go.mod — so Dependabot's gomod ecosystem owns the
 # upgrade and no workflow ever names a mutable `@tag`. Workflows install it through
@@ -255,6 +262,18 @@ CANONICAL_GATES: list[dict] = [
         "surfaces": ["docs/RELEASING.md", ".claude/skills/release/SKILL.md"],
     },
     {
+        "id": "release_acceptance_report",
+        "name": "Installed-candidate acceptance report bound to the package tree",
+        "command": RELEASE_ACCEPTANCE_COMMAND,
+        "category": "release",
+        "surfaces": [
+            "docs/RELEASING.md",
+            ".claude/skills/release-prep/SKILL.md",
+            "docs/quality/acceptance/README.md",
+            "docs/quality/README.md",
+        ],
+    },
+    {
         "id": "installed_golden",
         "name": "Exact-wheel installed golden CLI suite",
         "command": INSTALLED_GOLDEN_COMMAND,
@@ -287,7 +306,7 @@ VERIFY_SURFACE_IDS: tuple[str, ...] = (
 )
 
 RUFF_PRE_COMMIT_REPO = "https://github.com/astral-sh/ruff-pre-commit"
-RUFF_HOOK_IDS: tuple[str, ...] = ("ruff", "ruff-format")
+RUFF_HOOK_IDS: tuple[str, ...] = ("ruff-check", "ruff-format")
 CANONICAL_RUFF_PRECOMMIT_FILES = r"^(mempalace_code|tests|scripts)/.*\.py$"
 RUFF_CI_DEV_INSTALL_COMMAND = 'pip install -e ".[dev]"'
 

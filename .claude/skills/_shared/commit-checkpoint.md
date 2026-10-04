@@ -11,14 +11,11 @@ Run admission before requesting mutation authority, in this order:
 1. Resolve the exact repository root and Git directory. Stop on an unknown,
    mismatched, linked-to-an-unexpected-repository, or non-Git target.
 2. Read `HEAD`, branch, `git status --porcelain`, unstaged diff, staged diff,
-   `/tmp/claude-edits.log`, and the admitted task state. State the exact intended
-   paths; preserve unrelated or owner-unknown changes.
-   Reconcile the edit log, task state, and Git path sets explicitly:
+   and the admitted task state. State the exact intended paths; preserve
+   unrelated or owner-unknown changes.
+   Reconcile the task state and Git path sets explicitly:
 
    ```bash
-   if [ -f /tmp/claude-edits.log ]; then
-     sed -n '/Modified:/s/.*Modified: //p' /tmp/claude-edits.log | sort -u
-   fi
    if [ -n "${AUTOPILOT_TASK_STATE:-}" ]; then
      state_file="$AUTOPILOT_TASK_STATE"
    elif [ -n "${task_slug:-}" ]; then
@@ -37,8 +34,8 @@ Run admission before requesting mutation authority, in this order:
    git status --porcelain
    ```
 
-   Compare the exact lists. An edit-log path absent from Git state must be
-   investigated before staging; a Git path absent from the edit log must be
+   Compare the exact lists. A task-state path absent from Git state must be
+   investigated before staging; a Git path absent from the task state must be
    verified as intentional or treated as owner-unknown. If another agent has
    an uncommitted edit to an intended path, stop and coordinate; do not
    overwrite or stage that path.

@@ -1,0 +1,653 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "GREPTILE-MP-11FCA8BB9720",
+      "version": "v1:99bf4a1bf1b3be828499ff54cf3351705539f7d6664829957f002fcdca27504c",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Проверить: Fallback tests are skipped\n\nFinding 11fca8bb9720; assessment unverified-test-gap; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md\nOptional dependency module skip is plausible; base and full CI extras differ. No pytest collection was run.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner tests/test_treesitter.py; snapshot line 87. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Collect this file in the supported base environment and full CI environment; compare fallback test node IDs.\nHandoff SHA256: edae3ce123a88c56b5654cfbfda13c47a093207469c4f4491f102c7eec7f175f",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md"
+          },
+          {
+            "type": "file",
+            "uri": "tests/test_treesitter.py"
+          }
+        ],
+        "exclusions": [
+          "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+          "Other repositories and architecture or ownership boundary changes without owner approval.",
+          "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+          "Unrelated implementation, dependencies, backlog tasks or worksets."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+          "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+        },
+        {
+          "id": "A02",
+          "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+          "verification": "Collect this file in the supported base environment and full CI environment; compare fallback test node IDs."
+        },
+        {
+          "id": "A03",
+          "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+          "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+        "result": "Verified outcome: fixed. Dependency absence previously skipped the entire module. Five fallback tests now execute with tree-sitter imports blocked; nineteen parser tests skip only when their dependency is absent. Installed extras pass all tests. Change/evidence revision: be7a056d6c304dc5ffc75442e8a7a0bdc2753a0b. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720. No live palace, push or release mutation.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A03",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-01T23:51:52.761565Z"
+      },
+      "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+      "ready": false,
+      "created_at": "2026-10-01T22:35:59.436524Z",
+      "updated_at": "2026-10-01T23:51:52.761565Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-11FCA8BB9720",
+          "version": "v1:bd68572c1ecb2aebbe60d58983654ba40154f2a4ba75a02f7d449aef28bcc648",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Проверить: Fallback tests are skipped\n\nFinding 11fca8bb9720; assessment unverified-test-gap; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md\nOptional dependency module skip is plausible; base and full CI extras differ. No pytest collection was run.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner tests/test_treesitter.py; snapshot line 87. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Collect this file in the supported base environment and full CI environment; compare fallback test node IDs.\nHandoff SHA256: edae3ce123a88c56b5654cfbfda13c47a093207469c4f4491f102c7eec7f175f",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_treesitter.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+              "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+            },
+            {
+              "id": "A02",
+              "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+              "verification": "Collect this file in the supported base environment and full CI environment; compare fallback test node IDs."
+            },
+            {
+              "id": "A03",
+              "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+              "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:59.436524Z",
+          "updated_at": "2026-10-01T22:35:59.436524Z"
+        },
+        "operation": {
+          "id": "op_ca027004cc7594594c7071b901c7861f",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-11fca8bb9720-create-v1",
+          "kind": "create",
+          "payload": {
+            "id": "GREPTILE-MP-11FCA8BB9720",
+            "outcome": "Проверить: Fallback tests are skipped\n\nFinding 11fca8bb9720; assessment unverified-test-gap; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md\nOptional dependency module skip is plausible; base and full CI extras differ. No pytest collection was run.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner tests/test_treesitter.py; snapshot line 87. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Collect this file in the supported base environment and full CI environment; compare fallback test node IDs.\nHandoff SHA256: edae3ce123a88c56b5654cfbfda13c47a093207469c4f4491f102c7eec7f175f",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_treesitter.py"
+                }
+              ],
+              "exclusions": [
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Collect this file in the supported base environment and full CI environment; compare fallback test node IDs."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": null
+          },
+          "request_hash": "6db24f72bc31024266dc5d38611255137b1946a119062d0e70796ab6cef05c4e",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-11FCA8BB9720",
+            "version": "v1:bd68572c1ecb2aebbe60d58983654ba40154f2a4ba75a02f7d449aef28bcc648",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Проверить: Fallback tests are skipped\n\nFinding 11fca8bb9720; assessment unverified-test-gap; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md\nOptional dependency module skip is plausible; base and full CI extras differ. No pytest collection was run.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner tests/test_treesitter.py; snapshot line 87. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Collect this file in the supported base environment and full CI environment; compare fallback test node IDs.\nHandoff SHA256: edae3ce123a88c56b5654cfbfda13c47a093207469c4f4491f102c7eec7f175f",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_treesitter.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Collect this file in the supported base environment and full CI environment; compare fallback test node IDs."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+            "ready": false,
+            "created_at": "2026-10-01T22:35:59.436524Z",
+            "updated_at": "2026-10-01T22:35:59.436524Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_8f4159c912ed3c84e2f4989395cef081",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-11FCA8BB9720",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:bd68572c1ecb2aebbe60d58983654ba40154f2a4ba75a02f7d449aef28bcc648",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-11FCA8BB9720"
+          },
+          "created_at": "2026-10-01T22:35:59.436524Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_67dd152c6de6b62afbf9cca8c87f8668",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-11FCA8BB9720",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:2cc67d6f62d085216f3ba533dcb73d788bbd4e69a0912d037d11e474fcb6e191",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-11FCA8BB9720"
+            },
+            "created_at": "2026-10-01T22:35:59.548168Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-11FCA8BB9720",
+          "version": "v1:2cc67d6f62d085216f3ba533dcb73d788bbd4e69a0912d037d11e474fcb6e191",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Проверить: Fallback tests are skipped\n\nFinding 11fca8bb9720; assessment unverified-test-gap; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md\nOptional dependency module skip is plausible; base and full CI extras differ. No pytest collection was run.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner tests/test_treesitter.py; snapshot line 87. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Collect this file in the supported base environment and full CI environment; compare fallback test node IDs.\nHandoff SHA256: edae3ce123a88c56b5654cfbfda13c47a093207469c4f4491f102c7eec7f175f",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_treesitter.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+              "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+            },
+            {
+              "id": "A02",
+              "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+              "verification": "Collect this file in the supported base environment and full CI environment; compare fallback test node IDs."
+            },
+            {
+              "id": "A03",
+              "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+              "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:59.436524Z",
+          "updated_at": "2026-10-01T22:35:59.548168Z"
+        },
+        "operation": {
+          "id": "op_5006b964d6a92fffcfdb455d85fe7db1",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-11fca8bb9720-open-v1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:bd68572c1ecb2aebbe60d58983654ba40154f2a4ba75a02f7d449aef28bcc648",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "fbd269e805de6635c54d428daff412ad64253e05785298af1fefaf3c81c5671c",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-11FCA8BB9720",
+            "version": "v1:2cc67d6f62d085216f3ba533dcb73d788bbd4e69a0912d037d11e474fcb6e191",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Проверить: Fallback tests are skipped\n\nFinding 11fca8bb9720; assessment unverified-test-gap; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md\nOptional dependency module skip is plausible; base and full CI extras differ. No pytest collection was run.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner tests/test_treesitter.py; snapshot line 87. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Collect this file in the supported base environment and full CI environment; compare fallback test node IDs.\nHandoff SHA256: edae3ce123a88c56b5654cfbfda13c47a093207469c4f4491f102c7eec7f175f",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_treesitter.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Collect this file in the supported base environment and full CI environment; compare fallback test node IDs."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+            "ready": true,
+            "created_at": "2026-10-01T22:35:59.436524Z",
+            "updated_at": "2026-10-01T22:35:59.548168Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_4a981a0471a80e03cabf38e8c8e1f744",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-11FCA8BB9720",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:2cc67d6f62d085216f3ba533dcb73d788bbd4e69a0912d037d11e474fcb6e191",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-11FCA8BB9720"
+          },
+          "created_at": "2026-10-01T22:35:59.548168Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_3ce8e9a35eda4684a5607ff7285c0668",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-11FCA8BB9720",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:99bf4a1bf1b3be828499ff54cf3351705539f7d6664829957f002fcdca27504c",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-11FCA8BB9720"
+            },
+            "created_at": "2026-10-01T23:51:52.761565Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-11FCA8BB9720",
+          "version": "v1:99bf4a1bf1b3be828499ff54cf3351705539f7d6664829957f002fcdca27504c",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Проверить: Fallback tests are skipped\n\nFinding 11fca8bb9720; assessment unverified-test-gap; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md\nOptional dependency module skip is plausible; base and full CI extras differ. No pytest collection was run.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner tests/test_treesitter.py; snapshot line 87. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Collect this file in the supported base environment and full CI environment; compare fallback test node IDs.\nHandoff SHA256: edae3ce123a88c56b5654cfbfda13c47a093207469c4f4491f102c7eec7f175f",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_treesitter.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+              "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+            },
+            {
+              "id": "A02",
+              "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+              "verification": "Collect this file in the supported base environment and full CI environment; compare fallback test node IDs."
+            },
+            {
+              "id": "A03",
+              "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+              "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+            "result": "Verified outcome: fixed. Dependency absence previously skipped the entire module. Five fallback tests now execute with tree-sitter imports blocked; nineteen parser tests skip only when their dependency is absent. Installed extras pass all tests. Change/evidence revision: be7a056d6c304dc5ffc75442e8a7a0bdc2753a0b. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-01T23:51:52.761565Z"
+          },
+          "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:59.436524Z",
+          "updated_at": "2026-10-01T23:51:52.761565Z"
+        },
+        "operation": {
+          "id": "op_06a98884f7640b3c8d0d918d859bd86f",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-11fca8bb9720-root-complete-v1",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:2cc67d6f62d085216f3ba533dcb73d788bbd4e69a0912d037d11e474fcb6e191",
+            "expected_revision": 2,
+            "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+            "result": "Verified outcome: fixed. Dependency absence previously skipped the entire module. Five fallback tests now execute with tree-sitter imports blocked; nineteen parser tests skip only when their dependency is absent. Installed extras pass all tests. Change/evidence revision: be7a056d6c304dc5ffc75442e8a7a0bdc2753a0b. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "f258525b744d8a7e772d210a39edd4768150e6fbf4f6656037b7512b1ffea004",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-11FCA8BB9720",
+            "version": "v1:99bf4a1bf1b3be828499ff54cf3351705539f7d6664829957f002fcdca27504c",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Проверить: Fallback tests are skipped\n\nFinding 11fca8bb9720; assessment unverified-test-gap; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md\nOptional dependency module skip is plausible; base and full CI extras differ. No pytest collection was run.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner tests/test_treesitter.py; snapshot line 87. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Collect this file in the supported base environment and full CI environment; compare fallback test node IDs.\nHandoff SHA256: edae3ce123a88c56b5654cfbfda13c47a093207469c4f4491f102c7eec7f175f",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-11FCA8BB9720.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_treesitter.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Collect this file in the supported base environment and full CI environment; compare fallback test node IDs."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+              "result": "Verified outcome: fixed. Dependency absence previously skipped the entire module. Five fallback tests now execute with tree-sitter imports blocked; nineteen parser tests skip only when their dependency is absent. Installed extras pass all tests. Change/evidence revision: be7a056d6c304dc5ffc75442e8a7a0bdc2753a0b. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720. No live palace, push or release mutation.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A03",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#11fca8bb9720",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-01T23:51:52.761565Z"
+            },
+            "contract_digest": "sha256:4404305ebed154f33244134f00873baef07d0053d164938c40c80ce02eff9010",
+            "ready": false,
+            "created_at": "2026-10-01T22:35:59.436524Z",
+            "updated_at": "2026-10-01T23:51:52.761565Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_266408f05c55492bcc187791c3827f81",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-11FCA8BB9720",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:99bf4a1bf1b3be828499ff54cf3351705539f7d6664829957f002fcdca27504c",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-11FCA8BB9720"
+          },
+          "created_at": "2026-10-01T23:51:52.761565Z"
+        }
+      }
+    ],
+    "seal": "cf9d4be302449fcd16cc61d3510d33247f412a0ba573497b3bdba1fd275ce143"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "GREPTILE-MP-11FCA8BB9720",
+    "head": "wf2:313db32cbe4bc851af9dd129a7e4b45aaa7821fa907433e678eff32cd8f74495",
+    "nodes": [
+      {
+        "version": "wf2:313db32cbe4bc851af9dd129a7e4b45aaa7821fa907433e678eff32cd8f74495",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-greptile-20261002",
+        "request_id": "greptile-20261002-root-11fca8bb9720-plan-v1",
+        "request_hash": "cd6035b24b6f505145e81d36484a6a8621ba8db9f46f1bae9cbec3f4f004fe92",
+        "payload": {
+          "request_id": "greptile-20261002-root-11fca8bb9720-plan-v1",
+          "id": "GREPTILE-MP-11FCA8BB9720",
+          "expected_planning_version": "unplanned",
+          "reason": "Authorized root-main intake of the same nineteen accepted finding contracts; fixes ordered before bounded verification work.",
+          "priority": "P2",
+          "order": 8
+        },
+        "state": {
+          "order": 8,
+          "priority": "P2",
+          "required": true,
+          "version": "wf2:313db32cbe4bc851af9dd129a7e4b45aaa7821fa907433e678eff32cd8f74495"
+        },
+        "created_at": "2026-10-01T22:35:59.67811Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_313db32cbe4bc851af9dd129a7e4b45aaa7821fa907433e678eff32cd8f74495",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-11FCA8BB9720",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:313db32cbe4bc851af9dd129a7e4b45aaa7821fa907433e678eff32cd8f74495",
+            "data": {
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-11FCA8BB9720",
+              "subject_id": "GREPTILE-MP-11FCA8BB9720",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T22:35:59.67811Z"
+          }
+        ]
+      }
+    ],
+    "seal": "f1f24dec2be3ebf567b5c4b6e8ace36f25d6b743a8c4d9273aceccb844e7584b"
+  },
+  "seal": "74e220ee9f480cb51cbb0f22be7d2cb17c3aadf46fac36b8f084d945a74f68ae"
+}

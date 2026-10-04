@@ -1,0 +1,593 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "GREPTILE-MP-E5BB0C153A6B",
+      "version": "v1:e38821b459d397aba5e4031af1a584d8a0e2829aedf633ee75a97abba6298ffa",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Исправить: Audit from wrong branch\n\nFinding e5bb0c153a6b; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md\nActual freshness predicate accepted a newer successful other-branch audit despite failed main. Query has no branch filter.\nУспешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.\n\nCurrent intake: fix; assessed severity P1; source owner scripts/release_admission_checks.py; snapshot line 468. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 28ba0a80c8307758eb62dd451ace8b92260398115f9e495b9a242a9191129348",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md"
+          },
+          {
+            "type": "file",
+            "uri": "scripts/release_admission_checks.py"
+          }
+        ],
+        "exclusions": [
+          "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+          "Other repositories and architecture or ownership boundary changes without owner approval.",
+          "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+          "Unrelated implementation, dependencies, backlog tasks or worksets."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+          "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+        },
+        {
+          "id": "A02",
+          "assertion": "Успешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.",
+          "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+        "result": "Verified outcome: fixed. Main-branch evidence is filtered in both the workflow query and returned runs; successful topic-branch runs cannot mask failed main. Seven inert positive/negative cases independently exercised. Change/evidence revision: 6110eb3c8788b71ce98662a79e4b335701757736. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b. No live palace, push or release mutation.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-01T23:51:51.502945Z"
+      },
+      "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+      "ready": false,
+      "created_at": "2026-10-01T22:35:57.819388Z",
+      "updated_at": "2026-10-01T23:51:51.502945Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-E5BB0C153A6B",
+          "version": "v1:cdb84e0cff614aa7ef0a44d19e1ad437b9f2aed48025e5ca571ec005b10a1542",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Исправить: Audit from wrong branch\n\nFinding e5bb0c153a6b; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md\nActual freshness predicate accepted a newer successful other-branch audit despite failed main. Query has no branch filter.\nУспешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.\n\nCurrent intake: fix; assessed severity P1; source owner scripts/release_admission_checks.py; snapshot line 468. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 28ba0a80c8307758eb62dd451ace8b92260398115f9e495b9a242a9191129348",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md"
+              },
+              {
+                "type": "file",
+                "uri": "scripts/release_admission_checks.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A02",
+              "assertion": "Успешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.",
+              "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:57.819388Z",
+          "updated_at": "2026-10-01T22:35:57.819388Z"
+        },
+        "operation": {
+          "id": "op_f436d571029acddd5005326fdcf164f4",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-e5bb0c153a6b-create-v1",
+          "kind": "create",
+          "payload": {
+            "id": "GREPTILE-MP-E5BB0C153A6B",
+            "outcome": "Исправить: Audit from wrong branch\n\nFinding e5bb0c153a6b; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md\nActual freshness predicate accepted a newer successful other-branch audit despite failed main. Query has no branch filter.\nУспешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.\n\nCurrent intake: fix; assessed severity P1; source owner scripts/release_admission_checks.py; snapshot line 468. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 28ba0a80c8307758eb62dd451ace8b92260398115f9e495b9a242a9191129348",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_admission_checks.py"
+                }
+              ],
+              "exclusions": [
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "Успешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": null
+          },
+          "request_hash": "4af85c123ddffe14aa31dc5f3da9e0e7da4c34d9ac3ad3ee7a3351c1cf94abc5",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-E5BB0C153A6B",
+            "version": "v1:cdb84e0cff614aa7ef0a44d19e1ad437b9f2aed48025e5ca571ec005b10a1542",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Исправить: Audit from wrong branch\n\nFinding e5bb0c153a6b; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md\nActual freshness predicate accepted a newer successful other-branch audit despite failed main. Query has no branch filter.\nУспешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.\n\nCurrent intake: fix; assessed severity P1; source owner scripts/release_admission_checks.py; snapshot line 468. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 28ba0a80c8307758eb62dd451ace8b92260398115f9e495b9a242a9191129348",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_admission_checks.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "Успешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+            "ready": false,
+            "created_at": "2026-10-01T22:35:57.819388Z",
+            "updated_at": "2026-10-01T22:35:57.819388Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_4df8cec43b27d5a35f1740b393c87a8b",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-E5BB0C153A6B",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:cdb84e0cff614aa7ef0a44d19e1ad437b9f2aed48025e5ca571ec005b10a1542",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-E5BB0C153A6B"
+          },
+          "created_at": "2026-10-01T22:35:57.819388Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_02565cc245a611598a13416c127773f8",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-E5BB0C153A6B",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:83883171d85f64567143526de32d08de604ad91abd0b6c3f7709952b07c7b7d1",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-E5BB0C153A6B"
+            },
+            "created_at": "2026-10-01T22:35:57.885197Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-E5BB0C153A6B",
+          "version": "v1:83883171d85f64567143526de32d08de604ad91abd0b6c3f7709952b07c7b7d1",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Исправить: Audit from wrong branch\n\nFinding e5bb0c153a6b; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md\nActual freshness predicate accepted a newer successful other-branch audit despite failed main. Query has no branch filter.\nУспешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.\n\nCurrent intake: fix; assessed severity P1; source owner scripts/release_admission_checks.py; snapshot line 468. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 28ba0a80c8307758eb62dd451ace8b92260398115f9e495b9a242a9191129348",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md"
+              },
+              {
+                "type": "file",
+                "uri": "scripts/release_admission_checks.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A02",
+              "assertion": "Успешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.",
+              "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:57.819388Z",
+          "updated_at": "2026-10-01T22:35:57.885197Z"
+        },
+        "operation": {
+          "id": "op_80115e672af01a3643cbe71134678bc1",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-e5bb0c153a6b-open-v1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:cdb84e0cff614aa7ef0a44d19e1ad437b9f2aed48025e5ca571ec005b10a1542",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "94dd6fa2cae451627283f11622f69a4b7541e2ae84553168a9bad1c7dd6ceec0",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-E5BB0C153A6B",
+            "version": "v1:83883171d85f64567143526de32d08de604ad91abd0b6c3f7709952b07c7b7d1",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Исправить: Audit from wrong branch\n\nFinding e5bb0c153a6b; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md\nActual freshness predicate accepted a newer successful other-branch audit despite failed main. Query has no branch filter.\nУспешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.\n\nCurrent intake: fix; assessed severity P1; source owner scripts/release_admission_checks.py; snapshot line 468. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 28ba0a80c8307758eb62dd451ace8b92260398115f9e495b9a242a9191129348",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_admission_checks.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "Успешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+            "ready": true,
+            "created_at": "2026-10-01T22:35:57.819388Z",
+            "updated_at": "2026-10-01T22:35:57.885197Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_9d78872f1809fd34c77c60d8a51e6246",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-E5BB0C153A6B",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:83883171d85f64567143526de32d08de604ad91abd0b6c3f7709952b07c7b7d1",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-E5BB0C153A6B"
+          },
+          "created_at": "2026-10-01T22:35:57.885197Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_deaf8f07d2bbf51a0c57f715babebf77",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-E5BB0C153A6B",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:e38821b459d397aba5e4031af1a584d8a0e2829aedf633ee75a97abba6298ffa",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-E5BB0C153A6B"
+            },
+            "created_at": "2026-10-01T23:51:51.502945Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-E5BB0C153A6B",
+          "version": "v1:e38821b459d397aba5e4031af1a584d8a0e2829aedf633ee75a97abba6298ffa",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Исправить: Audit from wrong branch\n\nFinding e5bb0c153a6b; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md\nActual freshness predicate accepted a newer successful other-branch audit despite failed main. Query has no branch filter.\nУспешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.\n\nCurrent intake: fix; assessed severity P1; source owner scripts/release_admission_checks.py; snapshot line 468. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 28ba0a80c8307758eb62dd451ace8b92260398115f9e495b9a242a9191129348",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md"
+              },
+              {
+                "type": "file",
+                "uri": "scripts/release_admission_checks.py"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+              "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+            },
+            {
+              "id": "A02",
+              "assertion": "Успешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.",
+              "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+            "result": "Verified outcome: fixed. Main-branch evidence is filtered in both the workflow query and returned runs; successful topic-branch runs cannot mask failed main. Seven inert positive/negative cases independently exercised. Change/evidence revision: 6110eb3c8788b71ce98662a79e4b335701757736. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-01T23:51:51.502945Z"
+          },
+          "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+          "ready": false,
+          "created_at": "2026-10-01T22:35:57.819388Z",
+          "updated_at": "2026-10-01T23:51:51.502945Z"
+        },
+        "operation": {
+          "id": "op_6e86f31efed56d491f9e9728dbbb0405",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-e5bb0c153a6b-root-complete-v1",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:83883171d85f64567143526de32d08de604ad91abd0b6c3f7709952b07c7b7d1",
+            "expected_revision": 2,
+            "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+            "result": "Verified outcome: fixed. Main-branch evidence is filtered in both the workflow query and returned runs; successful topic-branch runs cannot mask failed main. Seven inert positive/negative cases independently exercised. Change/evidence revision: 6110eb3c8788b71ce98662a79e4b335701757736. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "1454f2e592a2c9b20f4f01081c5c2c40906cd51bae29f24fcc08af8ae2487dcc",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-E5BB0C153A6B",
+            "version": "v1:e38821b459d397aba5e4031af1a584d8a0e2829aedf633ee75a97abba6298ffa",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Исправить: Audit from wrong branch\n\nFinding e5bb0c153a6b; assessment reproduced; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md\nActual freshness predicate accepted a newer successful other-branch audit despite failed main. Query has no branch filter.\nУспешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.\n\nCurrent intake: fix; assessed severity P1; source owner scripts/release_admission_checks.py; snapshot line 468. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state.\nHandoff SHA256: 28ba0a80c8307758eb62dd451ace8b92260398115f9e495b9a242a9191129348",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-E5BB0C153A6B.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_admission_checks.py"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Recheck the recorded defect against the current behavioral owner and an independently accepted product or verifier contract; retain current source identity and a focused failing case with a positive control.",
+                "verification": "Проверить актуальный owner, callers, guards и relevant tests; поставить минимальный disposable/inert case на условие из описания. Не запускать operational script целиком или тесты против shared state."
+              },
+              {
+                "id": "A02",
+                "assertion": "Успешный audit другой ветки при failed main не допускает релиз. Успешный свежий main допускается; stale/missing/failure блокируют admission. Проверять branch и соответствие SHA по принятому release contract.",
+                "verification": "Exercise the real affected call path in disposable fixtures; show that the regression fails before the correction and passes afterward, with all existing relevant safety guards retained."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+              "result": "Verified outcome: fixed. Main-branch evidence is filtered in both the workflow query and returned runs; successful topic-branch runs cannot mask failed main. Seven inert positive/negative cases independently exercised. Change/evidence revision: 6110eb3c8788b71ce98662a79e4b335701757736. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b. No live palace, push or release mutation.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#e5bb0c153a6b",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-01T23:51:51.502945Z"
+            },
+            "contract_digest": "sha256:246c2dd96af6ddc4c7c1c90365e944bf936445071967ebaf883297627ebb4ca5",
+            "ready": false,
+            "created_at": "2026-10-01T22:35:57.819388Z",
+            "updated_at": "2026-10-01T23:51:51.502945Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_7105a8831b1cebed1b425a0efbea785b",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-E5BB0C153A6B",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:e38821b459d397aba5e4031af1a584d8a0e2829aedf633ee75a97abba6298ffa",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-E5BB0C153A6B"
+          },
+          "created_at": "2026-10-01T23:51:51.502945Z"
+        }
+      }
+    ],
+    "seal": "0e7a88d25eeaa2aaae48f05d3157ea16a6ceb6a8c4962423ade30c22a1da163d"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "GREPTILE-MP-E5BB0C153A6B",
+    "head": "wf2:851c635ed4c91378f1d76f3fbbc390d62eaa3342028f0807d47c040c7a714158",
+    "nodes": [
+      {
+        "version": "wf2:851c635ed4c91378f1d76f3fbbc390d62eaa3342028f0807d47c040c7a714158",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-greptile-20261002",
+        "request_id": "greptile-20261002-root-e5bb0c153a6b-plan-v1",
+        "request_hash": "979c4a69424403925e0a7c45d89978ac47c8268d3b60e274003cb988354299ef",
+        "payload": {
+          "request_id": "greptile-20261002-root-e5bb0c153a6b-plan-v1",
+          "id": "GREPTILE-MP-E5BB0C153A6B",
+          "expected_planning_version": "unplanned",
+          "reason": "Authorized root-main intake of the same nineteen accepted finding contracts; fixes ordered before bounded verification work.",
+          "priority": "P1",
+          "order": 1
+        },
+        "state": {
+          "order": 1,
+          "priority": "P1",
+          "required": true,
+          "version": "wf2:851c635ed4c91378f1d76f3fbbc390d62eaa3342028f0807d47c040c7a714158"
+        },
+        "created_at": "2026-10-01T22:35:57.953283Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_851c635ed4c91378f1d76f3fbbc390d62eaa3342028f0807d47c040c7a714158",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-E5BB0C153A6B",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:851c635ed4c91378f1d76f3fbbc390d62eaa3342028f0807d47c040c7a714158",
+            "data": {
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-E5BB0C153A6B",
+              "subject_id": "GREPTILE-MP-E5BB0C153A6B",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T22:35:57.953283Z"
+          }
+        ]
+      }
+    ],
+    "seal": "1e57a8918f0416b1e8f49abcc976217e1a9bf29abf31a26f7562dd7e2e006dcd"
+  },
+  "seal": "264c0f382f3cd980fc159a26cdb2ecbde7b1ddc83812d1fb24c2cdb370e761ee"
+}

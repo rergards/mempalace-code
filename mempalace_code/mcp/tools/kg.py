@@ -2,11 +2,52 @@
 
 from .. import runtime
 
+_DEFAULT_PAGE = 100
+_MAX_PAGE = 1000
 
-def tool_kg_query(entity: str, as_of: str | None = None, direction: str = "both"):
+
+def _page_bounds(limit: int | None, offset: int | None) -> tuple[int, int] | dict:
+    """Return (limit, offset) for a paginated KG tool, or an error payload."""
+    limit = _DEFAULT_PAGE if limit is None else limit
+    offset = 0 if offset is None else offset
+    if not 1 <= limit <= _MAX_PAGE:
+        return {"error": f"limit must be between 1 and {_MAX_PAGE}", "limit": limit}
+    if offset < 0:
+        return {"error": "offset must be 0 or greater", "offset": offset}
+    return limit, offset
+
+
+def _page_fields(total: int, offset: int, returned: int) -> dict:
+    truncated = offset + returned < total
+    return {
+        "count": returned,
+        "total": total,
+        "offset": offset,
+        "truncated": truncated,
+        "next_offset": offset + returned if truncated else None,
+    }
+
+
+def tool_kg_query(
+    entity: str,
+    as_of: str | None = None,
+    direction: str = "both",
+    limit: int | None = None,
+    offset: int | None = None,
+):
     """Query the knowledge graph for an entity's relationships."""
+    bounds = _page_bounds(limit, offset)
+    if isinstance(bounds, dict):
+        return bounds
+    limit, offset = bounds
     results = runtime._get_kg().query_entity(entity, as_of=as_of, direction=direction)
-    return {"entity": entity, "as_of": as_of, "facts": results, "count": len(results)}
+    page = results[offset : offset + limit]
+    return {
+        "entity": entity,
+        "as_of": as_of,
+        "facts": page,
+        **_page_fields(len(results), offset, len(page)),
+    }
 
 
 def tool_kg_add(
@@ -19,7 +60,7 @@ def tool_kg_add(
     source_file: str | None = None,
 ):
     """Add a relationship to the knowledge graph."""
-    triple_id = runtime._get_kg().add_triple(
+    report = runtime._get_kg().add_triple_report(
         subject,
         predicate,
         object,
@@ -28,29 +69,99 @@ def tool_kg_add(
         source_closet=source_closet,
         source_file=source_file,
     )
-    return {"success": True, "triple_id": triple_id, "fact": f"{subject} → {predicate} → {object}"}
+    result = {
+        "success": True,
+        "created": report["created"],
+        "triple_id": report["triple_id"],
+        "fact": f"{report['subject']} → {report['predicate']} → {report['object']}",
+        "valid_from": report["valid_from"],
+        "valid_to": report["valid_to"],
+        "other_current": report["other_current"],
+    }
+    notes = []
+    if report.get("same_fact_current"):
+        result["same_fact_current"] = report["same_fact_current"]
+        notes.append(
+            "This fact is already current with the stored validity window above, which "
+            "overlaps the requested one; nothing was added. To set its end date, call "
+            "mempalace_kg_invalidate with ended; to record a different window, invalidate "
+            "it first."
+        )
+    elif not report["created"]:
+        notes.append(
+            "An identical fact is already stored; nothing changed and the stored "
+            "validity window above was kept."
+        )
+    if report["other_current"]:
+        notes.append(
+            "Other facts are current for this subject and predicate. If this fact "
+            "replaces one of them, retire it with mempalace_kg_invalidate (omit ended, "
+            "or pass the day before the new valid_from)."
+        )
+    if notes:
+        result["note"] = " ".join(notes)
+    return result
 
 
 def tool_kg_invalidate(subject: str, predicate: str, object: str, ended: str | None = None):
     """Mark a fact as no longer true (set end date)."""
-    runtime._get_kg().invalidate(subject, predicate, object, ended=ended)
+    report = runtime._get_kg().invalidate(subject, predicate, object, ended=ended)
+    fact = f"{report['subject']} → {report['predicate']} → {report['object']}"
+    if report["invalidated"]:
+        return {
+            "success": True,
+            "fact": fact,
+            "invalidated": report["invalidated"],
+            "ended": report["ended"],
+        }
     return {
-        "success": True,
-        "fact": f"{subject} → {predicate} → {object}",
-        "ended": ended or "now",
+        "success": False,
+        "error": "no_current_fact",
+        "message": "No open fact matched this subject, predicate, and object; nothing changed.",
+        "fact": fact,
+        "invalidated": 0,
+        "already_ended": report["already_ended"],
+        "current_objects": report["current_objects"],
+        "hint": (
+            "Query the entity with mempalace_kg_query and pass the exact stored subject, "
+            "predicate, and object of a fact whose current field is true."
+        ),
     }
 
 
-def tool_kg_timeline(entity: str | None = None):
+def tool_kg_timeline(
+    entity: str | None = None, limit: int | None = None, offset: int | None = None
+):
     """Get chronological timeline of facts, optionally for one entity."""
-    results = runtime._get_kg().timeline(entity)
-    return {"entity": entity or "all", "timeline": results, "count": len(results)}
+    bounds = _page_bounds(limit, offset)
+    if isinstance(bounds, dict):
+        return bounds
+    limit, offset = bounds
+    kg = runtime._get_kg()
+    results = kg.timeline(entity, limit=limit, offset=offset)
+    return {
+        "entity": entity or "all",
+        "timeline": results,
+        **_page_fields(kg.timeline_total(entity), offset, len(results)),
+    }
 
 
 def tool_kg_stats():
     """Knowledge graph overview: entities, triples, relationship types."""
     return runtime._get_kg().stats()
 
+
+_LIMIT_SCHEMA = {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": _MAX_PAGE,
+    "description": f"Maximum facts to return (default {_DEFAULT_PAGE}, max {_MAX_PAGE})",
+}
+_OFFSET_SCHEMA = {
+    "type": "integer",
+    "minimum": 0,
+    "description": "Facts to skip, e.g. the next_offset of the previous page (default 0)",
+}
 
 TOOL_SPECS = {
     "mempalace_kg_query": {
@@ -59,7 +170,9 @@ TOOL_SPECS = {
             "current, and future facts; for present state, filter the returned facts where "
             "the current output field is true (current is not an input argument). With as_of, "
             "filters facts to that date while the current output field still reports present "
-            "wall-clock state."
+            "wall-clock state. Entity names are case-insensitive; facts show the stored "
+            "display names. Results are paged: limit (default 100, max 1000) and offset; "
+            "total, truncated, and next_offset report what remains."
         ),
         "input_schema": {
             "type": "object",
@@ -77,13 +190,24 @@ TOOL_SPECS = {
                     "enum": ["outgoing", "incoming", "both"],
                     "description": "outgoing (entity→?), incoming (?→entity), or both (default: both)",
                 },
+                "limit": _LIMIT_SCHEMA,
+                "offset": _OFFSET_SCHEMA,
             },
             "required": ["entity"],
         },
         "handler": tool_kg_query,
     },
     "mempalace_kg_add": {
-        "description": "Add a fact to the knowledge graph. Subject → predicate → object with optional time window. E.g. ('Max', 'started_school', 'Year 7', valid_from='2026-09-01').",
+        "description": (
+            "Add a fact to the knowledge graph. Subject → predicate → object with optional "
+            "time window. E.g. ('Max', 'started_school', 'Year 7', valid_from='2026-09-01'). "
+            "The response echoes the stored fact: entity names are case-insensitive and keep "
+            "their first stored spelling, predicates are lowercased with spaces as "
+            "underscores, and other_current lists the other current facts for the same subject "
+            "and predicate (empty when none). created is false when an identical fact already "
+            "existed, or when a current copy of the same fact overlaps the requested window "
+            "(same_fact_current lists it; end it with the knowledge-graph invalidate tool)."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -115,7 +239,12 @@ TOOL_SPECS = {
         "handler": tool_kg_add,
     },
     "mempalace_kg_invalidate": {
-        "description": "Mark a fact as no longer true. E.g. ankle injury resolved, job ended, moved house.",
+        "description": (
+            "Mark a fact as no longer true. E.g. ankle injury resolved, job ended, moved "
+            "house. Only an open fact with this exact subject, predicate, and object changes; "
+            "the response reports how many facts were invalidated and the stored end time, "
+            "or success false with the current objects when nothing matched."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -125,7 +254,9 @@ TOOL_SPECS = {
                 "ended": {
                     "type": "string",
                     "description": (
-                        "When it stopped being true (YYYY-MM-DD or UTC ISO datetime; omit for now)"
+                        "When it stopped being true (YYYY-MM-DD or UTC ISO datetime; omit for "
+                        "now). A date is an inclusive end-of-day bound, so the fact stays "
+                        "current for the rest of that UTC day."
                     ),
                 },
             },
@@ -134,7 +265,11 @@ TOOL_SPECS = {
         "handler": tool_kg_invalidate,
     },
     "mempalace_kg_timeline": {
-        "description": "Chronological timeline of facts. Shows the story of an entity (or everything) in order.",
+        "description": (
+            "Chronological timeline of facts. Shows the story of an entity (or everything) "
+            "ordered by valid_from, undated facts last. Results are paged: limit (default "
+            "100, max 1000) and offset; total, truncated, and next_offset report what remains."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -142,6 +277,8 @@ TOOL_SPECS = {
                     "type": "string",
                     "description": "Entity to get timeline for (optional — omit for full timeline)",
                 },
+                "limit": _LIMIT_SCHEMA,
+                "offset": _OFFSET_SCHEMA,
             },
         },
         "handler": tool_kg_timeline,

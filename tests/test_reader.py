@@ -5,22 +5,26 @@ Covers:
   - Single overlapping chunk returns only requested lines (AC-3)
   - Multi-chunk range spanning chunk boundary (AC-3)
   - source_file not in palace returns not_found (AC-4)
-  - Range outside all stored chunks returns stale_pointer (AC-5)
+  - Range past the last indexed line returns out_of_range (AC-5)
   - Invalid range (start > end, start < 1) returns invalid_range (AC-5)
-  - Legacy rows with line_start=0 are not treated as overlapping (AC-6)
+  - Legacy rows with line_start=0 are not treated as overlapping; a file with only
+    such rows returns no_line_metadata (AC-6)
 """
 
 import json
-from typing import assert_type
+from typing import Any, assert_type
 
 import pytest
 
 from mempalace_code.reader import (
     ReadAmbiguousSource,
+    ReadGap,
     ReadInvalidRange,
     ReadLine,
+    ReadNoLineMetadata,
     ReadNotFound,
-    ReadStalePointer,
+    ReadOutOfRange,
+    ReadStoreError,
     ReadSuccess,
     ReadUnknownWing,
     _ends_with_components,
@@ -32,6 +36,98 @@ from mempalace_code.reader import (
 )
 from mempalace_code.storage import open_store
 
+
+@pytest.mark.parametrize("count", [9999, 10000, 10001])
+def test_file_context_reaches_every_chunk_in_bounded_batches(monkeypatch, count):
+    from mempalace_code.mcp import runtime
+    from mempalace_code.mcp.tools.search import tool_file_context
+
+    rows = [
+        (
+            str(i),
+            f"line {i}",
+            {"source_file": "large.py", "chunk_index": i, "line_start": i + 1, "line_end": i + 1},
+        )
+        for i in reversed(range(count))
+    ]
+    calls = []
+
+    class IndexedStore:
+        def get(
+            self, ids=None, where=None, include=None, limit=10000, offset=0
+        ) -> dict[str, list[Any]]:
+            calls.append((limit, offset))
+            selected = rows[offset : offset + limit]
+            return {
+                "ids": [r[0] for r in selected],
+                "documents": [r[1] for r in selected],
+                "metadatas": [r[2] for r in selected],
+            }
+
+        def get_source_files(self, wing: str) -> set[str] | None:
+            return {"large.py"}
+
+        def count_by(self, column: str) -> dict[str, int]:
+            return {"large.py": count}
+
+    store = IndexedStore()
+    monkeypatch.setattr(runtime, "_get_store", lambda: store)
+    first = tool_file_context("large.py", limit=100, offset=9900)
+    assert first["total"] == count
+    assert first["next_offset"] == (10000 if count > 10000 else None)
+    assert [int(c["id"]) for c in first["chunks"]] == list(range(9900, min(10000, count)))
+    tail = tool_file_context("large.py", limit=100, offset=10000)
+    assert tail["total"] == count
+    assert [int(c["id"]) for c in tail["chunks"]] == list(range(10000, count))
+    assert tail["next_offset"] is None
+    assert tool_file_context("large.py", offset=1000000)["chunks"] == []
+    # The shared read consumer can retrieve a line beyond the former cap.
+    assert read_slice(store, "large.py", count, count)["lines"] == [
+        {"line": count, "text": f"line {count - 1}"}
+    ]
+    assert all(limit <= 10000 for limit, _ in calls)
+    assert max(offset for _, offset in calls) >= (10000 if count >= 10000 else 0)
+    if count == 10001:
+        offset = 0
+        seen = []
+        while True:
+            page = tool_file_context("large.py", limit=100, offset=offset)
+            seen.extend(c["id"] for c in page["chunks"])
+            if page["next_offset"] is None:
+                break
+            offset = page["next_offset"]
+        assert seen == [str(i) for i in range(count)]
+
+
+def test_source_second_batch_failure_is_not_partial_success(monkeypatch):
+    import mempalace_code.reader as reader
+
+    monkeypatch.setattr(reader, "_MAX_SOURCE_ROWS", 2)
+
+    class FailingStore:
+        def get(
+            self, ids=None, where=None, include=None, limit=10000, offset=0
+        ) -> dict[str, list[Any]]:
+            if offset:
+                raise OSError("second page unreadable")
+            return {
+                "ids": ["a", "b"],
+                "documents": ["a", "b"],
+                "metadatas": [{"source_file": "large.py"}] * 2,
+            }
+
+        def get_source_files(self, wing: str) -> set[str] | None:
+            raise AssertionError("a read error must not broaden the query")
+
+        def count_by(self, column: str) -> dict[str, int]:
+            raise AssertionError("a read error must not broaden the query")
+
+    result = reader.resolve_source_rows(FailingStore(), "large.py")
+    assert not isinstance(result, reader.SourceRows)
+    assert result["error"] == "store_error"
+    assert "second page unreadable" in result["detail"]
+
+
 # ─── Type-level assertions for ReadResult variants (AC-3) ────────────────────
 
 
@@ -39,17 +135,47 @@ class TestReadResultVariantShapes:
     """Each ReadResult TypedDict variant's field set matches the module docstring."""
 
     def test_read_success_fields(self):
-        assert set(ReadSuccess.__required_keys__) == {"source_file", "start", "end", "lines"}
+        assert set(ReadSuccess.__required_keys__) == {
+            "source_file",
+            "start",
+            "end",
+            "first_indexed_line",
+            "last_indexed_line",
+            "lines",
+            "gaps",
+        }
+        assert set(ReadSuccess.__optional_keys__) == {"unplaced_chunks"}
+
+    def test_read_gap_fields(self):
+        assert set(ReadGap.__required_keys__) == {"start", "end"}
 
     def test_read_line_fields(self):
         assert set(ReadLine.__required_keys__) == {"line", "text"}
 
     def test_read_not_found_fields(self):
         assert set(ReadNotFound.__required_keys__) == {"error", "source_file"}
-        assert set(ReadNotFound.__optional_keys__) == {"detail"}
+        assert set(ReadNotFound.__optional_keys__) == set()
 
-    def test_read_stale_pointer_fields(self):
-        assert set(ReadStalePointer.__required_keys__) == {"error", "source_file", "detail"}
+    def test_read_store_error_fields(self):
+        assert set(ReadStoreError.__required_keys__) == {"error", "source_file", "detail"}
+
+    def test_read_out_of_range_fields(self):
+        assert set(ReadOutOfRange.__required_keys__) == {
+            "error",
+            "source_file",
+            "detail",
+            "last_indexed_line",
+        }
+        assert set(ReadOutOfRange.__optional_keys__) == {"unplaced_chunks"}
+
+    def test_read_no_line_metadata_fields(self):
+        assert set(ReadNoLineMetadata.__required_keys__) == {
+            "error",
+            "source_file",
+            "detail",
+            "chunks",
+            "conversation",
+        }
 
     def test_read_invalid_range_fields(self):
         assert set(ReadInvalidRange.__required_keys__) == {"error", "detail"}
@@ -242,11 +368,13 @@ class TestReadSlice:
         assert result["error"] == "not_found"
         assert result["source_file"] == "/nonexistent/file.py"
 
-    def test_stale_pointer_range_outside_chunks(self, palace_path, sliceable_store):
-        """read_slice: stale_pointer when range [100, 200] doesn't overlap any chunk (AC-5)."""
+    def test_out_of_range_past_last_indexed_line(self, palace_path, sliceable_store):
+        """read_slice: out_of_range when range [100, 200] starts after line 10 (AC-5)."""
         result = read_slice(sliceable_store, "/src/sliceable.py", 100, 200)
-        assert result["error"] == "stale_pointer"
-        assert "100" in result["detail"] or "200" in result["detail"]
+        assert result["error"] == "out_of_range"
+        assert result["last_indexed_line"] == 10
+        assert "100" in result["detail"]
+        assert "line 10" in result["detail"]
 
     def test_invalid_range_start_greater_than_end(self, palace_path, sliceable_store):
         """read_slice: invalid_range when start > end (AC-5)."""
@@ -259,7 +387,7 @@ class TestReadSlice:
         assert result["error"] == "invalid_range"
 
     def test_legacy_chunks_ignored_in_overlap(self, palace_path):
-        """read_slice: legacy rows (line_start=0) do not satisfy overlap; stale_pointer returned."""
+        """read_slice: legacy rows (line_start=0) do not satisfy overlap; no_line_metadata."""
         store = open_store(palace_path, create=True)
         store.add(
             ids=["legacy_only"],
@@ -277,9 +405,11 @@ class TestReadSlice:
             ],
         )
         result = read_slice(store, "/src/legacy.py", 1, 5)
-        assert result["error"] == "stale_pointer", (
+        assert result["error"] == "no_line_metadata", (
             "Legacy rows with line_start=0 must not be treated as overlapping"
         )
+        assert result["chunks"] == 1
+        assert result["conversation"] is False
 
     def test_lines_are_ordered(self, palace_path, sliceable_store):
         """read_slice: output lines are always sorted by line number."""
@@ -610,10 +740,10 @@ class TestReadSliceResultKeySets:
         assert result["error"] == "not_found"
         assert set(result.keys()) == set(ReadNotFound.__required_keys__)
 
-    def test_stale_pointer_key_set_matches_read_stale_pointer(self, palace_path, sliceable_store):
+    def test_out_of_range_key_set_matches_read_out_of_range(self, palace_path, sliceable_store):
         result = read_slice(sliceable_store, "/src/sliceable.py", 100, 200)
-        assert result["error"] == "stale_pointer"
-        assert set(result.keys()) == set(ReadStalePointer.__required_keys__)
+        assert result["error"] == "out_of_range"
+        assert set(result.keys()) == set(ReadOutOfRange.__required_keys__)
 
     def test_invalid_range_key_set_matches_read_invalid_range(self, palace_path, sliceable_store):
         result = read_slice(sliceable_store, "/src/sliceable.py", 10, 5)

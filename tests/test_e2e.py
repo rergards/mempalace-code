@@ -232,12 +232,23 @@ def test_mcp_session_lifecycle(tmp_path, monkeypatch):
 
     # Step 2: search on empty palace — must report the existing missing-palace contract
     search_empty = tool_search(query="authentication JWT tokens")
+    from mempalace_code.cli_invocation import cli_command
+
     assert search_empty == {
         "error": "No palace found",
-        "hint": "Run: mempalace-code init <dir> && mempalace-code mine <dir>",
+        "hint": (
+            f"Next: run {cli_command('init', '<dir>', palace=palace_path)}, "
+            f"then {cli_command('mine', '<dir>', palace=palace_path)}"
+        ),
     }
 
-    # Step 3: add a drawer
+    # Step 3: a write to the missing palace is refused the same way, and creates nothing
+    refused = tool_add_drawer(wing="mcp_e2e", room="general", content="Never stored.")
+    assert refused == search_empty
+    assert not os.path.exists(palace_path)
+
+    # Step 4: add a drawer once the palace directory exists
+    os.makedirs(palace_path)
     add_result = tool_add_drawer(
         wing="mcp_e2e",
         room="general",
@@ -246,17 +257,17 @@ def test_mcp_session_lifecycle(tmp_path, monkeypatch):
     assert add_result["success"] is True
     drawer_id = add_result["drawer_id"]
 
-    # Step 4: search now finds the new drawer
+    # Step 5: search now finds the new drawer
     search_after = tool_search(query="JWT RS256 authentication session expire")
     assert "results" in search_after
     assert len(search_after["results"]) > 0
     assert any("JWT" in r["text"] for r in search_after["results"])
 
-    # Step 5: delete the drawer
+    # Step 6: delete the drawer
     del_result = tool_delete_drawer(drawer_id)
     assert del_result["success"] is True
 
-    # Step 6: search no longer returns the deleted drawer
+    # Step 7: search no longer returns the deleted drawer
     search_gone = tool_search(query="JWT RS256 authentication session expire")
     found_texts = [r["text"] for r in search_gone.get("results", [])]
     assert not any("JWT" in t for t in found_texts), "Deleted drawer still returned by search"
@@ -407,6 +418,7 @@ def test_diary_write_read_continuity(tmp_path, monkeypatch):
 
     from mempalace_code.mcp_server import tool_diary_read, tool_diary_write
 
+    os.makedirs(palace_path)
     topics = ["arch", "debug", "deploy", "review", "retro"]
     agent = "e2e_diary_agent"
 
@@ -595,8 +607,8 @@ def test_convo_miner_claude_json_e2e(tmp_path, monkeypatch):
     assert all(m.get("ingest_mode") == "convos" for m in all_metas), (
         "Not all drawers have ingest_mode=convos"
     )
-    assert all(m.get("chunker_strategy") == "convo_turn_v1" for m in all_metas), (
-        "Not all drawers have chunker_strategy=convo_turn_v1"
+    assert all(m.get("chunker_strategy") == "convo_turn_v3" for m in all_metas), (
+        "Not all drawers have chunker_strategy=convo_turn_v3"
     )
 
     # semantic search finds the unique decision phrase

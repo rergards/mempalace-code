@@ -22,7 +22,6 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import metadata
-from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Callable, Protocol
 from urllib.parse import urlparse
@@ -32,6 +31,7 @@ from packaging.version import InvalidVersion, Version
 
 from .cli_commands.alias import CANONICAL_CLI_COMMAND, LEGACY_CLI_ALIAS
 from .operation_lock import OperationLock, OperationLockedError
+from .storage import detect_installed_extras, uv_tool_location_environment
 from .version import __version__
 
 PACKAGE_NAME = "mempalace-code"
@@ -45,6 +45,36 @@ SYSTEMD_BASELINE_PATH = ("/usr/local/bin", "/usr/bin", "/bin")
 REQUIRED_UPDATE_PLATFORM = "linux"
 UPDATE_SERVICE_MANAGER = "systemd-user"
 UNSUPPORTED_PLATFORM_RECOVERY_COMMAND = "mempalace-code update status --json"
+
+
+def status_recovery_command() -> str:
+    """Return ``update status --json`` for the launcher that was invoked.
+
+    A bare ``mempalace-code`` can resolve to a different installation through PATH.
+    """
+    from .cli_commands.alias import recovery_cli_command
+
+    return f"{shlex.quote(recovery_cli_command())} update status --json"
+
+
+HOME_MISMATCH_DETAIL = "HOME does not match the effective uid passwd directory"
+# Package-manager locations a scheduled run needs to rediscover the same installation.
+SCHEDULER_MANAGER_ENVIRONMENT = {
+    "pipx": ("PIPX_HOME", "PIPX_BIN_DIR"),
+    "uv-tool": ("UV_TOOL_DIR", "UV_TOOL_BIN_DIR"),
+}
+_MANAGER_ENVIRONMENT_LINE = re.compile(
+    r'^Environment="(?:'
+    + "|".join(name for names in SCHEDULER_MANAGER_ENVIRONMENT.values() for name in names)
+    + r')=.*"$'
+)
+
+
+def _without_manager_environment(unit: str) -> str:
+    """Drop carried pipx/uv tool location lines, which depend on the rendering shell."""
+    return "\n".join(line for line in unit.split("\n") if not _MANAGER_ENVIRONMENT_LINE.match(line))
+
+
 # Manual apply coordinates whichever user service manager owns the watcher; scheduling
 # stays Linux systemd-user only, so the two boundaries are reported independently.
 DARWIN_UPDATE_PLATFORM = "darwin"
@@ -132,6 +162,9 @@ class Installation:
     extras: frozenset[str] = frozenset()
     supported: bool = True
     reason: str = ""
+    # Package-manager location variables the install command needs (a uv tool in a
+    # custom UV_TOOL_DIR that the current shell does not export).
+    manager_environment: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def unsupported(cls, reason: str) -> Installation:
@@ -151,7 +184,9 @@ class Installation:
     def install_command(self, version: str) -> list[str]:
         package = self.package_spec(version)
         if self.kind == "uv-tool":
-            return [*self.manager_command, "tool", "install", "--force", package]
+            location = [f"{name}={value}" for name, value in self.manager_environment]
+            prefix = ["env", *location] if location else []
+            return [*prefix, *self.manager_command, "tool", "install", "--force", package]
         if self.kind == "pipx":
             return [*self.manager_command, "install", "--force", package]
         if self.kind == "bootstrap-venv":
@@ -402,7 +437,10 @@ class LaunchdUserService:
 
         _home, home_error = self._verified_home()
         if home_error is not None:
-            return self._record_discovery(False, f"watcher discovery unavailable: {home_error}")
+            recovery = _account_home_recovery() if home_error == HOME_MISMATCH_DETAIL else None
+            return self._record_discovery(
+                False, f"watcher discovery unavailable: {home_error}", recovery=recovery
+            )
 
         active, error = self._active_watch_labels()
         if error is not None:
@@ -501,7 +539,7 @@ class LaunchdUserService:
         except (KeyError, OSError) as exc:
             return Path("."), f"cannot resolve passwd HOME for uid {uid}: {exc}"
         if home != passwd_home:
-            return Path("."), "HOME does not match the effective uid passwd directory"
+            return Path("."), HOME_MISMATCH_DETAIL
         return home, None
 
     def _plist_path(self, label: str) -> tuple[Path | None, str]:
@@ -606,18 +644,23 @@ class LaunchdUserService:
         return False, (err or out).strip()
 
     @staticmethod
-    def _with_recovery(detail: str) -> str:
+    def _with_recovery(detail: str, recovery: str | None = None) -> str:
         # A refusal or failed mutation blocks the operator, so it has to carry the one
-        # read-only command that shows what state the watchers were left in.
-        return f"{detail}; recovery: {UNSUPPORTED_PLATFORM_RECOVERY_COMMAND}"
+        # command that shows what state the watchers were left in, or that fixes the cause.
+        return f"{detail}; recovery: {recovery or status_recovery_command()}"
 
     def _record_discovery(
-        self, safe: bool, detail: str, labels: tuple[str, ...] = ()
+        self,
+        safe: bool,
+        detail: str,
+        labels: tuple[str, ...] = (),
+        *,
+        recovery: str | None = None,
     ) -> WatcherDiscovery:
         self.labels = labels
         self.unit = ", ".join(labels) if labels else DEFAULT_LAUNCHD_WATCH_LABEL
         if not safe:
-            detail = self._with_recovery(detail)
+            detail = self._with_recovery(detail, recovery)
         self._discovery = WatcherDiscovery(unit=self.unit, active=False, safe=safe, detail=detail)
         return self._discovery
 
@@ -628,21 +671,23 @@ class LaunchdUserService:
             return 127, "", str(exc)
 
 
+def _account_home_recovery() -> str:
+    """Name the fix for a HOME that differs from the account's passwd home."""
+    try:
+        passwd_home = pwd.getpwuid(os.geteuid()).pw_dir
+    except KeyError:
+        return "rerun as the account that owns this HOME, with HOME set to its passwd home"
+    return (
+        f"rerun with HOME set to the account home: HOME={shlex.quote(passwd_home)} "
+        f"{status_recovery_command()}"
+    )
+
+
 def _default_watcher_service(runner: CommandRunner) -> WatcherService:
     """Bind the watcher adapter that owns this platform's user services."""
     if sys.platform.startswith(DARWIN_UPDATE_PLATFORM):
         return LaunchdUserService(runner)
     return SystemdUserService(runner)
-
-
-def detect_installed_extras() -> frozenset[str]:
-    """Infer optional capabilities from importable installed packages without writing state."""
-    modules = {
-        "watch": "watchfiles",
-        "treesitter": "tree_sitter",
-        "spellcheck": "autocorrect",
-    }
-    return frozenset(extra for extra, module in modules.items() if find_spec(module) is not None)
 
 
 def _has_editable_metadata() -> bool:
@@ -701,7 +746,7 @@ def detect_installation(
             extras=detected_extras,
         )
 
-    pipx_home = Path(env.get("PIPX_HOME", Path.home() / ".local" / "pipx")).expanduser()
+    pipx_home = Path(env.get("PIPX_HOME", Path.home() / ".local" / "pipx")).expanduser().resolve()
     if (
         pipx_home in env_prefix.parents
         or "pipx" in env_prefix.parts
@@ -724,7 +769,10 @@ def detect_installation(
         xdg_data_home / "uv" / "tools",
         Path.home() / "Library" / "Application Support" / "uv" / "tools",
     ]
-    if any(
+    # A uv tool in a custom UV_TOOL_DIR is still identified by its own receipt when the
+    # shell does not export that directory; the install command then names it.
+    location = uv_tool_location_environment(env_prefix, env)
+    if location or any(
         root is not None and root.expanduser().resolve() in {env_prefix, *env_prefix.parents}
         for root in uv_tool_roots
     ):
@@ -736,6 +784,7 @@ def detect_installation(
                 cli_command=(executable, "-m", "mempalace_code"),
                 manager_command=(uv,),
                 extras=detected_extras,
+                manager_environment=location,
             )
         return Installation.unsupported(UNSUPPORTED_UV_WITHOUT_UV)
 
@@ -771,6 +820,36 @@ def is_plain_pip_install(installation: Installation | None = None) -> bool:
     if detected.supported or detected.reason != UNSUPPORTED_AMBIGUOUS_VENV:
         return False
     return _recorded_installer() == "pip"
+
+
+def pip_upgrade_command(version: str, python: str | None = None) -> str:
+    """Return the pinned ordinary-pip upgrade command bound to the interpreter that runs it."""
+    executable = python if python is not None else sys.executable
+    return f'"{executable}" -m pip install --upgrade "mempalace-code=={version}"'
+
+
+def _manual_upgrade_command(installation: Installation, provenance: ReleaseProvenance) -> str:
+    """Return the pinned pip upgrade for an ordinary pip install with a target, else ``""``."""
+    if not is_plain_pip_install(installation) or not provenance.target_version:
+        return ""
+    return pip_upgrade_command(provenance.target_version, installation.python)
+
+
+def _manual_upgrade_note(installation: Installation, provenance: ReleaseProvenance) -> str:
+    """Explain why an ordinary pip install has no upgrade command to run, else ``""``."""
+    if not is_plain_pip_install(installation) or provenance.target_version:
+        return ""
+    return (
+        f"no newer compatible release to upgrade this pip install to ({provenance.reason}); "
+        "check again with `mempalace-code version-check --check-now`"
+    )
+
+
+def service_manager_name() -> str:
+    """Name the user service manager a package/service mutation would touch here."""
+    if sys.platform.startswith(DARWIN_UPDATE_PLATFORM):
+        return DARWIN_SERVICE_MANAGER
+    return UPDATE_SERVICE_MANAGER
 
 
 def _default_runner(command: list[str]) -> tuple[int, str, str]:
@@ -931,12 +1010,14 @@ class UpdateManager:
                 "safe": watcher.safe,
             }
             required_missing = self._required_extra_missing(installation, watcher.active)
-            if not watcher.safe:
+            # Report the refusal the operator must act on first: an installer update does
+            # not own outranks every environment precondition.
+            if not installation.supported:
+                eligibility_reason = installation.reason
+            elif not watcher.safe:
                 eligibility_reason = watcher.detail
             elif required_missing:
                 eligibility_reason = required_missing
-            elif not installation.supported:
-                eligibility_reason = installation.reason
             else:
                 eligibility_reason = provenance.reason
         else:
@@ -954,7 +1035,8 @@ class UpdateManager:
         data = {
             "installation": installation.as_dict(),
             "provenance": provenance.as_dict(),
-            "manual_update_supported": manual_boundary is None,
+            # Whether `update apply` can manage this installation on this platform.
+            "manual_update_supported": manual_boundary is None and installation.supported,
             "eligible": (
                 manual_boundary is None
                 and installation.supported
@@ -969,13 +1051,26 @@ class UpdateManager:
             "reason": eligibility_reason,
             **(manual_boundary or {}),
         }
+        manual_command = _manual_upgrade_command(installation, provenance)
+        if manual_command:
+            data["manual_upgrade_command"] = manual_command
+        manual_note = _manual_upgrade_note(installation, provenance)
+        if manual_note:
+            data["manual_upgrade_note"] = manual_note
         return UpdateResult(
             True, "status", "update status inspected without mutation", 0, data=data
         )
 
     def check(self) -> UpdateResult:
         """Refresh canonical PyPI metadata without installing or persisting update state."""
-        return self.status(refresh=True)
+        status = self.status(refresh=True)
+        return UpdateResult(
+            True,
+            "check",
+            "update check refreshed canonical PyPI provenance without mutation",
+            0,
+            data=status.data,
+        )
 
     def apply(self, *, scheduled: bool = False) -> UpdateResult:
         """Run the explicit, compensating update transaction for a supported installation."""
@@ -983,6 +1078,10 @@ class UpdateManager:
         if platform_error is not None:
             return platform_error
         installation = self._get_installation()
+        if not installation.supported and not scheduled:
+            # An installer update does not own outranks every environment precondition:
+            # no watcher or HOME fix would make it apply.
+            return self._installation_refusal(installation)
         provenance = self._resolve_provenance()
         if scheduled and provenance.current_release:
             if self._scheduled_up_to_date(installation, provenance):
@@ -1148,6 +1247,33 @@ class UpdateManager:
             "next_run": self._next_timer_run() if enabled else None,
         }
 
+    def scheduler_render_warning(self) -> str | None:
+        """Explain why rendered units could not run here, or None when they could."""
+        installation = self._get_installation()
+        reasons = []
+        if not installation.supported:
+            reasons.append(installation.reason)
+        if self._unsupported_platform_data() is not None:
+            reasons.append(self._unsupported_platform_message())
+        if not reasons:
+            return None
+        return "preview only; `update scheduler install --yes` refuses this setup: " + "; ".join(
+            reasons
+        )
+
+    @staticmethod
+    def _scheduler_manager_environment(installation: Installation) -> list[str]:
+        """Carry custom pipx/uv tool locations so the scheduled run finds this install."""
+        lines = []
+        for name in SCHEDULER_MANAGER_ENVIRONMENT.get(installation.kind, ()):
+            value = os.environ.get(name)
+            if not value:
+                continue
+            if _ASCII_CONTROL.search(value):
+                raise ValueError(f"{name} contains an ASCII control character")
+            lines.append(f"Environment={_systemd_quoted_value(f'{name}={value}')}")
+        return lines
+
     def render_scheduler_units(self) -> dict[str, str]:
         """Render deterministic systemd-user service and timer units without writing them."""
         installation = self._get_installation()
@@ -1175,6 +1301,7 @@ class UpdateManager:
                 f"Environment={_systemd_quoted_value('PIP_CONFIG_FILE=/dev/null')}",
                 f"Environment={_systemd_quoted_value('PIP_KEYRING_PROVIDER=disabled')}",
                 f"Environment={_systemd_quoted_value('PYTHONNOUSERSITE=1')}",
+                *self._scheduler_manager_environment(installation),
                 "UnsetEnvironment=" + " ".join(SCHEDULER_UNSET_ENVIRONMENT),
                 f"ExecStart={command}",
                 "",
@@ -1220,8 +1347,10 @@ class UpdateManager:
                 unit_dir.mkdir(parents=True, exist_ok=True)
                 for name, content in units.items():
                     path = unit_dir / name
+                    rewritten = path.exists()
                     self._atomic_write_text(path, content)
-                    created.append(path)
+                    if not rewritten:
+                        created.append(path)
             for command in (
                 ["systemctl", "--user", "daemon-reload"],
                 ["systemctl", "--user", "enable", "--now", DEFAULT_TIMER_UNIT],
@@ -1355,6 +1484,7 @@ class UpdateManager:
             return unit_dir, False, None
 
         uid = os.geteuid()
+        exact = True
         for path, metadata in states:
             assert metadata is not None
             if not stat.S_ISREG(metadata.st_mode):
@@ -1365,9 +1495,16 @@ class UpdateManager:
                 content = path.read_text(encoding="utf-8")
             except (OSError, UnicodeError) as exc:
                 return unit_dir, False, f"cannot read scheduler unit {path.name}: {exc}"
-            if content != units[path.name]:
+            if content == units[path.name]:
+                continue
+            # Units rendered by an earlier release, or from a shell with other pipx/uv tool
+            # locations, stay owned; install rewrites them with the current render.
+            if _without_manager_environment(content) != _without_manager_environment(
+                units[path.name]
+            ):
                 return unit_dir, False, f"scheduler unit {path.name} content does not match"
-        return unit_dir, True, None
+            exact = False
+        return unit_dir, exact, None
 
     @staticmethod
     def _scheduler_context() -> tuple[Path, str | None]:
@@ -1443,7 +1580,7 @@ class UpdateManager:
             "platform": sys.platform,
             "required_platform": REQUIRED_UPDATE_PLATFORM,
             "service_manager": UPDATE_SERVICE_MANAGER,
-            "recovery_command": UNSUPPORTED_PLATFORM_RECOVERY_COMMAND,
+            "recovery_command": status_recovery_command(),
         }
 
     @staticmethod
@@ -1474,7 +1611,7 @@ class UpdateManager:
             "platform": sys.platform,
             "required_platforms": list(MANUAL_UPDATE_PLATFORMS),
             "service_managers": [DARWIN_SERVICE_MANAGER, UPDATE_SERVICE_MANAGER],
-            "recovery_command": UNSUPPORTED_PLATFORM_RECOVERY_COMMAND,
+            "recovery_command": status_recovery_command(),
         }
 
     @staticmethod
@@ -1498,6 +1635,22 @@ class UpdateManager:
 
     def _get_installation(self) -> Installation:
         return self._installation or self.installation_detector()
+
+    def _installation_refusal(self, installation: Installation) -> UpdateResult:
+        """Refuse an installation update does not own, naming the upgrade path it has."""
+        data: dict[str, object] = {"installation": installation.as_dict()}
+        message = installation.reason
+        if is_plain_pip_install(installation):
+            provenance = self._resolve_provenance()
+            manual_command = _manual_upgrade_command(installation, provenance)
+            manual_note = _manual_upgrade_note(installation, provenance)
+            if manual_command:
+                data["manual_upgrade_command"] = manual_command
+                message += f"; upgrade this ordinary pip install yourself: {manual_command}"
+            elif manual_note:
+                data["manual_upgrade_note"] = manual_note
+                message += f"; {manual_note}"
+        return UpdateResult(False, "preflight", message, 2, data=data)
 
     def _resolve_provenance(self) -> ReleaseProvenance:
         try:
@@ -1601,10 +1754,10 @@ class UpdateManager:
         watcher_safe: bool,
         watcher_detail: str,
     ) -> str | None:
-        if not watcher_safe:
-            return watcher_detail
         if not installation.supported:
             return installation.reason
+        if not watcher_safe:
+            return watcher_detail
         if not provenance.eligible:
             return provenance.reason
         missing = self._required_extra_missing(installation, watcher_active)

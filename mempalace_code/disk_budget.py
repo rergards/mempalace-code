@@ -162,11 +162,11 @@ def check_backup_budget(
 ) -> DiskBudgetStatus:
     """Check whether creating a backup archive is safe given disk budget.
 
-    Uses a conservative uncompressed estimate: palace directory size + KG size.
+    Uses a conservative uncompressed estimate for the archive and temporary KG snapshot.
     The free-space check is on the filesystem containing out_path (destination).
 
     Returns DiskBudgetStatus. allowed=True when projected remaining free space
-    after the archive would still be >= min_free_bytes_threshold.
+    at the snapshot-plus-archive peak would still be >= min_free_bytes_threshold.
     """
     palace_b, backups_b = palace_footprint(palace_path)
 
@@ -174,6 +174,11 @@ def check_backup_budget(
     if kg_path and os.path.isfile(kg_path):
         try:
             kg_size = os.stat(kg_path).st_size
+            # Committed WAL pages can make the SQLite backup larger than its main file.
+            try:
+                kg_size += os.stat(kg_path + "-wal").st_size
+            except FileNotFoundError:
+                pass
         except OSError:
             pass
 
@@ -181,7 +186,9 @@ def check_backup_budget(
     projected_archive_size = palace_b + kg_size
 
     free = free_bytes(out_path)
-    projected_free = free - projected_archive_size
+    # SQLite's consistent snapshot lives on the output filesystem until tar.add
+    # finishes; reserve both outputs, even when the KG lives outside the palace.
+    projected_free = free - projected_archive_size - kg_size
     allowed = projected_free >= min_free_bytes_threshold
 
     return DiskBudgetStatus(

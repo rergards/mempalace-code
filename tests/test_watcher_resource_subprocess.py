@@ -10,9 +10,12 @@ import sys
 import tempfile
 import threading
 import time
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
+
+from mempalace_code.backup import managed_backups_dir
 
 MIB = 1024 * 1024
 READY_TIMEOUT_SECONDS = 180
@@ -30,7 +33,7 @@ def _directory_bytes(path: Path) -> int:
 
 
 def _combined_bytes(palace: Path) -> int:
-    return _directory_bytes(palace) + _directory_bytes(palace.parent / "backups")
+    return _directory_bytes(palace) + _directory_bytes(Path(managed_backups_dir(str(palace))))
 
 
 def _rss_bytes(pid: int) -> int:
@@ -53,7 +56,7 @@ def _fd_count(pid: int) -> int | None:
     proc_fd = Path(f"/proc/{pid}/fd")
     if proc_fd.is_dir():
         try:
-            return len(list(proc_fd.iterdir()))
+            return len(list(proc_fd.iterdir())) or None
         except OSError:
             return None
 
@@ -61,7 +64,7 @@ def _fd_count(pid: int) -> int | None:
         return None
     try:
         result = subprocess.run(
-            ["lsof", "-Fn", "-p", str(pid)],
+            ["lsof", "-Ff", "-p", str(pid)],
             capture_output=True,
             check=False,
             text=True,
@@ -71,7 +74,64 @@ def _fd_count(pid: int) -> int | None:
         return None
     if result.returncode != 0:
         return None
-    return sum(1 for line in result.stdout.splitlines() if line.startswith("f"))
+    # lsof also emits cwd, txt, and mem records. Only numeric f fields are open
+    # descriptors, matching the /proc/<pid>/fd metric used on Linux.
+    fields = result.stdout.splitlines()
+    if f"p{pid}" not in fields:
+        return None
+    return sum(1 for line in fields if line.startswith("f") and line[1:].isdigit()) or None
+
+
+def _fd_growth(samples: list[int | None]) -> int | None:
+    observed = [sample for sample in samples if sample is not None]
+    if len(observed) != len(samples) or len(observed) < 2:
+        return None
+    return max(observed) - observed[0]
+
+
+@pytest.mark.parametrize(
+    ("stdout", "returncode", "expected"),
+    [
+        ("p123\nfcwd\nftxt\nftxt\nfmem\nf0\nf1\nf2\nf17\n", 0, 4),
+        ("p123\nfcwd\nftxt\n", 0, None),
+        ("", 0, None),
+        ("p999\nf0\nf1\nf2\n", 0, None),
+        ("p123\nf0\nf1\nf2\n", 1, None),
+    ],
+)
+def test_fd_count_uses_numeric_lsof_descriptors(monkeypatch, stdout, returncode, expected):
+    monkeypatch.setattr(Path, "is_dir", lambda self: False)
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/sbin/lsof")
+
+    def run(args, **kwargs):
+        assert args == ["lsof", "-Ff", "-p", "123"]
+        return subprocess.CompletedProcess(args, returncode, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert _fd_count(123) == expected
+
+
+@pytest.mark.parametrize(
+    ("samples", "expected"),
+    [([], None), ([14], None), ([14, None, 20], None), ([14, 19, 14], 5), ([14, 20, 14], 6)],
+)
+def test_fd_growth_requires_complete_measurements(samples, expected):
+    assert _fd_growth(samples) == expected
+
+
+def test_fd_count_observes_real_open_files(tmp_path):
+    before = _fd_count(os.getpid())
+    if before is None:
+        pytest.skip("required OS descriptor metric unavailable")
+    with ExitStack() as stack:
+        for index in range(3):
+            stack.enter_context((tmp_path / f"descriptor-{index}").open("w"))
+        during = _fd_count(os.getpid())
+        assert during is not None
+        assert during >= before + 3
+    after = _fd_count(os.getpid())
+    assert after is not None
+    assert after <= during - 3
 
 
 def _read_output(stream, lines: queue.Queue[str]) -> None:
@@ -143,6 +203,7 @@ def _wait_for_first_cycle(
             needle,
             min(FIRST_CYCLE_ATTEMPT_SECONDS, deadline - time.monotonic()),
         ):
+            _wait_for_output(lines, output, " done (", CYCLE_TIMEOUT_SECONDS)
             return
     _drain_output(lines, output)
     pytest.fail(
@@ -200,6 +261,9 @@ def test_watcher_resource_bounds_in_real_subprocess(monkeypatch):
     output: list[str] = []
     try:
         root = Path(temp_dir.name)
+        home = root / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
         palace = root / "palace"
         project = root / "project"
         project.mkdir()
@@ -255,6 +319,9 @@ def test_watcher_resource_bounds_in_real_subprocess(monkeypatch):
         for cycle in range(2, 11):
             _rewrite_sources(sources, f"cycle-{cycle}")
             _wait_for_output(lines, output, f"[{project.name}: 2 change(s)]", CYCLE_TIMEOUT_SECONDS)
+            # The mine summary precedes optimization. Observe the complete batch,
+            # after its transient archive and storage descriptors have closed.
+            _wait_for_output(lines, output, " done (", CYCLE_TIMEOUT_SECONDS)
             rss_samples.append(_rss_bytes(process.pid))
             fd_samples.append(_fd_count(process.pid))
             disk_samples.append(_combined_bytes(palace))
@@ -271,14 +338,13 @@ def test_watcher_resource_bounds_in_real_subprocess(monkeypatch):
         assert peak_rss_growth <= 100 * MIB, "mempalace_reason=watcher_rss_peak"
         assert final_rss_growth <= 100 * MIB, "mempalace_reason=watcher_rss_final"
 
-        observable_fds = [sample for sample in fd_samples if sample is not None]
-        if observable_fds:
-            assert max(observable_fds) - observable_fds[0] <= 5, (
-                "mempalace_reason=watcher_fd_growth"
-            )
+        fd_growth = _fd_growth(fd_samples)
+        assert fd_growth is not None, "mempalace_reason=watcher_fd_measurement_unavailable"
+        assert fd_growth <= 5, "mempalace_reason=watcher_fd_growth"
 
-        backups = palace.parent / "backups"
+        backups = Path(managed_backups_dir(str(palace)))
         pre_optimize_count = len(list(backups.glob("pre_optimize_*.tar.gz")))
+        assert pre_optimize_count > 0, "mempalace_reason=watcher_backup_missing"
         assert pre_optimize_count <= 5, "mempalace_reason=watcher_backup_count"
         late_disk_growth = disk_samples[10] - disk_samples[5]
         assert late_disk_growth <= 2 * MIB, "mempalace_reason=watcher_disk_growth"

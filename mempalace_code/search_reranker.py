@@ -82,7 +82,8 @@ def hybrid_rerank(
             lexical. Default 0.5 gives equal weight to lexical and vector evidence.
 
     Returns:
-        A new list with candidates reordered by hybrid score (descending). Original
+        A new list with candidates reordered by hybrid score (descending); the
+        reported ``ranking`` scores are rounded to 3 decimals. Original
         storage input rank breaks ties so candidates with equal lexical scores keep
         their input order. All input candidates are preserved.
     """
@@ -101,11 +102,13 @@ def hybrid_rerank(
         hybrid = (1.0 - lexical_weight) * input_rank_score + lexical_weight * lex
         enriched = dict(cand)
         ranking = dict(enriched.get("ranking", {}))
+        # Reported scores are rounded to 3 decimals like similarity; ordering
+        # uses the unrounded hybrid score.
         ranking.update(
             {
-                "lexical_score": lex,
-                "input_rank_score": input_rank_score,
-                "hybrid_score": hybrid,
+                "lexical_score": round(lex, 3),
+                "input_rank_score": round(input_rank_score, 3),
+                "hybrid_score": round(hybrid, 3),
             }
         )
         enriched["ranking"] = ranking

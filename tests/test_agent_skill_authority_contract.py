@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import tomllib
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).parent.parent
@@ -57,27 +59,127 @@ def _front_matter(text: str) -> tuple[dict[str, object], list[str], str]:
 
 
 def _backlog_keys(path: Path, *, require_open: bool = False) -> set[str]:
-    parsed = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    items = parsed.get("items", []) or []
-    return {
-        item["key"]
-        for item in items
-        if isinstance(item, dict)
-        and isinstance(item.get("key"), str)
-        and (not require_open or item.get("status") == "open")
-    }
+    parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(parsed, dict):
+        raise ValueError(f"malformed backlog source: {path.name}")
+    items = parsed.get("items", [])
+    if items is None:  # Historical fixtures encode empty lists as YAML null.
+        items = []
+    if not isinstance(items, list):
+        raise ValueError(f"malformed backlog items: {path.name}")
+    keys: set[str] = set()
+    selected: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("key"), str):
+            raise ValueError(f"malformed backlog item: {path.name}")
+        key = item["key"]
+        if key in keys:
+            raise ValueError(f"duplicate backlog key: {key}")
+        keys.add(key)
+        if not require_open or item.get("status") == "open":
+            selected.add(key)
+    return selected
+
+
+def _strict_json(path: Path) -> dict:
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key in {path.name}: {key}")
+            result[key] = value
+        return result
+
+    parsed = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique)
+    if not isinstance(parsed, dict):
+        raise ValueError(f"malformed canonical source: {path.name}")
+    return parsed
+
+
+def _canonical_plan_states(root: Path) -> dict[str, str] | None:
+    store = root / ".backlog"
+    if not store.exists():
+        return None
+    try:
+        if _strict_json(store / "format.json").get("format") != "backlog-files/v2":
+            raise ValueError("unsupported canonical backlog format")
+        project = store / "projects" / "mempalace-code"
+        metadata = _strict_json(project / "project.json")
+        if metadata.get("project") != "mempalace-code":
+            raise ValueError("mismatched canonical backlog project")
+        states: dict[str, str] = {}
+        for path in sorted((project / "tasks").glob("*.json")):
+            envelope = _strict_json(path)
+            if envelope.get("format") != "backlog-task-envelope/v2":
+                raise ValueError(f"malformed canonical task envelope: {path.name}")
+            record = envelope["task_record"]
+            task = record["task"]
+            key, state = task["id"], task["state"]
+            if not isinstance(key, str) or not key or task["project"] != "mempalace-code":
+                raise ValueError(f"malformed canonical task identity: {path.name}")
+            if key in states:
+                raise ValueError(f"duplicate canonical task: {key}")
+            if path.stem != key or task["schema"] != "backlog/v1":
+                raise ValueError(f"mismatched canonical task: {path.name}")
+            if state not in {"draft", "open", "done", "cancelled"}:
+                raise ValueError(f"malformed canonical task state: {key}")
+            if state == "done":
+                # completion_valid is cached; native derive owns dependency validity.
+                # This lifecycle check only verifies the structural completion receipt.
+                completion = task.get("completion")
+                if not isinstance(completion, dict):
+                    raise ValueError(f"invalid canonical completion: {key}")
+                result = completion.get("result")
+                evidence = completion.get("evidence")
+                acceptance = task.get("acceptance")
+                digest = task.get("contract_digest")
+                if (
+                    not isinstance(result, str)
+                    or not result.strip()
+                    or not isinstance(digest, str)
+                    or not digest
+                    or completion.get("contract_digest") != digest
+                    or not isinstance(evidence, list)
+                    or not isinstance(acceptance, list)
+                    or not acceptance
+                ):
+                    raise ValueError(f"invalid canonical completion: {key}")
+                acceptance_ids = [criterion["id"] for criterion in acceptance]
+                evidence_ids = [entry["acceptance_id"] for entry in evidence]
+                if (
+                    len(set(acceptance_ids)) != len(acceptance_ids)
+                    or sorted(evidence_ids) != sorted(acceptance_ids)
+                    or any(
+                        entry.get("verification_result") != "pass"
+                        or not isinstance(entry.get("artifact_ref"), str)
+                        or not entry["artifact_ref"].strip()
+                        for entry in evidence
+                    )
+                ):
+                    raise ValueError(f"invalid canonical completion: {key}")
+            states[key] = {"open": "active", "done": "completed"}.get(state, "historical")
+        return states
+    except (OSError, KeyError, TypeError) as error:
+        raise ValueError(f"malformed canonical backlog: {error}") from error
 
 
 def _expected_plan_status(root: Path, slug: str) -> str:
-    open_keys = _backlog_keys(root / "docs" / "BACKLOG.yaml", require_open=True)
+    canonical = _canonical_plan_states(root)
     archived_keys = _backlog_keys(root / "docs" / "BACKLOG-archived.yaml")
+    if canonical is not None:
+        if _backlog_keys(root / "docs" / "BACKLOG.yaml"):
+            raise ValueError("duplicate active backlog source: docs/BACKLOG.yaml")
+        if slug in canonical:
+            if canonical[slug] != "completed" and slug in archived_keys:
+                raise ValueError(f"contradictory repository lifecycle for {slug}")
+            return canonical[slug]
+        return "completed" if slug in archived_keys else "historical"
+    open_keys = _backlog_keys(root / "docs" / "BACKLOG.yaml", require_open=True)
     if slug in open_keys and slug in archived_keys:
         raise ValueError(f"contradictory repository lifecycle for {slug}")
     if slug in open_keys:
         return "active"
-    if slug in archived_keys:
-        return "completed"
-    return "historical"
+    return "completed" if slug in archived_keys else "historical"
 
 
 def _plan_lifecycle_errors(root: Path, relative: str) -> list[str]:
@@ -198,8 +300,7 @@ def test_ship_and_checkpoint_require_ordered_exact_target_admission():
     )
     assert "Unknown identity, visibility, ref, or SHA stops" in admission
     assert "Public targets and release intent leave this checkpoint read-only" in admission
-    assert "if [ -f /tmp/claude-edits.log ]; then" in admission
-    assert "sed -n '/Modified:/s/.*Modified: //p' /tmp/claude-edits.log | sort -u" in admission
+    assert "/tmp/claude-edits.log" not in checkpoint
     assert 'if [ -n "${AUTOPILOT_TASK_STATE:-}" ]; then' in admission
     assert 'state_file="$AUTOPILOT_TASK_STATE"' in admission
     assert 'elif [ -n "${task_slug:-}" ]; then' in admission
@@ -228,7 +329,7 @@ def test_ship_and_checkpoint_require_ordered_exact_target_admission():
     _assert_in_order(
         admission,
         "git status --porcelain",
-        "sed -n '/Modified:/s/.*Modified: //p' /tmp/claude-edits.log | sort -u",
+        'if [ -e "$state_file" ]; then',
         "git diff --name-only && git diff --name-only --cached",
         "If another agent has\n   an uncommitted edit",
     )
@@ -374,6 +475,7 @@ def test_plan_lifecycle_contract_and_task_skill_agree():
     contract = PLAN_CONTRACT.read_text(encoding="utf-8")
     instructions = _read("task-plan/INSTRUCTIONS.md")
     for marker in (
+        ".backlog",
         "docs/BACKLOG.yaml",
         "docs/BACKLOG-archived.yaml",
         "status: active",
@@ -510,3 +612,204 @@ def test_plan_repository_and_distribution_boundaries_are_truthful():
     assert "docs/plans/" in hatch["sdist"]["exclude"]
     assert not historical.is_relative_to(ROOT / "mempalace_code")
     assert "repository search" in PLAN_CONTRACT.read_text(encoding="utf-8")
+
+
+def _canonical_lifecycle_fixture(root: Path, task: dict) -> Path:
+    store = root / ".backlog"
+    project = store / "projects" / "mempalace-code"
+    tasks = project / "tasks"
+    tasks.mkdir(parents=True, exist_ok=True)
+    (store / "format.json").write_text(json.dumps({"format": "backlog-files/v2"}))
+    (project / "project.json").write_text(json.dumps({"project": "mempalace-code"}))
+    path = tasks / f"{task['id']}.json"
+    path.write_text(
+        json.dumps({"format": "backlog-task-envelope/v2", "task_record": {"task": task}})
+    )
+    return path
+
+
+def test_canonical_migration_keeps_held_tasks_open_and_plans_non_authoritative(tmp_path: Path):
+    # Retained native snapshots survive squashed and shallow public release history.
+    original = ROOT / ".backlog" / "projects" / "mempalace-code" / "tasks"
+    initial_tasks = []
+    for key in (
+        "WING-MIGRATION-FULL-COPY-QUALIFICATION",
+        "LOCAL-ROLLOUT-RECONCILE-AND-ACCEPT",
+    ):
+        envelope = _strict_json(original / f"{key}.json")
+        assert envelope["format"] == "backlog-task-envelope/v2"
+        task = min(
+            (
+                entry["task"]
+                for entry in envelope["task_record"]["history"]
+                if entry["task"]["state"] == "open"
+            ),
+            key=lambda snapshot: snapshot["revision"],
+        )
+        assert task["id"] == key
+        assert task["state"] == "open"
+        assert task["completion_valid"] is False
+        initial = next(node for node in envelope["planning"]["nodes"] if not node["parents"])
+        assert initial["payload"]["expected_planning_version"] == "unplanned"
+        assert initial["state"]["hold"]["reason"]
+        assert initial["state"]["priority"] == "P2"
+        root = tmp_path / key
+        relative = _write_lifecycle_fixture(
+            root, f"slug: {key}\nstatus: active\nauthority: non_authoritative"
+        )
+        _canonical_lifecycle_fixture(root, task)
+        assert _expected_plan_status(root, key) == "active"
+        assert _plan_lifecycle_errors(root, relative) == []
+        initial_tasks.append(task)
+
+    root = tmp_path / "FIXTURE"
+    relative = _write_lifecycle_fixture(
+        root, "slug: FIXTURE\nstatus: active\nauthority: non_authoritative"
+    )
+    fixture = dict(initial_tasks[0], id="FIXTURE")
+    _canonical_lifecycle_fixture(root, fixture)
+    assert _plan_lifecycle_errors(root, relative) == []
+    text = (root / relative).read_text()
+    assert text.index("authority: non_authoritative") < text.index("mutate")
+    assert "owner holds and prerequisites still" in _read("task-plan/INSTRUCTIONS.md")
+    (root / relative).write_text(text.replace("status: active", "status: completed"))
+    assert _plan_lifecycle_errors(root, relative) == [
+        "repository lifecycle for FIXTURE requires active; found completed"
+    ]
+
+
+def test_canonical_lifecycle_rejects_invalid_sources_without_yaml_fallback(tmp_path: Path):
+    task = {
+        "id": "FIXTURE",
+        "project": "mempalace-code",
+        "schema": "backlog/v1",
+        "state": "open",
+        "completion_valid": False,
+    }
+    cases = ("malformed", "duplicate", "yaml-owner", "archived-open", "invalid-done")
+    for case in cases:
+        root = tmp_path / case
+        _write_lifecycle_fixture(
+            root,
+            "slug: FIXTURE\nstatus: active\nauthority: non_authoritative",
+            archived_keys=("FIXTURE",) if case == "archived-open" else (),
+        )
+        path = _canonical_lifecycle_fixture(root, task)
+        if case == "malformed":
+            path.write_text('{"format":"backlog-task-envelope/v2"}')
+        elif case == "duplicate":
+            (path.parent / "ZZ-DUPLICATE.json").write_text(path.read_text())
+        elif case == "yaml-owner":
+            (root / "docs" / "BACKLOG.yaml").write_text("items: [{key: FIXTURE, status: open}]")
+        elif case == "invalid-done":
+            envelope = _strict_json(path)
+            envelope["task_record"]["task"]["state"] = "done"
+            path.write_text(json.dumps(envelope))
+        with pytest.raises(ValueError, match="malformed|duplicate|contradictory|invalid"):
+            _expected_plan_status(root, "FIXTURE")
+
+
+@pytest.mark.parametrize(
+    ("receipt_changes", "valid"),
+    [
+        ({}, True),  # Native validity is derived even when the cached value is false.
+        (None, False),
+        ({"contract_digest": "sha256:stale"}, False),
+        ({"result": " "}, False),
+        ({"result": None}, False),
+        ({"evidence": None}, False),
+        ({"evidence": []}, False),
+        ({"evidence": [{"acceptance_id": "A1"}]}, False),
+        (
+            {
+                "evidence": [
+                    {
+                        "acceptance_id": "A1",
+                        "artifact_ref": "receipt",
+                        "verification_result": "fail",
+                    }
+                ]
+            },
+            False,
+        ),
+        (
+            {
+                "evidence": [
+                    {"acceptance_id": "A1", "artifact_ref": " ", "verification_result": "pass"}
+                ]
+            },
+            False,
+        ),
+        (
+            {
+                "evidence": [
+                    {
+                        "acceptance_id": "unknown",
+                        "artifact_ref": "receipt",
+                        "verification_result": "pass",
+                    }
+                ]
+            },
+            False,
+        ),
+        (
+            {
+                "evidence": [
+                    {
+                        "acceptance_id": "A1",
+                        "artifact_ref": "receipt",
+                        "verification_result": "pass",
+                    }
+                ]
+                * 2
+            },
+            False,
+        ),
+    ],
+)
+def test_canonical_done_lifecycle_checks_receipt_not_cached_validity(
+    tmp_path: Path, receipt_changes: dict | None, valid: bool
+):
+    completion = {
+        "contract_digest": "sha256:fixture",
+        "result": "Accepted outcome verified",
+        "evidence": [
+            {"acceptance_id": "A1", "artifact_ref": "receipt", "verification_result": "pass"}
+        ],
+    }
+    if receipt_changes is not None:
+        completion.update(receipt_changes)
+    task = {
+        "id": "FIXTURE",
+        "project": "mempalace-code",
+        "schema": "backlog/v1",
+        "state": "done",
+        "completion_valid": False,
+        "contract_digest": "sha256:fixture",
+        "acceptance": [{"id": "A1"}],
+        "completion": completion if receipt_changes is not None else None,
+    }
+    _write_lifecycle_fixture(
+        tmp_path, "slug: FIXTURE\nstatus: completed\nauthority: non_authoritative"
+    )
+    _canonical_lifecycle_fixture(tmp_path, task)
+    if valid:
+        assert _plan_lifecycle_errors(tmp_path, "docs/plans/FIXTURE.md") == []
+    else:
+        with pytest.raises(ValueError, match="invalid canonical completion"):
+            _expected_plan_status(tmp_path, "FIXTURE")
+
+
+def test_entrypoints_use_canonical_backlog_and_preserve_unknown_and_hold_guards():
+    for relative in ("start/INSTRUCTIONS.md", "status/SKILL.md", "doc-refresh/INSTRUCTIONS.md"):
+        text = _read(relative)
+        for tool in ("backlog_context", "backlog_workset_context", "backlog_workset_queue"):
+            assert tool in text
+        assert "unknown" in text
+        assert "validate --store .backlog" in text
+        assert "backlog list" not in text
+        assert "backlog done" not in text
+        assert "validate --file docs/BACKLOG.yaml" not in text
+    retired = yaml.safe_load((ROOT / "docs" / "BACKLOG.yaml").read_text())
+    assert retired["items"] == []
+    assert retired["sections"]

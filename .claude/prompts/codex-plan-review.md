@@ -9,7 +9,7 @@ Review the current implementation plan for execution readiness before coding beg
 Do not modify repository files. Produce a concise report that Claude can act on.
 
 Required workflow:
-1. Read `AGENTS.md`, `CLAUDE.md`, `.memory-bank/README.md`, and `__PLAN_FILE__`.
+1. Read `AGENTS.md`, `CLAUDE.md`, `docs/plans/README.md`, and `__PLAN_FILE__`.
 2. Read the smallest relevant canonical docs/rules/templates referenced by the plan.
 3. Use semantic navigation tools first for symbol lookups when available (`definition`, `references`, `hover`). Use grep/read for string searches, markdown, shell, JSON, or when semantic tools are unavailable.
 4. Search the codebase for affected files, existing patterns, accepted dependencies, prior plans, and relevant subsystem boundaries before judging the plan.

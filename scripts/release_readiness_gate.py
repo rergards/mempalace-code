@@ -73,6 +73,11 @@ INSTALLED_GOLDEN_ONNX_PCI_WARNING = re.compile(
     r"\x1b\[m\n"
 )
 INSTALLED_CLI_INVENTORY_PROBE_NAME = "installed-cli-inventory-probe.py"
+INSTALLED_SAFE_MIRROR_COMMAND = (
+    "rsync -a --delete --exclude=palace/ --exclude=knowledge_graph.sqlite3 "
+    "--exclude=config.json --exclude=backups/ --exclude=palace.backup-*/ "
+    "--exclude=palace.quarantine-*/ ~/.mempalace/ user@host:.mempalace/"
+)
 INSTALLED_CLI_INVENTORY_OUTPUT_LIMIT = 64 * 1024
 INSTALLED_CLI_INVENTORY_MEMBER_LIMIT = 128
 INSTALLED_CLI_INVENTORY_DEPTH_LIMIT = 8
@@ -237,16 +242,22 @@ print(json.dumps({
 INSTALLED_SPELLCHECK_PROBE = r"""import json
 import sys
 from importlib.util import find_spec
+from pathlib import Path
 from mempalace_code.normalize import normalize
+from mempalace_code.spellcheck import spellcheck_transcript
 
-output = normalize(sys.argv[1], spellcheck=True)
-print(json.dumps({"autocorrect": find_spec("autocorrect") is not None, "output": output}))
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+print(json.dumps({
+    "autocorrect": find_spec("autocorrect") is not None,
+    "mined": normalize(sys.argv[1], spellcheck=True),
+    "output": spellcheck_transcript(source),
+}))
 """
 INSTALLED_CUSTOM_MODEL_ABSENT_PROBE = r"""import json
 import tempfile
 from importlib.util import find_spec
 from pathlib import Path
-from mempalace_code.storage import CUSTOM_MODELS_INSTALL_COMMAND, LanceStore
+from mempalace_code.storage import LanceStore, extra_install_command
 
 with tempfile.TemporaryDirectory(prefix="mempalace-custom-absent-") as tmpdir:
     palace = Path(tmpdir) / "palace"
@@ -258,7 +269,7 @@ with tempfile.TemporaryDirectory(prefix="mempalace-custom-absent-") as tmpdir:
         message = ""
     print(json.dumps({
         "dependency_absent": find_spec("sentence_transformers") is None,
-        "preflight_failed": CUSTOM_MODELS_INSTALL_COMMAND in message,
+        "preflight_failed": extra_install_command("custom-models") in message,
         "palace_absent": not palace.exists(),
     }, separators=(",", ":")))
 """
@@ -398,7 +409,9 @@ INSTALLED_NON_REGULAR_SOURCE_COMMAND = (
     "mempalace-code init/mine/search/mine-all/watch and conversation mine with non-regular sources"
 )
 INSTALLED_GOLDEN_TIMEOUT = 900
-INSTALLED_PATH_CONTRACT_OUTPUT_LIMIT = 4000
+# Per-symbol drawers make a ten-hit search of the golden fixtures print more than 4,000
+# characters; the bound still keeps evidence small.
+INSTALLED_PATH_CONTRACT_OUTPUT_LIMIT = 6000
 INSTALLED_DIARY_BLANK_REQUIRED_FIELDS_CASES = (
     ("--agent", "", "--entry", "valid entry"),
     ("--agent", "   ", "--entry", "valid entry"),
@@ -932,6 +945,36 @@ def _semantic_tree_snapshot(path: Path) -> tuple[tuple[str, str, int, str], ...]
     return tuple(rows)
 
 
+def _without_palace_lease_rows(
+    root: Path, home: Path, rows: tuple[tuple[str, str, int, str], ...]
+) -> tuple[tuple[str, str, int, str], ...]:
+    """Drop per-palace write-lease files (HOME/.mempalace/locks) from a tree snapshot.
+
+    Every mine holds a per-palace write lease whose lock file is named after the
+    palace, so a scenario that mines creates one; the lease-release check reads
+    the owner registries instead.
+    """
+    try:
+        prefix = (home / ".mempalace" / "locks").relative_to(root).as_posix()
+    except ValueError:
+        return rows
+    return tuple(row for row in rows if row[0] != prefix and not row[0].startswith(prefix + "/"))
+
+
+def _palace_leases_released(home: Path) -> bool:
+    """Return True when every per-palace write-lease owner registry is empty."""
+    locks = home / ".mempalace" / "locks"
+    if not locks.is_dir():
+        return True
+    for owners in locks.glob("*.owners.json"):
+        try:
+            if json.loads(owners.read_text(encoding="utf-8")) != {}:
+                return False
+        except (OSError, ValueError):
+            return False
+    return True
+
+
 def _installed_disposable_roots(
     env: dict[str, str], scenario_root: Path, neutral_cwd: Path
 ) -> tuple[Path, ...]:
@@ -1090,6 +1133,23 @@ def _run_installed_recovery_safety_scenario(
 
         source_palace = scenario_root / "backup-source"
         backup_archive = scenario_root / "candidate-backup.tar.gz"
+        absent_backup = run(
+            ["--palace", str(source_palace), "backup", "--out", str(backup_archive)]
+        )
+        if (
+            absent_backup.returncode == 0
+            or "No palace found" not in (absent_backup.stderr or "")
+            or backup_archive.exists()
+        ):
+            raise RuntimeError("backup of an absent palace did not fail closed")
+        # A knowledge-graph-only palace is the smallest real backup source (no model needed).
+        source_palace.mkdir()
+        source_kg = sqlite3.connect(source_palace / "knowledge_graph.sqlite3")
+        try:
+            source_kg.execute("CREATE TABLE IF NOT EXISTS gate_fixture (value TEXT)")
+            source_kg.commit()
+        finally:
+            source_kg.close()
         backup = run(["--palace", str(source_palace), "backup", "--out", str(backup_archive)])
         if (
             backup.returncode != 0
@@ -1104,7 +1164,14 @@ def _run_installed_recovery_safety_scenario(
         sentinel = restore_target / "operator-state.txt"
         sentinel.write_text("preserve me", encoding="utf-8")
         archive_before = backup_archive.read_bytes()
-        post_setup = {root: _semantic_tree_snapshot(root) for root in disposable_roots}
+        # A refused restore still holds the target's palace write lease while it checks
+        # the destination; its lock file is not destination state.
+        lease_home = Path(env["HOME"])
+
+        def boundary_snapshot(root: Path) -> tuple[tuple[str, str, int, str], ...]:
+            return _without_palace_lease_rows(root, lease_home, _semantic_tree_snapshot(root))
+
+        post_setup = {root: boundary_snapshot(root) for root in disposable_roots}
         restore = run(["--palace", str(restore_target), "restore", str(backup_archive)])
         restore_stderr = restore.stderr or ""
         if (
@@ -1120,15 +1187,17 @@ def _run_installed_recovery_safety_scenario(
             raise RuntimeError("restore collision added destination state")
         if backup_archive.read_bytes() != archive_before:
             raise RuntimeError("restore collision changed the backup archive")
-        if any(_semantic_tree_snapshot(root) != snapshot for root, snapshot in post_setup.items()):
+        if any(boundary_snapshot(root) != snapshot for root, snapshot in post_setup.items()):
             raise RuntimeError("restore collision changed the disposable root boundary")
+        if not _palace_leases_released(lease_home):
+            raise RuntimeError("restore collision left a palace write lease held")
 
         version = run(["--version"])
         if version.returncode != 0 or not any(
             character.isdigit() for character in (version.stdout or "") + (version.stderr or "")
         ):
             raise RuntimeError("installed launcher did not recover after restore refusal")
-        if any(_semantic_tree_snapshot(root) != snapshot for root, snapshot in post_setup.items()):
+        if any(boundary_snapshot(root) != snapshot for root, snapshot in post_setup.items()):
             raise RuntimeError("launcher recovery changed the disposable root boundary")
 
         attempts_after = (
@@ -1274,8 +1343,8 @@ def _run_installed_path_contract_scenario(
             diary,
             "diary write",
             "Diary entry stored.",
-            "ID: diary_wing_contract-agent_",
-            "Wing: wing_contract-agent",
+            "ID: diary_wing_contract_agent_",
+            "Wing: wing_contract_agent",
             "Room: diary",
             "Topic: release-contract",
             "Verify before retry:",
@@ -1291,7 +1360,7 @@ def _run_installed_path_contract_scenario(
                 "search",
                 diary_entry[:48],
                 "--wing",
-                "wing_contract-agent",
+                "wing_contract_agent",
                 "--room",
                 "diary",
                 "--results",
@@ -1316,13 +1385,36 @@ def _run_installed_path_contract_scenario(
                 payload = json.loads(refusal.stdout or "")
             except (json.JSONDecodeError, TypeError) as exc:
                 raise RuntimeError("update refusal did not emit valid JSON") from exc
+            # Without systemd-user the scheduler reports its platform boundary, not `--yes`.
+            platform_refusal = action[1] == "scheduler" and not sys.platform.startswith("linux")
+            if platform_refusal:
+                expected_stage = "unsupported-platform"
+                expected_args = ["update", "status", "--json"]
+            else:
+                expected_stage = "confirmation"
+                expected_args = [*action[:-1], "--yes", "--json"]
+            recovery_command = (
+                payload.get("recovery_command") if isinstance(payload, dict) else None
+            )
+            recovery_argv = (
+                shlex.split(recovery_command) if isinstance(recovery_command, str) else []
+            )
+            launcher_ok = False
+            if recovery_argv:
+                recovery_launcher = recovery_argv[0]
+                if recovery_launcher == "mempalace-code":
+                    recovery_launcher = shutil.which(
+                        "mempalace-code", path=env.get("PATH", os.defpath)
+                    )
+                if recovery_launcher and Path(recovery_launcher).is_absolute():
+                    launcher_ok = Path(recovery_launcher).samefile(command_prefix[0])
+            recovery_ok = launcher_ok and recovery_argv[1:] == expected_args
             if (
                 not isinstance(payload, dict)
                 or payload.get("ok") is not False
-                or payload.get("stage") != "confirmation"
+                or payload.get("stage") != expected_stage
                 or payload.get("exit_code") != 2
-                or not isinstance(payload.get("recovery_command"), str)
-                or not payload["recovery_command"].endswith("--yes --json")
+                or not recovery_ok
             ):
                 raise RuntimeError("update refusal violated the confirmation contract")
             if any(
@@ -1421,7 +1513,12 @@ def _run_installed_cli_inventory_gap_scenario(
             for root in _installed_disposable_roots(env, scenario_root, neutral_cwd)
             if root != scenario_root
         )
-        protected_before = {root: _semantic_tree_snapshot(root) for root in protected_roots}
+        lease_home = Path(env["HOME"])
+
+        def boundary_snapshot(root: Path) -> tuple[tuple[str, str, int, str], ...]:
+            return _without_palace_lease_rows(root, lease_home, _semantic_tree_snapshot(root))
+
+        protected_before = {root: boundary_snapshot(root) for root in protected_roots}
         attempts_before = network_attempts.read_bytes() if network_attempts.exists() else b""
         if attempts_before:
             raise RuntimeError("inventory scenario inherited a network attempt")
@@ -1515,12 +1612,8 @@ def _run_installed_cli_inventory_gap_scenario(
         )
 
         require(run(["preflight"]), "preflight parent guidance", 2, "usage:")
-        safe_mirror = (
-            "rsync -a --delete --exclude=palace/ --exclude=knowledge_graph.sqlite3 "
-            "--exclude=config.json --exclude=backups/ ~/.mempalace/ user@host:.mempalace/"
-        )
         mirror_payload = require_json(
-            run(["preflight", "mirror", "--command", safe_mirror, "--json"]),
+            run(["preflight", "mirror", "--command", INSTALLED_SAFE_MIRROR_COMMAND, "--json"]),
             "preflight mirror",
         )
         if mirror_payload.get("ok") is not True or mirror_payload.get("dangerous") is not False:
@@ -1538,7 +1631,7 @@ def _run_installed_cli_inventory_gap_scenario(
             raise RuntimeError("update status violated its structured contract")
 
         update_check = require_json(run(["update", "check", "--json"]), "update check")
-        if update_check.get("ok") is not True or update_check.get("stage") != "status":
+        if update_check.get("ok") is not True or update_check.get("stage") != "check":
             raise RuntimeError("update check violated its structured contract")
         attempts_after_check = network_attempts.read_bytes() if network_attempts.exists() else b""
         if not attempts_after_check.startswith(attempts_before):
@@ -1575,10 +1668,10 @@ def _run_installed_cli_inventory_gap_scenario(
             raise RuntimeError("inventory scenario changed the established palace")
         if _semantic_tree_snapshot(project) != project_before:
             raise RuntimeError("inventory scenario changed the established project")
-        if any(
-            _semantic_tree_snapshot(root) != snapshot for root, snapshot in protected_before.items()
-        ):
+        if any(boundary_snapshot(root) != snapshot for root, snapshot in protected_before.items()):
             raise RuntimeError("inventory scenario changed a protected disposable root")
+        if not _palace_leases_released(lease_home):
+            raise RuntimeError("inventory scenario left a palace write lease held")
         attempts_final = network_attempts.read_bytes() if network_attempts.exists() else b""
         if attempts_final != attempts_before:
             raise RuntimeError("inventory scenario retained a socket attempt")
@@ -1663,6 +1756,8 @@ def _run_installed_schedule_snippet_scenario(
         ambient_bin.mkdir(parents=True)
         watch_root.mkdir(parents=True)
         (watch_root / "mempalace.yaml").write_text("wing: installed_schedule\n", encoding="utf-8")
+        # Commit-mode watch roots must be git checkouts; the renderer refuses others.
+        (watch_root / ".git" / "refs" / "heads").mkdir(parents=True)
         ambient = ambient_bin / "mempalace-code"
         ambient.write_text(
             "#!/bin/sh\n"
@@ -1684,14 +1779,16 @@ def _run_installed_schedule_snippet_scenario(
                 ["--palace", str(palace), "backup", "schedule", "--freq", "daily"],
                 shlex.quote(os.path.abspath(str(palace))),
                 shlex.quote(str(palace.resolve())),
-                "com.mempalace.backup.plist",
+                # Each palace gets its own job: com.mempalace.backup.<palace-name>-<hash>.
+                "com.mempalace.backup.palace-root-quoted-",
             ),
             (
                 "watch",
                 ["watch", str(watch_root), "schedule"],
                 shlex.quote(str(watch_root.resolve())),
                 shlex.quote(os.path.abspath(str(watch_root))),
-                "com.mempalace.watch.plist",
+                # Each watch root gets its own job: com.mempalace.watch.<root-name>-<hash>.
+                "com.mempalace.watch.watch-root-quoted-",
             ),
         )
 
@@ -1869,9 +1966,13 @@ def _run_installed_alias_target_containment_scenario(
         run_env["PYTHONDONTWRITEBYTECODE"] = "1"
 
         target_alias = target_bin / "mempalace"
-        expected_success = f"  Alias ready: {target_alias} -> mempalace-code\n"
         first = run(target_bin, run_env)
         target_link = os.readlink(target_alias) if target_alias.is_symlink() else ""
+        # The success line names the link's real target, and target-bin is off PATH.
+        expected_success = (
+            f"  Alias ready: {target_alias} -> {target_link}\n"
+            f"  Note: {target_bin} is not on PATH; add it to PATH to run `mempalace` by name.\n"
+        )
         first_ok = (
             first.returncode == 0
             and first.stdout == expected_success
@@ -2058,26 +2159,36 @@ def _run_installed_fetch_model_scenario(
         offline_env = scenario_env.copy()
         offline_env["HF_HUB_OFFLINE"] = "1"
         offline_env["TRANSFORMERS_OFFLINE"] = "1"
+        cache_before_force = _semantic_tree_snapshot(disposable_cache)
         forced = run(
             ["fetch-model", "--model", "all-MiniLM-L6-v2", "--force"],
             offline_env,
         )
-        force_failure_ok = (
+        # Offline, --force must refuse before touching the working cache: no download can
+        # replace it, so it stays exactly as it was.
+        force_refusal_ok = (
             forced.returncode == 1
             and _installed_output_is_clean(forced)
-            and "Removing cached model:" in (forced.stdout or "")
-            and "Downloading model" in (forced.stdout or "")
-            and "Retry exactly: `mempalace-code fetch-model --model all-MiniLM-L6-v2`"
+            and "Removing cached model:" not in (forced.stdout or "")
+            and "Downloading model" not in (forced.stdout or "")
+            and "Refusing to replace the cached embedding model" in (forced.stderr or "")
+            and "`env -u HF_HUB_OFFLINE -u TRANSFORMERS_OFFLINE mempalace-code fetch-model "
+            "--model all-MiniLM-L6-v2 --force`"
             in (forced.stderr or "")
         )
-        if not force_failure_ok:
-            return failure(forced.stderr or forced.stdout or "forced offline refresh did not fail")
+        if not force_refusal_ok:
+            return failure(
+                forced.stderr or forced.stdout or "forced offline refresh did not refuse"
+            )
+        if (
+            disposable_cache.is_symlink()
+            or not disposable_cache.is_dir()
+            or _semantic_tree_snapshot(disposable_cache) != cache_before_force
+        ):
+            return failure("forced offline refresh changed the working model cache")
 
-        if disposable_cache.exists() or disposable_cache.is_symlink():
-            if disposable_cache.is_symlink() or not disposable_cache.is_dir():
-                return failure("forced failure left a hostile canonical cache root")
-        else:
-            disposable_cache.mkdir(parents=True)
+        shutil.rmtree(disposable_cache)
+        disposable_cache.mkdir(parents=True)
         marker = disposable_cache / "interrupted-download.release-fixture"
         marker.write_text("preserve", encoding="utf-8")
 
@@ -2085,23 +2196,22 @@ def _run_installed_fetch_model_scenario(
         partial_failure_ok = (
             partial_failure.returncode == 1
             and _installed_output_is_clean(partial_failure)
-            and "Preserved partial cache at:" in (partial_failure.stdout or "")
-            and "Retry exactly: `mempalace-code fetch-model --model all-MiniLM-L6-v2`"
+            and "Preserved partial cache at:" not in (partial_failure.stdout or "")
+            and "it was left unchanged" in (partial_failure.stderr or "")
+            and "`env -u HF_HUB_OFFLINE -u TRANSFORMERS_OFFLINE mempalace-code fetch-model "
+            "--model all-MiniLM-L6-v2`"
             in (partial_failure.stderr or "")
         )
         if not partial_failure_ok:
             return failure(
                 partial_failure.stderr
                 or partial_failure.stdout
-                or "partial-cache recovery did not fail safely"
+                or "offline partial-cache attempt did not fail safely"
             )
-        preserved = [
-            path
-            for path in disposable_cache.parent.glob(f"{disposable_cache.name}.quarantine-*")
-            if (path / marker.name).read_text(encoding="utf-8") == "preserve"
-        ]
-        if len(preserved) != 1:
-            return failure("partial-cache recovery did not preserve exactly one fixture")
+        if marker.read_text(encoding="utf-8") != "preserve" or list(
+            disposable_cache.parent.glob(f"{disposable_cache.name}.quarantine-*")
+        ):
+            return failure("offline partial-cache attempt moved the partial cache")
 
         quarantine_code = (
             "from mempalace_code.storage import quarantine_unowned_canonical_fastembed_cache; "
@@ -2117,7 +2227,14 @@ def _run_installed_fetch_model_scenario(
             timeout=DEFAULT_TIMEOUT,
         )
         if cleanup.returncode != 0 or cleanup.stderr != "" or disposable_cache.exists():
-            return failure("installed owner could not preserve the interrupted retry cache")
+            return failure("installed owner could not preserve the partial cache")
+        preserved = [
+            path
+            for path in disposable_cache.parent.glob(f"{disposable_cache.name}.quarantine-*")
+            if (path / marker.name).read_text(encoding="utf-8") == "preserve"
+        ]
+        if len(preserved) != 1:
+            return failure("partial-cache quarantine did not preserve exactly one fixture")
 
         _materialize_model_cache(source_cache, source_hf_home, disposable_hf_home)
         retried = run(["fetch-model", "--model", "all-MiniLM-L6-v2"], offline_env)
@@ -2151,8 +2268,8 @@ def _run_installed_fetch_model_scenario(
         "installed_golden_fetch_model",
         INSTALLED_FETCH_MODEL_COMMAND,
         "pass",
-        "installed-owner cache validation, cached default, force failure, partial preservation, "
-        "retry, and immutable source cache passed",
+        "installed-owner cache validation, cached default, offline force refusal, offline "
+        "partial-cache refusal, partial preservation, retry, and immutable source cache passed",
     )
 
 
@@ -2336,7 +2453,7 @@ def _run_installed_compress_retry_scenario(
     repository_root: Path,
     run_subprocess=subprocess.run,
 ) -> dict:
-    """Prove compression recovery, unchanged retry, refusal, and mixed state."""
+    """Prove compress is read-only: preview, apply, and retry leave drawers verbatim."""
     recovery = f"rerun: {INSTALLED_GOLDEN_COMMAND}"
 
     def failure(detail: str) -> dict:
@@ -2365,7 +2482,7 @@ def _run_installed_compress_retry_scenario(
         return None
 
     def archives(palace: Path) -> set[Path]:
-        backup_root = palace.parent / "backups"
+        backup_root = palace.parent / "backups" / palace.name
         return set(backup_root.glob("*.tar.gz")) if backup_root.exists() else set()
 
     def directory_bytes(path: Path) -> int:
@@ -2427,8 +2544,9 @@ def _run_installed_compress_retry_scenario(
         )
         if result.stderr != expected_stderr:
             return None, failure(f"{label} export emitted unexpected stderr: {result.stderr}")
+        # Drawers are never rewritten, so no record may carry compression provenance.
         if any(
-            type(record.get("original_tokens")) is not int or record["original_tokens"] < 0
+            type(record.get("original_tokens")) is not int or record["original_tokens"] != 0
             for record in drawers
         ):
             return None, failure(f"{label} export has invalid original_tokens provenance")
@@ -2448,82 +2566,41 @@ def _run_installed_compress_retry_scenario(
             if failed is not None:
                 return failed
 
-        dry_run_archives = archives(palace)
-        dry_run_bytes = palace_and_backup_bytes(palace)
+        before, failed = drawer_snapshot("pre-compress", palace)
+        if failed is not None:
+            return failed
+        assert before is not None
+        archives_before = archives(palace)
+        bytes_before = palace_and_backup_bytes(palace)
+        read_only_marker = "drawers keep their verbatim text and nothing is stored"
+
         dry_run = run(["--palace", str(palace), "compress", "--wing", project.name, "--dry-run"])
         failed = require_success(
-            "dry-run", dry_run, "Pending:", "skipped already compressed: 0", "Total:"
+            "dry-run", dry_run, "Selected", read_only_marker, "Total:", "dry run -- nothing stored"
         )
         if failed is not None:
             return failed
-        if archives(palace) != dry_run_archives or palace_and_backup_bytes(palace) != dry_run_bytes:
-            return failure("dry-run changed the palace or recovery archive set")
-
-        before_first, failed = drawer_snapshot("pre-apply", palace)
-        if failed is not None:
-            return failed
-        assert before_first is not None
-        backups_before_first = archives(palace)
         first = run(["--palace", str(palace), "compress", "--wing", project.name])
-        failed = require_success(
-            "first apply", first, "Recovery archive:", "Recovery command:", "Stored and verified"
-        )
+        failed = require_success("apply", first, "Selected", read_only_marker, "Total:")
         if failed is not None:
             return failed
-        backups_after_first = archives(palace)
-        created_backups = backups_after_first - backups_before_first
-        if len(created_backups) != 1:
-            return failure("first apply did not create exactly one recovery archive")
-        recovery_archive = next(iter(created_backups))
-        if str(recovery_archive) not in first.stdout:
-            return failure("first apply did not name its recovery archive")
-        recovery_lines = [
-            line
-            for line in first.stdout.splitlines()
-            if line.strip().startswith("Recovery command:")
-        ]
-        if len(recovery_lines) != 1:
-            return failure("first apply did not emit exactly one recovery command")
-        recovery_argv = shlex.split(recovery_lines[0].split("Recovery command:", 1)[1].strip())
-        if (
-            len(recovery_argv) != 6
-            or recovery_argv[0] != "mempalace-code"
-            or recovery_argv[1] != "--palace"
-            or recovery_argv[3] != "restore"
-            or recovery_argv[5] != "--force"
-            or Path(recovery_argv[2]).resolve(strict=True) != palace.resolve(strict=True)
-            or Path(recovery_argv[4]).resolve(strict=True) != recovery_archive.resolve(strict=True)
-        ):
-            return failure("first apply emitted the wrong recovery command")
-
-        after_first, failed = drawer_snapshot("post-first", palace)
-        if failed is not None:
-            return failed
-        assert after_first is not None
-        if set(after_first) != set(before_first):
-            return failure("first apply changed drawer IDs")
-        if any(
-            type(record.get("original_tokens")) is not int or record["original_tokens"] <= 0
-            for record in after_first.values()
-        ):
-            return failure("first apply left invalid original_tokens provenance")
-
+        if any(marker in first.stdout for marker in ("Recovery", "Stored and verified")):
+            return failure("apply reported a drawer write")
         retry = run(["--palace", str(palace), "compress", "--wing", project.name])
-        failed = require_success(
-            "unchanged retry",
-            retry,
-            "Pending: 0",
-            f"skipped already compressed: {len(after_first)}",
-        )
+        failed = require_success("unchanged retry", retry, read_only_marker)
         if failed is not None:
             return failed
-        after_retry, failed = drawer_snapshot("post-retry", palace)
-        if failed is not None:
-            return failed
-        if after_retry != after_first or archives(palace) != backups_after_first:
-            return failure("unchanged retry changed exported records or recovery archives")
+        if retry.stdout != first.stdout:
+            return failure("unchanged retry printed different summaries")
+        if archives(palace) != archives_before or palace_and_backup_bytes(palace) != bytes_before:
+            return failure("compress changed the palace or recovery archive set")
 
-        bytes_before_unknown = palace_and_backup_bytes(palace)
+        after, failed = drawer_snapshot("post-compress", palace)
+        if failed is not None:
+            return failed
+        if after != before:
+            return failure("compress changed exported drawer records")
+
         unknown = run(["--palace", str(palace), "compress", "--wing", "definitely-missing"])
         expected_unknown_stderr = (
             "\n  Unknown wing: 'definitely-missing'\n"
@@ -2536,70 +2613,11 @@ def _run_installed_compress_retry_scenario(
             or unknown.stdout != ""
             or unknown.stderr != expected_unknown_stderr
             or not _installed_output_is_clean(unknown)
-            or palace_and_backup_bytes(palace) != bytes_before_unknown
-            or archives(palace) != backups_after_first
+            or palace_and_backup_bytes(palace) != bytes_before
+            or archives(palace) != archives_before
         ):
             detail = unknown.stderr or unknown.stdout or f"exit {unknown.returncode}"
             return failure(f"unknown-wing refusal was not exact: {detail}")
-
-        (project / "new_source.py").write_text(
-            textwrap.dedent(
-                '''\
-                def newly_mined_compression_candidate(value):
-                    """A new ordinary source drawer for mixed compression state."""
-                    adjusted = value + 10
-                    return adjusted * 3
-                '''
-            ),
-            encoding="utf-8",
-        )
-        mixed_mine = run(["--palace", str(palace), "mine", str(project)])
-        failed = require_success("mixed-state mine", mixed_mine, "Drawers filed:")
-        if failed is not None:
-            return failed
-        mixed_before, failed = drawer_snapshot("mixed-before", palace)
-        if failed is not None:
-            return failed
-        assert mixed_before is not None
-        pending_ids = {
-            doc_id for doc_id, record in mixed_before.items() if record["original_tokens"] == 0
-        }
-        completed_ids = {
-            doc_id for doc_id, record in mixed_before.items() if record["original_tokens"] > 0
-        }
-        if (
-            not pending_ids
-            or not set(after_first).issubset(mixed_before)
-            or any(mixed_before.get(doc_id) != record for doc_id, record in after_first.items())
-        ):
-            return failure("mixed-state export did not contain completed and pending drawers")
-        backups_before_mixed = archives(palace)
-        mixed = run(["--palace", str(palace), "compress", "--wing", project.name])
-        failed = require_success(
-            "mixed-state apply",
-            mixed,
-            f"Pending: {len(pending_ids)}",
-            f"skipped already compressed: {len(completed_ids)}",
-            "Stored and verified",
-        )
-        if failed is not None:
-            return failed
-        mixed_after, failed = drawer_snapshot("mixed-after", palace)
-        if failed is not None:
-            return failed
-        assert mixed_after is not None
-        if any(mixed_after.get(doc_id) != mixed_before[doc_id] for doc_id in completed_ids):
-            return failure("mixed-state apply changed an already-compressed drawer")
-        if set(mixed_after) != set(mixed_before):
-            return failure("mixed-state apply changed the drawer ID set")
-        if any(
-            type(mixed_after.get(doc_id, {}).get("original_tokens")) is not int
-            or mixed_after[doc_id]["original_tokens"] <= 0
-            for doc_id in pending_ids
-        ):
-            return failure("mixed-state apply left pending drawers uncompressed")
-        if len(archives(palace) - backups_before_mixed) != 1:
-            return failure("mixed-state apply did not create exactly one recovery archive")
 
         search = run(
             [
@@ -2612,7 +2630,7 @@ def _run_installed_compress_retry_scenario(
             ]
         )
         failed = require_success(
-            "post-compression search", search, "Results for:", "xylophonic_glyph_9182"
+            "post-compress search", search, "Results for:", "xylophonic_glyph_9182"
         )
         if failed is not None:
             return failed
@@ -2627,13 +2645,13 @@ def _run_installed_compress_retry_scenario(
         UnicodeError,
         ValueError,
     ) as exc:
-        return failure(f"compression retry evidence could not be evaluated: {exc}")
+        return failure(f"compression read-only evidence could not be evaluated: {exc}")
 
     return _make_row(
         "installed_golden_compress_retry",
         INSTALLED_COMPRESS_RETRY_COMMAND,
         "pass",
-        "dry-run, recovery, unchanged retry, refusal, mixed state, and search passed",
+        "dry-run, apply, and unchanged retry kept drawers verbatim; refusal and search passed",
     )
 
 
@@ -2709,8 +2727,10 @@ def _run_installed_palace_argument_scenarios(
 
     before = run(["--palace", str(palace), "status"])
     after = run(["status", "--palace", str(palace)])
+    # The palace is absent: status reports it and exits 1 (like search and read).
     order_ok = (
-        before.returncode == after.returncode == 0
+        before.returncode == after.returncode == 1
+        and "No palace found" in before.stdout
         and _installed_output_is_clean(before)
         and _installed_output_is_clean(after)
         and before.stdout == after.stdout
@@ -2736,7 +2756,11 @@ def _run_installed_palace_argument_scenarios(
     )
 
     duplicate = run(["--palace", str(palace), "status", "--palace", str(palace)])
-    duplicate_ok = duplicate.returncode == 0 and _installed_output_is_clean(duplicate)
+    duplicate_ok = (
+        duplicate.returncode == 1
+        and "No palace found" in duplicate.stdout
+        and _installed_output_is_clean(duplicate)
+    )
     rows.append(
         row("duplicate", duplicate_ok, (duplicate,), "identical duplicate value was accepted")
     )
@@ -2888,8 +2912,8 @@ def _run_installed_diary_blank_required_fields_scenario(
         for option, value, other_option, other_value in cases:
             expected_stderr = (
                 f"Error: {option} must not be blank.\n"
-                "Try: mempalace-code diary write --agent agent-name "
-                "--entry 'your diary entry'\n"
+                f"Try: {shlex.join(command_prefix)} --palace {shlex.quote(str(palace))} "
+                "diary write --agent agent-name --entry 'your diary entry'\n"
             )
             args = [
                 "--palace",
@@ -3610,7 +3634,11 @@ def _run_installed_rollback_no_candidate_scenario(
     repository_root: Path,
     run_subprocess=subprocess.run,
 ) -> dict:
-    """Prove rollback without a candidate is ordered, bounded, and non-mutating."""
+    """Prove rollback on a healthy palace is ordered, bounded, and non-mutating.
+
+    A healthy current version needs no candidate: dry-run and live rollback both
+    report it, exit 0, change nothing, and never point to a full rebuild.
+    """
     recovery = f"rerun: {INSTALLED_GOLDEN_COMMAND}"
 
     def failure(detail: str) -> dict:
@@ -3710,31 +3738,17 @@ def _run_installed_rollback_no_candidate_scenario(
             if dry_run:
                 args.append("--dry-run")
             result = run(args, merge_stderr=merge_stderr)
-            active_output = result.stdout if dry_run or merge_stderr else result.stderr
-            inactive_output = "" if merge_stderr else (result.stderr if dry_run else result.stdout)
-            mutation = (
-                "Mutation: preview completed; no changes were made; no restore or full rebuild "
-                "occurred."
-                if dry_run
-                else "Mutation: rollback attempted; no restore or full rebuild occurred; palace "
-                "remained unchanged."
-            )
-            exit_meaning = (
-                "Exit status: 0 (completed non-mutating preview)."
-                if dry_run
-                else "Exit status: 1 (rollback failed because no candidate was found)."
-            )
+            active_output = result.stdout
+            inactive_output = "" if merge_stderr else result.stderr
             ordered_markers = (
                 "MemPalace Repair — Version Rollback",
                 "Mode: dry-run" if dry_run else "Mode: live",
-                "No candidate version:",
-                mutation,
-                exit_meaning,
-                "Try: mempalace-code repair (full rebuild)",
+                "Palace is healthy: current version",
+                "Nothing to roll back; no changes were made.",
             )
             positions = [active_output.find(marker) for marker in ordered_markers]
             output_ok = (
-                result.returncode == (0 if dry_run else 1)
+                result.returncode == 0
                 and bool(active_output)
                 and inactive_output == ""
                 and _installed_output_is_clean(result)
@@ -3745,7 +3759,7 @@ def _run_installed_rollback_no_candidate_scenario(
                 and active_output.rstrip().endswith(separator)
                 and all(
                     marker not in active_output
-                    for marker in ("Extracting drawers", "Backing up to", "Rebuilding palace")
+                    for marker in ("Extracting drawers", "full rebuild", "Rebuilding")
                 )
             )
             if not output_ok:
@@ -4338,7 +4352,7 @@ def _run_installed_workflow_happy_path_scenario(
         return directory_bytes(palace) + directory_bytes(palace.parent / "backups")
 
     def backup_archives(palace: Path) -> set[Path]:
-        backups = palace.parent / "backups"
+        backups = palace.parent / "backups" / palace.name
         return set(backups.glob("*.tar.gz")) if backups.exists() else set()
 
     def prove_roundtrip(label: str, palace: Path) -> None:
@@ -4400,8 +4414,9 @@ def _run_installed_workflow_happy_path_scenario(
                 continue
             start, end = (int(value) for value in range_match.groups())
             parsed = shlex.split(recovery_match.group(1))
+            # The recovery command must re-run the same installed console, not PATH.
             expected = [
-                "mempalace-code",
+                *command_prefix,
                 "--palace",
                 str(palace),
                 "read",
@@ -4419,7 +4434,7 @@ def _run_installed_workflow_happy_path_scenario(
                 and wing_match.group(1) == project.name
                 and 0 < start <= end
             ):
-                recovery_args = parsed[1:]
+                recovery_args = parsed[len(command_prefix) :]
                 break
         if recovery_args is None:
             raise RuntimeError(f"{label} compact search omitted a valid recovery command")
@@ -4608,7 +4623,8 @@ def _run_installed_workflow_happy_path_scenario(
             rejected.returncode == 0
             or not _installed_output_is_clean(rejected)
             or "Restored palace to:" in (rejected.stdout or "")
-            or (rejected.stderr or "").count("mempalace-code backup create") != 1
+            or "is not a restorable MemPalace backup" not in (rejected.stderr or "")
+            or (rejected.stderr or "").count("backup list") != 1
             or rejected_target.exists()
             or escaped_target.exists()
         ):
@@ -4718,6 +4734,8 @@ def _run_installed_non_regular_source_scenario(
     repository_before: tuple[tuple[str, str, int, str], ...] | None = None
     lease_artifacts_existed: dict[Path, bool] = {}
     lease_root_existed_before: bool | None = None
+    palace_lease_entries_before: set[str] | None = None
+    palace_lease_root: Path | None = None
 
     def failure(detail: str) -> dict:
         if any(marker in detail for marker in INSTALLED_GOLDEN_FORBIDDEN_OUTPUT):
@@ -4862,6 +4880,14 @@ def _run_installed_non_regular_source_scenario(
             raise RuntimeError("socket cleanup failed: " + "; ".join(errors))
 
     def cleanup_new_lease_artifacts() -> None:
+        if palace_lease_root is not None and palace_lease_root.is_dir():
+            for entry in palace_lease_root.iterdir():
+                if palace_lease_entries_before is None or (
+                    entry.name not in palace_lease_entries_before
+                ):
+                    entry.unlink(missing_ok=True)
+            if palace_lease_entries_before is None:
+                palace_lease_root.rmdir()
         for path, existed in lease_artifacts_existed.items():
             if not existed:
                 path.unlink(missing_ok=True)
@@ -4943,6 +4969,12 @@ def _run_installed_non_regular_source_scenario(
             lease_root / "operation.lock.owners.json",
         )
         lease_artifacts_existed = {path: path.exists() for path in lease_artifacts}
+        palace_lease_root = lease_root / "locks"
+        palace_lease_entries_before = (
+            {entry.name for entry in palace_lease_root.iterdir()}
+            if palace_lease_root.is_dir()
+            else None
+        )
         attempts_before = (
             network_attempts.read_bytes()
             if network_attempts is not None and network_attempts.exists()
@@ -5162,6 +5194,8 @@ def _run_installed_non_regular_source_scenario(
         if attempts_after != attempts_before:
             raise RuntimeError("scenario attempted network access")
         cleanup_owned_sockets()
+        if not _palace_leases_released(Path(env["HOME"])):
+            raise RuntimeError("a palace write lease survived the scenario")
         cleanup_new_lease_artifacts()
         for path in (*blocked_project.values(), *blocked_convos.values()):
             if path.name.endswith("_socket.py") or path.name.endswith("_socket.txt"):
@@ -5513,11 +5547,18 @@ def _installed_mcp_recipe(project: Path) -> dict[str, dict]:
     }
 
 
-def _installed_mcp_text_result(response: dict) -> dict | list:
+def _installed_mcp_text_result(
+    response: dict, *, expected_error: dict[str, str] | None = None
+) -> dict | list:
     if not isinstance(response, dict) or set(response) != {"jsonrpc", "id", "result"}:
         raise ValueError("MCP tool response did not contain one successful JSON-RPC result")
     result = response["result"]
-    if not isinstance(result, dict) or set(result) != {"content"}:
+    expected_keys = {"content"} if expected_error is None else {"content", "isError"}
+    if (
+        not isinstance(result, dict)
+        or set(result) != expected_keys
+        or (expected_error is not None and result.get("isError") is not True)
+    ):
         raise ValueError("MCP tool response had an invalid result envelope")
     content = result["content"]
     if (
@@ -5534,6 +5575,8 @@ def _installed_mcp_text_result(response: dict) -> dict | list:
         raise ValueError("MCP tool response text was not JSON") from exc
     if not isinstance(payload, (dict, list)):
         raise ValueError("MCP tool response semantic payload was not an object or list")
+    if expected_error is not None and payload != expected_error:
+        raise ValueError("MCP tool response did not match the expected error")
     return payload
 
 
@@ -5814,6 +5857,7 @@ def _installed_mcp_seed_records() -> str:
             "subject": "SeedProject",
             "predicate": "depends_on",
             "object": "SeedDependency",
+            "source_file": "fixture.csproj",
         },
         {
             "type": "kg_triple",
@@ -5935,8 +5979,12 @@ def _run_installed_mcp_stdio_scenario(
             "XDG data": Path(scenario_env["XDG_DATA_HOME"]),
             "XDG cache": Path(scenario_env["XDG_CACHE_HOME"]),
         }
+
+        def protected_snapshot(path: Path) -> tuple[tuple[str, str, int, str], ...]:
+            return _without_palace_lease_rows(path, scenario_home, _semantic_tree_snapshot(path))
+
         protected = {
-            label: (path, _semantic_tree_snapshot(path)) for label, path in protected_paths.items()
+            label: (path, protected_snapshot(path)) for label, path in protected_paths.items()
         }
 
         allowed_scenario_prefixes = {
@@ -6165,8 +6213,15 @@ def _run_installed_mcp_stdio_scenario(
                     "mempalace_kg_query", _installed_mcp_text_result(direction_recovery)
                 )
                 post_payloads = [
-                    _installed_mcp_text_result(response)
-                    for response in responses[contract_start + 2 :]
+                    _installed_mcp_text_result(
+                        response,
+                        expected_error=(
+                            {"error": "not_found", "source_file": "deleted.py"}
+                            if index == 1
+                            else None
+                        ),
+                    )
+                    for index, response in enumerate(responses[contract_start + 2 :])
                 ]
                 if len(post_payloads) != len(poststate_calls):
                     raise RuntimeError("installed MCP post-state response count did not reconcile")
@@ -6175,7 +6230,7 @@ def _run_installed_mcp_stdio_scenario(
                     "added drawer retrieval": isinstance(added, dict)
                     and added.get("is_duplicate") is True,
                     "deleted drawer absence": isinstance(deleted_drawer, dict)
-                    and deleted_drawer.get("total") == 0,
+                    and deleted_drawer == {"error": "not_found", "source_file": "deleted.py"},
                     "deleted wing absence": isinstance(deleted_wing, dict)
                     and "seed_delete_wing" not in deleted_wing.get("wings", {}),
                     "KG addition": isinstance(kg_added, dict)
@@ -6217,9 +6272,11 @@ def _run_installed_mcp_stdio_scenario(
         attempts_after = network_attempts.read_bytes() if network_attempts.exists() else b""
         if attempts_after != attempts_before:
             raise RuntimeError("installed MCP scenario attempted network access")
+        if not _palace_leases_released(scenario_home):
+            raise RuntimeError("installed MCP scenario left a palace write lease held")
         changed_protected: list[str] = []
         for label, (path, before) in protected.items():
-            after = _semantic_tree_snapshot(path)
+            after = protected_snapshot(path)
             if after == before:
                 continue
             before_rows = {row[0]: row[1:] for row in before}
@@ -6344,10 +6401,12 @@ def _reconcile_installed_optional_extras_and_public_exports(
 def _installed_spellcheck_evidence_error(
     base: object, spellcheck: object, *, source: str, expected: str
 ) -> str | None:
-    """Require the exact base fallback and one deterministic corrected transcript."""
-    if base != {"autocorrect": False, "output": source}:
+    """Require verbatim mining in both contours and one explicit helper correction."""
+    if base != {"autocorrect": False, "mined": source, "output": source}:
         return "base spellcheck contour did not preserve safe fallback"
-    if spellcheck != {"autocorrect": True, "output": expected}:
+    if not isinstance(spellcheck, dict) or spellcheck.get("mined") != source:
+        return "installed spellcheck extra rewrote mined conversation text"
+    if spellcheck != {"autocorrect": True, "mined": source, "output": expected}:
         return "installed spellcheck behavior did not produce the expected correction"
     return None
 
@@ -6377,7 +6436,7 @@ def _installed_treesitter_evidence_error(tree: object) -> str | None:
         for chunk in chunks:
             start, end = chunk.get("start"), chunk.get("end")
             if (
-                chunk.get("strategy") != "treesitter_v1"
+                chunk.get("strategy") != "treesitter_v3"
                 or chunk.get("exact") is not True
                 or type(start) is not int
                 or type(end) is not int

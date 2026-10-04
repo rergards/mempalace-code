@@ -2,6 +2,150 @@
 
 ## Unreleased
 
+## v1.15.0 — 2026-09-26
+
+Maintenance release from a full repository and documentation audit. Search scores
+now use the true cosine scale, every surface uses the selected palace's knowledge
+graph, and several data-loss, hook, and documentation defects are fixed.
+
+### Upgrade notes
+
+- Search scores change scale; result order does not. An old score `s` corresponds
+  to `(s + 1) / 2`. Recalibrate any script or prompt that filters on a fixed score.
+- CLI commands run without `--palace` now read and write the configured palace's
+  `<palace>/knowledge_graph.sqlite3`. Facts that only the legacy global
+  `~/.mempalace/knowledge_graph.sqlite3` holds are copied in once (see Changed).
+  If you plan to rebuild a palace from a JSONL export, take that export after
+  upgrading.
+
+### Security
+
+- Raised the optional `[custom-models]` minimum to sentence-transformers 5.6.0
+  to exclude CVE-2026-68770. Default FastEmbed installations are unchanged.
+- Refreshed `uv.lock` past published advisories: anyio 4.15.1, httpx2/httpcore2
+  2.13.0, starlette 1.6.0 and click 8.5.0 (runtime, via `mcp`), and transformers
+  5.15.1, torch 2.14.0 and setuptools 84.0.0 (`[custom-models]`), with a passing
+  dependency-upgrade gate report.
+- The scheduled Dependency Audit now checks every package pinned in `uv.lock`,
+  direct and transitive, against OSV, and fails closed when an OSV or PyPI
+  yanked-status lookup is incomplete. A transitive advisory can be accepted only
+  for its exact locked version.
+- The Gitleaks gate is built with Go 1.27.1 instead of end-of-life Go 1.24.11.
+- Release builds install the reviewed `uv.lock` versions of `build` and `twine`.
+- Dependabot waits seven days before proposing version updates, and the CI zizmor
+  gate also audits `.github/dependabot.yml`.
+- Added `SECURITY.md`: report vulnerabilities through GitHub private vulnerability
+  reporting.
+
+### Changed
+
+- `mempalace_search` accepts `max_results` as an alias for `limit`. The default
+  remains five results; both values must agree when supplied together.
+- Search similarity is now true cosine similarity (`1 - distance / 2`; 1.0 =
+  identical, about 0 = unrelated) in CLI `search`, `search_memories()`,
+  `code_search()`, MCP `mempalace_search` / `mempalace_code_search`, Layer 3
+  wake-up search, and `mempalace_check_duplicate`. Up to 1.14.2 these reported
+  `1 - distance` (`2 × cosine - 1`, often negative). `code_search`'s
+  `ranking.vector_distance` still reports the raw squared-L2 distance.
+- Facts held only by the legacy global KG are copied into the configured palace's
+  KG once per legacy file state, recorded by
+  `~/.mempalace/knowledge_graph.sqlite3.adopted`. Facts the palace KG already
+  holds stay authoritative, the legacy database is never modified, other palaces
+  never receive its facts, and adoption does not block concurrent KG writers.
+  Delete the marker to adopt again.
+- `restore FILE` without `--palace` writes the archived KG to the configured
+  palace's `<palace>/knowledge_graph.sqlite3`; `--kg-path` still overrides it.
+- The package's Upstream URL now points at https://github.com/MemPalace/mempalace.
+
+### Fixed
+
+- Invalid metadata filters keep the backend query error with current LanceDB
+  releases; they no longer report a healthy palace as damaged.
+- Kubernetes Secret YAML with whitespace before a key's colon is excluded from
+  mining.
+- MCP mining creates or adopts the knowledge graph only after acquiring the mine
+  lease and when a graph write is needed. Busy and unchanged requests preserve it.
+- File context reports complete chunk totals and pagination beyond 10,000 chunks.
+- MCP storage-open failures report health/repair recovery, and a cached knowledge
+  graph reports a missing palace through the structured palace error.
+- Installation maintenance blocks palace writes from other threads while preserving
+  same-thread nesting and the supported migration fence.
+- Backup publication preserves an archive created by a concurrent writer. Platforms
+  without hard-link publication report a safe failure instead of replacing it.
+- Updater detection preserves pipx installations through aliased custom homes.
+  Installed-package checks retain the selected manager and validate recovery
+  commands against the installed launcher.
+- `import` no longer silently drops distinct drawers. Its dedup squared an
+  already-squared distance (skipping anything above about cosine 0.78), compared
+  across every wing, and let records of one file dedup each other. It now skips a
+  record only when its id is already stored or repeats in the file, or when its
+  target wing already held a drawer with cosine ≥ 0.9 before the import.
+- `mempalace_check_duplicate` and the `mempalace_add_drawer` guard now apply the
+  documented cosine ≥ 0.9 threshold; they previously matched only at about 0.95.
+- The knowledge graph no longer splits between MCP and the CLI. `mine`,
+  `mine-all`, `mine --watch`, `export --with-kg`, `import`, `backup create`,
+  `restore`, `compress`, pre-optimize and pre-watch backups, MCP, and the watcher
+  all use the selected palace's KG. Since v1.13.5, MCP could not see CLI-mined
+  facts, and default backups and exports omitted MCP-written facts.
+- `mine --full` (and MCP `mempalace_mine` with `full: true`) now removes drawers,
+  tiny-file entries, and KG facts of deleted or newly excluded files, as a plain
+  full-walk mine already did.
+- The legacy Claude Code PreCompact hook no longer blocks compaction; it logs and
+  exits without a decision. The Save hook counts only human prompts toward its
+  interval, and both hooks mine `MEMPAL_DIR` with `--mode convos`.
+- The documented rebuild validation uses `search --results 5`; `--limit` does not
+  exist, so the step always failed after the palace had been quarantined.
+- The legacy ChromaDB bridge command pins Python 3.12
+  (`uvx --python 3.12 --from 'mempalace-code[chroma]==1.13.4' ...`), avoiding a
+  chroma-hnswlib source build on Python 3.13+.
+- `mempalace-code wing-migration <action> --help` names `mempalace-code
+  wing-migration` in its usage line. The hash-pinned runner is unchanged, so open
+  1.14.2 receipts and qualification reports stay valid.
+- Bootstrap installs also link `~/.local/bin/mempalace-code-mcp`, and the
+  documented MCP launcher lookup resolves symlinks.
+- `update apply` keeps the `custom-models` extra, and missing-extra messages print
+  one install command for the running installation.
+- `fetch-model` reports the real cache size; a missing embedding cache makes
+  `mine` print one error naming `mempalace-code fetch-model` instead of a
+  traceback; `mempalace-code-mcp --help` shows its own name; an unreadable
+  `~/.mempalace/config.json` now produces a one-time warning instead of being
+  silently ignored.
+- The Dependency Audit issue lists each advisory once, and a clean run on `main`
+  closes it. GitHub Release notes now carry the version's changelog section, and
+  recovery releases compare against the previous published release.
+- The wheel and sdist include the upstream MemPalace MIT copyright and permission
+  notice in `NOTICE`.
+
+### Documentation
+
+- Corrected install, verification, backup/restore, offline, update, hook, search,
+  usage-rule, benchmark, and wing-migration documentation against the current CLI
+  and code: `init` does not create a palace; uv has no `tool inject`;
+  `config.json` examples are valid JSON; search is an exact flat scan with
+  cosine-equivalent ranking and no ANN index; `unknown_wing_room` is the real
+  filter error; README and PyPI links are absolute.
+- Documented the release runbook in execution order, Dependabot and pull-request
+  intake into the development trunk (never merged on public `main`), the CI gate
+  set for contributors (`.[dev,spellcheck,treesitter]`), and the legacy status of
+  the ChromaDB-based benchmark harnesses.
+- Corrected historical changelog entries (v1.0.0, v1.1.x, v1.2.0, v1.10.1,
+  v1.13.2) and upstream issue links.
+- Refreshed the reviewed upstream snapshot through `8c4865f7` (2026-09-26) and
+  aligned the README comparison, WHY_THIS_FORK, UPSTREAM_HARDENING, and
+  COMPARISON_GRAPHIFY with it.
+
+### Maintenance
+
+- Pinned GitHub Actions to actions/checkout v7.0.1, actions/cache v6.1.0,
+  actions/setup-python v7.0.0, and actions/setup-go v7.0.0 by full commit SHA.
+- Removed the inert project `.claude/settings.json` hooks, which read an
+  environment variable Claude Code never sets.
+- `release_public_read.py --version-tags` lists tags in release order; the
+  code-intelligence packet generator uses the canonical model cache and fails on
+  an MCP exhibit error; `embed_ab_bench.py` uses the maintained query set and
+  fails its LongMemEval gate loudly; `scripts/nuke_wing.py` requires `--yes` and
+  uses the configured palace.
+
 ## v1.14.2 — 2026-09-21
 
 Recovery release for the accumulated v1.14.1 changes. The immutable v1.14.1
@@ -208,10 +352,12 @@ build and publication.
 - Synchronized package, lockfile, README badge, Agent Plugins manifest, and
   generated quality scorecards on version 1.13.3.
 
-## v1.13.2 — 2026-08-11
+## v1.13.2 — 2026-08-11 (tagged, not published)
 
-Patch release for portable Agent Plugins packaging and collision-safe release
-identity checks.
+The tag remains immutable public evidence. The live upstream-drift check stopped
+publication before build, so no v1.13.2 package or GitHub Release exists. These
+changes (portable Agent Plugins packaging and collision-safe release identity
+checks) first shipped in v1.13.3.
 
 ### Added
 
@@ -487,7 +633,7 @@ Patch release for the local-first embedding path.
   search, and palace health.
 - Focused storage and CLI command suites plus the network-marked offline gate.
 
-## v1.10.1 — 2026-05-24
+## v1.10.1 — 2026-05-26
 
 Patch release after the v1.10.0 publish. Focus: real CLI/MCP smoke fixes,
 read-only no-embedder paths, and release-check tooling.
@@ -953,6 +1099,11 @@ Add `mempalace_explain_subsystem` MCP tool: combines semantic search with KG tra
 
 Add 4 architecture-oriented MCP tools for .NET type analysis: `mempalace_find_implementations`, `mempalace_find_references`, `mempalace_show_project_graph`, and `mempalace_show_type_dependencies`.
 
+## v1.2.0 — 2026-04-17
+
+Published release for the dated entries below, from SKILLS-HOOKS through
+FIX-LANCE-CORRUPT.
+
 ## 2026-04-17 · SKILLS-HOOKS
 
 Add Claude Code skills and hooks: 12 skills (`/start`, `/status`, `/verify`, `/palace-health`, `/task-plan`, `/task-hardening`, `/doc-refresh`, `/ship`, `/release`, `/entropy-gc`, `/mine`, `/bench`), 3 shared modules (mode-classification, task-state, commit-checkpoint), Codex review integration, pre-commit verification gate, and edit logging hooks.
@@ -997,9 +1148,18 @@ Auto-backup palace before risky operations: `safe_optimize` triggers a backup by
 
 Detect and recover from missing LanceDB fragment files: `safe_open_table` probes the table with a count query on open and rolls back to the last clean version automatically when fragment corruption is detected.
 
+## v1.1.1 — 2026-04-14
+
+Published patch release for the MINE-DEVOPS-INFRA entry below.
+
 ## 2026-04-14 · MINE-DEVOPS-INFRA
 
 Add DevOps/infrastructure file support to the miner: Terraform (`.tf`, `.tfvars`, `.hcl`), Dockerfiles, Makefiles, Helm templates (`.tpl`), Ansible Jinja2 templates (`.j2`, `.jinja2`), and general config files (`.conf`, `.cfg`, `.ini`) are now scanned and indexed.
+
+## v1.1.0 — 2026-04-14
+
+Published release for the dated entries below, from
+STORE-CHROMA-DELETE-WING-LIMIT through CODE-TREESITTER-INFRA.
 
 ## 2026-04-14 · STORE-CHROMA-DELETE-WING-LIMIT
 
@@ -1061,10 +1221,11 @@ Tree-sitter AST-aware Python chunking: extracts function/class/method boundaries
 
 Tree-sitter optional infra: `.[treesitter]` extra, grammar download/cache, parser init, and automatic regex fallback when py-tree-sitter is absent or grammar unavailable.
 
-## v1.0.0 — 2026-04-12
+## v1.0.0 — 2026-04-13
 
 First public release of **mempalace-code**, a code-first fork of
-[milla-jovovich/mempalace](https://github.com/milla-jovovich/mempalace).
+[MemPalace/mempalace](https://github.com/MemPalace/mempalace) (then
+`milla-jovovich/mempalace`).
 
 ### Storage — LanceDB rewrite
 
@@ -1125,9 +1286,9 @@ First public release of **mempalace-code**, a code-first fork of
 
 ### Upstream issues addressed
 
-- [#469](https://github.com/milla-jovovich/mempalace/issues/469) — ChromaDB version-cliff data deletion → LanceDB, no version-cliff risk.
-- [#524](https://github.com/milla-jovovich/mempalace/issues/524) — Silent ONNX model download → explicit `mempalace init` + `fetch-model`.
-- [#27](https://github.com/milla-jovovich/mempalace/issues/27) — Unverifiable 100% R@5 claim → removed. AAAK "lossless" claim → labeled lossy.
+- [#469](https://github.com/MemPalace/mempalace/issues/469) — ChromaDB version-cliff data deletion → LanceDB, no version-cliff risk.
+- [#524](https://github.com/MemPalace/mempalace/issues/524) — Silent ONNX model download → explicit `mempalace init` + `fetch-model`.
+- [#27](https://github.com/MemPalace/mempalace/issues/27) — Unverifiable 100% R@5 claim → removed. AAAK "lossless" claim → labeled lossy.
 
 ### License
 

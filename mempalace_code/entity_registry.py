@@ -499,6 +499,8 @@ class EntityRegistry:
             people_line,
             f"Projects: {', '.join(self.projects) or '(none)'}",
             f"Ambiguous flags: {', '.join(self.ambiguous_flags) or '(none)'}",
-            f"Wiki cache: {len(self._data.get('wiki_cache', {}))} entries",
         ]
+        legacy_wiki_cache = self._data.get("wiki_cache") or {}
+        if legacy_wiki_cache:  # retired feature; shown only while old entries remain
+            lines.append(f"Wiki cache: {len(legacy_wiki_cache)} entries")
         return "\n".join(lines)

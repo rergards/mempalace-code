@@ -25,14 +25,14 @@ jobs:
       statuses: read
       actions: read
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: tools/gitleaks/go.mod
           # The scanner binary is built here, so a restored build cache would be
@@ -56,7 +56,9 @@ jobs:
           name: gitleaks-full-history
           path: ${{ runner.temp }}/gitleaks/full-history/
           retention-days: 7
-      - run: pip install build twine
+      # Release tooling is the reviewed dev pin in uv.lock, never whatever PyPI
+      # serves on tag day.
+      - run: pip install build==1.4.2 twine==7.0.0
       # Admission runs before any artifact is built or uploaded, so a rejected
       # candidate never produces a distribution. Every public rules query uses
       # the credential-free fixed-target reader.
@@ -115,11 +117,11 @@ jobs:
       checks: read
       actions: read
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
       # A job-only rerun must consume the artifact from this exact workflow run;
@@ -131,7 +133,7 @@ jobs:
           run-id: ${{ github.run_id }}
           repository: ${{ github.repository }}
           github-token: ${{ github.token }}
-      - run: pip install twine pypi-attestations==0.0.30
+      - run: pip install twine==7.0.0 pypi-attestations==0.0.30
       - name: Re-verify exact SHA release admission
         env:
           TAG_NAME: ${{ github.ref_name }}
@@ -239,6 +241,7 @@ jobs:
           import subprocess
           import tempfile
           from pathlib import Path
+          from scripts import release_notes
 
           repo = os.environ["GITHUB_REPOSITORY"]
           tag = os.environ["GITHUB_REF_NAME"]
@@ -292,13 +295,35 @@ jobs:
           if release is None:
               if "release not found" not in (result.stderr + result.stdout).lower():
                   raise SystemExit(result.stderr.strip() or "release lookup failed")
+              # The body is this tag's CHANGELOG section plus any tagged-but-unpublished
+              # sections back to the previous published release; GitHub's generated
+              # compare link starts at that release, never at an unpublished tag.
+              published = gh(
+                  "release",
+                  "list",
+                  "--exclude-drafts",
+                  "--exclude-pre-releases",
+                  "--limit",
+                  "1000",
+                  "--json",
+                  "tagName",
+                  "--jq",
+                  ".[].tagName",
+              ).stdout.split()
+              body, start_tag = release_notes.changelog_release_notes(
+                  Path("CHANGELOG.md").read_text(encoding="utf-8"), tag, set(published)
+              )
+              notes = Path(os.environ["RUNNER_TEMP"]) / "release-notes.md"
+              notes.write_text(body, encoding="utf-8")
               gh(
                   "release",
                   "create",
                   tag,
                   *(str(Path("dist") / name) for name in sorted(expected)),
                   "--verify-tag",
+                  *(("--notes-file", str(notes)) if body else ()),
                   "--generate-notes",
+                  *(("--notes-start-tag", start_tag) if start_tag else ()),
               )
           else:
               present = {asset["name"] for asset in release.get("assets", [])}

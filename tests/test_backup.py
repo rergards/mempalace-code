@@ -8,11 +8,13 @@ Uses the shared fixtures from conftest.py:
   seeded_kg          — KG pre-loaded with triples
 """
 
+import errno
 import io
 import json
 import os
 import plistlib
 import shlex
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -25,13 +27,29 @@ import pytest
 import mempalace_code.backup as backup_module
 from mempalace_code.backup import (
     BackupArchiveError,
+    backup_launchd_label,
     create_backup,
     list_backups,
+    managed_backups_dir,
     render_schedule,
     restore_backup,
 )
 from mempalace_code.cli_commands.backup_restore import cmd_backup_schedule
 from mempalace_code.storage import open_store
+
+
+def _write_sqlite_kg(path: str, marker: str) -> bytes:
+    """Write a small valid SQLite KG file (backup and restore check KG integrity)."""
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE marker (value TEXT)")
+        conn.execute("INSERT INTO marker VALUES (?)", (marker,))
+        conn.commit()
+    finally:
+        conn.close()
+    with open(path, "rb") as handle:
+        return handle.read()
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -84,6 +102,118 @@ def _build_malicious_archive(
 
 
 # ── create_backup ──────────────────────────────────────────────────────────────
+
+
+def test_archive_publish_never_replaces_a_racing_file_without_hard_links(tmp_path, monkeypatch):
+    temporary = tmp_path / "archive.tmp"
+    destination = tmp_path / "archive.tar.gz"
+    temporary.write_bytes(b"new archive")
+    checked = []
+    real_lexists = os.path.lexists
+
+    def unsupported_link(source, target):
+        raise OSError(errno.EOPNOTSUPP, "hard links unavailable")
+
+    def racing_lexists(path):
+        absent = not real_lexists(path)
+        checked.append(absent)
+        if absent:
+            destination.write_bytes(b"competing archive")
+        return not absent
+
+    monkeypatch.setattr(backup_module.os, "link", unsupported_link)
+    monkeypatch.setattr(backup_module.os.path, "lexists", racing_lexists)
+    with pytest.raises(OSError, match="cannot safely publish backup"):
+        backup_module._publish_new_file(str(temporary), str(destination))
+    assert checked == [True]
+    assert destination.read_bytes() == b"competing archive"
+    assert temporary.read_bytes() == b"new archive"
+
+
+def test_archive_publish_keeps_a_file_created_when_hard_link_fails(tmp_path, monkeypatch):
+    temporary = tmp_path / "archive.tmp"
+    destination = tmp_path / "archive.tar.gz"
+    temporary.write_bytes(b"new archive")
+
+    def concurrent_link_failure(source, target):
+        destination.write_bytes(b"competing archive")
+        raise OSError(errno.EOPNOTSUPP, "hard links unavailable")
+
+    monkeypatch.setattr(backup_module.os, "link", concurrent_link_failure)
+    with pytest.raises(FileExistsError):
+        backup_module._publish_new_file(str(temporary), str(destination))
+    assert destination.read_bytes() == b"competing archive"
+    assert temporary.read_bytes() == b"new archive"
+
+
+def test_archive_publish_success_and_existing_destination(tmp_path):
+    temporary = tmp_path / "archive.tmp"
+    destination = tmp_path / "archive.tar.gz"
+    temporary.write_bytes(b"first archive")
+    backup_module._publish_new_file(str(temporary), str(destination))
+    assert destination.read_bytes() == b"first archive"
+    assert not temporary.exists()
+
+    temporary.write_bytes(b"second archive")
+    with pytest.raises(FileExistsError):
+        backup_module._publish_new_file(str(temporary), str(destination))
+    assert destination.read_bytes() == b"first archive"
+    assert temporary.read_bytes() == b"second archive"
+
+
+def test_backup_link_failure_cleans_temporary_archive_without_retention(
+    palace_path, tmp_path, seeded_kg, monkeypatch
+):
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "1")
+    _, first = create_backup(palace_path, kg_path=seeded_kg.db_path, kind="scheduled")
+    with open(first, "rb") as handle:
+        first_bytes = handle.read()
+    managed = managed_backups_dir(palace_path)
+    names_before = sorted(os.listdir(managed))
+
+    def unsupported_link(source, target):
+        raise OSError(errno.EOPNOTSUPP, "hard links unavailable")
+
+    def unexpected_retention(*args, **kwargs):
+        pytest.fail("failed publication must not prune existing backups")
+
+    monkeypatch.setattr(backup_module.os, "link", unsupported_link)
+    monkeypatch.setattr(backup_module, "prune_managed_backups", unexpected_retention)
+    with pytest.raises(OSError, match="filesystem that supports hard links"):
+        create_backup(palace_path, kg_path=seeded_kg.db_path, kind="scheduled")
+    assert sorted(os.listdir(managed)) == names_before
+    with open(first, "rb") as handle:
+        assert handle.read() == first_bytes
+    assert not list(tmp_path.rglob("*.tar.gz.tmp"))
+
+
+def test_backup_cli_reports_safe_publication_refusal(tmp_path, monkeypatch, capsys):
+    from mempalace_code.cli import main
+    from mempalace_code.knowledge_graph import KnowledgeGraph, palace_kg_path
+
+    palace = tmp_path / "palace"
+    palace.mkdir()
+    kg = KnowledgeGraph(palace_kg_path(str(palace)))
+    kg.add_entity("example", "module")
+    destination = tmp_path / "archive.tar.gz"
+
+    def unsupported_link(source, target):
+        raise OSError(errno.EOPNOTSUPP, "hard links unavailable")
+
+    monkeypatch.setattr(backup_module.os, "link", unsupported_link)
+    monkeypatch.setenv("MEMPALACE_VERSION_CHECK", "0")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mempalace-code", "--palace", str(palace), "backup", "create", "--out", str(destination)],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "filesystem that supports hard links" in captured.err
+    assert not destination.exists()
+    assert not list(tmp_path.rglob("*.tar.gz.tmp"))
 
 
 def test_backup_creates_tarball(seeded_collection, palace_path, tmp_dir):
@@ -144,7 +274,7 @@ def test_backup_default_out_path(seeded_collection, palace_path, tmp_dir):
     meta, default_out = create_backup(palace_path, kg_path=kg_path)
 
     # palace_path = tmp_dir/palace, so palace_parent = tmp_dir
-    backups_dir = os.path.join(tmp_dir, "backups")
+    backups_dir = managed_backups_dir(palace_path)
     assert os.path.isdir(backups_dir), "backups/ directory should have been created"
     files = [
         f
@@ -169,7 +299,7 @@ def test_backup_default_dir_has_restrictive_permissions(seeded_collection, palac
     """F-9: default backups/ directory is created with owner-only (0o700) permissions."""
     kg_path = os.path.join(tmp_dir, "kg.sqlite3")
     create_backup(palace_path, kg_path=kg_path)
-    backups_dir = os.path.join(tmp_dir, "backups")
+    backups_dir = managed_backups_dir(palace_path)
     mode = os.stat(backups_dir).st_mode & 0o777
     assert mode == 0o700, f"Expected 0o700, got {oct(mode)}"
 
@@ -285,8 +415,7 @@ def test_force_restore_kg_publish_failure_restores_existing_lance_and_kg(
     seeded_collection, palace_path, tmp_dir
 ):
     source_kg = os.path.join(tmp_dir, "source-kg.sqlite3")
-    with open(source_kg, "wb") as handle:
-        handle.write(b"new kg")
+    _write_sqlite_kg(source_kg, "new kg")
     out = os.path.join(tmp_dir, "backup.tar.gz")
     create_backup(palace_path, out_path=out, kg_path=source_kg)
 
@@ -320,8 +449,7 @@ def test_force_restore_rollback_failure_preserves_existing_lance_backup(
     seeded_collection, palace_path, tmp_dir
 ):
     source_kg = os.path.join(tmp_dir, "source-kg.sqlite3")
-    with open(source_kg, "wb") as handle:
-        handle.write(b"new kg")
+    _write_sqlite_kg(source_kg, "new kg")
     out = os.path.join(tmp_dir, "backup.tar.gz")
     create_backup(palace_path, out_path=out, kg_path=source_kg)
 
@@ -535,7 +663,7 @@ class TestListBackups:
 
     def test_lists_all_kinds(self, seeded_collection, palace_path, tmp_dir):
         """AC-4: archives of all three kinds are listed with correct kind field."""
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
 
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
@@ -563,7 +691,7 @@ class TestListBackups:
 
     def test_newest_first_ordering(self, seeded_collection, palace_path, tmp_dir):
         """list_backups returns entries sorted newest mtime first."""
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
 
@@ -583,7 +711,7 @@ class TestListBackups:
         import io as _io
         import tarfile as _tarfile
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         archive_path = os.path.join(backups_dir, "mempalace_backup_nometa.tar.gz")
 
@@ -601,7 +729,7 @@ class TestListBackups:
 
     def test_corrupted_archive_skipped(self, palace_path, tmp_dir):
         """Unreadable archives are logged and skipped."""
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         bad_path = os.path.join(backups_dir, "mempalace_backup_bad.tar.gz")
 
@@ -613,7 +741,7 @@ class TestListBackups:
 
     def test_extra_dir_merges_results(self, seeded_collection, palace_path, tmp_dir):
         """--dir flag includes archives from an extra directory."""
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         extra_dir = os.path.join(tmp_dir, "legacy_backups")
         os.makedirs(extra_dir)
@@ -632,7 +760,7 @@ class TestListBackups:
 
     def test_extra_dir_deduplicates(self, seeded_collection, palace_path, tmp_dir):
         """Passing backups_dir as extra_dir does not duplicate entries."""
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
         create_backup(palace_path, kg_path=kg_path)
@@ -662,6 +790,23 @@ class TestRenderSchedule:
         assert "--palace" in out
         assert os.path.abspath(palace_path) in out
         assert "$(date" not in out
+
+    def test_darwin_label_is_per_palace(self, tmp_path):
+        """Two palaces get two launchd jobs; the label follows the watch-label rule."""
+        from mempalace_code.launchd import launchd_label
+        from mempalace_code.watcher import watch_launchd_label
+
+        first = tmp_path / "Work Palace"
+        second = tmp_path / "other" / "Work Palace"
+        labels = [backup_launchd_label(str(p)) for p in (first, second)]
+
+        assert labels[0] != labels[1]
+        assert labels[0] == launchd_label("com.mempalace.backup", first)
+        assert labels[0].startswith("com.mempalace.backup.work-palace-")
+        assert watch_launchd_label(first) == launchd_label("com.mempalace.watch", first)
+        out = render_schedule("daily", str(first), "darwin", mempalace_bin=self._BIN)
+        assert f"<string>{labels[0]}</string>" in out
+        assert "<string>com.mempalace.backup</string>" not in out
 
     def test_darwin_weekly(self, palace_path):
         """darwin weekly adds Weekday=0 to StartCalendarInterval."""
@@ -816,9 +961,9 @@ class TestRenderSchedule:
         assert str(ambient) not in first.out + first.err
         assert shlex.quote(str(palace.resolve())) in first.out + first.err
         assert "--freq daily" in first.err
-        assert (
-            shlex.quote(str(home / "Library/LaunchAgents/com.mempalace.backup.plist")) in first.err
-        )
+        plist = home / "Library/LaunchAgents" / f"{backup_launchd_label(str(palace))}.plist"
+        assert shlex.quote(str(plist)) in first.err
+        assert f"<string>{backup_launchd_label(str(palace))}</string>" in first.out
         assert tuple(sorted(tmp_path.rglob("*"))) == before
 
     def test_install_refusal_names_selected_launcher_and_explicit_targets(
@@ -840,7 +985,7 @@ class TestRenderSchedule:
         assert shlex.quote(str(invoked)) in captured.err
         assert shlex.quote(str(palace.resolve())) in captured.err
         assert "--freq weekly" in captured.err
-        assert "com.mempalace.backup.plist" in captured.err
+        assert f"{backup_launchd_label(str(palace))}.plist" in captured.err
 
     def test_missing_dedicated_sibling_refuses_before_emitting_snippet(
         self, tmp_path, monkeypatch, capsys
@@ -893,9 +1038,11 @@ class TestRenderSchedule:
         import argparse as _argparse
 
         out = render_schedule("daily", palace_path, "linux", mempalace_bin=self._BIN)
-        # Cron line layout: [min, hour, dom, month, dow, bin, *args]
-        tokens = shlex.split(out.strip())
-        args_after_bin = tokens[6:]
+        # Cron line layout: [min, hour, dom, month, dow, NAME=value..., bin, *args]
+        tokens = shlex.split(out.strip())[5:]
+        while tokens and "=" in tokens[0] and not tokens[0].startswith("-"):
+            tokens.pop(0)
+        args_after_bin = tokens[1:]
 
         # Mirror the real top-level + backup-create subparser shape.
         parser = _argparse.ArgumentParser()
@@ -939,7 +1086,7 @@ class TestManagedRetention:
             paths_created.append(os.path.abspath(out))
             time.sleep(0.05)
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         remaining = [
             os.path.join(backups_dir, f)
             for f in os.listdir(backups_dir)
@@ -972,7 +1119,7 @@ class TestManagedRetention:
             for _ in range(3):
                 create_backup(palace_path, kind="scheduled", kg_path=kg_path)
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         remaining = [
             f
             for f in os.listdir(backups_dir)
@@ -1009,7 +1156,7 @@ class TestManagedRetention:
                 ok = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore.safe_optimize; confirmed by fixture setup
                 assert ok
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         archives = [
             f
             for f in os.listdir(backups_dir)
@@ -1046,7 +1193,7 @@ class TestManagedRetention:
                 ok = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore.safe_optimize; confirmed by fixture setup
                 assert ok
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         archives = [
             f
             for f in os.listdir(backups_dir)
@@ -1060,7 +1207,7 @@ class TestManagedRetention:
         """Scheduled retention only prunes scheduled archives, not manual ones."""
         monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "1")
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
 
@@ -1084,7 +1231,7 @@ class TestManagedRetention:
         """Archives created with explicit --out do not trigger per-kind retention."""
         monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "1")
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
 
@@ -1201,7 +1348,7 @@ class TestManagedRetention:
             for _ in range(15):
                 create_backup(palace_path, kind="scheduled", kg_path=kg_path)
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         remaining = [
             f
             for f in os.listdir(backups_dir)
@@ -1229,7 +1376,7 @@ class TestManagedRetention:
             for _ in range(15):
                 create_backup(palace_path, kind="scheduled", kg_path=kg_path)
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         remaining = [
             f
             for f in os.listdir(backups_dir)
@@ -1257,7 +1404,7 @@ class TestManagedRetention:
             for _ in range(5):
                 create_backup(palace_path, kind="scheduled", kg_path=kg_path)
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         remaining = [
             f
             for f in os.listdir(backups_dir)
@@ -1271,7 +1418,7 @@ class TestManagedRetention:
         """AC-6: explicit --out archives bypass the implicit scheduled retention of 14."""
         monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
 
@@ -1311,7 +1458,7 @@ class TestDiskPreflight:
 
         monkeypatch.setattr(_shutil, "disk_usage", lambda _: _FakeDU())
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         with pytest.raises(DiskBudgetError, match="disk budget"):
             create_backup(palace_path, kg_path=kg_path)
 
@@ -1386,7 +1533,7 @@ class TestDiskPreflight:
         from mempalace_code.disk_budget import DiskBudgetError
 
         monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
 
@@ -1425,7 +1572,7 @@ class TestListBackupsAnnotations:
 
     def test_stale_annotation_for_kind(self, seeded_collection, palace_path, tmp_dir, monkeypatch):
         """AC-5: older archives beyond retain_count are marked stale."""
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
 
@@ -1451,7 +1598,7 @@ class TestListBackupsAnnotations:
 
     def test_oversized_annotation(self, seeded_collection, palace_path, tmp_dir, monkeypatch):
         """AC-5: archives exceeding warn_size_bytes are marked oversized."""
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
         archive_path = os.path.join(backups_dir, "mempalace_backup_test.tar.gz")
@@ -1472,7 +1619,7 @@ class TestListBackupsAnnotations:
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):
         """Archives smaller than warn_size_bytes are not marked oversized."""
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
         archive_path = os.path.join(backups_dir, "mempalace_backup_small.tar.gz")
@@ -1490,7 +1637,7 @@ class TestListBackupsAnnotations:
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):
         """retain_count=0 means nothing is stale."""
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
         for i in range(3):
@@ -1513,7 +1660,7 @@ class TestListBackupsAnnotations:
         """AC-7: backup list uses kind-aware defaults — scheduled stale after 14, pre_optimize after 5, manual never."""
         monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
 
@@ -1636,7 +1783,7 @@ class TestBoundedPreOptimizeRetention:
         monkeypatch.setenv("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES", "0")
 
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
 
         # Sentinel archives — written via explicit out_path so retention never runs on them
@@ -1694,7 +1841,7 @@ class TestBoundedPreOptimizeRetention:
         monkeypatch.delenv("MEMPALACE_BACKUP_MIN_FREE_BYTES", raising=False)
 
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         os.makedirs(backups_dir, exist_ok=True)
 
         existing = []
@@ -1790,7 +1937,7 @@ class TestPreWatchBackups:
             for _ in range(n_archives):
                 create_backup(palace_path, kind="pre_watch", kg_path=kg_path)
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         remaining = [
             f
             for f in os.listdir(backups_dir)
@@ -1829,7 +1976,7 @@ class TestPreWatchBackups:
             for _ in range(count):
                 create_backup(palace_path, kind="pre_watch", kg_path=kg_path)
 
-        backups_dir = os.path.join(tmp_dir, "backups")
+        backups_dir = managed_backups_dir(palace_path)
         remaining = [
             f
             for f in os.listdir(backups_dir)
@@ -1969,8 +2116,7 @@ class TestRestoreArchiveSecurityBoundary:
         self, seeded_collection, palace_path, tmp_dir
     ):
         source_kg = os.path.join(tmp_dir, "source-kg.sqlite3")
-        with open(source_kg, "wb") as file:
-            file.write(b"KG_PAYLOAD")
+        _write_sqlite_kg(source_kg, "KG_PAYLOAD")
         cases = [
             (
                 "empty",
@@ -1986,6 +2132,12 @@ class TestRestoreArchiveSecurityBoundary:
 
         for name, source_palace, source_graph, expect_lance, expect_kg in cases:
             archive = os.path.join(tmp_dir, f"{name}.tar.gz")
+            if name == "empty":
+                # Nothing to back up: refuse instead of writing a misleading empty archive.
+                with pytest.raises(backup_module.BackupSourceError, match="No palace found"):
+                    create_backup(source_palace, out_path=archive, kg_path=source_graph)
+                assert not os.path.exists(archive)
+                continue
             metadata, _ = create_backup(source_palace, out_path=archive, kg_path=source_graph)
             target = os.path.join(tmp_dir, f"{name}-target")
             selected_kg = os.path.join(tmp_dir, f"{name}-target.sqlite3")
@@ -1998,15 +2150,17 @@ class TestRestoreArchiveSecurityBoundary:
             if expect_lance:
                 assert open_store(target, create=False, read_only=True).count() == 4
             if expect_kg:
-                with open(selected_kg, "rb") as file:
-                    assert file.read() == b"KG_PAYLOAD"
+                # SQLite snapshots can change file-header counters while retaining
+                # the exact committed database contents.
+                with sqlite3.connect(selected_kg) as graph:
+                    assert graph.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+                    assert graph.execute("SELECT value FROM marker").fetchall() == [("KG_PAYLOAD",)]
 
     def test_force_post_state_verification_failure_restores_prior_lance_and_kg(
         self, seeded_collection, palace_path, tmp_dir
     ):
         source_kg = os.path.join(tmp_dir, "post-verify-source.sqlite3")
-        with open(source_kg, "wb") as file:
-            file.write(b"NEW_KG")
+        _write_sqlite_kg(source_kg, "NEW_KG")
         archive = os.path.join(tmp_dir, "post-verify.tar.gz")
         create_backup(palace_path, out_path=archive, kg_path=source_kg)
         target = os.path.join(tmp_dir, "post-verify-target")
@@ -2043,8 +2197,7 @@ class TestRestoreArchiveSecurityBoundary:
         self, seeded_collection, palace_path, tmp_dir
     ):
         source_kg = os.path.join(tmp_dir, "symlink-source.sqlite3")
-        with open(source_kg, "wb") as file:
-            file.write(b"NEW_KG")
+        _write_sqlite_kg(source_kg, "NEW_KG")
         archive = os.path.join(tmp_dir, "symlink-rollback.tar.gz")
         create_backup(palace_path, out_path=archive, kg_path=source_kg)
 
@@ -2090,8 +2243,7 @@ class TestRestoreArchiveSecurityBoundary:
         self, seeded_collection, palace_path, tmp_dir
     ):
         source_kg = os.path.join(tmp_dir, "nonforce-verify-source.sqlite3")
-        with open(source_kg, "wb") as file:
-            file.write(b"NEW_KG")
+        _write_sqlite_kg(source_kg, "NEW_KG")
         archive = os.path.join(tmp_dir, "nonforce-verify.tar.gz")
         create_backup(palace_path, out_path=archive, kg_path=source_kg)
         target = os.path.join(tmp_dir, "nonforce-verify-target")
@@ -2237,3 +2389,121 @@ class TestRestoreArchiveSecurityBoundary:
 
         assert restored == metadata
         assert open_store(restore_dir, create=False, read_only=True).count() == 4
+
+
+def test_backup_captures_committed_wal_with_open_reader(tmp_path):
+    palace = tmp_path / "palace"
+    palace.mkdir()
+    source = tmp_path / "source.sqlite3"
+    with sqlite3.connect(source) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("CREATE TABLE marker (value TEXT)")
+        writer.execute("INSERT INTO marker VALUES ('before')")
+        writer.commit()
+        writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        reader = sqlite3.connect(source)
+        try:
+            reader.execute("BEGIN")
+            assert reader.execute("SELECT value FROM marker").fetchall() == [("before",)]
+            writer.execute("INSERT INTO marker VALUES ('committed-in-wal')")
+            writer.commit()
+            assert (tmp_path / "source.sqlite3-wal").stat().st_size > 0
+            _, archive = create_backup(
+                str(palace), str(tmp_path / "wal.tar.gz"), kg_path=str(source)
+            )
+            target = tmp_path / "restored.sqlite3"
+            restore_backup(archive, str(tmp_path / "restored"), kg_path=str(target))
+            with sqlite3.connect(target) as restored:
+                assert restored.execute("SELECT value FROM marker ORDER BY rowid").fetchall() == [
+                    ("before",),
+                    ("committed-in-wal",),
+                ]
+                assert restored.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+            writer.execute("INSERT INTO marker VALUES ('after')")
+            writer.commit()
+            assert writer.execute("SELECT count(*) FROM marker").fetchone() == (3,)
+            assert reader.execute("SELECT value FROM marker").fetchall() == [("before",)]
+        finally:
+            reader.close()
+
+
+@pytest.mark.parametrize("payload", [b"invalid SQLite", b"SQLite format 3\x00"])
+def test_force_invalid_kg_preserves_existing_graph(tmp_path, payload):
+    archive = tmp_path / "bad.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        for name, data in [
+            ("metadata.json", json.dumps({"drawer_count": 0, "wings": []}).encode()),
+            ("knowledge_graph.sqlite3", payload),
+        ]:
+            member = tarfile.TarInfo("mempalace_backup/" + name)
+            member.size = len(data)
+            tar.addfile(member, io.BytesIO(data))
+    existing = tmp_path / "existing.sqlite3"
+    original = _write_sqlite_kg(str(existing), "keep")
+    with pytest.raises(BackupArchiveError) as error:
+        restore_backup(str(archive), str(tmp_path / "target"), force=True, kg_path=str(existing))
+    assert error.value.code == "invalid_kg_payload"
+    assert existing.read_bytes() == original
+    with sqlite3.connect(existing) as graph:
+        assert graph.execute("SELECT value FROM marker").fetchall() == [("keep",)]
+
+
+@pytest.mark.parametrize("wal_bytes", [0, 8192])
+def test_backup_refuses_snapshot_peak_before_outputs(tmp_path, monkeypatch, wal_bytes):
+    from mempalace_code.config import MempalaceConfig
+    from mempalace_code.disk_budget import DiskBudgetError
+
+    palace = tmp_path / "palace"
+    palace.mkdir()
+    source = tmp_path / "external.sqlite3"
+    _write_sqlite_kg(str(source), "keep")
+    if wal_bytes:
+        (tmp_path / "external.sqlite3-wal").write_bytes(b"x" * wal_bytes)
+    floor = 1024
+    size = source.stat().st_size + wal_bytes
+    monkeypatch.setattr("mempalace_code.disk_budget.free_bytes", lambda _: floor + size)
+    monkeypatch.setenv("MEMPALACE_BACKUP_DISK_MIN_FREE_BYTES", str(floor))
+    config = MempalaceConfig()
+    archive = tmp_path / "refused.tar.gz"
+    before = sorted(p.name for p in tmp_path.iterdir())
+    with pytest.raises(DiskBudgetError):
+        create_backup(str(palace), str(archive), kg_path=str(source), config=config)
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+    assert not archive.exists()
+
+
+def test_restore_reads_kg_in_bounded_chunks(tmp_path, monkeypatch):
+    source = tmp_path / "source.sqlite3"
+    _write_sqlite_kg(str(source), "bounded")
+    with sqlite3.connect(source) as graph:
+        graph.execute("CREATE TABLE padding (data BLOB)")
+        graph.execute("INSERT INTO padding VALUES (zeroblob(200000))")
+    palace = tmp_path / "palace"
+    palace.mkdir()
+    _, archive = create_backup(str(palace), str(tmp_path / "chunks.tar.gz"), kg_path=str(source))
+    original_extractfile = tarfile.TarFile.extractfile
+    original_read = tarfile.ExFileObject.read
+    kg_streams = set()
+    sizes = []
+
+    def tracked_extractfile(tar, member):
+        stream = original_extractfile(tar, member)
+        name = member.name if isinstance(member, tarfile.TarInfo) else member
+        if name == "mempalace_backup/knowledge_graph.sqlite3" and stream is not None:
+            kg_streams.add(stream)
+        return stream
+
+    def guarded_read(stream, size=-1):
+        if stream in kg_streams:
+            assert 0 < size <= 65536, "KG extraction attempted an unbounded read"
+            sizes.append(size)
+        return original_read(stream, size)
+
+    monkeypatch.setattr(tarfile.TarFile, "extractfile", tracked_extractfile)
+    monkeypatch.setattr(tarfile.ExFileObject, "read", guarded_read)
+    target = tmp_path / "restored.sqlite3"
+    restore_backup(archive, str(tmp_path / "target"), kg_path=str(target))
+    assert len(sizes) > 1
+    with sqlite3.connect(target) as graph:
+        assert graph.execute("SELECT value FROM marker").fetchall() == [("bounded",)]
+        assert graph.execute("SELECT length(data) FROM padding").fetchone() == (200000,)

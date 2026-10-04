@@ -77,3 +77,54 @@ def test_entity_confirmation_reprompts_unknown_choice_and_accepts(monkeypatch, c
     out = capsys.readouterr().out
     assert "Not recognized" in out
     assert "Confirmed:" in out
+
+
+# ── r1-install-14: the README example classifies both Alice and Bob as people ──
+
+README_MEETING = """# Weekly sync
+Alice said the Apollo repo needs a new deploy pipeline. Thanks Bob for the review.
+Bob said Apollo deploy is blocked on the staging cluster. Thanks Alice for the fix.
+Alice will deploy Apollo on Friday. Bob asked whether Alice checked the Apollo repo.
+Thanks Bob, said Alice.
+"""
+
+
+def test_readme_example_keeps_the_direct_address_signal_beyond_three_actions():
+    from mempalace_code.entity_detector import classify_entity, score_entity
+
+    lines = README_MEETING.splitlines()
+    scores = score_entity("Bob", README_MEETING, lines)
+
+    assert "addressed" in scores["person_signal_types"]
+    assert "action" in scores["person_signal_types"]
+    result = classify_entity("Bob", 4, scores)
+    assert result["type"] == "person"
+
+
+def test_thanks_is_counted_once_as_direct_address_and_actions_are_labelled():
+    from mempalace_code.entity_detector import score_entity
+
+    text = "Thanks Bob. Bob said hi. Bob asked twice."
+    scores = score_entity("Bob", text, text.splitlines())
+
+    assert scores["person_signals"] == [
+        "'Bob said' action (1x)",
+        "'Bob asked' action (1x)",
+        "addressed directly (1x)",
+    ]
+    assert scores["person_score"] == 2 + 2 + 4
+
+
+def test_single_signal_type_is_not_labelled_pronoun_only():
+    from mempalace_code.entity_detector import classify_entity
+
+    scores = {
+        "person_score": 12,
+        "project_score": 0,
+        "person_signals": ["'Zed said' action (3x)", "'Zed asked' action (3x)"],
+        "project_signals": [],
+    }
+    result = classify_entity("Zed", 6, scores)
+
+    assert result["type"] == "uncertain"
+    assert result["signals"][-1] == "appears 6x — single person signal type"

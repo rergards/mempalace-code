@@ -1,0 +1,677 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+      "version": "v1:55b5c751c8a7a8c2692cb83b115df20fe7ee06a554706a8f48007eb2aca7654b",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Preserve the selected pipx/uv manager's executability in isolated release installation probes without exposing user state.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_install_metadata_smoke.py _isolate_probe_state:406-425 and pipx/uv-tool call paths:2360-2490. Install uses absolute manager found outside probe env, then probe PATH is reset to script_dir + os.defpath. Disposable executable controls for pipx and uv are found before isolation and disappear after it. Actual managers in Homebrew/user bin locations can therefore install successfully while updater ownership probe cannot discover them. Prior installed matrix failed update rows for pipx/uv; pipx additionally has UPDATE-PIPX-PATH-IDENTITY. Independent manager-removal cause is confirmed; no claim that every observed row has this sole cause.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (probe_manager_path), .codex-local/release-prep-20261002/installers.json. Smallest proposed correction: retain only the verified selected manager's discovery path in existing isolated probe owner, preserve credential-free HOME/cache/PATH isolation; no general environment inheritance and no code fix during intake.",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "docs/RELEASING.md"
+          },
+          {
+            "type": "file",
+            "uri": "scripts/release_install_metadata_smoke.py"
+          },
+          {
+            "type": "file",
+            "uri": "tests/test_release_install_metadata_smoke.py"
+          }
+        ],
+        "exclusions": [
+          "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+          "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+          "Push, tag, release publication and changes to live palaces or services."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "A manager selected by absolute path outside os.defpath is discoverable to its isolated installed CLI probe.",
+          "verification": "Use disposable pipx/uv executable controls and actual _isolate_probe_state/caller, then exact-wheel --all-installers smoke for available managers; unavailable cases must stay UNRUN/FAIL."
+        },
+        {
+          "id": "A02",
+          "assertion": "The correction retains disposable HOME, caches and no-credential/no-real-user-state isolation; missing managers still fail safely.",
+          "verification": "Run tests/test_release_install_metadata_smoke.py and environment isolation cases; assert unrelated user PATH entries and credentials are not inherited."
+        },
+        {
+          "id": "A03",
+          "assertion": "Disposable installed pipx and uv-tool update-status/unsupported-platform rows meet the current independently documented contract.",
+          "verification": "Run python scripts/release_install_metadata_smoke.py --all-installers --install-spec \u003cexact-wheel\u003e --json after relevant detector correction; record manager-specific rows and keep Linux lifecycle UNRUN until actually exercised."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+        "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#RELEASE-INSTALL-PROBE-MANAGER-PATH. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A03",
+            "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-02T22:03:38.015607Z"
+      },
+      "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+      "ready": false,
+      "created_at": "2026-10-02T16:16:03.691732Z",
+      "updated_at": "2026-10-02T22:03:38.015607Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+          "version": "v1:fb0b8a6d51057e9ebbaf8a135f427a04b9f1f66473a6f4f531d600c42f684985",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Preserve the selected pipx/uv manager's executability in isolated release installation probes without exposing user state.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_install_metadata_smoke.py _isolate_probe_state:406-425 and pipx/uv-tool call paths:2360-2490. Install uses absolute manager found outside probe env, then probe PATH is reset to script_dir + os.defpath. Disposable executable controls for pipx and uv are found before isolation and disappear after it. Actual managers in Homebrew/user bin locations can therefore install successfully while updater ownership probe cannot discover them. Prior installed matrix failed update rows for pipx/uv; pipx additionally has UPDATE-PIPX-PATH-IDENTITY. Independent manager-removal cause is confirmed; no claim that every observed row has this sole cause.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (probe_manager_path), .codex-local/release-prep-20261002/installers.json. Smallest proposed correction: retain only the verified selected manager's discovery path in existing isolated probe owner, preserve credential-free HOME/cache/PATH isolation; no general environment inheritance and no code fix during intake.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/RELEASING.md"
+              },
+              {
+                "type": "file",
+                "uri": "scripts/release_install_metadata_smoke.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_release_install_metadata_smoke.py"
+              }
+            ],
+            "exclusions": [
+              "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+              "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+              "Push, tag, release publication and changes to live palaces or services."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "A manager selected by absolute path outside os.defpath is discoverable to its isolated installed CLI probe.",
+              "verification": "Use disposable pipx/uv executable controls and actual _isolate_probe_state/caller, then exact-wheel --all-installers smoke for available managers; unavailable cases must stay UNRUN/FAIL."
+            },
+            {
+              "id": "A02",
+              "assertion": "The correction retains disposable HOME, caches and no-credential/no-real-user-state isolation; missing managers still fail safely.",
+              "verification": "Run tests/test_release_install_metadata_smoke.py and environment isolation cases; assert unrelated user PATH entries and credentials are not inherited."
+            },
+            {
+              "id": "A03",
+              "assertion": "Disposable installed pipx and uv-tool update-status/unsupported-platform rows meet the current independently documented contract.",
+              "verification": "Run python scripts/release_install_metadata_smoke.py --all-installers --install-spec \u003cexact-wheel\u003e --json after relevant detector correction; record manager-specific rows and keep Linux lifecycle UNRUN until actually exercised."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+          "ready": false,
+          "created_at": "2026-10-02T16:16:03.691732Z",
+          "updated_at": "2026-10-02T16:16:03.691732Z"
+        },
+        "operation": {
+          "id": "op_23261b0c433f3e6b1a79ec07e55c804c",
+          "principal": "codex-macmac",
+          "request_id": "mp-bug-intake-20261002-create-2",
+          "kind": "create",
+          "payload": {
+            "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "outcome": "Preserve the selected pipx/uv manager's executability in isolated release installation probes without exposing user state.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_install_metadata_smoke.py _isolate_probe_state:406-425 and pipx/uv-tool call paths:2360-2490. Install uses absolute manager found outside probe env, then probe PATH is reset to script_dir + os.defpath. Disposable executable controls for pipx and uv are found before isolation and disappear after it. Actual managers in Homebrew/user bin locations can therefore install successfully while updater ownership probe cannot discover them. Prior installed matrix failed update rows for pipx/uv; pipx additionally has UPDATE-PIPX-PATH-IDENTITY. Independent manager-removal cause is confirmed; no claim that every observed row has this sole cause.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (probe_manager_path), .codex-local/release-prep-20261002/installers.json. Smallest proposed correction: retain only the verified selected manager's discovery path in existing isolated probe owner, preserve credential-free HOME/cache/PATH isolation; no general environment inheritance and no code fix during intake.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "scripts/release_install_metadata_smoke.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_release_install_metadata_smoke.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/RELEASING.md"
+                }
+              ],
+              "exclusions": [
+                "Push, tag, release publication and changes to live palaces or services.",
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "A manager selected by absolute path outside os.defpath is discoverable to its isolated installed CLI probe.",
+                "verification": "Use disposable pipx/uv executable controls and actual _isolate_probe_state/caller, then exact-wheel --all-installers smoke for available managers; unavailable cases must stay UNRUN/FAIL."
+              },
+              {
+                "id": "A02",
+                "assertion": "The correction retains disposable HOME, caches and no-credential/no-real-user-state isolation; missing managers still fail safely.",
+                "verification": "Run tests/test_release_install_metadata_smoke.py and environment isolation cases; assert unrelated user PATH entries and credentials are not inherited."
+              },
+              {
+                "id": "A03",
+                "assertion": "Disposable installed pipx and uv-tool update-status/unsupported-platform rows meet the current independently documented contract.",
+                "verification": "Run python scripts/release_install_metadata_smoke.py --all-installers --install-spec \u003cexact-wheel\u003e --json after relevant detector correction; record manager-specific rows and keep Linux lifecycle UNRUN until actually exercised."
+              }
+            ],
+            "blocked_by": null,
+            "questions": null
+          },
+          "request_hash": "9a9fcd442bb4c5ab919799eb45957cb45a75faa00c9c1c31289ad65a090a0b8a",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "version": "v1:fb0b8a6d51057e9ebbaf8a135f427a04b9f1f66473a6f4f531d600c42f684985",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Preserve the selected pipx/uv manager's executability in isolated release installation probes without exposing user state.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_install_metadata_smoke.py _isolate_probe_state:406-425 and pipx/uv-tool call paths:2360-2490. Install uses absolute manager found outside probe env, then probe PATH is reset to script_dir + os.defpath. Disposable executable controls for pipx and uv are found before isolation and disappear after it. Actual managers in Homebrew/user bin locations can therefore install successfully while updater ownership probe cannot discover them. Prior installed matrix failed update rows for pipx/uv; pipx additionally has UPDATE-PIPX-PATH-IDENTITY. Independent manager-removal cause is confirmed; no claim that every observed row has this sole cause.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (probe_manager_path), .codex-local/release-prep-20261002/installers.json. Smallest proposed correction: retain only the verified selected manager's discovery path in existing isolated probe owner, preserve credential-free HOME/cache/PATH isolation; no general environment inheritance and no code fix during intake.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/RELEASING.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_install_metadata_smoke.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_release_install_metadata_smoke.py"
+                }
+              ],
+              "exclusions": [
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+                "Push, tag, release publication and changes to live palaces or services."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "A manager selected by absolute path outside os.defpath is discoverable to its isolated installed CLI probe.",
+                "verification": "Use disposable pipx/uv executable controls and actual _isolate_probe_state/caller, then exact-wheel --all-installers smoke for available managers; unavailable cases must stay UNRUN/FAIL."
+              },
+              {
+                "id": "A02",
+                "assertion": "The correction retains disposable HOME, caches and no-credential/no-real-user-state isolation; missing managers still fail safely.",
+                "verification": "Run tests/test_release_install_metadata_smoke.py and environment isolation cases; assert unrelated user PATH entries and credentials are not inherited."
+              },
+              {
+                "id": "A03",
+                "assertion": "Disposable installed pipx and uv-tool update-status/unsupported-platform rows meet the current independently documented contract.",
+                "verification": "Run python scripts/release_install_metadata_smoke.py --all-installers --install-spec \u003cexact-wheel\u003e --json after relevant detector correction; record manager-specific rows and keep Linux lifecycle UNRUN until actually exercised."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+            "ready": false,
+            "created_at": "2026-10-02T16:16:03.691732Z",
+            "updated_at": "2026-10-02T16:16:03.691732Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_e9f16f05cdc036e9606d1bacd912ad76",
+          "project": "mempalace-code",
+          "task_id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:fb0b8a6d51057e9ebbaf8a135f427a04b9f1f66473a6f4f531d600c42f684985",
+          "data": {
+            "resource": "backlog://mempalace-code/task/RELEASE-INSTALL-PROBE-MANAGER-PATH"
+          },
+          "created_at": "2026-10-02T16:16:03.691732Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_61b417a7d3fdfe6af634d1e9fdfd1a90",
+            "project": "mempalace-code",
+            "task_id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:8b1ca1dcbf29f3e6cf91b42c6b536e942628afd8cd2225d8ea8dbbb6e55af0d5",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/RELEASE-INSTALL-PROBE-MANAGER-PATH"
+            },
+            "created_at": "2026-10-02T16:16:24.811843Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+          "version": "v1:8b1ca1dcbf29f3e6cf91b42c6b536e942628afd8cd2225d8ea8dbbb6e55af0d5",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Preserve the selected pipx/uv manager's executability in isolated release installation probes without exposing user state.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_install_metadata_smoke.py _isolate_probe_state:406-425 and pipx/uv-tool call paths:2360-2490. Install uses absolute manager found outside probe env, then probe PATH is reset to script_dir + os.defpath. Disposable executable controls for pipx and uv are found before isolation and disappear after it. Actual managers in Homebrew/user bin locations can therefore install successfully while updater ownership probe cannot discover them. Prior installed matrix failed update rows for pipx/uv; pipx additionally has UPDATE-PIPX-PATH-IDENTITY. Independent manager-removal cause is confirmed; no claim that every observed row has this sole cause.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (probe_manager_path), .codex-local/release-prep-20261002/installers.json. Smallest proposed correction: retain only the verified selected manager's discovery path in existing isolated probe owner, preserve credential-free HOME/cache/PATH isolation; no general environment inheritance and no code fix during intake.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/RELEASING.md"
+              },
+              {
+                "type": "file",
+                "uri": "scripts/release_install_metadata_smoke.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_release_install_metadata_smoke.py"
+              }
+            ],
+            "exclusions": [
+              "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+              "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+              "Push, tag, release publication and changes to live palaces or services."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "A manager selected by absolute path outside os.defpath is discoverable to its isolated installed CLI probe.",
+              "verification": "Use disposable pipx/uv executable controls and actual _isolate_probe_state/caller, then exact-wheel --all-installers smoke for available managers; unavailable cases must stay UNRUN/FAIL."
+            },
+            {
+              "id": "A02",
+              "assertion": "The correction retains disposable HOME, caches and no-credential/no-real-user-state isolation; missing managers still fail safely.",
+              "verification": "Run tests/test_release_install_metadata_smoke.py and environment isolation cases; assert unrelated user PATH entries and credentials are not inherited."
+            },
+            {
+              "id": "A03",
+              "assertion": "Disposable installed pipx and uv-tool update-status/unsupported-platform rows meet the current independently documented contract.",
+              "verification": "Run python scripts/release_install_metadata_smoke.py --all-installers --install-spec \u003cexact-wheel\u003e --json after relevant detector correction; record manager-specific rows and keep Linux lifecycle UNRUN until actually exercised."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+          "ready": false,
+          "created_at": "2026-10-02T16:16:03.691732Z",
+          "updated_at": "2026-10-02T16:16:24.811843Z"
+        },
+        "operation": {
+          "id": "op_3953e726f73e4cf66cd81a3425c154b9",
+          "principal": "codex-macmac",
+          "request_id": "mp-bug-intake-20261002-open-2",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:fb0b8a6d51057e9ebbaf8a135f427a04b9f1f66473a6f4f531d600c42f684985",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "d2a3033fc55e187f2892dfa3e464e65b39b4673cb79e5d384712eb101b5e4145",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "version": "v1:8b1ca1dcbf29f3e6cf91b42c6b536e942628afd8cd2225d8ea8dbbb6e55af0d5",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Preserve the selected pipx/uv manager's executability in isolated release installation probes without exposing user state.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_install_metadata_smoke.py _isolate_probe_state:406-425 and pipx/uv-tool call paths:2360-2490. Install uses absolute manager found outside probe env, then probe PATH is reset to script_dir + os.defpath. Disposable executable controls for pipx and uv are found before isolation and disappear after it. Actual managers in Homebrew/user bin locations can therefore install successfully while updater ownership probe cannot discover them. Prior installed matrix failed update rows for pipx/uv; pipx additionally has UPDATE-PIPX-PATH-IDENTITY. Independent manager-removal cause is confirmed; no claim that every observed row has this sole cause.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (probe_manager_path), .codex-local/release-prep-20261002/installers.json. Smallest proposed correction: retain only the verified selected manager's discovery path in existing isolated probe owner, preserve credential-free HOME/cache/PATH isolation; no general environment inheritance and no code fix during intake.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/RELEASING.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_install_metadata_smoke.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_release_install_metadata_smoke.py"
+                }
+              ],
+              "exclusions": [
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+                "Push, tag, release publication and changes to live palaces or services."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "A manager selected by absolute path outside os.defpath is discoverable to its isolated installed CLI probe.",
+                "verification": "Use disposable pipx/uv executable controls and actual _isolate_probe_state/caller, then exact-wheel --all-installers smoke for available managers; unavailable cases must stay UNRUN/FAIL."
+              },
+              {
+                "id": "A02",
+                "assertion": "The correction retains disposable HOME, caches and no-credential/no-real-user-state isolation; missing managers still fail safely.",
+                "verification": "Run tests/test_release_install_metadata_smoke.py and environment isolation cases; assert unrelated user PATH entries and credentials are not inherited."
+              },
+              {
+                "id": "A03",
+                "assertion": "Disposable installed pipx and uv-tool update-status/unsupported-platform rows meet the current independently documented contract.",
+                "verification": "Run python scripts/release_install_metadata_smoke.py --all-installers --install-spec \u003cexact-wheel\u003e --json after relevant detector correction; record manager-specific rows and keep Linux lifecycle UNRUN until actually exercised."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+            "ready": true,
+            "created_at": "2026-10-02T16:16:03.691732Z",
+            "updated_at": "2026-10-02T16:16:24.811843Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_653e1f3fb8591744b77e073fd64bd98f",
+          "project": "mempalace-code",
+          "task_id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:8b1ca1dcbf29f3e6cf91b42c6b536e942628afd8cd2225d8ea8dbbb6e55af0d5",
+          "data": {
+            "resource": "backlog://mempalace-code/task/RELEASE-INSTALL-PROBE-MANAGER-PATH"
+          },
+          "created_at": "2026-10-02T16:16:24.811843Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_fbb8d4e98a8c8f707f1864e93fa3a45f",
+            "project": "mempalace-code",
+            "task_id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:55b5c751c8a7a8c2692cb83b115df20fe7ee06a554706a8f48007eb2aca7654b",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/RELEASE-INSTALL-PROBE-MANAGER-PATH"
+            },
+            "created_at": "2026-10-02T22:03:38.015607Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+          "version": "v1:55b5c751c8a7a8c2692cb83b115df20fe7ee06a554706a8f48007eb2aca7654b",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Preserve the selected pipx/uv manager's executability in isolated release installation probes without exposing user state.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_install_metadata_smoke.py _isolate_probe_state:406-425 and pipx/uv-tool call paths:2360-2490. Install uses absolute manager found outside probe env, then probe PATH is reset to script_dir + os.defpath. Disposable executable controls for pipx and uv are found before isolation and disappear after it. Actual managers in Homebrew/user bin locations can therefore install successfully while updater ownership probe cannot discover them. Prior installed matrix failed update rows for pipx/uv; pipx additionally has UPDATE-PIPX-PATH-IDENTITY. Independent manager-removal cause is confirmed; no claim that every observed row has this sole cause.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (probe_manager_path), .codex-local/release-prep-20261002/installers.json. Smallest proposed correction: retain only the verified selected manager's discovery path in existing isolated probe owner, preserve credential-free HOME/cache/PATH isolation; no general environment inheritance and no code fix during intake.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/RELEASING.md"
+              },
+              {
+                "type": "file",
+                "uri": "scripts/release_install_metadata_smoke.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_release_install_metadata_smoke.py"
+              }
+            ],
+            "exclusions": [
+              "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+              "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+              "Push, tag, release publication and changes to live palaces or services."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "A manager selected by absolute path outside os.defpath is discoverable to its isolated installed CLI probe.",
+              "verification": "Use disposable pipx/uv executable controls and actual _isolate_probe_state/caller, then exact-wheel --all-installers smoke for available managers; unavailable cases must stay UNRUN/FAIL."
+            },
+            {
+              "id": "A02",
+              "assertion": "The correction retains disposable HOME, caches and no-credential/no-real-user-state isolation; missing managers still fail safely.",
+              "verification": "Run tests/test_release_install_metadata_smoke.py and environment isolation cases; assert unrelated user PATH entries and credentials are not inherited."
+            },
+            {
+              "id": "A03",
+              "assertion": "Disposable installed pipx and uv-tool update-status/unsupported-platform rows meet the current independently documented contract.",
+              "verification": "Run python scripts/release_install_metadata_smoke.py --all-installers --install-spec \u003cexact-wheel\u003e --json after relevant detector correction; record manager-specific rows and keep Linux lifecycle UNRUN until actually exercised."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+            "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#RELEASE-INSTALL-PROBE-MANAGER-PATH. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-02T22:03:38.015607Z"
+          },
+          "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+          "ready": false,
+          "created_at": "2026-10-02T16:16:03.691732Z",
+          "updated_at": "2026-10-02T22:03:38.015607Z"
+        },
+        "operation": {
+          "id": "op_f8cf9f4eb06fd89f10acbe18daafe73f",
+          "principal": "codex-macmac",
+          "request_id": "remaining-release-20261002-complete-release-install-probe-manager-path",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:8b1ca1dcbf29f3e6cf91b42c6b536e942628afd8cd2225d8ea8dbbb6e55af0d5",
+            "expected_revision": 2,
+            "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+            "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#RELEASE-INSTALL-PROBE-MANAGER-PATH. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "cec7d427f31a89e9dbc50db26b7e06d60d325afb5c5c79d5fbdf4688efeb1d23",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "version": "v1:55b5c751c8a7a8c2692cb83b115df20fe7ee06a554706a8f48007eb2aca7654b",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Preserve the selected pipx/uv manager's executability in isolated release installation probes without exposing user state.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner scripts/release_install_metadata_smoke.py _isolate_probe_state:406-425 and pipx/uv-tool call paths:2360-2490. Install uses absolute manager found outside probe env, then probe PATH is reset to script_dir + os.defpath. Disposable executable controls for pipx and uv are found before isolation and disappear after it. Actual managers in Homebrew/user bin locations can therefore install successfully while updater ownership probe cannot discover them. Prior installed matrix failed update rows for pipx/uv; pipx additionally has UPDATE-PIPX-PATH-IDENTITY. Independent manager-removal cause is confirmed; no claim that every observed row has this sole cause.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (probe_manager_path), .codex-local/release-prep-20261002/installers.json. Smallest proposed correction: retain only the verified selected manager's discovery path in existing isolated probe owner, preserve credential-free HOME/cache/PATH isolation; no general environment inheritance and no code fix during intake.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/RELEASING.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "scripts/release_install_metadata_smoke.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_release_install_metadata_smoke.py"
+                }
+              ],
+              "exclusions": [
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+                "Push, tag, release publication and changes to live palaces or services."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "A manager selected by absolute path outside os.defpath is discoverable to its isolated installed CLI probe.",
+                "verification": "Use disposable pipx/uv executable controls and actual _isolate_probe_state/caller, then exact-wheel --all-installers smoke for available managers; unavailable cases must stay UNRUN/FAIL."
+              },
+              {
+                "id": "A02",
+                "assertion": "The correction retains disposable HOME, caches and no-credential/no-real-user-state isolation; missing managers still fail safely.",
+                "verification": "Run tests/test_release_install_metadata_smoke.py and environment isolation cases; assert unrelated user PATH entries and credentials are not inherited."
+              },
+              {
+                "id": "A03",
+                "assertion": "Disposable installed pipx and uv-tool update-status/unsupported-platform rows meet the current independently documented contract.",
+                "verification": "Run python scripts/release_install_metadata_smoke.py --all-installers --install-spec \u003cexact-wheel\u003e --json after relevant detector correction; record manager-specific rows and keep Linux lifecycle UNRUN until actually exercised."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+              "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#RELEASE-INSTALL-PROBE-MANAGER-PATH. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A03",
+                  "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-02T22:03:38.015607Z"
+            },
+            "contract_digest": "sha256:0b89857a1fe00c7aec9c78f4dd45f3fef6e4aa41946bde5ba41790fec952b052",
+            "ready": false,
+            "created_at": "2026-10-02T16:16:03.691732Z",
+            "updated_at": "2026-10-02T22:03:38.015607Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_312aba03401440027779ecf89addfc25",
+          "project": "mempalace-code",
+          "task_id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:55b5c751c8a7a8c2692cb83b115df20fe7ee06a554706a8f48007eb2aca7654b",
+          "data": {
+            "resource": "backlog://mempalace-code/task/RELEASE-INSTALL-PROBE-MANAGER-PATH"
+          },
+          "created_at": "2026-10-02T22:03:38.015607Z"
+        }
+      }
+    ],
+    "seal": "53422cbf7a7cf93bed51da951e5720e23358dbfbce1a252fae26bbadf010010a"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+    "head": "wf2:a6e25d992ff961ffeb19b756b0c1795809a07d0c7715937206121922c0a092b7",
+    "nodes": [
+      {
+        "version": "wf2:a6e25d992ff961ffeb19b756b0c1795809a07d0c7715937206121922c0a092b7",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-macmac",
+        "request_id": "mp-bug-intake-20261002-plan-2",
+        "request_hash": "c72982d7408e14ffb736aa47da5a056f02eb1b1fba83320d96ed61d5dd19b306",
+        "payload": {
+          "request_id": "mp-bug-intake-20261002-plan-2",
+          "id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+          "expected_planning_version": "unplanned",
+          "reason": "Confirmed blocker of the next release qualification; intake only, implementation is not authorized by this request.",
+          "priority": "P1",
+          "required": true
+        },
+        "state": {
+          "order": 0,
+          "priority": "P1",
+          "required": true,
+          "version": "wf2:a6e25d992ff961ffeb19b756b0c1795809a07d0c7715937206121922c0a092b7"
+        },
+        "created_at": "2026-10-02T16:16:25.002903Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_a6e25d992ff961ffeb19b756b0c1795809a07d0c7715937206121922c0a092b7",
+            "project": "mempalace-code",
+            "task_id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:a6e25d992ff961ffeb19b756b0c1795809a07d0c7715937206121922c0a092b7",
+            "data": {
+              "resource": "backlog://mempalace-code/task/RELEASE-INSTALL-PROBE-MANAGER-PATH",
+              "subject_id": "RELEASE-INSTALL-PROBE-MANAGER-PATH",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-02T16:16:25.002903Z"
+          }
+        ]
+      }
+    ],
+    "seal": "f555a006bc8d062cab940c88ce90b2964cfc4bcd41796f6133c1cbcf868e4ad5"
+  },
+  "seal": "3815100135ee9350f47c1e930a1f679629f6dc7b395165685f8e9d9b99585c55"
+}

@@ -11,7 +11,8 @@ All I/O is injectable for testing:
 
 State is stored in ~/.mempalace/version_check.json, separate from config.json.
 Config is read via MempalaceConfig (version_check_enabled, version_check_interval_hours).
-Env override: MEMPALACE_VERSION_CHECK=1/0, MEMPALACE_VERSION_CHECK_INTERVAL_HOURS=N.
+Env override: MEMPALACE_VERSION_CHECK=1/0 (also true/false, yes/no, on/off),
+MEMPALACE_VERSION_CHECK_INTERVAL_HOURS=N.
 """
 
 import json
@@ -28,7 +29,9 @@ PYPI_URL = "https://pypi.org/pypi/mempalace-code/json"
 DEFAULT_INTERVAL_HOURS = 168
 STATE_FILE_NAME = "version_check.json"
 
-PIP_FALLBACK_PREFIX = "  Plain pip install? `update` refuses those; upgrade with:"
+PIP_FALLBACK_PREFIX = (
+    "  This is an ordinary pip install, which `update` does not manage; upgrade with:"
+)
 
 
 def pip_fallback_command(latest: str, executable: Optional[str] = None) -> str:
@@ -40,8 +43,9 @@ def pip_fallback_command(latest: str, executable: Optional[str] = None) -> str:
     explicit, pinned command bound to the interpreter actually running this
     process rather than whichever `pip` happens to be on PATH.
     """
-    exe = executable if executable is not None else sys.executable
-    return f'"{exe}" -m pip install --upgrade "mempalace-code=={latest}"'
+    from .updater import pip_upgrade_command
+
+    return pip_upgrade_command(latest, executable)
 
 
 def should_offer_pip_fallback() -> bool:
@@ -71,6 +75,8 @@ class VersionCheckConfig:
     source: str  # "env", "config", "state", or "default"
     interval_hours: int
     pypi_url: str = PYPI_URL
+    # True when MEMPALACE_VERSION_CHECK holds an unrecognized value (checks fail closed).
+    invalid_env: bool = False
 
 
 @dataclass
@@ -137,15 +143,21 @@ def resolve_config(config_dir: Optional[Path] = None) -> VersionCheckConfig:
     """Resolve effective version-check configuration.
 
     Precedence: MEMPALACE_VERSION_CHECK env > config file key > state file > default (None).
-    Invalid env values fail closed (disabled) rather than raising during CLI startup.
+    The env var accepts the same boolean spellings as every other MemPalace setting
+    (1/0, true/false, yes/no, on/off). Invalid env values fail closed (disabled) rather
+    than raising during CLI startup; ``invalid_env`` lets ``version-check --status`` say so
+    without echoing the rejected value.
     """
-    from .config import MempalaceConfig
+    from .config import MempalaceConfig, parse_optional_bool
 
     cfg = MempalaceConfig(config_dir=config_dir) if config_dir is not None else MempalaceConfig()
 
     env_raw = os.environ.get("MEMPALACE_VERSION_CHECK")
+    invalid_env = False
     if env_raw is not None:
-        enabled: Optional[bool] = env_raw.strip() in ("1", "true", "yes")
+        parsed = parse_optional_bool(env_raw)
+        invalid_env = parsed is None and env_raw.strip() != ""
+        enabled: Optional[bool] = bool(parsed)
         source = "env"
     elif cfg.version_check_enabled is not None:
         enabled = cfg.version_check_enabled
@@ -163,6 +175,7 @@ def resolve_config(config_dir: Optional[Path] = None) -> VersionCheckConfig:
         enabled=enabled,
         source=source,
         interval_hours=cfg.version_check_interval_hours,
+        invalid_env=invalid_env,
     )
 
 
@@ -320,13 +333,16 @@ def run_automatic_check(
 
     if compare_versions(current_version, latest) < 0:
         message = (
-            f"\n[mempalace-code] New version available: {latest} "
-            f"(you have {current_version})\n"
-            f"  Run:  mempalace-code update status\n"
-            f"  Then: mempalace-code update apply --yes\n"
+            f"\n[mempalace-code] New version available: {latest} (you have {current_version})\n"
         )
+        # An ordinary pip install gets only the command that works for it: `update apply`
+        # refuses installs it does not own.
         if should_offer_pip_fallback():
             message += f"{PIP_FALLBACK_PREFIX}\n        {pip_fallback_command(latest)}\n"
+        else:
+            message += (
+                "  Run:  mempalace-code update status\n  Then: mempalace-code update apply --yes\n"
+            )
         _stderr(message)
 
 
@@ -334,8 +350,11 @@ def run_check_now(
     current_version: str,
     fetch_fn: Optional[Callable[[], str]] = None,
     stdout_fn: Optional[Callable[[str], None]] = None,
-) -> None:
-    """Run an explicit version check, printing results or network errors to stdout."""
+) -> Optional[str]:
+    """Run an explicit version check, printing results or network errors to stdout.
+
+    Returns the latest PyPI version on success, or None when the check failed.
+    """
     _fetch = fetch_fn if fetch_fn is not None else fetch_latest_version
     _stdout = stdout_fn if stdout_fn is not None else (lambda s: print(s, flush=True))
 
@@ -347,21 +366,23 @@ def run_check_now(
     except urllib.error.URLError as exc:
         _stdout(f"  Network error:    {exc}")
         _stdout("  Could not reach PyPI. Check your internet connection.")
-        return
+        return None
     except Exception as exc:
         _stdout(f"  Error fetching PyPI metadata: {exc}")
-        return
+        return None
 
     _stdout(f"  Latest version:   {latest}")
     cmp = compare_versions(current_version, latest)
     if cmp < 0:
         _stdout(f"\n  A newer version is available: {latest}")
-        _stdout("  Run:  mempalace-code update status")
-        _stdout("  Then: mempalace-code update apply --yes")
         if should_offer_pip_fallback():
             _stdout(PIP_FALLBACK_PREFIX)
             _stdout(f"        {pip_fallback_command(latest)}")
+        else:
+            _stdout("  Run:  mempalace-code update status")
+            _stdout("  Then: mempalace-code update apply --yes")
     elif cmp > 0:
         _stdout("\n  You are running a version ahead of PyPI.")
     else:
         _stdout("\n  You are up to date.")
+    return latest

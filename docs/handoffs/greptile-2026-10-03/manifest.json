@@ -1,0 +1,123 @@
+{
+  "repository": "rergards/mempalace-code",
+  "files": {
+    "PROMPT.txt": {
+      "sha256": "200d2ebb305948501abf570949a34ec1d5d72775ec3d7ec7869d1cc28d465d3e",
+      "bytes": 3921,
+      "sourceSha256": "b00403cd215ed5dc9f7993cee9eacbc67814bc3c68f191aa9e56c2c4174022eb"
+    },
+    "README.md": {
+      "sha256": "a8a7b754cde968a3b2621c0b0a7d902083a9367277461872687f4a793c3cbfcd",
+      "bytes": 2874,
+      "sourceSha256": "a8a7b754cde968a3b2621c0b0a7d902083a9367277461872687f4a793c3cbfcd"
+    },
+    "backlog-import.json": {
+      "sha256": "878591ed91c3e28f6d22dbb7f87ab60a02852d6e2a051c1bb890a0087c0f32ab",
+      "bytes": 7056,
+      "sourceSha256": "e5b8016d94ebba2ccce9d0dc32640fd179b27189b68af461eb4bdf37319dc56b"
+    },
+    "checks/mempalace_archive_publish_race.py": {
+      "sha256": "4574a33dc0fe186fc85ad6f4a61adab75a0a082dc3e8c6cf6f0bdb5bee63e7dd",
+      "bytes": 2366,
+      "sourceSha256": "4574a33dc0fe186fc85ad6f4a61adab75a0a082dc3e8c6cf6f0bdb5bee63e7dd"
+    },
+    "checks/mempalace_maintenance_lease_race.py": {
+      "sha256": "d7bc3b517fcfb5b4cd88c8fcec75ed96595f7f1a7647116af3fdf403f617cb3f",
+      "bytes": 2549,
+      "sourceSha256": "d7bc3b517fcfb5b4cd88c8fcec75ed96595f7f1a7647116af3fdf403f617cb3f"
+    },
+    "checks/mempalace_mcp_runtime.py": {
+      "sha256": "a880ebcc90673237180c66232499bf389e9ccb7f4b09ca2b9ab70f52c10cf922",
+      "bytes": 7501,
+      "sourceSha256": "a880ebcc90673237180c66232499bf389e9ccb7f4b09ca2b9ab70f52c10cf922"
+    },
+    "checks/mempalace_reader_pagination.py": {
+      "sha256": "891c2087232b0945ee4ec391ad0af7b6d7abde821ae26ebb2787b6aa9603fad1",
+      "bytes": 4081,
+      "sourceSha256": "891c2087232b0945ee4ec391ad0af7b6d7abde821ae26ebb2787b6aa9603fad1"
+    },
+    "checks/mempalace_secret_yaml.py": {
+      "sha256": "386d467d3c7587aa6d00a0f66387e2d33b54e44d83756503de7efefd8a8488d5",
+      "bytes": 2066,
+      "sourceSha256": "ebf431b9476d3e8902955a47ff5be711c98cad245bfc16361c9ca649e9cfd981"
+    },
+    "evidence/coverage.json": {
+      "sha256": "fea5e819d53ab0e4e1c75ad80a08dd0a304a41867bb08ff376c8edd18f248866",
+      "bytes": 22141,
+      "sourceSha256": "37dd7fe3fb18a72baff271b2f9fffd2a0ec867053f1af21f957d60352f89b574"
+    },
+    "evidence/mcp-plus-result.json": {
+      "sha256": "cbfa9a8bd33fc4496542ffc742dab53819645c87738064a832ebde707f0ba41c",
+      "bytes": 12000,
+      "sourceSha256": "c96f17f16ac3d6d86c43fadc0024a8c3771690b3bbd7e563e331411025fef48c"
+    },
+    "evidence/mcp-plus-review.md": {
+      "sha256": "f28d0297b96c86f01bff890ce5c8bb70ef20825b7203e1f76426da685f4aa254",
+      "bytes": 3655,
+      "sourceSha256": "e1711c4e30e1b0bcf0b6c76ed4adc350f63902287cefca5340761cf3b7103067"
+    },
+    "evidence/mine-source-base-result.json": {
+      "sha256": "de06e66d52b07a36fabd005caa59d86b929cd7d40cc069c79c163280ea28cecb",
+      "bytes": 11822,
+      "sourceSha256": "d316681c006c3e7f619de49d321e8df9f7bc4be7538939bee2af692137f0e535"
+    },
+    "evidence/mine-source-base-review.md": {
+      "sha256": "0cc8d662c4144e2d2afddf2c7b3f73a6a256c0dc8ac367eca73444e11cedda73",
+      "bytes": 2732,
+      "sourceSha256": "48a4d299818e11b1ccd2d8660c07856e6ec00b7f60d3d9c92cdb7d1a74c02686"
+    },
+    "evidence/read-search-plus-result.json": {
+      "sha256": "cf42c8d88c4fa505856729d88cee8ace9e4a60221cb45adc3d42562e0cf8cebe",
+      "bytes": 14611,
+      "sourceSha256": "768c9043e097d174ae1eb267abc4cbd4088e79fe8b06aae34fbb225f7e473b46"
+    },
+    "evidence/read-search-plus-review.md": {
+      "sha256": "4418d386fd788b4b9bdbae09cd108daf137c7780d6bdf0e55dfae5bf76fe1a1d",
+      "bytes": 3984,
+      "sourceSha256": "c2ffde6d5446307aee7b95687933679ca5381405cd354fd09ad31dfafabafb22"
+    },
+    "issues/MP-ARCHIVE-PUBLISH-RACE.md": {
+      "sha256": "8eb7655d4a10c254aa2cec2b291e5ad46ce3ff1da4b36d2f6373732b7deabb94",
+      "bytes": 4383,
+      "sourceSha256": "1bf987a95a447886e601fa2425a9f06bd95656bcd7c61e6e8dcfa699cb217037"
+    },
+    "issues/MP-MAINTENANCE-THREAD-BYPASS.md": {
+      "sha256": "a25f576ef65660134c66b9bbaacde2a2a02c1c94464d32b0e1d3d5b066ed96b8",
+      "bytes": 3822,
+      "sourceSha256": "fe2ae02ca6f6882834c1132a0c7c018572cba61f803e749a6f3f53915e64fb78"
+    },
+    "issues/MP-MCP-CACHED-KG-NO-PALACE.md": {
+      "sha256": "af5ac1ddc7901f4490f951b0c0f162791d07e47a6ffab8ef85c94d7398006a04",
+      "bytes": 2114,
+      "sourceSha256": "c82d5a6aa045842ac1ceee0fcbcd08c19a1f82ba228a4df124d71593beaf8df4"
+    },
+    "issues/MP-MCP-DEGRADED-RETRY.md": {
+      "sha256": "25fb6a2c8bdd7ad5aabe08c887b6fc75310505b9600a8ef0e74b9d58a47b999b",
+      "bytes": 2366,
+      "sourceSha256": "6543f270415f75f0c5c4b8125c60f7fa02ea265e9836b46fe8aab793134a9742"
+    },
+    "issues/MP-MCP-FILE-CONTEXT-CAP.md": {
+      "sha256": "7956126688415835c9241a35e1d41733a64ff792df5c38c85f772c8fec4719ba",
+      "bytes": 1915,
+      "sourceSha256": "5ee0dfcc5d3fe785aa3980f5222390a7e29075bbae998b3a8dd6e257c664dd78"
+    },
+    "issues/MP-MCP-KG-BEFORE-LEASE.md": {
+      "sha256": "047679c3dc8c6b31be9f850fc2cd38e1aaa444aa2f327446879cb37111dfa06a",
+      "bytes": 2279,
+      "sourceSha256": "75b50f01c34557aeee603c8a514b3e2b91e56dd81e5c3e70dd386a68c024a688"
+    },
+    "issues/MP-MINE-K8S-SECRET-SPACING.md": {
+      "sha256": "755958f722a28265591141b6fd2c2b05f81ba8f35c3124d12a81dec3aab7fa0b",
+      "bytes": 2532,
+      "sourceSha256": "27e24f8b371ea0345dc06958e2f32d992a3aa6d5459d4331951e06e6632b53bc"
+    },
+    "review.json": {
+      "sha256": "76baf2ea512ade12bd18093870c8feafe4fa4ae5046fd71f2faa30e812f88548",
+      "bytes": 2443,
+      "sourceSha256": "76baf2ea512ade12bd18093870c8feafe4fa4ae5046fd71f2faa30e812f88548"
+    }
+  },
+  "selfExcluded": true,
+  "sourceManifestSha256": "35658a38fbbfc28f20c982726ef053f57fde1d4f654e4cc016000948c6149dc6",
+  "publicSanitization": "Private paths, machine names and provider operation identifiers withheld. Original source hashes retained per file; unchanged original bundle is ignored executor evidence. Public planning key field named taskId; synthetic Secret leaf named example, avoiding credential-shaped labels without scanner suppressions."
+}

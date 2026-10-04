@@ -7,26 +7,17 @@ clients use the package discovered by `mempalace-code agent-plugin path --json`;
 unsupported.
 
 ### 1. What are these hooks?
-* **Save Hook** (`mempal_save_hook.sh`): Saves new facts and decisions every 15 messages.
-* **PreCompact Hook** (`mempal_precompact_hook.sh`): Saves your context right before the AI's memory window fills up.
+* **Save Hook** (`hooks/mempal_save_hook.sh`): Every 15 human messages, blocks Claude from
+  stopping and asks it to save durable decisions, root causes, and a diary note with the MCP tools.
+* **PreCompact Hook** (`hooks/mempal_precompact_hook.sh`): Never blocks. Logs each compaction and,
+  if `MEMPAL_DIR` is set, mines that conversations directory in the background. Claude Code gives
+  the AI no turn before compaction, so this hook cannot ask it to save.
+
+Apart from the optional `MEMPAL_DIR` mine, the hooks write no memories themselves; the AI files
+them through MCP.
 
 ### 2. Setup for Claude Code
-Add this to your configuration file to enable automatic background saving:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "", 
-        "hooks": [{"type": "command", "command": "./hooks/mempal_save_hook.sh"}]
-      }
-    ],
-    "PreCompact": [
-      {
-        "matcher": "", 
-        "hooks": [{"type": "command", "command": "./hooks/mempal_precompact_hook.sh"}]
-      }
-    ]
-  }
-}
+Follow [`hooks/README.md`](../hooks/README.md). It has the settings JSON with absolute script
+paths and timeouts, the `chmod +x` step, and the `MEMPAL_DIR` option. Hook commands run from
+Claude Code's current directory, so relative paths such as `./hooks/...` resolve only inside a
+mempalace-code checkout.
