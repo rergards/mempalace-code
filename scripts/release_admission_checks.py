@@ -120,6 +120,12 @@ ACKNOWLEDGED_ORPHAN_TAGS: dict[str, str] = {
         "artifact build, so no PyPI distribution or GitHub Release exists; the tag "
         "stays as immutable public evidence and must never be moved or deleted"
     ),
+    "v1.15.0": (
+        "failed publish attempt: full-history Gitleaks scanning rejected a governed "
+        "synthetic fixture in immutable candidate history before artifact build, so "
+        "no PyPI distribution or GitHub Release exists; the tag stays as immutable "
+        "public evidence and must never be moved or deleted"
+    ),
 }
 # Failed-publication evidence added after the SHA-bound registry contract. The
 # live orphan predicate peels the public tag and requires this exact commit;
@@ -128,7 +134,11 @@ ACKNOWLEDGED_ORPHAN_EVIDENCE: dict[str, dict[str, object]] = {
     "v1.14.1": {
         "commit_sha": "1f4cd91b7e3825056b82784b5f363c0df2967d42",
         "workflow_run_id": 35541592673,
-    }
+    },
+    "v1.15.0": {
+        "commit_sha": "5baa412113011a843d6b501c50853c16ac6c43d6",
+        "workflow_run_id": 37231523196,
+    },
 }
 
 # Bounds on live lookups so a large repository cannot flood a release log.

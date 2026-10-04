@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v1.15.1 — 2026-10-04
+
+Includes the v1.15.0 changes and the release-history correction below.
+
+### Fixed
+
+- Govern the synthetic Kubernetes Secret fixture in immutable release-candidate
+  history with one exact Gitleaks fingerprint so full-history release scanning
+  can retain that history and continue detecting other secrets.
+
 ## v1.15.0 — 2026-09-26
 
 Maintenance release from a full repository and documentation audit. Search scores
