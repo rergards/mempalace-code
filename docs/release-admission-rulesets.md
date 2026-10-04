@@ -110,6 +110,7 @@ below are reviewed, immutable, and reported without blocking; they are the
 | `v1.13.2` | failed publish attempt: **no** PyPI distribution and **no** GitHub Release. The tag stays as immutable public evidence of the failure and must never be moved or deleted. |
 | `v1.13.7` | failed publish attempt: live upstream drift stopped the workflow before artifact build, so **no** PyPI distribution and **no** GitHub Release exists. The tag stays as immutable public evidence of the failure and must never be moved or deleted. |
 | `v1.14.1` | failed publish attempt: live upstream drift stopped workflow run `35541592673` before artifact build, so **no** PyPI distribution and **no** GitHub Release exists. The peeled tag target is fixed at `1f4cd91b7e3825056b82784b5f363c0df2967d42`; admission rejects a different target. The tag stays as immutable public evidence of the failure and must never be moved or deleted. |
+| `v1.15.0` | failed publish attempt: full-history Gitleaks scanning stopped workflow run `37231523196` before artifact build because an exact fingerprint was missing for a governed synthetic fixture in immutable candidate history. No PyPI distribution or GitHub Release exists. The peeled tag target is fixed at `5baa412113011a843d6b501c50853c16ac6c43d6`; admission rejects a different target. The tag stays as immutable public evidence of the failure and must never be moved or deleted. |
 
 Adding a tag to that registry is a reviewed decision for a permanent missing
 surface. An in-flight partial publication stays outside the registry and follows

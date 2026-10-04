@@ -589,23 +589,24 @@ def test_orphan_admission_without_publication_exemption_rejects_expected_orphan(
     assert "v1.2.3: no GitHub Release" in row.detail
 
 
-def test_acknowledged_failed_tag_requires_its_exact_peeled_commit():
-    evidence = ADMISSION.ACKNOWLEDGED_ORPHAN_EVIDENCE["v1.14.1"]
+@pytest.mark.parametrize("tag", ["v1.14.1", "v1.15.0"])
+def test_acknowledged_failed_tag_requires_its_exact_peeled_commit(tag):
+    evidence = ADMISSION.ACKNOWLEDGED_ORPHAN_EVIDENCE[tag]
 
     matching = ADMISSION.check_public_orphan_tags(
         "9.9.9",
         "acme/tool",
         "mempalace-code",
         _orphan_public_read(
-            ["v1.14.1"],
-            tag_shas={"v1.14.1": evidence["commit_sha"]},
+            [tag],
+            tag_shas={tag: evidence["commit_sha"]},
         ),
     )
     moved = ADMISSION.check_public_orphan_tags(
         "9.9.9",
         "acme/tool",
         "mempalace-code",
-        _orphan_public_read(["v1.14.1"]),
+        _orphan_public_read([tag]),
     )
 
     assert matching.status == ADMISSION.STATUS_OK
@@ -629,19 +630,26 @@ def test_every_acknowledged_orphan_tag_is_documented_with_a_reason():
         assert reason.strip()
 
 
-def test_failed_v1141_evidence_binds_commit_and_workflow_run():
-    evidence = ADMISSION.ACKNOWLEDGED_ORPHAN_EVIDENCE["v1.14.1"]
+@pytest.mark.parametrize(
+    ("tag", "commit_sha", "workflow_run_id"),
+    [
+        ("v1.14.1", "1f4cd91b7e3825056b82784b5f363c0df2967d42", 35541592673),
+        ("v1.15.0", "5baa412113011a843d6b501c50853c16ac6c43d6", 37231523196),
+    ],
+)
+def test_failed_tag_evidence_binds_commit_and_workflow_run(tag, commit_sha, workflow_run_id):
+    evidence = ADMISSION.ACKNOWLEDGED_ORPHAN_EVIDENCE[tag]
 
     assert evidence == {
-        "commit_sha": "1f4cd91b7e3825056b82784b5f363c0df2967d42",
-        "workflow_run_id": 35541592673,
+        "commit_sha": commit_sha,
+        "workflow_run_id": workflow_run_id,
     }
     text = RULESET_DOC.read_text(encoding="utf-8")
     assert evidence["commit_sha"] in text
     assert str(evidence["workflow_run_id"]) in text
 
 
-@pytest.mark.parametrize("tag", ["v1.13.2", "v1.13.7", "v1.14.1"])
+@pytest.mark.parametrize("tag", ["v1.13.2", "v1.13.7", "v1.14.1", "v1.15.0"])
 def test_failed_publish_tag_stays_immutable_evidence_rather_than_a_repair_target(tag):
     reason = ADMISSION.ACKNOWLEDGED_ORPHAN_TAGS[tag]
     assert "immutable" in reason

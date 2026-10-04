@@ -708,7 +708,7 @@ def test_cli_recovery_safety_matrix(tmp_path, fake_pkg_root):
     )
 
 
-def test_cli_non_regular_source_guard(tmp_path, fake_pkg_root):
+def test_cli_non_regular_source_guard(tmp_path, tmp_path_factory, fake_pkg_root):
     """The source console consumes the release-owned non-regular source scenario."""
     if not hasattr(os, "mkfifo"):
         pytest.skip("os.mkfifo is not available on this platform")
@@ -727,7 +727,7 @@ def test_cli_non_regular_source_guard(tmp_path, fake_pkg_root):
     row = _run_installed_non_regular_source_scenario(
         _CLI,
         env,
-        tmp_path / "non-regular-source-scenario",
+        tmp_path_factory.mktemp("nonregular"),
         neutral_cwd,
         repository_root=repository_sentinel,
     )

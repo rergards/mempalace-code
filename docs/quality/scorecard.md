@@ -12,7 +12,7 @@ Schema version: 4
 | Package total lines | 47961 |
 | Package code lines | 40386 |
 | Test files (`tests/`) | 123 |
-| Test total lines | 111356 |
+| Test total lines | 111364 |
 
 ## Largest Modules (top 10)
 

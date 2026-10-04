@@ -8,3 +8,5 @@ fd9a87eeb1c4f905731f10e5cc1512f57355ae40:docs/BACKLOG.yaml:generic-api-key:1064
 cddbbbbcf812bc84def50bbea09e4c13629e810b:docs/BACKLOG-archived.yaml:generic-api-key:229
 # gitleaks-ignore-metadata: {"owner":"security-maintainers","rationale":"Synthetic Kubernetes Secret manifest in the mining exclusion regression test; no account or provider credential is used.","review_condition":"Remove when this fixture or its historical commit is removed."}
 7f7fa25512eb832edab740c33bf3d9b1d915131e:tests/test_uat2_mining.py:generic-api-key:513
+# gitleaks-ignore-metadata: {"owner":"security-maintainers","rationale":"Immutable release-candidate history preserves the same synthetic Kubernetes Secret fixture already governed by the source-commit fingerprint; no account or provider credential is used.","review_condition":"Remove when this historical fixture commit is no longer scanned."}
+c2075efa2acb2e8eef0a52e63cbf5a5443c13082:tests/test_uat2_mining.py:generic-api-key:580
