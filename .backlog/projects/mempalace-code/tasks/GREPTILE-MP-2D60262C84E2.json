@@ -1,0 +1,653 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "GREPTILE-MP-2D60262C84E2",
+      "version": "v1:7297dfc6e8a27589d259ca05f1cf826c6907e07a97a2ceaee217ba72c7320d5d",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Проверить: Text regression does not fail\n\nFinding 2d60262c84e2; assessment unverified-benchmark-risk; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md\nHistorical or quality-gate harness finding; exact input path and current CI admission effect require a focused check.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/embed_ab_bench.py; snapshot line 388. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate.\nHandoff SHA256: cc8853a5cec1d2d484cbf95088c4be1d3bd450f291ba40e3418d14a9bde34f55",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "benchmarks/embed_ab_bench.py"
+          },
+          {
+            "type": "file",
+            "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md"
+          }
+        ],
+        "exclusions": [
+          "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+          "Other repositories and architecture or ownership boundary changes without owner approval.",
+          "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+          "Unrelated implementation, dependencies, backlog tasks or worksets."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+          "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+        },
+        {
+          "id": "A02",
+          "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+          "verification": "Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate."
+        },
+        {
+          "id": "A03",
+          "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+          "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+        "result": "Verified outcome: fixed. Current status, missing-metric, missing-baseline and regression gates already fail closed. Corrected padded combined-output parsing and rejection of nonfinite/out-of-range metrics; synthetic subprocess failure and valid-output controls pass. Change/evidence revision: b5501b3cef3bf6b242c085352ffc445c39566354. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2. No live palace, push or release mutation.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A03",
+            "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-01T23:51:54.35819Z"
+      },
+      "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+      "ready": false,
+      "created_at": "2026-10-01T22:36:02.333031Z",
+      "updated_at": "2026-10-01T23:51:54.35819Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-2D60262C84E2",
+          "version": "v1:a7e74f37427ddaa26b3945eea88627778b0c3cd34ec1c0d58d2eb118275b44d2",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Проверить: Text regression does not fail\n\nFinding 2d60262c84e2; assessment unverified-benchmark-risk; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md\nHistorical or quality-gate harness finding; exact input path and current CI admission effect require a focused check.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/embed_ab_bench.py; snapshot line 388. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate.\nHandoff SHA256: cc8853a5cec1d2d484cbf95088c4be1d3bd450f291ba40e3418d14a9bde34f55",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "benchmarks/embed_ab_bench.py"
+              },
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+              "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+            },
+            {
+              "id": "A02",
+              "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+              "verification": "Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate."
+            },
+            {
+              "id": "A03",
+              "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+              "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+          "ready": false,
+          "created_at": "2026-10-01T22:36:02.333031Z",
+          "updated_at": "2026-10-01T22:36:02.333031Z"
+        },
+        "operation": {
+          "id": "op_0c5af837a8563fa9a07d12bad8d79397",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-2d60262c84e2-create-v1",
+          "kind": "create",
+          "payload": {
+            "id": "GREPTILE-MP-2D60262C84E2",
+            "outcome": "Проверить: Text regression does not fail\n\nFinding 2d60262c84e2; assessment unverified-benchmark-risk; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md\nHistorical or quality-gate harness finding; exact input path and current CI admission effect require a focused check.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/embed_ab_bench.py; snapshot line 388. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate.\nHandoff SHA256: cc8853a5cec1d2d484cbf95088c4be1d3bd450f291ba40e3418d14a9bde34f55",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "benchmarks/embed_ab_bench.py"
+                }
+              ],
+              "exclusions": [
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": null
+          },
+          "request_hash": "d58419a259a59120aaf5cb71609974305e9ddcb218e8f02d71cc17716e31f827",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-2D60262C84E2",
+            "version": "v1:a7e74f37427ddaa26b3945eea88627778b0c3cd34ec1c0d58d2eb118275b44d2",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Проверить: Text regression does not fail\n\nFinding 2d60262c84e2; assessment unverified-benchmark-risk; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md\nHistorical or quality-gate harness finding; exact input path and current CI admission effect require a focused check.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/embed_ab_bench.py; snapshot line 388. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate.\nHandoff SHA256: cc8853a5cec1d2d484cbf95088c4be1d3bd450f291ba40e3418d14a9bde34f55",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "benchmarks/embed_ab_bench.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+            "ready": false,
+            "created_at": "2026-10-01T22:36:02.333031Z",
+            "updated_at": "2026-10-01T22:36:02.333031Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_5a7a6757410a922e0917798d7bb41a92",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-2D60262C84E2",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:a7e74f37427ddaa26b3945eea88627778b0c3cd34ec1c0d58d2eb118275b44d2",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-2D60262C84E2"
+          },
+          "created_at": "2026-10-01T22:36:02.333031Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_1668df6019724e1d15c7c10229045cb5",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-2D60262C84E2",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:9b191da4fb3e8ebca5334c0c262fa10796e17000e8401c79207038e18ee2ff7a",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-2D60262C84E2"
+            },
+            "created_at": "2026-10-01T22:36:02.485524Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-2D60262C84E2",
+          "version": "v1:9b191da4fb3e8ebca5334c0c262fa10796e17000e8401c79207038e18ee2ff7a",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Проверить: Text regression does not fail\n\nFinding 2d60262c84e2; assessment unverified-benchmark-risk; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md\nHistorical or quality-gate harness finding; exact input path and current CI admission effect require a focused check.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/embed_ab_bench.py; snapshot line 388. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate.\nHandoff SHA256: cc8853a5cec1d2d484cbf95088c4be1d3bd450f291ba40e3418d14a9bde34f55",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "benchmarks/embed_ab_bench.py"
+              },
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+              "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+            },
+            {
+              "id": "A02",
+              "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+              "verification": "Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate."
+            },
+            {
+              "id": "A03",
+              "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+              "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+          "ready": false,
+          "created_at": "2026-10-01T22:36:02.333031Z",
+          "updated_at": "2026-10-01T22:36:02.485524Z"
+        },
+        "operation": {
+          "id": "op_9bc936102743244a76b8e5657f8674cf",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-root-2d60262c84e2-open-v1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:a7e74f37427ddaa26b3945eea88627778b0c3cd34ec1c0d58d2eb118275b44d2",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "59c865b38fa3ebff6e8d1c912c6b09601f192fd08a36de3adc35aa28bd7055ca",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-2D60262C84E2",
+            "version": "v1:9b191da4fb3e8ebca5334c0c262fa10796e17000e8401c79207038e18ee2ff7a",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Проверить: Text regression does not fail\n\nFinding 2d60262c84e2; assessment unverified-benchmark-risk; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md\nHistorical or quality-gate harness finding; exact input path and current CI admission effect require a focused check.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/embed_ab_bench.py; snapshot line 388. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate.\nHandoff SHA256: cc8853a5cec1d2d484cbf95088c4be1d3bd450f291ba40e3418d14a9bde34f55",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "benchmarks/embed_ab_bench.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+            "ready": true,
+            "created_at": "2026-10-01T22:36:02.333031Z",
+            "updated_at": "2026-10-01T22:36:02.485524Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_6396b8891f497888cab0e080c5c7e09d",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-2D60262C84E2",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:9b191da4fb3e8ebca5334c0c262fa10796e17000e8401c79207038e18ee2ff7a",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-2D60262C84E2"
+          },
+          "created_at": "2026-10-01T22:36:02.485524Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_9859a5962a6d770efb4bf67cb9073038",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-2D60262C84E2",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:7297dfc6e8a27589d259ca05f1cf826c6907e07a97a2ceaee217ba72c7320d5d",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-2D60262C84E2"
+            },
+            "created_at": "2026-10-01T23:51:54.35819Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "GREPTILE-MP-2D60262C84E2",
+          "version": "v1:7297dfc6e8a27589d259ca05f1cf826c6907e07a97a2ceaee217ba72c7320d5d",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Проверить: Text regression does not fail\n\nFinding 2d60262c84e2; assessment unverified-benchmark-risk; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md\nHistorical or quality-gate harness finding; exact input path and current CI admission effect require a focused check.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/embed_ab_bench.py; snapshot line 388. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate.\nHandoff SHA256: cc8853a5cec1d2d484cbf95088c4be1d3bd450f291ba40e3418d14a9bde34f55",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "benchmarks/embed_ab_bench.py"
+              },
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md"
+              }
+            ],
+            "exclusions": [
+              "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+              "Other repositories and architecture or ownership boundary changes without owner approval.",
+              "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+              "Unrelated implementation, dependencies, backlog tasks or worksets."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+              "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+            },
+            {
+              "id": "A02",
+              "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+              "verification": "Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate."
+            },
+            {
+              "id": "A03",
+              "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+              "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+            "result": "Verified outcome: fixed. Current status, missing-metric, missing-baseline and regression gates already fail closed. Corrected padded combined-output parsing and rejection of nonfinite/out-of-range metrics; synthetic subprocess failure and valid-output controls pass. Change/evidence revision: b5501b3cef3bf6b242c085352ffc445c39566354. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-01T23:51:54.35819Z"
+          },
+          "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+          "ready": false,
+          "created_at": "2026-10-01T22:36:02.333031Z",
+          "updated_at": "2026-10-01T23:51:54.35819Z"
+        },
+        "operation": {
+          "id": "op_3e43f35449ce5bbd5bc321a240dedd95",
+          "principal": "codex-greptile-20261002",
+          "request_id": "greptile-20261002-2d60262c84e2-root-complete-v1",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:9b191da4fb3e8ebca5334c0c262fa10796e17000e8401c79207038e18ee2ff7a",
+            "expected_revision": 2,
+            "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+            "result": "Verified outcome: fixed. Current status, missing-metric, missing-baseline and regression gates already fail closed. Corrected padded combined-output parsing and rejection of nonfinite/out-of-range metrics; synthetic subprocess failure and valid-output controls pass. Change/evidence revision: b5501b3cef3bf6b242c085352ffc445c39566354. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2. No live palace, push or release mutation.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "ccc2ae0daa3b4cb5cf7ea4053c5d413029fa383ca22b591497abcc0653f35770",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "GREPTILE-MP-2D60262C84E2",
+            "version": "v1:7297dfc6e8a27589d259ca05f1cf826c6907e07a97a2ceaee217ba72c7320d5d",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Проверить: Text regression does not fail\n\nFinding 2d60262c84e2; assessment unverified-benchmark-risk; source 3594fbce1050bd0471a3e3b40ed6ebe72473a440.\nHandoff: docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md\nHistorical or quality-gate harness finding; exact input path and current CI admission effect require a focused check.\nУстановлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.\n\nCurrent intake: verify; assessed severity P2; source owner benchmarks/embed_ab_bench.py; snapshot line 388. Snapshot evidence must be refreshed against current files.\nFirst decisive check: Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate.\nHandoff SHA256: cc8853a5cec1d2d484cbf95088c4be1d3bd450f291ba40e3418d14a9bde34f55",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "benchmarks/embed_ab_bench.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-09-30/issues/GREPTILE-MP-2D60262C84E2.md"
+                }
+              ],
+              "exclusions": [
+                "Live DB, Redis or S3 data; provider billing or credential access; personal mail or email delivery; deployment, reset or force-push.",
+                "Other repositories and architecture or ownership boundary changes without owner approval.",
+                "Shared state as a test fixture; whole operational script execution when an inert focused check suffices.",
+                "Unrelated implementation, dependencies, backlog tasks or worksets."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Establish the current product or verifier requirement independently of the Greptile claim; identify the existing behavioral owner, callers, guards and relevant tests.",
+                "verification": "Retain repository contract references, current source identity and finding-specific evidence in the handoff outcome."
+              },
+              {
+                "id": "A02",
+                "assertion": "Run a bounded disposable or inert reproduction on the actual owner/call path with a positive control; determine whether the specific claim is confirmed or refuted.",
+                "verification": "Exercise the actual benchmark predicate with a minimal fixture; check whether current CI invokes that gate."
+              },
+              {
+                "id": "A03",
+                "assertion": "Установлен актуальный пользовательский либо verifier contract независимо от комментария Greptile. Минимальный тест на реальном owner/call path подтверждает или опровергает claim с положительным control. При опровержении записаны exact evidence и verdict. Исправление допускается после подтверждения; regression test ловит исходный сбой и проходит после delta, существующие guards сохранены.",
+                "verification": "Record an explicit confirmed/refuted verdict and exact evidence. A refuted claim closes with evidence; a confirmed defect requires the minimal same-owner correction and before/after regression, preserving existing guards."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+              "result": "Verified outcome: fixed. Current status, missing-metric, missing-baseline and regression gates already fail closed. Corrected padded combined-output parsing and rejection of nonfinite/out-of-range metrics; synthetic subprocess failure and valid-output controls pass. Change/evidence revision: b5501b3cef3bf6b242c085352ffc445c39566354. Complete product suite: 6271 passed, 9 skipped, 1 network-marked deselected, exit 0; source fixes independently reviewed by Astra. Exact handoff and independent controls are recorded at file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2. No live palace, push or release mutation.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A03",
+                  "artifact_ref": "file:docs/handoffs/greptile-2026-09-30-results.md#2d60262c84e2",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-01T23:51:54.35819Z"
+            },
+            "contract_digest": "sha256:5b242940eac3fe093da899ee68f9046d6f907a712da0d6df950341d44d8da251",
+            "ready": false,
+            "created_at": "2026-10-01T22:36:02.333031Z",
+            "updated_at": "2026-10-01T23:51:54.35819Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_519544af45f35bfbedb5d4d7a5f3266e",
+          "project": "mempalace-code",
+          "task_id": "GREPTILE-MP-2D60262C84E2",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:7297dfc6e8a27589d259ca05f1cf826c6907e07a97a2ceaee217ba72c7320d5d",
+          "data": {
+            "resource": "backlog://mempalace-code/task/GREPTILE-MP-2D60262C84E2"
+          },
+          "created_at": "2026-10-01T23:51:54.35819Z"
+        }
+      }
+    ],
+    "seal": "534953d763d375fd5a16bebe821502e16c9d029f6062a0296400b750f0cbc1be"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "GREPTILE-MP-2D60262C84E2",
+    "head": "wf2:d7391977aa8f76ee6ab505476d2365fa62602992a121818af7ec1a45812bdcce",
+    "nodes": [
+      {
+        "version": "wf2:d7391977aa8f76ee6ab505476d2365fa62602992a121818af7ec1a45812bdcce",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-greptile-20261002",
+        "request_id": "greptile-20261002-root-2d60262c84e2-plan-v1",
+        "request_hash": "28aea5e0ef9b1d56359317d3628f9d6423691e57b1ab85302f93dcecb4b7e4bc",
+        "payload": {
+          "request_id": "greptile-20261002-root-2d60262c84e2-plan-v1",
+          "id": "GREPTILE-MP-2D60262C84E2",
+          "expected_planning_version": "unplanned",
+          "reason": "Authorized root-main intake of the same nineteen accepted finding contracts; fixes ordered before bounded verification work.",
+          "priority": "P2",
+          "order": 16
+        },
+        "state": {
+          "order": 16,
+          "priority": "P2",
+          "required": true,
+          "version": "wf2:d7391977aa8f76ee6ab505476d2365fa62602992a121818af7ec1a45812bdcce"
+        },
+        "created_at": "2026-10-01T22:36:02.644914Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_d7391977aa8f76ee6ab505476d2365fa62602992a121818af7ec1a45812bdcce",
+            "project": "mempalace-code",
+            "task_id": "GREPTILE-MP-2D60262C84E2",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:d7391977aa8f76ee6ab505476d2365fa62602992a121818af7ec1a45812bdcce",
+            "data": {
+              "resource": "backlog://mempalace-code/task/GREPTILE-MP-2D60262C84E2",
+              "subject_id": "GREPTILE-MP-2D60262C84E2",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-01T22:36:02.644914Z"
+          }
+        ]
+      }
+    ],
+    "seal": "c19966944f93919f8f2188d90439dfc9cf99446366e981794e40e402406987fa"
+  },
+  "seal": "613db98f6954041765770cfd14aeb83f32d4a039460fb0ff6a66021acba0a4e8"
+}

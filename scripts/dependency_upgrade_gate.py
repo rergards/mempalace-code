@@ -9,8 +9,10 @@ Subcommands:
   ci-check       CI enforcement: require a fresh successful report when
                  pyproject.toml or uv.lock changed from a given git base ref;
                  pass cleanly when neither file changed.
-  current-audit  Audit current resolved packages for advisories, yanked versions,
-                 and range drift without changing dependency bounds or uv.lock.
+  current-audit  Audit every package pinned in uv.lock (direct and transitive) for
+                 advisories, direct dependencies for yanked versions and range
+                 drift, and fresh unpinned installs with pip-audit, without
+                 changing dependency bounds or uv.lock.
 
 Stdlib-only — no project imports, no third-party dependencies.
 
@@ -29,7 +31,6 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -124,6 +125,24 @@ def _parse_lockfile(lockfile_path: Path) -> dict[str, str]:
         for pkg in data.get("package", [])
         if "version" in pkg
     }
+
+
+def _parse_locked_packages(lockfile_path: Path) -> list[tuple[str, str]]:
+    """Return sorted unique (name, version) pairs for every package pinned in uv.lock.
+
+    Direct and transitive packages are both included. Only local project sources
+    (editable or virtual, i.e. this repository itself) are skipped: they are not
+    published releases an advisory database could describe.
+    """
+    with lockfile_path.open("rb") as fh:
+        data = tomllib.load(fh)
+    pinned: set[tuple[str, str]] = set()
+    for pkg in data.get("package", []):
+        source = pkg.get("source", {})
+        if "version" not in pkg or "editable" in source or "virtual" in source:
+            continue
+        pinned.add((pkg["name"], pkg["version"]))
+    return sorted(pinned)
 
 
 # ── File hashing ───────────────────────────────────────────────────────────────
@@ -223,6 +242,9 @@ def _default_advisory_querier(queries: list[dict]) -> list[dict]:
 
     Each query: {"name": str, "version": str}
     Returns a list of result dicts parallel to queries; each has "vulns" list.
+    Fails closed: a request, timeout, or decoding error, or a response that does
+    not answer every query in full (a missing result, or one OSV paginated with a
+    `next_page_token`), exits non-zero instead of reporting a clean result.
     """
     if not queries:
         return []
@@ -246,14 +268,29 @@ def _default_advisory_querier(queries: list[dict]) -> list[dict]:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        results = data.get("results", [])
-        # Pad with empty results if the API returns fewer than expected
-        while len(results) < len(queries):
-            results.append({"vulns": []})
-        return results
-    except urllib.error.URLError as exc:
+    except (OSError, ValueError) as exc:  # URLError/timeouts are OSError; bad JSON is ValueError
         print(f"error: OSV query failed: {exc}", file=sys.stderr)
         sys.exit(1)
+    results = data.get("results") if isinstance(data, dict) else None
+    if not isinstance(results, list) or len(results) != len(queries):
+        answered = len(results) if isinstance(results, list) else 0
+        print(
+            f"error: OSV answered {answered} of {len(queries)} queries — "
+            "an unanswered query is never treated as clean",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    paginated = [
+        q["name"] for q, r in zip(queries, results, strict=True) if r.get("next_page_token")
+    ]
+    if paginated:
+        print(
+            f"error: OSV paginated the advisories for {', '.join(paginated)} — "
+            "a partial advisory list is never treated as complete",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return results
 
 
 # ── Resolver audit planning ────────────────────────────────────────────────────
@@ -595,8 +632,11 @@ def _check_dep_files_changed(
 ) -> bool | None:
     """Return True if pyproject.toml or uv.lock changed from base_ref.
 
-    Returns None when the base ref cannot be resolved (e.g., all-zeros SHA on a
-    force-push, or an unresolvable ref), which signals the caller to fail closed.
+    Returns None when the base ref cannot be resolved, which signals the caller to
+    fail closed: the all-zeros SHA GitHub sends as `before` when a push creates a
+    branch, or any other unresolvable ref such as an unfetched force-pushed SHA.
+    The CI job maps the all-zeros branch-creation case to origin/main before
+    calling ci-check.
     """
     if base_ref == _ALL_ZEROS_SHA:
         return None
@@ -836,19 +876,23 @@ def _plan_current_resolver_audits(pyproject: dict) -> list[list[str]]:
 # ── Current-audit: PyPI yanked checker ────────────────────────────────────────
 
 
-def _default_yanked_checker(queries: list[dict]) -> list[bool]:
-    """Return True for each {name, version} that is yanked on PyPI."""
-    results: list[bool] = []
+def _default_yanked_checker(queries: list[dict]) -> list[bool | None]:
+    """Return the PyPI yanked status of each {name, version}.
+
+    True means yanked and False means not yanked. None means the lookup did not
+    complete (network, HTTP, timeout, or malformed response): it is never reported
+    as "not yanked", and the caller turns it into a blocking finding.
+    """
+    results: list[bool | None] = []
     for q in queries:
+        url = f"https://pypi.org/pypi/{q['name']}/{q['version']}/json"
         try:
-            url = f"https://pypi.org/pypi/{q['name']}/{q['version']}/json"
-            req = urllib.request.Request(url)
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(urllib.request.Request(url), timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            yanked = data.get("info", {}).get("yanked", False)
-            results.append(bool(yanked))
-        except (urllib.error.URLError, json.JSONDecodeError, KeyError):
-            results.append(False)
+            yanked = data["info"]["yanked"]
+            results.append(yanked if isinstance(yanked, bool) else None)
+        except Exception:  # any failed lookup is unknown, never "not yanked"
+            results.append(None)
     return results
 
 
@@ -884,7 +928,12 @@ def cmd_current_audit(
     resolver_runner=None,
     today_iso: str | None = None,
 ) -> int:
-    """Audit current resolved packages without changing dependency bounds or uv.lock."""
+    """Audit current resolved packages without changing dependency bounds or uv.lock.
+
+    Advisories are checked for every package pinned in uv.lock, direct and
+    transitive. Yanked status and range drift are checked for direct
+    dependencies, and fresh unpinned installs of every surface are pip-audited.
+    """
     if advisory_querier is None:
         advisory_querier = _default_advisory_querier
     if yanked_checker is None:
@@ -909,93 +958,132 @@ def cmd_current_audit(
 
     pyproject = _parse_pyproject(pyproject_path)
     lock_versions = _parse_lockfile(lockfile_path)
+    locked_packages = _parse_locked_packages(lockfile_path)
     allowlist_entries = _load_allowlist(allowlist_path)
 
-    # Enumerate all direct deps: runtime + dev + optional extras
-    all_deps: list[tuple[str, str, str]] = []  # (name, specifier, group)
+    # Direct declarations: one row per distinct (package, specifier) carrying every
+    # group that declares it, so a package listed in several groups (for example
+    # dev and an extra) is audited and reported once.
+    declared: dict[tuple[str, str], dict] = {}
+
+    def _declare(name: str, spec: str, group: str) -> None:
+        row = declared.setdefault(
+            (_normalize_name(name), spec),
+            {"name": name, "normalized": _normalize_name(name), "specifier": spec, "groups": []},
+        )
+        if group not in row["groups"]:
+            row["groups"].append(group)
+
     for name, spec in pyproject["runtime"]:
-        all_deps.append((name, spec, "runtime"))
+        _declare(name, spec, "runtime")
     for name, spec in pyproject["dev"]:
-        all_deps.append((name, spec, "dev"))
+        _declare(name, spec, "dev")
     for extra_name, dep_list in sorted(pyproject["extras"].items()):
         for name, spec in dep_list:
-            all_deps.append((name, spec, f"extra:{extra_name}"))
+            _declare(name, spec, f"extra:{extra_name}")
 
-    # Build OSV queries for current locked versions of all direct deps
-    adv_queries: list[dict] = []
-    adv_meta: list[dict] = []
-    for name, spec, group in all_deps:
-        norm = _normalize_name(name)
-        version = lock_versions.get(norm, "unknown")
-        if version != "unknown":
-            adv_queries.append({"name": name, "version": version})
-            adv_meta.append(
-                {
-                    "name": name,
-                    "normalized": norm,
-                    "version": version,
-                    "specifier": spec,
-                    "group": group,
-                }
-            )
+    declared_by_package: dict[str, list[dict]] = {}
+    for row in declared.values():
+        declared_by_package.setdefault(row["normalized"], []).append(row)
 
+    # Advisory queries: every package pinned in uv.lock, direct and transitive
+    adv_queries = [{"name": name, "version": version} for name, version in locked_packages]
     osv_results = advisory_querier(adv_queries) if adv_queries else []
+    if len(osv_results) != len(adv_queries):
+        print(
+            f"error: advisory lookup answered {len(osv_results)} of {len(adv_queries)} "
+            "locked packages — an unanswered package is never treated as clean",
+            file=sys.stderr,
+        )
+        return 1
 
-    # Build range-drift queries for declared specifiers
-    range_queries = [{"name": name, "specifier": spec} for name, spec, _ in all_deps]
-    range_meta = [
-        {"name": name, "specifier": spec, "group": group} for name, spec, group in all_deps
-    ]
+    # Range-drift queries for declared specifiers
+    range_meta = list(declared.values())
+    range_queries = [{"name": row["name"], "specifier": row["specifier"]} for row in range_meta]
     range_results = range_drift_querier(range_queries)
 
-    # Build yanked queries (parallel to adv_queries)
-    yanked_results = yanked_checker(adv_queries) if adv_queries else []
+    # Yanked queries: the locked version of each direct dependency, once
+    yanked_meta: list[dict] = []
+    for norm, rows in declared_by_package.items():
+        version = lock_versions.get(norm)
+        if version is None:
+            continue
+        yanked_meta.append(
+            {
+                "name": rows[0]["name"],
+                "version": version,
+                "specifier": ", ".join(dict.fromkeys(row["specifier"] for row in rows)),
+                "group": ", ".join(dict.fromkeys(g for row in rows for g in row["groups"])),
+            }
+        )
+    yanked_queries = [{"name": m["name"], "version": m["version"]} for m in yanked_meta]
+    yanked_results = yanked_checker(yanked_queries) if yanked_queries else []
 
     findings: list[dict] = []
 
-    # Advisory findings for current locked versions
-    for i, (q, meta) in enumerate(zip(adv_queries, adv_meta, strict=True)):
-        result = osv_results[i] if i < len(osv_results) else {"vulns": []}
-        for adv in result.get("vulns", []):
-            adv_id = adv.get("id", "")
-            allowed, allow_reason = _check_allowlist(
-                adv_id, q["name"], meta["specifier"], allowlist_entries, today_iso
-            )
-            finding: dict = {
-                "type": "advisory",
-                "package": q["name"],
-                "version": q["version"],
-                "advisory_id": adv_id,
-                "affected_range": meta["specifier"],
-                "group": meta["group"],
-                "allowlisted": allowed,
-                "remediation": (
-                    f"Check {adv_id} and update {q['name']} or add an allowlist entry."
-                ),
-            }
-            if allowed:
-                finding["allowlist_reason"] = allow_reason
-            findings.append(finding)
-
-    # Yanked-version findings
-    for i, yanked in enumerate(yanked_results):
-        if yanked:
-            meta = adv_meta[i]
-            findings.append(
-                {
-                    "type": "yanked",
-                    "package": meta["name"],
-                    "version": meta["version"],
-                    "advisory_id": "",
-                    "affected_range": meta["specifier"],
-                    "group": meta["group"],
-                    "allowlisted": False,
+    # Advisory findings for every locked package. A direct dependency is scoped by
+    # each declared specifier (the allowlist matches on it); a transitive package
+    # is scoped by its exact lock pin, so a lock refresh re-opens any acceptance.
+    for q, result in zip(adv_queries, osv_results, strict=True):
+        adv_ids = list(dict.fromkeys(adv.get("id", "") for adv in result.get("vulns", [])))
+        if not adv_ids:
+            continue
+        rows = declared_by_package.get(_normalize_name(q["name"]), [])
+        scopes = [(row["specifier"], row["groups"]) for row in rows] or [
+            (f"=={q['version']}", ["transitive"])
+        ]
+        for adv_id in adv_ids:
+            for affected_range, groups in scopes:
+                allowed, allow_reason = _check_allowlist(
+                    adv_id, q["name"], affected_range, allowlist_entries, today_iso
+                )
+                finding: dict = {
+                    "type": "advisory",
+                    "package": q["name"],
+                    "version": q["version"],
+                    "advisory_id": adv_id,
+                    "affected_range": affected_range,
+                    "group": ", ".join(groups),
+                    "allowlisted": allowed,
                     "remediation": (
-                        f"Version {meta['version']} of {meta['name']} is yanked on PyPI; "
-                        "upgrade to a non-yanked release."
+                        f"Check {adv_id} and update {q['name']} or add an allowlist entry."
                     ),
                 }
+                if allowed:
+                    finding["allowlist_reason"] = allow_reason
+                findings.append(finding)
+
+    # Yanked-version findings. A lookup that did not complete blocks too: an
+    # unknown status is never reported as "not yanked".
+    for i, meta in enumerate(yanked_meta):
+        yanked = yanked_results[i] if i < len(yanked_results) else None
+        if yanked is False:
+            continue
+        if yanked is None:
+            finding_type = "yanked_lookup_failed"
+            remediation = (
+                f"The PyPI yanked-status lookup for {meta['name']} {meta['version']} did not "
+                "complete; rerun the audit, and if it keeps failing, check that this version "
+                "still exists on PyPI."
             )
+        else:
+            finding_type = "yanked"
+            remediation = (
+                f"Version {meta['version']} of {meta['name']} is yanked on PyPI; "
+                "upgrade to a non-yanked release."
+            )
+        findings.append(
+            {
+                "type": finding_type,
+                "package": meta["name"],
+                "version": meta["version"],
+                "advisory_id": "",
+                "affected_range": meta["specifier"],
+                "group": meta["group"],
+                "allowlisted": False,
+                "remediation": remediation,
+            }
+        )
 
     # Range-drift findings from declared specifier intersection
     for i, drift_hits in enumerate(range_results):
@@ -1009,11 +1097,11 @@ def cmd_current_audit(
             finding = {
                 "type": "range_drift",
                 "package": meta["name"],
-                "version": lock_versions.get(_normalize_name(meta["name"]), "unknown"),
+                "version": lock_versions.get(meta["normalized"], "unknown"),
                 "advisory_id": adv_id,
                 "affected_range": affected_range,
                 "specifier": meta["specifier"],
-                "group": meta["group"],
+                "group": ", ".join(meta["groups"]),
                 "allowlisted": allowed,
                 "remediation": hit.get(
                     "description",
@@ -1051,6 +1139,7 @@ def cmd_current_audit(
         "schema_version": SCHEMA_VERSION,
         "audit_type": "current",
         "status": overall_status,
+        "locked_packages_audited": len(adv_queries),
         "findings": [
             {
                 "type": f["type"],
@@ -1087,11 +1176,13 @@ def cmd_current_audit(
         lines = [
             "## Dependency Audit Findings",
             "",
-            f"Found {len(blocking)} advisory/yanked/range finding(s) in current resolved packages.",
+            f"Found {len(blocking)} blocking finding(s) across {len(adv_queries)} locked "
+            "packages and the declared dependency ranges.",
             "",
         ]
         adv_findings = [f for f in blocking if f["type"] == "advisory"]
         yanked_findings = [f for f in blocking if f["type"] == "yanked"]
+        lookup_failures = [f for f in blocking if f["type"] == "yanked_lookup_failed"]
         range_findings = [f for f in blocking if f["type"] == "range_drift"]
         resolver_failures = [r for r in resolver_results if r.get("status") == "failed"]
 
@@ -1099,13 +1190,22 @@ def cmd_current_audit(
             lines += ["### Advisory Findings", ""]
             for f in adv_findings:
                 lines.append(
-                    f"- **{f['package']} {f['version']}**: {f['advisory_id']} — {f['remediation']}"
+                    f"- **{f['package']} {f['version']}** ({f['group']}; "
+                    f"`{f['affected_range']}`): {f['advisory_id']} — {f['remediation']}"
                 )
             lines.append("")
 
         if yanked_findings:
             lines += ["### Yanked Versions", ""]
             for f in yanked_findings:
+                lines.append(
+                    f"- **{f['package']} {f['version']}** ({f['group']}): {f['remediation']}"
+                )
+            lines.append("")
+
+        if lookup_failures:
+            lines += ["### Incomplete Yanked Lookups", ""]
+            for f in lookup_failures:
                 lines.append(
                     f"- **{f['package']} {f['version']}** ({f['group']}): {f['remediation']}"
                 )
@@ -1138,7 +1238,10 @@ def cmd_current_audit(
 
     if overall_status == "clean":
         n_allowed = len(findings) - len(blocking)
-        print(f"current-audit passed — {n_allowed} allowlisted, 0 blocking; report: {report_path}")
+        print(
+            f"current-audit passed — {len(adv_queries)} locked packages, "
+            f"{n_allowed} allowlisted, 0 blocking; report: {report_path}"
+        )
         return 0
     print(
         f"error: current-audit found {len(blocking)} blocking finding(s) — "
@@ -1184,7 +1287,7 @@ def main(argv: list[str] | None = None, **injected) -> int:
 
     p_current = sub.add_parser(
         "current-audit",
-        help="Audit current resolved packages without changing dependency bounds.",
+        help="Audit every locked package and fresh installs without changing dependency bounds.",
     )
     p_current.add_argument("--root", default=".", help="Repository root (default: cwd).")
     p_current.add_argument(

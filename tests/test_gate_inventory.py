@@ -111,6 +111,9 @@ def test_workflow_security_gates_are_canonical_and_wired_into_ci():
     # composite actions stay inside the audited scope.
     assert ".github/workflows/" in gi.ZIZMOR_COMMAND
     assert ".github/actions/" in gi.ZIZMOR_COMMAND
+    # The Dependabot config decides when pin bumps are proposed (its cooldown), so
+    # it is audited alongside the workflows it updates.
+    assert ".github/dependabot.yml" in gi.ZIZMOR_COMMAND
 
 
 def test_ci_has_one_upstream_gate_owner_through_package_preflight():
@@ -165,10 +168,31 @@ def test_required_release_artifact_gates_present():
         "install_smoke",
         "public_safety_committed",
         "gitleaks_full_history",
+        "release_acceptance_report",
     }
     present = {g["id"] for g in gi.CANONICAL_GATES}
     missing = required_ids - present
     assert not missing, f"missing required release/artifact gates: {sorted(missing)}"
+
+
+def test_release_acceptance_gate_is_the_tag_preflight_on_its_release_surfaces():
+    row = gi.gates_by_id()["release_acceptance_report"]
+    assert row["command"] == gi.RELEASE_ACCEPTANCE_COMMAND
+    assert row["command"] == "python scripts/release_preflight.py --tag vX.Y.Z --require-clean"
+    assert row["category"] == "release"
+    assert row["surfaces"] == [
+        "docs/RELEASING.md",
+        ".claude/skills/release-prep/SKILL.md",
+        "docs/quality/acceptance/README.md",
+        "docs/quality/README.md",
+    ]
+    for surface in row["surfaces"]:
+        assert row["command"] in (ROOT / surface).read_text(encoding="utf-8"), surface
+
+    # The tag preflight owns the acceptance binding; no second gate script exists.
+    preflight_text = (ROOT / "scripts" / "release_preflight.py").read_text(encoding="utf-8")
+    assert "def check_acceptance_report(" in preflight_text
+    assert "checks.append(check_acceptance_report(root, version, run))" in preflight_text
 
 
 def test_verify_surface_ids_are_subset_of_canonical():
@@ -322,7 +346,7 @@ def _write_ruff_contract_tree(root: Path) -> None:
                 f"  - repo: {gi.RUFF_PRE_COMMIT_REPO}",
                 "    rev: v0.15.16",
                 "    hooks:",
-                "      - id: ruff",
+                "      - id: ruff-check",
                 "        args: [--fix]",
                 f"        files: {gi.CANONICAL_RUFF_PRECOMMIT_FILES}",
                 "      - id: ruff-format",
@@ -523,7 +547,7 @@ def test_ruff_contract_reports_scope_version_and_ci_boundary_drift(tmp_path):
                 f"  - repo: {gi.RUFF_PRE_COMMIT_REPO}",
                 "    rev: v0.9.0",
                 "    hooks:",
-                "      - id: ruff",
+                "      - id: ruff-check",
                 "        files: ^(mempalace|tests)/.*\\.py$",
                 "      - id: ruff-format",
                 "        files: ^(mempalace|tests)/.*\\.py$",

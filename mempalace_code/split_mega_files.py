@@ -3,19 +3,26 @@
 split_mega_files.py — Split concatenated transcript files into per-session files
 =================================================================================
 
-Scans a directory for .txt files that contain multiple Claude Code sessions
-(identified by "Claude Code v" headers). Splits each into individual files
+Scans the top level of a directory for .txt files (or splits one file of any
+extension) that contain multiple Claude Code terminal sessions, identified by
+their "Claude Code v<version>" banner line. Splits each into individual files
 named with: date, time, people detected, and subject from first prompt.
 
 Distinguishes true session starts from mid-session context restores
-(which show "Ctrl+E to show X previous messages").
+(which show "Ctrl+E to show X previous messages"). A mention of "Claude Code v2"
+inside a prompt or answer is not a banner and never starts a session.
 
+Every line of the source lands in exactly one output file: text before the first
+banner goes with the first session, and short sessions are written too.
 Output files are written to --output-dir (default: same dir as source).
-Original files are renamed with .mega_backup extension (not deleted).
+The original is then renamed with the .mega_backup extension next to the source
+(kept, not deleted, and not mined); an existing backup is never replaced, the next
+one is <stem>.1.mega_backup. A split that fails midway removes the outputs it wrote.
 
 Usage:
     python3 split_mega_files.py                          # scan ~/Desktop/transcripts
     python3 split_mega_files.py --source ~/Desktop/transcripts  # explicit source
+    python3 split_mega_files.py --file ~/transcripts/sub/mega.md  # one file
     python3 split_mega_files.py --dry-run                # show what would happen
     python3 split_mega_files.py --min-sessions 2         # only files with 2+ sessions
 
@@ -27,9 +34,11 @@ import errno
 import json
 import os
 import re
+import shlex
 import stat
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 from .source_io import (
     RegularSourceError,
@@ -106,11 +115,16 @@ def is_true_session_start(lines, idx):
     return "Ctrl+E" not in nearby and "previous messages" not in nearby
 
 
+# A banner line holds "Claude Code v<version>" with only box-drawing or logo glyphs
+# around it, e.g. "╭─── Claude Code v2.0.14 ───╮" or " ▐▛███▜▌   Claude Code v2.0.37".
+_SESSION_BANNER_RE = re.compile(r"^[\s\u2500-\u259f✻*]*Claude Code v\d[\w.+-]*[\s\u2500-\u259f]*$")
+
+
 def find_session_boundaries(lines):
     """Return list of line indices where true new sessions begin."""
     boundaries = []
     for i, line in enumerate(lines):
-        if "Claude Code v" in line and is_true_session_start(lines, i):
+        if _SESSION_BANNER_RE.match(line) and is_true_session_start(lines, i):
             boundaries.append(i)
     return boundaries
 
@@ -292,7 +306,10 @@ def _clear_nonblocking(fd: int) -> None:
 
 
 def _write_regular_output(out_path: Path, text: str, *, dir_fd: int | None = None) -> None:
-    """Write a generated chunk through a descriptor validated as a regular file."""
+    """Write a generated chunk through a descriptor validated as a regular file.
+
+    The file was created exclusively by this call, so a failed write removes it.
+    """
     payload = memoryview(text.encode("utf-8"))
     fd = _open_regular_output_descriptor(out_path, dir_fd=dir_fd)
     try:
@@ -302,8 +319,26 @@ def _write_regular_output(out_path: Path, text: str, *, dir_fd: int | None = Non
             if written == 0:
                 raise OSError("regular output write made no progress")
             offset += written
-    finally:
+    except BaseException:
         os.close(fd)
+        _remove_outputs([out_path], dir_fd=dir_fd)
+        raise
+    os.close(fd)
+
+
+def _remove_outputs(paths: list, *, dir_fd: int | None = None) -> None:
+    """Remove split outputs this run created; paths that could not be removed stay listed."""
+    for out_path in list(paths):
+        try:
+            if dir_fd is None:
+                os.unlink(out_path)
+            else:
+                os.unlink(out_path.name, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            continue
+        paths.remove(out_path)
 
 
 def _acquire_explicit_output_directory(out_dir: Path):
@@ -405,6 +440,9 @@ def _acquire_explicit_output_directory(out_dir: Path):
 def split_file(filepath, output_dir, dry_run=False, *, _progress=None):
     """
     Split a single mega-file into per-session files.
+
+    Every line is written: text before the first session banner is kept with the
+    first session, so the outputs concatenate back to the source text.
     Returns list of output paths written (or would be written if dry_run).
     """
     path = Path(filepath)
@@ -425,13 +463,15 @@ def split_file(filepath, output_dir, dry_run=False, *, _progress=None):
 
     try:
         for i, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
-            chunk = lines[start:end]
-            if len(chunk) < 10:
-                continue  # Skip tiny fragments
+            session = lines[start:end]
+            # Text before the first banner (an export note, a stray line) stays with
+            # the first session instead of being dropped.
+            chunk = lines[:end] if i == 0 else session
+            preamble = f", {start} before the first session" if i == 0 and start else ""
 
-            ts_human, ts_iso = extract_timestamp(chunk)
-            people = extract_people(chunk)
-            subject = extract_subject(chunk)
+            ts_human, ts_iso = extract_timestamp(session)
+            people = extract_people(session)
+            subject = extract_subject(session)
 
             # Build filename: SOURCESTEM__DATE_TIME_People_subject.txt
             # Source stem prefix prevents collisions when multiple mega-files
@@ -447,7 +487,7 @@ def split_file(filepath, output_dir, dry_run=False, *, _progress=None):
             out_path = out_dir / name
 
             if dry_run:
-                print(f"  [{i + 1}/{len(boundaries) - 1}] {name}  ({len(chunk)} lines)")
+                print(f"  [{i + 1}/{len(boundaries) - 1}] {name}  ({len(chunk)} lines{preamble})")
             else:
                 if output_dir and not output_dir_acquired:
                     output_dir_fd, output_dir_stat = _acquire_explicit_output_directory(out_dir)
@@ -466,9 +506,15 @@ def split_file(filepath, output_dir, dry_run=False, *, _progress=None):
                         raise RegularSourceError(out_dir, _OUTPUT_DIR_REASON)
 
                 _write_regular_output(out_path, "".join(chunk), dir_fd=output_dir_fd)
-                print(f"  ✓ {name}  ({len(chunk)} lines)")
+                print(f"  ✓ {name}  ({len(chunk)} lines{preamble})")
 
             written.append(out_path)
+    except BaseException:
+        # A split that stops midway removes the outputs it already wrote, so the next
+        # mine does not file them next to the original that stays in place.
+        if not dry_run:
+            _remove_outputs(written, dir_fd=output_dir_fd)
+        raise
     finally:
         if output_dir_fd is not None:
             os.close(output_dir_fd)
@@ -476,15 +522,68 @@ def split_file(filepath, output_dir, dry_run=False, *, _progress=None):
     return written
 
 
+def _backup_candidates(source: Path):
+    """``<stem>.mega_backup``, then ``<stem>.<n>.mega_backup`` for n = 1, 2, ..."""
+    yield source.with_suffix(".mega_backup")
+    n = 1
+    while True:
+        yield source.with_name(f"{source.stem}.{n}.mega_backup")
+        n += 1
+
+
+def _move_to_unused_backup(source: Path) -> Path:
+    """Rename *source* to the first unused backup name; an existing backup is never replaced.
+
+    A hard link claims the name atomically (it fails when the name exists, even if a
+    concurrent split took it after the check); where hard links are unsupported, the
+    rename happens only after an existence check.
+    """
+    for backup in _backup_candidates(source):
+        if backup.exists() or backup.is_symlink():
+            continue
+        try:
+            os.link(source, backup)
+        except FileExistsError:
+            continue
+        except OSError:
+            source.rename(backup)
+            return backup
+        source.unlink()
+        return backup
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _exit_missing_source(path: Path, kind: str) -> NoReturn:
+    """Fail loudly: a mistyped source is an error, not an empty split."""
+    parent = path.absolute().parent
+    while not parent.is_dir() and parent != parent.parent:
+        parent = parent.parent
+    print(f"Error: source {kind} not found: {path}", file=sys.stderr)
+    print(
+        f"  Next: ls {shlex.quote(str(parent))}  (then rerun mempalace-code split "
+        "with the correct path from that listing)",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Split concatenated transcript mega-files into per-session files"
+        description=(
+            "Split concatenated Claude Code transcript mega-files into per-session files. "
+            "Each split original is renamed to <name>.mega_backup next to the source "
+            "(kept, not mined; an existing backup is never replaced: <name>.1.mega_backup). "
+            "A split that fails midway removes the files it wrote."
+        )
     )
     parser.add_argument(
         "--source",
         type=str,
         default=None,
-        help="Source directory (default: MEMPALACE_SOURCE_DIR or ~/Desktop/transcripts)",
+        help=(
+            "Source directory; its top-level .txt files are scanned "
+            "(default: MEMPALACE_SOURCE_DIR or ~/Desktop/transcripts)"
+        ),
     )
     parser.add_argument(
         "--output-dir", type=str, default=None, help="Output directory (default: same as source)"
@@ -502,37 +601,60 @@ def main():
         "--file",
         type=str,
         default=None,
-        help="Split a single specific file instead of scanning dir",
+        help="Split a single specific file (any extension) instead of scanning dir",
     )
     args = parser.parse_args()
 
-    src_dir = Path(args.source) if args.source else LUMI_DIR
+    src_dir = Path(args.source).expanduser() if args.source else LUMI_DIR
     output_dir = args.output_dir or None  # None = same dir as file
 
     if args.file:
-        files = [Path(args.file)]
+        source = Path(args.file).expanduser()
+        if not source.is_file():
+            _exit_missing_source(source, "file")
+        files = [source]
     else:
+        if not src_dir.is_dir():
+            _exit_missing_source(src_dir, "directory")
         files = discover_text_sources(src_dir)
 
     mega_files = []
+    unreadable = 0
     for f in files:
         try:
             lines = _read_session_lines(f)
         except OSError as exc:
             print(f"{f}: {exc}", file=sys.stderr)
+            unreadable += 1
             continue
         boundaries = find_session_boundaries(lines)
         if len(boundaries) >= args.min_sessions:
             mega_files.append((f, len(boundaries)))
 
     if not mega_files:
-        print(f"No mega-files found in {src_dir} (min {args.min_sessions} sessions).")
+        if unreadable:
+            print(
+                f"Error: {unreadable} source file(s) could not be read (see above); nothing split.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        if args.file:
+            print(f"No mega-file: {files[0]} has fewer than {args.min_sessions} sessions.")
+        else:
+            print(
+                f"No mega-files found in {src_dir} (min {args.min_sessions} sessions; "
+                f"scanned {len(files)} top-level .txt files)."
+            )
+            print(
+                "  Subdirectories and other extensions are not scanned; "
+                "pass a file path to split one file."
+            )
         return
 
     print(f"\n{'=' * 60}")
     print(f"  Mega-file splitter — {'DRY RUN' if args.dry_run else 'SPLITTING'}")
     print(f"{'=' * 60}")
-    print(f"  Source:      {src_dir}")
+    print(f"  Source:      {Path(args.file).expanduser() if args.file else src_dir}")
     print(f"  Output:      {output_dir or 'same dir as source'}")
     print(f"  Mega-files:  {len(mega_files)}")
     print(f"{'─' * 60}\n")
@@ -552,17 +674,24 @@ def main():
             written = split_file(f, output_dir, dry_run=args.dry_run, _progress=progress)
         except OSError as exc:
             # A refused output target must not cost the operator the source mega-file.
-            total_written += len(progress)
+            # split_file removed the outputs it wrote; any it could not remove are named.
             failed_files += 1
             print(f"{f}: {exc}", file=sys.stderr)
-            print(f"  → Split aborted; original left in place as {f.name}\n")
+            for leftover in progress:
+                print(f"  ! could not remove partial output {leftover}", file=sys.stderr)
+            if progress:
+                print(
+                    f"  Next: delete the {len(progress)} partial output file(s) above before "
+                    "mining, or they are filed next to the original",
+                    file=sys.stderr,
+                )
+            print(f"  → Split aborted; no split files kept; original left in place as {f.name}\n")
             continue
         total_written += len(written)
 
         if not args.dry_run and written:
-            backup = f.with_suffix(".mega_backup")
-            f.rename(backup)
-            print(f"  → Original renamed to {backup.name}\n")
+            backup = _move_to_unused_backup(f)
+            print(f"  → Original renamed to {backup.name} (kept, not mined)\n")
         else:
             print()
 
@@ -576,8 +705,10 @@ def main():
         )
     else:
         print(f"  Done — created {total_written} files from {len(mega_files)} mega-files")
+    if unreadable:
+        print(f"  {unreadable} source file(s) could not be read (see errors above)")
     print()
-    if failed_files:
+    if failed_files or unreadable:
         raise SystemExit(1)
 
 

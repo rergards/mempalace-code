@@ -1,0 +1,632 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "MP-MCP-FILE-CONTEXT-CAP",
+      "version": "v1:b2dbb9d5e3d090d4d023dbdfaa7a24af927a500f51650e5a7d56efe54ee955af",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Every indexed source chunk is reachable through MCP file-context pagination; total and next_offset cover the entire source.\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md"
+          },
+          {
+            "type": "file",
+            "uri": "mempalace_code/reader.py"
+          },
+          {
+            "type": "file",
+            "uri": "tests/test_mcp_server.py"
+          },
+          {
+            "type": "file",
+            "uri": "tests/test_reader.py"
+          }
+        ],
+        "exclusions": [
+          "Live data/services, utility code, public CWD precedence changes, push/merge/deploy/release."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Files with 9999, 10000, 10001 chunks return correct totals and full ordered sequential pagination; large offsets terminate correctly.",
+          "verification": "Actual reader/MCP handler tests with offset-respecting inert metadata and query limit controls."
+        },
+        {
+          "id": "A02",
+          "assertion": "Queries use bounded batches, existing source resolution and read_slice consumers remain correct, and later batch errors cannot become partial success.",
+          "verification": "Shared reader consumer, scope/CWD compatibility and second-batch failure regression; relevant reader, MCP and CLI/UAT tests."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+        "result": "Fixed: bounded offset queries retrieve all source rows; 9999/10000/10001 totals/order/tails, read_slice and later-batch failure controls pass including actual LanceDB. Candidate greptile-20261003-r2 based on HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; no fix commit. Finding acceptance PASS, 320 affected and 197 prior-fix tests PASS; independent fresh read-only Astra r1/r2 PASS. Exact source hashes, current handoff, reproduction, 6363 passing suite cases with two skips and the unrelated slow watcher resource-gate failure, all gate receipts and preserved-work proof in .codex-local/greptile-20261003-work/results.json. Installed wheel CLI/MCP 26 rows and artifact qualification 9 rows PASS. Whole release qualification remains blocked by watcher resource measurement (growth 7 then 6, allowed 5); no runtime leak claim or adjacent scope expansion. LDR selection explicitly empty. No staging, commit, push, release or live operations.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MCP-FILE-CONTEXT-CAP",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MCP-FILE-CONTEXT-CAP",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-03T10:47:47.661774Z"
+      },
+      "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+      "ready": false,
+      "created_at": "2026-10-03T10:16:19.093636Z",
+      "updated_at": "2026-10-03T10:47:47.661774Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "MP-MCP-FILE-CONTEXT-CAP",
+          "version": "v1:407b13c36544ef8cb161b38b4094a030fda62ba02b1b4883cf74ac88457839cc",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Every indexed source chunk is reachable through MCP file-context pagination; total and next_offset cover the entire source.\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/reader.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_mcp_server.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_reader.py"
+              }
+            ],
+            "exclusions": [
+              "Live data/services, utility code, public CWD precedence changes, push/merge/deploy/release."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Files with 9999, 10000, 10001 chunks return correct totals and full ordered sequential pagination; large offsets terminate correctly.",
+              "verification": "Actual reader/MCP handler tests with offset-respecting inert metadata and query limit controls."
+            },
+            {
+              "id": "A02",
+              "assertion": "Queries use bounded batches, existing source resolution and read_slice consumers remain correct, and later batch errors cannot become partial success.",
+              "verification": "Shared reader consumer, scope/CWD compatibility and second-batch failure regression; relevant reader, MCP and CLI/UAT tests."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+          "ready": false,
+          "created_at": "2026-10-03T10:16:19.093636Z",
+          "updated_at": "2026-10-03T10:16:19.093636Z"
+        },
+        "operation": {
+          "id": "op_e775a4d4bef643e3eeca6fdda5f8a488",
+          "principal": "codex-macmac",
+          "request_id": "greptile-20261003-MP-MCP-FILE-CONTEXT-CAP-create-r1",
+          "kind": "create",
+          "payload": {
+            "id": "MP-MCP-FILE-CONTEXT-CAP",
+            "outcome": "Every indexed source chunk is reachable through MCP file-context pagination; total and next_offset cover the entire source.\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/reader.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_reader.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_mcp_server.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md"
+                }
+              ],
+              "exclusions": [
+                "Live data/services, utility code, public CWD precedence changes, push/merge/deploy/release."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Files with 9999, 10000, 10001 chunks return correct totals and full ordered sequential pagination; large offsets terminate correctly.",
+                "verification": "Actual reader/MCP handler tests with offset-respecting inert metadata and query limit controls."
+              },
+              {
+                "id": "A02",
+                "assertion": "Queries use bounded batches, existing source resolution and read_slice consumers remain correct, and later batch errors cannot become partial success.",
+                "verification": "Shared reader consumer, scope/CWD compatibility and second-batch failure regression; relevant reader, MCP and CLI/UAT tests."
+              }
+            ],
+            "blocked_by": null,
+            "questions": null
+          },
+          "request_hash": "2913cffc748df8406750574e27f643d35a670ca88cc57140e68d2e21aa5fc604",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "MP-MCP-FILE-CONTEXT-CAP",
+            "version": "v1:407b13c36544ef8cb161b38b4094a030fda62ba02b1b4883cf74ac88457839cc",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Every indexed source chunk is reachable through MCP file-context pagination; total and next_offset cover the entire source.\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/reader.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_mcp_server.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_reader.py"
+                }
+              ],
+              "exclusions": [
+                "Live data/services, utility code, public CWD precedence changes, push/merge/deploy/release."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Files with 9999, 10000, 10001 chunks return correct totals and full ordered sequential pagination; large offsets terminate correctly.",
+                "verification": "Actual reader/MCP handler tests with offset-respecting inert metadata and query limit controls."
+              },
+              {
+                "id": "A02",
+                "assertion": "Queries use bounded batches, existing source resolution and read_slice consumers remain correct, and later batch errors cannot become partial success.",
+                "verification": "Shared reader consumer, scope/CWD compatibility and second-batch failure regression; relevant reader, MCP and CLI/UAT tests."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+            "ready": false,
+            "created_at": "2026-10-03T10:16:19.093636Z",
+            "updated_at": "2026-10-03T10:16:19.093636Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_dd5adc2336e253ad01eff9131d46c74f",
+          "project": "mempalace-code",
+          "task_id": "MP-MCP-FILE-CONTEXT-CAP",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:407b13c36544ef8cb161b38b4094a030fda62ba02b1b4883cf74ac88457839cc",
+          "data": {
+            "resource": "backlog://mempalace-code/task/MP-MCP-FILE-CONTEXT-CAP"
+          },
+          "created_at": "2026-10-03T10:16:19.093636Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_2d28a7d452e0ea2e8afa882dfa5448dd",
+            "project": "mempalace-code",
+            "task_id": "MP-MCP-FILE-CONTEXT-CAP",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:dc2b1656f55c6524cb1b285b1acfe4359113406e48cdeb1f48f236d28c15e5b5",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/MP-MCP-FILE-CONTEXT-CAP"
+            },
+            "created_at": "2026-10-03T10:16:19.324696Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "MP-MCP-FILE-CONTEXT-CAP",
+          "version": "v1:dc2b1656f55c6524cb1b285b1acfe4359113406e48cdeb1f48f236d28c15e5b5",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Every indexed source chunk is reachable through MCP file-context pagination; total and next_offset cover the entire source.\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/reader.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_mcp_server.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_reader.py"
+              }
+            ],
+            "exclusions": [
+              "Live data/services, utility code, public CWD precedence changes, push/merge/deploy/release."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Files with 9999, 10000, 10001 chunks return correct totals and full ordered sequential pagination; large offsets terminate correctly.",
+              "verification": "Actual reader/MCP handler tests with offset-respecting inert metadata and query limit controls."
+            },
+            {
+              "id": "A02",
+              "assertion": "Queries use bounded batches, existing source resolution and read_slice consumers remain correct, and later batch errors cannot become partial success.",
+              "verification": "Shared reader consumer, scope/CWD compatibility and second-batch failure regression; relevant reader, MCP and CLI/UAT tests."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+          "ready": false,
+          "created_at": "2026-10-03T10:16:19.093636Z",
+          "updated_at": "2026-10-03T10:16:19.324696Z"
+        },
+        "operation": {
+          "id": "op_6380dd4165dfb0ea143e4bfe7372da36",
+          "principal": "codex-macmac",
+          "request_id": "greptile-20261003-MP-MCP-FILE-CONTEXT-CAP-open-r1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:407b13c36544ef8cb161b38b4094a030fda62ba02b1b4883cf74ac88457839cc",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "836841e36d3498bb99c8b87afa0a9d31940d8692746200abd5ddb4e6f409f931",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "MP-MCP-FILE-CONTEXT-CAP",
+            "version": "v1:dc2b1656f55c6524cb1b285b1acfe4359113406e48cdeb1f48f236d28c15e5b5",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Every indexed source chunk is reachable through MCP file-context pagination; total and next_offset cover the entire source.\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/reader.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_mcp_server.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_reader.py"
+                }
+              ],
+              "exclusions": [
+                "Live data/services, utility code, public CWD precedence changes, push/merge/deploy/release."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Files with 9999, 10000, 10001 chunks return correct totals and full ordered sequential pagination; large offsets terminate correctly.",
+                "verification": "Actual reader/MCP handler tests with offset-respecting inert metadata and query limit controls."
+              },
+              {
+                "id": "A02",
+                "assertion": "Queries use bounded batches, existing source resolution and read_slice consumers remain correct, and later batch errors cannot become partial success.",
+                "verification": "Shared reader consumer, scope/CWD compatibility and second-batch failure regression; relevant reader, MCP and CLI/UAT tests."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+            "ready": true,
+            "created_at": "2026-10-03T10:16:19.093636Z",
+            "updated_at": "2026-10-03T10:16:19.324696Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_d43ed71d1b2ffaff1adae2da307ec4d3",
+          "project": "mempalace-code",
+          "task_id": "MP-MCP-FILE-CONTEXT-CAP",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:dc2b1656f55c6524cb1b285b1acfe4359113406e48cdeb1f48f236d28c15e5b5",
+          "data": {
+            "resource": "backlog://mempalace-code/task/MP-MCP-FILE-CONTEXT-CAP"
+          },
+          "created_at": "2026-10-03T10:16:19.324696Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_da5227b55289050a84f6867f513ed32a",
+            "project": "mempalace-code",
+            "task_id": "MP-MCP-FILE-CONTEXT-CAP",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:b2dbb9d5e3d090d4d023dbdfaa7a24af927a500f51650e5a7d56efe54ee955af",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/MP-MCP-FILE-CONTEXT-CAP"
+            },
+            "created_at": "2026-10-03T10:47:47.661774Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "MP-MCP-FILE-CONTEXT-CAP",
+          "version": "v1:b2dbb9d5e3d090d4d023dbdfaa7a24af927a500f51650e5a7d56efe54ee955af",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Every indexed source chunk is reachable through MCP file-context pagination; total and next_offset cover the entire source.\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/reader.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_mcp_server.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_reader.py"
+              }
+            ],
+            "exclusions": [
+              "Live data/services, utility code, public CWD precedence changes, push/merge/deploy/release."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Files with 9999, 10000, 10001 chunks return correct totals and full ordered sequential pagination; large offsets terminate correctly.",
+              "verification": "Actual reader/MCP handler tests with offset-respecting inert metadata and query limit controls."
+            },
+            {
+              "id": "A02",
+              "assertion": "Queries use bounded batches, existing source resolution and read_slice consumers remain correct, and later batch errors cannot become partial success.",
+              "verification": "Shared reader consumer, scope/CWD compatibility and second-batch failure regression; relevant reader, MCP and CLI/UAT tests."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+            "result": "Fixed: bounded offset queries retrieve all source rows; 9999/10000/10001 totals/order/tails, read_slice and later-batch failure controls pass including actual LanceDB. Candidate greptile-20261003-r2 based on HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; no fix commit. Finding acceptance PASS, 320 affected and 197 prior-fix tests PASS; independent fresh read-only Astra r1/r2 PASS. Exact source hashes, current handoff, reproduction, 6363 passing suite cases with two skips and the unrelated slow watcher resource-gate failure, all gate receipts and preserved-work proof in .codex-local/greptile-20261003-work/results.json. Installed wheel CLI/MCP 26 rows and artifact qualification 9 rows PASS. Whole release qualification remains blocked by watcher resource measurement (growth 7 then 6, allowed 5); no runtime leak claim or adjacent scope expansion. LDR selection explicitly empty. No staging, commit, push, release or live operations.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MCP-FILE-CONTEXT-CAP",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MCP-FILE-CONTEXT-CAP",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-03T10:47:47.661774Z"
+          },
+          "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+          "ready": false,
+          "created_at": "2026-10-03T10:16:19.093636Z",
+          "updated_at": "2026-10-03T10:47:47.661774Z"
+        },
+        "operation": {
+          "id": "op_8060caf9db0882f88d8cebd03073d651",
+          "principal": "codex-macmac",
+          "request_id": "greptile-20261003-complete-mp-mcp-file-context-cap-r2",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:dc2b1656f55c6524cb1b285b1acfe4359113406e48cdeb1f48f236d28c15e5b5",
+            "expected_revision": 2,
+            "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+            "result": "Fixed: bounded offset queries retrieve all source rows; 9999/10000/10001 totals/order/tails, read_slice and later-batch failure controls pass including actual LanceDB. Candidate greptile-20261003-r2 based on HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; no fix commit. Finding acceptance PASS, 320 affected and 197 prior-fix tests PASS; independent fresh read-only Astra r1/r2 PASS. Exact source hashes, current handoff, reproduction, 6363 passing suite cases with two skips and the unrelated slow watcher resource-gate failure, all gate receipts and preserved-work proof in .codex-local/greptile-20261003-work/results.json. Installed wheel CLI/MCP 26 rows and artifact qualification 9 rows PASS. Whole release qualification remains blocked by watcher resource measurement (growth 7 then 6, allowed 5); no runtime leak claim or adjacent scope expansion. LDR selection explicitly empty. No staging, commit, push, release or live operations.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MCP-FILE-CONTEXT-CAP",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MCP-FILE-CONTEXT-CAP",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "a7781b905ef3202c5892172cd9516ab3eac63d82f18c95c362a52c65990285a4",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "MP-MCP-FILE-CONTEXT-CAP",
+            "version": "v1:b2dbb9d5e3d090d4d023dbdfaa7a24af927a500f51650e5a7d56efe54ee955af",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Every indexed source chunk is reachable through MCP file-context pagination; total and next_offset cover the entire source.\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/reader.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_mcp_server.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_reader.py"
+                }
+              ],
+              "exclusions": [
+                "Live data/services, utility code, public CWD precedence changes, push/merge/deploy/release."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Files with 9999, 10000, 10001 chunks return correct totals and full ordered sequential pagination; large offsets terminate correctly.",
+                "verification": "Actual reader/MCP handler tests with offset-respecting inert metadata and query limit controls."
+              },
+              {
+                "id": "A02",
+                "assertion": "Queries use bounded batches, existing source resolution and read_slice consumers remain correct, and later batch errors cannot become partial success.",
+                "verification": "Shared reader consumer, scope/CWD compatibility and second-batch failure regression; relevant reader, MCP and CLI/UAT tests."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+              "result": "Fixed: bounded offset queries retrieve all source rows; 9999/10000/10001 totals/order/tails, read_slice and later-batch failure controls pass including actual LanceDB. Candidate greptile-20261003-r2 based on HEAD 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3; no fix commit. Finding acceptance PASS, 320 affected and 197 prior-fix tests PASS; independent fresh read-only Astra r1/r2 PASS. Exact source hashes, current handoff, reproduction, 6363 passing suite cases with two skips and the unrelated slow watcher resource-gate failure, all gate receipts and preserved-work proof in .codex-local/greptile-20261003-work/results.json. Installed wheel CLI/MCP 26 rows and artifact qualification 9 rows PASS. Whole release qualification remains blocked by watcher resource measurement (growth 7 then 6, allowed 5); no runtime leak claim or adjacent scope expansion. LDR selection explicitly empty. No staging, commit, push, release or live operations.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MCP-FILE-CONTEXT-CAP",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:.codex-local/greptile-20261003-work/results.json#MP-MCP-FILE-CONTEXT-CAP",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-03T10:47:47.661774Z"
+            },
+            "contract_digest": "sha256:029a6026e6fe6912ba6ddc6bbee6172ac9a99978f8f526b332ce958585886ea2",
+            "ready": false,
+            "created_at": "2026-10-03T10:16:19.093636Z",
+            "updated_at": "2026-10-03T10:47:47.661774Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_829fa67a488046b540e9c439619dd78c",
+          "project": "mempalace-code",
+          "task_id": "MP-MCP-FILE-CONTEXT-CAP",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:b2dbb9d5e3d090d4d023dbdfaa7a24af927a500f51650e5a7d56efe54ee955af",
+          "data": {
+            "resource": "backlog://mempalace-code/task/MP-MCP-FILE-CONTEXT-CAP"
+          },
+          "created_at": "2026-10-03T10:47:47.661774Z"
+        }
+      }
+    ],
+    "seal": "105f4fcccaedd3f929a7d80e676371032882559e7918dbc23635c8ff38be7877"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "MP-MCP-FILE-CONTEXT-CAP",
+    "head": "wf2:799494d1bc4ab2b2fa9bcb647cbdc7d99ade47434eb6802222b773f1eefe6a52",
+    "nodes": [
+      {
+        "version": "wf2:799494d1bc4ab2b2fa9bcb647cbdc7d99ade47434eb6802222b773f1eefe6a52",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-macmac",
+        "request_id": "greptile-20261003-MP-MCP-FILE-CONTEXT-CAP-plan-r1",
+        "request_hash": "5e4b8f7ed4dcdd381eb265752b631197acce2020546221eb51381e52c3ce58c3",
+        "payload": {
+          "request_id": "greptile-20261003-MP-MCP-FILE-CONTEXT-CAP-plan-r1",
+          "id": "MP-MCP-FILE-CONTEXT-CAP",
+          "expected_planning_version": "unplanned",
+          "reason": "Confirmed current-source Greptile finding, priority from checked handoff and operator implementation request.",
+          "priority": "P2"
+        },
+        "state": {
+          "order": 0,
+          "priority": "P2",
+          "required": true,
+          "version": "wf2:799494d1bc4ab2b2fa9bcb647cbdc7d99ade47434eb6802222b773f1eefe6a52"
+        },
+        "created_at": "2026-10-03T10:18:46.24318Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_799494d1bc4ab2b2fa9bcb647cbdc7d99ade47434eb6802222b773f1eefe6a52",
+            "project": "mempalace-code",
+            "task_id": "MP-MCP-FILE-CONTEXT-CAP",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:799494d1bc4ab2b2fa9bcb647cbdc7d99ade47434eb6802222b773f1eefe6a52",
+            "data": {
+              "resource": "backlog://mempalace-code/task/MP-MCP-FILE-CONTEXT-CAP",
+              "subject_id": "MP-MCP-FILE-CONTEXT-CAP",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-03T10:18:46.24318Z"
+          }
+        ]
+      }
+    ],
+    "seal": "870516c6ad2ebde9b4e956dbd1dea948b2020fc45a8b0d01c075a8897dcec21b"
+  },
+  "seal": "8b99cc3576b49029c51a650844dbd55c899d7740324c794e6b2e8be2cc60594c"
+}

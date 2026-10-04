@@ -3,9 +3,5 @@
 ## How to test
 
 ## Checklist
-- [ ] Lint: `ruff check mempalace_code/ tests/ scripts/`
-- [ ] Format: `ruff format --check mempalace_code/ tests/ scripts/`
-- [ ] Tests: `python -m pytest tests/ -x -q -m "not needs_network"`
-- [ ] Public safety: `python scripts/public_safety_scan.py --tracked --staged`
-- [ ] Scorecard: `python scripts/quality_scorecard.py --check`
+- [ ] The gate set in [CONTRIBUTING.md → Running Tests](../CONTRIBUTING.md#running-tests) passes (tests, ruff, pyright basic and strict, architecture, workflow, docs-drift, public-safety, scorecard and perf-budget checks)
 - [ ] No hardcoded private paths or tokens in committed source

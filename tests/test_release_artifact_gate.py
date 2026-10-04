@@ -749,9 +749,8 @@ def test_two_sdists_in_dist_fail_even_when_the_type_is_not_required(tmp_path):
 def test_pyproject_excludes_codex_from_the_sdist():
     """The gate catches the leak; this exclude is what stops it being built.
 
-    `.codex/` is ignored through `.git/info/exclude`, which hatchling does not
-    read, so without this entry the directory is packaged despite git treating
-    it as absent.
+    `.codex/` is git-ignored, but an ignore rule can be bypassed and a build can
+    run outside a git checkout, so the sdist excludes the directory explicitly.
     """
     import tomllib
 
@@ -769,6 +768,7 @@ def test_pyproject_excludes_repository_only_release_configuration_from_the_sdist
     assert "/.gitleaksignore" in exclude
     assert exclude.count("scripts/codex-review.sh") == 1
     for repository_only_path in (
+        ".backlog/",
         ".playwright-mcp/",
         "docs/BACKLOG.yaml",
         "docs/BACKLOG-archived.yaml",
@@ -777,6 +777,23 @@ def test_pyproject_excludes_repository_only_release_configuration_from_the_sdist
         assert exclude.count(repository_only_path) == 1
     assert "docs/" not in exclude
     assert "docs/quality/" not in exclude
+
+
+def test_sdist_rejects_tracked_backlog_control_state(tmp_path, monkeypatch):
+    member = ".backlog/projects/mempalace-code/tasks/TASK.json"
+    tracked, error = rag.tracked_repository_paths()
+    assert error is None
+    monkeypatch.setattr(rag, "tracked_repository_paths", lambda: (tracked | {member}, None))
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    _make_sdist(dist_dir, ["mempalace_code/__init__.py", member])
+
+    result = rag.inspect_dist(dist_dir, run_twine=False)
+
+    row = next(r for r in result["rows"] if r["check"] == "sdist-members")
+    assert row["status"] == "fail"
+    assert f"sdist:mempalace_code-1.0.0/{member}" in row["detail"]
+    assert result["ok"] is False
 
 
 def test_wheel_with_tasks_dir_fails(tmp_path):

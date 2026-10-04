@@ -666,12 +666,13 @@ def test_oversized_chunk_split():
         assert len(c["content"]) <= TARGET_MAX + 10  # allow minor overshoot from last para
 
 
-def test_oversized_single_line_returned_as_is():
-    # A single minified line with no breaks should be stored as-is
+def test_oversized_single_line_is_cut_verbatim_below_hard_max():
+    # A single minified line with no breaks is cut into verbatim pieces <= HARD_MAX
     minified = "a" * (HARD_MAX + 100)
     chunks = adaptive_merge_split([minified], "f.py")
-    assert len(chunks) == 1
-    assert len(chunks[0]["content"]) == HARD_MAX + 100
+    assert len(chunks) == 2
+    assert all(len(c["content"]) <= HARD_MAX for c in chunks)
+    assert "".join(c["content"] for c in chunks) == minified
 
 
 def test_chunk_index_is_sequential():
@@ -696,10 +697,10 @@ def test_chunk_index_sequential_when_oversized_produces_tiny_tail():
     assert ids == list(range(len(ids))), f"Non-sequential chunk_index: {ids}"
 
 
-def test_tiny_chunks_below_min_skipped():
-    raws = ["x" * (MIN_CHUNK - 1)]  # below MIN_CHUNK — should be filtered out
+def test_tiny_chunks_below_min_are_kept():
+    raws = ["x" * (MIN_CHUNK - 1)]  # below MIN_CHUNK — kept, never dropped
     chunks = adaptive_merge_split(raws, "f.py")
-    assert chunks == []
+    assert [c["content"] for c in chunks] == raws
 
 
 def test_empty_raw_chunks():
@@ -954,12 +955,12 @@ PYTHON_NESTED_CLASS = """\
 class Outer:
     \"\"\"An outer class that contains a nested inner class definition.
 
-    This class demonstrates that tree-sitter top-level chunking keeps the
-    entire outer class — including any nested classes — as one unit.
+    This class demonstrates that tree-sitter chunking gives the outer class, the
+    nested class, and every method a chunk named after it.
     \"\"\"
 
     class Inner:
-        \"\"\"Inner class nested inside Outer — must stay in the same chunk.\"\"\"
+        \"\"\"Inner class nested inside Outer, found by its own symbol name.\"\"\"
 
         def inner_method(self):
             \"\"\"Return a constant string from the inner class method body.\"\"\"
@@ -1074,12 +1075,12 @@ def test_ast_decorated_functions_detected():
 
 
 def test_ast_chunker_strategy_tag():
-    """AC-1/AC-4: chunks from AST path carry chunker_strategy='treesitter_v1'."""
+    """AC-1/AC-4: chunks from AST path carry chunker_strategy='treesitter_v3'."""
     _skip_if_no_ast()
     chunks = chunk_code(PYTHON_TWO_FUNCS, ".py", "test.py")
     assert len(chunks) >= 1
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"
 
 
 def test_ast_preamble_content_preserved():
@@ -1092,17 +1093,18 @@ def test_ast_preamble_content_preserved():
     assert "def helper" in joined
 
 
-def test_ast_nested_class_stays_together():
-    """AC-1: nested inner class is not split from its outer class."""
+def test_ast_nested_class_keeps_its_own_named_chunk():
+    """A nested class and the members of both classes are each found by symbol_name."""
     _skip_if_no_ast()
     chunks = chunk_code(PYTHON_NESTED_CLASS, ".py", "test.py")
     joined = "\n".join(contents(chunks))
     assert "class Outer" in joined
     assert "class Inner" in joined
-    # The inner class must not appear in a chunk that does not also contain Outer
-    for c in contents(chunks):
-        if "class Inner" in c:
-            assert "class Outer" in c
+    names = {chunk.get("symbol_name") for chunk in chunks}
+    assert {"Outer", "Inner", "inner_method", "outer_method"} <= names
+    for chunk in chunks:
+        if chunk.get("symbol_name") == "Inner":
+            assert chunk["content"].lstrip().startswith("class Inner")
 
 
 def test_ast_leading_comment_attached_to_def():
@@ -1151,11 +1153,11 @@ def test_ast_no_definitions_falls_back_to_adaptive():
 
 
 def test_ast_no_definitions_strategy_tag():
-    """F-1 fix: no-definition Python file carries 'treesitter_adaptive_v1', not 'regex_structural_v1'.
+    """F-1 fix: no-definition Python file carries 'treesitter_adaptive_v2', not 'regex_structural_v3'.
 
     When tree-sitter is available but the file has no top-level function or class
     definitions, _chunk_python_treesitter falls back to chunk_adaptive_lines.
-    The resulting chunks must be tagged 'treesitter_adaptive_v1' so downstream
+    The resulting chunks must be tagged 'treesitter_adaptive_v2' so downstream
     metadata accurately reflects which code path produced them.
     """
     _skip_if_no_ast()
@@ -1166,8 +1168,8 @@ def test_ast_no_definitions_strategy_tag():
     chunks = chunk_code(plain, ".py", "test.py")
     assert len(chunks) >= 1
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_adaptive_v1", (
-            f"Expected 'treesitter_adaptive_v1', got {chunk.get('chunker_strategy')!r}"
+        assert chunk.get("chunker_strategy") == "treesitter_adaptive_v2", (
+            f"Expected 'treesitter_adaptive_v2', got {chunk.get('chunker_strategy')!r}"
         )
 
 
@@ -1381,12 +1383,12 @@ def test_ast_ts_imports_in_preamble():
 
 
 def test_ast_ts_chunker_strategy_tag():
-    """AC-1: every chunk from TS AST path carries chunker_strategy='treesitter_v1'."""
+    """AC-1: every chunk from TS AST path carries chunker_strategy='treesitter_v3'."""
     _skip_if_no_ts_ast()
     chunks = chunk_code(TS_AST_EXPORTS, "typescript", "test.ts")
     assert len(chunks) >= 1
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"
 
 
 def test_ast_tsx_jsx_parsed():
@@ -1397,7 +1399,7 @@ def test_ast_tsx_jsx_parsed():
     assert "Button" in joined
     assert len(chunks) >= 1
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"
 
 
 def test_ast_js_extension_handled():
@@ -1408,7 +1410,7 @@ def test_ast_js_extension_handled():
     assert "fetchWithRetry" in joined
     assert "HttpClient" in joined
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"
 
 
 def test_ast_jsx_extension_handled():
@@ -1418,16 +1420,16 @@ def test_ast_jsx_extension_handled():
     joined = "\n".join(contents(chunks))
     assert "Button" in joined
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"
 
 
 def test_ast_ts_no_definitions_falls_back():
-    """AC-4: import-only file (no definitions) falls back to treesitter_adaptive_v1."""
+    """AC-4: import-only file (no definitions) falls back to treesitter_adaptive_v2."""
     _skip_if_no_ts_ast()
     chunks = chunk_code(TS_AST_IMPORTS_ONLY, "typescript", "index.ts")
     assert len(chunks) >= 1
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_adaptive_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_adaptive_v2"
 
 
 # =============================================================================
@@ -1633,12 +1635,12 @@ def test_ast_go_var_declaration_detected():
 
 
 def test_ast_go_chunker_strategy_tag():
-    """AC-1: every chunk from Go AST path carries chunker_strategy='treesitter_v1'."""
+    """AC-1: every chunk from Go AST path carries chunker_strategy='treesitter_v3'."""
     _skip_if_no_go_ast()
     chunks = chunk_code(GO_AST_ALL_BOUNDARIES, "go", "store.go")
     assert len(chunks) >= 1
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"
 
 
 def test_ast_go_preamble_preserved():
@@ -1676,11 +1678,11 @@ def test_ast_go_detached_comment_not_absorbed():
 
 
 def test_ast_go_no_definitions_falls_back():
-    """AC-3: package-only file (no declarations) falls back to treesitter_adaptive_v1."""
+    """AC-3: package-only file (no declarations) falls back to treesitter_adaptive_v2."""
     _skip_if_no_go_ast()
     chunks = chunk_code(GO_AST_PACKAGE_ONLY, "go", "main.go")
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_adaptive_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_adaptive_v2"
 
 
 # =============================================================================
@@ -1848,8 +1850,8 @@ pub fn helper() -> usize {
 """
 
 # Const/static only — no fn. Used to verify that const_item/static_item actually create
-# boundaries (strategy=treesitter_v1). Without them in DEFINITION_TYPES the chunker finds
-# no boundaries and falls back to treesitter_adaptive_v1.
+# boundaries (strategy=treesitter_v3). Without them in DEFINITION_TYPES the chunker finds
+# no boundaries and falls back to treesitter_adaptive_v2.
 RUST_AST_CONST_ONLY = """\
 /// Upper bound for the alpha-channel slot table.
 pub const ALPHA: usize = 1;
@@ -1962,12 +1964,12 @@ def test_ast_rust_detached_comment_not_absorbed():
 
 
 def test_ast_rust_chunker_strategy_tag():
-    """AC-2: every chunk from Rust AST path carries chunker_strategy='treesitter_v1'."""
+    """AC-2: every chunk from Rust AST path carries chunker_strategy='treesitter_v3'."""
     _skip_if_no_rust_ast()
     chunks = chunk_code(RUST_AST_ALL_BOUNDARIES, "rust", "cache.rs")
     assert len(chunks) >= 1
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_v3"
 
 
 def test_ast_rust_preamble_preserved():
@@ -1980,11 +1982,11 @@ def test_ast_rust_preamble_preserved():
 
 
 def test_ast_rust_no_definitions_falls_back():
-    """AC-3: use-only file (no items) falls back to treesitter_adaptive_v1."""
+    """AC-3: use-only file (no items) falls back to treesitter_adaptive_v2."""
     _skip_if_no_rust_ast()
     chunks = chunk_code(RUST_AST_USE_ONLY, "rust", "lib.rs")
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") == "treesitter_adaptive_v1"
+        assert chunk.get("chunker_strategy") == "treesitter_adaptive_v2"
 
 
 def test_ast_rust_const_detected():
@@ -2004,17 +2006,17 @@ def test_ast_rust_static_detected():
 
 
 def test_ast_rust_const_static_create_boundaries():
-    """AC-3: const/static-only file uses treesitter_v1, not the adaptive fallback.
+    """AC-3: const/static-only file uses treesitter_v3, not the adaptive fallback.
 
     Without const_item/static_item in DEFINITION_TYPES the chunker finds no boundaries
-    and returns strategy=treesitter_adaptive_v1. This test confirms they are recognised
-    as definition nodes so at least one chunk carries strategy=treesitter_v1.
+    and returns strategy=treesitter_adaptive_v2. This test confirms they are recognised
+    as definition nodes so at least one chunk carries strategy=treesitter_v3.
     """
     _skip_if_no_rust_ast()
     chunks = chunk_code(RUST_AST_CONST_ONLY, "rust", "consts.rs")
     strategies = {c.get("chunker_strategy") for c in chunks}
-    assert "treesitter_v1" in strategies, (
-        f"const/static-only file should produce treesitter_v1 chunks; got {strategies}"
+    assert "treesitter_v3" in strategies, (
+        f"const/static-only file should produce treesitter_v3 chunks; got {strategies}"
     )
 
 
@@ -2168,7 +2170,14 @@ def test_chunk_terraform_tfvars_assignment_names_use_adaptive_fallback():
     expected = chunk_adaptive_lines(code, "terraform.tfvars")
 
     assert chunks == expected
-    assert chunks == [{"content": code.strip(), "chunk_index": 0}]
+    assert chunks == [
+        {
+            "content": code.strip(),
+            "chunk_index": 0,
+            "line_start": 1,
+            "line_end": code.strip().count("\n") + 1,
+        }
+    ]
 
 
 # =============================================================================
@@ -2272,8 +2281,9 @@ def test_csharp_chunk_expression_bodied_properties():
     chunks = chunk_code(code, "csharp", "Catalog.cs")
     chunk_texts = contents(chunks)
 
-    assert any(text.startswith("public int Count =>") for text in chunk_texts)
-    assert any(text.startswith("public string Name =>") for text in chunk_texts)
+    # Chunks are verbatim source slices, so member declarations keep their indentation.
+    assert any(text.startswith("    public int Count =>") for text in chunk_texts)
+    assert any(text.startswith("    public string Name =>") for text in chunk_texts)
 
 
 def test_csharp_chunk_expression_bodied_property_xmldoc_attached():
@@ -2724,7 +2734,7 @@ def test_chunk_code_dart_nullable_return_type():
 
 
 # =============================================================================
-# .NET project-file chunking (dotnet_project_xml_v1) — AC-6
+# .NET project-file chunking (dotnet_project_xml_v2) — AC-6
 # =============================================================================
 
 _CSPROJ_FIXTURE = """\
@@ -2755,7 +2765,7 @@ def test_dotnet_project_xml_preserves_short_blocks():
     assert 'Sdk="Microsoft.NET.Sdk"' in text
     assert "<ProjectReference" in text
     assert "<PackageReference" in text
-    assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v1"
+    assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v2"
 
 
 def test_dotnet_project_xml_preserves_targetframework():
@@ -2765,7 +2775,7 @@ def test_dotnet_project_xml_preserves_targetframework():
 
 
 def test_dotnet_fsproj_uses_same_strategy():
-    """The dotnet_project_xml_v1 chunker also handles .fsproj files."""
+    """The dotnet_project_xml_v2 chunker also handles .fsproj files."""
     content = """\
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -2777,7 +2787,7 @@ def test_dotnet_fsproj_uses_same_strategy():
 </Project>"""
     chunks = chunk_file(content, ".fsproj", "App/App.fsproj")
     assert len(chunks) == 1
-    assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v1"
+    assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v2"
     assert "<ProjectReference" in chunks[0]["content"]
 
 
@@ -2797,9 +2807,9 @@ def test_dotnet_project_xml_generic_xml_fallback_unchanged():
   </appSettings>
 </configuration>"""
     chunks = chunk_file(xml, ".xml", "config/app.config")
-    # Generic XML must NOT carry the dotnet_project_xml_v1 strategy tag
+    # Generic XML must NOT carry the dotnet_project_xml_v2 strategy tag
     for chunk in chunks:
-        assert chunk.get("chunker_strategy") != "dotnet_project_xml_v1"
+        assert chunk.get("chunker_strategy") != "dotnet_project_xml_v2"
 
 
 def test_dotnet_vbproj_uses_same_strategy():
@@ -2816,7 +2826,7 @@ def test_dotnet_vbproj_uses_same_strategy():
 </Project>"""
     chunks = chunk_file(content, ".vbproj", "App/App.vbproj")
     assert len(chunks) == 1
-    assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v1"
+    assert chunks[0].get("chunker_strategy") == "dotnet_project_xml_v2"
     assert "<ProjectReference" in chunks[0]["content"]
     assert "TargetFramework" in chunks[0]["content"]
 

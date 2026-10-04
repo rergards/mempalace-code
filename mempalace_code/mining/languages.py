@@ -6,6 +6,7 @@ from pathlib import Path
 from ..language_catalog import (
     extension_language_map,
     filename_language_map,
+    shebang_language,
     shebang_patterns,
 )
 
@@ -110,18 +111,7 @@ def detect_language(filepath, content: str = "") -> str:
     else:
         # Shebang fallback — only for files with no recognized extension
         first_line = content.split("\n")[0] if content else ""
-        if first_line.startswith("#!"):
-            parts = first_line[2:].strip().split()
-            if parts:
-                basename = parts[0].split("/")[-1]
-                if basename == "env" and len(parts) > 1:
-                    interp = parts[1].split("/")[-1]
-                else:
-                    interp = basename
-                for pattern, interp_lang in SHEBANG_PATTERNS:
-                    if pattern.fullmatch(interp):
-                        lang = interp_lang
-                        break
+        lang = shebang_language(first_line.rstrip("\r"))
 
     if lang is None:
         return "unknown"

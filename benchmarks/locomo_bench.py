@@ -706,6 +706,14 @@ def run_benchmark(
                 f"{len(sessions)} sessions, {len(corpus)} docs, {len(qa_pairs)} questions"
             )
 
+        corpus_rooms = dict(room_assignments)
+        if granularity == "dialog":
+            for sess in sessions:
+                room = room_assignments.get(f"session_{sess['session_num']}", "general")
+                for dialog in sess["dialogs"]:
+                    cid = dialog.get("dia_id", f"D{sess['session_num']}:?")
+                    corpus_rooms[cid] = room
+
         tmpdir = tempfile.mkdtemp(prefix="mempal_locomo_")
         palace_path = os.path.join(tmpdir, "palace")
 
@@ -729,7 +737,7 @@ def run_benchmark(
                     {
                         "corpus_id": cid,
                         "timestamp": ts,
-                        "room": room_assignments.get(cid, "general"),
+                        "room": corpus_rooms.get(cid, "general"),
                     }
                     for cid, ts in zip(corpus_ids, corpus_timestamps)
                 ],
@@ -793,7 +801,7 @@ def run_benchmark(
                         sum(
                             1
                             for cid in corpus_ids
-                            if room_assignments.get(cid, "general") in target_rooms
+                            if corpus_rooms.get(cid, "general") in target_rooms
                         )
                         if where_filter
                         else len(corpus)

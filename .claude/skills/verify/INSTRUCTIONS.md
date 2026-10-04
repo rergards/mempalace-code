@@ -4,28 +4,40 @@ Detect what changed, run the right checks, and report a clear pass/fail verdict.
 
 ## Step 1: Detect What Changed
 
-First check for a saved baseline SHA:
+Use the operator-supplied operation/task baseline as `TASK_BASELINE`, or the
+actual saved `.verify-state` SHA when no task baseline was supplied. Require a
+full lowercase 40-hex commit SHA, matching reachable commit identity and HEAD
+ancestry. Missing, malformed, unreachable, or non-ancestor baselines fail closed;
+request the operator's baseline using the recovery message. Never default to
+HEAD, HEAD~1, or an invented empty range. Do not create a Git ref.
+
+Run Step 1 and the verification commands in the same shell. Stop verification
+on baseline failure; preserve the verified `BASELINE` for the changed-range gate.
 
 ```bash
-cat .verify-state 2>/dev/null || echo "NO_BASELINE"
-```
-
-Then detect changed files:
-
-```bash
-# Unstaged + staged working tree changes
-git diff --name-only HEAD 2>/dev/null
-git diff --name-only --cached 2>/dev/null
-```
-
-```bash
-# Committed changes — from baseline SHA if available, else HEAD~1
-BASELINE=$(cat .verify-state 2>/dev/null)
-if [ -n "$BASELINE" ]; then
-  git diff --name-only "$BASELINE"..HEAD 2>/dev/null
+set -eu
+# Explicit operator/task input takes precedence over saved state, even when invalid.
+if [ "${TASK_BASELINE+x}" = x ]; then
+  BASELINE=$TASK_BASELINE
 else
-  git diff --name-only HEAD~1 HEAD 2>/dev/null
+  BASELINE=$(cat .verify-state 2>/dev/null) || BASELINE=
 fi
+baseline_error() {
+  echo "FAIL: missing/invalid verification baseline; request the operator's task baseline." >&2
+  echo "Recovery: set TASK_BASELINE to the operator-supplied full commit SHA and rerun Step 1." >&2
+  exit 1
+}
+case "$BASELINE" in
+  ''|*[!0-9a-f]*) baseline_error ;;
+esac
+[ "${#BASELINE}" -eq 40 ] || baseline_error
+VERIFIED_BASELINE=$(git rev-parse --verify "$BASELINE^{commit}" 2>/dev/null) || baseline_error
+[ "$VERIFIED_BASELINE" = "$BASELINE" ] || baseline_error
+git merge-base --is-ancestor "$BASELINE" HEAD || baseline_error
+# Only after identity and ancestry validation: working tree, staged, committed.
+git diff --name-only HEAD
+git diff --name-only --cached
+git diff --name-only "$BASELINE"..HEAD
 ```
 
 Classify the combined file list into these categories (a change can trigger multiple):
@@ -52,7 +64,7 @@ Run in parallel:
 | Strict slice typecheck | `python -m pyright -p pyrightconfig.strict.json` | 60s |
 | Public safety | `python scripts/public_safety_scan.py --tracked --staged` | 30s |
 | Gitleaks detector/redaction fixture | `python scripts/gitleaks_scan.py fixture-smoke` | 60s |
-| Gitleaks changed range | `python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD` | 60s |
+| Gitleaks changed range | `python scripts/gitleaks_scan.py changed-range --base-ref "$BASELINE" --head-ref HEAD` | 60s |
 | Scorecard | `python scripts/quality_scorecard.py --check` | 30s |
 | Architecture guard | `python scripts/architecture_guard.py --root .` | 30s |
 
@@ -62,7 +74,7 @@ freshness. The public-safety scan checks tracked and staged repository files for
 private local paths, secret-like tokens, and local-only raw artifacts. The
 Gitleaks fixture proves five synthetic detector classes and redacted disposable
 SARIF. The changed-range scan inspects an explicit
-`BASE..HEAD` commit range for maintained credential signatures and entropy
+`"$BASELINE"..HEAD` commit range for maintained credential signatures and entropy
 findings. After a quality change lands, regenerate the committed artifacts with
 `python scripts/quality_scorecard.py --write` (see `docs/quality/README.md`).
 
@@ -92,11 +104,19 @@ source. Do not accept a target version in an affected advisory range.
 Then audit a fresh resolver environment, not only the existing `.venv`:
 
 ```bash
-python -m pip install pip-audit
-pip-audit
-python3.13 -m venv /tmp/mempalace-ci-venv
-/tmp/mempalace-ci-venv/bin/python -m pip install -e ".[dev,treesitter]"
-/tmp/mempalace-ci-venv/bin/python -m pytest tests/ -v -m "not needs_network"
+python3.13 - <<'PY_AUDIT'
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+with tempfile.TemporaryDirectory(prefix="mempalace-verify-") as directory:
+    subprocess.run([sys.executable, "-m", "venv", directory], check=True)
+    audit_python = str(Path(directory) / "bin" / "python")
+    subprocess.run([audit_python, "-m", "pip", "install", "-e", ".[dev,treesitter]", "pip-audit"], check=True)
+    subprocess.run([audit_python, "-m", "pip_audit"], check=True)
+    subprocess.run([audit_python, "-m", "pytest", "tests/", "-v", "-m", "not needs_network"], check=True)
+PY_AUDIT
 ```
 
 If an optional extra changed, create a separate fresh environment for that

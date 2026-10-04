@@ -183,6 +183,7 @@ class TestRuntimeScope:
         from mempalace_code.mcp import runtime
 
         palace = tmp_path / "configured-palace"
+        palace.mkdir()
 
         class Config:
             palace_path = str(palace)

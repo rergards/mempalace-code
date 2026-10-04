@@ -10,11 +10,22 @@ ConvoMem results discussed in [`BENCHMARKS.md`](BENCHMARKS.md).
 
 ## Setup
 
+The original `ben/benchmarking` branch of `aya-thekeeper/mempal` that these
+commands came from no longer exists. The historical harnesses
+(`longmemeval_bench.py`, `locomo_bench.py`, `convomem_bench.py`, and
+`membench_bench.py`) are kept in this directory and run from a checkout of this
+repository. They import `chromadb` at load time: current mempalace-code packages
+do not install it, and every available ChromaDB release carries known advisories.
+Run them only with a disposable virtual environment that is not your development
+or user environment, and delete it afterwards:
+
 ```bash
-git clone -b ben/benchmarking https://github.com/aya-thekeeper/mempal.git
-cd mempal
-pip install chromadb pyyaml
+python3 -m venv /tmp/mempal-legacy-bench
+/tmp/mempal-legacy-bench/bin/python -m pip install chromadb pyyaml
+/tmp/mempal-legacy-bench/bin/python benchmarks/longmemeval_bench.py --help
 ```
+
+The commands below write `python`; run them with that environment's interpreter.
 
 ## Benchmark 1: LongMemEval (500 questions)
 
@@ -128,11 +139,15 @@ python benchmarks/code_retrieval_bench.py \
   --out /tmp/code-bench.json
 ```
 
-The JSON report contains `meta`, a `modes` map, and a compact `comparison`
-section. Each mode includes `chunk_count`, `embed_time_s`,
-`query_latency_avg_ms`, `R@5`, `R@10`, `MRR`, `per_category`, and per-query
-`top5_files` / `top5_symbols`. Recall answers only "did retrieval surface the
-right code file?" It does not prove an LLM would generate a correct answer.
+The JSON report (`meta.report_schema_version` 2) contains `meta`, a `modes` map,
+and a compact `comparison` section. Each mode records `chunk_count`,
+`embed_time_s`, and `index_size_mb`, plus a `paths` entry for each search path
+(`store.query`, `code_search`, `code_search_hybrid`). Each path reports
+`query_latency_avg_ms`, R@5/R@10/MRR for the `symbol` and `file_only` query
+populations, a `per_category` breakdown, and `per_query` rows. A `symbol` query
+counts as a hit only when the expected symbol is retrieved; a `file_only` query
+needs only the expected file. Recall does not prove an LLM would generate a
+correct answer.
 
 The release compatibility check loads the committed former-runtime fixture and
 compares its vectors directly with the canonical FastEmbed owner from the active
@@ -212,7 +227,7 @@ Improvement vs v1.6.0 baseline (R@5=0.600, project_dependency R@5=0.200):
 - Overall R@5: 0.600 → 0.900 (+0.300)
 - project_dependency R@5: 0.200 → 0.800 (+0.600)
 
-Implementation: verbatim `.csproj/.fsproj/.vbproj` chunker (`dotnet_project_xml_v1`) that
+Implementation: verbatim `.csproj/.fsproj/.vbproj` chunker (`dotnet_project_xml_v2`) that
 co-embeds all build elements in a single chunk, plus a deterministic overfetch-and-rerank
 step in `LanceStore.query()` that promotes project files for project-file intent queries
 and symbol-matched files for CamelCase identifier queries.
@@ -261,11 +276,11 @@ dispatch a new run as release evidence.
 
 Historical raw result files from the original benchmark runs are not committed to this repository. The benchmark scripts write full result JSONL/JSON files when run — every question, every retrieved document, every score. Regenerate them using the commands above. See `benchmarks/BENCHMARKS.md` for the full list of expected output filenames per mode.
 
-## Requirements for the Historical Benchmark Branch
+## Requirements for the Historical Benchmarks
 
-- Python 3.9+ for the historical `ben/benchmarking` branch; the current
-  mempalace-code package requires Python 3.11+
-- `chromadb` (the only dependency)
+- A disposable environment with `chromadb` and `pyyaml` (see [Setup](#setup);
+  every available ChromaDB release carries known advisories)
+- Python 3.11+ and a checkout of this repository
 - ~300MB disk for LongMemEval data
 - ~5 minutes for each full benchmark run
 - No API key. No internet during benchmark (after data download). No GPU.

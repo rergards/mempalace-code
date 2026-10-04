@@ -118,12 +118,34 @@ def read_regular_text(
 def hash_regular_bytes(
     path: str | os.PathLike[str], *, digest_size: int = 16, name: str = "blake2b"
 ) -> str:
-    """Hash bytes from a descriptor-validated regular source."""
+    """Hash bytes from a descriptor-validated regular source.
+
+    The file is hashed in chunks, so memory use does not grow with its size. EAGAIN
+    is retried on the same descriptor exactly as in read_regular_bytes().
+    """
     if name != "blake2b":
         raise ValueError(f"unsupported hash: {name}")
+    fd, _ = _open_regular_descriptor(Path(path), nonblocking=_HAS_O_NONBLOCK)
+    try:
+        try:
+            return _hash_fd(fd, digest_size=digest_size)
+        except OSError as exc:
+            if _HAS_O_NONBLOCK and _is_eagain(exc):
+                _make_fd_blocking(fd)
+                os.lseek(fd, 0, os.SEEK_SET)
+                return _hash_fd(fd, digest_size=digest_size)
+            raise
+    finally:
+        os.close(fd)
+
+
+def _hash_fd(fd: int, *, digest_size: int) -> str:
     h = hashlib.blake2b(digest_size=digest_size)
-    h.update(read_regular_bytes(path))
-    return h.hexdigest()
+    while True:
+        chunk = os.read(fd, _READ_CHUNK_SIZE)
+        if not chunk:
+            return h.hexdigest()
+        h.update(chunk)
 
 
 def _open_regular_descriptor(path: Path, *, nonblocking: bool) -> tuple[int, os.stat_result]:

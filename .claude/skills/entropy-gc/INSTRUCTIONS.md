@@ -84,7 +84,7 @@ Patterns that appear in recent files but violate project conventions:
 - Check for imports not used
 - Look for test files testing deleted functionality
 
-**Use Agent tool** (model: sonnet) for cross-referencing — this requires multiple search rounds.
+For delegated cross-referencing, use a read-only Codex worker selected by `~/.codex/AGENTS.md` → `Default Delegation Routing`. Pass the scan scope and forbid source edits; multiple search rounds grant no write authority.
 
 ### Phase 1.5: Codex Second-Pass Review (optional)
 

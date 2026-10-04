@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 
 from ..version import __version__
 from ..version_check import (
@@ -61,10 +62,16 @@ def cmd_version_check(args):
                 file=sys.stderr,
             )
             raise SystemExit(2)
-        run_check_now(
+        latest = run_check_now(
             current_version=__version__,
             fetch_fn=fetch_latest_version,
         )
+        if latest is not None:
+            # A successful explicit check is a check: record it so --status and the
+            # automatic interval both reflect it.
+            state = load_state(config_dir)
+            state.last_check_ts = time.time()
+            save_state(state, config_dir)
         return
 
     # Default: --status
@@ -98,7 +105,13 @@ def _cmd_version_check_status(config_dir) -> None:
     else:
         print("  Last checked:    never")
 
-    if config.source == "env":
+    if config.source == "env" and config.invalid_env:
+        print(
+            "\n  Note: MEMPALACE_VERSION_CHECK holds an unrecognized value, so version checks "
+            "are disabled (fail closed). Set it to 1 or 0, or run "
+            "'unset MEMPALACE_VERSION_CHECK'."
+        )
+    elif config.source == "env":
         env_raw = os.environ.get("MEMPALACE_VERSION_CHECK", "")
         print(f"\n  Note: MEMPALACE_VERSION_CHECK={env_raw!r} overrides persisted state.")
     elif config.enabled is None:

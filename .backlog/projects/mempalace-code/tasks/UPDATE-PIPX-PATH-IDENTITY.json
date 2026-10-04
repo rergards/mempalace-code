@@ -1,0 +1,677 @@
+{
+  "format": "backlog-task-envelope/v2",
+  "task_record": {
+    "format": "backlog-files/v1",
+    "task": {
+      "schema": "backlog/v1",
+      "project": "mempalace-code",
+      "id": "UPDATE-PIPX-PATH-IDENTITY",
+      "version": "v1:462fe4cfb6a4b717d74f299b6870811957b98e6fd278b3944afb2d2dea126e60",
+      "completion_valid": false,
+      "revision": 3,
+      "state": "done",
+      "outcome": "Correct pipx installation ownership detection for equivalent filesystem paths.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner: mempalace_code/updater.py:718-765, detect_installation. docs/UPDATES.md Boundary supports pipx isolated installs. env_prefix is resolved but PIPX_HOME is only expanded. A disposable custom root with no literal pipx path component, under macOS temporary-directory alias, returns supported kind=pipx when PIPX_HOME is physical and unsupported/ambiguous when it names the same directory lexically. samefile control=true; same manager callable and metadata control used. Previous installed 1.15.0 wheel pipx smoke returned unsupported ambiguous virtual environment. Actual default symlink-free installations are not claimed broken.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (pipx_alias), .codex-local/release-prep-20261002/pipx-status-diagnostic.json. Smallest proposed correction: normalize compared paths in existing detector, preserve installer ownership guards. No code fix performed during intake.",
+      "scope": {
+        "resources": [
+          {
+            "type": "file",
+            "uri": "docs/UPDATES.md"
+          },
+          {
+            "type": "file",
+            "uri": "mempalace_code/updater.py"
+          },
+          {
+            "type": "file",
+            "uri": "tests/test_updater.py"
+          }
+        ],
+        "exclusions": [
+          "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+          "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+          "Push, tag, release publication and changes to live palaces or services."
+        ]
+      },
+      "acceptance": [
+        {
+          "id": "A01",
+          "assertion": "Canonical and symlink/alias PIPX_HOME paths to the same disposable custom pipx root give the same supported pipx result with a discoverable manager.",
+          "verification": "Use actual detect_installation; custom root has no literal pipx segment. Positive physical-path control, alias-path case, identical manager/extras and installed noneditable metadata; no live installs."
+        },
+        {
+          "id": "A02",
+          "assertion": "Existing refusal boundaries remain intact: absent manager, non-pipx plain/system/editable environments and unrelated roots stay unsupported.",
+          "verification": "Run tests/test_updater.py with focused regression cases; do not remove ownership checks or infer supported ownership from a manager alone."
+        },
+        {
+          "id": "A03",
+          "assertion": "The supported installed pipx CLI reports pipx ownership after the same-owner correction, using manager discovery independently valid in its probe environment.",
+          "verification": "Rebuild exact wheel and reproduce disposable pipx update-status scenario after RELEASE-INSTALL-PROBE-MANAGER-PATH; no package/service update is applied."
+        }
+      ],
+      "blocked_by": [],
+      "questions": [],
+      "completion": {
+        "prerequisites": {},
+        "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+        "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#UPDATE-PIPX-PATH-IDENTITY. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+        "evidence": [
+          {
+            "acceptance_id": "A01",
+            "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A02",
+            "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+            "verification_result": "pass"
+          },
+          {
+            "acceptance_id": "A03",
+            "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+            "verification_result": "pass"
+          }
+        ],
+        "completed_at": "2026-10-02T22:03:38.236758Z"
+      },
+      "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+      "ready": false,
+      "created_at": "2026-10-02T16:16:03.498223Z",
+      "updated_at": "2026-10-02T22:03:38.236758Z"
+    },
+    "history": [
+      {
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "UPDATE-PIPX-PATH-IDENTITY",
+          "version": "v1:d3ed35534cf0f74bdeb1199bc100abffce0d70e540767eb77a36f11b107c90f3",
+          "completion_valid": false,
+          "revision": 1,
+          "state": "draft",
+          "outcome": "Correct pipx installation ownership detection for equivalent filesystem paths.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner: mempalace_code/updater.py:718-765, detect_installation. docs/UPDATES.md Boundary supports pipx isolated installs. env_prefix is resolved but PIPX_HOME is only expanded. A disposable custom root with no literal pipx path component, under macOS temporary-directory alias, returns supported kind=pipx when PIPX_HOME is physical and unsupported/ambiguous when it names the same directory lexically. samefile control=true; same manager callable and metadata control used. Previous installed 1.15.0 wheel pipx smoke returned unsupported ambiguous virtual environment. Actual default symlink-free installations are not claimed broken.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (pipx_alias), .codex-local/release-prep-20261002/pipx-status-diagnostic.json. Smallest proposed correction: normalize compared paths in existing detector, preserve installer ownership guards. No code fix performed during intake.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/UPDATES.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/updater.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_updater.py"
+              }
+            ],
+            "exclusions": [
+              "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+              "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+              "Push, tag, release publication and changes to live palaces or services."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Canonical and symlink/alias PIPX_HOME paths to the same disposable custom pipx root give the same supported pipx result with a discoverable manager.",
+              "verification": "Use actual detect_installation; custom root has no literal pipx segment. Positive physical-path control, alias-path case, identical manager/extras and installed noneditable metadata; no live installs."
+            },
+            {
+              "id": "A02",
+              "assertion": "Existing refusal boundaries remain intact: absent manager, non-pipx plain/system/editable environments and unrelated roots stay unsupported.",
+              "verification": "Run tests/test_updater.py with focused regression cases; do not remove ownership checks or infer supported ownership from a manager alone."
+            },
+            {
+              "id": "A03",
+              "assertion": "The supported installed pipx CLI reports pipx ownership after the same-owner correction, using manager discovery independently valid in its probe environment.",
+              "verification": "Rebuild exact wheel and reproduce disposable pipx update-status scenario after RELEASE-INSTALL-PROBE-MANAGER-PATH; no package/service update is applied."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+          "ready": false,
+          "created_at": "2026-10-02T16:16:03.498223Z",
+          "updated_at": "2026-10-02T16:16:03.498223Z"
+        },
+        "operation": {
+          "id": "op_1b22798d62f4298d837b5b0ac9b00784",
+          "principal": "codex-macmac",
+          "request_id": "mp-bug-intake-20261002-create-1",
+          "kind": "create",
+          "payload": {
+            "id": "UPDATE-PIPX-PATH-IDENTITY",
+            "outcome": "Correct pipx installation ownership detection for equivalent filesystem paths.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner: mempalace_code/updater.py:718-765, detect_installation. docs/UPDATES.md Boundary supports pipx isolated installs. env_prefix is resolved but PIPX_HOME is only expanded. A disposable custom root with no literal pipx path component, under macOS temporary-directory alias, returns supported kind=pipx when PIPX_HOME is physical and unsupported/ambiguous when it names the same directory lexically. samefile control=true; same manager callable and metadata control used. Previous installed 1.15.0 wheel pipx smoke returned unsupported ambiguous virtual environment. Actual default symlink-free installations are not claimed broken.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (pipx_alias), .codex-local/release-prep-20261002/pipx-status-diagnostic.json. Smallest proposed correction: normalize compared paths in existing detector, preserve installer ownership guards. No code fix performed during intake.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/updater.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_updater.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "docs/UPDATES.md"
+                }
+              ],
+              "exclusions": [
+                "Push, tag, release publication and changes to live palaces or services.",
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Canonical and symlink/alias PIPX_HOME paths to the same disposable custom pipx root give the same supported pipx result with a discoverable manager.",
+                "verification": "Use actual detect_installation; custom root has no literal pipx segment. Positive physical-path control, alias-path case, identical manager/extras and installed noneditable metadata; no live installs."
+              },
+              {
+                "id": "A02",
+                "assertion": "Existing refusal boundaries remain intact: absent manager, non-pipx plain/system/editable environments and unrelated roots stay unsupported.",
+                "verification": "Run tests/test_updater.py with focused regression cases; do not remove ownership checks or infer supported ownership from a manager alone."
+              },
+              {
+                "id": "A03",
+                "assertion": "The supported installed pipx CLI reports pipx ownership after the same-owner correction, using manager discovery independently valid in its probe environment.",
+                "verification": "Rebuild exact wheel and reproduce disposable pipx update-status scenario after RELEASE-INSTALL-PROBE-MANAGER-PATH; no package/service update is applied."
+              }
+            ],
+            "blocked_by": null,
+            "questions": null
+          },
+          "request_hash": "90290e2922e77025fea3636f0b0f9255885b9ba3a905e858247a11da34c0cfcb",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "UPDATE-PIPX-PATH-IDENTITY",
+            "version": "v1:d3ed35534cf0f74bdeb1199bc100abffce0d70e540767eb77a36f11b107c90f3",
+            "completion_valid": false,
+            "revision": 1,
+            "state": "draft",
+            "outcome": "Correct pipx installation ownership detection for equivalent filesystem paths.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner: mempalace_code/updater.py:718-765, detect_installation. docs/UPDATES.md Boundary supports pipx isolated installs. env_prefix is resolved but PIPX_HOME is only expanded. A disposable custom root with no literal pipx path component, under macOS temporary-directory alias, returns supported kind=pipx when PIPX_HOME is physical and unsupported/ambiguous when it names the same directory lexically. samefile control=true; same manager callable and metadata control used. Previous installed 1.15.0 wheel pipx smoke returned unsupported ambiguous virtual environment. Actual default symlink-free installations are not claimed broken.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (pipx_alias), .codex-local/release-prep-20261002/pipx-status-diagnostic.json. Smallest proposed correction: normalize compared paths in existing detector, preserve installer ownership guards. No code fix performed during intake.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/UPDATES.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/updater.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_updater.py"
+                }
+              ],
+              "exclusions": [
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+                "Push, tag, release publication and changes to live palaces or services."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Canonical and symlink/alias PIPX_HOME paths to the same disposable custom pipx root give the same supported pipx result with a discoverable manager.",
+                "verification": "Use actual detect_installation; custom root has no literal pipx segment. Positive physical-path control, alias-path case, identical manager/extras and installed noneditable metadata; no live installs."
+              },
+              {
+                "id": "A02",
+                "assertion": "Existing refusal boundaries remain intact: absent manager, non-pipx plain/system/editable environments and unrelated roots stay unsupported.",
+                "verification": "Run tests/test_updater.py with focused regression cases; do not remove ownership checks or infer supported ownership from a manager alone."
+              },
+              {
+                "id": "A03",
+                "assertion": "The supported installed pipx CLI reports pipx ownership after the same-owner correction, using manager discovery independently valid in its probe environment.",
+                "verification": "Rebuild exact wheel and reproduce disposable pipx update-status scenario after RELEASE-INSTALL-PROBE-MANAGER-PATH; no package/service update is applied."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+            "ready": false,
+            "created_at": "2026-10-02T16:16:03.498223Z",
+            "updated_at": "2026-10-02T16:16:03.498223Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_0971f9845ffed9e7f3f3141ed89071f2",
+          "project": "mempalace-code",
+          "task_id": "UPDATE-PIPX-PATH-IDENTITY",
+          "type": "task.created",
+          "revision": 1,
+          "version": "v1:d3ed35534cf0f74bdeb1199bc100abffce0d70e540767eb77a36f11b107c90f3",
+          "data": {
+            "resource": "backlog://mempalace-code/task/UPDATE-PIPX-PATH-IDENTITY"
+          },
+          "created_at": "2026-10-02T16:16:03.498223Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_b86592e7af6e2bc327eba0de0ec0c772",
+            "project": "mempalace-code",
+            "task_id": "UPDATE-PIPX-PATH-IDENTITY",
+            "type": "task.readiness_changed",
+            "revision": 2,
+            "version": "v1:23ad4ccfc6a77e5dbdc1ee1f6bde128086bdaa79a96ffb96e1045439aa9f69f3",
+            "data": {
+              "ready": true,
+              "resource": "backlog://mempalace-code/task/UPDATE-PIPX-PATH-IDENTITY"
+            },
+            "created_at": "2026-10-02T16:16:24.425436Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "UPDATE-PIPX-PATH-IDENTITY",
+          "version": "v1:23ad4ccfc6a77e5dbdc1ee1f6bde128086bdaa79a96ffb96e1045439aa9f69f3",
+          "completion_valid": false,
+          "revision": 2,
+          "state": "open",
+          "outcome": "Correct pipx installation ownership detection for equivalent filesystem paths.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner: mempalace_code/updater.py:718-765, detect_installation. docs/UPDATES.md Boundary supports pipx isolated installs. env_prefix is resolved but PIPX_HOME is only expanded. A disposable custom root with no literal pipx path component, under macOS temporary-directory alias, returns supported kind=pipx when PIPX_HOME is physical and unsupported/ambiguous when it names the same directory lexically. samefile control=true; same manager callable and metadata control used. Previous installed 1.15.0 wheel pipx smoke returned unsupported ambiguous virtual environment. Actual default symlink-free installations are not claimed broken.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (pipx_alias), .codex-local/release-prep-20261002/pipx-status-diagnostic.json. Smallest proposed correction: normalize compared paths in existing detector, preserve installer ownership guards. No code fix performed during intake.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/UPDATES.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/updater.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_updater.py"
+              }
+            ],
+            "exclusions": [
+              "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+              "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+              "Push, tag, release publication and changes to live palaces or services."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Canonical and symlink/alias PIPX_HOME paths to the same disposable custom pipx root give the same supported pipx result with a discoverable manager.",
+              "verification": "Use actual detect_installation; custom root has no literal pipx segment. Positive physical-path control, alias-path case, identical manager/extras and installed noneditable metadata; no live installs."
+            },
+            {
+              "id": "A02",
+              "assertion": "Existing refusal boundaries remain intact: absent manager, non-pipx plain/system/editable environments and unrelated roots stay unsupported.",
+              "verification": "Run tests/test_updater.py with focused regression cases; do not remove ownership checks or infer supported ownership from a manager alone."
+            },
+            {
+              "id": "A03",
+              "assertion": "The supported installed pipx CLI reports pipx ownership after the same-owner correction, using manager discovery independently valid in its probe environment.",
+              "verification": "Rebuild exact wheel and reproduce disposable pipx update-status scenario after RELEASE-INSTALL-PROBE-MANAGER-PATH; no package/service update is applied."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+          "ready": false,
+          "created_at": "2026-10-02T16:16:03.498223Z",
+          "updated_at": "2026-10-02T16:16:24.425436Z"
+        },
+        "operation": {
+          "id": "op_f880afe2d222b2732806d3e92cbee262",
+          "principal": "codex-macmac",
+          "request_id": "mp-bug-intake-20261002-open-1",
+          "kind": "update",
+          "payload": {
+            "expected_version": "v1:d3ed35534cf0f74bdeb1199bc100abffce0d70e540767eb77a36f11b107c90f3",
+            "expected_revision": 1,
+            "state": "open"
+          },
+          "request_hash": "b5cd8ef7188b4c99b0cf59f3cd74211e893ac1fd83ec8b7080a7183696303bbf",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "UPDATE-PIPX-PATH-IDENTITY",
+            "version": "v1:23ad4ccfc6a77e5dbdc1ee1f6bde128086bdaa79a96ffb96e1045439aa9f69f3",
+            "completion_valid": false,
+            "revision": 2,
+            "state": "open",
+            "outcome": "Correct pipx installation ownership detection for equivalent filesystem paths.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner: mempalace_code/updater.py:718-765, detect_installation. docs/UPDATES.md Boundary supports pipx isolated installs. env_prefix is resolved but PIPX_HOME is only expanded. A disposable custom root with no literal pipx path component, under macOS temporary-directory alias, returns supported kind=pipx when PIPX_HOME is physical and unsupported/ambiguous when it names the same directory lexically. samefile control=true; same manager callable and metadata control used. Previous installed 1.15.0 wheel pipx smoke returned unsupported ambiguous virtual environment. Actual default symlink-free installations are not claimed broken.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (pipx_alias), .codex-local/release-prep-20261002/pipx-status-diagnostic.json. Smallest proposed correction: normalize compared paths in existing detector, preserve installer ownership guards. No code fix performed during intake.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/UPDATES.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/updater.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_updater.py"
+                }
+              ],
+              "exclusions": [
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+                "Push, tag, release publication and changes to live palaces or services."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Canonical and symlink/alias PIPX_HOME paths to the same disposable custom pipx root give the same supported pipx result with a discoverable manager.",
+                "verification": "Use actual detect_installation; custom root has no literal pipx segment. Positive physical-path control, alias-path case, identical manager/extras and installed noneditable metadata; no live installs."
+              },
+              {
+                "id": "A02",
+                "assertion": "Existing refusal boundaries remain intact: absent manager, non-pipx plain/system/editable environments and unrelated roots stay unsupported.",
+                "verification": "Run tests/test_updater.py with focused regression cases; do not remove ownership checks or infer supported ownership from a manager alone."
+              },
+              {
+                "id": "A03",
+                "assertion": "The supported installed pipx CLI reports pipx ownership after the same-owner correction, using manager discovery independently valid in its probe environment.",
+                "verification": "Rebuild exact wheel and reproduce disposable pipx update-status scenario after RELEASE-INSTALL-PROBE-MANAGER-PATH; no package/service update is applied."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+            "ready": true,
+            "created_at": "2026-10-02T16:16:03.498223Z",
+            "updated_at": "2026-10-02T16:16:24.425436Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_6f3eb76f31b05d371b7980ead340d83b",
+          "project": "mempalace-code",
+          "task_id": "UPDATE-PIPX-PATH-IDENTITY",
+          "type": "task.changed",
+          "revision": 2,
+          "version": "v1:23ad4ccfc6a77e5dbdc1ee1f6bde128086bdaa79a96ffb96e1045439aa9f69f3",
+          "data": {
+            "resource": "backlog://mempalace-code/task/UPDATE-PIPX-PATH-IDENTITY"
+          },
+          "created_at": "2026-10-02T16:16:24.425436Z"
+        }
+      },
+      {
+        "derived_events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_71263593edb72fe89427a0637bed6cac",
+            "project": "mempalace-code",
+            "task_id": "UPDATE-PIPX-PATH-IDENTITY",
+            "type": "task.readiness_changed",
+            "revision": 3,
+            "version": "v1:462fe4cfb6a4b717d74f299b6870811957b98e6fd278b3944afb2d2dea126e60",
+            "data": {
+              "ready": false,
+              "resource": "backlog://mempalace-code/task/UPDATE-PIPX-PATH-IDENTITY"
+            },
+            "created_at": "2026-10-02T22:03:38.236758Z"
+          }
+        ],
+        "task": {
+          "schema": "backlog/v1",
+          "project": "mempalace-code",
+          "id": "UPDATE-PIPX-PATH-IDENTITY",
+          "version": "v1:462fe4cfb6a4b717d74f299b6870811957b98e6fd278b3944afb2d2dea126e60",
+          "completion_valid": false,
+          "revision": 3,
+          "state": "done",
+          "outcome": "Correct pipx installation ownership detection for equivalent filesystem paths.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner: mempalace_code/updater.py:718-765, detect_installation. docs/UPDATES.md Boundary supports pipx isolated installs. env_prefix is resolved but PIPX_HOME is only expanded. A disposable custom root with no literal pipx path component, under macOS temporary-directory alias, returns supported kind=pipx when PIPX_HOME is physical and unsupported/ambiguous when it names the same directory lexically. samefile control=true; same manager callable and metadata control used. Previous installed 1.15.0 wheel pipx smoke returned unsupported ambiguous virtual environment. Actual default symlink-free installations are not claimed broken.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (pipx_alias), .codex-local/release-prep-20261002/pipx-status-diagnostic.json. Smallest proposed correction: normalize compared paths in existing detector, preserve installer ownership guards. No code fix performed during intake.",
+          "scope": {
+            "resources": [
+              {
+                "type": "file",
+                "uri": "docs/UPDATES.md"
+              },
+              {
+                "type": "file",
+                "uri": "mempalace_code/updater.py"
+              },
+              {
+                "type": "file",
+                "uri": "tests/test_updater.py"
+              }
+            ],
+            "exclusions": [
+              "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+              "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+              "Push, tag, release publication and changes to live palaces or services."
+            ]
+          },
+          "acceptance": [
+            {
+              "id": "A01",
+              "assertion": "Canonical and symlink/alias PIPX_HOME paths to the same disposable custom pipx root give the same supported pipx result with a discoverable manager.",
+              "verification": "Use actual detect_installation; custom root has no literal pipx segment. Positive physical-path control, alias-path case, identical manager/extras and installed noneditable metadata; no live installs."
+            },
+            {
+              "id": "A02",
+              "assertion": "Existing refusal boundaries remain intact: absent manager, non-pipx plain/system/editable environments and unrelated roots stay unsupported.",
+              "verification": "Run tests/test_updater.py with focused regression cases; do not remove ownership checks or infer supported ownership from a manager alone."
+            },
+            {
+              "id": "A03",
+              "assertion": "The supported installed pipx CLI reports pipx ownership after the same-owner correction, using manager discovery independently valid in its probe environment.",
+              "verification": "Rebuild exact wheel and reproduce disposable pipx update-status scenario after RELEASE-INSTALL-PROBE-MANAGER-PATH; no package/service update is applied."
+            }
+          ],
+          "blocked_by": [],
+          "questions": [],
+          "completion": {
+            "prerequisites": {},
+            "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+            "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#UPDATE-PIPX-PATH-IDENTITY. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+                "verification_result": "pass"
+              }
+            ],
+            "completed_at": "2026-10-02T22:03:38.236758Z"
+          },
+          "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+          "ready": false,
+          "created_at": "2026-10-02T16:16:03.498223Z",
+          "updated_at": "2026-10-02T22:03:38.236758Z"
+        },
+        "operation": {
+          "id": "op_e11680c3288bb3293571d2deb7b33383",
+          "principal": "codex-macmac",
+          "request_id": "remaining-release-20261002-complete-update-pipx-path-identity",
+          "kind": "complete",
+          "payload": {
+            "expected_version": "v1:23ad4ccfc6a77e5dbdc1ee1f6bde128086bdaa79a96ffb96e1045439aa9f69f3",
+            "expected_revision": 2,
+            "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+            "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#UPDATE-PIPX-PATH-IDENTITY. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+            "evidence": [
+              {
+                "acceptance_id": "A01",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A02",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+                "verification_result": "pass"
+              },
+              {
+                "acceptance_id": "A03",
+                "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+                "verification_result": "pass"
+              }
+            ]
+          },
+          "request_hash": "0e6c46686149f8b58fed1e984166106aed9db7b7a85dd907de311d247a0d4c7b",
+          "response": {
+            "schema": "backlog/v1",
+            "project": "mempalace-code",
+            "id": "UPDATE-PIPX-PATH-IDENTITY",
+            "version": "v1:462fe4cfb6a4b717d74f299b6870811957b98e6fd278b3944afb2d2dea126e60",
+            "completion_valid": true,
+            "revision": 3,
+            "state": "done",
+            "outcome": "Correct pipx installation ownership detection for equivalent filesystem paths.\nConfirmed at d8543630b5a4fe4f01d695ac25b9bc89204a7245. Owner: mempalace_code/updater.py:718-765, detect_installation. docs/UPDATES.md Boundary supports pipx isolated installs. env_prefix is resolved but PIPX_HOME is only expanded. A disposable custom root with no literal pipx path component, under macOS temporary-directory alias, returns supported kind=pipx when PIPX_HOME is physical and unsupported/ambiguous when it names the same directory lexically. samefile control=true; same manager callable and metadata control used. Previous installed 1.15.0 wheel pipx smoke returned unsupported ambiguous virtual environment. Actual default symlink-free installations are not claimed broken.\nEvidence: .codex-local/release-prep-20261002/bug-intake/reproduction.json (pipx_alias), .codex-local/release-prep-20261002/pipx-status-diagnostic.json. Smallest proposed correction: normalize compared paths in existing detector, preserve installer ownership guards. No code fix performed during intake.",
+            "scope": {
+              "resources": [
+                {
+                  "type": "file",
+                  "uri": "docs/UPDATES.md"
+                },
+                {
+                  "type": "file",
+                  "uri": "mempalace_code/updater.py"
+                },
+                {
+                  "type": "file",
+                  "uri": "tests/test_updater.py"
+                }
+              ],
+              "exclusions": [
+                "Credentials, paid AI clients in release gates, real user conversation data and writes outside this repository.",
+                "New update controllers, architecture boundaries, weaker guards or assertions, unrelated changes.",
+                "Push, tag, release publication and changes to live palaces or services."
+              ]
+            },
+            "acceptance": [
+              {
+                "id": "A01",
+                "assertion": "Canonical and symlink/alias PIPX_HOME paths to the same disposable custom pipx root give the same supported pipx result with a discoverable manager.",
+                "verification": "Use actual detect_installation; custom root has no literal pipx segment. Positive physical-path control, alias-path case, identical manager/extras and installed noneditable metadata; no live installs."
+              },
+              {
+                "id": "A02",
+                "assertion": "Existing refusal boundaries remain intact: absent manager, non-pipx plain/system/editable environments and unrelated roots stay unsupported.",
+                "verification": "Run tests/test_updater.py with focused regression cases; do not remove ownership checks or infer supported ownership from a manager alone."
+              },
+              {
+                "id": "A03",
+                "assertion": "The supported installed pipx CLI reports pipx ownership after the same-owner correction, using manager discovery independently valid in its probe environment.",
+                "verification": "Rebuild exact wheel and reproduce disposable pipx update-status scenario after RELEASE-INSTALL-PROBE-MANAGER-PATH; no package/service update is applied."
+              }
+            ],
+            "blocked_by": [],
+            "questions": [],
+            "completion": {
+              "prerequisites": {},
+              "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+              "result": "Fixed and verified in uncommitted candidate-r2 at source baseline 97d4a7b52d39d64e00698035603c9bc1e4ee9fa3. Independent read-only Astra gpt-6-astra/medium/OpenAI source review PASS, no fallback. 639 affected-suite tests PASS, 1 skip. All four exact-wheel installer rows PASS; wheel SHA256 56b6106e7653709ac69494ac6c0a8a51d06101f59b7cb464167655d47b141615. Installed path-contract owner PASS, with six actual CLI recovery controls; package/runtime hashes preserved. Task outcome, before/after, exact paths, static/types/docs/security checks, LDR explicit empty applicability and utility adoption in .codex-local/remaining-release-20261002/results.json#UPDATE-PIPX-PATH-IDENTITY. No blocker for this task. Overall release remains blocked by unrelated stale preflight mirror sample (missing repair-backups/quarantines), Linux systemd-user lifecycle UNRUN on macOS and uncommitted release acceptance; those failures are retained and not waived. No utility source, staging/commit/push/release/live data/service change.",
+              "evidence": [
+                {
+                  "acceptance_id": "A01",
+                  "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A02",
+                  "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+                  "verification_result": "pass"
+                },
+                {
+                  "acceptance_id": "A03",
+                  "artifact_ref": "file:.codex-local/remaining-release-20261002/results.json#tasks/UPDATE-PIPX-PATH-IDENTITY",
+                  "verification_result": "pass"
+                }
+              ],
+              "completed_at": "2026-10-02T22:03:38.236758Z"
+            },
+            "contract_digest": "sha256:a5fb5b3a13d1a88d5d966cccf89a6a5a088aef9054dc44b49caa5de9a97132b1",
+            "ready": false,
+            "created_at": "2026-10-02T16:16:03.498223Z",
+            "updated_at": "2026-10-02T22:03:38.236758Z"
+          }
+        },
+        "event": {
+          "sequence": 0,
+          "event_id": "evt_6cb92d5813452e1372ba4cb9bc5bde52",
+          "project": "mempalace-code",
+          "task_id": "UPDATE-PIPX-PATH-IDENTITY",
+          "type": "task.completed",
+          "revision": 3,
+          "version": "v1:462fe4cfb6a4b717d74f299b6870811957b98e6fd278b3944afb2d2dea126e60",
+          "data": {
+            "resource": "backlog://mempalace-code/task/UPDATE-PIPX-PATH-IDENTITY"
+          },
+          "created_at": "2026-10-02T22:03:38.236758Z"
+        }
+      }
+    ],
+    "seal": "2802bd9854c8293ba1119f0b76763650d05f1694eb7fec34618fd4c4e25bf3c5"
+  },
+  "planning": {
+    "format": "backlog-workflow/v2",
+    "project": "mempalace-code",
+    "kind": "planning",
+    "id": "UPDATE-PIPX-PATH-IDENTITY",
+    "head": "wf2:4ff45626e807088b74ec7b4311064d6cbdc060ea4a789b5e440b36d7eef26ec7",
+    "nodes": [
+      {
+        "version": "wf2:4ff45626e807088b74ec7b4311064d6cbdc060ea4a789b5e440b36d7eef26ec7",
+        "parents": [],
+        "kind": "plan",
+        "principal": "codex-macmac",
+        "request_id": "mp-bug-intake-20261002-plan-1",
+        "request_hash": "0c6630e4ad90eef65531b7ffb150dab3f7af908d52160b276c9f65908803ad28",
+        "payload": {
+          "request_id": "mp-bug-intake-20261002-plan-1",
+          "id": "UPDATE-PIPX-PATH-IDENTITY",
+          "expected_planning_version": "unplanned",
+          "reason": "Confirmed blocker of the next release qualification; intake only, implementation is not authorized by this request.",
+          "priority": "P1",
+          "required": true
+        },
+        "state": {
+          "order": 0,
+          "priority": "P1",
+          "required": true,
+          "version": "wf2:4ff45626e807088b74ec7b4311064d6cbdc060ea4a789b5e440b36d7eef26ec7"
+        },
+        "created_at": "2026-10-02T16:16:24.621464Z",
+        "events": [
+          {
+            "sequence": 0,
+            "event_id": "evt_wf_4ff45626e807088b74ec7b4311064d6cbdc060ea4a789b5e440b36d7eef26ec7",
+            "project": "mempalace-code",
+            "task_id": "UPDATE-PIPX-PATH-IDENTITY",
+            "type": "planning.changed",
+            "revision": 0,
+            "version": "wf2:4ff45626e807088b74ec7b4311064d6cbdc060ea4a789b5e440b36d7eef26ec7",
+            "data": {
+              "resource": "backlog://mempalace-code/task/UPDATE-PIPX-PATH-IDENTITY",
+              "subject_id": "UPDATE-PIPX-PATH-IDENTITY",
+              "subject_kind": "planning"
+            },
+            "created_at": "2026-10-02T16:16:24.621464Z"
+          }
+        ]
+      }
+    ],
+    "seal": "049abd3d86d23925273b986209f3679ebd66bcb65a1507f7e9d3108b014a50f1"
+  },
+  "seal": "857dfe4bf02d658a3aa71e0ca5284d836f2a035b1496be78551f5056871b0441"
+}

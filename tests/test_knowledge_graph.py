@@ -536,3 +536,72 @@ class TestTemporalValidation:
         with pytest.raises(ValueError, match="Invalid temporal"):
             kg.invalidate_legacy_arch_ns_project_for_wing("__arch__", "mywing", ended="2 days ago")
         assert kg.stats()["triples"] == before
+
+
+# ── Corrupt knowledge-graph file ────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [b"this is not a sqlite database at all" * 200, b"SQLite format 3\x00" + b"\xff" * 4096],
+    ids=["not-a-database", "malformed"],
+)
+def test_opening_a_corrupt_palace_kg_names_the_file_and_recovery(tmp_path, payload):
+    from mempalace_code.knowledge_graph import (
+        KnowledgeGraphCorruptError,
+        open_palace_kg,
+        palace_kg_path,
+    )
+
+    palace = tmp_path / "palace"
+    palace.mkdir()
+    kg_file = palace_kg_path(str(palace))
+    with open(kg_file, "wb") as fh:
+        fh.write(payload)
+
+    with pytest.raises(KnowledgeGraphCorruptError) as raised:
+        open_palace_kg(str(palace))
+
+    message = str(raised.value)
+    assert isinstance(raised.value, RuntimeError)
+    assert kg_file in message
+    assert f"--palace {palace} health" in message
+    assert f"--palace {palace} backup list" in message
+    with open(kg_file, "rb") as fh:
+        assert fh.read() == payload  # never rewritten
+
+
+def test_busy_or_locked_kg_is_never_reported_as_corrupt():
+    locked = sqlite3.OperationalError("database is locked")
+    locked.sqlite_errorcode = sqlite3.SQLITE_BUSY
+    assert knowledge_graph_module._is_corruption(locked) is False
+    assert knowledge_graph_module._is_corruption(sqlite3.OperationalError("locked")) is False
+    not_db = sqlite3.DatabaseError("file is not a database")
+    not_db.sqlite_errorcode = sqlite3.SQLITE_NOTADB
+    assert knowledge_graph_module._is_corruption(not_db) is True
+
+
+def test_cli_reports_a_corrupt_kg_without_a_traceback(tmp_path, monkeypatch, capsys):
+    import sys
+
+    from mempalace_code.cli import main
+    from mempalace_code.knowledge_graph import palace_kg_path
+    from mempalace_code.storage import open_store
+
+    palace = tmp_path / "palace"
+    open_store(str(palace), create=True).add(["d1"], ["a note"], [{"wing": "w", "room": "r"}])
+    with open(palace_kg_path(str(palace)), "wb") as fh:
+        fh.write(b"garbage" * 1000)
+    out = tmp_path / "export.jsonl"
+    monkeypatch.setenv("MEMPALACE_VERSION_CHECK", "0")
+    argv = ["mempalace-code", "--palace", str(palace), "export", "--out", str(out), "--with-kg"]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as raised:
+        main()
+
+    assert raised.value.code == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "is corrupt" in err
+    assert "backup list" in err

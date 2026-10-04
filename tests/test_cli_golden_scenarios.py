@@ -641,8 +641,19 @@ def test_cli_golden_failure_contracts(tmp_path, fake_pkg_root):
 def test_installed_cli_paths_are_self_consistent_and_reconcilable(tmp_path, fake_pkg_root):
     env = _make_env(tmp_path, fake_pkg_root)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    command_prefix = _CLI
+    if not _INSTALLED_CLI:
+        # This scenario verifies console identity; supply a source-bound console in source mode.
+        console = tmp_path / "bin" / "mempalace-code"
+        console.parent.mkdir()
+        console.write_text(
+            f"#!{sys.executable}\nfrom mempalace_code.cli import main\nmain()\n", encoding="utf-8"
+        )
+        console.chmod(0o755)
+        command_prefix = [str(console)]
+        env["PATH"] = os.pathsep.join([str(console.parent), env.get("PATH", os.defpath)])
     row = _run_installed_path_contract_scenario(
-        _CLI,
+        command_prefix,
         env,
         tmp_path / "path-contract-scenario",
         tmp_path / "neutral-cwd",

@@ -19,11 +19,19 @@ mempalace-code wing-migration qualify --mode synthetic
 
 It creates one private disposable fixture, runs inventory, snapshot, a real source-wing mine,
 pre-activation installed-runtime resolver and synthetic destination no-op proof, apply, and idempotent retry
-checks, emits a sanitized JSON report, and removes the successful fixture at command exit. The
-report has `synthetic_only: true`. It cannot approve a full-copy rehearsal or live rollout.
+checks, emits a short sanitized JSON report, and removes the successful fixture at command exit. The
+report has `synthetic_only: true`, the proof predicates and row measurements, and only a SHA-256
+digest of the runtime identity; its `recovery_command` is `null` because the fixture is gone. It
+cannot approve a full-copy rehearsal or live rollout.
 Synthetic qualification requires the prepared canonical MiniLM cache selected by `HF_HOME` (or the
-default Hugging Face cache). The runner refuses before creating a receipt or migration runtime when
-that cache is absent or invalid. The runner copies only the validated canonical cache into the
+default Hugging Face cache). The runner refuses before creating any fixture, receipt, or migration
+runtime when that cache is absent or lacks valid provenance, and names the `fetch-model` command.
+A cache that passes that check but whose model fails to load (for example a truncated
+`model.onnx`) is refused as `prepared_model_cache_required` with the same `fetch-model` command
+after the baseline mine, once its fixture is removed. A later refusal
+removes a fixture that holds no receipt and prints the diagnostic in `detail`; once a receipt exists
+it keeps the fixture and prints its path as `retained_fixture` with the receipt-bound recovery
+command. The runner copies only the validated canonical cache into the
 disposable fixture and points every synthetic baseline and runtime subprocess at that independent
 copy. Each subprocess forces
 `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1`, even when the parent environment clears or
@@ -45,7 +53,11 @@ run before a receipt, snapshot, lock, runtime artifact, or report is created. Pu
 fixed predicates; paths, inventory values, measured counts, runtime diagnostics, source content,
 the recovery command, and the retention rule remain in private evidence.
 
-The receipt-bound fixture actions are:
+`qualify --mode live` exists only as a refusal (`live_authority_required`); a live merge runs
+through `live-run` below.
+
+`mempalace-code wing-migration --help` lists every action, and `ACTION --help` describes its
+options. The receipt-bound fixture actions are:
 
 ```bash
 mempalace-code wing-migration inventory --inventory /absolute/disposable/inventory.json --receipt /absolute/disposable/receipt.json
@@ -54,6 +66,12 @@ mempalace-code wing-migration apply --inventory /absolute/disposable/inventory.j
 mempalace-code wing-migration classify --receipt /absolute/disposable/receipt.json
 mempalace-code wing-migration recover --inventory /absolute/disposable/inventory.json --receipt /absolute/disposable/receipt.json
 ```
+
+`apply` and `recover` also accept the test-only `--stop-after STAGE` fault injection. The stage
+must be one this receipt reaches (`lance:N[:data]`, `kg:I[:data]`, `tiny_hashes[:data]`,
+`runtime_proved`, `marker[:data]` for apply; `recover:lance[:removed|:installed]`,
+`recover:kg:I[:backup|:removed|:installed]`, `recover:tiny_hashes`, `recover:marker` for
+recover). Any other name refuses with `stop_after_invalid` before a write.
 
 An authorized live merge is one command:
 
@@ -74,10 +92,16 @@ client before its first data write.
 The live command writes a maintenance marker before stopping this user's installed MemPalace MCP
 stdio processes. Every newly started MCP server checks that marker and then holds a shared
 operation lease for its lifetime; the live operator uses the exclusive lease. The marker contains
-one recovery command and remains after any hard interruption. During admission that command proves
-that no receipt and no live write exist before clearing the marker. After receipt publication it
-uses the private retained runner; an unsnapshotted receipt must still match its complete zero-write
-preimage, while a snapshotted receipt follows normal recovery.
+one recovery command and remains after any hard interruption. During admission that command is
+`<installed python> -B -I -m mempalace_code.cli wing-migration live-recover --authority <sealed authority>`,
+which proves that no receipt and no live write exist before clearing the marker. After receipt
+publication the marker is replaced with the private retained runner's `recover --receipt <receipt>`;
+an unsnapshotted receipt must still match its complete zero-write preimage, while a snapshotted
+receipt follows normal recovery. A refused live action reports
+`allowed_next_action: live-recover` while a marker or receipt is pending; when the marker cannot be
+read, rerun `mempalace-code wing-migration live-recover --authority` with the exact mode-0600
+authority. A `live-run` refused before its receipt removes its marker and evidence, so it reports
+`allowed_next_action: live-run` and nothing to recover.
 Successful apply proves the exact merged state, runs the installed CLI mine against the original
 project path with the sealed live configuration, requires the destination wing and zero drawer
 writes, admits only semantic tiny-hash formatting and bounded KG refresh, seals the resulting postimage,
@@ -85,11 +109,38 @@ and removes the marker. Receipt-bound recovery restores the full snapshot, verif
 preimage and Lance bytes, and then removes the marker. Clients reconnect through their normal host
 supervisor after the marker disappears.
 
-Each result states the observed state, authority, and allowed action. Full-copy stdout contains
+Before a live merge of a palace mined by a release older than 1.15, run
+`mempalace-code mine <project>` once per project with the installed 1.15 package. Project
+chunkers moved from `*_v1` to `*_v2` strategies, so the first 1.15 mine re-files every drawer those
+older chunkers wrote; after the merge, that re-filing would fail the zero-drawer-writes predicate of
+the runtime no-op mine.
+
+Each result states the observed state, authority, and allowed action. A refusal whose failed
+predicate itself determines the next step names that step instead of a recovery:
+
+| `failed_predicate` | `allowed_next_action` |
+|---|---|
+| `file_not_found` (an `--inventory`, `--receipt`, or `--authority` path does not exist) | `correct_path_and_retry` |
+| `full_copy_inventory_required` | `set_inventory_environment` (`WING_MIGRATION_INVENTORY_PATH`) |
+| `inventory_missing_fields`, `inventory_permissions_invalid`, `full_copy_inventory_mismatch`, `full_copy_inventory_unavailable` | `correct_inventory_and_retry`; `detail` names only the missing field names or the fixed rule. From `inventory` or `qualify` nothing was created; from `snapshot`, `apply` or `recover` the existing receipt and evidence stay, so restore the inventory and rerun the same command |
+| `receipt_exists` (`inventory` with a receipt that already exists) | `snapshot` on that receipt, then `apply`; or create a new disposable fixture |
+| `runtime_target_exists` (`inventory` of a fixture that was already inventoried) | `new_fixture`: continue with `snapshot` and `apply` on the fixture's existing receipt, or create a new disposable fixture |
+| `live_authority_required` | `live-run` |
+| `snapshot_required` | `snapshot` |
+| `writer_conflict` | `stop_writer_and_retry` (stop the lock owner, rerun the same command); with a pending live marker or receipt, `live-recover` (stop the lock owner, then run the marker's recovery command) |
+| `unknown_state_refused`, `apply_unknown_refused` | `owner_disposition` (no recovery command applies) |
+| `stop_after_invalid` | `correct_stage_and_retry` |
+| `prepared_model_cache_required` (synthetic) | `fetch-model` |
+
+Disposable-fixture refusals print their diagnostic in `detail`. Full-copy stdout contains
 only fixed action/state/status/authority/allowed-next-action fields and never exposes private
 paths, counts, runtime identity, or receipt contents. A refusal for full-copy, unavailable, or
 malformed private evidence keeps
-the same sanitized boundary and directs the operator to private evidence. A valid synthetic
+the same sanitized boundary and directs the operator to private evidence. A refused input that
+created nothing (the inventory selection, missing inventory fields, or a live authority whose
+fields or values differ) names only the non-sensitive field names or fixed rule in `detail` and
+never points at private evidence or a receipt-bound recovery. Only a full-copy inventory must be
+a mode-0600 regular file; a disposable fixture inventory may have any mode. A valid synthetic
 receipt retains its exact receipt-bound recovery command so synthetic operators can recover it.
 `apply` accepts only `original` state with a proved snapshot, or an exact `merged` retry that
 performs zero writes. `recover` accepts only a sealed `partial` or `merged` state. Unknown state
@@ -108,6 +159,13 @@ distinct non-empty `source_wing` and `destination_wing`. The fixture root contai
 ```json
 {"disposable": true, "fixture_id": "the-same-random-id"}
 ```
+
+The fixture HOME is `<fixture_root>/home`. `kg_candidates` must include both
+`<palace>/knowledge_graph.sqlite3` and `<fixture_root>/home/.mempalace/knowledge_graph.sqlite3`
+(otherwise `kg_inventory_incomplete`), and `lock` must be
+`<fixture_root>/home/.mempalace/operation.lock`, the lease every MemPalace CLI, MCP, or watcher
+process started with that HOME takes (otherwise `lock_path_invalid`). Live mode applies the same
+rule to the real HOME.
 
 The inventory, receipt/evidence, snapshot, runtime, palace/Lance, project/marker, configuration,
 sidecar, physical KGs, home, and lock must all remain inside that root and obey their sealed
@@ -284,7 +342,10 @@ The clone must produce distinct inodes and pass the same complete logical preima
 refusal falls back to the ordinary independent copy path.
 Older-format receipts remain byte-for-byte retained evidence. Recovery requires the matching
 historical runner version and hash because the current runner refuses older receipt versions or
-hashes. Preserve that runner separately until recovery or owner disposition.
+hashes. Preserve that runner separately until recovery or owner disposition. Version 18 receipts
+(since 1.15.0) supersede the 1.14.x runner: finish or recover every open 1.14.x receipt with
+1.14.2 before upgrading, and repeat full-copy qualification before a live merge, because live
+authority binds the qualified runner hash.
 Retain this evidence until verified recovery or owner disposition. The private receipt contains
 one exact recovery command. The
 descendant receipt is persisted before copied storage is written; if construction stops

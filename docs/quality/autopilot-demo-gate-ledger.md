@@ -69,13 +69,13 @@ Source: `docs/quality/autopilot-demo-gate-ledger.json`
 
 **Summary:** Public-safe adversarial Claude workflow protocol for repo quality work.
 
-**Enforcing gate:** `python scripts/workflow_review_protocol_guard.py --check`
+**Enforcing gate:** `python -m pytest tests/test_workflow_summary_guard.py -q`
 
 **Before:** No public documentation of multi-agent quality-review workflow.
 
 **After:** `docs/quality/workflow-review-protocol.md` documents adversarial review workflow; linked from `docs/quality/README.md`.
 
-**Behavioral evidence:** Guard validates the protocol document for required sections and actionable language.
+**Behavioral evidence:** `tests/test_workflow_summary_guard.py` checks that the protocol document names every required finding field and states that passive review output is not sufficient.
 
 ---
 
@@ -145,7 +145,7 @@ Source: `docs/quality/autopilot-demo-gate-ledger.json`
 
 **After:** Schema v2 adds strict-slice coverage, public-safety gate status, and demo-gate inventory; 12 new tests; committed artifacts regenerated.
 
-**Behavioral evidence:** `python scripts/quality_scorecard.py --check` exits 0 with v3 schema and all required metric sections present.
+**Behavioral evidence:** `python scripts/quality_scorecard.py --check` exits 0 with all required metric sections present.
 
 ---
 
@@ -237,13 +237,13 @@ Source: `docs/quality/autopilot-demo-gate-ledger.json`
 
 **Summary:** Lightweight guard that workflow review summaries are actionable rather than ceremonial.
 
-**Enforcing gate:** `python -m pytest tests/test_workflow_review_protocol.py -q`
+**Enforcing gate:** `python -m pytest tests/test_workflow_summary_guard.py -q`
 
 **Before:** Workflow review summaries had no enforced structure; ceremonial wording satisfied the form without actionable findings.
 
-**After:** Guard validates required sections, actionable language, and absence of vague approval phrases; 33 tests pass.
+**After:** `scripts/workflow_summary_guard.py` validates publishable review summaries for required fields, actionable language, and absence of vague approval phrases; 33 tests pass.
 
-**Behavioral evidence:** All 33 workflow review guard tests pass. Protocol document updated to replace insufficient phrasing.
+**Behavioral evidence:** All 33 tests in `tests/test_workflow_summary_guard.py` pass. Protocol document updated to replace insufficient phrasing.
 
 ---
 

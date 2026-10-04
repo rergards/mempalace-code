@@ -70,6 +70,7 @@ class TestProfileContents:
         code = PROFILES["code"]
         assert "mempalace_code_search" in code
         assert "mempalace_file_context" in code
+        assert "mempalace_read" in code
         assert "mempalace_explain_subsystem" in code
         assert "mempalace_extract_reusable" in code
         assert "mempalace_status" in code
@@ -393,9 +394,15 @@ class TestUsageRulesConsistency:
         assert available["full"] == discovery
         assert "for `unknown_wing`, call `mempalace_list_wings` when exposed" in managed_rules
         assert (
-            "for `unknown_room` or `unknown_wing_room_pair`, call "
+            "for `unknown_room` or `unknown_wing_room`, call "
             "`mempalace_get_taxonomy` when exposed" in managed_rules
         )
+        # Only the error codes taxonomy_filters actually emits (see test_taxonomy_filters.py).
+        assert set(re.findall(r"`(unknown_[a-z_]+)`", managed_rules)) == {
+            "unknown_wing",
+            "unknown_room",
+            "unknown_wing_room",
+        }
         assert "otherwise use `mempalace_list_rooms` only when" in managed_rules
         assert (
             "an empty `mempalace_list_rooms` result validates neither a wing nor a room"

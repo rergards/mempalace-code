@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import NamedTuple, TypeAlias, TypedDict
 
 from ..config import MempalaceConfig
-from ..language_catalog import known_filenames, readable_extensions
+from ..language_catalog import known_filenames, readable_extensions, shebang_language
 from ..source_io import (
     is_regular_source_path,
+    read_regular_bytes,
     read_regular_text,
     regular_source_diagnostic,
     source_path_kind,
@@ -246,14 +247,53 @@ def should_skip_dir(dirname: str) -> bool:
 IncludePaths: TypeAlias = Iterable[str]
 
 
-def normalize_include_paths(include_ignored: IncludePaths | None) -> set[str]:
-    """Normalize comma-parsed include paths into project-relative POSIX strings."""
+def normalize_include_paths(
+    include_ignored: IncludePaths | None, project_path: Path | None = None
+) -> set[str]:
+    """Normalize comma-parsed include paths into project-relative POSIX strings.
+
+    With *project_path*, an absolute path inside the project becomes relative to it;
+    absolute paths outside the project are dropped (see resolve_include_paths()).
+    """
+    return resolve_include_paths(include_ignored, project_path)[0]
+
+
+def resolve_include_paths(
+    include_ignored: IncludePaths | None, project_path: Path | None = None
+) -> tuple[set[str], list[str]]:
+    """Return (project-relative include paths, warnings) for --include-ignored values.
+
+    Absolute paths inside *project_path* are made relative. When *project_path* is
+    given, a path outside the project or one that does not exist yields a warning.
+    """
     normalized: set[str] = set()
+    warnings: list[str] = []
+    root = project_path.expanduser().resolve() if project_path is not None else None
     for raw_path in include_ignored or []:
-        candidate = str(raw_path).strip().strip("/")
-        if candidate:
-            normalized.add(Path(candidate).as_posix())
-    return normalized
+        raw = str(raw_path).strip()
+        if not raw:
+            continue
+        candidate_path = Path(raw).expanduser()
+        if candidate_path.is_absolute():
+            if root is None:
+                candidate = raw.strip("/")
+            else:
+                try:
+                    candidate = candidate_path.resolve().relative_to(root).as_posix()
+                except (OSError, ValueError):
+                    warnings.append(
+                        f"--include-ignored {raw}: not inside the project {root}; ignored"
+                    )
+                    continue
+        else:
+            candidate = raw.strip("/")
+        candidate = Path(candidate).as_posix() if candidate else ""
+        if not candidate or candidate == ".":
+            continue
+        normalized.add(candidate)
+        if root is not None and not os.path.lexists(root / candidate):
+            warnings.append(f"--include-ignored {raw}: no such file or directory under {root}")
+    return normalized, warnings
 
 
 def is_exact_force_include(path: Path, project_path: Path, include_paths: set[str]) -> bool:
@@ -431,6 +471,21 @@ def _looks_like_source_name(path: Path) -> bool:
     return path.suffix.lower() in READABLE_EXTENSIONS or path.name in KNOWN_FILENAMES
 
 
+_SHEBANG_PROBE_BYTES = 256
+
+
+def is_shebang_script(path: Path) -> bool:
+    """Return True for an extension-less regular file whose shebang names a known language."""
+    if path.suffix or not is_regular_source_path(path):
+        return False
+    try:
+        head = read_regular_bytes(path, max_bytes=_SHEBANG_PROBE_BYTES)
+    except OSError:
+        return False
+    first_line = head.split(b"\n", 1)[0].decode("utf-8", errors="replace")
+    return shebang_language(first_line) is not None
+
+
 def is_dir_subtree_excluded(dir_path: Path, project_path: Path, rules: ScanFilterRules) -> bool:
     """Return True if *dir_path* is fully covered by a subtree skip glob.
 
@@ -459,6 +514,49 @@ def is_dir_subtree_excluded(dir_path: Path, project_path: Path, rules: ScanFilte
 # =============================================================================
 
 
+def is_traversed_dir(
+    dir_path: Path,
+    project_path: Path,
+    *,
+    respect_gitignore: bool = True,
+    scan_rules: ScanFilterRules | None = None,
+    matcher_cache: GitignoreMatcherCache | None = None,
+) -> bool:
+    """Return whether :func:`scan_project` descends into *dir_path* under *project_path*.
+
+    Applies the scanner's directory rules to every directory from the project root down:
+    skipped names, scan-filter rules, and (with *respect_gitignore*) ``.gitignore`` files.
+    Symlinks are not checked here.
+    """
+    project_path = Path(project_path).resolve()
+    try:
+        relative = Path(dir_path).resolve().relative_to(project_path)
+    except ValueError:
+        return False
+    if scan_rules is None:
+        scan_rules = get_scan_filter_rules()
+    cache: GitignoreMatcherCache = {} if matcher_cache is None else matcher_cache
+    dotnet_project = _is_dotnet_project(project_path)
+    matchers: list[GitignoreMatcher] = []
+    current = project_path
+    for part in relative.parts:
+        if respect_gitignore:
+            matcher = load_gitignore_matcher(current, cache)
+            if matcher is not None:
+                matchers.append(matcher)
+        child = current / part
+        if (
+            should_skip_dir(part)
+            or (dotnet_project and part == "bin")
+            or is_scan_excluded(child, project_path, scan_rules, is_dir=True)
+            or is_dir_subtree_excluded(child, project_path, scan_rules)
+            or (respect_gitignore and is_gitignored(child, matchers, is_dir=True))
+        ):
+            return False
+        current = child
+    return True
+
+
 def scan_project(
     project_dir: str,
     respect_gitignore: bool = True,
@@ -467,12 +565,17 @@ def scan_project(
     hard_exclude_dirs: Iterable[str | Path] | None = None,
     skip_invalid_source_symlinks: bool = False,
     symlink_diagnostics: list[SourceDiagnostic] | None = None,
+    unsupported_files: list[Path] | None = None,
 ) -> list[Path]:
     """Return ordinary regular source paths selected by the project rules.
 
     ``skip_invalid_source_symlinks`` remains for call compatibility and has no behavioral
     effect: every symlink and non-regular node is rejected. When ``symlink_diagnostics``
     is provided, each rejection appends its path and non-following filesystem kind.
+
+    Files are selected by extension, by known filename, or — for extension-less
+    files — by a shebang naming a known interpreter. When ``unsupported_files`` is
+    provided, it receives the non-ignored files skipped only because of their type.
     """
     project_path = Path(project_dir).expanduser().resolve()
     hard_exclude_paths = normalize_hard_exclude_dirs(hard_exclude_dirs)
@@ -482,7 +585,7 @@ def scan_project(
     files: list[Path] = []
     active_matchers: list[GitignoreMatcher] = []
     matcher_cache: GitignoreMatcherCache = {}
-    include_paths = normalize_include_paths(include_ignored)
+    include_paths = normalize_include_paths(include_ignored, project_path)
     dotnet_project = _is_dotnet_project(project_path)
 
     if scan_rules is None:
@@ -531,7 +634,7 @@ def scan_project(
             dirpath = root_path / dirname
             if _looks_like_source_name(dirpath):
                 _record_non_regular_source(dirpath, symlink_diagnostics)
-            else:
+            if not dirpath.is_symlink():
                 accepted_dirs.append(dirname)
         dirs[:] = accepted_dirs
 
@@ -546,10 +649,16 @@ def scan_project(
                 continue
             if not force_include and is_scan_excluded(filepath, project_path, scan_rules):
                 continue
-            if not _looks_like_source_name(filepath) and not exact_force_include:
+            source_name = _looks_like_source_name(filepath) or exact_force_include
+            if not source_name and filepath.suffix and unsupported_files is None:
                 continue
             if respect_gitignore and active_matchers and not force_include:
                 if is_gitignored(filepath, active_matchers, is_dir=False):
+                    continue
+            if not source_name:
+                if not is_shebang_script(filepath):
+                    if unsupported_files is not None and is_regular_source_path(filepath):
+                        unsupported_files.append(filepath)
                     continue
             if not is_regular_source_path(filepath):
                 _record_non_regular_source(filepath, symlink_diagnostics)

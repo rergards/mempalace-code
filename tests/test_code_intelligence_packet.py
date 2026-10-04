@@ -549,11 +549,19 @@ class TestRunCliReturncode:
 # ── _mcp_exchange response validation ─────────────────────────────────────────
 
 
+def _code_search_response(payload: dict) -> dict:
+    return {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {"content": [{"type": "text", "text": json.dumps(payload)}]},
+    }
+
+
 class TestMcpExchangeValidation:
     _GOOD_RESPONSES = [
         {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}},
         {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}},
-        {"jsonrpc": "2.0", "id": 3, "result": {"content": []}},
+        _code_search_response({"results": [{"source_file": "/fixture/src/auth.py"}]}),
     ]
 
     def _mock_proc(self, returncode=0, responses=None):
@@ -608,6 +616,46 @@ class TestMcpExchangeValidation:
 
         with patch("subprocess.run", return_value=self._mock_proc(responses=extra_responses)):
             with pytest.raises(RuntimeError, match="responses"):
+                _PKT._mcp_exchange(palace_dir)
+
+    def test_passes_canonical_hf_home_to_redirected_server(self, tmp_path, monkeypatch):
+        """The server's HOME is fake, so the default cache root must be pinned via HF_HOME."""
+        palace_dir = tmp_path / "palace"
+        palace_dir.mkdir()
+        monkeypatch.delenv("HF_HOME", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path / "real-home"))
+
+        with patch("subprocess.run", return_value=self._mock_proc()) as run:
+            _PKT._mcp_exchange(palace_dir)
+
+        env = run.call_args.kwargs["env"]
+        assert env["HOME"] == str(tmp_path / "mcp_home")
+        assert env["HF_HOME"] == str(tmp_path / "real-home" / ".cache" / "huggingface")
+
+    def test_raises_when_code_search_reports_a_tool_error(self, tmp_path):
+        palace_dir = tmp_path / "palace"
+        palace_dir.mkdir()
+        responses = [
+            *self._GOOD_RESPONSES[:2],
+            _code_search_response(
+                {"error": "Search error: Canonical FastEmbed cache is not owned"}
+            ),
+        ]
+
+        with patch("subprocess.run", return_value=self._mock_proc(responses=responses)):
+            with pytest.raises(RuntimeError, match="code_search failed.*not owned"):
+                _PKT._mcp_exchange(palace_dir)
+
+    def test_raises_when_code_search_misses_the_known_answer(self, tmp_path):
+        palace_dir = tmp_path / "palace"
+        palace_dir.mkdir()
+        responses = [
+            *self._GOOD_RESPONSES[:2],
+            _code_search_response({"results": [{"source_file": "/fixture/src/models.py"}]}),
+        ]
+
+        with patch("subprocess.run", return_value=self._mock_proc(responses=responses)):
+            with pytest.raises(_PKT.KnownAnswerError, match="auth.py"):
                 _PKT._mcp_exchange(palace_dir)
 
     def test_raises_on_fewer_mcp_responses(self, tmp_path):

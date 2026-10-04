@@ -127,9 +127,10 @@ def test_one_shot_main_collects_after_return_and_system_exit(monkeypatch, capsys
     assert captured.err == "exit diagnostic\n"
 
     package_module_calls = []
-    monkeypatch.setattr(cli, "_one_shot_main", lambda: package_module_calls.append("called"))
+    monkeypatch.setattr(cli, "_one_shot_main", lambda **kwargs: package_module_calls.append(kwargs))
     runpy.run_module("mempalace_code.__main__", run_name="__main__")
-    assert package_module_calls == ["called"]
+    # `python -m mempalace_code` names the command instead of reporting __main__.py.
+    assert package_module_calls == [{"prog": "mempalace-code"}]
 
 
 def test_direct_main_remains_reusable_without_process_shutdown(monkeypatch, capsys):
@@ -347,6 +348,11 @@ def _write_fake_fastembed_layout(cache_dir: Path, *, provenance: bool) -> None:
 
 
 def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False, fail_online=False):
+    from mempalace_code import storage
+
+    # The fakes simulate a reachable model host, so the suite-wide offline switches are off.
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    monkeypatch.delenv("TRANSFORMERS_OFFLINE", raising=False)
     downloaded = False
 
     class FakeTokenizer:
@@ -365,19 +371,22 @@ def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False, fail_onli
 
     class FakeTextEmbedding:
         def __init__(self, **kwargs):
-            nonlocal downloaded
             calls.append(kwargs)
             if fail_local and kwargs.get("local_files_only") and not downloaded:
                 raise RuntimeError("local model unavailable")
-            if not kwargs.get("local_files_only"):
-                if fail_online:
-                    cache = Path(kwargs["cache_dir"])
-                    cache.mkdir(parents=True, exist_ok=True)
-                    (cache / "interrupted.bin").write_bytes(b"partial")
-                    raise RuntimeError("download interrupted")
-                _write_fake_fastembed_layout(Path(kwargs["cache_dir"]), provenance=False)
-                downloaded = True
             self.model = types.SimpleNamespace(tokenizer=FakeTokenizer())
+
+    def fake_pinned_download():
+        # Recorded like an online-capable load so call sequences read load/download/load.
+        nonlocal downloaded
+        calls.append({"local_files_only": False})
+        cache = storage.canonical_fastembed_cache_root()
+        if fail_online:
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "interrupted.bin").write_bytes(b"partial")
+            raise RuntimeError("download interrupted")
+        _write_fake_fastembed_layout(cache, provenance=False)
+        downloaded = True
 
     class FakeSentenceTransformer:
         def __init__(self, model_name, **kwargs):
@@ -390,6 +399,7 @@ def _install_fake_fetch_model(monkeypatch, calls, *, fail_local=False, fail_onli
         "fastembed",
         types.SimpleNamespace(TextEmbedding=FakeTextEmbedding),
     )
+    monkeypatch.setattr(storage, "_download_pinned_canonical_snapshot", fake_pinned_download)
     monkeypatch.setitem(
         sys.modules,
         "sentence_transformers",
@@ -419,6 +429,29 @@ def test_fetch_model_uses_cached_model_without_download(tmp_path, monkeypatch, c
     output = capsys.readouterr().out
     assert "already available locally" in output
     assert "Downloading model" not in output
+
+
+def test_fetch_model_size_counts_symlinked_snapshot_blobs_once(tmp_path, monkeypatch, capsys):
+    """HF snapshot symlinks point into blobs/, so the reported size must not double them."""
+    from mempalace_code.cli_commands import model
+    from mempalace_code.storage import CANONICAL_EMBED_MODEL_REVISION, DEFAULT_EMBED_MODEL
+
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    cache_dir = model._model_cache_dir(DEFAULT_EMBED_MODEL)
+    assert cache_dir is not None
+    _write_fake_fastembed_layout(cache_dir, provenance=True)
+    repository = cache_dir / "models--qdrant--all-MiniLM-L6-v2-onnx"
+    blob = repository / "blobs" / "onnx-blob"
+    blob.parent.mkdir()
+    blob.write_bytes(b"\0" * (3 * 1024 * 1024))
+    onnx = repository / "snapshots" / CANONICAL_EMBED_MODEL_REVISION / "model.onnx"
+    onnx.unlink()
+    onnx.symlink_to(Path("..") / ".." / "blobs" / "onnx-blob")
+    _install_fake_fetch_model(monkeypatch, [])
+
+    model.fetch_model(DEFAULT_EMBED_MODEL)
+
+    assert "Size on disk: 3.0 MB" in capsys.readouterr().out
 
 
 def test_fetch_model_downloads_after_local_cache_miss(tmp_path, monkeypatch, capsys):
@@ -473,16 +506,16 @@ def test_fetch_model_preserves_partial_cache_and_retry_is_idempotent(tmp_path, m
         model.fetch_model(DEFAULT_EMBED_MODEL)
     first_output = capsys.readouterr().out
     assert "Preserved partial cache at:" in first_output
-    assert (cache_dir / "interrupted.bin").read_bytes() == b"partial"
+    # The failed download was made by fetch-model itself, so it is deleted, not kept.
+    assert not cache_dir.exists()
 
     calls.clear()
     _install_fake_fetch_model(monkeypatch, calls)
     model.fetch_model(DEFAULT_EMBED_MODEL)
 
     preserved = sorted(cache_dir.parent.glob(f"{cache_dir.name}.quarantine-*"))
-    assert len(preserved) == 2
-    assert any((path / "original-partial.bin").exists() for path in preserved)
-    assert any((path / "interrupted.bin").exists() for path in preserved)
+    assert len(preserved) == 1
+    assert (preserved[0] / "original-partial.bin").exists()
     assert canonical_fastembed_cache_owned()
     assert "already available locally" not in capsys.readouterr().out
 
@@ -685,9 +718,9 @@ def test_readonly_non_search_inventory():
     assert "read_only=dry_run" in maintenance_src, "repair rollback must use read_only=dry_run"
 
     query_src = (base / "cli_commands" / "query.py").read_text()
-    assert "read_only=True" in query_src, "cmd_read must use read_only=True"
-    assert "read_only=args.dry_run" in query_src, (
-        "cmd_compress dry-run must use read_only=args.dry_run"
+    assert "read_only=True" in query_src, "cmd_read and cmd_compress must use read_only=True"
+    assert "read_only=args.dry_run" not in query_src, (
+        "cmd_compress never writes drawers, so it must not open a writable store for summaries"
     )
 
     export_src = (base / "cli_commands" / "export_import.py").read_text()

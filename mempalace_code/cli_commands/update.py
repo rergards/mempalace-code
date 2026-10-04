@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import shlex
+import sys
 
-from ..updater import UpdateManager, UpdateResult
+from .. import updater
+from ..updater import UpdateManager, UpdateResult, service_manager_name
+from .alias import recovery_cli_command
 
 
 def _mapping(value: object) -> dict[str, object]:
@@ -22,7 +25,7 @@ def _render(result: UpdateResult, as_json: bool) -> None:
     data = result.data
     if data.get("recovery_command"):
         print(f"  Recovery: {data['recovery_command']}")
-    if result.stage == "status":
+    if result.stage in ("status", "check"):
         installation = _mapping(data.get("installation"))
         provenance = _mapping(data.get("provenance"))
         watcher = _mapping(data.get("watcher"))
@@ -31,6 +34,12 @@ def _render(result: UpdateResult, as_json: bool) -> None:
         extras_text = ", ".join(str(extra) for extra in extras) if isinstance(extras, list) else ""
         print(f"  Supported install: {installation.get('supported', False)}")
         print(f"  Installer: {installation.get('kind', 'unknown')}")
+        if not installation.get("supported", False) and installation.get("reason"):
+            print(f"  Installer refusal: {installation['reason']}")
+        if data.get("manual_upgrade_command"):
+            print(f"  Upgrade this pip install with: {data['manual_upgrade_command']}")
+        elif data.get("manual_upgrade_note"):
+            print(f"  Pip upgrade: {data['manual_upgrade_note']}")
         print(f"  Retained extras: {extras_text or 'none'}")
         print(f"  Current version: {provenance.get('current_version', 'unknown')}")
         print(f"  Eligible target: {provenance.get('target_version') or 'none'}")
@@ -44,13 +53,24 @@ def _render(result: UpdateResult, as_json: bool) -> None:
         print(f"  Next run: {data.get('next_run') or 'not scheduled'}")
         if data.get("reason"):
             print(f"  Decision: {data['reason']}")
+    if result.stage == "scheduler-status":
+        print(f"  Scheduler supported: {data.get('supported', False)}")
+        print(f"  Scheduler enabled: {data.get('enabled', False)}")
+        if data.get("detail"):
+            print(f"  Detail: {data['detail']}")
+        print(f"  Next run: {data.get('next_run') or 'not scheduled'}")
+
+
+def _cli_command() -> str:
+    """Name the launcher that was invoked, or the bare name when PATH already finds it."""
+    return recovery_cli_command()
 
 
 def _require_yes(args, action: tuple[str, ...]) -> bool:
     if getattr(args, "yes", False):
         return True
 
-    command = ["mempalace-code"]
+    command = [_cli_command()]
     if args.palace:
         command.extend(["--palace", str(args.palace)])
     command.extend(action)
@@ -62,12 +82,27 @@ def _require_yes(args, action: tuple[str, ...]) -> bool:
     result = UpdateResult(
         False,
         "confirmation",
-        "refused: package or systemd-user mutation requires explicit confirmation",
+        f"refused: package or {service_manager_name()} mutation requires explicit confirmation",
         2,
         data={"recovery_command": shlex.join(command)},
     )
     _render(result, getattr(args, "json", False))
     return False
+
+
+def _scheduler_platform_refusal() -> UpdateResult | None:
+    """Return the scheduler's platform refusal on hosts without systemd-user support."""
+    # Static platform facts: read them from the updater itself, not an injected manager.
+    data = updater.UpdateManager._unsupported_platform_data()
+    if data is None:
+        return None
+    return UpdateResult(
+        False,
+        "unsupported-platform",
+        updater.UpdateManager._unsupported_platform_message(),
+        2,
+        data=data,
+    )
 
 
 def cmd_update(args) -> None:
@@ -95,20 +130,25 @@ def cmd_update(args) -> None:
             )
         elif scheduler_command == "render":
             units = manager.render_scheduler_units()
+            warning = manager.scheduler_render_warning()
+            if warning:
+                print(f"  Warning: {warning}", file=sys.stderr)
             if getattr(args, "json", False):
                 print(json.dumps(units, indent=2, sort_keys=True))
             else:
                 for name, content in units.items():
                     print(f"# {name}\n{content}", end="")
             return
-        elif scheduler_command == "install":
-            if not _require_yes(args, ("update", "scheduler", "install")):
-                raise SystemExit(2)
-            result = manager.install_scheduler()
-        elif scheduler_command == "remove":
-            if not _require_yes(args, ("update", "scheduler", "remove")):
-                raise SystemExit(2)
-            result = manager.remove_scheduler()
+        elif scheduler_command in ("install", "remove"):
+            # Offer `--yes` only where the mutation can run; elsewhere report the boundary.
+            result = _scheduler_platform_refusal()
+            if result is None:
+                if not _require_yes(args, ("update", "scheduler", scheduler_command)):
+                    raise SystemExit(2)
+                if scheduler_command == "install":
+                    result = manager.install_scheduler()
+                else:
+                    result = manager.remove_scheduler()
         else:
             args._scheduler_parser.print_help()
             raise SystemExit(2)

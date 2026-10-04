@@ -1,0 +1,143 @@
+{
+  "repository": "rergards/mempalace-code",
+  "draftOnly": true,
+  "notAnApiPayload": true,
+  "destination": "Current backlog-utility project mempalace-code; read backlog_context and native schemas. Do not edit canonical JSON directly or revive legacy docs/BACKLOG.yaml.",
+  "copyBundleTo": "docs/handoffs/greptile-2026-10-03",
+  "duplicatePolicy": "Fresh current-state and same-owner/behavior match before create; preserve done/cancelled evidence and active writers.",
+  "items": [
+    {
+      "findingId": "MP-MINE-K8S-SECRET-SPACING",
+      "action": "fix",
+      "assessment": "reproduced",
+      "handoff": "issues/MP-MINE-K8S-SECRET-SPACING.md",
+      "targetHandoff": "docs/handoffs/greptile-2026-10-03/issues/MP-MINE-K8S-SECRET-SPACING.md",
+      "draftItem": {
+        "summary": "Обход Secret guard валидным YAML",
+        "type": "bug",
+        "priority": "P1",
+        "assignee": null,
+        "labels": [
+          "greptile-2026-10-03",
+          "fix-candidate"
+        ],
+        "description": "Обход Secret guard валидным YAML\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MINE-K8S-SECRET-SPACING.md\nПовторить current-source verification и independent acceptance из handoff перед исправлением; проверить duplicates/open/done/cancelled.",
+        "taskId": "MP-MINE-K8S-SECRET-SPACING"
+      }
+    },
+    {
+      "findingId": "MP-MCP-KG-BEFORE-LEASE",
+      "action": "fix",
+      "assessment": "reproduced",
+      "handoff": "issues/MP-MCP-KG-BEFORE-LEASE.md",
+      "targetHandoff": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-KG-BEFORE-LEASE.md",
+      "draftItem": {
+        "summary": "KG меняется до отказавшей lease",
+        "type": "bug",
+        "priority": "P1",
+        "assignee": null,
+        "labels": [
+          "greptile-2026-10-03",
+          "fix-candidate"
+        ],
+        "description": "KG меняется до отказавшей lease\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-KG-BEFORE-LEASE.md\nПовторить current-source verification и independent acceptance из handoff перед исправлением; проверить duplicates/open/done/cancelled.",
+        "taskId": "MP-MCP-KG-BEFORE-LEASE"
+      }
+    },
+    {
+      "findingId": "MP-MCP-FILE-CONTEXT-CAP",
+      "action": "fix",
+      "assessment": "reproduced",
+      "handoff": "issues/MP-MCP-FILE-CONTEXT-CAP.md",
+      "targetHandoff": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md",
+      "draftItem": {
+        "summary": "Пагинация скрывает chunks после 10000",
+        "type": "bug",
+        "priority": "P2",
+        "assignee": null,
+        "labels": [
+          "greptile-2026-10-03",
+          "fix-candidate"
+        ],
+        "description": "Пагинация скрывает chunks после 10000\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-FILE-CONTEXT-CAP.md\nПовторить current-source verification и independent acceptance из handoff перед исправлением; проверить duplicates/open/done/cancelled.",
+        "taskId": "MP-MCP-FILE-CONTEXT-CAP"
+      }
+    },
+    {
+      "findingId": "MP-MCP-DEGRADED-RETRY",
+      "action": "fix",
+      "assessment": "reproduced",
+      "handoff": "issues/MP-MCP-DEGRADED-RETRY.md",
+      "targetHandoff": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-DEGRADED-RETRY.md",
+      "draftItem": {
+        "summary": "Повреждённая таблица получает retry hint",
+        "type": "bug",
+        "priority": "P2",
+        "assignee": null,
+        "labels": [
+          "greptile-2026-10-03",
+          "fix-candidate"
+        ],
+        "description": "Повреждённая таблица получает retry hint\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-DEGRADED-RETRY.md\nПовторить current-source verification и independent acceptance из handoff перед исправлением; проверить duplicates/open/done/cancelled.",
+        "taskId": "MP-MCP-DEGRADED-RETRY"
+      }
+    },
+    {
+      "findingId": "MP-MCP-CACHED-KG-NO-PALACE",
+      "action": "fix",
+      "assessment": "reproduced",
+      "handoff": "issues/MP-MCP-CACHED-KG-NO-PALACE.md",
+      "targetHandoff": "docs/handoffs/greptile-2026-10-03/issues/MP-MCP-CACHED-KG-NO-PALACE.md",
+      "draftItem": {
+        "summary": "Cached KG пропускает no-palace response",
+        "type": "bug",
+        "priority": "P3",
+        "assignee": null,
+        "labels": [
+          "greptile-2026-10-03",
+          "fix-candidate"
+        ],
+        "description": "Cached KG пропускает no-palace response\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MCP-CACHED-KG-NO-PALACE.md\nПовторить current-source verification и independent acceptance из handoff перед исправлением; проверить duplicates/open/done/cancelled.",
+        "taskId": "MP-MCP-CACHED-KG-NO-PALACE"
+      }
+    },
+    {
+      "findingId": "MP-MAINTENANCE-THREAD-BYPASS",
+      "action": "recheck",
+      "assessment": "previously-reproduced; current fixes in progress/unverified",
+      "handoff": "issues/MP-MAINTENANCE-THREAD-BYPASS.md",
+      "targetHandoff": "docs/handoffs/greptile-2026-10-03/issues/MP-MAINTENANCE-THREAD-BYPASS.md",
+      "draftItem": {
+        "summary": "Другой thread пишет во время maintenance",
+        "type": "task",
+        "priority": "P1",
+        "assignee": null,
+        "labels": [
+          "greptile-2026-10-03",
+          "recheck-candidate"
+        ],
+        "description": "Другой thread пишет во время maintenance\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-MAINTENANCE-THREAD-BYPASS.md\nПовторить current-source verification и independent acceptance из handoff перед исправлением; проверить duplicates/open/done/cancelled.",
+        "taskId": "MP-MAINTENANCE-THREAD-BYPASS"
+      }
+    },
+    {
+      "findingId": "MP-ARCHIVE-PUBLISH-RACE",
+      "action": "recheck",
+      "assessment": "previously-reproduced; current fixes in progress/unverified",
+      "handoff": "issues/MP-ARCHIVE-PUBLISH-RACE.md",
+      "targetHandoff": "docs/handoffs/greptile-2026-10-03/issues/MP-ARCHIVE-PUBLISH-RACE.md",
+      "draftItem": {
+        "summary": "Fallback заменяет чужой готовый archive",
+        "type": "task",
+        "priority": "P2",
+        "assignee": null,
+        "labels": [
+          "greptile-2026-10-03",
+          "recheck-candidate"
+        ],
+        "description": "Fallback заменяет чужой готовый archive\nHandoff: docs/handoffs/greptile-2026-10-03/issues/MP-ARCHIVE-PUBLISH-RACE.md\nПовторить current-source verification и independent acceptance из handoff перед исправлением; проверить duplicates/open/done/cancelled.",
+        "taskId": "MP-ARCHIVE-PUBLISH-RACE"
+      }
+    }
+  ]
+}

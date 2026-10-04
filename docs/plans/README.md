@@ -20,9 +20,10 @@ Every implementation plan starts with YAML front matter containing exactly one
 `status` and exactly one `authority` field:
 
 - `status: active` — the plan slug exactly matches an open item in
-  `docs/BACKLOG.yaml`.
-- `status: completed` — the plan slug exactly matches completion evidence in
-  `docs/BACKLOG-archived.yaml`.
+  the canonical `.backlog` store; an open+held task is still open.
+- `status: completed` — the plan slug exactly matches
+  current valid canonical completion, or historical `docs/BACKLOG-archived.yaml`
+  evidence when the canonical task is absent.
 - `status: superseded` — current repository evidence names an explicit
   replacement in `superseded_by`.
 - `status: historical` — current repository evidence is absent or ambiguous.
@@ -34,13 +35,22 @@ from its owning workflow outside the plan text.
 
 ## Transitions and recovery
 
-Create a tracked plan as `active` only when its slug has an exact open-backlog
-match. Change it to `completed` when runner-owned bookkeeping records its exact
-archived completion. Use `superseded` only when repository evidence records the
-replacement. Use `historical` when neither source proves a more specific state.
+Create a tracked plan as `active` only for an exact canonical open-task match.
+Owner holds and prerequisites remain effective; an active plan is never an
+execution grant. Change to `completed` only with current valid canonical
+completion or exact historical `docs/BACKLOG-archived.yaml` completion evidence
+when no canonical task exists. YAML retirement never marks a task completed.
+Use `superseded` with repository evidence naming a replacement; use `historical`
+when neither source proves a more specific state.
 
-On missing, stale, malformed, duplicate, or contradictory lifecycle evidence,
-preserve the plan body, set or retain `authority: non_authoritative`, and stop.
-The recovery action is an owner decision based on current
-`docs/BACKLOG.yaml` and `docs/BACKLOG-archived.yaml` before executing any plan
-command.
+Read `backlog_context`, `backlog_workset_context` and `backlog_workset_queue` from
+the verified `.backlog` project connection; follow bounded pages. CLI fallback
+uses a verified absolute `backlog-utility` binary with `call --store .backlog
+--project mempalace-code --principal <principal> --name <tool> --arguments-file
+<json>`. `docs/BACKLOG.yaml` retains historical section metadata only.
+
+Missing, stale, malformed, duplicate or contradictory lifecycle evidence stops
+plan execution. Preserve the body and `authority: non_authoritative`; obtain an
+owner decision. A present invalid store never permits YAML fallback. Historical
+YAML-only fixtures apply only when no canonical store exists.
+Recovery: `<absolute-backlog-utility> validate --store .backlog`.

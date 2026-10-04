@@ -1414,12 +1414,55 @@ def test_probe_environment_isolates_state_and_excludes_ambient_tools(tmp_path):
         assert Path(env[name]).is_relative_to(tmp_path)
 
 
-def test_recovery_refusals_require_exact_json_and_zero_mutation(tmp_path):
+@pytest.mark.parametrize("name", ["pipx", "uv"])
+def test_isolated_probe_exposes_only_selected_manager(tmp_path, monkeypatch, name):
+    import shutil
+
+    external = tmp_path / "external"
+    external.mkdir()
+    manager = external / name
+    manager.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    manager.chmod(0o755)
+    unrelated = external / "ambient-only-tool"
+    unrelated.write_bytes(manager.read_bytes())
+    unrelated.chmod(0o755)
+    monkeypatch.setenv("PATH", str(external))
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-sentinel")
+    root = tmp_path / "probe"
+    script_dir = root / "install" / "bin"
+    script_dir.mkdir(parents=True)
+    env = smoke._isolate_probe_state(
+        smoke._credential_free_env(), root, script_dir, manager=(name, str(manager))
+    )
+
+    found = shutil.which(name, path=env["PATH"])
+    assert found is not None
+    assert Path(found).samefile(manager)
+    assert shutil.which(unrelated.name, path=env["PATH"]) is None
+    assert str(external) not in env["PATH"].split(os.pathsep)
+    assert "OPENAI_API_KEY" not in env
+    assert subprocess.run([name], env=env, check=False).returncode == 0
+    assert Path(env["HOME"]).is_relative_to(root)
+    assert Path(env["HF_HOME"]).is_relative_to(root)
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_recovery_refusals_require_exact_json_and_zero_mutation(tmp_path, monkeypatch, platform):
+    monkeypatch.setattr(smoke.sys, "platform", platform)
     state_root = tmp_path / "state"
     state_root.mkdir()
 
     def run_subprocess(args, env=None, cwd=None):
         action = " ".join(args[1:-1])
+        if action.startswith("update scheduler") and platform != "linux":
+            # Without systemd-user the scheduler reports its boundary instead of `--yes`.
+            payload = {
+                "ok": False,
+                "stage": "unsupported-platform",
+                "exit_code": 2,
+                "recovery_command": "mempalace-code update status --json",
+            }
+            return 2, json.dumps(payload), ""
         payload = {
             "ok": False,
             "stage": "confirmation",
@@ -1596,6 +1639,133 @@ class TestPlatformUpdateBoundaryProbe:
         ]
         assert all(call[1] is env and call[2] == str(tmp_path) for call in calls)
         assert list(home.iterdir()) == []
+
+    @classmethod
+    def _plain_pip_payloads(cls, target="9.9.9"):
+        status = cls._status_payload("darwin")
+        status["manual_update_supported"] = False
+        installation = {
+            "kind": "unsupported",
+            "supported": False,
+            "reason": smoke.AMBIGUOUS_VENV_REFUSAL,
+            "cli": ["/installed environment/bin/python", "-m", "mempalace_code"],
+            "extras": [],
+        }
+        status["installation"] = installation
+        status["provenance"] = {
+            "current_version": VERSION,
+            "target_version": target,
+            "reason": "already on the newest compatible release"
+            if target is None
+            else "new release",
+        }
+        refusal = {
+            "ok": False,
+            "stage": "preflight",
+            "exit_code": 2,
+            "log_path": None,
+            "installation": installation,
+        }
+        if target is not None:
+            recovery = (
+                f'"{installation["cli"][0]}" -m pip install --upgrade "mempalace-code=={target}"'
+            )
+            field = "manual_upgrade_command"
+            message = f"{smoke.AMBIGUOUS_VENV_REFUSAL}; upgrade this ordinary pip install yourself: {recovery}"
+        else:
+            recovery = (
+                "no newer compatible release to upgrade this pip install to "
+                f"({status['provenance']['reason']}); "
+                "check again with `mempalace-code version-check --check-now`"
+            )
+            field = "manual_upgrade_note"
+            message = f"{smoke.AMBIGUOUS_VENV_REFUSAL}; {recovery}"
+        status[field] = refusal[field] = recovery
+        refusal["message"] = message
+        return status, refusal
+
+    def _probe_plain_pip(self, tmp_path, status, refusal):
+        def run_subprocess(args, env=None, cwd=None):
+            if args[1:] == self.STATUS_COMMAND:
+                return 0, json.dumps(status), ""
+            if args[1:] == self.APPLY_COMMAND:
+                return 2, json.dumps(refusal), ""
+            return 2, json.dumps(self._scheduler_payload("darwin")), ""
+
+        return smoke._probe_platform_update_boundaries(
+            "/installed/bin/mempalace-code",
+            str(tmp_path),
+            run_subprocess,
+            {"HOME": str(tmp_path / "home")},
+            installer_supported=False,
+        )
+
+    @pytest.mark.parametrize("target", ["9.9.9", None])
+    def test_probe_expects_the_installer_refusal_for_a_plain_venv_on_darwin(
+        self, tmp_path, monkeypatch, target
+    ):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+        status, refusal = self._plain_pip_payloads(target)
+        home = tmp_path / "home"
+        home.mkdir()
+        assert self._probe_plain_pip(tmp_path, status, refusal).status == smoke.STATUS_OK
+        assert list(home.iterdir()) == []
+        status["manual_update_supported"] = True
+        assert self._probe_plain_pip(tmp_path, status, refusal).status == smoke.STATUS_FAIL
+
+    @pytest.mark.parametrize("target", ["9.9.9", None])
+    @pytest.mark.parametrize(
+        "fault",
+        [
+            "missing",
+            "both",
+            "empty",
+            "message",
+            "wrong-installer",
+            "status-mismatch",
+            "wrong-interpreter",
+            "unpinned",
+            "wrong-target",
+            "unrelated-note",
+            "wrong-recovery",
+        ],
+    )
+    def test_plain_pip_refusal_rejects_inconsistent_or_unrelated_recovery(
+        self, tmp_path, monkeypatch, target, fault
+    ):
+        monkeypatch.setattr(smoke.sys, "platform", "darwin")
+        status, refusal = self._plain_pip_payloads(target)
+        field = "manual_upgrade_command" if target else "manual_upgrade_note"
+        if fault == "missing":
+            refusal.pop(field)
+        elif fault == "both":
+            refusal["manual_upgrade_note" if target else "manual_upgrade_command"] = "unrelated"
+        elif fault == "empty":
+            refusal[field] = ""
+        elif fault == "message":
+            refusal["message"] = smoke.AMBIGUOUS_VENV_REFUSAL
+        elif fault == "wrong-installer":
+            refusal["installation"] = {"kind": "pipx", "supported": True}
+        elif fault == "status-mismatch":
+            status[field] = "different recovery"
+        else:
+            replacements = {
+                "wrong-interpreter": (
+                    '"/other/bin/python" -m pip install --upgrade "mempalace-code==9.9.9"'
+                ),
+                "unpinned": '"/installed environment/bin/python" -m pip install --upgrade mempalace-code',
+                "wrong-target": '"/installed environment/bin/python" -m pip install --upgrade "mempalace-code==8.8.8"',
+                "unrelated-note": "no newer compatible release for a different installation",
+                "wrong-recovery": "no newer compatible release; run pipx upgrade mempalace-code",
+            }
+            refusal[field] = replacements[fault]
+            refusal["message"] = f"{smoke.AMBIGUOUS_VENV_REFUSAL}; {refusal[field]}"
+        result = self._probe_plain_pip(tmp_path, status, refusal)
+        assert result == smoke.SurfaceResult(
+            smoke.SURFACE_UPDATE_PLATFORM,
+            smoke.STATUS_FAIL,
+            "confirmed manual update apply did not return its exact refusal contract",
+        )
 
     def test_probe_rejects_unsupported_platform_manual_apply_on_darwin(self, tmp_path, monkeypatch):
         monkeypatch.setattr(smoke.sys, "platform", "darwin")

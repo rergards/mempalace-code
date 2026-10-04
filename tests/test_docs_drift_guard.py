@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -309,7 +312,10 @@ python -m pyright
         )
     _write(
         tmp_path / "docs" / "LLM_USAGE_RULES.md",
-        "subset of the 2 tools\n" + "\n".join(blocks) + "\n" + _MANAGED_RULES_BLOCK,
+        "subset of the 2 tools (../README.md#mcp-server--2-tools)\n"
+        + "\n".join(blocks)
+        + "\n"
+        + _MANAGED_RULES_BLOCK,
     )
     _write(
         tmp_path / "mempalace_code" / "agent_plugin" / "skills" / "mempalace" / "SKILL.md",
@@ -489,7 +495,8 @@ python -m pyright
         "python -m pyright -p pyrightconfig.strict.json\n"
         "python scripts/public_safety_scan.py --tracked --staged\n"
         "python scripts/gitleaks_scan.py fixture-smoke\n"
-        "python scripts/gitleaks_scan.py changed-range --base-ref BASE --head-ref HEAD\n"
+        f"```bash\n{guard.VERIFY_BASELINE_BLOCK}\n```\n"
+        f"{guard.VERIFY_CHANGED_RANGE_COMMAND}\n"
         "python scripts/quality_scorecard.py --check\n"
         "python scripts/architecture_guard.py --root .\n",
     )
@@ -1109,6 +1116,14 @@ def test_stale_benchmark_wording_is_rejected_even_when_facts_match(tmp_path: Pat
 
 
 # ── AC-5: stale document fixtures across every category ────────────────────────
+
+
+def test_chroma_recovery_command_matches_cli_message_and_pins_wheel_python():
+    """REG: docs and the CLI print one bridge command; 3.13+ lacks chroma-hnswlib wheels."""
+    from mempalace_code.storage import CHROMA_MIGRATION_COMMAND
+
+    assert guard.CHROMA_RECOVERY_COMMAND == CHROMA_MIGRATION_COMMAND
+    assert CHROMA_MIGRATION_COMMAND.startswith("uvx --python 3.12 --from ")
 
 
 def test_current_chroma_support_and_duplicate_recovery_are_rejected(tmp_path: Path):
@@ -2004,11 +2019,20 @@ def test_custom_models_linux_cpu_install_and_recovery_authority_contract():
         '--installed-golden-wheel "$WHEEL" --json'
     )
 
-    assert all(token in offline for token in (mkdir, free_space, cpu_install, extra_install))
-    assert offline.index(mkdir) < offline.index(free_space) < offline.index(cpu_install)
-    assert offline.index(cpu_install) < offline.index(extra_install)
-    assert offline.count(cpu_install) == 2
-    assert offline.count(extra_install) == 2
+    # The user guide installs into the interpreter that owns mempalace-code, never ambient python.
+    owner_python = (
+        'MEMPALACE_PYTHON="$(dirname "$(realpath "$(command -v mempalace-code)")")/python"'
+    )
+    offline_cpu_install = cpu_install.replace(" python -m pip", ' "$MEMPALACE_PYTHON" -m pip')
+    offline_extra_install = extra_install.replace(" python -m pip", ' "$MEMPALACE_PYTHON" -m pip')
+    offline_tokens = (owner_python, mkdir, free_space, offline_cpu_install, offline_extra_install)
+    assert all(token in offline for token in offline_tokens)
+    assert offline.index(owner_python) < offline.index(mkdir)
+    assert offline.index(mkdir) < offline.index(free_space) < offline.index(offline_cpu_install)
+    assert offline.index(offline_cpu_install) < offline.index(offline_extra_install)
+    assert offline.count(offline_cpu_install) == 2
+    assert offline.count(offline_extra_install) == 2
+    assert " python -m pip install" not in offline
     assert "from any\ndirectory" in offline
     assert "incomplete" in offline
 
@@ -2035,9 +2059,14 @@ def test_custom_models_linux_cpu_install_and_recovery_authority_contract():
     assert len(custom_model_rows) == 1
     assert custom_model_rows[0].lstrip().startswith("#")
 
-    assert all(token in releasing for token in (mkdir, free_space, cpu_install, extra_install))
-    assert releasing.index(mkdir) < releasing.index(free_space) < releasing.index(cpu_install)
-    assert releasing.index(cpu_install) < releasing.index(extra_install)
+    # The release runbook qualifies the candidate wheel through the readiness gate.
+    # It must not tell the operator to install the published package or PyTorch
+    # into the current interpreter; that end-user contour belongs to OFFLINE_USAGE.
+    assert releasing.index(mkdir) < releasing.index(free_space) < releasing.index(recovery)
+    assert cpu_install not in releasing
+    assert extra_install not in releasing
+    assert "https://download.pytorch.org/whl/cpu" in releasing
+    assert "docs/OFFLINE_USAGE.md" in releasing
     assert releasing.count(recovery) == 1
     assert "adequate free space" in releasing
 
@@ -2251,7 +2280,7 @@ def test_the_release_prep_skill_is_force_safe_without_carrying_publication():
 
 def test_agent_install_declined_or_offline_model_choice():
     text = (ROOT / "docs" / "AGENT_INSTALL.md").read_text(encoding="utf-8")
-    init_line = '"$MEMPALACE_BIN" init "<MINE_PATH>" --skip-model-download'
+    init_line = '"$MEMPALACE_BIN" init "$MINE_PATH" --skip-model-download'
 
     assert init_line in text
     assert "`no` → Set `DOWNLOAD_MODEL=no`" in text
@@ -2272,7 +2301,7 @@ def test_agent_install_selected_method_is_consistent():
         assert f"`INSTALL_METHOD={method}`" in text
     assert "Each value is terminal" in text
     assert "never fall through to another installer" in text
-    assert 'MEMPALACE_MCP="$(dirname "$MEMPALACE_BIN")/mempalace-code-mcp"' in text
+    assert 'MEMPALACE_MCP="$(dirname "$(realpath "$MEMPALACE_BIN")")/mempalace-code-mcp"' in text
 
 
 def test_agent_install_client_scope_contract():
@@ -2298,7 +2327,7 @@ def test_agent_install_notification_precedes_prompting_commands():
     text = (ROOT / "docs" / "AGENT_INSTALL.md").read_text(encoding="utf-8")
 
     disable = text.index('"$MEMPALACE_BIN" version-check --disable')
-    init = text.index('"$MEMPALACE_BIN" init "<MINE_PATH>"')
+    init = text.index('"$MEMPALACE_BIN" init "$MINE_PATH"')
     assert disable < init
     assert "Empty, EOF, malformed, or contradictory input means `no`" in text
 
@@ -2395,6 +2424,38 @@ def test_backup_restore_runbook_contract():
     recovery_lines = [line.strip() for line in recovery.splitlines()]
     positions = [recovery_lines.index(marker) for marker in guard.BACKUP_RESTORE_RECOVERY_SEQUENCE]
     assert positions == sorted(positions)
+
+
+def test_backup_restore_pinned_commands_parse_with_real_cli(monkeypatch):
+    """REG: the guard must not pin a runbook command the real CLI rejects (search --limit)."""
+    import shlex
+    import sys
+    from unittest.mock import MagicMock
+
+    from mempalace_code import cli
+
+    commands = [
+        line
+        for line in (
+            guard.BACKUP_RESTORE_REBUILD_SEQUENCE
+            + guard.BACKUP_RESTORE_RECOVERY_SEQUENCE
+            + guard.BACKUP_RESTORE_FORCE_SEQUENCE
+            + guard.BACKUP_RESTORE_TARBALL_SEQUENCE
+        )
+        if line.startswith("mempalace-code ")
+    ]
+    assert any(" search " in line for line in commands)
+    monkeypatch.setenv("MEMPALACE_VERSION_CHECK", "0")
+    for line in commands:
+        # Only the CLI invocation is parsed; a shell pipeline after it is not argv.
+        invocation = line.split(" | ", 1)[0]
+        argv = [re.sub(r"\$\w+", "placeholder", token) for token in shlex.split(invocation)]
+        assert argv[1:3] == ["--palace", "placeholder"], line
+        handler = MagicMock()
+        monkeypatch.setattr(cli, f"cmd_{argv[3]}", handler)
+        monkeypatch.setattr(sys, "argv", argv)
+        cli.main()
+        handler.assert_called_once()
 
 
 def test_backup_restore_guard_rejects_degraded_paths():
@@ -2567,3 +2628,212 @@ def test_backup_restore_guard_rejects_degraded_paths():
         assert degraded_readme != readme, marker
         errors = guard.backup_restore_contract_errors(degraded_readme, runbook)
         assert any("missing expected text" in error for error in errors), (marker, errors)
+
+
+def test_agent_install_mining_commands_expand_assigned_variables(tmp_path):
+    """Execute the guide's commands with a selected path containing spaces."""
+    guide = (ROOT / "docs" / "AGENT_INSTALL.md").read_text()
+    init = next(line for line in guide.splitlines() if line.startswith('"$MEMPALACE_BIN" init '))
+    mine = next(line for line in guide.splitlines() if line.startswith('"$MEMPALACE_BIN" mine '))
+    assert "--skip-model-download" in init
+    project = tmp_path / "selected project"
+    project.mkdir()
+    (project / "example.py").write_text("def example():\n    return 1\n")
+    launcher = tmp_path / "mempalace-code"
+    launcher.write_text(
+        f'#!/bin/sh\nexec {shlex.quote(sys.executable)} -m mempalace_code.cli "$@"\n'
+    )
+    launcher.chmod(0o700)
+    palace = tmp_path / "unused-palace"
+    script = (
+        f"set -eu\nMEMPALACE_BIN={shlex.quote(str(launcher))}\n"
+        f"MINE_PATH={shlex.quote(str(project))}\nMINE_MODE=projects\n"
+        f"{init}\n{mine} --dry-run\n"
+    )
+    result = subprocess.run(
+        ["/bin/sh", "-c", script],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "MEMPALACE_PALACE_PATH": str(palace),
+            "MEMPALACE_VERSION_CHECK": "0",
+            "HF_HUB_OFFLINE": "1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (project / "mempalace.yaml").is_file()
+    assert not palace.exists(), "dry-run must not create a palace"
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("BASELINE=$TASK_BASELINE", "BASELINE=HEAD"),
+        (
+            'VERIFIED_BASELINE=$(git rev-parse --verify "$BASELINE^{commit}" 2>/dev/null)',
+            "VERIFIED_BASELINE=$BASELINE",
+        ),
+        ('[ "$VERIFIED_BASELINE" = "$BASELINE" ] || baseline_error', ""),
+        ('git merge-base --is-ancestor "$BASELINE" HEAD || baseline_error', ""),
+        ('--base-ref "$BASELINE"', '--base-ref "$OTHER_BASELINE"'),
+        ('--base-ref "$BASELINE"', "--base-ref HEAD"),
+        ('--base-ref "$BASELINE"', "--base-ref BASE"),
+        ('--base-ref "$BASELINE"', "--base-ref ${BASELINE}"),
+        ('--base-ref "$BASELINE"', '--base-ref  "$BASELINE"'),
+        ("python scripts/gitleaks_scan.py fixture-smoke", "fixture removed"),
+        ("ruff check pkg/ tests/ scripts/", "ruff check pkg/ tests/"),
+    ],
+)
+def test_verify_command_normalization_rejects_contract_drift(tmp_path, old, new):
+    root = _make_repo(tmp_path)
+    path = root / ".claude/skills/verify/INSTRUCTIONS.md"
+    original = path.read_text()
+    assert old in original
+    path.write_text(original.replace(old, new))
+    _, errors = guard.evaluate(root)
+    assert any("canonical verification command drift" in error for error in errors), errors
+
+
+def test_verify_command_requires_baseline_binder(tmp_path):
+    root = _make_repo(tmp_path)
+    path = root / ".claude/skills/verify/INSTRUCTIONS.md"
+    path.write_text(path.read_text().replace(guard.VERIFY_BASELINE_BLOCK, ""))
+    _, errors = guard.evaluate(root)
+    assert any("drift (gitleaks_changed_range)" in error for error in errors), errors
+
+
+def _run_verify_selection(root, tmp_path, task_baseline):
+    """Run actual skill selection; replace only the scanner with an inert argv sink."""
+    text = (ROOT / ".claude/skills/verify/INSTRUCTIONS.md").read_text()
+    block = re.findall(r"```bash\n(.*?)\n```", text, re.DOTALL)[0]
+    command = next(
+        line.split("`", 2)[1]
+        for line in text.splitlines()
+        if line.startswith("| Gitleaks changed range |")
+    )
+    bindir = tmp_path / "stub-bin"
+    bindir.mkdir()
+    log = tmp_path / "scanner-argv.json"
+    stub = bindir / "python"
+    stub.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "Path(os.environ['VERIFY_ARGV_LOG']).write_text(json.dumps(sys.argv[1:]))\n"
+    )
+    stub.chmod(0o700)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "VERIFY_ARGV_LOG": str(log)}
+    env.pop("TASK_BASELINE", None)
+    if task_baseline is not None:
+        env["TASK_BASELINE"] = task_baseline
+    result = subprocess.run(
+        ["/bin/sh", "-c", block + "\n" + command],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    return result, json.loads(log.read_text()) if log.exists() else None
+
+
+@pytest.mark.parametrize("baseline", [None, "", "BASE", "HEAD", "HEAD~1", "0" * 40, "f" * 40])
+def test_verify_selection_missing_invalid_baseline_fails_closed(tmp_path, baseline):
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    result, args = _run_verify_selection(root, tmp_path, baseline)
+    assert result.returncode != 0
+    assert "request the operator's task baseline" in result.stderr
+    assert "Recovery: set TASK_BASELINE" in result.stderr
+    assert args is None
+    assert result.stdout == "", "invalid baseline must stop before changed-file detection"
+
+
+def test_verify_selection_saved_baseline_and_explicit_override(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+
+    def commit(message):
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                message,
+            ],
+            cwd=root,
+            check=True,
+        )
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+
+    baseline = commit("baseline")
+    head = commit("head")
+    # Owned fixture only: a reachable sibling commit is not an ancestor of HEAD.
+    tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=root, text=True).strip()
+    sibling = subprocess.check_output(
+        [
+            "git",
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit-tree",
+            tree,
+            "-p",
+            baseline,
+            "-m",
+            "sibling",
+        ],
+        cwd=root,
+        text=True,
+    ).strip()
+    state = root / ".verify-state"
+    state.write_text(sibling + "\n")
+    for name, supplied, expected_ok in [
+        ("saved-nonancestor", None, False),
+        ("explicit-override", baseline, True),
+        ("explicit-invalid", "bad", False),
+    ]:
+        case = tmp_path / name
+        case.mkdir()
+        result, args = _run_verify_selection(root, case, supplied)
+        assert (result.returncode == 0) is expected_ok, result.stderr
+        if expected_ok:
+            assert args == [
+                "scripts/gitleaks_scan.py",
+                "changed-range",
+                "--base-ref",
+                baseline,
+                "--head-ref",
+                "HEAD",
+            ]
+            assert baseline != head
+        else:
+            assert args is None
+            assert result.stdout == ""
+    state.write_text(baseline + "\n")
+    case = tmp_path / "saved-valid"
+    case.mkdir()
+    result, args = _run_verify_selection(root, case, None)
+    assert result.returncode == 0, result.stderr
+    assert args is not None
+    assert args[3] == baseline
+
+    case = tmp_path / "explicit-invalid-with-valid-saved"
+    case.mkdir()
+    result, args = _run_verify_selection(root, case, "")
+    assert result.returncode != 0
+    assert args is None
+    assert result.stdout == ""

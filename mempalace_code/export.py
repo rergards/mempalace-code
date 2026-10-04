@@ -14,15 +14,27 @@ Typical workflow:
 
 from __future__ import annotations
 
+import contextlib
 import json
+import math
+import os
+import re
+import stat
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, Iterator, List, Optional
 
+from .knowledge_graph import _parse_temporal, _validate_window
+from .storage import DuplicateDrawerIdError, distance_to_similarity
 from .version import __version__
 
 # Chunker strategies produced by manual writes (MCP add_drawer + diary)
 _MANUAL_STRATEGIES = ("manual_v1", "diary_v1")
+
+# Import skips a drawer when its target wing already holds one at least this similar (cosine).
+_IMPORT_DEDUP_SIMILARITY = 0.9
+# Drawer ids per existence lookup, so a large import never builds one huge id filter.
+_ID_LOOKUP_BATCH = 500
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -46,6 +58,26 @@ def _make_header(
 
 
 # ── Export ────────────────────────────────────────────────────────────────────
+
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def validate_since(since: Optional[str]) -> Optional[str]:
+    """Return *since* when it is an ISO date (YYYY-MM-DD); raise ValueError otherwise.
+
+    ``--since`` is compared with stored ISO timestamps as a string, so any other
+    spelling would silently match nothing.
+    """
+    if since is None:
+        return None
+    problem = "expected an ISO date YYYY-MM-DD, e.g. 2026-01-01"
+    if not isinstance(since, str) or not _ISO_DATE_RE.fullmatch(since):
+        raise ValueError(f"invalid --since value {since!r}: {problem}")
+    try:
+        date.fromisoformat(since)
+    except ValueError as exc:
+        raise ValueError(f"invalid --since value {since!r}: {exc}") from exc
+    return since
 
 
 def _build_drawer_where(
@@ -124,35 +156,81 @@ def export_drawers(
             yield record
 
 
+def _kg_record_in_scope(
+    triple: Dict[str, Any], since: Optional[str], source_files: Optional[set]
+) -> bool:
+    """Apply export scope to one KG triple.
+
+    *source_files* (set when the export is scoped by wing or room) keeps only facts
+    extracted from an exported drawer's source file. *since* keeps facts whose
+    valid_from is on or after it, or that have no valid_from and were recorded on or
+    after it.
+    """
+    if source_files is not None and triple.get("source_file") not in source_files:
+        return False
+    if since:
+        started = triple.get("valid_from")
+        if started:
+            return started >= since
+        return (triple.get("extracted_at") or "") >= since
+    return True
+
+
 def export_kg(
     kg,
     since: Optional[str] = None,
+    source_files: Optional[set] = None,
 ) -> Iterator[Dict[str, Any]]:
-    """Yield one KG triple dict per record."""
-    for batch in kg.iter_all_triples():
-        for triple in batch:
-            if since and triple.get("valid_from") and triple.get("valid_from") < since:
-                continue
-            record = {"type": "kg_triple"}
-            record.update(triple)
-            yield record
+    """Yield one KG record per entity with metadata (``kg_entity``), then per triple.
+
+    Entity records carry types and properties that triples cannot; with a scope, only
+    entities named by an exported triple are included. Triples are streamed.
+    """
+
+    def scoped_triples() -> Iterator[Dict[str, Any]]:
+        for batch in kg.iter_all_triples():
+            for triple in batch:
+                if _kg_record_in_scope(triple, since, source_files):
+                    yield triple
+
+    iter_entities = getattr(kg, "iter_entities", None)
+    if iter_entities is not None:
+        named: Optional[set] = None
+        if since is not None or source_files is not None:
+            named = set()
+            for triple in scoped_triples():
+                named.add(kg._entity_id(triple["subject"]))
+                named.add(kg._entity_id(triple["object"]))
+        for entity in iter_entities(ids=named):
+            yield {"type": "kg_entity", **entity}
+    for triple in scoped_triples():
+        record = {"type": "kg_triple"}
+        record.update(triple)
+        yield record
 
 
-def _count_drawers(
+def _drawer_count_and_sources(
     store,
     only_manual: bool = False,
     wing: Optional[str] = None,
     room: Optional[str] = None,
     since: Optional[str] = None,
-) -> int:
-    """Count matching drawers for the export header."""
-    return sum(
-        1 for _ in export_drawers(store, only_manual=only_manual, wing=wing, room=room, since=since)
-    )
+) -> tuple[int, set]:
+    """Count matching drawers for the export header and collect their source files."""
+    count = 0
+    sources: set = set()
+    for record in export_drawers(store, only_manual=only_manual, wing=wing, room=room, since=since):
+        count += 1
+        if record.get("source_file"):
+            sources.add(record["source_file"])
+    return count, sources
 
 
-def _count_kg(kg, since: Optional[str] = None) -> int:
-    return sum(1 for _ in export_kg(kg, since=since))
+def _is_character_device(path: str) -> bool:
+    try:
+        return stat.S_ISCHR(os.stat(path).st_mode)
+    except OSError:
+        return False
 
 
 def write_jsonl(
@@ -166,11 +244,24 @@ def write_jsonl(
     include_vectors: bool = False,
     include_kg: bool = False,
     palace_path: str = "",
-) -> Dict[str, int]:
+) -> Dict[str, Any]:
     """Write export JSONL to *path* (use '-' for stdout).
 
-    Returns summary dict: {drawer_count, kg_count}.
+    With *include_kg*, an export scoped by *wing* or *room* includes only the KG facts
+    extracted from the exported drawers' source files, plus the wing's namespace→project
+    architecture facts (facts without a source file,
+    such as MCP ``kg_add`` facts, are palace-wide and left out), and *since* keeps facts
+    that started, or when undated were recorded, on or after it. ``--only-manual`` does
+    not filter KG records.
+
+    Missing parent directories of *path* are created. *path* must not exist
+    (``FileExistsError``) unless it is a character device such as ``/dev/null``; the
+    new file is created with mode 0o600. Raises
+    ValueError for an invalid *since* before reading or writing anything.
+
+    Returns summary dict: {drawer_count, kg_count, kg_entity_count, kg_scope}.
     """
+    validate_since(since)
     filters: Dict[str, Any] = {}
     if only_manual:
         filters["only_manual"] = True
@@ -186,8 +277,25 @@ def write_jsonl(
         filters["with_kg"] = True
 
     # Pre-count for header (two passes — acceptable for the sizes we handle)
-    drawer_count = _count_drawers(store, only_manual=only_manual, wing=wing, room=room, since=since)
-    kg_count = _count_kg(kg, since=since) if (include_kg and kg is not None) else 0
+    drawer_count, drawer_sources = _drawer_count_and_sources(
+        store, only_manual=only_manual, wing=wing, room=room, since=since
+    )
+    kg_sources = drawer_sources if (wing or room) else None
+    if wing and kg_sources is not None:
+        from .architecture import namespace_project_source_file
+
+        # Namespace→project architecture facts carry a per-wing sentinel source.
+        kg_sources = kg_sources | {namespace_project_source_file(wing)}
+    kg_count = kg_entity_count = 0
+    if include_kg and kg is not None:
+        for record in export_kg(kg, since=since, source_files=kg_sources):
+            if record["type"] == "kg_triple":
+                kg_count += 1
+            else:
+                kg_entity_count += 1
+    kg_scope = "drawer_sources" if kg_sources is not None else "all"
+    if include_kg:
+        filters["kg_scope"] = kg_scope
 
     header = _make_header(
         palace_path=palace_path,
@@ -195,8 +303,20 @@ def write_jsonl(
         drawer_count=drawer_count,
         kg_count=kg_count,
     )
+    header["kg_entity_count"] = kg_entity_count
 
-    fh = sys.stdout if path == "-" else open(path, "w", encoding="utf-8")
+    created = False
+    if path == "-":
+        fh = sys.stdout
+    elif _is_character_device(path):
+        # A sink such as /dev/null holds no data to protect: write to it as is.
+        fh = open(path, "w", encoding="utf-8")
+    else:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        # Never overwrite: an existing file may be an earlier export or unrelated data.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fh = os.fdopen(fd, "w", encoding="utf-8")
+        created = True
     try:
         fh.write(json.dumps(header) + "\n")
 
@@ -211,13 +331,26 @@ def write_jsonl(
             fh.write(json.dumps(record) + "\n")
 
         if include_kg and kg is not None:
-            for record in export_kg(kg, since=since):
+            for record in export_kg(kg, since=since, source_files=kg_sources):
                 fh.write(json.dumps(record) + "\n")
-    finally:
         if fh is not sys.stdout:
             fh.close()
+    except BaseException:
+        if fh is not sys.stdout:
+            with contextlib.suppress(OSError):
+                fh.close()
+        if created:
+            # Drop the partial file this call created, so the same --out can be retried.
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+        raise
 
-    return {"drawer_count": drawer_count, "kg_count": kg_count}
+    return {
+        "drawer_count": drawer_count,
+        "kg_count": kg_count,
+        "kg_entity_count": kg_entity_count,
+        "kg_scope": kg_scope,
+    }
 
 
 # ── Import ────────────────────────────────────────────────────────────────────
@@ -267,6 +400,106 @@ def read_jsonl(path: str) -> Iterator[Dict[str, Any]]:
             fh.close()
 
 
+def _existing_ids(store, ids: List[str]) -> set[str]:
+    """Return the subset of *ids* already stored; lookup errors propagate."""
+    existing: set[str] = set()
+    for start in range(0, len(ids), _ID_LOOKUP_BATCH):
+        existing.update(store.get(ids=ids[start : start + _ID_LOOKUP_BATCH])["ids"])
+    return existing
+
+
+def _record_label(index: int, record: Dict[str, Any]) -> str:
+    """Name a record by its 1-based position in the file and, when present, its id."""
+    record_id = record.get("id")
+    return f"record {index + 1}" + (f" (id {record_id!r})" if record_id else "")
+
+
+def _blank(value: Any) -> bool:
+    return not isinstance(value, str) or not value.strip()
+
+
+def _drawer_record_error(record: Dict[str, Any], wing_override: Optional[str]) -> Optional[str]:
+    """Return why a drawer record cannot be imported, or None when it is valid."""
+    text = record.get("text")
+    if not isinstance(text, str) or not text:
+        return "missing or empty 'text'"
+    for field in ("id", "room") if wing_override else ("id", "wing", "room"):
+        if _blank(record.get(field)):
+            return f"missing or blank '{field}'"
+    return None
+
+
+def _kg_record_error(record: Dict[str, Any]) -> Optional[str]:
+    """Return why a kg_triple record cannot be imported, or None when it is valid."""
+    for field in ("subject", "predicate", "object"):
+        if _blank(record.get(field)):
+            return f"missing or blank '{field}'"
+    for field in ("valid_from", "valid_to", "source_closet", "source_file"):
+        if record.get(field) is not None and not isinstance(record.get(field), str):
+            return f"'{field}' must be a string or null"
+    confidence = record.get("confidence", 1.0)
+    if confidence is not None and (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not math.isfinite(confidence)
+    ):
+        return "'confidence' must be a number"
+    try:
+        _validate_window(
+            _parse_temporal(record.get("valid_from")), _parse_temporal(record.get("valid_to"))
+        )
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def _duplicate_indexes(
+    store,
+    records: List[Dict[str, Any]],
+    wing_override: Optional[str],
+    candidates: List[int],
+    check_similarity: bool = True,
+) -> tuple[set[int], int]:
+    """Return (indexes import must skip as duplicates, failed similarity checks).
+
+    A drawer record is a duplicate when its id is already stored or repeats an
+    earlier record's id, or (with *check_similarity*) when its target wing already
+    holds a drawer with cosine similarity >= ``_IMPORT_DEDUP_SIMILARITY``. Similarity
+    is judged against the palace as it was before the import, so distinct records
+    from one file never dedup each other. Only *candidates* (valid drawer record
+    indexes) are considered.
+    """
+    stored_ids = _existing_ids(store, [records[index]["id"] for index in candidates])
+    seen_ids: set[str] = set()
+    indexes: set[int] = set()
+    failed_checks = 0
+    for index in candidates:
+        record = records[index]
+        drawer_id = record["id"]
+        if drawer_id in stored_ids or drawer_id in seen_ids:
+            indexes.add(index)
+            continue
+        seen_ids.add(drawer_id)
+        if not check_similarity:
+            continue
+        wing = wing_override or record["wing"]
+        try:
+            results = store.query(
+                query_texts=[record["text"]],
+                n_results=1,
+                where={"wing": wing},
+                include=["distances"],
+                intent_rerank=False,  # compare with the nearest drawer, not the reranked top
+            )
+            dists = results.get("distances", [[]])[0]
+        except Exception:
+            failed_checks += 1
+            continue  # Import the record; the summary reports the skipped check
+        if dists and distance_to_similarity(dists[0]) >= _IMPORT_DEDUP_SIMILARITY:
+            indexes.add(index)
+    return indexes, failed_checks
+
+
 def import_jsonl(
     path: str,
     store,
@@ -286,70 +519,104 @@ def import_jsonl(
     malformed line raises :class:`JsonlInputError` before any drawer or KG write
     happens (all-or-nothing on malformed input).
 
-    Returns summary: {imported_drawers, skipped_duplicates, imported_triples, warnings}.
+    Drawer ids stay unique: a record whose id is already stored or repeats earlier in
+    the file is a skipped duplicate even with *skip_dedup*, which only disables the
+    similarity check. Invalid drawer and KG records are counted and named in
+    ``warnings``; a dry run validates and counts exactly like a real import without
+    writing palace or KG state.
+
+    Valid KG records (``kg_entity`` and ``kg_triple``) are merged after the drawers in
+    one KG transaction by ``kg.import_facts``: replaying the same export is a no-op,
+    exported ids and ``extracted_at`` are kept, and a fact this palace invalidated
+    after the export stays invalidated (reported as a conflict). A dry run runs the
+    same merge against a read-only snapshot, so its KG counts match a live import.
+
+    Returns summary: {imported_drawers, skipped_duplicates, skipped_invalid,
+    failed_drawers, imported_triples, skipped_kg_duplicates, invalid_triples,
+    kg_conflicts, kg_invalidations_applied, imported_kg_entities, ignored_records,
+    rejected, export_version, kg_error, warnings}; ``rejected`` counts every invalid or
+    failed drawer and KG record. ``kg_error`` is None, or the reason the KG transaction
+    failed, in which case no KG record was imported.
     """
     if records is None:
         records = list(read_jsonl(path))
 
     imported_drawers = 0
+    defaulted_manual = 0
     skipped_duplicates = 0
-    imported_triples = 0
+    failed_drawers = 0
+    invalid_triples = 0
     warnings: List[str] = []
 
-    header_seen = False
-    no_header_warned = False
-
+    export_version: Optional[str] = None
+    if records and records[0].get("type") != "export_header":
+        warnings.append("No export_header found at start of file — format may be invalid.")
     for record in records:
+        if record.get("type") != "export_header":
+            continue
+        file_version = record.get("version", "")
+        export_version = str(file_version) if file_version else None
+        if file_version and file_version != __version__:
+            warnings.append(
+                f"Version mismatch: export was created with {file_version}, "
+                f"current is {__version__}. Proceeding anyway."
+            )
+        break
+
+    drawer_indexes: List[int] = []
+    invalid_drawers = 0
+    unknown_types: Dict[str, List[int]] = {}
+    for index, record in enumerate(records):
+        rtype = record.get("type")
+        if rtype == "drawer":
+            error = _drawer_record_error(record, wing_override)
+            if error is None:
+                drawer_indexes.append(index)
+            else:
+                invalid_drawers += 1
+                warnings.append(f"Skipped invalid drawer {_record_label(index, record)}: {error}")
+        elif rtype not in ("export_header", "kg_triple", "kg_entity"):
+            unknown_types.setdefault(str(rtype), []).append(index + 1)
+    for rtype, positions in unknown_types.items():
+        shown = ", ".join(str(n) for n in positions[:10]) + (" ..." if len(positions) > 10 else "")
+        warnings.append(
+            f"Ignored {len(positions)} record(s) of unknown type {rtype!r} (records {shown})"
+        )
+
+    # Decide duplicates against the palace as it was before this import, so
+    # distinct records from one file never dedup against each other.
+    duplicate_indexes, failed_checks = _duplicate_indexes(
+        store, records, wing_override, drawer_indexes, check_similarity=not skip_dedup
+    )
+    if failed_checks:
+        warnings.append(
+            f"Similarity check failed for {failed_checks} drawer(s); they were imported "
+            "without near-duplicate detection."
+        )
+
+    valid_drawers = set(drawer_indexes)
+    kg_active = not skip_kg and kg is not None
+    kg_triples: List[Dict[str, Any]] = []
+    kg_entities: List[Dict[str, Any]] = []
+
+    for index, record in enumerate(records):
         rtype = record.get("type")
 
-        if rtype == "export_header":
-            header_seen = True
-            file_version = record.get("version", "")
-            if file_version and file_version != __version__:
-                msg = (
-                    f"Version mismatch: export was created with {file_version}, "
-                    f"current is {__version__}. Proceeding anyway."
-                )
-                warnings.append(msg)
-                print(f"WARNING: {msg}", file=sys.stderr)
-            continue
-
-        if not header_seen and not no_header_warned:
-            warnings.append("No export_header found at start of file — format may be invalid.")
-            no_header_warned = True
-
-        if rtype == "drawer":
-            wing = wing_override or record.get("wing", "")
-            room = record.get("room", "")
-            text = record.get("text", "")
-            drawer_id = record.get("id", "")
-
-            if not text:
+        if rtype == "drawer" and index in valid_drawers:
+            text = record["text"]
+            drawer_id = record["id"]
+            if index in duplicate_indexes:
+                skipped_duplicates += 1
                 continue
 
-            # Dedup check via cosine similarity
-            if not skip_dedup:
-                try:
-                    results = store.query(
-                        query_texts=[text],
-                        n_results=1,
-                        include=["distances"],
-                    )
-                    dists = results.get("distances", [[]])[0]
-                    if dists:
-                        # LanceDB returns L2 distance; convert to approximate cosine similarity
-                        # For unit vectors: cosine_sim ≈ 1 - (L2^2 / 2)
-                        # At threshold 0.9 cosine → L2^2 ≈ 0.2 → L2 ≈ 0.447
-                        l2 = dists[0]
-                        cosine_sim = max(0.0, 1.0 - (l2 * l2) / 2.0)
-                        if cosine_sim >= 0.9:
-                            skipped_duplicates += 1
-                            continue
-                except Exception:
-                    pass  # If dedup check fails, proceed with import
-
+            # No miner can regenerate a drawer without a source file: without a strategy
+            # it would fall out of every --only-manual export, so it is a manual drawer.
+            manual_default = _blank(record.get("chunker_strategy")) and _blank(
+                record.get("source_file")
+            )
             if dry_run:
                 imported_drawers += 1
+                defaulted_manual += int(manual_default)
                 continue
 
             # Build metadata
@@ -375,47 +642,87 @@ def import_jsonl(
                 "line_start",
                 "line_end",
             )
-            meta: Dict[str, Any] = {"wing": wing, "room": room}
+            meta: Dict[str, Any] = {"wing": wing_override or record["wing"], "room": record["room"]}
             for k in meta_keys:
                 if k in record:
                     meta[k] = record[k]
             # `drawer_type` was stored to avoid collision with the record `type` key
             if "drawer_type" in record:
                 meta["type"] = record["drawer_type"]
+            if manual_default:
+                meta["chunker_strategy"] = _MANUAL_STRATEGIES[0]
 
             try:
                 store.add(ids=[drawer_id], documents=[text], metadatas=[meta])
                 imported_drawers += 1
+                defaulted_manual += int(manual_default)
+            except DuplicateDrawerIdError:
+                # Stored by another writer after the duplicate check; never overwrite it.
+                skipped_duplicates += 1
             except Exception as exc:
-                # Duplicate ID — try upsert
-                try:
-                    store.upsert(ids=[drawer_id], documents=[text], metadatas=[meta])
-                    imported_drawers += 1
-                except Exception:
-                    warnings.append(f"Failed to import drawer {drawer_id}: {exc}")
+                failed_drawers += 1
+                warnings.append(f"Failed to import drawer {_record_label(index, record)}: {exc}")
 
-        elif rtype == "kg_triple" and not skip_kg and kg is not None:
-            if dry_run:
-                imported_triples += 1
-                continue
-            try:
-                kg.add_triple(
-                    subject=record.get("subject", ""),
-                    predicate=record.get("predicate", ""),
-                    obj=record.get("object", ""),
-                    valid_from=record.get("valid_from"),
-                    valid_to=record.get("valid_to"),
-                    confidence=record.get("confidence", 1.0),
-                    source_closet=record.get("source_closet"),
-                    source_file=record.get("source_file"),
+        elif rtype == "kg_triple" and kg_active:
+            error = _kg_record_error(record)
+            if error is not None:
+                invalid_triples += 1
+                warnings.append(
+                    f"Skipped invalid KG triple {_record_label(index, record)}: {error}"
                 )
-                imported_triples += 1
-            except Exception as exc:
-                warnings.append(f"Failed to import KG triple: {exc}")
+                continue
+            kg_triples.append(record)
+        elif rtype == "kg_entity" and kg_active:
+            kg_entities.append(record)
+
+    if defaulted_manual:
+        warnings.append(
+            f"{defaulted_manual} drawer(s) had no chunker_strategy and no source_file; "
+            f"{'they would be' if dry_run else 'they were'} stored as "
+            f"{_MANUAL_STRATEGIES[0]} (manual drawers), so export --only-manual keeps them."
+        )
+
+    kg_summary: Dict[str, Any] = {
+        "inserted": 0,
+        "duplicates": 0,
+        "invalidations_applied": 0,
+        "conflicts": [],
+        "entities": 0,
+        "failed": [],
+    }
+    kg_error: Optional[str] = None
+    if (kg_triples or kg_entities) and kg is not None:
+        try:
+            kg_summary = kg.import_facts(kg_triples, kg_entities, dry_run=dry_run)
+        except Exception as exc:
+            # The merge is one transaction: nothing from the KG section was written.
+            kg_error = f"{type(exc).__name__}: {exc}"
+    imported_triples = kg_summary["inserted"]
+    for failure in kg_summary["failed"]:
+        invalid_triples += 1
+        warnings.append(f"Failed to import KG record: {failure}")
+    conflicts = kg_summary["conflicts"]
+    if conflicts:
+        shown = "; ".join(conflicts[:5]) + ("; ..." if len(conflicts) > 5 else "")
+        warnings.append(
+            f"{len(conflicts)} KG fact(s) open in the export stay invalidated because this "
+            f"palace ended them; their open copies were not imported: {shown}"
+        )
 
     return {
         "imported_drawers": imported_drawers,
         "skipped_duplicates": skipped_duplicates,
+        "skipped_invalid": invalid_drawers,
+        "failed_drawers": failed_drawers,
         "imported_triples": imported_triples,
+        "skipped_kg_duplicates": kg_summary["duplicates"],
+        "invalid_triples": invalid_triples,
+        "kg_conflicts": len(conflicts),
+        "kg_invalidations_applied": kg_summary["invalidations_applied"],
+        "imported_kg_entities": kg_summary["entities"],
+        "ignored_records": sum(len(positions) for positions in unknown_types.values()),
+        "rejected": invalid_drawers + failed_drawers + invalid_triples,
+        "export_version": export_version,
+        "kg_error": kg_error,
         "warnings": warnings,
     }

@@ -97,7 +97,7 @@ def test_detect_installed_extras_ignores_retired_chromadb(monkeypatch):
         queried.append(module)
         return object() if module in {"watchfiles", "chromadb"} else None
 
-    monkeypatch.setattr(updater, "find_spec", fake_find_spec)
+    monkeypatch.setattr("mempalace_code.storage.find_spec", fake_find_spec)
 
     extras = updater.detect_installed_extras()
 
@@ -105,6 +105,21 @@ def test_detect_installed_extras_ignores_retired_chromadb(monkeypatch):
     assert "chromadb" not in queried
     assert _installation(extras).package_spec(ELIGIBLE_VERSION) == (
         f"mempalace-code[watch]=={ELIGIBLE_VERSION}"
+    )
+
+
+def test_detect_installed_extras_retains_custom_models(monkeypatch):
+    """uv tool install --force rebuilds from the spec, so a dropped extra is uninstalled."""
+    present = {"sentence_transformers", "watchfiles"}
+    monkeypatch.setattr(
+        "mempalace_code.storage.find_spec", lambda module: object() if module in present else None
+    )
+
+    extras = updater.detect_installed_extras()
+
+    assert extras == frozenset({"custom-models", "watch"})
+    assert _installation(extras).package_spec(ELIGIBLE_VERSION) == (
+        f"mempalace-code[custom-models,watch]=={ELIGIBLE_VERSION}"
     )
 
 
@@ -1395,8 +1410,10 @@ class TestScheduling:
         assert not (tmp_path / "home").exists()
 
     def test_scheduler_units_include_manager_path_for_uv_and_pipx_with_systemd_escaping(
-        self, tmp_path
+        self, tmp_path, monkeypatch
     ):
+        for name in ("PIPX_HOME", "PIPX_BIN_DIR", "UV_TOOL_DIR", "UV_TOOL_BIN_DIR"):
+            monkeypatch.delenv(name, raising=False)
         inherited_path = "/interactive/bin:/from/shell"
         for kind, executable in (("uv-tool", "uv"), ("pipx", "pipx")):
             manager_dir = tmp_path / f'{executable} bin % "quoted" \\ slash'
@@ -1859,6 +1876,35 @@ class TestScheduling:
 
 
 class TestInstallerDetection:
+    @pytest.mark.parametrize("home_kind", ["physical", "alias", "unrelated"])
+    @pytest.mark.parametrize("manager_available", [True, False])
+    def test_custom_pipx_home_uses_filesystem_identity(
+        self, tmp_path, home_kind, manager_available
+    ):
+        home = tmp_path / "custom-tools"
+        prefix = home / "venvs" / "mempalace-code"
+        prefix.mkdir(parents=True)
+        alias = tmp_path / "home-alias"
+        alias.symlink_to(home, target_is_directory=True)
+        homes = {"physical": home, "alias": alias, "unrelated": tmp_path / "other"}
+        assert alias.samefile(home)
+        with patch("mempalace_code.updater._has_editable_metadata", return_value=False):
+            installation = detect_installation(
+                python=str(prefix / "bin" / "python"),
+                prefix=prefix,
+                base_prefix=tmp_path / "system-python",
+                environ={"PIPX_HOME": str(homes[home_kind])},
+                which=lambda name: (
+                    "/selected/pipx" if name == "pipx" and manager_available else None
+                ),
+                extras=frozenset(),
+            )
+        supported = home_kind != "unrelated" and manager_available
+        assert installation.supported is supported
+        assert installation.kind == ("pipx" if supported else "unsupported")
+        if home_kind != "unrelated" and not manager_available:
+            assert installation.reason == updater.UNSUPPORTED_PIPX_WITHOUT_PIPX
+
     @pytest.mark.parametrize(
         ("direct_url", "expected"),
         [
@@ -2040,3 +2086,271 @@ class TestUpdateCommand:
                 "explicit confirmation",
                 f"  Recovery: {expected_command}",
             ]
+
+
+class TestUatUpdaterUx:
+    """UAT install-19, install-20, update-1: actionable reasons in precedence order."""
+
+    @staticmethod
+    def _plain_venv() -> Installation:
+        return Installation.unsupported(updater.UNSUPPORTED_AMBIGUOUS_VENV)
+
+    def test_home_mismatch_recovery_names_the_account_home_not_status_itself(
+        self, tmp_path, monkeypatch
+    ):
+        passwd_home = tmp_path / "account home"
+        passwd_home.mkdir()
+        manager, commands, _home = _launchd_manager(
+            tmp_path, monkeypatch, active_labels=[], passwd_home=passwd_home
+        )
+
+        detail = manager.status().data["watcher"]["detail"]  # type: ignore[index]  # reason: stable status mapping
+
+        assert "HOME does not match the effective uid passwd directory" in detail
+        assert (
+            f"recovery: rerun with HOME set to the account home: "
+            f"HOME={shlex.quote(str(passwd_home))} mempalace-code update status --json"
+        ) in detail
+        assert commands == []
+
+    def test_unsupported_installer_outranks_an_unsafe_watcher(self, tmp_path, monkeypatch):
+        manager, _commands, _home = _launchd_manager(
+            tmp_path, monkeypatch, active_labels=[], passwd_home=tmp_path / "elsewhere"
+        )
+        (tmp_path / "elsewhere").mkdir()
+        manager._installation = self._plain_venv()
+        monkeypatch.setattr(updater, "_recorded_installer", lambda: "pip")
+
+        status = manager.status()
+        applied = manager.apply()
+
+        assert status.data["reason"] == updater.UNSUPPORTED_AMBIGUOUS_VENV
+        assert status.data["manual_update_supported"] is False
+        assert status.data["manual_upgrade_command"] == (
+            f'"{sys.executable}" -m pip install --upgrade "mempalace-code=={ELIGIBLE_VERSION}"'
+        )
+        assert applied.stage == "preflight"
+        assert applied.message.startswith(updater.UNSUPPORTED_AMBIGUOUS_VENV)
+        assert "-m pip install --upgrade" in applied.message
+        assert "watcher" not in applied.message
+
+    def test_current_pip_install_gets_no_placeholder_upgrade_command(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        manager, _service = _manager(
+            tmp_path, fetcher=_current_pypi, installation=self._plain_venv()
+        )
+        monkeypatch.setattr(updater, "_recorded_installer", lambda: "pip")
+
+        status = manager.status()
+        applied = manager.apply()
+
+        assert "manual_upgrade_command" not in status.data
+        note = status.data["manual_upgrade_note"]
+        assert isinstance(note, str)
+        assert note.startswith("no newer compatible release")
+        assert "`mempalace-code version-check --check-now`" in note
+        assert "X.Y.Z" not in applied.message
+        assert note in applied.message
+        args = Namespace(update_command="status", palace=None, json=False)
+        with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=manager):
+            cmd_update(args)
+        out = capsys.readouterr().out
+        assert "Upgrade this pip install with" not in out
+        assert f"  Pip upgrade: {note}" in out
+
+    def test_human_status_shows_the_installer_refusal_and_pip_path(self, capsys):
+        manager = MagicMock()
+        manager.status.return_value = UpdateResult(
+            True,
+            "status",
+            "update status inspected without mutation",
+            0,
+            data={
+                "installation": {
+                    "kind": "unsupported",
+                    "supported": False,
+                    "reason": updater.UNSUPPORTED_AMBIGUOUS_VENV,
+                },
+                "provenance": {},
+                "watcher": {},
+                "scheduler": {},
+                "manual_upgrade_command": '"/v/bin/python" -m pip install --upgrade x',
+                "reason": updater.UNSUPPORTED_AMBIGUOUS_VENV,
+            },
+        )
+        args = Namespace(update_command="status", palace=None, json=False)
+
+        with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=manager):
+            cmd_update(args)
+
+        out = capsys.readouterr().out
+        assert f"  Installer refusal: {updater.UNSUPPORTED_AMBIGUOUS_VENV}" in out
+        assert '  Upgrade this pip install with: "/v/bin/python" -m pip install --upgrade x' in out
+
+    def test_check_has_its_own_stage(self, tmp_path):
+        manager = UpdateManager(
+            state_root=tmp_path / "state",
+            installation=_installation(),
+            runner=lambda command: (0, "", ""),
+            fetcher=_pypi,
+            service=FakeService(active=False),
+            minimum_free_bytes=0,
+        )
+
+        checked = manager.check()
+
+        assert checked.stage == "check"
+        assert checked.message != manager.status().message
+        assert checked.data["provenance"]["target_version"] == ELIGIBLE_VERSION  # type: ignore[index]  # reason: stable status mapping
+
+    def test_units_differing_only_in_carried_locations_stay_owned(self, tmp_path, monkeypatch):
+        pipx = Installation(
+            kind="pipx",
+            python="/pipx/venvs/mempalace-code/bin/python",
+            cli_command=("/pipx/venvs/mempalace-code/bin/python", "-m", "mempalace_code"),
+            manager_command=("/usr/bin/pipx",),
+        )
+        home = tmp_path / "home"
+        unit_dir = home / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        manager, _commands = _manager(tmp_path, installation=pipx)
+        monkeypatch.delenv("PIPX_HOME", raising=False)
+        legacy = manager.render_scheduler_units()
+        for name, content in legacy.items():
+            (unit_dir / name).write_text(content, encoding="utf-8")
+        monkeypatch.setenv("PIPX_HOME", str(tmp_path / "pipx"))
+        service = unit_dir / DEFAULT_SERVICE_UNIT
+
+        with patch.object(Path, "home", return_value=home):
+            installed = manager.install_scheduler()
+            assert installed.ok is True
+            assert f'Environment="PIPX_HOME={tmp_path / "pipx"}"' in service.read_text()
+            monkeypatch.delenv("PIPX_HOME")
+            removed = manager.remove_scheduler()
+            assert removed.ok is True
+            assert not service.exists()
+
+            for name, content in legacy.items():
+                (unit_dir / name).write_text(content, encoding="utf-8")
+            service.write_text(legacy[DEFAULT_SERVICE_UNIT] + "ExecStartPre=/bin/true\n")
+            refused = manager.remove_scheduler()
+        assert refused.ok is False
+        assert "content does not match" in refused.message
+
+    def test_scheduler_render_warns_and_carries_manager_locations(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        pipx = Installation(
+            kind="pipx",
+            python="/pipx/venvs/mempalace-code/bin/python",
+            cli_command=("/pipx/venvs/mempalace-code/bin/python", "-m", "mempalace_code"),
+            manager_command=("/usr/bin/pipx",),
+        )
+        monkeypatch.setenv("PIPX_HOME", str(tmp_path / "pipx"))
+        monkeypatch.setenv("PIPX_BIN_DIR", str(tmp_path / "pipx-bin"))
+        monkeypatch.setenv("UV_TOOL_DIR", str(tmp_path / "uv-tools"))
+        manager = UpdateManager(state_root=tmp_path / "state", installation=pipx)
+
+        service = manager.render_scheduler_units()[DEFAULT_SERVICE_UNIT]
+
+        assert f'Environment="PIPX_HOME={tmp_path / "pipx"}"' in service
+        assert f'Environment="PIPX_BIN_DIR={tmp_path / "pipx-bin"}"' in service
+        assert "UV_TOOL_DIR" not in service
+        assert manager.scheduler_render_warning() is None
+
+        unsupported = MagicMock()
+        unsupported.render_scheduler_units.return_value = {"x.service": "[Unit]\n"}
+        unsupported.scheduler_render_warning.return_value = "preview only; reason"
+        args = Namespace(
+            update_command="scheduler", scheduler_command="render", palace=None, json=False
+        )
+        with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=unsupported):
+            cmd_update(args)
+        captured = capsys.readouterr()
+        assert captured.err == "  Warning: preview only; reason\n"
+        assert captured.out == "# x.service\n[Unit]\n"
+
+        plain = UpdateManager(state_root=tmp_path / "state", installation=self._plain_venv())
+        monkeypatch.setattr(updater.sys, "platform", "darwin")
+        warning = plain.scheduler_render_warning()
+        assert warning is not None
+        assert updater.UNSUPPORTED_AMBIGUOUS_VENV in warning
+        assert "current platform is darwin" in warning
+
+    @pytest.mark.parametrize("scheduler_command", ["install", "remove"])
+    def test_darwin_scheduler_mutation_reports_the_platform_not_a_yes_retry(
+        self, capsys, monkeypatch, scheduler_command
+    ):
+        monkeypatch.setattr(updater.sys, "platform", "darwin")
+        manager = MagicMock()
+        args = Namespace(
+            update_command="scheduler",
+            scheduler_command=scheduler_command,
+            palace=None,
+            yes=False,
+            json=False,
+            scheduled=False,
+        )
+
+        with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=manager):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_update(args)
+
+        assert exc_info.value.code == 2
+        out = capsys.readouterr().out
+        assert "Update unsupported-platform: scheduled update mutations require Linux" in out
+        assert "--yes" not in out
+        manager.install_scheduler.assert_not_called()
+        manager.remove_scheduler.assert_not_called()
+
+    def test_darwin_apply_confirmation_names_launchd(self, capsys, monkeypatch):
+        monkeypatch.setattr(updater.sys, "platform", "darwin")
+        args = Namespace(update_command="apply", palace=None, yes=False, json=False)
+
+        with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=MagicMock()):
+            with pytest.raises(SystemExit):
+                cmd_update(args)
+
+        assert "package or launchd-user mutation requires explicit confirmation" in (
+            capsys.readouterr().out
+        )
+
+    def test_recovery_names_the_invoked_launcher_when_path_does_not_find_it(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        launcher = tmp_path / "venvs" / "plain" / "bin" / "mempalace-code"
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text("#!/bin/sh\n", encoding="utf-8")
+        launcher.chmod(0o755)
+        monkeypatch.setattr(sys, "argv", [str(launcher), "update", "apply"])
+        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+        args = Namespace(update_command="apply", palace=None, yes=False, json=False)
+
+        with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=MagicMock()):
+            with pytest.raises(SystemExit):
+                cmd_update(args)
+
+        assert f"  Recovery: {launcher.resolve()} update apply --yes" in capsys.readouterr().out
+
+    def test_human_scheduler_status_shows_its_state(self, capsys, monkeypatch):
+        monkeypatch.setattr(updater.sys, "platform", "darwin")
+        manager = MagicMock()
+        manager.scheduler_status.return_value = {
+            "supported": False,
+            "enabled": False,
+            "detail": "scheduled update mutations require Linux systemd-user",
+            "next_run": None,
+        }
+        args = Namespace(
+            update_command="scheduler", scheduler_command="status", palace=None, json=False
+        )
+
+        with patch("mempalace_code.cli_commands.update.UpdateManager", return_value=manager):
+            cmd_update(args)
+
+        out = capsys.readouterr().out
+        assert "  Scheduler supported: False" in out
+        assert "  Scheduler enabled: False" in out
+        assert "  Detail: scheduled update mutations require Linux systemd-user" in out
+        assert "  Next run: not scheduled" in out

@@ -12,6 +12,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import socket
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -300,3 +302,86 @@ def test_committed_artifact_is_valid():
     assert errors == []
     assert data is not None
     assert data["budget_changed_because"].strip() != ""
+
+
+@pytest.mark.parametrize("field", ["baseline", "floor", "ratio", "before"])
+@pytest.mark.parametrize("invalid", [float("inf"), float("-inf"), float("nan"), True])
+def test_budget_artifact_rejects_nonfinite_numbers(tmp_path, monkeypatch, field, invalid):
+    path = tmp_path / "budget.json"
+    artifact = _write_artifact(path)
+    assert _mod.validate_artifact(artifact) == []
+    artifact["metrics"]["mine_full"][field] = invalid
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+    monkeypatch.setattr(_mod, "ARTIFACT_PATH", path)
+    monkeypatch.setattr(_mod, "run_measurements", lambda: pytest.fail("invalid artifact measured"))
+    assert any(field in error for error in _mod.validate_artifact(artifact))
+    assert _mod.main(["--check", "--ci"]) == 1
+
+
+def test_finite_budget_artifact_accepts_valid_metrics(tmp_path, monkeypatch):
+    path = tmp_path / "budget.json"
+    _write_artifact(path)
+    monkeypatch.setattr(_mod, "ARTIFACT_PATH", path)
+    measurements = {
+        **_FAKE_MEASUREMENTS_BREACH,
+        "mine_full": {"elapsed_secs": 1.0, "drawers_filed": 1},
+    }
+    monkeypatch.setattr(_mod, "run_measurements", lambda: measurements)
+    assert _mod.main(["--check", "--ci"]) == 0
+
+
+@pytest.mark.parametrize(
+    ("baseline", "expected_exit"),
+    [(1e308, 1), (1e307, 0)],
+    ids=["derived-overflow", "finite-control"],
+)
+def test_derived_budget_validation_and_ci_exit(tmp_path, baseline, expected_exit):
+    path = tmp_path / "budget.json"
+    artifact = _write_artifact(path)
+    artifact["metrics"]["mine_full"].update(baseline=baseline, floor=20.0, ratio=3.0)
+    path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    expected_errors = ["metrics.mine_full.budget must be finite"] if expected_exit else []
+    assert _mod.validate_artifact(artifact) == expected_errors
+    loaded, errors = _mod.load_and_validate_artifact(path)
+    assert errors == expected_errors
+    assert (loaded is None) == bool(expected_exit)
+
+    runner = """
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("demo_perf_budgets", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+mod.ARTIFACT_PATH = Path(sys.argv[2])
+
+def stub_measurements():
+    print("stub measurements executed")
+    return json.loads(sys.argv[3])
+
+mod.run_measurements = stub_measurements
+raise SystemExit(mod.main(["--check", "--ci"]))
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            runner,
+            str(_BENCH_FILE),
+            str(path),
+            json.dumps(_FAKE_MEASUREMENTS_BREACH),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == expected_exit, result.stderr
+    if expected_exit:
+        assert expected_errors[0] in result.stderr
+        assert "stub measurements executed" not in result.stdout
+    else:
+        assert "stub measurements executed" in result.stdout
+        assert "demo-perf-budgets: OK" in result.stdout
