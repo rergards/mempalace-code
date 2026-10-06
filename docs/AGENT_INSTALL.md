@@ -1072,7 +1072,19 @@ Same as above — likely fragment corruption. Run
 
 ### "Table unreadable" or LanceDB errors
 
-Storage corruption. Use `"$MEMPALACE_BIN" --palace "$PALACE_PATH" repair --rollback`. Data added after corruption point is lost. This is why auto-backup exists (`~/.mempalace/backups/palace/pre_optimize_*.tar.gz`). Pre-optimize archives are bounded by default (newest 5 kept); scheduled archives are bounded by default (newest 14 kept); set `MEMPALACE_BACKUP_RETAIN_COUNT=0` to keep all kinds unbounded. Successful optimize runs also perform best-effort verified stale-version cleanup; use `"$MEMPALACE_BIN" cleanup` manually for older accumulations or emergency disk recovery after stopping writers.
+Storage corruption. Follow the inspected recovery procedure in
+[BACKUP_RESTORE.md](BACKUP_RESTORE.md#health-check-and-repair) before rollback; data
+added after the selected recovery point is lost. Automatic backups use the selected
+managed directory. `~/.mempalace/backups/palace/pre_optimize_*.tar.gz` is the default
+when `backup_dir` is unset. To choose another disk, follow
+[backup directory configuration](BACKUP_RESTORE.md#choosing-the-managed-backup-directory),
+merge the key into the existing config, and use an absolute path. Preserve existing
+archives, mounts and services; setting `backup_dir` does not migrate them.
+Pre-optimize archives are bounded by default (newest 5 kept); scheduled archives are
+bounded by default (newest 14 kept); set `MEMPALACE_BACKUP_RETAIN_COUNT=0` to keep all
+kinds unbounded. Successful optimize runs also perform best-effort verified
+stale-version cleanup; use `"$MEMPALACE_BIN" cleanup` manually for older accumulations
+or emergency disk recovery after stopping writers.
 
 ### Re-mine doesn't fix the issue
 

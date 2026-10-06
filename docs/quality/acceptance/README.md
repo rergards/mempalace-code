@@ -54,9 +54,15 @@ and complete is for the reviewer.
 The wheel digest identifies the tested artifact. The preflight binds the source ids
 instead, because the tag workflow rebuilds the distributions from the same tree.
 
-`result: PASS` is allowed only when no confirmed critical or high issue is open,
-every other finding is fixed or explicitly deferred with a reason and a follow-up,
-and every coverage row ran or states why it could not.
+`result: PASS` requires complete direct functional coverage under RELEASING
+section 1a. Every discovered supported command/subcommand and enabled MCP tool
+in every profile needs actual installed-interface execution and checked results.
+Separate success, documented refusal, failure/retry, and discovery-only evidence.
+Help, parser errors, listings, direct handler calls and source-test counts cannot
+substitute for operation coverage. Missing required coverage is blocking `UNRUN`;
+it cannot be deferred to obtain PASS. Platform-specific cases run on a supported
+platform. No confirmed critical or high issue may remain open; other product
+findings must be fixed or explicitly deferred with a reason and a backlog reference.
 
 ## Sections
 

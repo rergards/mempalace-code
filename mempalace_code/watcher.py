@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Callable, Mapping, NoReturn, Optional
 if TYPE_CHECKING:
     from types import FrameType
 
-from .backup import BackupSourceError, create_backup
+from .backup import BackupSourceError, create_backup, managed_backups_dir
 from .config import MempalaceConfig
 from .disk_budget import DiskBudgetStatus, check_watch_budget, format_bytes
 from .knowledge_graph import palace_kg_path as _palace_kg_path
@@ -252,6 +252,16 @@ def _with_watcher_lease(func: Callable) -> Callable:
 def _load_watch_min_free() -> int:
     """Load the watcher disk-budget threshold from config."""
     return MempalaceConfig().watch_disk_min_free_bytes
+
+
+def check_configured_watch_budget(palace_path: str, min_free: int) -> DiskBudgetStatus:
+    """Resolve configured backup accounting before calling the disk-budget owner."""
+    config = MempalaceConfig()
+    if config.backup_dir is None:
+        return check_watch_budget(palace_path, min_free)
+    return check_watch_budget(
+        palace_path, min_free, managed_dir=managed_backups_dir(palace_path, config=config)
+    )
 
 
 def _format_budget_skip_message(
@@ -1726,7 +1736,7 @@ def _watch_single_project(
     _last_budget_log: list = [None]  # mutable container for closure
 
     def _should_run() -> bool:
-        budget = check_watch_budget(palace_path, min_free)
+        budget = check_configured_watch_budget(palace_path, min_free)
         if not budget.allowed:
             now = time.monotonic()
             if _last_budget_log[0] is None or now - _last_budget_log[0] >= _BUDGET_LOG_INTERVAL:
@@ -2010,7 +2020,7 @@ def _watch_planned_projects(
     _last_budget_log_all: list = [None]
 
     def _should_run_all() -> bool:
-        budget = check_watch_budget(palace_path, min_free)
+        budget = check_configured_watch_budget(palace_path, min_free)
         if not budget.allowed:
             now = time.monotonic()
             if (

@@ -50,7 +50,28 @@ Update the version, changelog, public documentation, and generated scorecard in
 one reviewable change. Keep `## Unreleased` at the top of `CHANGELOG.md`; move
 the completed items into the new version heading when cutting the release.
 
-Run the local checks from the release commit. None of them needs the candidate
+Resolve existing authorization before asking for another approval. Preparation,
+disposable-platform testing, candidate push, public promotion, publication and
+live deployment are separate effects; apply the active request to each. A missing
+permission blocks only its dependent effect. Qualification remains credential-free.
+
+Check each changed behavior's public routes: README, its feature guide, agent
+installation and LLM rules, CLI/MCP examples, and packaged instructions when the
+capability belongs there. Update current claims, defaults, environment precedence,
+failure recovery and preservation guarantees against source. Keep dated historical
+evidence intact. Do not add backup operations to the minimal memory plugin, which
+exposes only its declared memory tools.
+
+Inspect every path selected for the public commit, including newly staged backlog
+records. Private journals and machine-bound task histories remain local. Use the
+existing ignore owner and supported backlog operations; preserve sealed records and
+validate the store. An index-only exclusion preserves files at that moment, but a
+later branch switch or merge can remove them if another ref still tracks them.
+Before such integration, retain verified sealed bytes through the supported backup
+or validated export route; compare their hashes and run native backlog validation
+afterward. A clean Git tree proves no uncommitted diff, not preservation of ignored data.
+
+Run source and documentation checks before building the installed candidate. None needs the candidate
 SHA or public `main`; the exact-SHA public admission runs in section 3c, after
 public `main` carries the candidate:
 
@@ -59,11 +80,7 @@ python scripts/docs_drift_guard.py
 python scripts/public_safety_scan.py --tracked --staged
 python scripts/quality_scorecard.py --check
 python scripts/gen_code_intelligence_packet.py --check
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean
-python scripts/release_install_metadata_smoke.py --all-installers --install-spec . --json
-python -m build --wheel --outdir dist
-WHEEL=dist/mempalace_code-X.Y.Z-py3-none-any.whl
-python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
+python scripts/release_preflight.py --json
 python -m pytest tests/ -x -q -m "not needs_network"
 python -m pytest tests/test_mcp_protocol_compat.py -q
 python -m pytest tests/test_cli_golden_scenarios.py -q
@@ -73,9 +90,41 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 python -m pyright -p pyrightconfig.strict.json
 ```
 
-With `--tag`, the preflight also reports an `acceptance_report` row. It fails until
-section 1a's report for this exact package tree is committed, so run section 1a
-once the other checks pass, then rerun the preflight.
+Then build both distribution formats into an owned output directory, check their
+members and metadata, and use one exact wheel for all installed checks:
+
+```bash
+python -m build --outdir dist
+WHEEL="$(pwd)/dist/mempalace_code-X.Y.Z-py3-none-any.whl"
+python scripts/release_artifact_gate.py --dist dist --require-wheel --require-sdist --json
+python scripts/release_install_metadata_smoke.py --all-installers --install-spec "$WHEEL" --json
+python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
+```
+
+Use the pending version in place of `X.Y.Z`; retain the wheel digest and the source
+objects it represents. On a supported Linux fixture run the same exact-wheel
+installer command with `MEMPALACE_RELEASE_SYSTEMD_USER=1`, as described below.
+An unavailable Linux user manager leaves that receipt `UNRUN`; it does not invalidate
+already passing platform rows or authorize a live service change.
+
+Write section 1a's report after installed qualification, then commit the reviewed
+source, report and public-safe metadata within the active authority. Scan the full
+staged tree again before committing so new files are included. Finally run:
+
+```bash
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --json
+```
+
+With `--tag`, the preflight verifies the committed `acceptance_report` for the
+exact package objects. A pending report or dirty tree is a prerequisite during
+preparation, not a reason to ask again for an already authorized source commit.
+Rebuild distribution archives after a documentation-only source change. Compare
+their members with the tested wheel: runtime/plugin files, dependency and entrypoint
+metadata, and accepted package source objects must match before reusing application
+evidence. A README-only change in the wheel's metadata requires a new artifact check
+and installed metadata smoke; record both wheel identities and the exact difference.
+Other package changes require rerunning the affected installed acceptance and
+updating its report. Archive timestamps alone do not prove a runtime change.
 
 `gen_code_intelligence_packet.py --check` regenerates the code-intelligence demo
 packet in a temp directory and compares it with the committed
@@ -92,7 +141,8 @@ check. It is the canonical pre-tag command and fails closed when upstream
 python scripts/release_preflight.py --tag vX.Y.Z --require-clean --check-live-upstream
 ```
 
-`release_install_metadata_smoke.py --all-installers` installs the current checkout through
+`release_install_metadata_smoke.py --all-installers --install-spec "$WHEEL"` installs
+the exact candidate wheel through
 the canonical `venv`, `bootstrap-venv`, `pipx`, and `uv-tool` contours and proves
 `importlib.metadata.version`,
 `mempalace_code.__version__`, and `mempalace-code version-check --status`
@@ -118,7 +168,7 @@ evidence. Recovery: rerun the same aggregate command in the disposable Ubuntu jo
 
 ```bash
 MEMPALACE_RELEASE_SYSTEMD_USER=1 python scripts/release_install_metadata_smoke.py \
-  --all-installers --install-spec dist/mempalace_code-*.whl --json
+  --all-installers --install-spec "$WHEEL" --json
 ```
 
 The manager matrix above remains a lightweight metadata, recovery, plugin, and
@@ -256,7 +306,36 @@ an LLM agent would, following the public documentation literally.
    agent configuration, crontab, launchd, or systemd user units; render schedules
    and daemon files without installing them.
 3. **Exercise every area** below and record what ran in the report's coverage
-   table:
+   table. Direct functional acceptance is a mandatory release condition, separate
+   from source tests and CI. Discover commands, delegated subcommands, tools and
+   profiles from the installed package. For each supported operation, record the
+   exact public-interface invocation, accepted input, expected result, observed
+   result and relevant state after failure or retry. Exercise each enabled MCP
+   tool in each profile through a separate stdio client, including both supported
+   protocol handshakes. Listing a tool proves discovery only. `--help`, parent
+   guidance and missing-argument errors prove guidance only; they cannot replace
+   execution of the operation. A deliberately retired or unauthorized operation
+   is covered by its documented refusal and unchanged-state check, explicitly
+   labelled as refusal-only. Live operations use disposable supported fixtures;
+   never widen operational authority to satisfy coverage.
+
+   Reconcile the discovered surface with executed scenarios. An omitted required
+   case is blocking `UNRUN`; do not mark the release PASS or defer the missing
+   case as a low-severity issue. Platform-specific behavior must run on a supported
+   platform. Preserve machine-readable invocation and outcome evidence outside
+   the published tree, bound to the exact wheel SHA-256. The existing installed
+   owner remains `scripts/release_readiness_gate.py`; supplement its scenarios
+   where its aggregate evidence does not establish the required behavior.
+
+   The installed owner discovers the root parser and the delegated
+   `wing-migration` parser. It attributes checked successes, documented refusals
+   and verified daemon launches separately from guidance and discovery. A parent
+   usage message or an operation's `--help` cannot satisfy its execution case.
+   MCP scenarios use a separate disposable palace for each profile, validate each
+   enabled tool's result and mutation post-state, and check both protocol
+   handshakes with recovery after invalid modern metadata. The suite aggregate
+   fails when a discovered operation or enabled tool/profile case is missing.
+
 
    | Area | Scope |
    |---|---|
@@ -303,6 +382,61 @@ package, such as `hooks/` or `scripts/bootstrap.sh`, needs a re-test of that are
 recorded in the report.
 
 ## 2. Review public repository surfaces
+
+### Privacy audit before public delivery
+
+Run this audit for each release before any public candidate push, promotion or
+publication. Reuse results only when the tree, artifacts and outgoing ancestry
+are unchanged. Enumerate files with Git, which includes hidden tracked paths;
+default filesystem searches can omit them:
+
+```bash
+git ls-files
+git diff --cached --name-only
+python scripts/public_safety_scan.py --committed --tracked --staged
+python scripts/gitleaks_scan.py full-history --artifact-dir .codex-local/release-privacy
+python scripts/release_artifact_gate.py --dist dist --require-wheel --require-sdist --json
+```
+
+Inspect `AGENTS.md`, `CLAUDE.md`, every tracked `.agents/` and `.claude/` instruction,
+prompt, shared reference and setting, `docs/LLM_USAGE_RULES.md`, packaged plugin
+instructions, examples, workflows and all newly staged metadata. Examine sealed
+backlog history as well as current task fields. Check for private remotes, hosts,
+addresses, machine identifiers, real local paths, personal/customer information,
+private project or operational context and credentials. Do not read local credential
+stores or invoke AI clients to perform qualification. Reports contain file positions,
+categories and redacted findings, never secret values or private transcripts.
+
+Review ambiguous matches against source and provenance. Generic examples, synthetic
+fixtures and intended public author/contact metadata can resemble private data;
+neither a pattern match nor an automatic PASS settles their classification. Do not
+assume an internal author label is approved for disclosure just because it is sealed
+or already tracked. Record the classification and its basis in the private evidence.
+
+Inspect member names and text contents of both wheel and sdist, including README
+metadata, internal instructions and serialized data. The artifact gate checks
+distribution shape; it does not replace content review. Retain the exact archive
+digests, source SHA, scope, findings, dispositions and any uninspected binary members.
+
+The pinned full-history scan includes reachable refs. Check the actual outgoing
+ref's parent history separately: excluding a file from the current tree leaves older
+blobs reachable. Local development history and ignored maintainer notes may contain
+retained private evidence. Keep them local. Section 3's candidate carries the reviewed
+tree with current public `main` as its parent; never send local development history
+as a substitute. Inspect the outgoing candidate and archive identities again before
+delivery. If existing public ancestry contains a confirmed disclosure, record it as
+an unresolved exposure; a new clean snapshot cannot remove it.
+
+A confirmed private disclosure or consequential unknown classification blocks its
+public delivery. Do not rename an unknown to PASS, delete evidence, edit sealed JSON,
+rewrite published history or add a scanner exemption. Preserve the finding and
+propose the smallest in-scope correction; a history rewrite or disclosure-policy
+change needs its own authority. A clean-tree or secret-scan result alone cannot be
+reported as "no private data remains in the repository". Recovery: inspect the
+retained redacted report, correct the affected surface within authority, then rerun
+the affected scan and exact-ref check.
+
+### Public presentation
 
 Before asking for tag/publish approval, inspect the public repository as a
 visitor would:

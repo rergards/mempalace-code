@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## v1.16.0 — 2026-10-05
+
+### Added
+
+- Configure `backup_dir` independently of the palace location, with the existing
+  environment override mechanism. Manual, scheduled, pre-watch and pre-optimize
+  backups share the selected managed directory for creation, listing and rotation.
+  Each palace has an isolated directory under the selected root.
+
+### Fixed
+
+- Measure managed backup storage in the selected directory and check available
+  space on the archive destination. Invalid or inaccessible configured paths fail
+  without falling back. Existing archives stay in place, and explicit `--out`
+  keeps its rotation bypass and priority.
+- Release acceptance now executes every enabled MCP tool in every profile, checks
+  both protocol handshakes, and discovers all delegated migration actions. Help
+  and parser guidance do not count as functional execution.
+- Release socket fixtures use a short owned path on platforms with limited Unix
+  socket path lengths, with checked cleanup and explicit unsupported-platform handling.
+
 ## v1.15.1 — 2026-10-04
 
 Includes the v1.15.0 changes and the corrections below.

@@ -17,6 +17,16 @@ credential-free hosted workflows. An optional interoperability exercise with an
 AI client requires separate explicit owner authorization, runs outside the
 release gate, and cannot block a release.
 
+**Direct functional release boundary.** Before release candidate publication,
+run the exact installed wheel through its real CLI and credential-free stdio MCP
+interfaces in disposable environments. Reconcile every discovered command and
+subcommand, every enabled tool in every profile, and supported runtime extras
+with concrete success or documented refusal evidence and relevant failure/retry
+postconditions. Help, parser errors, tool listings, handler-only calls and source
+pytest counts do not prove functional execution. Missing required coverage blocks
+release even when CI passes. Record confirmed problems through backlog-utility
+and retain a public-safe acceptance report. Follow `docs/RELEASING.md` section 1a.
+
 **Commit attribution boundary.** Commits in this repository must not contain a
 Claude `Co-Authored-By` trailer. Configure automation to omit it; do not add it
 and clean it up later.
@@ -241,6 +251,15 @@ Edits still require admitted authority and no conflicting writer.
 ## Operational Lessons
 
 - **Keep this file and public docs public-safe.** `AGENTS.md` is the canonical public instruction file; `CLAUDE.md` is only its pointer. Public docs may name package ranges, workflow categories, advisory IDs, and reproducible commands. Private remotes, hostnames, tokens, credentials, local machine paths, customer/project details, incident specifics, and non-public operational history never go here or in other public docs; put private or machine-local lessons only in an ignored local-only note outside the published tree, such as `.codex-local/LESSONS.md`.
+- **Audit privacy before every public delivery.** Follow the privacy audit in
+  `docs/RELEASING.md` section 2. Inspect the exact tracked/staged/committed tree,
+  including hidden LLM instructions, prompts, settings, examples and sealed backlog
+  history, then both distribution archives and the history reachable from the
+  outgoing ref. Secret scanning alone cannot establish that operational or personal
+  information is public-safe. Retain redacted findings and the reviewed identities;
+  a confirmed private disclosure or consequential unresolved classification blocks
+  its public delivery. Preserve private local evidence and sealed records; never
+  rewrite history, scrub canonical JSON or weaken detectors to pass this gate.
 - **Record reusable lessons only when they are public knowledge.** When a session exposes a project gotcha, publish step, verification boundary, or agent-behavior correction that is safe for public readers and useful to future contributors, rewrite the matching lesson here in place, or add one when none matches.
 - **Verify on the surface that will run the change, and name what was not run.** Python tests alone do not prove GitHub Actions runtime changes: use local YAML/static checks such as `actionlint`, then verify the real hosted workflow run when action runtime behavior matters. Direct handler calls are useful for MCP compatibility but do not prove a separate stdio MCP client, and CLI help does not prove the command executes. A release-readiness summary must distinguish unit tests, focused integration tests, direct API smoke, real CLI execution, and hosted/daemon behavior that was not run; a tag-only or release-only workflow without a real trigger run is reported as syntax-checked and version-checked, not execution-tested. Never imply full local coverage for hosted-only behavior.
 - **Check the intended public release target.** Before publishing, verify the repository, branch, tag, and workflow that public users will see. Do not assume local remote names or private mirrors represent public release truth.

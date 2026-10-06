@@ -195,7 +195,27 @@ _RUNTIME_NO_CHROMADB_PROBE_SCRIPT = (
     "builtins.__import__ = _guard\n"
     "_names = {d.metadata['Name'].lower().replace('_', '-') for d in _metadata.distributions()}\n"
     "assert {'fastembed', 'onnxruntime'} <= _names, sorted(_names)\n"
-    "_forbidden = sorted(n for n in _names if n in {'torch','triton','chromadb'} or n.startswith(('nvidia-','cuda-')))\n"
+    "def _requests_custom_models(spec, caller_cwd):\n"
+    "    from pathlib import Path\n"
+    "    import re\n"
+    "    from packaging.requirements import InvalidRequirement, Requirement\n"
+    "    from packaging.utils import canonicalize_name\n"
+    '    local = re.fullmatch(r"([^\\[\\]]+)(\\[[^\\[\\]]+\\])", spec)\n'
+    "    if local:\n"
+    "        base, extras = local.groups()\n"
+    "        path = Path(base)\n"
+    "        if not path.is_absolute():\n"
+    "            path = Path(caller_cwd) / path\n"
+    '        if "://" not in base and (base.endswith(".whl") or path.is_dir()):\n'
+    '            spec = "mempalace-code" + extras\n'
+    "    try:\n"
+    "        request = Requirement(spec)\n"
+    "    except InvalidRequirement:\n"
+    "        return False\n"
+    '    return (canonicalize_name(request.name) == "mempalace-code"\n'
+    '            and "custom-models" in {canonicalize_name(e) for e in request.extras})\n'
+    "_allow_torch = len(sys.argv) == 3 and _requests_custom_models(sys.argv[1], sys.argv[2])\n"
+    "_forbidden = sorted(n for n in _names if n in {'triton','chromadb'} or (n == 'torch' and not _allow_torch) or n.startswith(('nvidia-','cuda-')))\n"
     "assert not _forbidden, _forbidden\n"
     "import mempalace_code\n"
     "from mempalace_code.storage import open_store\n"
@@ -1996,10 +2016,15 @@ def probe_ordinary_runtime_no_chromadb(
     probe_cwd: str,
     run_subprocess: RunSubprocess,
     env: dict[str, str] | None = None,
+    *,
+    install_spec: str = "",
 ) -> SurfaceResult:
-    """Probe ordinary runtime paths while failing on any chromadb import."""
+    """Keep the base dependency guard; permit CPU Torch for an explicitly requested extra."""
+    command = [python_bin, "-c", _RUNTIME_NO_CHROMADB_PROBE_SCRIPT]
+    if install_spec:
+        command.extend([install_spec, os.getcwd()])
     rc, out, err = run_subprocess(
-        [python_bin, "-c", _RUNTIME_NO_CHROMADB_PROBE_SCRIPT],
+        command,
         env=env,
         cwd=probe_cwd,
     )
@@ -2248,7 +2273,7 @@ def run_venv_smoke(
             source_root=str(_SOURCE_ROOT),
         )
         runtime_result = probe_ordinary_runtime_no_chromadb(
-            python_bin, str(probe_cwd), run_subprocess, env=probe_env
+            python_bin, str(probe_cwd), run_subprocess, env=probe_env, install_spec=install_spec
         )
 
         surfaces = [
@@ -2336,7 +2361,7 @@ def run_bootstrap_venv_smoke(
             source_root=str(_SOURCE_ROOT),
         )
         runtime_result = probe_ordinary_runtime_no_chromadb(
-            python_bin, str(probe_cwd), run_subprocess, env=probe_env
+            python_bin, str(probe_cwd), run_subprocess, env=probe_env, install_spec=install_spec
         )
         surfaces = [
             metadata_result,
@@ -2424,7 +2449,7 @@ def run_pipx_smoke(
             source_root=str(_SOURCE_ROOT),
         )
         runtime_result = probe_ordinary_runtime_no_chromadb(
-            venv_python, str(probe_cwd), run_subprocess, env=env
+            venv_python, str(probe_cwd), run_subprocess, env=env, install_spec=install_spec
         )
 
         surfaces = [
@@ -2476,7 +2501,10 @@ def run_uv_tool_smoke(
             return SmokeResult(False, None, INSTALLER_UV_TOOL, install_spec, surfaces, [])
 
         env = _isolate_probe_state(env, tmp_root, bin_dir, manager=("uv", uv_exe))
-        rc, out, err = run_subprocess([uv_exe, "tool", "install", "--force", install_spec], env=env)
+        rc, out, err = run_subprocess(
+            [uv_exe, "tool", "install", "--force", "--python", sys.executable, install_spec],
+            env=env,
+        )
         if rc != 0:
             detail = sanitize((err or out).strip()) or f"uv tool install exited {rc}"
             surfaces = [
@@ -2514,7 +2542,7 @@ def run_uv_tool_smoke(
             source_root=str(_SOURCE_ROOT),
         )
         runtime_result = probe_ordinary_runtime_no_chromadb(
-            str(python_path), str(probe_cwd), run_subprocess, env=env
+            str(python_path), str(probe_cwd), run_subprocess, env=env, install_spec=install_spec
         )
         surfaces = [
             metadata_result,

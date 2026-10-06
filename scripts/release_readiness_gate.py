@@ -144,6 +144,10 @@ def walk(parser, prefix, inherited_selectors):
 
 
 walk(captured[0], [], [])
+from mempalace_code import wing_migration
+
+delegated_parser = wing_migration._parser()
+walk(delegated_parser, ["wing-migration"], selectors[("wing-migration",)])
 
 if not probe_argv:
     payload = {"members": members}
@@ -153,7 +157,13 @@ elif len(probe_argv) == 1:
     if not isinstance(trace, list):
         raise SystemExit("invalid execution trace")
     executed = set()
-    for raw_argv in trace:
+    for observation in trace:
+        if not isinstance(observation, dict) or set(observation) != {"argv", "outcome"}:
+            raise SystemExit("invalid execution observation")
+        raw_argv = observation["argv"]
+        outcome = observation["outcome"]
+        if outcome not in {"success", "documented_refusal", "guidance", "discovery", "daemon"}:
+            raise SystemExit("invalid execution outcome")
         if not isinstance(raw_argv, list) or any(not isinstance(token, str) for token in raw_argv):
             raise SystemExit("invalid execution argv")
         try:
@@ -162,6 +172,9 @@ elif len(probe_argv) == 1:
                 io.StringIO()
             ):
                 namespace = original_parse_args(captured[0], normalized)
+                if getattr(namespace, "command", None) == "wing-migration":
+                    delegated = original_parse_args(delegated_parser, namespace.wing_migration_args)
+                    vars(namespace).update(vars(delegated))
         except SystemExit:
             continue
         selected = ()
@@ -170,7 +183,12 @@ elif len(probe_argv) == 1:
             if all(getattr(namespace, dest, None) == name for dest, name in selectors[path]):
                 if len(path) > len(selected):
                     selected = path
-        if selected:
+        # `help` is itself a discovery command. Its checked output satisfies
+        # only that command; --help on an operation grants no operation credit.
+        if selected and (
+            outcome not in {"guidance", "discovery"}
+            or (selected == ("help",) and outcome == "discovery")
+        ):
             executed.add(selected)
     payload = {"executed": [member for member in members if tuple(member) in executed]}
 else:
@@ -1453,6 +1471,155 @@ def _run_installed_path_contract_scenario(
     )
 
 
+def _run_installed_wing_migration_scenario(
+    command_prefix: list[str],
+    env: dict[str, str],
+    scenario_root: Path,
+    neutral_cwd: Path,
+    *,
+    repository_root: Path,
+    network_attempts: Path,
+    run_subprocess=subprocess.run,
+) -> str | None:
+    """Exercise delegated operations on the installed owner's synthetic fixture."""
+    try:
+        # The migration owner requires physical paths, including on macOS where
+        # the conventional temporary-directory path contains a symbolic link.
+        scenario_root = scenario_root.resolve()
+        scenario_root.mkdir(parents=True)
+        fixture = scenario_root / "fixture"
+        temporary = scenario_root / "tmp"
+        temporary.mkdir()
+        protected = {
+            path: _semantic_tree_snapshot(path)
+            for path in (
+                repository_root,
+                Path(command_prefix[0]).resolve().parent.parent,
+                neutral_cwd,
+            )
+        }
+        attempts_before = network_attempts.read_bytes() if network_attempts.exists() else b""
+        if attempts_before:
+            raise RuntimeError("wing migration inherited a network attempt")
+        scenario_env = dict(env, TMPDIR=str(temporary))
+        setup = _run_golden_subprocess(
+            run_subprocess,
+            [
+                str(Path(command_prefix[0]).parent / "python"),
+                "-B",
+                "-c",
+                "from pathlib import Path; import sys; "
+                "from mempalace_code.wing_migration import _create_synthetic_fixture; "
+                "_create_synthetic_fixture(Path(sys.argv[1]), real_source_mine=True)",
+                str(fixture),
+            ],
+            capture_output=True,
+            text=True,
+            env=scenario_env,
+            cwd=str(neutral_cwd),
+            timeout=DEFAULT_TIMEOUT,
+        )
+        if setup.returncode != 0 or not _installed_output_is_clean(setup):
+            raise RuntimeError("installed synthetic wing fixture setup failed")
+        scenario_env.update(HOME=str(fixture / "home"), USERPROFILE=str(fixture / "home"))
+        inventory_path = fixture / "inventory.json"
+        receipt_path = fixture / "evidence" / "receipt.json"
+
+        def run(action: str, args: list[str], *, code: int = 0) -> dict:
+            result = _run_installed_cli(
+                run_subprocess,
+                command_prefix,
+                ["wing-migration", action, *args],
+                scenario_env,
+                neutral_cwd,
+            )
+            if result.returncode != code or not _installed_output_is_clean(result):
+                raise RuntimeError(f"wing migration {action} violated its exit/output contract")
+            payload = json.loads(result.stdout or "")
+            if not isinstance(payload, dict):
+                raise RuntimeError(f"wing migration {action} emitted a non-object result")
+            return payload
+
+        def state(action: str, args: list[str], expected: str) -> dict:
+            payload = run(action, args)
+            if payload.get("action") != action or payload.get("state") != expected:
+                raise RuntimeError(f"wing migration {action} did not prove {expected} state")
+            return payload
+
+        receipt_args = ["--receipt", str(receipt_path)]
+        bound_args = ["--inventory", str(inventory_path), *receipt_args]
+        state("inventory", bound_args, "original")
+        original_receipt = receipt_path.read_bytes()
+        refusal = run("apply", bound_args, code=2)
+        if (
+            refusal.get("failed_predicate") != "snapshot_required"
+            or receipt_path.read_bytes() != original_receipt
+        ):
+            raise RuntimeError("wing migration apply-before-snapshot guard changed the receipt")
+        state("classify", receipt_args, "original")
+        state("snapshot", receipt_args, "original")
+        state("apply", bound_args, "merged")
+        state("classify", receipt_args, "merged")
+        merged_receipt = receipt_path.read_bytes()
+        retry = state("apply", bound_args, "merged")
+        if retry.get("writes") != 0 or receipt_path.read_bytes() != merged_receipt:
+            raise RuntimeError("wing migration merged retry changed state")
+        state("recover", bound_args, "original")
+        state("classify", receipt_args, "original")
+        recovered_receipt = receipt_path.read_bytes()
+        state("recover", bound_args, "original")
+        if receipt_path.read_bytes() != recovered_receipt:
+            raise RuntimeError("wing migration recovery retry changed the receipt")
+
+        # Live actions receive documented missing-authority refusals only. No live
+        # authority or full-copy inventory is supplied by release qualification.
+        before_refusals = _semantic_tree_snapshot(fixture)
+        for action in ("live-run", "live-recover"):
+            refusal = run(
+                action, ["--authority", str(scenario_root / "absent-authority.json")], code=2
+            )
+            if refusal.get("failed_predicate") != "file_not_found":
+                raise RuntimeError(f"wing migration {action} missed the authority guard")
+        for mode, predicate in (
+            ("live", "live_authority_required"),
+            ("full-copy", "full_copy_inventory_required"),
+        ):
+            refusal = run("qualify", ["--mode", mode], code=2)
+            if refusal.get("failed_predicate") != predicate or refusal.get("status") != "refused":
+                raise RuntimeError(f"wing migration qualify {mode} missed the authority guard")
+        if _semantic_tree_snapshot(fixture) != before_refusals:
+            raise RuntimeError("wing migration authority refusal changed fixture state")
+        temporary_before = _semantic_tree_snapshot(temporary)
+        qualified = run("qualify", ["--mode", "synthetic"])
+        predicates = qualified.get("predicates")
+        if (
+            qualified.get("status") != "qualified"
+            or qualified.get("mode") != "synthetic"
+            or not isinstance(predicates, dict)
+            or not predicates
+            or any(value is not True for value in predicates.values())
+            or qualified.get("recovery_command") is not None
+        ):
+            raise RuntimeError("wing migration synthetic qualification did not prove its contract")
+        if _semantic_tree_snapshot(temporary) != temporary_before:
+            raise RuntimeError("wing migration qualification retained a synthetic fixture")
+        if not _palace_leases_released(fixture / "home"):
+            raise RuntimeError("wing migration left a palace write lease held")
+        if json.loads((fixture / "home/.mempalace/operation.lock.owners.json").read_text()) != {}:
+            raise RuntimeError("wing migration left an operation lease held")
+        if any(_semantic_tree_snapshot(path) != before for path, before in protected.items()):
+            raise RuntimeError("wing migration changed a protected filesystem boundary")
+        attempts_after = network_attempts.read_bytes() if network_attempts.exists() else b""
+        if attempts_after != attempts_before:
+            raise RuntimeError("wing migration attempted network access")
+        return None
+    except (OSError, RuntimeError, ValueError, TypeError, subprocess.SubprocessError) as exc:
+        detail = str(exc)
+        for path in (repository_root, scenario_root, neutral_cwd):
+            detail = detail.replace(str(path), "<protected-path>")
+        return detail[:1200]
+
+
 def _run_installed_cli_inventory_gap_scenario(
     command_prefix: list[str],
     env: dict[str, str],
@@ -1467,12 +1634,14 @@ def _run_installed_cli_inventory_gap_scenario(
 ) -> str | None:
     """Exercise safe installed commands not owned by a richer direct scenario."""
 
-    def run(args: list[str], *, input_text: str | None = None):
+    def run(
+        args: list[str], *, input_text: str | None = None, command_env: dict[str, str] | None = None
+    ):
         result = _run_installed_cli(
             run_subprocess,
             command_prefix,
             args,
-            env,
+            env if command_env is None else command_env,
             neutral_cwd,
             input_text=input_text,
         )
@@ -1536,6 +1705,37 @@ def _run_installed_cli_inventory_gap_scenario(
         )
         if _semantic_tree_snapshot(onboarding_dir) != onboarding_before:
             raise RuntimeError("onboarding EOF recovery changed state")
+
+        onboarding_home = scenario_root / "onboarding-home"
+        onboarding_home.mkdir()
+        onboarding_env = dict(env, HOME=str(onboarding_home), USERPROFILE=str(onboarding_home))
+        answers = "1\nFixture Person, colleague\ndone\nFixtureProject\ndone\n\nn\n"
+        require(
+            run(
+                ["onboarding", str(onboarding_dir)], input_text=answers, command_env=onboarding_env
+            ),
+            "onboarding saved synthetic input",
+            0,
+            "Setup Complete",
+        )
+        registry_path = onboarding_home / ".mempalace" / "entity_registry.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        if (
+            registry.get("mode") != "work"
+            or registry.get("projects") != ["FixtureProject"]
+            or "Fixture Person" not in registry.get("people", {})
+            or _semantic_tree_snapshot(onboarding_dir) != onboarding_before
+        ):
+            raise RuntimeError("onboarding did not preserve its accepted input and project")
+        onboarding_saved = _semantic_tree_snapshot(onboarding_home)
+        require(
+            run(["onboarding", str(onboarding_dir)], input_text="", command_env=onboarding_env),
+            "onboarding EOF after success",
+            1,
+            "Onboarding aborted. No changes were saved.",
+        )
+        if _semantic_tree_snapshot(onboarding_home) != onboarding_saved:
+            raise RuntimeError("onboarding interrupted retry changed saved state")
 
         require(
             run(["--palace", str(palace), "wake-up"]),
@@ -4729,6 +4929,7 @@ def _run_installed_non_regular_source_scenario(
     ready_timeout = 30
     stop_timeout = 30
     open_sockets: list[tuple[socket.socket, Path]] = []
+    socket_alias: tempfile.TemporaryDirectory[str] | None = None
     disposable_before: dict[Path, tuple[tuple[str, str, int, str], ...]] = {}
     disposable_labels: dict[Path, str] = {}
     repository_before: tuple[tuple[str, str, int, str], ...] | None = None
@@ -4788,6 +4989,25 @@ def _run_installed_non_regular_source_scenario(
             raise RuntimeError(f"{label} failed: {stderr or stdout or result.returncode}")
         return stdout, stderr
 
+    def socket_bind_path(path: Path) -> str:
+        nonlocal socket_alias
+        if os.name != "posix":
+            return str(path)
+        # AF_UNIX limits the address length, even when the fixture filesystem
+        # supports longer paths. An owner-only alias keeps the same source node.
+        if socket_alias is None:
+            socket_alias = tempfile.TemporaryDirectory(prefix="mp-s-", dir="/tmp")
+            (Path(socket_alias.name) / "r").symlink_to(
+                scenario_root.resolve(), target_is_directory=True
+            )
+        return str(Path(socket_alias.name) / "r" / path.relative_to(scenario_root))
+
+    def cleanup_socket_alias() -> None:
+        nonlocal socket_alias
+        if socket_alias is not None:
+            socket_alias.cleanup()
+            socket_alias = None
+
     def create_node(path: Path, kind: str, target: Path) -> None:
         if kind == "symlink":
             path.symlink_to(target)
@@ -4798,7 +5018,7 @@ def _run_installed_non_regular_source_scenario(
         elif kind == "socket":
             node_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
-                node_socket.bind(str(path))
+                node_socket.bind(socket_bind_path(path))
             except BaseException:
                 node_socket.close()
                 raise
@@ -4995,10 +5215,12 @@ def _run_installed_non_regular_source_scenario(
             probe_path = scenario_root / "socket-support-probe"
             probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
-                probe.bind(str(probe_path))
-            except OSError:
+                probe.bind(socket_bind_path(probe_path))
+            except OSError as exc:
                 probe.close()
                 probe_path.unlink(missing_ok=True)
+                if exc.errno not in {errno.EAFNOSUPPORT, errno.EPROTONOSUPPORT, errno.EOPNOTSUPP}:
+                    raise
             else:
                 open_sockets.append((probe, probe_path))
                 cleanup_owned_sockets()
@@ -5194,6 +5416,7 @@ def _run_installed_non_regular_source_scenario(
         if attempts_after != attempts_before:
             raise RuntimeError("scenario attempted network access")
         cleanup_owned_sockets()
+        cleanup_socket_alias()
         if not _palace_leases_released(Path(env["HOME"])):
             raise RuntimeError("a palace write lease survived the scenario")
         cleanup_new_lease_artifacts()
@@ -5227,6 +5450,10 @@ def _run_installed_non_regular_source_scenario(
             cleanup_owned_sockets()
         except (OSError, RuntimeError) as cleanup_exc:
             cleanup_errors.append(str(cleanup_exc))
+        try:
+            cleanup_socket_alias()
+        except OSError as cleanup_exc:
+            cleanup_errors.append(f"socket alias cleanup failed: {cleanup_exc}")
         try:
             cleanup_new_lease_artifacts()
         except OSError as cleanup_exc:
@@ -5321,9 +5548,10 @@ class _InstalledCliExecutionRecorder:
     def __init__(self, console: Path):
         self._console = console.resolve()
         self.argv: list[list[str]] = []
+        self.observations: list[dict] = []
         self.error: str | None = None
 
-    def record(self, command) -> None:
+    def record(self, command, result=None) -> None:
         if not isinstance(command, (list, tuple)) or not command:
             return
         argv = [str(item) for item in command]
@@ -5345,11 +5573,26 @@ class _InstalledCliExecutionRecorder:
             self.error = "installed CLI execution trace exceeded its bounded shape"
             return
         self.argv.append(trace_argv)
+        if trace_argv == ["help"] or "--help" in trace_argv or "-h" in trace_argv:
+            outcome = "discovery"
+        elif result is None:
+            # The enclosing daemon scenario must verify readiness, effects and reap
+            # before the terminal suite can reconcile this launch.
+            outcome = "daemon"
+        elif result.returncode == 0:
+            outcome = "success"
+        elif "usage:" in ((result.stdout or "") + (result.stderr or "")):
+            outcome = "guidance"
+        else:
+            # Refusals receive credit only after their owning scenario checks its
+            # exact code/output and unchanged state; a failed scenario exits early.
+            outcome = "documented_refusal"
+        self.observations.append({"argv": trace_argv, "outcome": outcome})
 
     def render(self) -> str:
         if self.error:
             raise ValueError(self.error)
-        payload = json.dumps(self.argv, separators=(",", ":"))
+        payload = json.dumps(self.observations, separators=(",", ":"))
         if len(payload.encode("utf-8")) > INSTALLED_CLI_TRACE_BYTES_LIMIT:
             raise ValueError("installed CLI execution trace is oversized")
         return payload
@@ -5886,6 +6129,39 @@ def _installed_mcp_seed_records() -> str:
     return "\n".join(json.dumps(record, separators=(",", ":")) for record in records) + "\n"
 
 
+def _validate_installed_mcp_poststate(label: str, payload: dict | list) -> None:
+    """Check the observable result of an enabled tool's fixture mutation."""
+    ok = False
+    if isinstance(payload, dict):
+        if label == "added_drawer":
+            ok = payload.get("is_duplicate") is True
+        elif label == "deleted_drawer":
+            ok = payload == {"error": "not_found", "source_file": "deleted.py"}
+        elif label == "deleted_wing":
+            ok = "seed_delete_wing" not in payload.get("wings", {})
+        elif label == "kg_added":
+            ok = any(
+                fact.get("predicate") == "verifies" and fact.get("object") == "AddedObject"
+                for fact in payload.get("facts", [])
+                if isinstance(fact, dict)
+            )
+        elif label == "kg_invalidated":
+            ok = any(
+                fact.get("predicate") == "preserves"
+                and fact.get("object") == "SeedObject"
+                and fact.get("current") is False
+                and fact.get("valid_to") == "2026-01-01"
+                for fact in payload.get("facts", [])
+                if isinstance(fact, dict)
+            )
+        elif label == "mined_project":
+            ok = any(
+                "go-fixture-marker" in row.get("text", "") for row in payload.get("results", [])
+            )
+    if not ok:
+        raise ValueError(f"installed MCP mutation post-state evidence failed: {label}")
+
+
 def _run_installed_mcp_stdio_scenario(
     launcher: Path,
     console: Path,
@@ -5995,7 +6271,9 @@ def _run_installed_mcp_stdio_scenario(
         def protected_scenario_snapshot() -> tuple[tuple[str, str, int, str], ...]:
             return tuple(
                 row
-                for row in _semantic_tree_snapshot(scenario_root)
+                for row in _without_palace_lease_rows(
+                    scenario_root, scenario_home, _semantic_tree_snapshot(scenario_root)
+                )
                 if not any(
                     row[0] == prefix or row[0].startswith(prefix + "/")
                     for prefix in allowed_scenario_prefixes
@@ -6007,8 +6285,11 @@ def _run_installed_mcp_stdio_scenario(
         if attempts_before:
             raise RuntimeError("installed MCP scenario inherited a network attempt")
 
-        primary_validated: set[str] = set()
+        primary_validated: set[tuple[str, str]] = set()
         for profile_index, (profile_name, expected_members) in enumerate(profiles):
+            profile_palace = palace_root / profile_name
+            shutil.copytree(palace, profile_palace)
+            profile_env = dict(scenario_env, MEMPALACE_PALACE_PATH=str(profile_palace))
             initialize = {"jsonrpc": "2.0", "id": 20, "method": "initialize", "params": {}}
             list_request = {"jsonrpc": "2.0", "id": 10, "method": "tools/list", "params": {}}
             batches: list[list[object]] = [[initialize], [list_request]]
@@ -6017,6 +6298,8 @@ def _run_installed_mcp_stdio_scenario(
                 (10, "result"),
             ]
             primary_names: list[str] = []
+            calls: list[object] = []
+            next_id = 100
             if profile_name == "full":
                 hostile: list[object] = [
                     "{malformed",
@@ -6031,7 +6314,7 @@ def _run_installed_mcp_stdio_scenario(
                     {"jsonrpc": "2.0", "id": 12, "params": {}},
                     "",
                 ]
-                calls: list[object] = [*hostile]
+                calls.extend(hostile)
                 expected_responses.extend(
                     [
                         (None, "error"),
@@ -6041,19 +6324,19 @@ def _run_installed_mcp_stdio_scenario(
                         (12, "error"),
                     ]
                 )
-                next_id = 100
-                for tool_name in tools:
-                    calls.append(
-                        {
-                            "jsonrpc": "2.0",
-                            "id": next_id,
-                            "method": "tools/call",
-                            "params": {"name": tool_name, **recipe[tool_name]},
-                        }
-                    )
-                    expected_responses.append((next_id, "result"))
-                    primary_names.append(tool_name)
-                    next_id += 1
+            for tool_name in expected_members:
+                calls.append(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": next_id,
+                        "method": "tools/call",
+                        "params": {"name": tool_name, **recipe[tool_name]},
+                    }
+                )
+                expected_responses.append((next_id, "result"))
+                primary_names.append(tool_name)
+                next_id += 1
+            if profile_name == "full":
                 invalid_direction_id = next_id
                 calls.append(
                     {
@@ -6082,43 +6365,91 @@ def _run_installed_mcp_stdio_scenario(
                 )
                 expected_responses.append((direction_recovery_id, "result"))
                 next_id += 1
-                poststate_calls = [
+            poststate_calls = [
+                (
+                    "added_drawer",
+                    "mempalace_check_duplicate",
+                    {"content": "mcp added drawer poststate marker 9182"},
+                ),
+                (
+                    "deleted_drawer",
+                    "mempalace_file_context",
+                    {"source_file": "deleted.py"},
+                ),
+                ("deleted_wing", "mempalace_list_wings", {}),
+                ("kg_added", "mempalace_kg_query", {"entity": "AddedEntity"}),
+                ("kg_invalidated", "mempalace_kg_query", {"entity": "SeedEntity"}),
+                (
+                    "mined_project",
                     (
-                        "added_drawer",
-                        "mempalace_check_duplicate",
-                        {"content": "mcp added drawer poststate marker 9182"},
+                        "mempalace_search"
+                        if "mempalace_search" in expected_members
+                        else "mempalace_code_search"
                     ),
-                    (
-                        "deleted_drawer",
-                        "mempalace_file_context",
-                        {"source_file": "deleted.py"},
-                    ),
-                    ("deleted_wing", "mempalace_list_wings", {}),
-                    ("kg_added", "mempalace_kg_query", {"entity": "AddedEntity"}),
-                    ("kg_invalidated", "mempalace_kg_query", {"entity": "SeedEntity"}),
-                    (
-                        "mined_project",
-                        "mempalace_search",
-                        {"query": "go-fixture-marker", "wing": "mined_wing"},
-                    ),
+                    {"query": "go-fixture-marker", "wing": "mined_wing"},
+                ),
+            ]
+            mutation_tools = {
+                "added_drawer": "mempalace_add_drawer",
+                "deleted_drawer": "mempalace_delete_drawer",
+                "deleted_wing": "mempalace_delete_wing",
+                "kg_added": "mempalace_kg_add",
+                "kg_invalidated": "mempalace_kg_invalidate",
+                "mined_project": "mempalace_mine",
+            }
+            poststate_calls = [
+                call
+                for call in poststate_calls
+                if mutation_tools[call[0]] in expected_members and call[1] in expected_members
+            ]
+            for _label, tool_name, arguments in poststate_calls:
+                calls.append(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": next_id,
+                        "method": "tools/call",
+                        "params": {"name": tool_name, "arguments": arguments},
+                    }
+                )
+                expected_responses.append((next_id, "result"))
+                next_id += 1
+            batches[1].extend(calls)
+            modern_meta = {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {"name": "release-check", "version": "1"},
+                "io.modelcontextprotocol/clientCapabilities": {},
+            }
+            batches.append(
+                [
+                    {"jsonrpc": "2.0", "id": 900, "method": "server/discover", "params": {}},
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 901,
+                        "method": "server/discover",
+                        "params": {"_meta": modern_meta},
+                    },
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 902,
+                        "method": "ping",
+                        "params": {"_meta": modern_meta},
+                    },
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 903,
+                        "method": "tools/list",
+                        "params": {"_meta": modern_meta},
+                    },
                 ]
-                for _label, tool_name, arguments in poststate_calls:
-                    calls.append(
-                        {
-                            "jsonrpc": "2.0",
-                            "id": next_id,
-                            "method": "tools/call",
-                            "params": {"name": tool_name, "arguments": arguments},
-                        }
-                    )
-                    expected_responses.append((next_id, "result"))
-                    next_id += 1
-                batches[1].extend(calls)
+            )
+            expected_responses.extend(
+                [(900, "error"), (901, "result"), (902, "result"), (903, "result")]
+            )
             returncode, stdout, stderr = run_session(
                 launcher,
                 profile_name,
                 batches,
-                scenario_env,
+                profile_env,
                 neutral_cwd,
                 popen=popen,
             )
@@ -6165,12 +6496,13 @@ def _run_installed_mcp_stdio_scenario(
                 raise RuntimeError(
                     "installed MCP profile listing did not match installed authority"
                 )
-            if profile_name == "full":
+            if "mempalace_kg_query" in expected_members:
                 query_tools = [tool for tool in listed if tool.get("name") == "mempalace_kg_query"]
                 if len(query_tools) != 1 or query_tools[0].get("inputSchema", {}).get(
                     "properties", {}
                 ).get("direction", {}).get("enum") != ["outgoing", "incoming", "both"]:
                     raise RuntimeError("installed MCP direction schema enum was not exact")
+            if profile_name == "full":
                 if responses[2].get("error", {}).get("code") != -32700:
                     raise RuntimeError(
                         "installed MCP malformed framing did not fail as parse error"
@@ -6190,15 +6522,16 @@ def _run_installed_mcp_stdio_scenario(
                     "message": "Invalid Request",
                 }:
                     raise RuntimeError("installed MCP missing method was not invalid request")
-                tool_start = 7
-                tool_responses = responses[tool_start : tool_start + len(primary_names)]
-                if len(tool_responses) != len(primary_names):
-                    raise RuntimeError("installed MCP tool response count did not reconcile")
-                for tool_name, response in zip(primary_names, tool_responses, strict=True):
-                    payload = _installed_mcp_text_result(response)
-                    _validate_installed_mcp_semantics(tool_name, payload)
-                    primary_validated.add(tool_name)
-                contract_start = tool_start + len(primary_names)
+            tool_start = 7 if profile_name == "full" else 2
+            tool_responses = responses[tool_start : tool_start + len(primary_names)]
+            if len(tool_responses) != len(primary_names):
+                raise RuntimeError("installed MCP tool response count did not reconcile")
+            for tool_name, response in zip(primary_names, tool_responses, strict=True):
+                payload = _installed_mcp_text_result(response)
+                _validate_installed_mcp_semantics(tool_name, payload)
+                primary_validated.add((profile_name, tool_name))
+            contract_start = tool_start + len(primary_names)
+            if profile_name == "full":
                 invalid_direction, direction_recovery = responses[
                     contract_start : contract_start + 2
                 ]
@@ -6212,60 +6545,46 @@ def _run_installed_mcp_stdio_scenario(
                 _validate_installed_mcp_semantics(
                     "mempalace_kg_query", _installed_mcp_text_result(direction_recovery)
                 )
-                post_payloads = [
-                    _installed_mcp_text_result(
-                        response,
-                        expected_error=(
-                            {"error": "not_found", "source_file": "deleted.py"}
-                            if index == 1
-                            else None
-                        ),
-                    )
-                    for index, response in enumerate(responses[contract_start + 2 :])
-                ]
-                if len(post_payloads) != len(poststate_calls):
-                    raise RuntimeError("installed MCP post-state response count did not reconcile")
-                added, deleted_drawer, deleted_wing, kg_added, kg_invalidated, mined = post_payloads
-                poststate_checks = {
-                    "added drawer retrieval": isinstance(added, dict)
-                    and added.get("is_duplicate") is True,
-                    "deleted drawer absence": isinstance(deleted_drawer, dict)
-                    and deleted_drawer == {"error": "not_found", "source_file": "deleted.py"},
-                    "deleted wing absence": isinstance(deleted_wing, dict)
-                    and "seed_delete_wing" not in deleted_wing.get("wings", {}),
-                    "KG addition": isinstance(kg_added, dict)
-                    and any(
-                        fact.get("predicate") == "verifies" and fact.get("object") == "AddedObject"
-                        for fact in kg_added.get("facts", [])
-                        if isinstance(fact, dict)
+            post_payloads = [
+                _installed_mcp_text_result(
+                    response,
+                    expected_error=(
+                        {"error": "not_found", "source_file": "deleted.py"}
+                        if poststate_calls[index][0] == "deleted_drawer"
+                        else None
                     ),
-                    "KG invalidation": isinstance(kg_invalidated, dict)
-                    and any(
-                        fact.get("predicate") == "preserves"
-                        and fact.get("object") == "SeedObject"
-                        and fact.get("current") is False
-                        and fact.get("valid_to") == "2026-01-01"
-                        for fact in kg_invalidated.get("facts", [])
-                        if isinstance(fact, dict)
-                    ),
-                    "mined project retrieval": isinstance(mined, dict)
-                    and any(
-                        "go-fixture-marker" in row.get("text", "")
-                        for row in mined.get("results", [])
-                    ),
-                }
-                failed_poststate = [
-                    label for label, passed in poststate_checks.items() if not passed
-                ]
-                if failed_poststate:
-                    raise RuntimeError(
-                        "installed MCP mutation post-state evidence failed: "
-                        + ", ".join(failed_poststate)
-                    )
+                )
+                for index, response in enumerate(
+                    responses[contract_start + (2 if profile_name == "full" else 0) : -4]
+                )
+            ]
+            if len(post_payloads) != len(poststate_calls):
+                raise RuntimeError("installed MCP post-state response count did not reconcile")
+            for (label, _tool, _arguments), payload in zip(
+                poststate_calls, post_payloads, strict=True
+            ):
+                _validate_installed_mcp_poststate(label, payload)
+            invalid_modern, discover, ping, modern_list = responses[-4:]
+            discovery = discover.get("result", {})
+            modern_tools = modern_list.get("result", {})
+            if (
+                invalid_modern.get("error", {}).get("code") != -32602
+                or discovery.get("resultType") != "complete"
+                or "2026-07-28" not in discovery.get("supportedVersions", [])
+                or discovery.get("_meta", {})
+                .get("io.modelcontextprotocol/serverInfo", {})
+                .get("name")
+                != "mempalace-code"
+                or ping.get("result", {}).get("resultType") != "complete"
+                or modern_tools.get("resultType") != "complete"
+                or [tool.get("name") for tool in modern_tools.get("tools", [])]
+                != list(expected_members)
+            ):
+                raise RuntimeError("installed MCP modern handshake and guard did not reconcile")
             if profile_index >= INSTALLED_MCP_PROFILE_LIMIT:
                 raise RuntimeError("installed MCP profile count exceeded its bound")
 
-        if primary_validated != set(tools):
+        if primary_validated != {(name, tool) for name, members in profiles for tool in members}:
             raise RuntimeError(
                 "installed MCP requested/responded/validated tool sets did not reconcile"
             )
@@ -7102,8 +7421,9 @@ def _run_installed_golden_wheel(
         underlying_popen = popen
 
         def recorded_run_subprocess(command, **kwargs):
-            recorder.record(command)
-            return underlying_run_subprocess(command, **kwargs)
+            result = underlying_run_subprocess(command, **kwargs)
+            recorder.record(command, result)
+            return result
 
         def recorded_popen(command, **kwargs):
             recorder.record(command)
@@ -7153,6 +7473,25 @@ def _run_installed_golden_wheel(
                     INSTALLED_GOLDEN_COMMAND,
                     "fail",
                     f"{inventory_gap}; rerun: {INSTALLED_GOLDEN_COMMAND}",
+                )
+            ]
+
+        migration_failure = _run_installed_wing_migration_scenario(
+            [str(console)],
+            golden_env,
+            temp_root / "wing-migration-scenario",
+            neutral_cwd,
+            repository_root=root,
+            network_attempts=attempts,
+            run_subprocess=run_subprocess,
+        )
+        if migration_failure is not None:
+            return [
+                _make_row(
+                    "installed_golden_suite",
+                    INSTALLED_GOLDEN_COMMAND,
+                    "fail",
+                    f"{migration_failure}; rerun: {INSTALLED_GOLDEN_COMMAND}",
                 )
             ]
 

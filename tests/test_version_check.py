@@ -333,8 +333,9 @@ def test_interval_hours_invalid_falls_back(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_check_now_reports_current_latest_and_upgrade_command():
+def test_check_now_reports_current_latest_and_upgrade_command(monkeypatch):
     """Explicit check-now: newer version available → output includes current, latest, upgrade."""
+    monkeypatch.setattr("mempalace_code.version_check.should_offer_pip_fallback", lambda: False)
     lines = []
 
     run_check_now(
@@ -663,6 +664,7 @@ def test_newer_version_hints_recommend_guarded_update_commands(tmp_path, monkeyp
     exact version and to this interpreter, never a naked
     'pip install --upgrade mempalace-code' against whatever pip is on PATH.
     """
+    monkeypatch.setattr("mempalace_code.version_check.should_offer_pip_fallback", lambda: False)
     monkeypatch.delenv("MEMPALACE_VERSION_CHECK", raising=False)
 
     # Automatic check hint

@@ -243,6 +243,22 @@ in human mode or `recovery_command` in the single JSON object on stdout. Review 
 target, and mutation authority before using the exact emitted command. Do not add flags, change the
 action, or invent a nearby retry.
 
+## Backup configuration and recovery
+
+Backup operations use the direct CLI; the minimal memory profile exposes no backup
+tool. Follow [BACKUP_RESTORE.md](BACKUP_RESTORE.md#choosing-the-managed-backup-directory)
+when the owner requests backup configuration or recovery. `backup_dir` selects a root
+with a separate managed child for each palace; `MEMPALACE_BACKUP_DIR` takes precedence.
+Use an absolute path for services and scheduled jobs. Preserve existing configuration
+keys and inspect `mempalace-code backup list --json` to confirm archive paths.
+
+Changing the setting moves or deletes no existing archives. An invalid or inaccessible
+configured path fails; retain the requested destination and report the error. Do not
+unset it, change mounts, or add `--out` as an unapproved recovery. An owner-selected
+`--out` destination bypasses managed rotation. Backup permission does not authorize
+archive deletion, restore over an existing palace, or service changes. Use the inspected
+restore procedure in the linked guide within the current authority.
+
 ## Ambiguous Write Outcome
 
 On timeout, lost response, restart, or context loss after calling `mempalace_add_drawer`, `mempalace_kg_add`, `mempalace_kg_invalidate`, or `mempalace_diary_write`, do not immediately repeat the write. Reconcile observable poststate before any retry.

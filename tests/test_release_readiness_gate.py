@@ -166,9 +166,23 @@ def test_installed_inventory_preserves_data_and_releases_leases(tmp_path, fault)
         if args[0] == "help":
             output = "usage: mempalace-code\n"
         elif args[0] == "onboarding":
-            assert kwargs["input"] == ""
-            code = 1
-            output = "Onboarding aborted. No changes were saved.\n"
+            if kwargs["input"]:
+                target = Path(kwargs["env"]["HOME"]) / ".mempalace" / "entity_registry.json"
+                target.parent.mkdir()
+                target.write_text(
+                    json.dumps(
+                        {
+                            "mode": "work",
+                            "projects": ["FixtureProject"],
+                            "people": {"Fixture Person": {}},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                output = "Setup Complete\n"
+            else:
+                code = 1
+                output = "Onboarding aborted. No changes were saved.\n"
         elif "wake-up" in args:
             output = "Wake-up text\n"
         elif args[0] == "migrate-storage":
@@ -1224,6 +1238,37 @@ def test_non_regular_scenario_rejects_home_cache_drift(tmp_path):
     test_installed_non_regular_source_scenario(tmp_path, "home-cache-drift")
 
 
+@pytest.mark.skipif(os.name != "posix", reason="Requires POSIX socket and symlink support")
+@pytest.mark.parametrize("fault", ["success", "command-failure"])
+def test_non_regular_socket_paths_remain_supported_under_long_root(tmp_path, monkeypatch, fault):
+    long_root = tmp_path / ("long-root-" + "x" * 80)
+    long_root.mkdir()
+    original_socket = socket.socket
+    bound_paths = []
+
+    class ActualSocket(original_socket):
+        def bind(self, address):
+            super().bind(address)
+            bound_paths.append(Path(address))
+
+    monkeypatch.setattr(rrg.socket, "socket", ActualSocket)
+    test_installed_non_regular_source_scenario(long_root, fault)
+    expected = {
+        "socket-support-probe",
+        "blocked_socket.py",
+        "legacy_socket.py",
+        "blocked_socket.txt",
+    }
+    if fault == "command-failure":
+        expected = {"socket-support-probe", "blocked_socket.py"}
+    assert {p.name for p in bound_paths} == expected
+    for path in bound_paths:
+        assert not path.exists()
+        for parent in path.parents:
+            if parent.name.startswith("mp-s-"):
+                assert not parent.exists()
+
+
 def _stub_direct_golden_scenarios(monkeypatch):
     monkeypatch.setattr(
         rrg,
@@ -1240,6 +1285,7 @@ def _stub_direct_golden_scenarios(monkeypatch):
         "_run_installed_cli_inventory_gap_scenario",
         lambda *args, **kwargs: None,
     )
+    monkeypatch.setattr(rrg, "_run_installed_wing_migration_scenario", lambda *args, **kwargs: None)
     recovery_safety = rrg._make_row(
         "installed_golden_recovery_safety", "installed recovery", "pass", "complete"
     )
@@ -1439,7 +1485,7 @@ def test_installed_cli_inventory_reconciliation_fails_closed(tmp_path, invalid_p
     recorder.record(
         [str(console), "--palace", str(tmp_path / "palace"), "update", "scheduler", "install"]
     )
-    assert json.loads(recorder.render()) == [
+    assert [row["argv"] for row in json.loads(recorder.render())] == [
         ["--version"],
         ["help"],
         ["fetch-model", "--model", "update"],
@@ -1491,11 +1537,23 @@ def test_installed_cli_probe_attributes_only_recorded_parser_paths(tmp_path):
     trace_path.write_text(
         json.dumps(
             [
-                ["fetch-model", "--model", "update"],
-                ["search", "update"],
-                ["--palace", str(tmp_path / "palace"), "update", "scheduler", "install"],
-                ["watch", str(tmp_path / "project"), "schedule"],
-                ["help"],
+                {"argv": argv, "outcome": outcome}
+                for argv, outcome in [
+                    (["fetch-model", "--model", "update"], "documented_refusal"),
+                    (["search", "update"], "success"),
+                    (
+                        ["--palace", str(tmp_path / "palace"), "update", "scheduler", "install"],
+                        "success",
+                    ),
+                    (["watch", str(tmp_path / "project"), "schedule"], "success"),
+                    (["help"], "success"),
+                    (["wing-migration"], "guidance"),
+                    (
+                        ["wing-migration", "classify", "--receipt", "/missing/receipt.json"],
+                        "documented_refusal",
+                    ),
+                    (["wing-migration", "snapshot", "--help"], "discovery"),
+                ]
             ]
         ),
         encoding="utf-8",
@@ -1517,10 +1575,103 @@ def test_installed_cli_probe_attributes_only_recorded_parser_paths(tmp_path):
         ("watch",),
         ("watch", "schedule"),
         ("help",),
+        ("wing-migration",),
+        ("wing-migration", "classify"),
     }
+    assert {
+        ("wing-migration", action)
+        for action in (
+            "inventory",
+            "snapshot",
+            "apply",
+            "classify",
+            "recover",
+            "qualify",
+            "live-run",
+            "live-recover",
+        )
+    }.issubset(set(members))
+    assert ("wing-migration", "snapshot") not in executed
+
+    trace_path.write_text(
+        json.dumps(
+            [
+                {"argv": ["wing-migration"], "outcome": "guidance"},
+                {"argv": ["wing-migration", "apply", "--help"], "outcome": "discovery"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    attribution = subprocess.run(
+        [sys.executable, str(probe_path), str(trace_path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    executed = rrg._parse_installed_cli_execution(attribution.stdout, members)
+    assert not executed
+    row = rrg._make_row("installed_golden_suite", rrg.INSTALLED_GOLDEN_COMMAND, "pass", "checked")
+    reconciled = rrg._reconcile_installed_cli_inventory(
+        [row], members, set(members) - {("wing-migration", "apply")}
+    )
+    assert reconciled[-1]["status"] == "fail"
+    assert "wing-migration apply" in reconciled[-1]["detail"]
+
+
+@pytest.mark.parametrize("fault", ["generic-success", "guard-write"])
+def test_installed_wing_migration_requires_checked_outcomes(tmp_path, fault):
+    repository = tmp_path / "repository"
+    neutral = tmp_path / "neutral"
+    console = tmp_path / "candidate/bin/mempalace-code"
+    for path in (repository, neutral, console.parent):
+        path.mkdir(parents=True)
+    scenario = tmp_path / "scenario"
+    observed = []
+
+    def run(command, **kwargs):
+        observed.append(command)
+        if command[1:3] == ["-B", "-c"]:
+            receipt = Path(command[-1]) / "evidence/receipt.json"
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text("sealed original")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        assert command[:2] == [str(console), "wing-migration"]
+        if command[2] == "inventory":
+            payload = (
+                {"ok": True}
+                if fault == "generic-success"
+                else {"action": "inventory", "state": "original"}
+            )
+            return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+        assert command[2] == "apply"
+        (scenario / "fixture/evidence/receipt.json").write_text("changed by refused operation")
+        return SimpleNamespace(
+            returncode=2,
+            stdout=json.dumps({"status": "refused", "failed_predicate": "snapshot_required"}),
+            stderr="",
+        )
+
+    failure = rrg._run_installed_wing_migration_scenario(
+        [str(console)],
+        {},
+        scenario,
+        neutral,
+        repository_root=repository,
+        network_attempts=tmp_path / "attempts",
+        run_subprocess=run,
+    )
+    assert failure is not None
+    if fault == "generic-success":
+        assert "did not prove original state" in failure
+    else:
+        assert "guard changed the receipt" in failure
+    assert len(observed) == (2 if fault == "generic-success" else 3)
 
 
 def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
+    from mempalace_code.mcp_tool_profiles import PROFILES
+
     repository = tmp_path / "repository"
     repository.mkdir()
     venv = tmp_path / "candidate-venv"
@@ -1539,11 +1690,8 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
 
     tools = tuple(rrg._installed_mcp_recipe(tmp_path / "unused-project"))
     raw_profiles = [
-        {"name": "minimal", "members": list(tools[:4])},
-        {"name": "kg", "members": list(tools[:8])},
-        {"name": "code", "members": list(tools[8:18])},
-        {"name": "notes", "members": list(tools[18:])},
-        {"name": "full", "members": list(tools)},
+        {"name": name, "members": [t for t in tools if name == "full" or t in selected]}
+        for name, selected in PROFILES.items()
     ]
     inventory = json.dumps(
         {
@@ -1708,6 +1856,29 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
                         "result": {"serverInfo": {"name": "mempalace-code"}},
                     }
                 )
+            elif method == "server/discover":
+                if not item["params"]:
+                    responses.append(
+                        {"jsonrpc": "2.0", "id": item["id"], "error": {"code": -32602}}
+                    )
+                else:
+                    responses.append(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": item["id"],
+                            "result": {
+                                "resultType": "complete",
+                                "supportedVersions": ["2026-07-28"],
+                                "_meta": {
+                                    "io.modelcontextprotocol/serverInfo": {"name": "mempalace-code"}
+                                },
+                            },
+                        }
+                    )
+            elif method == "ping":
+                responses.append(
+                    {"jsonrpc": "2.0", "id": item["id"], "result": {"resultType": "complete"}}
+                )
             elif method == "tools/list":
                 listed = []
                 for name in profile_members[profile]:
@@ -1721,7 +1892,10 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
                     {
                         "jsonrpc": "2.0",
                         "id": item["id"],
-                        "result": {"tools": listed},
+                        "result": {
+                            "tools": listed,
+                            **({"resultType": "complete"} if "_meta" in item["params"] else {}),
+                        },
                     }
                 )
             elif method == "unknown/method":
@@ -1799,6 +1973,9 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
 
     def seed_runner(command, **_kwargs):
         if "import" in command:
+            fixture = Path(command[command.index("--palace") + 1])
+            fixture.mkdir(parents=True)
+            (fixture / "seed.txt").write_text("unchanged synthetic fixture")
             return SimpleNamespace(
                 returncode=0,
                 stdout="Imported drawers:   4\nImported KG triples:6\n",
@@ -1840,6 +2017,16 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
         )
     )
     assert [profile for profile, _batches in calls] == [name for name, _members in profiles]
+    for profile, batches in calls:
+        primary = {
+            item["params"]["name"]
+            for batch in batches
+            for item in batch
+            if isinstance(item, dict)
+            and item.get("method") == "tools/call"
+            and isinstance(item.get("params"), dict)
+        }
+        assert primary == set(profile_members[profile])
     full_batches = calls[-1][1]
     requested = {
         item["params"]["name"]
@@ -1851,6 +2038,43 @@ def test_installed_mcp_stdio_inventory_and_semantics(tmp_path):
     }
     assert requested == set(discovered_tools)
     assert len(discovered_tools) == 29
+
+    for target_profile in ("minimal", "kg", "code", "notes"):
+        for fault in ("missing-call", "generic-success", "missing-handshake", "generic-handshake"):
+
+            def incomplete_profile_session(
+                *args, _target_profile=target_profile, _fault=fault, **kwargs
+            ):
+                returncode, stdout, stderr = run_session(*args, **kwargs)
+                responses = [json.loads(line) for line in stdout.splitlines()]
+                if args[1] == _target_profile:
+                    faulty_id = 901 if "handshake" in _fault else 100
+                    if _fault.startswith("missing-"):
+                        responses = [row for row in responses if row["id"] != faulty_id]
+                    else:
+                        for row in responses:
+                            if row["id"] == faulty_id:
+                                row["result"] = {
+                                    "content": [{"type": "text", "text": '{"ok": true}'}]
+                                }
+                return returncode, "".join(json.dumps(row) + "\n" for row in responses), stderr
+
+            failure = rrg._run_installed_mcp_stdio_scenario(
+                launcher,
+                console,
+                discovered_tools,
+                profiles,
+                env,
+                tmp_path / f"scenario-{target_profile}-{fault}",
+                neutral,
+                repository_root=repository,
+                venv=venv,
+                network_attempts=attempts,
+                smoke=smoke,
+                run_subprocess=seed_runner,
+                run_session=incomplete_profile_session,
+            )
+            assert failure is not None
 
     def corrupting_session(case):
         def session(*args, **kwargs):

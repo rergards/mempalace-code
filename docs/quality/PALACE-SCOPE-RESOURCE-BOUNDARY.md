@@ -161,7 +161,8 @@ storage handles are closed before retained resources are measured. The `lsof` me
 counts numeric descriptors; `cwd`, `txt`, and `mem` records are excluded.
 Unavailable or incomplete descriptor measurements fail the measurement check;
 they cannot produce zero growth or a passing descriptor result.
-Managed pre-optimize backups use `backups/<palace name>/` and are included in the
+With `backup_dir` unset, managed pre-optimize backups use `backups/<palace name>/`
+and are included in the
 regression's disk measurement and retention assertion, which requires at least one
 archive. The fixture uses a disposable HOME and palace.
 
@@ -202,7 +203,8 @@ The workflow initializes a fixture project, mines it, performs a no-op mine,
 backs up and restores the palace, searches and reads mined content, and runs one
 real `--on-save` watch cycle. The no-op output includes `no changes detected`,
 creates no managed backup archive, and has zero byte growth across the palace and
-its sibling `backups/` directory. The watcher waits for `state=watch-ready`,
+its default sibling `backups/` directory (`backup_dir` is unset in this fixture).
+The watcher waits for `state=watch-ready`,
 updates one already-mined source, accepts one post-debounce retry for native
 watch registration, observes `[project: 1 change(s)]`, then exits cleanly on
 SIGTERM with `1 re-mine cycle(s), 1 event(s)`.

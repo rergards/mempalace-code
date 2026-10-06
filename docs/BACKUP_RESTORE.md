@@ -667,9 +667,57 @@ tarball. Do not run that suggestion
 directly. Set its palace as `RESTORE_TARGET`, set the tarball as `ARCHIVE`, and
 follow the inspected force-restore procedure in [Tarball Backup](#tarball-backup-full-snapshot).
 
+### Choosing the managed backup directory
+
+Set `backup_dir` in `~/.mempalace/config.json` to select a backup root independently
+of the palace. Merge this key into the existing JSON object; preserve other settings:
+
+```json
+{
+  "backup_dir": "/mnt/backup/mempalace"
+}
+```
+
+`MEMPALACE_BACKUP_DIR` overrides the JSON setting. Paths expand `~`; a relative path
+resolves against the process's current directory and emits a warning. Use an absolute
+path for scheduled jobs and services. An absent key or JSON `null` keeps the default
+`<palace_parent>/backups/<palace_name>/` layout.
+
+The setting selects a root. Each palace uses
+`<backup_dir>/<palace_name>-<hash>/`, where `<hash>` is the first 16 hexadecimal digits
+of SHA-256 of its canonical palace path. Palaces with the same name have separate
+directories and retention. Manual, scheduled, pre-watch and pre-optimize archives,
+listing, rotation and managed-backup size accounting use this selected directory.
+The backup guard checks free space on the archive's destination filesystem.
+
+Creating a backup creates missing directories; listing creates none. Blank, malformed,
+non-directory or inaccessible configured paths fail with an error. MemPalace never
+switches to the default directory after such an error. The managed child must be
+outside the palace and cannot be a symbolic link. New roots and managed children use
+owner-only access (`0700`); an existing configured root keeps its permissions. Archives
+use `0600`.
+
+Changing `backup_dir` moves or deletes no archives. Earlier managed archives remain
+at their previous path and leave the selected retention set. To inspect them:
+
+```bash
+mempalace-code backup list --json
+mempalace-code backup list --dir /previous/managed/path --json
+```
+
+Inspect the archive paths returned by `backup list` before any manual removal. Listing
+an extra directory does not enroll it in managed rotation. Legacy shared archives
+remain listed with the `shared` flag and are never pruned.
+
+Explicit `backup create --out /path/archive.tar.gz` takes priority over `backup_dir`,
+even when that setting is invalid. It keeps the existing no-overwrite behavior and
+disables managed rotation for that operation. The disk guard uses the explicit
+destination. See [Retention](#retention-automatic-pruning) for per-kind limits.
+
 ### Auto-Backup Before Optimize
 
-Enabled by default. Every `mempalace-code mine` creates a backup before compacting storage:
+Enabled by default. Every `mempalace-code mine` creates a backup before compacting storage.
+With `backup_dir` unset, the default palace uses:
 
 ```
 ~/.mempalace/backups/palace/pre_optimize_YYYYMMDD_HHMMSS_ffffff.tar.gz
@@ -704,7 +752,8 @@ export MEMPALACE_BACKUP_RETAIN_COUNT=10
 export MEMPALACE_BACKUP_RETAIN_COUNT=0
 ```
 
-Each palace has its own managed backups directory, `<palace_parent>/backups/<palace_name>/`
+Each palace has its own [selected managed directory](#choosing-the-managed-backup-directory).
+With `backup_dir` unset, it is `<palace_parent>/backups/<palace_name>/`
 (the default palace `~/.mempalace/palace` uses `~/.mempalace/backups/palace/`). Retention prunes
 **only that directory**, so palaces that share a parent directory never prune each other's
 archives. Archives written with explicit `--out` paths are never pruned, and `backup create
@@ -915,6 +964,11 @@ The last sentence names the setting that actually set the floor, for example
 
 The projection is conservative: it assumes the archive size equals the uncompressed palace + KG size. Actual compressed archives are usually smaller, but the guard refuses when even the worst-case estimate would leave insufficient headroom.
 
+Free space comes from the filesystem of the selected managed directory or explicit
+`--out` destination. The palace and backup root can be on different disks. Watcher
+write thresholds still check the palace filesystem; `watch <dir> status` accounts
+for archives in the selected managed directory.
+
 ### Configuring the backup floor
 
 ```bash
@@ -956,13 +1010,18 @@ If the backup guard refuses because disk is nearly full:
 
 1. Check what is taking space:
    ```bash
-   du -sh ~/.mempalace/palace ~/.mempalace/backups
+   mempalace-code backup list --json
+   # Set BACKUP_PATH to a listed archive's containing directory after inspection.
+   : "${BACKUP_PATH:?set BACKUP_PATH to the inspected backup directory}"
+   du -sh ~/.mempalace/palace "$BACKUP_PATH"
    ```
 2. List existing backups and remove stale ones manually if immediate space is needed:
    ```bash
    mempalace-code backup list
-   ls -lh ~/.mempalace/backups/palace/
-   rm ~/.mempalace/backups/palace/<stale_archive>.tar.gz
+   ls -lh "$BACKUP_PATH"
+   : "${BACKUP_PATH:?set BACKUP_PATH to the inspected backup directory}"
+   # Remove only an inspected archive that you intend to discard.
+   rm -i "$BACKUP_PATH/<stale_archive>.tar.gz"
    ```
 3. Re-run the backup once enough space is freed.
 

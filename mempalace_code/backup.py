@@ -14,6 +14,7 @@ The ``mempalace_backup/`` prefix prevents tarbomb extraction.
 
 import contextlib
 import errno
+import hashlib
 import io
 import json
 import logging
@@ -29,7 +30,10 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional
+
+if TYPE_CHECKING:
+    from .config import MempalaceConfig
 
 logger = logging.getLogger("mempalace")
 
@@ -56,14 +60,44 @@ class RestoreTargetError(FileExistsError):
     """``restore --force`` cannot replace this palace root; the message says what to run."""
 
 
-def managed_backups_dir(palace_path: str) -> str:
-    """Return the managed backup directory of one palace: ``<parent>/backups/<palace name>/``.
+def managed_backups_dir(palace_path: str, config: Optional["MempalaceConfig"] = None) -> str:
+    """Return this palace's directory under the configured or default backup root.
 
     Each palace gets its own directory, so listing and retention of one palace never
     touch the archives of a sibling palace that shares the same parent directory.
     """
-    palace_abs = os.path.abspath(palace_path)
-    return os.path.join(os.path.dirname(palace_abs), "backups", os.path.basename(palace_abs))
+    from .config import MempalaceConfig, expand_palace_path
+
+    if config is None:
+        config = MempalaceConfig()
+    palace_abs = expand_palace_path(palace_path)
+    root = config.backup_dir
+    if root is None:
+        return os.path.join(os.path.dirname(palace_abs), "backups", os.path.basename(palace_abs))
+
+    # A configured root may serve unrelated palaces with the same directory name.
+    palace_real = os.path.realpath(palace_abs)
+    digest = hashlib.sha256(os.fsencode(palace_real)).hexdigest()[:16]
+    managed = os.path.join(root, f"{os.path.basename(palace_abs) or 'palace'}-{digest}")
+    managed_real = os.path.realpath(managed)
+    try:
+        common = os.path.commonpath([palace_real, managed_real])
+    except ValueError:
+        common = None  # Different drives on Windows cannot overlap.
+    if common in (palace_real, managed_real):
+        raise ValueError(
+            f"Invalid backup_dir {root!r}: managed backups must be outside the palace."
+        )
+    if os.path.islink(managed):
+        raise ValueError(f"Invalid backup_dir {root!r}: the palace backup directory is a symlink.")
+    for directory in (root, managed):
+        try:
+            mode = os.stat(directory).st_mode
+        except FileNotFoundError:
+            continue  # creation is deferred to create_backup; listing stays read-only
+        if not stat.S_ISDIR(mode):
+            raise NotADirectoryError(errno.ENOTDIR, "backup_dir must be a directory", directory)
+    return managed
 
 
 def _legacy_backups_dir(palace_path: str) -> str:
@@ -550,9 +584,12 @@ def create_backup(
     _managed_dir: Optional[str]
     if out_path is None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        backups_dir = managed_backups_dir(palace_path)
+        backups_dir = managed_backups_dir(palace_path, config=config)
+        if config.backup_dir is not None:
+            os.makedirs(config.backup_dir, mode=0o700, exist_ok=True)
         os.makedirs(backups_dir, mode=0o700, exist_ok=True)
-        os.chmod(os.path.dirname(backups_dir), 0o700)  # F-9: restrict to owner only
+        if config.backup_dir is None:
+            os.chmod(os.path.dirname(backups_dir), 0o700)  # F-9: restrict to owner only
         os.chmod(backups_dir, 0o700)
         prefix = _KIND_PREFIXES.get(kind, "mempalace_backup_")
         out_path = os.path.join(backups_dir, f"{prefix}{ts}.tar.gz")
@@ -569,8 +606,22 @@ def create_backup(
     min_free, min_free_source = config.backup_disk_min_free_setting
     if min_free > 0:
         try:
-            budget = check_backup_budget(palace_path, out_path, min_free, kg_path=kg_path)
+            budget = check_backup_budget(
+                palace_path,
+                out_path,
+                min_free,
+                kg_path=kg_path,
+                managed_dir=(
+                    _managed_dir
+                    if _managed_dir is not None and config.backup_dir is not None
+                    else None
+                ),
+            )
         except OSError as exc:
+            if _managed_dir is not None and config.backup_dir is not None:
+                raise OSError(
+                    exc.errno, f"Cannot check free space for backup_dir: {exc}", out_dir
+                ) from exc
             logger.warning("Backup disk-budget check skipped for %s: %s", out_path, exc)
         else:
             if not budget.allowed:
@@ -1150,7 +1201,7 @@ def list_backups(
 
     palace_abs = os.path.abspath(palace_path)
     dirs_to_scan = [
-        (managed_backups_dir(palace_path), "managed"),
+        (managed_backups_dir(palace_path, config=config), "managed"),
         (_legacy_backups_dir(palace_path), "shared"),
     ]
     if extra_dir is not None:

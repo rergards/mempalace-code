@@ -368,10 +368,11 @@ def cmd_watch_status(args):
     """Print disk-budget summary, watch-root validity, and launchd state for the watch daemon."""
     import subprocess
 
-    from ..disk_budget import check_watch_budget, format_bytes
+    from ..disk_budget import format_bytes
     from ..watcher import (
         DEFAULT_WATCH_AGENT,
         WatchRootError,
+        check_configured_watch_budget,
         format_watch_command,
         format_watch_flags,
         plan_watch_root,
@@ -427,7 +428,7 @@ def cmd_watch_status(args):
     palace = _schedule_palace(args) or settings["palace"]
     palace_path = palace or MempalaceConfig().palace_path
     try:
-        status = check_watch_budget(palace_path, min_free)
+        status = check_configured_watch_budget(palace_path, min_free)
     except Exception as exc:
         print(f"  Error checking disk budget: {exc}", file=sys.stderr)
         sys.exit(1)

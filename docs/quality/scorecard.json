@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 40386,
+    "package_code_lines": 40468,
     "package_files": 87,
-    "package_total_lines": 47961,
-    "test_files": 123,
-    "test_total_lines": 111364
+    "package_total_lines": 48052,
+    "test_files": 124,
+    "test_total_lines": 111962
   },
   "demo_gates": {
     "architecture_guard": {
@@ -66,7 +66,7 @@
       "path": "mempalace_code/storage.py"
     },
     {
-      "lines": 2482,
+      "lines": 2492,
       "path": "mempalace_code/watcher.py"
     },
     {
@@ -86,7 +86,7 @@
       "path": "mempalace_code/mining/orchestrator.py"
     },
     {
-      "lines": 1408,
+      "lines": 1459,
       "path": "mempalace_code/backup.py"
     },
     {
@@ -281,8 +281,8 @@
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 123,
-    "test_functions": 4926
+    "test_files": 124,
+    "test_functions": 4944
   },
   "verification_commands": [
     {

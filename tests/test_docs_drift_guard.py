@@ -1975,7 +1975,7 @@ def test_releasing_uses_all_installer_recovery_smoke_contract():
     text = (ROOT / "docs" / "RELEASING.md").read_text(encoding="utf-8")
 
     assert (
-        "python scripts/release_install_metadata_smoke.py --all-installers --install-spec . --json"
+        'python scripts/release_install_metadata_smoke.py --all-installers --install-spec "$WHEEL" --json'
     ) in text
     assert all(name in text for name in ("venv", "bootstrap-venv", "pipx", "uv-tool"))
     assert "three update confirmation refusals" in text

@@ -175,7 +175,7 @@ def warn_invalid_setting(setting: str, value: object, reason: object, action: st
     print(f"Warning: ignoring {shown} for {setting} ({reason}); {action}.", file=sys.stderr)
 
 
-def _configured_palace_path(value: str, setting: str) -> str:
+def _configured_palace_path(value: str, setting: str, noun: str = "palace") -> str:
     """Resolve a configured palace path, warning once when it depends on the cwd.
 
     An explicit ``--palace`` argument is expected to be relative to the current
@@ -190,7 +190,7 @@ def _configured_palace_path(value: str, setting: str) -> str:
             print(
                 f"Warning: {setting} is the relative path {value!r}, so it resolves against "
                 f"the current directory ({resolved}); commands started from another directory "
-                "open a different palace. Set an absolute path.",
+                f"select a different {noun}. Set an absolute path.",
                 file=sys.stderr,
             )
     return resolved
@@ -393,6 +393,24 @@ class MempalaceConfig:
     def auto_backup_before_optimize(self) -> bool:
         """Preferred alias for backup_before_optimize. Returns the same value."""
         return self.backup_before_optimize
+
+    @property
+    def backup_dir(self) -> str | None:
+        """Managed backup root: environment > config file > palace-local default.
+
+        Expand ``~`` and relative paths like palace_path. Invalid explicit values
+        raise instead of redirecting archives to another disk. JSON null is unset.
+        """
+        setting = "MEMPALACE_BACKUP_DIR"
+        raw: object = os.environ.get(setting)
+        if raw is None:
+            setting = f"backup_dir in {self._config_file}"
+            raw = self._file_config.get("backup_dir")
+        if raw is None:
+            return None
+        if not isinstance(raw, str) or not raw.strip() or "\x00" in raw:
+            raise ValueError(f"Invalid {setting}: expected a non-empty path string without NUL.")
+        return _configured_palace_path(raw, setting, noun="backup directory")
 
     def _env_setting(self, name: str) -> tuple[str, object]:
         """Return the ``(source label, raw value)`` level for an env var; blank means unset."""

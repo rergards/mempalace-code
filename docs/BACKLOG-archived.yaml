@@ -1098,9 +1098,9 @@ items:
       done_summary: 'completed in pipeline run (delivered: Update status human output now includes the selected watcher unit state, with focused coverage and update-guide scheduler opt-in anchors., artifacts: docs/AGENT_INSTALL.md, docs/UPDATES.md, docs/quality/scorecard.json (+3), verified: VER-1, VER-2, REG-1 (+2), phase_commit=602c2e7, final_commit=9185563, 6 files changed, 30 insertions(+), 166 deletions(-))'
     - key: RELEASE-PREP-1-12-1
       summary: Prepare v1.12.1 patch release for named watcher-unit coordination
-      resolution: '2026-07-12: v1.12.1 shipped: GitHub CI, trusted PyPI publishing, GitHub Release, and six-surface release gate passed; WH40k upgraded to 1.12.1 with the named watcher active and scheduler disabled.'
+      resolution: '2026-07-12: v1.12.1 shipped: GitHub CI, trusted PyPI publishing, GitHub Release, and six-surface release gate passed.'
       archived_date: "2026-07-12"
-      done_summary: 'v1.12.1 shipped: GitHub CI, trusted PyPI publishing, GitHub Release, and six-surface release gate passed; WH40k upgraded to 1.12.1 with the named watcher active and scheduler disabled.'
+      done_summary: 'v1.12.1 shipped: GitHub CI, trusted PyPI publishing, GitHub Release, and six-surface release gate passed.'
     - key: WATCHER-BROKEN-SYMLINK-STARTUP-GUARD
       summary: Prevent broken source symlinks from triggering restart-loop backups
       resolution: '2026-08-09: completed in pipeline run (delivered: Confirmed the watcher startup symlink guard (scanner.py opt-in skip_invalid_source_symlinks, orchestrator.py mine() threading, watcher.py guarded startup discovery before pre_watch backup/initial mine) is already fully implemented and committed on this branch from a prior implement attempt (commit b2eafd5, part of this attempt''s starting HEAD); no source changes were needed and all planned VER/REG checks pass against the worktree''s current source., artifacts: mempalace_code/mining/orchestrator.py, mempalace_code/mining/scanner.py, mempalace_code/watcher.py (+2), verified: VER-1, VER-2, VER-3 (+6), phase_commit=49c06b5c, final_commit=01c3307, 4 files changed, 159 insertions(+), 170 deletions(-))'

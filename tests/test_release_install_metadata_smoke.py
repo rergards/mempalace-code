@@ -2128,6 +2128,15 @@ def test_uv_tool_smoke_uses_disposable_tool_dirs_and_neutral_cwd(monkeypatch, tm
     assert result.ok is True
     assert result.installer == smoke.INSTALLER_UV_TOOL
     install_call = next(call for call in calls if call[0][0] == "/test/bin/uv")
+    assert install_call[0] == [
+        "/test/bin/uv",
+        "tool",
+        "install",
+        "--force",
+        "--python",
+        sys.executable,
+        ".",
+    ]
     install_env = install_call[1]
     assert install_env is not None
     assert {"UV_TOOL_DIR", "UV_TOOL_BIN_DIR", "UV_CACHE_DIR"} <= install_env.keys()
@@ -2332,3 +2341,121 @@ def test_candidate_extra_metadata_reconciliation_fails_closed(tmp_path):
     ):
         assert failed.ok is False
         assert failed.extras == ()
+
+
+@pytest.mark.parametrize(
+    ("spec", "allowed"),
+    [
+        ("mempalace-code[custom-models]", True),
+        ("mempalace-code[watch,custom_models]==1.16.0", True),
+        ("mempalace-code[Custom.Models] @ https://example.invalid/candidate.whl", True),
+        ("candidate.whl[watch,treesitter,spellcheck,custom-models]", True),
+        (".[custom-models]", True),
+        ("mempalace-code", False),
+        ("mempalace-code[watch]", False),
+        ("mempalace-code[custom-models-extra]", False),
+        ("candidate-custom-models.whl", False),
+        ("mempalace-code[custom-models,]", False),
+        ("mempalace-code[custom-models]==", False),
+        ("mempalace-code[custom-models,bad extra]", False),
+        ("mempalace-code[custom-models]suffix", False),
+        ("mempalace-code[custom-models][watch]", False),
+        ("other-package[custom-models]", False),
+        ("https://example.invalid/[custom-models]/candidate.whl", False),
+    ],
+)
+def test_custom_models_permission_requires_explicit_install_request(spec, allowed):
+    namespace = {}
+    prefix = smoke._RUNTIME_NO_CHROMADB_PROBE_SCRIPT.split("_forbidden =", 1)[0]
+    prefix = prefix.replace("builtins.__import__ = _guard", "pass")
+    exec(prefix, namespace)
+    assert namespace["_requests_custom_models"](spec, str(Path.cwd())) is allowed
+
+
+@pytest.mark.parametrize(
+    ("spec", "distribution", "allowed"),
+    [
+        ("candidate.whl", "torch", False),
+        ("candidate.whl[watch]", "torch", False),
+        ("mempalace-code[custom-models]==", "torch", False),
+        ("mempalace-code[custom-models,bad extra]", "torch", False),
+        ("candidate.whl[custom-models]", "torch", True),
+        ("candidate.whl[custom-models]", "chromadb", False),
+        ("candidate.whl[custom-models]", "chromadb-import", False),
+        ("candidate.whl[custom-models]", "triton", False),
+        ("candidate.whl[custom-models]", "nvidia-cuda-runtime-cu12", False),
+        ("candidate.whl[custom-models]", "cuda-python", False),
+        ("candidate.whl", "chromadb", False),
+        ("candidate.whl", "triton", False),
+        ("candidate.whl", "nvidia-cuda-runtime-cu12", False),
+        ("candidate.whl", "cuda-python", False),
+    ],
+)
+def test_runtime_probe_keeps_dependency_guards_with_explicit_extras(
+    monkeypatch, tmp_path, spec, distribution, allowed
+):
+    import builtins
+    import importlib.metadata
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(builtins, "__import__", builtins.__import__)
+    monkeypatch.setattr(
+        importlib.metadata,
+        "distributions",
+        lambda: [
+            SimpleNamespace(metadata={"Name": name})
+            for name in [
+                "fastembed",
+                "onnxruntime",
+                "torch" if distribution == "chromadb-import" else distribution,
+            ]
+        ],
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "mempalace_code",
+        SimpleNamespace(
+            cli=SimpleNamespace(
+                main=(
+                    lambda: (
+                        builtins.__import__("chromadb")
+                        if distribution == "chromadb-import"
+                        else print("migrate-storage")
+                    )
+                )
+            )
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "mempalace_code.storage",
+        SimpleNamespace(open_store=lambda *a, **kw: SimpleNamespace(count=lambda: 0)),
+    )
+
+    def execute(command, **kwargs):
+        monkeypatch.setattr(sys, "argv", ["-c", *command[3:]])
+        output = io.StringIO()
+        try:
+            with redirect_stdout(output):
+                exec(command[2], {"__name__": "__main__"})
+        except (AssertionError, RuntimeError) as exc:
+            return 1, output.getvalue(), str(exc)
+        return 0, output.getvalue(), ""
+
+    result = smoke.probe_ordinary_runtime_no_chromadb(
+        sys.executable, str(tmp_path), execute, install_spec=spec
+    )
+    assert (result.status == smoke.STATUS_OK) is allowed
+
+
+def test_venv_forwards_explicit_extra_to_runtime_probe(tmp_path):
+    calls = []
+    plugin_root = tmp_path / "agent_plugin"
+    _write_agent_plugin_fixture(plugin_root)
+    spec = "candidate.whl[custom-models]"
+    runner = _venv_ok_subprocess(calls=calls, plugin_root=plugin_root)
+    result = smoke.run_venv_smoke(spec, PACKAGE, runner)
+    assert result.ok
+    runtime = [c["args"] for c in calls if smoke._RUNTIME_NO_CHROMADB_PROBE_SCRIPT in c["args"]]
+    assert len(runtime) == 1
+    assert runtime[0][-2:] == [spec, str(Path.cwd())]

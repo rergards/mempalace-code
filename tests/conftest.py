@@ -65,8 +65,9 @@ class _DeterministicTestEmbedder:
 
 
 @pytest.fixture(autouse=True)
-def _use_deterministic_test_embedder(monkeypatch, request):
+def _use_deterministic_test_embedder(tmp_path, monkeypatch, request):
     """Keep ordinary tests offline and fast while leaving needs_network tests real."""
+    # Set up tmp_path first so monkeypatch restores OS functions before its cleanup.
     if request.node.get_closest_marker("needs_network"):
         return
 

@@ -110,9 +110,13 @@ def _canonical_plan_states(root: Path) -> dict[str, str] | None:
         states: dict[str, str] = {}
         for path in sorted((project / "tasks").glob("*.json")):
             envelope = _strict_json(path)
-            if envelope.get("format") != "backlog-task-envelope/v2":
+            if envelope.get("format") == "backlog-task-envelope/v2":
+                record = envelope["task_record"]
+            elif envelope.get("format") == "backlog-files/v1":
+                # Native v2 stores also accept sealed legacy task records.
+                record = envelope
+            else:
                 raise ValueError(f"malformed canonical task envelope: {path.name}")
-            record = envelope["task_record"]
             task = record["task"]
             key, state = task["id"], task["state"]
             if not isinstance(key, str) or not key or task["project"] != "mempalace-code":
@@ -628,31 +632,17 @@ def _canonical_lifecycle_fixture(root: Path, task: dict) -> Path:
     return path
 
 
-def test_canonical_migration_keeps_held_tasks_open_and_plans_non_authoritative(tmp_path: Path):
-    # Retained native snapshots survive squashed and shallow public release history.
-    original = ROOT / ".backlog" / "projects" / "mempalace-code" / "tasks"
+def test_canonical_held_tasks_stay_open_and_plans_non_authoritative(tmp_path: Path):
+    # Private maintainer records are not public test fixtures.
     initial_tasks = []
-    for key in (
-        "WING-MIGRATION-FULL-COPY-QUALIFICATION",
-        "LOCAL-ROLLOUT-RECONCILE-AND-ACCEPT",
-    ):
-        envelope = _strict_json(original / f"{key}.json")
-        assert envelope["format"] == "backlog-task-envelope/v2"
-        task = min(
-            (
-                entry["task"]
-                for entry in envelope["task_record"]["history"]
-                if entry["task"]["state"] == "open"
-            ),
-            key=lambda snapshot: snapshot["revision"],
-        )
-        assert task["id"] == key
-        assert task["state"] == "open"
-        assert task["completion_valid"] is False
-        initial = next(node for node in envelope["planning"]["nodes"] if not node["parents"])
-        assert initial["payload"]["expected_planning_version"] == "unplanned"
-        assert initial["state"]["hold"]["reason"]
-        assert initial["state"]["priority"] == "P2"
+    for key in ("HELD-MIGRATION", "HELD-ROLLOUT"):
+        task = {
+            "id": key,
+            "project": "mempalace-code",
+            "schema": "backlog/v1",
+            "state": "open",
+            "completion_valid": False,
+        }
         root = tmp_path / key
         relative = _write_lifecycle_fixture(
             root, f"slug: {key}\nstatus: active\nauthority: non_authoritative"

@@ -564,14 +564,17 @@ export MEMPALACE_DISK_MIN_FREE_BYTES=1GiB          # global floor (watcher + bac
 Or set byte values in `~/.mempalace/config.json`. This example keeps the 1 GiB global default
 and raises the watcher and backup floors to 2 GiB each. The file must be a plain JSON object
 without comments; a file that fails to parse, or whose top level is not an object, is ignored as
-a whole with a one-line warning. A single value that cannot be parsed (for example `"lots"`) is
-reported on stderr and the next setting in precedence order applies instead.
+a whole with a one-line warning. A size value that cannot be parsed (for example `"lots"`)
+is reported on stderr and the next size setting in precedence order applies instead.
+An invalid `backup_dir` fails the managed backup operation without a fallback;
+see [Backup directory configuration](https://github.com/rergards/mempalace-code/blob/main/docs/BACKUP_RESTORE.md#choosing-the-managed-backup-directory).
 
 ```json
 {
   "disk_min_free_bytes": 1073741824,
   "watch_disk_min_free_bytes": 2147483648,
-  "backup_disk_min_free_bytes": 2147483648
+  "backup_disk_min_free_bytes": 2147483648,
+  "backup_dir": null
 }
 ```
 
@@ -1055,6 +1058,31 @@ leading `NAME=value` assignments) carries `HF_HOME` and every `MEMPALACE_*` sett
 rendering shell, such as `MEMPALACE_BACKUP_RETAIN_COUNT`; re-render after changing them.
 `schedule` warns when no palace exists at the target path yet.
 
+**Backup directory:** Set `backup_dir` in `~/.mempalace/config.json` to put managed
+archives on another disk, for example `{"backup_dir": "/mnt/backup/mempalace"}`.
+`MEMPALACE_BACKUP_DIR` overrides that setting. Paths expand `~`; relative paths
+resolve against the current directory and produce a warning. Use an absolute path
+for scheduled jobs. An absent setting or JSON `null` keeps the default
+`<palace_parent>/backups/<palace_name>/` directory.
+
+The configured directory is a root. Each palace uses a child named
+`<palace_name>-<hash>`, where the hash comes from its canonical source path, so
+palaces with the same name keep separate archives and retention. Manual,
+scheduled, pre-watch and pre-optimize backups, listing and footprint accounting
+use that child. Free space is checked on the archive destination filesystem.
+Missing directories are created during backup; listing creates no directories.
+Invalid or inaccessible settings fail without writing to the default directory.
+Managed children must be outside the palace and cannot be symbolic links.
+New backup roots and managed children have owner-only access; an existing
+configured root keeps its permissions. Archives remain owner-only.
+
+Changing this setting moves or deletes no existing archives. Previous managed
+archives remain at their old path; use `backup list --dir /previous/managed/path`
+to list them. Explicit `--out` takes priority and keeps its existing behavior,
+including no managed retention, even when `backup_dir` is invalid.
+See [Backup directory configuration](https://github.com/rergards/mempalace-code/blob/main/docs/BACKUP_RESTORE.md#choosing-the-managed-backup-directory)
+for inspection commands, permissions and existing-archive behavior.
+
 **Retention (automatic pruning):**
 
 `pre_optimize` and `pre_watch` archives are **bounded by default** to the newest 5 per kind (implicit safe default for repeated mine/optimize cycles and watcher restarts).
@@ -1067,7 +1095,11 @@ export MEMPALACE_BACKUP_RETAIN_COUNT=5   # explicit limit for all kinds; overrid
 export MEMPALACE_BACKUP_RETAIN_COUNT=0   # 0 disables pruning for every kind
 ```
 
-Or in `~/.mempalace/config.json`: `{"backup_retain_count": 5}`. Each palace has its own managed directory, `<palace_parent>/backups/<palace_name>/`, and retention only affects archives there, so palaces that share a parent directory never prune each other's backups. Explicit `--out` archives are never pruned, and `backup create --out` refuses to overwrite an existing file.
+Or in `~/.mempalace/config.json`: `{"backup_retain_count": 5}`. Retention affects only
+the palace's selected managed directory. With `backup_dir` unset, that directory is
+`<palace_parent>/backups/<palace_name>/`; a configured root uses the isolated child
+described above. Explicit `--out` archives are never pruned, and `backup create --out`
+refuses to overwrite an existing file.
 
 `backup list` (`--json` for scripts) prints `stale` in its FLAGS column for archives that would be pruned at the current retain count, `oversized` for archives larger than `MEMPALACE_BACKUP_WARN_SIZE_BYTES`, `degraded` for a snapshot of a damaged palace, and `shared` for archives an older release wrote into the shared `<palace_parent>/backups/` directory (they may belong to a sibling palace; check their wings before restoring, and retention never deletes them).
 
@@ -1104,7 +1136,9 @@ Set the backup-specific floor to `0` to disable the backup guard.
 
 **Auto-backup before optimize (on by default):**
 
-`backup_before_optimize` is **`true` by default**. A backup is created under `<palace_parent>/backups/<palace_name>/pre_optimize_*.tar.gz` before every `optimize()` call (runs after mining).
+`backup_before_optimize` is **`true` by default**. Before every `optimize()` call
+(runs after mining), a `pre_optimize_*.tar.gz` backup is created in the selected managed
+directory. With `backup_dir` unset, this is `<palace_parent>/backups/<palace_name>/`.
 
 To opt out, add to `~/.mempalace/config.json`:
 ```json
@@ -1621,7 +1655,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](https://github.com/rergards/mempalace-code/blob/main/LICENSE) and [NOTICE](https://github.com/rergards/mempalace-code/blob/main/NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.15.1-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.16.0-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

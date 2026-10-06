@@ -9,10 +9,10 @@ Schema version: 4
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 87 |
-| Package total lines | 47961 |
-| Package code lines | 40386 |
-| Test files (`tests/`) | 123 |
-| Test total lines | 111364 |
+| Package total lines | 48052 |
+| Package code lines | 40468 |
+| Test files (`tests/`) | 124 |
+| Test total lines | 111962 |
 
 ## Largest Modules (top 10)
 
@@ -20,12 +20,12 @@ Schema version: 4
 |--------|------:|
 | `mempalace_code/wing_migration.py` | 5788 |
 | `mempalace_code/storage.py` | 3818 |
-| `mempalace_code/watcher.py` | 2482 |
+| `mempalace_code/watcher.py` | 2492 |
 | `mempalace_code/updater.py` | 1933 |
 | `mempalace_code/knowledge_graph.py` | 1737 |
 | `mempalace_code/mining/chunkers.py` | 1626 |
 | `mempalace_code/mining/orchestrator.py` | 1480 |
-| `mempalace_code/backup.py` | 1408 |
+| `mempalace_code/backup.py` | 1459 |
 | `mempalace_code/cli.py` | 1181 |
 | `mempalace_code/dialect.py` | 1144 |
 
@@ -127,8 +127,8 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| Test files | 123 |
-| Test functions | 4926 |
+| Test files | 124 |
+| Test functions | 4944 |
 
 ## Available Suites
 

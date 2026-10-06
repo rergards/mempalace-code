@@ -112,13 +112,17 @@ def _dir_size(path: str) -> int:
     return total
 
 
-def palace_footprint(palace_path: str) -> tuple[int, int]:
-    """Return (palace_bytes, backups_bytes) for the palace and its sibling backups/ dir.
+def palace_footprint(palace_path: str, *, managed_dir: str | None = None) -> tuple[int, int]:
+    """Return palace/backup bytes using the caller's resolved managed directory.
 
+    Without an override, retain the historical sibling backups/ measurement.
     Missing directories count as 0. Permission errors return 0 for that component.
     """
     palace_bytes = _dir_size(palace_path)
-    backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
+    if managed_dir is None:
+        backups_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
+    else:
+        backups_dir = managed_dir
     backups_bytes = _dir_size(backups_dir)
     return palace_bytes, backups_bytes
 
@@ -137,12 +141,14 @@ def free_bytes(path: str) -> int:
 def check_watch_budget(
     palace_path: str,
     min_free_bytes_threshold: int,
+    *,
+    managed_dir: str | None = None,
 ) -> DiskBudgetStatus:
     """Check whether the watcher is allowed to run under current disk conditions.
 
     Returns DiskBudgetStatus. allowed=True when free_bytes >= min_free_bytes_threshold.
     """
-    palace_b, backups_b = palace_footprint(palace_path)
+    palace_b, backups_b = palace_footprint(palace_path, managed_dir=managed_dir)
     free = free_bytes(palace_path)
     allowed = free >= min_free_bytes_threshold
     return DiskBudgetStatus(
@@ -159,6 +165,8 @@ def check_backup_budget(
     out_path: str,
     min_free_bytes_threshold: int,
     kg_path: str | None = None,
+    *,
+    managed_dir: str | None = None,
 ) -> DiskBudgetStatus:
     """Check whether creating a backup archive is safe given disk budget.
 
@@ -168,7 +176,10 @@ def check_backup_budget(
     Returns DiskBudgetStatus. allowed=True when projected remaining free space
     at the snapshot-plus-archive peak would still be >= min_free_bytes_threshold.
     """
-    palace_b, backups_b = palace_footprint(palace_path)
+    # An explicit output bypasses backup_dir, including an invalid setting.
+    if managed_dir is None:
+        managed_dir = os.path.join(os.path.dirname(os.path.abspath(palace_path)), "backups")
+    palace_b, backups_b = palace_footprint(palace_path, managed_dir=managed_dir)
 
     kg_size = 0
     if kg_path and os.path.isfile(kg_path):
