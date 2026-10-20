@@ -15,8 +15,9 @@ each external mutation requires the operator's explicit approval.
   candidate SHA.
 - Public `refs/heads/main` and `refs/tags/v*` follow the read-only ruleset
   contract in `docs/release-admission-rulesets.md`.
-- The latest successful **Dependency Audit** run is fresh enough for release
-  admission.
+- The latest eligible **Dependency Audit** run is fresh and successful for the
+  exact candidate SHA: on its release branch before promotion, then on `main`
+  before tagging and publication.
 - The checked-out, committed tree passes public-safety and documentation-drift
   checks.
 - A committed installed-candidate acceptance report,
@@ -55,6 +56,26 @@ disposable-platform testing, candidate push, public promotion, publication and
 live deployment are separate effects; apply the active request to each. A missing
 permission blocks only its dependent effect. Qualification remains credential-free.
 
+At every preparation start and again before declaring the candidate ready, inspect
+all open pull requests and issues in the verified public repository. Complete all
+pages and retain the observation time, IDs, exact PR heads/diffs and one
+source-backed disposition per item in the existing release evidence. Failed or
+incomplete observation is UNKNOWN and blocks readiness. Use credential-free,
+paginated, public read-only observation separate from product qualification.
+
+Resolve confirmed in-scope defects and required dependency updates before release,
+using the authorized engineering route and existing behavior owners. Rerun affected
+checks. Keep AI engineering outside release preparation and qualification gates;
+do not weaken tests/audits, automatically allowlist an advisory, or expand authority.
+Port accepted PR changes into the development trunk. Never merge PRs into public
+main. Close a PR only after verifying the public release containing its exact
+changes, with a note naming that release. Classify issues as fixed in the candidate,
+already shipped, refuted with evidence, or unresolved; retain unreleased fixes until
+publication or verified resolution through their existing owner. Unresolved
+confirmed release blockers prevent readiness. Report significant or out-of-scope
+corrections and their smallest recovery action. Refresh observations after changes
+and reconcile newly opened items or changed PR heads.
+
 Check each changed behavior's public routes: README, its feature guide, agent
 installation and LLM rules, CLI/MCP examples, and packaged instructions when the
 capability belongs there. Update current claims, defaults, environment precedence,
@@ -70,6 +91,12 @@ later branch switch or merge can remove them if another ref still tracks them.
 Before such integration, retain verified sealed bytes through the supported backup
 or validated export route; compare their hashes and run native backlog validation
 afterward. A clean Git tree proves no uncommitted diff, not preservation of ignored data.
+
+For dependency-contract changes, complete `docs/DEPENDENCY_UPGRADE_GATE.md`:
+generate the audited upgrade report, verify its hashes, and commit it with
+`pyproject.toml` and `uv.lock`. Run `dependency_upgrade_gate.py ci-check` against
+the verified candidate parent before pushing. Keep the scheduled `current-audit`
+result as separate evidence.
 
 Run source and documentation checks before building the installed candidate. None needs the candidate
 SHA or public `main`; the exact-SHA public admission runs in section 3c, after
@@ -539,9 +566,18 @@ python scripts/release_readiness_gate.py --check --candidate-sha "$CANDIDATE_SHA
 
 The readiness gate builds in a disposable environment, inspects the wheel and
 source distribution, then installs the exact wheel in a clean virtual environment.
-It exercises package metadata and public CLI surfaces only. A successful run is
-required before the candidate branch is pushed. It complements, and never replaces,
-the section 1a acceptance test, which must already have passed for this tree.
+It exercises package metadata and public CLI surfaces only.
+
+Before candidate push, every required readiness criterion must have a successful
+result from its existing owner. Results may come from separate supported-platform
+runs and focused retries. Bind each result to the candidate source and tested wheel
+identity; a matching version or candidate SHA alone does not prove wheel byte identity.
+Reuse results from a different wheel only under section 1's explicit unchanged-package
+or unaffected-owner comparison, recording both identities and the exact relevant
+differences. Retain original failed and UNRUN results and identify the successful
+result that closes each missing criterion. Do not report a failed aggregate invocation
+as successful. Missing coverage or an unresolved identity comparison blocks candidate
+push. These results complement section 1a acceptance and do not replace public admission.
 
 ## 3a. Push the candidate branch and prove it green
 
@@ -562,13 +598,29 @@ which is all-zeros when a push creates a branch, and fall back to `origin/main`;
 `workflow_dispatch` run is still never release evidence: it skips those two
 gates, and `release-required` fails closed on a skipped job.
 
+After Tests succeeds, dispatch the existing **Dependency Audit** on the immutable
+candidate branch under the applicable dispatch authority. Dispatch and observation
+are GitHub administration outside credential-free product qualification:
+
+```bash
+gh workflow run dependency-audit.yml --repo rergards/mempalace-code --ref "$CANDIDATE_BRANCH"
+gh run list --repo rergards/mempalace-code --workflow dependency-audit.yml --branch "$CANDIDATE_BRANCH" --commit "$CANDIDATE_SHA" --event workflow_dispatch --json databaseId,headSha,headBranch,event,status,conclusion
+gh run watch <bound-audit-run-id> --repo rergards/mempalace-code --exit-status
+```
+
+Record the dispatched run ID and verify its exact SHA, branch and event before
+waiting for that run. Candidate audits leave the issue tracking `main` unchanged;
+findings still fail the workflow. An audit of the old public `main` does not prove
+the candidate's dependencies. Missing, failed or mismatched candidate evidence
+blocks promotion.
+
 Wait for the hosted checks to complete for `$CANDIDATE_SHA` itself, then confirm
 the exact candidate from a clean checkout with the credential-free admission
 owner:
 
 ```bash
 test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha "$CANDIDATE_SHA" --check-required-check --check-dependency-audit --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
+python scripts/release_preflight.py --tag vX.Y.Z --require-clean --expect-sha "$CANDIDATE_SHA" --check-required-check --check-dependency-audit --audit-branch "$CANDIDATE_BRANCH" --check-branch-rules --check-tag-ruleset --check-public-orphan-tags
 ```
 
 A non-zero exit means the release is not admissible. Fix the reported row and
@@ -599,9 +651,20 @@ already exist and are green. That is why section 3a proves the candidate branch
 green first: those checks can only run on a pushed commit, so the update to
 `main` never waits for checks that could only run after it.
 
+Dispatch the same existing audit on the promoted `main` under the applicable
+dispatch authority. Record and verify its run ID and exact promoted SHA, then wait
+for it to succeed:
+
+```bash
+gh workflow run dependency-audit.yml --repo rergards/mempalace-code --ref main
+gh run list --repo rergards/mempalace-code --workflow dependency-audit.yml --branch main --commit "$CANDIDATE_SHA" --event workflow_dispatch --json databaseId,headSha,headBranch,event,status,conclusion
+gh run watch <bound-main-audit-run-id> --repo rergards/mempalace-code --exit-status
+```
+
 ## 3c. Re-admit against `main`, then tag
 
-Public `main` has moved, so re-run exact-SHA admission — this time bound to the
+Public `main` has moved and its audit must cover the promoted SHA. Candidate-branch
+audit evidence cannot satisfy this stage. Re-run exact-SHA admission — bound to the
 fetched `publish/main` and the live public `main`, with the same checks the tag
 workflow runs — before any tag exists:
 

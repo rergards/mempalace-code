@@ -25,14 +25,12 @@ from datetime import date, datetime
 from typing import Any, Dict, Iterator, List, Optional
 
 from .knowledge_graph import _parse_temporal, _validate_window
-from .storage import DuplicateDrawerIdError, distance_to_similarity
+from .storage import DuplicateDrawerIdError
 from .version import __version__
 
 # Chunker strategies produced by manual writes (MCP add_drawer + diary)
 _MANUAL_STRATEGIES = ("manual_v1", "diary_v1")
 
-# Import skips a drawer when its target wing already holds one at least this similar (cosine).
-_IMPORT_DEDUP_SIMILARITY = 0.9
 # Drawer ids per existence lookup, so a large import never builds one huge id filter.
 _ID_LOOKUP_BATCH = 500
 
@@ -458,16 +456,13 @@ def _duplicate_indexes(
     records: List[Dict[str, Any]],
     wing_override: Optional[str],
     candidates: List[int],
-    check_similarity: bool = True,
+    check_content: bool = True,
 ) -> tuple[set[int], int]:
-    """Return (indexes import must skip as duplicates, failed similarity checks).
+    """Skip existing/repeated ids, and optionally exact text in the target wing.
 
-    A drawer record is a duplicate when its id is already stored or repeats an
-    earlier record's id, or (with *check_similarity*) when its target wing already
-    holds a drawer with cosine similarity >= ``_IMPORT_DEDUP_SIMILARITY``. Similarity
-    is judged against the palace as it was before the import, so distinct records
-    from one file never dedup each other. Only *candidates* (valid drawer record
-    indexes) are considered.
+    Different statements remain distinct regardless of semantic similarity.
+    Text is compared with the palace before import; records in one file retain
+    separate identities. Only valid candidate drawer records are considered.
     """
     stored_ids = _existing_ids(store, [records[index]["id"] for index in candidates])
     seen_ids: set[str] = set()
@@ -480,22 +475,19 @@ def _duplicate_indexes(
             indexes.add(index)
             continue
         seen_ids.add(drawer_id)
-        if not check_similarity:
+        if not check_content:
             continue
         wing = wing_override or record["wing"]
         try:
-            results = store.query(
-                query_texts=[record["text"]],
-                n_results=1,
-                where={"wing": wing},
-                include=["distances"],
-                intent_rerank=False,  # compare with the nearest drawer, not the reranked top
+            results = store.get(
+                where={"$and": [{"wing": wing}, {"text": record["text"]}]},
+                include=["documents"],
+                limit=1,
             )
-            dists = results.get("distances", [[]])[0]
         except Exception:
             failed_checks += 1
             continue  # Import the record; the summary reports the skipped check
-        if dists and distance_to_similarity(dists[0]) >= _IMPORT_DEDUP_SIMILARITY:
+        if record["text"] in results.get("documents", []):
             indexes.add(index)
     return indexes, failed_checks
 
@@ -521,7 +513,7 @@ def import_jsonl(
 
     Drawer ids stay unique: a record whose id is already stored or repeats earlier in
     the file is a skipped duplicate even with *skip_dedup*, which only disables the
-    similarity check. Invalid drawer and KG records are counted and named in
+    exact-text check. Invalid drawer and KG records are counted and named in
     ``warnings``; a dry run validates and counts exactly like a real import without
     writing palace or KG state.
 
@@ -586,12 +578,12 @@ def import_jsonl(
     # Decide duplicates against the palace as it was before this import, so
     # distinct records from one file never dedup against each other.
     duplicate_indexes, failed_checks = _duplicate_indexes(
-        store, records, wing_override, drawer_indexes, check_similarity=not skip_dedup
+        store, records, wing_override, drawer_indexes, check_content=not skip_dedup
     )
     if failed_checks:
         warnings.append(
-            f"Similarity check failed for {failed_checks} drawer(s); they were imported "
-            "without near-duplicate detection."
+            f"Exact-text duplicate check failed for {failed_checks} drawer(s); they were imported "
+            "without content deduplication."
         )
 
     valid_drawers = set(drawer_indexes)

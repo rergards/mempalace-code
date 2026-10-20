@@ -488,6 +488,7 @@ def test_dependency_audit_staleness_blocks_release_admission(tmp_path: Path):
                     "conclusion": "success",
                     "event": "schedule",
                     "headBranch": "main",
+                    "headSha": SHA,
                     "updatedAt": stale_stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 }
             ],
@@ -499,6 +500,7 @@ def test_dependency_audit_staleness_blocks_release_admission(tmp_path: Path):
         tag=None,
         require_clean=False,
         check_dependency_audit=True,
+        expect_sha=SHA,
         run=run,
         public_read=public_read,
     )
@@ -507,6 +509,89 @@ def test_dependency_audit_staleness_blocks_release_admission(tmp_path: Path):
     assert audit["status"] == "fail"
     assert "stale" in audit["detail"]
     assert "Dependency Audit" in audit["remediation"]
+
+
+def test_candidate_audit_is_bound_separately_from_main_protection(tmp_path: Path):
+    root = _root(tmp_path)
+    audit_branch = "release/v1.16.1-rc3"
+
+    def run(command, _root):
+        if command[:2] == ["git", "rev-parse"]:
+            return (1, "absent") if "--verify" in command else (0, SHA)
+        return 0, "passed"
+
+    def public_read(query):
+        assert query.endpoint == "github_workflow_runs"
+        assert query.values[3] == audit_branch
+        return SimpleNamespace(
+            data=[
+                {
+                    "headBranch": audit_branch,
+                    "headSha": SHA,
+                    "event": "workflow_dispatch",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "updatedAt": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            ],
+            error="",
+        )
+
+    _, checks = preflight.evaluate(
+        root,
+        tag=None,
+        require_clean=False,
+        expect_sha=SHA,
+        check_dependency_audit=True,
+        audit_branch=audit_branch,
+        branch="main",
+        run=run,
+        public_read=public_read,
+    )
+    audit = next(x for x in checks if x["name"] == "dependency_audit_freshness")
+    assert audit["status"] == "ok", audit
+
+
+@pytest.mark.parametrize(
+    ("check_public_main", "candidate_ref"),
+    [(True, None), (False, "publish/main"), (False, "refs/remotes/publish/main")],
+)
+def test_main_admission_cannot_opt_into_candidate_audit(tmp_path, check_public_main, candidate_ref):
+    root = _root(tmp_path)
+    queries = []
+
+    def run(command, _root):
+        if command[:2] == ["git", "rev-parse"]:
+            return (1, "absent") if "--verify" in command else (0, SHA)
+        return 0, "passed"
+
+    def public_read(query):
+        queries.append(query)
+        return SimpleNamespace(data={"sha": SHA}, error="")
+
+    _, checks = preflight.evaluate(
+        root,
+        tag=None,
+        require_clean=False,
+        expect_sha=SHA,
+        check_dependency_audit=True,
+        audit_branch="release/v1.16.1-rc3",
+        check_public_main=check_public_main,
+        candidate_ref=candidate_ref,
+        run=run,
+        public_read=public_read,
+    )
+    audit = next(x for x in checks if x["name"] == "dependency_audit_freshness")
+    assert audit["status"] == "fail"
+    assert "requires its audit on main" in audit["detail"]
+    assert not any(q.endpoint == "github_workflow_runs" for q in queries)
+
+
+def test_cli_rejects_unused_audit_branch(capsys):
+    with pytest.raises(SystemExit) as exc:
+        preflight.main(["--audit-branch", "release/v1.16.1-rc3"])
+    assert exc.value.code == 2
+    assert "requires --check-dependency-audit" in capsys.readouterr().err
 
 
 def test_public_main_comparison_uses_the_normalized_public_query(tmp_path: Path):
@@ -619,6 +704,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
         branch,
         required_check_name,
         audit_max_age_hours,
+        audit_branch,
     ):
         observed.update(
             root=root,
@@ -638,6 +724,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
             branch=branch,
             required_check_name=required_check_name,
             audit_max_age_hours=audit_max_age_hours,
+            audit_branch=audit_branch,
         )
         return "1.2.3", [{"name": "live_upstream_comparison", "status": "ok", "detail": "passed"}]
 
@@ -677,6 +764,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
         "branch": None,
         "required_check_name": None,
         "audit_max_age_hours": None,
+        "audit_branch": None,
     }
     assert json.loads(capsys.readouterr().out)["ok"] is True
 

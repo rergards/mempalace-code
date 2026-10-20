@@ -498,6 +498,7 @@ def _launchd_manager(
     bootstrap_rc: dict[str, int] | None = None,
     passwd_home: Path | None = None,
     pids: dict[str, str] | None = None,
+    domains: dict[str, tuple[str, ...]] | None = None,
 ):
     """Build a Darwin manager whose only service seam is a fake ``launchctl``."""
     monkeypatch.setattr(updater.sys, "platform", "darwin")
@@ -517,6 +518,10 @@ def _launchd_manager(
 
     def runner(command: list[str]) -> tuple[int, str, str]:
         commands.append(command)
+        if command[:2] == ["launchctl", "print"]:
+            kind, _uid, label = command[2].split("/", 2)
+            matches = (domains or {}).get(label, ("gui",))
+            return (0, "", "") if kind in matches else (113, "", "service absent")
         if command[:2] == ["launchctl", "list"]:
             if list_rc:
                 return list_rc, "", "Could not find domain for gui"
@@ -579,6 +584,83 @@ class TestLaunchdWatcherDiscovery:
         assert result.data["scheduler"]["service_manager"] == "systemd-user"  # type: ignore[index]  # reason: stable status mapping
         assert all(command[0] != "systemctl" for command in commands)
         assert not manager.state_path.exists()
+
+    @pytest.mark.parametrize("kinds", [("user",), ("gui",)])
+    def test_apply_uses_the_verified_watcher_domain(self, tmp_path, monkeypatch, kinds):
+        label = DEFAULT_LAUNCHD_WATCH_LABEL
+        manager, commands, home = _launchd_manager(
+            tmp_path, monkeypatch, active_labels=[label], domains={label: kinds}
+        )
+        agent = _write_agent_plist(home, label)
+        result = manager.apply()
+        assert result.ok
+        domain = f"{kinds[0]}/{os.geteuid()}"
+        assert ["launchctl", "bootout", f"{domain}/{label}"] in commands
+        assert ["launchctl", "bootstrap", domain, str(agent)] in commands
+        other = "gui" if kinds[0] == "user" else "user"
+        assert ["launchctl", "bootout", f"{other}/{os.geteuid()}/{label}"] not in commands
+
+    @pytest.mark.parametrize("kinds", [(), ("gui", "user")])
+    def test_apply_refuses_missing_or_ambiguous_watcher_domain(self, tmp_path, monkeypatch, kinds):
+        label = DEFAULT_LAUNCHD_WATCH_LABEL
+        manager, commands, home = _launchd_manager(
+            tmp_path, monkeypatch, active_labels=[label], domains={label: kinds}
+        )
+        _write_agent_plist(home, label)
+        result = manager.apply()
+        assert not result.ok
+        assert result.stage == "preflight"
+        assert "exactly one account launchd domain" in result.message
+        assert not any(
+            c[:2] in (["launchctl", "bootout"], ["launchctl", "bootstrap"]) for c in commands
+        )
+        assert not any("install" in c for c in commands)
+        assert not manager.state_path.exists()
+
+    def test_domain_probe_discards_service_environment(self, monkeypatch):
+        mock = MagicMock(return_value=SimpleNamespace(returncode=0, stderr=""))
+        monkeypatch.setattr(updater.subprocess, "run", mock)
+        command = ["launchctl", "print", f"user/{os.geteuid()}/com.mempalace.watch"]
+        assert updater._default_runner(command) == (0, "", "")
+        assert mock.call_args.kwargs["stdout"] == subprocess.DEVNULL
+
+    def test_apply_refuses_unavailable_domain_evidence(self, tmp_path, monkeypatch):
+        label = DEFAULT_LAUNCHD_WATCH_LABEL
+        manager, commands, home = _launchd_manager(
+            tmp_path, monkeypatch, active_labels=[label], domains={label: ("user",)}
+        )
+        _write_agent_plist(home, label)
+        service = manager.service
+        assert isinstance(service, LaunchdUserService)
+        original = service.runner
+
+        def denied(command):
+            if command == ["launchctl", "print", f"gui/{os.geteuid()}/{label}"]:
+                return 13, "", "permission denied"
+            return original(command)
+
+        service.runner = denied
+        result = manager.apply()
+        assert not result.ok
+        assert result.stage == "preflight"
+        assert "cannot verify launchd domain" in result.message
+        assert not any(c[:2] == ["launchctl", "bootout"] for c in commands)
+        assert not any("install" in c for c in commands)
+
+    def test_apply_keeps_each_watcher_in_its_own_domain(self, tmp_path, monkeypatch):
+        labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.background"]
+        manager, commands, home = _launchd_manager(
+            tmp_path,
+            monkeypatch,
+            active_labels=labels,
+            domains={labels[0]: ("gui",), labels[1]: ("user",)},
+        )
+        agents = {label: _write_agent_plist(home, label) for label in labels}
+        assert manager.apply().ok
+        for kind, label in zip(("gui", "user"), labels):
+            domain = f"{kind}/{os.geteuid()}"
+            assert ["launchctl", "bootout", f"{domain}/{label}"] in commands
+            assert ["launchctl", "bootstrap", domain, str(agents[label])] in commands
 
     def test_status_selects_every_active_watcher(self, tmp_path, monkeypatch):
         labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.srv-dev"]
@@ -790,6 +872,7 @@ class TestLaunchdWatcherDiscovery:
         label = DEFAULT_LAUNCHD_WATCH_LABEL
         service = LaunchdUserService(lambda _command: (0, "", ""))
         service.labels = (label,)
+        service._domains[label] = f"gui/{os.geteuid()}"
         service._discovery = WatcherDiscovery(label, True, True, "selected")
         states = iter([([label], None), ([label], None), ([], None)])
         monkeypatch.setattr(service, "_active_watch_labels", lambda: next(states))
@@ -806,6 +889,7 @@ class TestLaunchdWatcherDiscovery:
         commands: list[list[str]] = []
         service = LaunchdUserService(lambda command: commands.append(command) or (0, "", ""))
         service.labels = (label,)
+        service._domains[label] = f"gui/{os.geteuid()}"
         service._discovery = WatcherDiscovery(label, True, True, "selected")
         monkeypatch.setattr(service, "_active_watch_labels", lambda: ([label], None))
         monkeypatch.setattr(service, "_plist_path", lambda _label: (Path("/owned.plist"), ""))
@@ -824,6 +908,7 @@ class TestLaunchdWatcherDiscovery:
         label = DEFAULT_LAUNCHD_WATCH_LABEL
         service = LaunchdUserService(lambda _command: (5, "", "already loaded"))
         service.labels = (label,)
+        service._domains[label] = f"gui/{os.geteuid()}"
         service._stopped = (label,)
         service._discovery = WatcherDiscovery(label, True, True, "selected")
         monkeypatch.setattr(service, "_plist_path", lambda _label: (Path("/owned.plist"), ""))

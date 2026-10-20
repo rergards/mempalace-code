@@ -7,7 +7,7 @@ from ...language_catalog import code_search_language_description
 from ...searcher import MAX_QUERY_CHARS, MAX_SEARCH_RESULTS
 from ...storage import distance_to_similarity
 from .. import runtime
-from .write import MAX_DRAWER_CHARS
+from .write import MAX_DRAWER_CHARS, exact_drawer_matches
 
 
 def tool_search(
@@ -61,14 +61,24 @@ def tool_code_search(
     )
 
 
-def tool_check_duplicate(content: str, threshold: float = 0.9) -> dict[str, Any]:
+def tool_check_duplicate(
+    content: str, threshold: float = 0.9, wing: str | None = None
+) -> dict[str, Any]:
+    """Report identical drawers (the duplicate proof) and advisory similar ones.
+
+    ``is_duplicate`` and ``same_facts`` cover only drawers whose complete text equals
+    *content*, in *wing* when given. ``matches`` lists semantic neighbours at or above
+    *threshold* as context: similarity alone never proves the same fact.
+    """
     col = runtime._get_store()
     if not col:
         return runtime._no_palace()
     try:
+        same_facts = exact_drawer_matches(col, content, wing)
         results = col.query(
             query_texts=[content],
             n_results=5,
+            where={"wing": wing} if wing is not None else None,
             include=["metadatas", "documents", "distances"],
             intent_rerank=False,
         )
@@ -90,8 +100,10 @@ def tool_check_duplicate(content: str, threshold: float = 0.9) -> dict[str, Any]
                         }
                     )
         return {
-            "is_duplicate": len(duplicates) > 0,
+            "is_duplicate": bool(same_facts),
+            "same_facts": same_facts,
             "matches": duplicates,
+            "wing": wing,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -210,7 +222,10 @@ TOOL_SPECS = {
             "Semantic search. Returns verbatim drawer content with similarity scores, in "
             "descending similarity. Each hit includes the drawer id, wing, room, source_file "
             "(null for drawers filed without a source), symbol_name, symbol_type, "
-            "language, line_range, and similarity; Markdown hits add heading, heading_level, "
+            "language, line_range, similarity, and provenance (filed_at, extractor_version, "
+            "source_hash, chunker_strategy as stored; null when absent; it tells how a drawer "
+            "was filed, not whether it is current or authoritative); Markdown hits add "
+            "heading, heading_level, "
             "heading_path, doc_section_type, and contains_mermaid/code/table. "
             "An explicit wing/room filter is validated against the palace taxonomy before search; "
             "an unknown wing/room returns a structured error with advisory suggestions, while a "
@@ -386,7 +401,13 @@ TOOL_SPECS = {
         "handler": tool_file_context,
     },
     "mempalace_check_duplicate": {
-        "description": "Check if content already exists in the palace before filing",
+        "description": (
+            "Check whether content is already filed before writing. is_duplicate and "
+            "same_facts report only drawers whose complete text is identical (within wing "
+            "when given). matches lists semantically similar drawers at or above threshold "
+            "as advisory context: a negation, a changed condition, or another project's "
+            "note can be similar without being the same fact."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -400,8 +421,15 @@ TOOL_SPECS = {
                     "minimum": -1,
                     "maximum": 1,
                     "description": (
-                        "Minimum cosine similarity counted as a duplicate, -1 to 1 "
-                        "(1.0 = identical; default 0.9)"
+                        "Minimum cosine similarity listed as an advisory match, -1 to 1 "
+                        "(1.0 = identical direction; default 0.9)"
+                    ),
+                },
+                "wing": {
+                    "type": "string",
+                    "description": (
+                        "Scope the check to this wing (project). Identical text in another "
+                        "wing is not a duplicate (optional)"
                     ),
                 },
             },

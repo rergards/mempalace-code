@@ -680,12 +680,26 @@ def _make_env(extra: dict | None = None) -> dict[str, str]:
 
 def _run_cli(args: list[str], env: dict | None = None, timeout: int = 120) -> str:
     """Run mempalace-code via Python module and return combined stdout+stderr."""
+    if not env:
+        env = _make_env()
+        if "--palace" in args:
+            from mempalace_code.storage import canonical_fastembed_cache_root
+
+            palace = Path(args[args.index("--palace") + 1])
+            home = palace.parent / "cli_home"
+            home.mkdir(exist_ok=True)
+            env.update(
+                HOME=str(home),
+                USERPROFILE=str(home),
+                HF_HOME=str(canonical_fastembed_cache_root().parents[1]),
+                MEMPALACE_BACKUP_DIR=str(palace.parent / "backups"),
+            )
     cmd = [_PYTHON, "-m", "mempalace_code.cli"] + args
     result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
-        env=env or _make_env(),
+        env=env,
         timeout=timeout,
     )
     if result.returncode != 0:
@@ -862,6 +876,9 @@ def _normalize_mcp_exhibit(exhibit: dict, palace_dir_str: str, fixture_dir_str: 
                                 hit["id"] = "<DRAWER_ID>"
                             if "similarity" in hit:
                                 hit["similarity"] = round(hit["similarity"], 2)
+                            provenance = hit.get("provenance")
+                            if isinstance(provenance, dict) and provenance.get("filed_at"):
+                                provenance["filed_at"] = "<FILED_AT>"
                             ranking = hit.get("ranking")
                             if isinstance(ranking, dict) and isinstance(
                                 ranking.get("vector_distance"), float

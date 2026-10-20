@@ -1985,7 +1985,7 @@ class TestSafeOptimize:
     def test_default_pre_optimize_retention_prunes_to_bound(
         self, palace_path, tmp_dir, monkeypatch
     ):
-        """AC-2: six default safe_optimize(backup_first=True) cycles leave only the newest five archives."""
+        """Six default safe_optimize cycles retain the two newest recovery points."""
         monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
 
         store = open_store(palace_path, create=True)
@@ -2013,11 +2013,8 @@ class TestSafeOptimize:
 
         assert results == [True] * 6
         archives = self._pre_optimize_archives(palace_path)
-        # Oldest (cycle 0) pruned; newest five remain.
+        # The shared automatic pool retains only the two newest recovery points.
         assert archives == [
-            "pre_optimize_20260101_120101_000000.tar.gz",
-            "pre_optimize_20260101_120102_000000.tar.gz",
-            "pre_optimize_20260101_120103_000000.tar.gz",
             "pre_optimize_20260101_120104_000000.tar.gz",
             "pre_optimize_20260101_120105_000000.tar.gz",
         ]
@@ -2055,7 +2052,7 @@ class TestSafeOptimize:
         assert len(archives) == 6
 
     def test_retention_preserves_non_pre_optimize_files(self, palace_path, tmp_dir, monkeypatch):
-        """AC-3: retention only removes old pre_optimize_*.tar.gz files."""
+        """Automatic-looking names without origin evidence remain protected."""
         store = open_store(palace_path, create=True)
         self._add_optimize_fixture(store, "retain_scope")
         backup_dir = managed_backups_dir(palace_path)
@@ -2080,6 +2077,7 @@ class TestSafeOptimize:
         assert sorted(os.listdir(backup_dir)) == [
             "mempalace_backup_20260101_115900.tar.gz",
             "notes.txt",
+            "pre_optimize_20260101_115900.tar.gz",
             "pre_optimize_20260101_120200_000000.tar.gz",
             "scheduled_20260101_115900.tar.gz",
         ]
@@ -2091,26 +2089,29 @@ class TestSafeOptimize:
         store = open_store(palace_path, create=True)
         self._add_optimize_fixture(store, "retain_warning")
         backup_dir = managed_backups_dir(palace_path)
-        os.makedirs(backup_dir)
-        for name in (
-            "pre_optimize_20260101_115800.tar.gz",
-            "pre_optimize_20260101_115900.tar.gz",
-        ):
-            with open(os.path.join(backup_dir, name), "w") as f:
-                f.write("sentinel")
+        from mempalace_code.backup import create_backup
 
-        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "1")
-        fake_datetime = MagicMock()
-        fake_datetime.now.return_value = datetime(2026, 1, 1, 12, 3, 0)
+        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "0")
+        prior = [create_backup(palace_path, kind="pre_optimize")[1] for _ in range(2)]
+        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "2")
+        real_unlink = os.unlink
 
-        with patch("mempalace_code.backup.datetime", fake_datetime):
-            with patch("mempalace_code.backup.os.unlink", side_effect=OSError("permission denied")):
-                with caplog.at_level(logging.WARNING, logger="mempalace"):
-                    result = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
+        def refuse_expiry(path, *args, **kwargs):
+            if path == os.path.basename(prior[0]) and "dir_fd" in kwargs:
+                raise PermissionError("injected expiry refusal")
+            return real_unlink(path, *args, **kwargs)
+
+        with patch("mempalace_code.backup.os.unlink", side_effect=refuse_expiry):
+            with caplog.at_level(logging.WARNING, logger="mempalace"):
+                result = store.safe_optimize(palace_path, backup_first=True)  # type: ignore[reportAttributeAccessIssue]  # reason: LanceStore implements SafeOptimizeStore; test verified by fixture setup
 
         assert result is True
+        assert all(os.path.isfile(path) for path in prior)
+        assert len(os.listdir(backup_dir)) == 3
         warning_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("backup pruning" in msg.lower() for msg in warning_msgs)
+        assert any(
+            "Backup retention deferred: injected expiry refusal" in msg for msg in warning_msgs
+        )
 
     def test_backup_failure_logs_error(self, palace_path, caplog):
         """AC-3: Backup failure is logged at ERROR level."""
@@ -2515,7 +2516,9 @@ class TestLanceHealth:
         def _broken_list_versions():
             raise RuntimeError("version metadata unavailable")
 
-        monkeypatch.setattr(store._table, "list_versions", _broken_list_versions)
+        monkeypatch.setattr(
+            type(store._table), "list_versions", lambda _self: _broken_list_versions()
+        )
 
         report = store.health_check()
 
@@ -2987,11 +2990,12 @@ class TestStorageStats:
         assert store.storage_stats()["on_disk_bytes"] > 0  # type: ignore[reportAttributeAccessIssue]  # reason: test probes LanceStore.storage_stats; method exists on concrete type
 
     def test_none_table_returns_zeros(self):
-        """storage_stats() on a store with _table=None returns all zeros."""
+        """An absent table has zero metrics and unknown compaction state."""
         store = LanceStore.__new__(LanceStore)
         store._table = None
         store._table_dir = "/nonexistent/path"
         s = store.storage_stats()
+        assert s.pop("latest_version_compact") is None
         for key, val in s.items():
             assert val == 0, f"{key} should be 0 for None table, got {val}"
 
@@ -3295,8 +3299,8 @@ class TestCleanupStaleFragments:
         assert "disk full" in result.get("error", "")
         assert result["version_count_after"] is None  # unknown, never a fake 0
 
-    def test_reopen_failure_after_cleanup_returns_ok_false(self):
-        """cleanup_stale_fragments verifies a fresh Lance handle after cleanup."""
+    def test_reopen_failure_before_cleanup_refuses_without_mutation(self):
+        """A failed fresh handle must refuse cleanup before it can mutate the table."""
         table = _OptimizableTable([{"wing": "w", "room": "r"}], versions=_prunable_versions())
         store = LanceStore.__new__(LanceStore)
         store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: fault-injection fake
@@ -3306,8 +3310,32 @@ class TestCleanupStaleFragments:
         result = store.cleanup_stale_fragments()  # type: ignore[reportAttributeAccessIssue]  # reason: open_store returns Store; cleanup_stale_fragments is LanceStore-only
 
         assert result["ok"] is False
-        assert "Could not reopen table after cleanup" in result["error"]
+        assert "Version cleanup refused: missing fragment after cleanup" in result["error"]
+        assert not table.optimize_calls
         assert store._db.open_calls == 1  # type: ignore[reportAttributeAccessIssue]  # reason: _db is a _ReopenDB test double; open_calls is a test-only tracking attribute
+
+    def test_reopen_failure_after_cleanup_returns_ok_false(self, monkeypatch):
+        """Post-mutation verification failure stays distinct from pre-cleanup refusal."""
+        table = _OptimizableTable([{"wing": "w", "room": "r"}], versions=_prunable_versions())
+        store = LanceStore.__new__(LanceStore)
+        store._table = table  # type: ignore[reportAttributeAccessIssue]  # reason: phase-specific fault injection
+        store._table_dir = "/nonexistent/path"
+        database = _ReopenDB(table=table)
+        store._db = database  # type: ignore[reportAttributeAccessIssue]  # reason: phase-specific fault injection
+        calls = []
+
+        def open_table(name):
+            calls.append(name)
+            if len(calls) == 2:
+                raise RuntimeError("missing fragment after cleanup")
+            return table
+
+        monkeypatch.setattr(database, "open_table", open_table)
+        result = store.cleanup_stale_fragments()
+        assert result["ok"] is False
+        assert "Could not reopen table after cleanup" in result["error"]
+        assert table.optimize_calls
+        assert len(calls) == 2
 
     def test_real_store_preserves_rows_and_reduces_versions(self, palace_path):
         """AC-1: cleanup on a real store with stale versions preserves rows; freed_bytes>0 or version_count decreases."""
@@ -3393,10 +3421,10 @@ def test_iter_all_uses_bounded_projected_reader(palace_path, monkeypatch, includ
     table = store._table
     assert table is not None
 
-    def refuse_full_materialization():
+    def refuse_full_materialization(*args, **kwargs):
         raise AssertionError("iter_all must not materialize the table")
 
-    monkeypatch.setattr(table, "to_arrow", refuse_full_materialization)
+    monkeypatch.setattr(type(table), "to_arrow", refuse_full_materialization)
     batches = list(
         store.iter_all(where={"wing": "target"}, batch_size=1, include_vectors=include_vectors)
     )
@@ -3427,6 +3455,6 @@ def test_iter_all_retains_storage_error_guard(palace_path, monkeypatch):
     def unreadable(*args, **kwargs):
         raise OSError("injected unreadable table")
 
-    monkeypatch.setattr(table, "search", unreadable)
+    monkeypatch.setattr(type(table), "search", unreadable)
     with pytest.raises(PalaceReadError, match="injected unreadable table"):
         list(store.iter_all())

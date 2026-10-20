@@ -34,10 +34,12 @@ DEFAULT_PALACE_PATH = os.path.expanduser("~/.mempalace/palace")
 # Storage safety defaults
 DEFAULT_OPTIMIZE_AFTER_MINE = True  # Set False to disable auto-compaction
 DEFAULT_BACKUP_BEFORE_OPTIMIZE = True  # Auto-backup before risky operations (on by default)
-DEFAULT_BACKUP_RETAIN_COUNT = 0  # 0 keeps all backups per-kind (backwards compatible)
-DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT = 5  # implicit bound for managed pre-optimize archives
-DEFAULT_PRE_WATCH_RETAIN_COUNT = 5  # implicit bound for managed pre-watch archives
-DEFAULT_SCHEDULED_RETAIN_COUNT = 14  # implicit bound for managed scheduled archives
+DEFAULT_BACKUP_RETAIN_COUNT = 0  # raw unset value retained for API compatibility
+DEFAULT_AUTOMATIC_RETAIN_COUNT = 2  # one healthy pool across all automatic kinds
+# Compatibility names; these no longer describe independent pools.
+DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT = DEFAULT_AUTOMATIC_RETAIN_COUNT
+DEFAULT_PRE_WATCH_RETAIN_COUNT = DEFAULT_AUTOMATIC_RETAIN_COUNT
+DEFAULT_SCHEDULED_RETAIN_COUNT = DEFAULT_AUTOMATIC_RETAIN_COUNT
 DEFAULT_BACKUP_SCHEDULE = "off"  # Scheduled backup frequency: off|daily|weekly|hourly
 DEFAULT_BACKUP_MIN_FREE_BYTES = (
     0  # 0 disables the disk-space guard; set e.g. 1_073_741_824 for 1 GiB
@@ -56,9 +58,7 @@ DEFAULT_VERSION_CHECK_INTERVAL_HOURS = 168  # 1 week
 DEFAULT_DISK_MIN_FREE_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
 
 # Source label for retention when no explicit backup_retain_count is set.
-_IMPLICIT_RETENTION_SOURCE = (
-    "the per-kind retention defaults (pre_optimize 5, pre_watch 5, scheduled 14, others all)"
-)
+_IMPLICIT_RETENTION_SOURCE = "the automatic retention default (2 healthy recovery points)"
 
 DEFAULT_SCAN_SKIP_DIRS: ScanSkipList = [".kotlin-lsp"]
 DEFAULT_SCAN_SKIP_FILES: ScanSkipList = []
@@ -432,7 +432,7 @@ class MempalaceConfig:
 
     @property
     def backup_retain_count(self) -> int:
-        """Raw explicit/global backup retain count; use retain_count_for_kind() for defaults."""
+        """Raw setting; use automatic_backup_retain_count for the effective automatic limit."""
         return self._backup_retain_count_setting()[0]
 
     @property
@@ -441,30 +441,23 @@ class MempalaceConfig:
 
         An empty, unparseable, or negative value from either source is treated as not set
         (with a warning) so that typos and invalid config do not silently suppress implicit
-        per-kind defaults; an invalid env value falls through to the config-file key.
+        automatic default; an invalid env value falls through to the config-file key.
         """
         return self._backup_retain_count_setting()[1] != _IMPLICIT_RETENTION_SOURCE
 
-    def retain_count_for_kind(self, kind: str) -> int:
-        """Return the applicable retain count for the given backup kind.
+    @property
+    def automatic_backup_retain_count(self) -> int:
+        """Global healthy automatic pool: unset 2, explicit 0 all, positive floor 2."""
+        if not self._backup_retain_count_explicit:
+            return DEFAULT_AUTOMATIC_RETAIN_COUNT
+        count = self.backup_retain_count
+        return max(2, count) if count else 0
 
-        When ``backup_retain_count`` is absent from both env and config file,
-        ``scheduled`` maps to ``DEFAULT_SCHEDULED_RETAIN_COUNT`` (14),
-        ``pre_optimize`` maps to ``DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT`` (5), and
-        ``pre_watch`` maps to ``DEFAULT_PRE_WATCH_RETAIN_COUNT`` (5).
-        An explicit ``backup_retain_count: 0`` (or ``MEMPALACE_BACKUP_RETAIN_COUNT=0``)
-        is honoured as keep-all for every kind.  All other kinds (e.g. ``manual``)
-        use ``backup_retain_count`` unchanged (0 by default).
-        """
-        if self._backup_retain_count_explicit:
-            return self.backup_retain_count
-        if kind == "pre_optimize":
-            return DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
-        if kind == "pre_watch":
-            return DEFAULT_PRE_WATCH_RETAIN_COUNT
-        if kind == "scheduled":
-            return DEFAULT_SCHEDULED_RETAIN_COUNT
-        return self.backup_retain_count
+    def retain_count_for_kind(self, kind: str) -> int:
+        """Compatibility accessor; automatic kinds share one pool, manual stays outside."""
+        if kind in ("scheduled", "pre_optimize", "pre_watch"):
+            return self.automatic_backup_retain_count
+        return 0
 
     @property
     def backup_min_free_bytes(self) -> int:

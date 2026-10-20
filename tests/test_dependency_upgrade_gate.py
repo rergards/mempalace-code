@@ -923,13 +923,16 @@ def test_dependency_audit_workflow_closes_the_tracked_issue_after_a_clean_run():
 
     notify = by_name["Create or update dependency-audit issue"]
     close = by_name["Close resolved dependency-audit issue"]
+    terminal = by_name["Fail workflow on audit findings"]
 
-    assert notify["if"] == "steps.audit.outcome == 'failure'"
+    assert notify["if"] == "steps.audit.outcome == 'failure' && github.ref == 'refs/heads/main'"
     # Only a clean run of main speaks for main's lock; a clean dispatch from a
     # feature branch must not close the issue that tracks main's findings.
     assert close["if"] == "steps.audit.outcome == 'success' && github.ref == 'refs/heads/main'"
     assert close.get("continue-on-error") is True, "issue bookkeeping must not fail a clean run"
     assert "continue-on-error" not in notify
+    assert terminal["if"] == "steps.audit.outcome == 'failure'"
+    assert "exit 1" in terminal["run"]
 
     for step in (notify, close):
         assert f'ISSUE_TITLE="{title}"' in step["run"]
