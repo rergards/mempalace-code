@@ -143,6 +143,7 @@ def _fresh_audit_run() -> dict[str, object]:
         "conclusion": "success",
         "event": "schedule",
         "headBranch": "main",
+        "headSha": SHA,
         "updatedAt": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 

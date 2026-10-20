@@ -498,6 +498,7 @@ def evaluate(
     branch: str | None = None,
     required_check_name: str | None = None,
     audit_max_age_hours: int | None = None,
+    audit_branch: str | None = None,
     run: Callable[[list[str], Path], tuple[int, str]] = _run,
     public_read: Callable[[object], object] | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
@@ -605,11 +606,33 @@ def evaluate(
                 admission.REMEDIATE_EXPECT_SHA,
             ).to_dict()
         )
-    if check_dependency_audit:
+    main_audit_required = check_public_main or candidate_ref in (
+        "publish/main",
+        "refs/remotes/publish/main",
+    )
+    if (
+        check_dependency_audit
+        and main_audit_required
+        and audit_branch
+        not in (
+            None,
+            admission.DEFAULT_BRANCH,
+        )
+    ):
+        checks.append(
+            admission.fail_row(
+                "dependency_audit_freshness",
+                "public-main admission requires its audit on main",
+                admission.REMEDIATE_AUDIT,
+            ).to_dict()
+        )
+    elif check_dependency_audit:
         checks.append(
             admission.check_dependency_audit_freshness(
                 repo_name,
                 query_public,
+                audit_branch=audit_branch if audit_branch is not None else admission.DEFAULT_BRANCH,
+                expected_sha=expect_sha,
                 max_age_hours=audit_max_age_hours or admission.DEFAULT_AUDIT_MAX_AGE_HOURS,
             ).to_dict()
         )
@@ -723,7 +746,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-dependency-audit",
         action="store_true",
-        help="Require a fresh successful scheduled dependency-audit workflow run.",
+        help="Require a fresh successful dependency audit for --expect-sha on --audit-branch.",
+    )
+    parser.add_argument(
+        "--audit-branch",
+        help="Dependency Audit branch: immutable release/v* before promotion; main by default.",
     )
     parser.add_argument(
         "--check-branch-rules",
@@ -777,6 +804,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON.")
     args = parser.parse_args(argv)
+    if args.audit_branch is not None and not args.check_dependency_audit:
+        parser.error("--audit-branch requires --check-dependency-audit")
 
     try:
         version, checks = evaluate(
@@ -797,6 +826,7 @@ def main(argv: list[str] | None = None) -> int:
             branch=args.branch,
             required_check_name=args.required_check_name,
             audit_max_age_hours=args.audit_max_age_hours,
+            audit_branch=args.audit_branch,
         )
     except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
         print(f"release-preflight: ERROR — {exc}", file=sys.stderr)

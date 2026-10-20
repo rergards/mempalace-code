@@ -17,13 +17,17 @@ from ..operation_lock import holds_palace_write_lease
 from ..source_io import (
     RegularSourceError,
     hash_regular_bytes,
+    is_regular_source_path,
     read_regular_bytes,
 )
 from ..storage import (
+    _FILE_MINING_CHUNKER_STRATEGIES,
     CHROMA_RUNTIME_RETIRED_MESSAGE,
     ChromaRuntimeRetiredError,
+    _copy_reconcile_record_path,
     is_canonical_project_source,
     is_legacy_chroma_palace,
+    is_legacy_compressed,
     is_valid_file_hash,
     open_store,
     optimize_store,
@@ -50,8 +54,12 @@ from .projects import (
     validate_mine_arguments,
 )
 from .scanner import (
+    NESTED_GIT_ROOT,
+    TECHNICAL_ROOTS,
     get_scan_filter_rules,
     is_exact_force_include,
+    is_force_included,
+    is_technical_root_path,
     resolve_include_paths,
     scan_project,
 )
@@ -306,6 +314,784 @@ def _scan_hard_exclude_dirs(project_path: Path, palace_path: str) -> list[Path]:
     if palace_dir == project_path or project_path in palace_dir.parents:
         return [palace_dir]
     return []
+
+
+# =============================================================================
+# GENERATED COPIES — nested checkouts and technical copies of project files
+# =============================================================================
+
+# The scanner's project-root technical directories, where agents and tools keep technical
+# copies of the project (task checkouts, writer workspaces). Default scans do not walk
+# them. Stored sources below them are only candidates: deletion still needs identical
+# current bytes and identical stored chunks of a canonical project file.
+_TECHNICAL_COPY_ROOTS = tuple(sorted(TECHNICAL_ROOTS))
+# Copy sources assessed, then re-assessed and deleted, per exact-id batch.
+_COPY_RECONCILE_BATCH = 200
+# Row fields that say where or when a chunk was filed, not what it holds.
+_COPY_LOCATION_FIELDS = frozenset(
+    {"id", "text", "vector", "source_file", "filed_at", "added_by", "room", "extractor_version"}
+)
+# Canonical-assessment reasons that leave a copy free to repeat another stored copy.
+_COPY_PEER_REASONS = frozenset({"chunks-differ", "content-differs"})
+# Copy record events whose counterparts are alias targets of removed rows.
+_COPY_ALIAS_EVENTS = frozenset({"remove", "removed"})
+
+
+def _no_copy_reconcile() -> dict:
+    return {
+        "copy_sources_removed": 0,
+        "copy_rows_removed": 0,
+        "copy_sources_retained_by_reason": {},
+        "copy_reconcile_refusal": None,
+        "copy_disk": None,
+    }
+
+
+def _under_prefixes(source_file: str, prefixes: tuple) -> bool:
+    return any(source_file.startswith(prefix + os.sep) for prefix in prefixes)
+
+
+def _is_technical_copy_path(path_text: str, project_path: Path) -> bool:
+    return is_technical_root_path(path_text, project_path)
+
+
+def _technical_copy_counterparts(
+    files: list, project_path: Path, stored_sources: Optional[dict] = None
+) -> dict:
+    """Map each technical copy candidate to its canonical counterpart.
+
+    Candidates are walked files below a technical copy root (explicitly included)
+    and stored sources below one, which default scans no longer walk. The
+    counterpart is the walked file outside every technical root whose complete
+    project-relative path is the longest strict suffix of the copy's relative path.
+    A candidate only selects a pair; the copy proof is assessed separately.
+    """
+    canonical: dict = {}
+    copies: dict = {}
+    for path in files:
+        try:
+            parts = path.relative_to(project_path).parts
+        except ValueError:
+            continue
+        if parts and parts[0] in _TECHNICAL_COPY_ROOTS:
+            copies[str(path)] = parts
+        else:
+            canonical[parts] = path
+    prefixes = tuple(str(project_path / root) + os.sep for root in _TECHNICAL_COPY_ROOTS)
+    for source_file in stored_sources or ():
+        if not isinstance(source_file, str) or not source_file.startswith(prefixes):
+            continue
+        if source_file not in copies and _is_technical_copy_path(source_file, project_path):
+            copies[source_file] = Path(source_file).relative_to(project_path).parts
+    result: dict = {}
+    for copy_file, parts in copies.items():
+        for start in range(1, len(parts)):
+            match = canonical.get(parts[start:])
+            if match is not None:
+                result[copy_file] = str(match)
+                break
+    return result
+
+
+def _generated_copy_pairs(
+    existing_hashes: dict,
+    nested_roots: list,
+    copy_counterparts: dict,
+    project_path: Path,
+    walked: set,
+) -> list:
+    """Pair stored copy sources with the canonical source they may repeat.
+
+    Covers walked technical copies and stored sources below a skipped nested Git
+    checkout, whose counterpart is the same path relative to that checkout. Equal
+    stored digests only select a candidate; they never prove a deletion. Copies
+    whose stored digest differs from their counterpart's are candidates too when at
+    least two share that counterpart and one valid digest, since they may repeat one
+    legacy snapshot. A lone changed copy is not selected.
+    """
+    roots = [str(root) for root, kind in nested_roots if kind == NESTED_GIT_ROOT]
+    pairs: dict = {}
+    peers: dict = defaultdict(list)
+    for source_file, source_hash in existing_hashes.items():
+        if not is_valid_file_hash(source_hash):
+            continue
+        counterpart = copy_counterparts.get(source_file)
+        if counterpart is None:
+            root = next((r for r in roots if source_file.startswith(r + os.sep)), None)
+            if root is None:
+                continue
+            candidate = str(project_path / os.path.relpath(source_file, root))
+            if candidate not in walked or _is_technical_copy_path(candidate, project_path):
+                continue
+            counterpart = candidate
+        if counterpart == source_file:
+            continue
+        counterpart_hash = existing_hashes.get(counterpart)
+        if counterpart_hash == source_hash:
+            pairs[source_file] = counterpart
+        elif is_valid_file_hash(counterpart_hash):
+            peers[(counterpart, source_hash)].append(source_file)
+    for (counterpart, _), sources in peers.items():
+        if len(sources) > 1:
+            pairs.update((source_file, counterpart) for source_file in sources)
+    return sorted(pairs.items())
+
+
+def _rows_by_source(collection, wing: str, sources: list) -> Optional[dict]:
+    """Return {source_file: [row, ...]} for *sources* in *wing*; None when unreadable."""
+    iter_all = getattr(collection, "iter_all", None)
+    if iter_all is None:
+        return None
+    rows: dict = defaultdict(list)
+    try:
+        for batch in iter_all(
+            where={"$and": [{"wing": wing}, {"source_file": {"$in": sources}}]},
+            batch_size=1000,
+        ):
+            for row in batch:
+                rows[row.get("source_file")].append(row)
+    except Exception:
+        return None
+    return rows
+
+
+def _is_current_generated_row(row: dict, source_hash: str) -> bool:
+    return (
+        row.get("ingest_mode") == "file"
+        and row.get("chunker_strategy") in _FILE_MINING_CHUNKER_STRATEGIES
+        and row.get("type") == ""
+        and is_valid_file_hash(source_hash)
+        and row.get("source_hash") == source_hash
+        and not is_legacy_compressed(row)
+    )
+
+
+def _chunk_order(row: dict) -> tuple:
+    value = row.get("chunk_index")
+    if isinstance(value, int) and not isinstance(value, bool):
+        return (0, value, "")
+    return (1, 0, str(value))
+
+
+def _chunk_group(rows: list) -> list:
+    """Ordered chunk text plus every metadata field except filing location and time."""
+    group = []
+    for row in sorted(rows, key=_chunk_order):
+        fields = sorted((k, v) for k, v in row.items() if k not in _COPY_LOCATION_FIELDS)
+        group.append((row.get("text"), fields))
+    return group
+
+
+def _assess_generated_copy(rows_by_source: dict, copy_file: str, counterpart: str) -> tuple:
+    """Return (copy row ids, digest, None) when *copy_file* exactly repeats *counterpart*.
+
+    Otherwise the ids are empty and the last item names why the copy is kept. Proof
+    needs both files to be current regular files without symlink components and with
+    identical bytes, every stored copy row to be a current generated row of that
+    digest, and the ordered chunk groups to match in text and all other metadata.
+    """
+    digests = []
+    for path_text in (copy_file, counterpart):
+        try:
+            if os.path.realpath(path_text) != path_text:
+                return [], "", "source-missing-or-not-regular"
+            if not is_regular_source_path(Path(path_text)):
+                return [], "", "source-missing-or-not-regular"
+            digests.append(_file_hash(Path(path_text)))
+        except OSError:
+            return [], "", "source-missing-or-not-regular"
+    digest = digests[0]
+    if digest != digests[1]:
+        return [], digest, "content-differs"
+    copy_rows = rows_by_source.get(copy_file, [])
+    if not copy_rows:
+        return [], digest, "no-stored-rows"
+    if not all(_is_current_generated_row(row, digest) for row in copy_rows):
+        return [], digest, "protected-or-legacy-row"
+    canonical_rows = rows_by_source.get(counterpart, [])
+    canonical_rows = [row for row in canonical_rows if _is_current_generated_row(row, digest)]
+    if _chunk_group(copy_rows) != _chunk_group(canonical_rows):
+        return [], digest, "chunks-differ"
+    return [row["id"] for row in copy_rows], digest, None
+
+
+def _assess_copy_batch(
+    collection,
+    wing: str,
+    batch: list,
+    retained,
+    prefix: str = "",
+    rejected: Optional[list] = None,
+) -> list:
+    """Assess *batch* of (copy, counterpart) pairs; count each kept copy in *retained*.
+
+    With *rejected*, each kept copy is appended there as (copy, counterpart, reason,
+    digest) instead, and the caller decides how it is counted.
+    """
+    sources = sorted({path for pair in batch for path in pair})
+    rows_by_source = _rows_by_source(collection, wing, sources)
+    qualified = []
+    for copy_file, counterpart in batch:
+        if rows_by_source is None:
+            if rejected is not None:
+                rejected.append((copy_file, counterpart, "rows-unreadable", ""))
+            else:
+                retained[prefix + "rows-unreadable"] += 1
+            continue
+        ids, digest, reason = _assess_generated_copy(rows_by_source, copy_file, counterpart)
+        if reason is None:
+            qualified.append((copy_file, counterpart, ids, digest))
+        elif rejected is not None:
+            rejected.append((copy_file, counterpart, reason, digest))
+        else:
+            retained[prefix + reason] += 1
+    return qualified
+
+
+def _append_copy_record(record_path: Path, entry: dict) -> bool:
+    try:
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        with record_path.open("a+b") as handle:
+            if handle.tell():
+                handle.seek(-1, os.SEEK_END)
+                if handle.read(1) != b"\n":
+                    handle.write(b"\n")
+            handle.write((json.dumps(entry, sort_keys=True, default=str) + "\n").encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Publish both the record entry and its directory before deleting rows.
+        for directory in (record_path.parent, record_path.parent.parent):
+            descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    except OSError as exc:
+        print(f"  WARNING: could not record copy reconciliation: {exc}", file=sys.stderr)
+        return False
+    return True
+
+
+def _on_disk_bytes(collection) -> Optional[int]:
+    stats = getattr(collection, "storage_stats", None)
+    if not callable(stats):
+        return None
+    try:
+        snapshot = stats()
+        if not isinstance(snapshot, dict):
+            return None
+        value = snapshot.get("on_disk_bytes")
+    except Exception:
+        return None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _snapshot_key(rows: list, digest: str) -> Optional[str]:
+    """Digest of one copy's complete chunk group; None unless every row is current."""
+    if not rows or not all(_is_current_generated_row(row, digest) for row in rows):
+        return None
+    group = json.dumps(_chunk_group(rows), sort_keys=True, default=str)
+    return hashlib.sha256(group.encode("utf-8")).hexdigest()
+
+
+def _copy_snapshot_classes(collection, wing: str, peers: dict, retained) -> list:
+    """Group peer candidates into classes of one exact stored snapshot.
+
+    *peers* maps (counterpart, current digest) to [(copy, reason), ...]. A class is a
+    sorted list of at least two copies whose rows are all current generated rows of
+    that digest with one complete chunk group. The key only groups candidates: each
+    peer is still proven by the unchanged assessor. Sources are read in bounded
+    batches; every copy outside a class is counted under its canonical reason.
+    """
+    classes: list = []
+    for (_, digest), candidates in sorted(peers.items()):
+        if len(candidates) < 2:
+            retained[candidates[0][1]] += 1
+            continue
+        snapshots: dict = defaultdict(list)
+        ordered = sorted(candidates)
+        for start in range(0, len(ordered), _COPY_RECONCILE_BATCH):
+            batch = ordered[start : start + _COPY_RECONCILE_BATCH]
+            sources = [copy_file for copy_file, _ in batch]
+            rows_by_source = _rows_by_source(collection, wing, sources) or {}
+            for copy_file, reason in batch:
+                key = _snapshot_key(rows_by_source.get(copy_file, []), digest)
+                if key is None:
+                    retained[reason] += 1
+                else:
+                    snapshots[key].append((copy_file, reason))
+        for members in snapshots.values():
+            if len(members) > 1:
+                classes.append(members)
+            else:
+                retained[members[0][1]] += 1
+    return classes
+
+
+def _qualify_copy_peers(collection, wing: str, classes: list, targets: set, retained) -> list:
+    """Prove each snapshot peer against the one representative its class keeps.
+
+    The representative is the lowest-sorted member an existing record already names
+    as an alias target, else the lowest-sorted member, so a retry keeps the same one.
+    Representatives and recorded targets are kept; every other member must pass the
+    unchanged assessor against the representative, in bounded batches that re-read
+    it. Kept members are counted under their canonical-assessment reason.
+    """
+    peer_pairs: list = []
+    reasons: dict = {}
+    for members in classes:
+        named = [copy_file for copy_file, _ in members if copy_file in targets]
+        keeper = named[0] if named else members[0][0]
+        for copy_file, reason in members:
+            reasons[copy_file] = reason
+            if copy_file == keeper or copy_file in targets:
+                retained[reason] += 1
+            else:
+                peer_pairs.append((copy_file, keeper))
+    qualified: list = []
+    for start in range(0, len(peer_pairs), _COPY_RECONCILE_BATCH):
+        batch = peer_pairs[start : start + _COPY_RECONCILE_BATCH]
+        failed: list = []
+        qualified.extend(
+            (copy_file, representative)
+            for copy_file, representative, _, _ in _assess_copy_batch(
+                collection, wing, batch, retained, rejected=failed
+            )
+        )
+        for copy_file, _, _, _ in failed:
+            retained[reasons[copy_file]] += 1
+    return qualified
+
+
+def _without_alias_targets(qualified: list, targets: set, retained) -> list:
+    """Drop every pair whose copy is an alias target of this run or an earlier one.
+
+    No representative can be deleted, and no alias can name a deleted source.
+    """
+    counterparts = {counterpart for _, counterpart in qualified}
+    kept: list = []
+    for copy_file, counterpart in qualified:
+        if copy_file in targets:
+            retained["historical-alias-target"] += 1
+        elif copy_file in counterparts:
+            retained["alias-target"] += 1
+        else:
+            kept.append((copy_file, counterpart))
+    return kept
+
+
+def _copy_history_object(pairs: list) -> dict:
+    """Reject ambiguous JSON objects, including objects nested in alias sources."""
+    entry: dict = {}
+    for key, value in pairs:
+        if key in entry:
+            raise ValueError("duplicate JSON object key in copy history")
+        entry[key] = value
+    return entry
+
+
+def _copy_history_line(line: bytes, wing: str) -> tuple:
+    """Return (alias targets one copy-record line names for *wing*, problem or None)."""
+    try:
+        entry = json.loads(line, object_pairs_hook=_copy_history_object)
+    except ValueError:
+        return [], "not valid JSON"
+    if not isinstance(entry, dict) or not isinstance(entry.get("event"), str):
+        return [], "missing its event"
+    if entry["event"] not in _COPY_ALIAS_EVENTS:
+        if entry["event"] not in {"refused", "summary"} or "sources" in entry:
+            return [], "an unknown or ambiguous event"
+        return [], None
+    sources = entry.get("sources")
+    if not isinstance(entry.get("wing"), str) or not entry["wing"].strip():
+        return [], "an alias record without a wing"
+    if not isinstance(sources, list) or not sources:
+        return [], "an alias record without sources"
+    if not all(
+        isinstance(source, dict)
+        and isinstance(source.get("source_file"), str)
+        and isinstance(source.get("counterpart"), str)
+        and source["counterpart"]
+        for source in sources
+    ):
+        return [], "an alias record with an invalid source"
+    if entry["wing"] != wing:
+        return [], None
+    return [source["counterpart"] for source in sources], None
+
+
+def _historical_copy_targets(record_path: Path, wing: str) -> tuple:
+    """Return (counterparts earlier remove/removed records of *wing* name, refusal).
+
+    Recorded alias targets must outlive the aliases that name them. A record that was
+    never created is empty history. Any line that cannot be read, parsed or attributed,
+    and any remove/removed record whose sources cannot be validated, returns a refusal
+    instead: write-before-delete ordering does not prove that a damaged line never
+    preceded a deletion. The record is streamed and never changed here.
+    """
+    targets: set = set()
+    try:
+        if record_path.is_symlink():
+            return set(), "copy reconciliation history is a symlink; no copy is removed"
+        with record_path.open("rb") as handle:
+            for number, line in enumerate(handle, 1):
+                named, problem = _copy_history_line(line, wing)
+                if problem is not None:
+                    reason = f"copy reconciliation history line {number} is {problem}"
+                    return set(), f"{reason}; no copy is removed while alias targets are unknown"
+                targets.update(named)
+    except FileNotFoundError:
+        return set(), None
+    except OSError as exc:
+        return set(), f"copy reconciliation history is unreadable ({exc}); no copy is removed"
+    return targets, None
+
+
+def _reconcile_generated_copies(
+    collection, wing: str, pairs: list, palace_path: str, kg_path, optimize_enabled: bool
+) -> dict:
+    """Delete stored rows that exactly repeat a canonical source; keep everything else.
+
+    Knowledge-graph facts are never read or changed. Copies the canonical source does
+    not prove may still exactly repeat each other: one representative per stored
+    snapshot is kept and the other copies are proven against it. Representatives and
+    every alias target named in this run or in the existing record are never deleted,
+    and a record that cannot be read or validated refuses all deletions. A healthy
+    pre_optimize backup gates the first deletion; a failed or degraded one refuses all
+    of them and keeps the forensic archive. Each exact-id batch is re-assessed
+    immediately before it is deleted and recorded before and after, so an
+    interruption leaves the remaining candidates for the next run to reassess.
+    """
+    outcome = _no_copy_reconcile()
+    retained: dict = defaultdict(int)
+    qualified: list = []
+    rejected: list = []
+    for start in range(0, len(pairs), _COPY_RECONCILE_BATCH):
+        batch = pairs[start : start + _COPY_RECONCILE_BATCH]
+        qualified.extend(
+            (copy_file, counterpart)
+            for copy_file, counterpart, _, _ in _assess_copy_batch(
+                collection, wing, batch, retained, rejected=rejected
+            )
+        )
+    peers: dict = defaultdict(list)
+    for copy_file, counterpart, reason, digest in rejected:
+        if reason in _COPY_PEER_REASONS:
+            peers[(counterpart, digest)].append((copy_file, reason))
+        else:
+            retained[reason] += 1
+    classes = _copy_snapshot_classes(collection, wing, peers, retained)
+    if not qualified and not classes:
+        outcome["copy_sources_retained_by_reason"] = dict(retained)
+        return outcome
+
+    record_path = _copy_reconcile_record_path(palace_path)
+    # Before any deletion: earlier alias targets stay, and damaged history refuses.
+    targets, history_refusal = _historical_copy_targets(record_path, wing)
+    if history_refusal is not None:
+        retained["history-refused"] += len(qualified) + sum(len(c) for c in classes)
+        outcome["copy_reconcile_refusal"] = history_refusal
+        outcome["copy_sources_retained_by_reason"] = dict(retained)
+        return outcome
+    qualified.extend(_qualify_copy_peers(collection, wing, classes, targets, retained))
+    qualified = _without_alias_targets(qualified, targets, retained)
+    if not qualified:
+        outcome["copy_sources_retained_by_reason"] = dict(retained)
+        return outcome
+    archive = None
+    refusal: Optional[str] = None
+    try:
+        from ..backup import create_backup
+
+        metadata, archive = create_backup(palace_path, kind="pre_optimize", kg_path=kg_path)
+    except Exception as exc:
+        refusal = f"pre_optimize backup failed: {exc}"
+    else:
+        if not isinstance(metadata, dict) or metadata.get("degraded"):
+            refusal = (
+                f"pre_optimize backup is degraded; the forensic archive {archive} is kept "
+                "but is not a recovery point"
+            )
+    if refusal is not None:
+        retained["backup-refused"] += len(qualified)
+        outcome["copy_reconcile_refusal"] = refusal
+        outcome["copy_sources_retained_by_reason"] = dict(retained)
+        _append_copy_record(
+            record_path,
+            {
+                "event": "refused",
+                "timestamp": datetime.now().isoformat(),
+                "wing": wing,
+                "reason": refusal,
+                "candidates": len(qualified),
+            },
+        )
+        return outcome
+
+    on_disk_before = _on_disk_bytes(collection)
+    for start in range(0, len(qualified), _COPY_RECONCILE_BATCH):
+        chunk = qualified[start : start + _COPY_RECONCILE_BATCH]
+        batch = chunk
+        # Drift since the first assessment keeps the source.
+        confirmed = _assess_copy_batch(
+            collection, wing, batch, retained, prefix="changed-before-delete:"
+        )
+        if not confirmed:
+            continue
+        alias_rows = _rows_by_source(collection, wing, [item[0] for item in confirmed])
+        if alias_rows is None:
+            retained["alias-metadata-unreadable"] += len(confirmed)
+            continue
+        sources = [
+            {
+                "source_file": copy_file,
+                "counterpart": counterpart,
+                "source_hash": digest,
+                "rows": len(ids),
+                "aliases": [
+                    {
+                        k: row.get(k)
+                        for k in (
+                            "id",
+                            "source_file",
+                            "room",
+                            "filed_at",
+                            "added_by",
+                            "extractor_version",
+                            "chunker_strategy",
+                            "source_hash",
+                        )
+                    }
+                    for row in alias_rows.get(copy_file, [])
+                ],
+            }
+            for copy_file, counterpart, ids, digest in confirmed
+        ]
+        entry = {"timestamp": datetime.now().isoformat(), "wing": wing, "backup": archive}
+        if not _append_copy_record(record_path, {**entry, "event": "remove", "sources": sources}):
+            outcome["copy_reconcile_refusal"] = "copy reconciliation record could not be written"
+            retained["record-unwritable"] += len(qualified) - start
+            break
+        deleted = collection.delete([row_id for _, _, ids, _ in confirmed for row_id in ids])
+        outcome["copy_sources_removed"] += len(confirmed)
+        outcome["copy_rows_removed"] += deleted
+        _append_copy_record(
+            record_path,
+            {
+                **entry,
+                "event": "removed",
+                "alias_record_timestamp": entry["timestamp"],
+                "sources": [
+                    {k: v for k, v in source.items() if k != "aliases"} for source in sources
+                ],
+                "deleted_rows": deleted,
+            },
+        )
+
+    maintenance = None
+    if optimize_enabled and outcome["copy_rows_removed"]:
+        optimized = optimize_store(collection, palace_path, backup_first=False, kg_path=kg_path)
+        if optimized.ok:
+            from ..storage import READER_VERSION_GRACE
+
+            # Keep normal readers available during the one settling interval.
+            time.sleep(READER_VERSION_GRACE.total_seconds() + 0.1)
+            maintenance = collection.cleanup_stale_fragments(older_than_days=0, unsafe_now=False)
+        else:
+            maintenance = {"ok": False, "error": "healthy-backed optimize failed"}
+    on_disk_after = _on_disk_bytes(collection)
+    reason = (
+        "Row deletion commits a new Lance version; earlier versions keep these bytes until "
+        "supported maintenance prunes them"
+    )
+    if not optimize_enabled:
+        reason += " (post-mine optimize is disabled or skipped, so this run prunes nothing)"
+    outcome["copy_disk"] = {
+        "measurement_scope": "Lance table files; excludes backups and the provenance record",
+        "on_disk_bytes_before": on_disk_before,
+        "on_disk_bytes_after": on_disk_after,
+        "disk_reclaimed": bool(
+            maintenance
+            and maintenance.get("ok")
+            and on_disk_before is not None
+            and on_disk_after is not None
+            and on_disk_after < on_disk_before
+        ),
+        "maintenance": maintenance,
+        "reason": (
+            f"Supported maintenance: {maintenance}; measured bytes {on_disk_before} -> {on_disk_after}"
+            if maintenance is not None
+            else reason
+        ),
+    }
+    outcome["copy_sources_retained_by_reason"] = dict(retained)
+    _append_copy_record(
+        record_path,
+        {
+            "event": "summary",
+            "timestamp": datetime.now().isoformat(),
+            "wing": wing,
+            "sources_removed": outcome["copy_sources_removed"],
+            "rows_removed": outcome["copy_rows_removed"],
+            "retained_by_reason": outcome["copy_sources_retained_by_reason"],
+            **outcome["copy_disk"],
+        },
+    )
+    return outcome
+
+
+def _copy_maintenance_pending(record_path: Path) -> bool:
+    """A bounded diagnostic hint; current Lance state and recovery gates still decide."""
+    try:
+        with record_path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, handle.tell() - 65536))
+            last = json.loads(handle.read().splitlines()[-1])
+        maintenance = last.get("maintenance") if isinstance(last, dict) else None
+        return not (
+            isinstance(last, dict)
+            and last.get("event") == "summary"
+            and isinstance(maintenance, dict)
+            and maintenance.get("ok") is True
+            # A safe prune may retain every old version for readers.
+            and type(maintenance.get("version_count_after")) is int
+            and maintenance["version_count_after"] == 1
+            and maintenance.get("versions_kept_for_readers", 0) == 0
+        )
+    except (OSError, ValueError, IndexError):
+        # An interrupted/oversized final entry cannot prove completed maintenance.
+        return True
+
+
+def _run_copy_reconcile(
+    collection,
+    wing: str,
+    pairs: list,
+    palace_path: str,
+    kg_path,
+    skip_optimize: bool,
+    *,
+    retry_maintenance: bool = True,
+) -> dict:
+    optimize_enabled = not skip_optimize and MempalaceConfig().optimize_after_mine
+    outcome = (
+        _reconcile_generated_copies(collection, wing, pairs, palace_path, kg_path, optimize_enabled)
+        if pairs
+        else _no_copy_reconcile()
+    )
+    if (
+        not retry_maintenance
+        or not optimize_enabled
+        or outcome["copy_rows_removed"]
+        or outcome["copy_reconcile_refusal"]
+        or not _copy_maintenance_due(palace_path)
+    ):
+        return outcome
+    return _retry_copy_maintenance(collection, wing, palace_path, kg_path, outcome)
+
+
+def _copy_maintenance_due(palace_path: str) -> bool:
+    """True when the local copy record hints that physical maintenance is pending.
+
+    Only a hint for when to look: current Lance state and the recovery gates in
+    _retry_copy_maintenance decide, and it never authorizes deletion.
+    """
+    record_path = _copy_reconcile_record_path(palace_path)
+    return record_path.is_file() and _copy_maintenance_pending(record_path)
+
+
+def _retry_copy_maintenance(
+    collection, wing: str, palace_path: str, kg_path, outcome: dict
+) -> dict:
+    """Retry pending physical maintenance after an earlier exact-copy removal.
+
+    Shared by mine() and the watcher's once-per-batch maintenance decision. Callers
+    hold the palace write lease, so the record is assessed and updated under it.
+    """
+    # The existing local record is only a retry hint, never deletion authority.
+    # Lance versions are the existing retry state. No journal marker or new store:
+    # after a deferred prune or post-delete interruption, an unchanged mine can
+    # safely retry with a fresh healthy recovery point and the same reader fence.
+    stats_method = getattr(collection, "storage_stats", None)
+    if not callable(stats_method):
+        return outcome
+    before = None
+    try:
+        before = stats_method()
+        if not isinstance(before, dict):
+            return outcome
+        state = before.get("latest_version_compact")
+        if state is True and before.get("version_count", 0) <= 1:
+            _append_copy_record(
+                _copy_reconcile_record_path(palace_path),
+                {
+                    "event": "summary",
+                    "wing": wing,
+                    "maintenance": {"ok": True, "version_count_after": before["version_count"]},
+                },
+            )
+            return outcome
+        if state is None:
+            maintenance = {
+                "ok": False,
+                "deferred": True,
+                "error": "Current compaction metadata unavailable",
+            }
+        elif state is True:
+            # Reuse the existing prune-only predicate and reader fence. No new
+            # recovery archive is needed when no fragment is rewritten.
+            maintenance = collection.cleanup_stale_fragments(
+                older_than_days=0, unsafe_now=False, compact=False
+            )
+        else:
+            optimized = optimize_store(collection, palace_path, backup_first=True, kg_path=kg_path)
+            if optimized.ok:
+                maintenance = collection.cleanup_stale_fragments(
+                    older_than_days=0, unsafe_now=False
+                )
+            else:
+                maintenance = {"ok": False, "error": "healthy-backed optimize failed"}
+    except Exception as exc:
+        maintenance = {"ok": False, "error": str(exc)}
+    after_bytes = _on_disk_bytes(collection)
+    before_bytes = before.get("on_disk_bytes") if isinstance(before, dict) else None
+    outcome["copy_disk"] = {
+        "measurement_scope": "Lance table files; excludes backups and the provenance record",
+        "on_disk_bytes_before": before_bytes,
+        "on_disk_bytes_after": after_bytes,
+        "disk_reclaimed": bool(
+            maintenance.get("ok")
+            and isinstance(before_bytes, int)
+            and after_bytes is not None
+            and after_bytes < before_bytes
+        ),
+        "maintenance": maintenance,
+        "reason": f"Retry supported maintenance: {maintenance}; bytes {before_bytes} -> {after_bytes}",
+    }
+    _append_copy_record(
+        _copy_reconcile_record_path(palace_path),
+        {"event": "summary", "wing": wing, **outcome["copy_disk"]},
+    )
+    return outcome
+
+
+def _print_copy_summary(copies_skipped: int, outcome: dict) -> None:
+    if copies_skipped:
+        print(f"  Files skipped (identical copy of a filed project file): {copies_skipped}")
+    if outcome.get("copy_reconcile_refusal"):
+        print(f"  Copy reconciliation refused: {outcome['copy_reconcile_refusal']}")
+    if outcome.get("copy_sources_removed"):
+        print(
+            f"  Copy drawers removed: {outcome['copy_rows_removed']} "
+            f"({outcome['copy_sources_removed']} exact copies of filed project files)"
+        )
+    retained = outcome.get("copy_sources_retained_by_reason") or {}
+    if retained:
+        detail = ", ".join(f"{reason} {count}" for reason, count in sorted(retained.items()))
+        print(f"  Copies kept (not proven exact): {detail}")
+    disk = outcome.get("copy_disk")
+    if disk:
+        print(f"  Disk: {disk['reason']}")
 
 
 # =============================================================================
@@ -706,6 +1492,7 @@ def mine(
 
     scan_rules = get_scan_filter_rules(MempalaceConfig())
     unsupported_files: list = []
+    nested_roots: list = []
     files = scan_project(
         project_dir,
         respect_gitignore=respect_gitignore,
@@ -715,9 +1502,20 @@ def mine(
         skip_invalid_source_symlinks=skip_invalid_source_symlinks,
         symlink_diagnostics=symlink_diagnostics,
         unsupported_files=unsupported_files,
+        nested_roots=nested_roots,
     )
     if limit > 0:
         files = files[:limit]
+    # Stored drawers below a skipped nested checkout or unclassifiable .git marker are
+    # never stale-swept by this run, even when the marker error clears meanwhile.
+    skipped_prefixes = tuple(str(root) for root, _ in nested_roots)
+    for root, kind in nested_roots:
+        if kind != NESTED_GIT_ROOT:
+            print(
+                f"  WARNING: {root}: its .git marker could not be classified; the directory "
+                "was not mined and its stored drawers are kept.",
+                file=sys.stderr,
+            )
 
     def force_included(path: Path) -> bool:
         return is_exact_force_include(path, project_path, include_paths)
@@ -764,6 +1562,11 @@ def mine(
         print("  .gitignore: DISABLED")
     if include_paths:
         print(f"  Include: {', '.join(sorted(include_paths))}")
+    if nested_roots:
+        print(
+            f"  Nested:  {len(nested_roots)} nested Git checkout(s) not mined "
+            "(--include-ignored <path> mines one)"
+        )
     if config_changed:
         print(
             "  Config:  room routing changed since the last mine (mempalace.yaml or "
@@ -778,6 +1581,11 @@ def mine(
             "(MCP mempalace_delete_wing) after checking what it holds."
         )
     print(f"{'─' * 55}\n")
+
+    if not dry_run:
+        from ..backup import reconcile_managed_backups
+
+        reconcile_managed_backups(palace_path)
 
     # Pre-compute file hashes and the stale-sweep inventory for every full walk.
     # Incremental mode also uses them for no-op detection; running before warmup
@@ -795,6 +1603,11 @@ def mine(
     _hashes_loaded = False  # True when hashes were already fetched for the main loop
     files_failed = 0
     _hash_failed_paths: set[str] = set()
+    # Technical copies identical to their filed canonical file, and stored copy or
+    # nested-checkout sources paired with the canonical source they may repeat.
+    copy_counterparts: dict = {}
+    skipped_copies: set[str] = set()
+    reconcile_pairs: list = []
 
     embedder_warmed = False
 
@@ -821,7 +1634,12 @@ def mine(
             protected_source_files=protected_stale_sources,
         )
         stale_assessment_available = scoped_hashes is not None
-        stale_hashes = scoped_hashes or {}
+        stale_hashes = {
+            source_file: source_hash
+            for source_file, source_hash in (scoped_hashes or {}).items()
+            if not _under_prefixes(source_file, skipped_prefixes)
+            and not _is_technical_copy_path(source_file, project_path)
+        }
         if not stale_assessment_available:
             print(
                 "  Stale-file sweep skipped: project provenance assessment unavailable; "
@@ -865,16 +1683,43 @@ def mine(
                 _precomputed_hashes.pop(sf, None)
                 continue
         _walked_set = {str(path) for path in files}
+        # Stored technical sources stay candidates when default scans prune their roots.
+        copy_counterparts = _technical_copy_counterparts(files, project_path, existing_hashes)
+        # Commit primary files before considering their technical copies, including
+        # the first mine of an empty palace. Unique reports keep their normal order.
+        files.sort(key=lambda path: str(path) in copy_counterparts)
+        skipped_copies = {
+            copy_file
+            for copy_file, counterpart in copy_counterparts.items()
+            if not is_force_included(Path(copy_file), project_path, include_paths)
+            and _precomputed_hashes.get(copy_file) is not None
+            and _precomputed_hashes.get(copy_file) == _precomputed_hashes.get(counterpart)
+            and existing_hashes.get(counterpart) == _precomputed_hashes.get(copy_file)
+        }
+        needs_remine.difference_update(skipped_copies)
+        reconcile_pairs = [
+            pair
+            for pair in _generated_copy_pairs(
+                existing_hashes, nested_roots, copy_counterparts, project_path, _walked_set
+            )
+            if not is_force_included(Path(pair[0]), project_path, include_paths)
+        ]
         _any_changed = bool(needs_remine) or any(
             not (
                 (existing_hashes.get(sf, "") == h and existing_hashes.get(sf, "") != "")
                 or (tiny_hashes.get(sf, "") == h and tiny_hashes.get(sf, "") != "")
             )
             for sf, h in _precomputed_hashes.items()
+            if sf not in skipped_copies
         )
-        owned_tiny_sources = _owned_tiny_sources(
-            stored_tiny_hashes, project_path, protected_stale_sources
-        )
+        owned_tiny_sources = {
+            source_file
+            for source_file in _owned_tiny_sources(
+                stored_tiny_hashes, project_path, protected_stale_sources
+            )
+            if not _under_prefixes(source_file, skipped_prefixes)
+            and not _is_technical_copy_path(source_file, project_path)
+        }
         _any_deleted = stale_assessment_available and bool(
             (set(stale_hashes) | owned_tiny_sources) - _walked_set
         )
@@ -886,6 +1731,9 @@ def mine(
             and not _any_deleted
             and not config_changed
         ):
+            copy_reconcile = _run_copy_reconcile(
+                collection, wing, reconcile_pairs, palace_path, kg_path, skip_optimize
+            )
             elapsed = time.time() - mine_start
             mins, secs = divmod(int(elapsed), 60)
             _tiny_count = sum(
@@ -906,6 +1754,7 @@ def mine(
                 )
             if files_failed:
                 print(f"  Files failed to read: {files_failed}")
+            _print_copy_summary(len(skipped_copies), copy_reconcile)
             print("  Drawers filed: 0")
             print(f"  Time: {mins}m {secs}s")
             print(f"{'=' * 55}\n")
@@ -926,6 +1775,9 @@ def mine(
                 "stale_files_removed": 0,
                 "stale_drawers_removed": 0,
                 "stale_sources_removed": [],
+                "nested_roots_skipped": len(nested_roots),
+                "copy_files_skipped": len(skipped_copies),
+                **copy_reconcile,
                 "elapsed_secs": elapsed,
                 "embedder_warmed": False,
             }
@@ -959,6 +1811,8 @@ def mine(
     stale_drawers_removed = 0
     stale_sources_removed: list = []
     room_counts = defaultdict(int)
+    copies_skipped = 0
+    copy_reconcile = _no_copy_reconcile()
     batch_buffer: list = []
     # Files whose old mined drawers are replaced when their batch is written.
     pending_replace: set = set()
@@ -989,6 +1843,9 @@ def mine(
         total_drawers += add_drawers_batch(
             collection, batch_buffer, replace_sources=replacing, wing=wing
         )
+        for spec in batch_buffer:
+            metadata = spec["metadata"]
+            existing_hashes[metadata["source_file"]] = metadata["source_hash"]
         embedding_in_flight = False
         pending_replace.difference_update(replacing)
         elapsed = time.time() - t0
@@ -1002,6 +1859,29 @@ def mine(
 
             if source_file in _hash_failed_paths:
                 continue
+
+            counterpart = copy_counterparts.get(source_file)
+            if counterpart is not None and not is_force_included(
+                filepath, project_path, include_paths
+            ):
+                expected = _precomputed_hashes.get(source_file)
+                if batch_buffer and existing_hashes.get(counterpart) != expected:
+                    flush_batch()
+                if (
+                    expected
+                    and counterpart not in pending_empty_sources
+                    and existing_hashes.get(counterpart) == expected
+                ):
+                    try:
+                        same_current_bytes = (
+                            _file_hash(filepath) == expected
+                            and _file_hash(Path(counterpart)) == expected
+                        )
+                    except OSError:
+                        same_current_bytes = False
+                    if same_current_bytes:
+                        copies_skipped += 1
+                        continue
 
             # Print scanning progress every 100 files so large repos aren't silent
             if not dry_run and (i % 100 == 0 or i == 1):
@@ -1200,14 +2080,28 @@ def mine(
                     for stale_tiny in stale_tiny_paths:
                         tiny_hashes.pop(stale_tiny, None)
 
+            # Exact generated copies of filed project files: drawer rows only, never KG.
+            if limit == 0:
+                copy_reconcile = _run_copy_reconcile(
+                    collection,
+                    wing,
+                    reconcile_pairs,
+                    palace_path,
+                    kg_path,
+                    skip_optimize,
+                    retry_maintenance=False,
+                )
+
             # Architecture extraction pass: derive pattern/layer/namespace/project
             # KG facts from the full walked file set.  Runs after the stale sweep so
             # deleted-file triples are already expired before we re-emit.
             if kg is not None and limit == 0:
                 from mempalace_code.architecture import (
                     _NS_PROJECT_SENTINEL,
+                    arch_facts,
                     extract_type_inventory,
                     load_arch_config,
+                    namespace_project_source_file,
                     refresh_arch_facts,
                 )
 
@@ -1226,7 +2120,49 @@ def mine(
                 )
                 # Diff against this wing's current architecture facts only: other wings'
                 # facts survive, unchanged facts keep their rows, removed ones expire.
-                arch = refresh_arch_facts(inventory, arch_cfg, wing, project_path, kg)
+                if skipped_prefixes or any(
+                    _is_technical_copy_path(source, project_path) for source in existing_hashes
+                ):
+                    desired = arch_facts(inventory, arch_cfg, wing)
+                    # Closed facts stay closed. Existing unique support under newly
+                    # excluded/unreadable prefixes must survive this full-root sync.
+                    protected_namespaces = set()
+                    for predicate in ARCH_PREDICATES:
+                        for fact in kg.query_relationship(predicate):
+                            source = fact.get("source_file") or ""
+                            protected = _under_prefixes(source, skipped_prefixes) or (
+                                _is_technical_copy_path(source, project_path)
+                                and source not in walked_paths
+                            )
+                            if fact.get("valid_to") is None and protected:
+                                if predicate == "in_namespace":
+                                    protected_namespaces.add(fact["object"])
+                                desired.append(
+                                    (
+                                        fact["subject"],
+                                        predicate,
+                                        fact["object"],
+                                        fact["source_file"],
+                                    )
+                                )
+                    for fact in kg.query_relationship("in_project"):
+                        if (
+                            fact.get("valid_to") is None
+                            and fact.get("source_file") == namespace_project_source_file(wing)
+                            and fact["subject"] in protected_namespaces
+                            and fact["object"] == wing
+                        ):
+                            desired.append(
+                                (fact["subject"], "in_project", wing, fact["source_file"])
+                            )
+                    arch = kg.sync_facts(
+                        desired,
+                        source_files=[namespace_project_source_file(wing)],
+                        project_root=str(project_path),
+                        predicates=list(ARCH_PREDICATES),
+                    )
+                else:
+                    arch = refresh_arch_facts(inventory, arch_cfg, wing, project_path, kg)
                 # New and expired count every KG change of this run: file facts, facts of
                 # deleted files, legacy rows, and architecture facts.
                 inserted = arch["inserted"] + kg_facts_inserted
@@ -1240,7 +2176,7 @@ def mine(
                     )
 
             app_config = MempalaceConfig()
-            if not skip_optimize:
+            if not skip_optimize and copy_reconcile.get("copy_disk") is None:
                 if app_config.optimize_after_mine:
                     t0 = time.time()
                     backup_first = app_config.backup_before_optimize
@@ -1362,6 +2298,7 @@ def mine(
             )
     if files_failed:
         print(f"  Files failed to read: {files_failed}")
+    _print_copy_summary(copies_skipped, copy_reconcile)
     print(f"  Drawers {'that would be filed' if dry_run else 'filed'}: {total_drawers}")
     print(f"  Time: {mins}m {secs}s")
     if room_counts:
@@ -1391,6 +2328,9 @@ def mine(
         "stale_files_removed": stale_files_removed,
         "stale_drawers_removed": stale_drawers_removed,
         "stale_sources_removed": stale_sources_removed,
+        "nested_roots_skipped": len(nested_roots),
+        "copy_files_skipped": copies_skipped,
+        **copy_reconcile,
         "elapsed_secs": elapsed,
         "embedder_warmed": embedder_warmed,
     }

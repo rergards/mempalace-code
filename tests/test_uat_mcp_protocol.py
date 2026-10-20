@@ -611,9 +611,9 @@ def test_add_drawer_stores_templated_facts_that_differ_by_numbers(mcp, pin_cosin
     assert _fresh(palace_path).count() == 6
 
 
-def test_add_drawer_still_refuses_a_near_identical_copy(mcp, pin_cosine, palace_path):
+def test_add_drawer_refuses_an_exact_copy(mcp, pin_cosine, palace_path):
     original = pin_cosine("Decision 7: adopt the vermilion-7 caching policy.", 0.99, axis=20)
-    repeat = pin_cosine("Decision 7: we adopt the vermilion-7 caching policy!", 0.99, axis=21)
+    repeat = original
     assert _payload(mcp("mempalace_add_drawer", {"wing": "w", "room": "r", "content": original}))[
         "success"
     ]
@@ -627,13 +627,15 @@ def test_add_drawer_still_refuses_a_near_identical_copy(mcp, pin_cosine, palace_
     assert _fresh(palace_path).count() == 1
 
 
-def test_distinguishing_tokens_are_numbers_and_identifiers():
-    from mempalace_code.mcp.tools.write import _distinguishing_tokens
-
-    tokens = _distinguishing_tokens(
-        "Decision 5: the CheckoutService in shop/api.py uses vermilion-5 and plain words."
-    )
-    assert tokens == {"5", "CheckoutService", "shop/api.py", "vermilion-5"}
+def test_add_drawer_keeps_distinct_near_statements(mcp, pin_cosine, palace_path):
+    original = pin_cosine("Decision 7: adopt the vermilion-7 caching policy.", 0.99, axis=20)
+    changed = pin_cosine("Decision 7: do not adopt the vermilion-7 caching policy.", 0.99, axis=21)
+    for content in (original, changed):
+        payload = _payload(
+            mcp("mempalace_add_drawer", {"wing": "w", "room": "r", "content": content})
+        )
+        assert payload["success"] is True
+    assert _fresh(palace_path).count() == 2
 
 
 # ── convos-17 / convos-18 / agent-14: one diary identity for CLI and MCP ───

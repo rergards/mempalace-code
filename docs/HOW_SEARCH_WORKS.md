@@ -108,6 +108,10 @@ Files are skipped before any embedding happens if they match:
    Watcher loops reload these rules between scan cycles, so app-level config edits
    apply to subsequent re-mines without a watcher restart.
 3. **Gitignore rules** — applied when `respect_gitignore=True` (the default).
+4. **Project-root technical directories** — `.tasks` and `.local` directly below the
+   project root, where agents and tools keep task checkouts and temporary receipts. A
+   same-named directory deeper in the project is scanned normally, and an
+   `--include-ignored` root, subtree, or exact path still selects technical content.
 
 Only files in the miner language/readability catalog are scanned by default, plus
 extension-less files whose first line is a shebang naming a known interpreter
@@ -160,6 +164,10 @@ sweep and also re-chunks and re-embeds every remaining file. The sweep only touc
 drawers that this project mined into its wing, and a run with `--limit` never sweeps.
 Neither the sweep nor re-mining a changed file deletes manual (`mempalace_add_drawer`)
 or diary drawers, even when their `source_file` names a mined file.
+Records stored from the project-root `.tasks` and `.local` directories are not swept when
+the default scan stops walking them; their unique reports, manual drawers and
+knowledge-graph facts stay. Exact stored copies of project files below them are removed
+only after the same exact-copy, recovery-backup and provenance checks as other copies.
 
 A file's room is chosen in this order: the `.csproj` project that contains it (with
 `dotnet_structure`), the outermost folder on its path that names a room or keyword (an

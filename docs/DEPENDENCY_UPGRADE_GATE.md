@@ -202,9 +202,10 @@ Actions, runs a `current-audit` on a weekly schedule and on
   the default implementation).
 - Uploads a sanitized JSON/Markdown artifact on every run.
 - Creates or updates a single GitHub issue (`[dependency-audit] current dependency
-  audit findings`, labelled `dependency-audit`) when actionable findings exist,
-  matching it by exact title. A missing label is a visible warning, not a
-  silent fallback.
+  audit findings`, labelled `dependency-audit`) when actionable findings exist on
+  `main`, matching it by exact title. Candidate-branch findings fail the workflow
+  and retain their artifacts without changing the main issue. A missing label
+  is a visible warning, not a silent fallback.
 - Closes that issue, with a comment linking the run, on the next clean run of
   `main` (scheduled, or dispatched from `main`); a clean dispatch from another
   branch audits that branch's lock and leaves the issue open. The close step

@@ -14,12 +14,14 @@ The ``mempalace_backup/`` prefix prevents tarbomb extraction.
 
 import contextlib
 import errno
+import gzip
 import hashlib
 import io
 import json
 import logging
 import ntpath
 import os
+import re
 import shlex
 import shutil
 import sqlite3
@@ -30,7 +32,7 @@ import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional
+from typing import TYPE_CHECKING, Any, BinaryIO, Dict, List, Mapping, Optional
 
 if TYPE_CHECKING:
     from .config import MempalaceConfig
@@ -385,6 +387,15 @@ def _remove_owned_lance_dir(lance_dir: str, owner: tuple[int, int] | None) -> bo
     return True
 
 
+def _path_identity(path: str) -> tuple[int, int] | None:
+    """Return the device/inode of *path* itself (symlinks not followed), or None if absent."""
+    try:
+        current = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    return (current.st_dev, current.st_ino)
+
+
 def estimate_backup_source_bytes(palace_path: str, kg_path: Optional[str] = None) -> int:
     """Return the total byte size of files that will be archived.
 
@@ -418,53 +429,196 @@ def estimate_backup_source_bytes(palace_path: str, kg_path: Optional[str] = None
 def prune_managed_backups(
     backups_dir: str, kind: str, retain_count: int, *, degraded: bool = False
 ) -> List[str]:
-    """Delete old archives of *kind* inside *backups_dir*, keeping the newest *retain_count*.
+    """Refuse the obsolete filename-only deletion API; origin and source are required."""
+    raise ValueError("Filename-only pruning is unsafe; use reconcile_managed_backups(palace_path).")
 
-    Healthy archives and archives of a degraded palace (``*_DEGRADED.tar.gz``) are
-    counted and pruned separately, so a run of degraded snapshots never deletes the
-    last healthy backups. Returns the list of paths that were deleted. Deletion
-    errors are logged as warnings and do not raise — a failed prune must never mask
-    a successful backup.
+
+def _retention_file_state(st: os.stat_result) -> tuple[int, ...]:
+    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_uid != os.getuid():
+        raise ValueError("Retention requires a plain regular file with one link")
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_mode)
+
+
+def _automatic_origin(metadata: dict, name: str, source: str, namespace: str) -> bool:
+    kind = metadata.get("backup_kind")
+    if kind not in ("scheduled", "pre_watch", "pre_optimize"):
+        return False
+    return (
+        metadata.get("backup_origin") == "managed-auto"
+        and metadata.get("source_palace") == source
+        and metadata.get("backup_namespace") == namespace
+        and not metadata.get("degraded")
+        and not metadata.get("protected")
+        and re.fullmatch(_KIND_PREFIXES[kind] + r"\d{8}_\d{6}_\d{6}\.tar\.gz", name) is not None
+    )
+
+
+def _retention_header(archive: BinaryIO) -> dict:
+    """Read only the first bounded tar record; never seek legacy metadata at the end."""
+    # Bound compressed input too: an untrusted gzip filename/extra header must
+    # not turn first-record inspection into an unbounded scan.
+    prefix = io.BytesIO(archive.read(131072))
+    with gzip.GzipFile(fileobj=prefix, mode="rb") as stream:
+        header = stream.read(512)
+        member = tarfile.TarInfo.frombuf(header, "utf-8", "strict")
+        if member.name != _METADATA_MEMBER or not member.isfile() or not 0 < member.size <= 65536:
+            return {}
+        metadata = json.loads(stream.read(member.size))
+        return metadata if isinstance(metadata, dict) else {}
+
+
+def reconcile_managed_backups(palace_path: str, config=None) -> dict:
+    """Expire qualified automatic snapshots, retaining two fully restored recovery points.
+
+    Selection, validation and unlink share the installation/palace write leases. Unknown
+    origin, legacy ordering, manual, explicit-out, linked and renamed archives are excluded.
+    Errors defer retention and are reported separately from successful backup publication.
     """
-    if retain_count <= 0 or not os.path.isdir(backups_dir):
-        return []
+    from .config import MempalaceConfig
+    from .operation_lock import OperationLock, fcntl, palace_write_lease
 
-    prefix = _KIND_PREFIXES.get(kind, "")
-    if not prefix:
-        return []
+    result: dict = {"pruned": []}
+    try:
+        config = config if config is not None else MempalaceConfig()
+        retain = config.automatic_backup_retain_count
+        if retain == 0:
+            return result
+        source = os.path.realpath(palace_path)
+        directory = managed_backups_dir(palace_path, config=config)
+        if not os.path.lexists(directory):
+            return result
+        if fcntl is None:
+            raise ValueError("Retention requires interprocess operation leases")
+        source_identity = _path_identity(source)
+        if source_identity is None or not stat.S_ISDIR(os.lstat(source).st_mode):
+            raise ValueError("Retention source is not a palace directory")
+        namespace = os.path.realpath(directory)
+        if not stat.S_ISDIR(os.lstat(directory).st_mode):
+            raise ValueError("Retention namespace must be a plain directory")
+        namespace_identity = _path_identity(directory)
+        locks = [OperationLock.default(), OperationLock.for_palace(source)]
 
-    candidates = []
-    for fname in os.listdir(backups_dir):
-        if not fname.startswith(prefix) or not fname.endswith(".tar.gz"):
-            continue
-        if fname.endswith(_DEGRADED_SUFFIX) is not degraded:
-            continue
-        fpath = os.path.join(backups_dir, fname)
-        if not os.path.isfile(fpath):
-            continue
-        try:
-            mtime = os.stat(fpath).st_mtime
-            candidates.append((mtime, fname, fpath))
-        except OSError as exc:
-            logger.warning("Backup pruning: could not stat %s: %s", fpath, exc)
+        def lease_states() -> dict:
+            states = {}
+            for lock in locks:
+                for path in (lock.path, lock.metadata_lock_path, lock.owners_path):
+                    if os.path.lexists(path):
+                        state = _retention_file_state(os.lstat(path))
+                        if path != lock.owners_path:
+                            states[str(path)] = state[:2]
+            return states
 
-    # Sort newest-first by mtime, then by filename DESC as a stable secondary key.
-    # All managed prefixes embed a sortable YYYYMMDD_HHMMSS_ffffff timestamp, so DESC filename
-    # also corresponds to "newer first" when mtimes tie (e.g. same-microsecond creation).
-    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        before_leases = lease_states()
+        with palace_write_lease(source, "backup retention", wait=0):
+            held_leases = lease_states()
+            if any(
+                str(path) not in held_leases
+                for lock in locks
+                for path in (lock.path, lock.metadata_lock_path)
+            ):
+                raise ValueError("Retention lease file is missing")
+            if any(held_leases.get(path) != state for path, state in before_leases.items()):
+                raise ValueError("Retention lease identity changed")
+            fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            with contextlib.ExitStack() as stack:
+                stack.callback(os.close, fd)
+                held = os.fstat(fd)
+                if (held.st_dev, held.st_ino) != namespace_identity:
+                    raise ValueError("Retention namespace changed")
 
-    pruned = []
-    for _, _, fpath in candidates[retain_count:]:
-        try:
-            os.unlink(fpath)
-            pruned.append(fpath)
-            logger.info("Pruned managed backup: %s", fpath)
-        except FileNotFoundError:
-            pass
-        except OSError as exc:
-            logger.warning("Backup pruning failed for %s: %s", fpath, exc)
+                def check_owners() -> None:
+                    if not locks[0].held_linked_in_thread() or not locks[1].held_linked_in_thread(
+                        exclusive=True
+                    ):
+                        raise ValueError(
+                            "Retention requires linked held installation and palace leases"
+                        )
+                    if (
+                        _path_identity(source) != source_identity
+                        or _path_identity(directory) != namespace_identity
+                        or not stat.S_ISDIR(os.lstat(directory).st_mode)
+                        or os.path.realpath(directory) != namespace
+                        or managed_backups_dir(palace_path, config=config) != directory
+                        or lease_states() != held_leases
+                    ):
+                        raise ValueError("Retention source, namespace or lease identity changed")
 
-    return pruned
+                candidates = []
+                for name in os.listdir(fd):
+                    if not re.fullmatch(
+                        r"(?:scheduled_|pre_watch_|pre_optimize_)\d{8}_\d{6}_\d{6}\.tar\.gz", name
+                    ):
+                        continue
+                    try:
+                        state = _retention_file_state(
+                            os.stat(name, dir_fd=fd, follow_symlinks=False)
+                        )
+                        file_fd = os.open(
+                            name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd
+                        )
+                        with os.fdopen(file_fd, "rb") as archive:
+                            if _retention_file_state(os.fstat(archive.fileno())) != state:
+                                raise ValueError("Archive changed during origin inspection")
+                            metadata = _retention_header(archive)
+                            if _retention_file_state(os.fstat(archive.fileno())) != state:
+                                raise ValueError("Archive changed during origin inspection")
+                        if _automatic_origin(metadata, name, source, namespace):
+                            candidates.append((state[3], name, state))
+                    except (OSError, ValueError, EOFError, tarfile.TarError):
+                        continue  # ambiguous origin never authorizes deletion
+                candidates.sort(reverse=True)
+                if len(candidates) <= retain:
+                    return result
+                keepers, victims = candidates[:retain], candidates[retain:]
+
+                def check_files(files) -> None:
+                    check_owners()
+                    for _, name, state in files:
+                        if (
+                            _retention_file_state(os.stat(name, dir_fd=fd, follow_symlinks=False))
+                            != state
+                        ):
+                            raise ValueError("Retention archive identity changed")
+
+                # Only a real deletion set warrants reading complete recovery archives.
+                check_files(candidates)
+                scratch = tempfile.mkdtemp(dir=directory, prefix=".retention-")
+                scratch_name = os.path.basename(scratch)
+                scratch_stat = os.stat(scratch_name, dir_fd=fd, follow_symlinks=False)
+                scratch_identity = (scratch_stat.st_dev, scratch_stat.st_ino)
+
+                def remove_scratch() -> None:
+                    current = os.stat(scratch_name, dir_fd=fd, follow_symlinks=False)
+                    if (current.st_dev, current.st_ino) != scratch_identity:
+                        raise ValueError("Retention scratch identity changed; preserved substitute")
+                    shutil.rmtree(scratch_name, dir_fd=fd)
+
+                stack.callback(remove_scratch)
+                for index, (_, name, state) in enumerate(keepers[:2]):
+                    check_files(candidates)
+                    file_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+                    with os.fdopen(file_fd, "rb") as archive:
+                        if _retention_file_state(os.fstat(archive.fileno())) != state:
+                            raise ValueError("Retention keeper changed")
+                        restored = restore_backup(
+                            os.path.join(directory, name),
+                            os.path.join(scratch, str(index)),
+                            private_target=True,
+                            _archive_file=archive,
+                        )
+                        if not (restored.has_lance or restored.has_kg):
+                            raise ValueError("Retention keeper has no recovery payload")
+                        if _retention_file_state(os.fstat(archive.fileno())) != state:
+                            raise ValueError("Retention keeper changed during verification")
+                check_files(candidates)
+                for victim in victims:
+                    check_files([*keepers, victim])
+                    os.unlink(victim[1], dir_fd=fd)
+                    result["pruned"].append(os.path.join(directory, victim[1]))
+    except Exception as exc:
+        result["error"] = str(exc)
+        logger.warning("Backup retention deferred: %s", exc)
+    return result
 
 
 def create_backup(
@@ -491,7 +645,7 @@ def create_backup(
     kind:
         Backup kind: ``manual`` (default), ``scheduled``, ``pre_optimize``, or
         ``pre_watch``.  Controls the filename prefix when *out_path* is None
-        and which per-kind archives are pruned by retention.
+        and membership in the shared automatic retention pool.
     config:
         Optional :class:`~mempalace_code.config.MempalaceConfig` instance.
         Created internally when not provided.
@@ -525,7 +679,7 @@ def create_backup(
     A degraded palace (drawer data present but unreadable, or a knowledge graph that
     fails SQLite's ``quick_check``) is still archived as a forensic copy named
     ``*_DEGRADED.tar.gz``: its metadata carries ``degraded: true`` and the reason
-    (``kg_corrupt: ...`` for the KG), retention counts it apart from healthy archives,
+    (``kg_corrupt: ...`` for the KG), automatic retention preserves it,
     so it never displaces a healthy backup, and :func:`restore_backup` refuses it.
     """
     from .config import MempalaceConfig
@@ -580,6 +734,11 @@ def create_backup(
 
         config = MempalaceConfig()
 
+    origin = (
+        "explicit-out"
+        if out_path is not None
+        else ("managed-auto" if kind in ("scheduled", "pre_watch", "pre_optimize") else "manual")
+    )
     # Determine output path and whether this is a managed-dir backup.
     _managed_dir: Optional[str]
     if out_path is None:
@@ -664,6 +823,10 @@ def create_backup(
             "mempalace_version": __version__,
             "backend_type": "lancedb",
             "palace_path": os.path.abspath(palace_path),
+            "backup_origin": origin,
+            "backup_kind": kind,
+            "source_palace": os.path.realpath(palace_path),
+            "backup_namespace": os.path.realpath(_managed_dir) if _managed_dir else None,
         }
         if degraded_error is not None:
             metadata["degraded"] = True
@@ -687,7 +850,13 @@ def create_backup(
             os.close(tmp_fd)
             try:
                 vanished: List[str] = []
-                with tarfile.open(tmp_path, "w:gz") as tar:
+                # Avoid the highest compression cost while holding the writer lease.
+                with tarfile.open(tmp_path, "w:gz", compresslevel=6) as tar:
+                    meta_bytes = json.dumps(metadata, indent=2).encode()
+                    info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
+                    info.size = len(meta_bytes)
+                    info.mtime = int(time.time())
+                    tar.addfile(info, io.BytesIO(meta_bytes))
                     if has_lance:
                         _add_tree(tar, lance_dir, "mempalace_backup/lance", vanished)
 
@@ -709,11 +878,6 @@ def create_backup(
                                     source.backup(target)
                                 tar.add(snapshot, arcname=_KG_MEMBER)
 
-                    meta_bytes = json.dumps(metadata, indent=2).encode()
-                    info = tarfile.TarInfo(name="mempalace_backup/metadata.json")
-                    info.size = len(meta_bytes)
-                    info.mtime = int(time.time())
-                    tar.addfile(info, io.BytesIO(meta_bytes))
                 if vanished:
                     raise _VanishedFiles(vanished)
                 if lance_commit_state(palace_path) != commit_state:
@@ -738,16 +902,12 @@ def create_backup(
                 raise
             break
 
-    if _managed_dir is not None:
-        retain_count = config.retain_count_for_kind(kind)
-        if retain_count > 0:
-            # A degraded archive only rotates other degraded archives, never a healthy one.
-            pruned = prune_managed_backups(
-                _managed_dir, kind, retain_count, degraded=bool(metadata.get("degraded"))
-            )
-            if pruned:
-                # Reported to the caller only; metadata.json inside the archive is final.
-                metadata = {**metadata, "pruned": pruned}
+        if origin == "managed-auto" and not metadata.get("degraded"):
+            retention = reconcile_managed_backups(palace_path, config=config)
+            if retention["pruned"]:
+                metadata = {**metadata, "pruned": retention["pruned"]}
+            if "error" in retention:
+                metadata = {**metadata, "retention_error": retention["error"]}
 
     return metadata, out_path
 
@@ -759,6 +919,7 @@ def restore_backup(
     kg_path: Optional[str] = None,
     *,
     private_target: bool = False,
+    _archive_file: Optional[BinaryIO] = None,
 ) -> _RestoreMetadata:
     """Extract a backup archive into the target palace path.
 
@@ -803,6 +964,8 @@ def restore_backup(
     from .knowledge_graph import kg_ids_missing_from, kg_integrity_problem, palace_kg_path
     from .operation_lock import palace_write_lease
 
+    if _archive_file is not None and not private_target:
+        raise ValueError("A pinned archive handle requires a private restore target")
     if kg_path is None:
         kg_path = palace_kg_path(palace_path)
 
@@ -814,8 +977,14 @@ def restore_backup(
     )
     with lease:
         palace_was_absent = not os.path.lexists(palace_path)
-        with tarfile.open(archive_path, "r:gz") as tar:
+        with tarfile.open(
+            archive_path if _archive_file is None else None, "r:gz", fileobj=_archive_file
+        ) as tar:
             members = tar.getmembers()
+            # Tar's end marker can precede the gzip trailer. Drain to validate the
+            # complete compressed stream (including truncation/CRC) before publishing.
+            while tar.fileobj.read(65536):
+                pass
             _validate_archive_members(members)
             metadata, has_lance, has_kg = _parse_backup_shape(tar, members)
             if metadata.get("degraded"):
@@ -848,7 +1017,10 @@ def restore_backup(
                         "Move it aside, then rerun restore."
                     )
 
-            with tempfile.TemporaryDirectory(prefix="mempalace_restore_") as tmpdir:
+            with tempfile.TemporaryDirectory(
+                prefix="mempalace_restore_",
+                dir=os.path.dirname(os.path.abspath(palace_path)) if private_target else None,
+            ) as tmpdir:
                 for member in members:
                     name = member.name
 
@@ -945,6 +1117,10 @@ def restore_backup(
                 kg_owner: tuple[int, int] | None = None
                 force_previous_kg: str | None = None
                 force_kg_owner: tuple[int, int] | None = None
+                force_stage_container: str | None = None
+                lance_initial: tuple[int, int] | None = None
+                kg_initial: tuple[int, int] | None = None
+                force_kg_placeholder: tuple[int, int] | None = None
 
                 def rollback_owned_lance() -> None:
                     if _remove_owned_lance_dir(lance_dir, lance_owner):
@@ -956,9 +1132,15 @@ def restore_backup(
                             os.rmdir(palace_path)
 
                 def finish_force_lance(*, rollback: bool) -> None:
-                    nonlocal force_backup_container, force_previous_lance
+                    nonlocal force_backup_container, force_previous_lance, force_stage_container
+                    previous = force_previous_lance
+                    parked = None if previous is None else _path_identity(previous)
                     if rollback:
-                        if force_lance_owner is not None:
+                        # Classify the canonical path by identity: only the staged copy is
+                        # removed, the parked original returns only to an absent path, and
+                        # any other occupant is foreign and stays untouched.
+                        current = _path_identity(lance_dir)
+                        if current is not None and current == force_lance_owner:
                             try:
                                 removed = _remove_owned_lance_dir(lance_dir, force_lance_owner)
                             except OSError as exc:
@@ -974,20 +1156,37 @@ def restore_backup(
                                     f"{force_previous_lance!r}. Inspect it and {lance_dir!r} "
                                     "before retrying restore."
                                 )
-                        if (
-                            force_previous_lance is not None
-                            and os.path.lexists(force_previous_lance)
-                            and not os.path.lexists(lance_dir)
-                        ):
-                            try:
-                                os.replace(force_previous_lance, lance_dir)
-                            except OSError as exc:
+                            current = None
+                        if previous is not None and parked is not None:
+                            if current is not None and current != lance_initial:
                                 raise RuntimeError(
-                                    "Lance restore rollback failed; the prior state remains at "
-                                    f"{force_previous_lance!r}. Move it back to {lance_dir!r} "
-                                    "before retrying restore."
-                                ) from exc
-                    if force_backup_container is not None:
+                                    "Lance restore rollback failed because another owner "
+                                    f"occupies {lance_dir!r}; the prior state remains at "
+                                    f"{previous!r}. Inspect it and {lance_dir!r} before "
+                                    "retrying restore."
+                                )
+                            if current is None:
+                                if parked != lance_initial:
+                                    raise RuntimeError(
+                                        "Lance restore rollback failed; the prior state remains "
+                                        f"at {previous!r}. Inspect it and {lance_dir!r} before "
+                                        "retrying restore."
+                                    )
+                                try:
+                                    os.replace(previous, lance_dir)
+                                except OSError as exc:
+                                    raise RuntimeError(
+                                        "Lance restore rollback failed; the prior state remains "
+                                        f"at {previous!r}. Move it back to {lance_dir!r} "
+                                        "before retrying restore."
+                                    ) from exc
+                                parked = None
+                    if force_stage_container is not None:
+                        shutil.rmtree(force_stage_container, ignore_errors=True)
+                        force_stage_container = None
+                    if force_backup_container is not None and (not rollback or parked is None):
+                        # Commit disposes the parked original; rollback disposes the
+                        # container only once it no longer holds the original.
                         shutil.rmtree(force_backup_container, ignore_errors=True)
                         force_backup_container = None
                         force_previous_lance = None
@@ -1007,37 +1206,52 @@ def restore_backup(
 
                 def finish_force_kg(*, rollback: bool) -> None:
                     nonlocal force_previous_kg
-                    if rollback and force_kg_owner is not None:
-                        if not _remove_owned_file(kg_path, force_kg_owner):
-                            raise RuntimeError(
-                                "Knowledge graph restore rollback failed because the published path "
-                                "changed ownership; the prior state remains at "
-                                f"{force_previous_kg!r}. Inspect it and {kg_path!r} before retrying "
-                                "restore."
-                            )
-                    if (
-                        rollback
-                        and force_previous_kg is not None
-                        and os.path.lexists(force_previous_kg)
-                    ):
-                        if os.path.lexists(kg_path):
-                            raise RuntimeError(
-                                "Knowledge graph restore rollback failed; the prior state remains at "
-                                f"{force_previous_kg!r}. Inspect it and {kg_path!r} before retrying "
-                                "restore."
-                            )
-                        try:
-                            os.replace(force_previous_kg, kg_path)
-                        except OSError as exc:
-                            raise RuntimeError(
-                                "Knowledge graph restore rollback failed; the prior state remains at "
-                                f"{force_previous_kg!r}. Move it back to {kg_path!r} before retrying "
-                                "restore."
-                            ) from exc
-                    if force_previous_kg is not None:
-                        if os.path.lexists(force_previous_kg):
-                            os.unlink(force_previous_kg)
-                        force_previous_kg = None
+                    previous = force_previous_kg
+                    parked = None
+                    if previous is not None:
+                        parked = _path_identity(previous)
+                        if parked is not None and parked == force_kg_placeholder:
+                            # The mkstemp placeholder never held the original graph.
+                            os.unlink(previous)
+                            parked = None
+                    if rollback:
+                        current = _path_identity(kg_path)
+                        if current is not None and current == force_kg_owner:
+                            if not _remove_owned_file(kg_path, force_kg_owner):
+                                raise RuntimeError(
+                                    "Knowledge graph restore rollback failed because the published path "
+                                    "changed ownership; the prior state remains at "
+                                    f"{force_previous_kg!r}. Inspect it and {kg_path!r} before retrying "
+                                    "restore."
+                                )
+                            current = None
+                        if previous is not None and parked is not None:
+                            if current is not None and current != kg_initial:
+                                raise RuntimeError(
+                                    "Knowledge graph restore rollback failed because another owner "
+                                    f"occupies {kg_path!r}; the prior state remains at "
+                                    f"{previous!r}. Inspect it and {kg_path!r} before retrying "
+                                    "restore."
+                                )
+                            if current is None:
+                                if parked != kg_initial:
+                                    raise RuntimeError(
+                                        "Knowledge graph restore rollback failed; the prior state "
+                                        f"remains at {previous!r}. Inspect it and {kg_path!r} "
+                                        "before retrying restore."
+                                    )
+                                try:
+                                    os.replace(previous, kg_path)
+                                except OSError as exc:
+                                    raise RuntimeError(
+                                        "Knowledge graph restore rollback failed; the prior state "
+                                        f"remains at {previous!r}. Move it back to {kg_path!r} "
+                                        "before retrying restore."
+                                    ) from exc
+                    elif previous is not None and parked is not None and parked == kg_initial:
+                        # Commit: dispose only the moved original, never an unknown occupant.
+                        os.unlink(previous)
+                    force_previous_kg = None
 
                 def rollback_published_state() -> None:
                     rollback_error: BaseException | None = None
@@ -1059,52 +1273,54 @@ def restore_backup(
                     if rollback_error is not None:
                         raise rollback_error
 
-                if has_lance:
-                    if not force:
-                        _refuse_restore_collisions(palace_path, kg_path)
-                    os.makedirs(palace_path, mode=0o700, exist_ok=True)
-                    if force:
-                        stage_container = tempfile.mkdtemp(
-                            dir=palace_path, prefix=".mempalace-lance-stage-"
-                        )
-                        staged_lance = os.path.join(stage_container, "lance")
-                        try:
-                            shutil.copytree(extracted_lance, staged_lance)
-                            if os.path.lexists(lance_dir):
-                                force_backup_container = tempfile.mkdtemp(
-                                    dir=palace_path, prefix=".mempalace-lance-backup-"
-                                )
-                                force_previous_lance = os.path.join(force_backup_container, "lance")
-                                os.replace(lance_dir, force_previous_lance)
-                            try:
-                                os.replace(staged_lance, lance_dir)
-                                claimed_lance = os.lstat(lance_dir)
-                                force_lance_owner = (claimed_lance.st_dev, claimed_lance.st_ino)
-                            except Exception:
-                                finish_force_lance(rollback=True)
-                                raise
-                        finally:
-                            shutil.rmtree(stage_container, ignore_errors=True)
-                            if (
-                                palace_was_absent
-                                and os.path.isdir(palace_path)
-                                and not os.listdir(palace_path)
-                            ):
-                                os.rmdir(palace_path)
-                    else:
-                        try:
-                            os.mkdir(lance_dir)
-                        except FileExistsError:
-                            _refuse_restore_collisions(palace_path, kg_path)
-                            raise
-                        claimed_lance = os.lstat(lance_dir)
-                        lance_owner = (claimed_lance.st_dev, claimed_lance.st_ino)
-                        try:
-                            shutil.copytree(extracted_lance, lance_dir, dirs_exist_ok=True)
-                        except Exception:
-                            rollback_owned_lance()
-                            raise
+                # One rollback boundary covers every destination move, staging cleanup, the
+                # transition to the knowledge graph and final verification. The else branch
+                # below runs only after verification and is the commit boundary.
                 try:
+                    if has_lance:
+                        if not force:
+                            _refuse_restore_collisions(palace_path, kg_path)
+                        os.makedirs(palace_path, mode=0o700, exist_ok=True)
+                        if force:
+                            stage_container = tempfile.mkdtemp(
+                                dir=palace_path, prefix=".mempalace-lance-stage-"
+                            )
+                            force_stage_container = stage_container
+                            staged_lance = os.path.join(stage_container, "lance")
+                            try:
+                                shutil.copytree(extracted_lance, staged_lance)
+                                staged = os.lstat(staged_lance)
+                                force_lance_owner = (staged.st_dev, staged.st_ino)
+                                lance_initial = _path_identity(lance_dir)
+                                if lance_initial is not None:
+                                    force_backup_container = tempfile.mkdtemp(
+                                        dir=palace_path, prefix=".mempalace-lance-backup-"
+                                    )
+                                    force_previous_lance = os.path.join(
+                                        force_backup_container, "lance"
+                                    )
+                                    os.replace(lance_dir, force_previous_lance)
+                                os.replace(staged_lance, lance_dir)
+                            finally:
+                                if os.path.lexists(staged_lance):
+                                    force_lance_owner = None  # never published
+                                shutil.rmtree(stage_container, ignore_errors=True)
+                                force_stage_container = None
+                                if (
+                                    palace_was_absent
+                                    and os.path.isdir(palace_path)
+                                    and not os.listdir(palace_path)
+                                ):
+                                    os.rmdir(palace_path)
+                        else:
+                            try:
+                                os.mkdir(lance_dir)
+                            except FileExistsError:
+                                _refuse_restore_collisions(palace_path, kg_path)
+                                raise
+                            claimed_lance = os.lstat(lance_dir)
+                            lance_owner = (claimed_lance.st_dev, claimed_lance.st_ino)
+                            shutil.copytree(extracted_lance, lance_dir, dirs_exist_ok=True)
                     if has_kg:
                         if force and os.path.lexists(kg_path):
                             print(
@@ -1126,6 +1342,8 @@ def restore_backup(
                                 os.link(kg_tmp, kg_path)
                                 kg_owner = (claimed_kg.st_dev, claimed_kg.st_ino)
                             else:
+                                force_kg_owner = (claimed_kg.st_dev, claimed_kg.st_ino)
+                                kg_initial = _path_identity(kg_path)
                                 if os.path.lexists(kg_path) and not stat.S_ISDIR(
                                     os.lstat(kg_path).st_mode
                                 ):
@@ -1133,13 +1351,17 @@ def restore_backup(
                                         dir=kg_dir,
                                         prefix=f".{os.path.basename(kg_path)}.backup.",
                                     )
-                                    os.close(previous_fd)
+                                    try:
+                                        held = os.fstat(previous_fd)
+                                        force_kg_placeholder = (held.st_dev, held.st_ino)
+                                    finally:
+                                        os.close(previous_fd)
                                     os.unlink(force_previous_kg)
                                     os.replace(kg_path, force_previous_kg)
                                 os.replace(kg_tmp, kg_path)
-                                force_kg_owner = (claimed_kg.st_dev, claimed_kg.st_ino)
                         finally:
                             if os.path.lexists(kg_tmp):
+                                force_kg_owner = None  # an unrenamed candidate was never published
                                 os.unlink(kg_tmp)
                     if has_lance:
                         _verify_restored_lance(palace_path, metadata["drawer_count"])
@@ -1256,6 +1478,20 @@ def list_backups(
                                 entry["wings"] = meta.get("wings", [])
                                 entry["palace_path"] = meta.get("palace_path")
                                 entry["degraded"] = bool(meta.get("degraded"))
+                                first = tar.getmembers()[0]
+                                entry["automatic"] = (
+                                    first.name == _METADATA_MEMBER
+                                    and first.isfile()
+                                    and 0 < first.size <= 65536
+                                    and _automatic_origin(
+                                        meta,
+                                        fname,
+                                        os.path.realpath(palace_path),
+                                        os.path.realpath(scan_dir),
+                                    )
+                                    and not os.path.islink(fpath)
+                                    and stat.st_nlink == 1
+                                )
                         except Exception:
                             logger.warning("Could not parse metadata.json in archive: %s", fpath)
             except Exception:
@@ -1266,23 +1502,20 @@ def list_backups(
                 continue  # a sibling palace's archive
             entries.append(entry)
 
-    entries.sort(key=lambda e: e["mtime"], reverse=True)
+    entries.sort(key=lambda e: (e["mtime"], os.path.basename(e["path"])), reverse=True)
 
     warn_size = config.backup_warn_size_bytes
 
-    by_kind: Dict[tuple, List[Dict[str, Any]]] = {}
-    for e in entries:
-        if warn_size > 0 and e["size_bytes"] > warn_size:
-            e["oversized"] = True
-        if e["location"] == "managed":
-            by_kind.setdefault((e["kind"], e["degraded"]), []).append(e)
-
-    for (kind, _), kind_entries in by_kind.items():
-        # kind_entries is already sorted newest-first (inherited from global sort)
-        kind_retain = config.retain_count_for_kind(kind)
-        for i, e in enumerate(kind_entries):
-            if kind_retain > 0 and i >= kind_retain:
-                e["stale"] = True
+    automatic = []
+    for entry in entries:
+        if warn_size > 0 and entry["size_bytes"] > warn_size:
+            entry["oversized"] = True
+        if entry["location"] == "managed" and entry.get("automatic"):
+            automatic.append(entry)
+    retain = config.automatic_backup_retain_count
+    if retain:
+        for entry in automatic[retain:]:
+            entry["stale"] = True  # selection hint; keeper validation may still defer pruning
 
     return entries
 
@@ -1360,7 +1593,7 @@ def render_schedule(
         raise ValueError(f"Unsupported platform {platform!r}; must be 'darwin' or 'linux'")
 
     if mempalace_bin is None:
-        from .cli_commands.alias import resolve_invoked_canonical_cli
+        from .cli_invocation import resolve_invoked_canonical_cli
 
         invoked_bin = resolve_invoked_canonical_cli()
         resolved_bin = (

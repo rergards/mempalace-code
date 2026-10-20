@@ -41,7 +41,7 @@ jobs:
 
       - name: Upload audit artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dependency-audit-report
           path: dependency-audit-output/
@@ -50,7 +50,7 @@ jobs:
       # One issue tracks the findings: it is matched by its exact title, updated
       # on every failing run, and closed by the first clean run below.
       - name: Create or update dependency-audit issue
-        if: steps.audit.outcome == 'failure'
+        if: steps.audit.outcome == 'failure' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

@@ -39,6 +39,31 @@ disable-model-invocation: true
   Preserve palaces, databases, backups, handoffs, evidence, environments and unique work.
   Missing ownership blocks only cleanup of that item. Do not blanket-clean or prune.
 
+## Reconcile open pull requests and issues
+
+- At each preparation start and before candidate readiness, inspect every open PR
+  and issue in the verified public repository by credential-free, paginated, public
+  read-only observation separate from product qualification. A failed or incomplete
+  read is UNKNOWN and blocks readiness; an empty successful read is explicit evidence.
+- Retain the observation time, IDs, exact PR head/diff, issue claims and a disposition
+  for every item in the existing release evidence. Verify claims against current
+  behavior and accepted requirements before changing code.
+- Resolve confirmed in-scope defects and required dependency updates before release.
+  Use the authorized engineering route, then rerun affected product checks. Keep
+  AI engineering outside preparation/qualification gates. Do not expand scope,
+  weaken tests/audits or accept an advisory through an automatic allowlist entry.
+- Port accepted PR changes to the development trunk through its existing owner.
+  Never merge a PR into public main. If exact changes are already shipped, verify
+  the public release tag and close the PR with that version under existing authority.
+  Otherwise retain closure until the release containing those changes is published.
+- Classify each issue as fixed in the candidate, already shipped, refuted with
+  evidence, or unresolved. Keep unreleased fixes open until publication or the
+  existing issue owner confirms resolution. Unresolved confirmed release blockers
+  stop readiness. Record other dispositions with their evidence and owner.
+- Missing authority or significant out-of-scope correction blocks the dependent
+  fix and release claim; report the smallest correction and one recovery action.
+  Re-read open items after changes and reconcile additions or changed PR heads.
+
 ## Prepare the existing owners
 
 - Use `pyproject.toml`, `CHANGELOG.md`, public docs and existing generators.
@@ -81,6 +106,11 @@ disable-model-invocation: true
 
 Use the repository virtualenv. Run the exact existing gate set in RELEASING
 section 1 and CONTRIBUTING; retain raw logs outside the published tree.
+For dependency-contract changes, follow `docs/DEPENDENCY_UPGRADE_GATE.md` and
+commit its generated report with the dependency files. Before pushing, run its
+`ci-check` against the verified candidate parent and require a matching successful
+report. Retain the scheduled `current-audit` evidence as its separate check.
+
 Core preparation checks:
 
 ```bash
@@ -108,6 +138,8 @@ Replace `X.Y.Z` with the pending version and retain the exact wheel digest.
 Use that wheel in every installer and platform contour; a source install is not
 evidence for the built artifact. Set `MEMPALACE_RELEASE_SYSTEMD_USER=1` only in the
 congruent disposable Linux fixture described in RELEASING.
+Before candidate push, reconcile separate platform runs and focused retries under
+RELEASING section 3. Preserve raw aggregate failures and required native Linux coverage.
 The required Linux systemd-user receipt cannot be replaced by macOS results.
 Missing model provenance or platform prerequisites remain blocking `UNRUN`;
 provision only within current authority, then retry the existing owner command.
