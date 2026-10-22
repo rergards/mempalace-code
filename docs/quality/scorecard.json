@@ -1,10 +1,10 @@
 {
   "code_size": {
-    "package_code_lines": 40468,
+    "package_code_lines": 41959,
     "package_files": 87,
-    "package_total_lines": 48052,
-    "test_files": 124,
-    "test_total_lines": 111962
+    "package_total_lines": 49765,
+    "test_files": 125,
+    "test_total_lines": 116088
   },
   "demo_gates": {
     "architecture_guard": {
@@ -62,15 +62,19 @@
       "path": "mempalace_code/wing_migration.py"
     },
     {
-      "lines": 3818,
+      "lines": 3998,
       "path": "mempalace_code/storage.py"
     },
     {
-      "lines": 2492,
+      "lines": 2606,
       "path": "mempalace_code/watcher.py"
     },
     {
-      "lines": 1933,
+      "lines": 2420,
+      "path": "mempalace_code/mining/orchestrator.py"
+    },
+    {
+      "lines": 1965,
       "path": "mempalace_code/updater.py"
     },
     {
@@ -78,16 +82,12 @@
       "path": "mempalace_code/knowledge_graph.py"
     },
     {
+      "lines": 1692,
+      "path": "mempalace_code/backup.py"
+    },
+    {
       "lines": 1626,
       "path": "mempalace_code/mining/chunkers.py"
-    },
-    {
-      "lines": 1480,
-      "path": "mempalace_code/mining/orchestrator.py"
-    },
-    {
-      "lines": 1459,
-      "path": "mempalace_code/backup.py"
     },
     {
       "lines": 1181,
@@ -276,13 +276,13 @@
       "mempalace_code",
       "tests"
     ],
-    "type_pyright_total": 180,
+    "type_pyright_total": 181,
     "type_pyright_unreasoned": 0,
     "unreasoned_total": 0
   },
   "tests": {
-    "test_files": 124,
-    "test_functions": 4944
+    "test_files": 125,
+    "test_functions": 5088
   },
   "verification_commands": [
     {

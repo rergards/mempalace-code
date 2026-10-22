@@ -319,7 +319,13 @@ def _plan_resolver_audits(manifest: dict) -> list[list[str]]:
 # ── Resolver audit running ─────────────────────────────────────────────────────
 
 
-def _default_resolver_runner(audit_plan: list[list[str]], root: Path) -> list[dict]:
+def _default_resolver_runner(
+    audit_plan: list[list[str]],
+    root: Path,
+    *,
+    allowlist_path: Path | None = None,
+    today_iso: str | None = None,
+) -> list[dict]:
     """Run a fresh resolver audit in a temp venv for each extras combination.
 
     Does NOT modify the developer's .venv. Each temp env is discarded after
@@ -348,7 +354,7 @@ def _default_resolver_runner(audit_plan: list[list[str]], root: Path) -> list[di
             pip = venv_path / "bin" / "pip"
             # Keep the audit tooling itself current so resolver evidence is not
             # blocked by an advisory in the venv's bundled pip.
-            subprocess.run(
+            tooling = subprocess.run(
                 [
                     str(pip),
                     "install",
@@ -360,6 +366,11 @@ def _default_resolver_runner(audit_plan: list[list[str]], root: Path) -> list[di
                 ],
                 capture_output=True,
             )
+            if tooling.returncode != 0:
+                results.append(
+                    {"extras": extras, "status": "failed", "summary": "audit tooling failed"}
+                )
+                continue
 
             install_spec = f".[{','.join(extras)}]" if extras else "."
             install = subprocess.run(
@@ -385,14 +396,17 @@ def _default_resolver_runner(audit_plan: list[list[str]], root: Path) -> list[di
                 capture_output=True,
                 text=True,
             )
-            status = "success" if audit_proc.returncode == 0 else "failed"
-            results.append(
-                {
-                    "extras": extras,
-                    "status": status,
-                    "summary": f"resolver audit for {extras_label}: {status}",
-                }
+            result = _evaluate_resolver_audit(
+                audit_proc.stdout,
+                audit_proc.returncode,
+                root,
+                allowlist_path=allowlist_path,
+                today_iso=today_iso,
             )
+            result.update(
+                extras=extras, summary=f"resolver audit for {extras_label}: {result['status']}"
+            )
+            results.append(result)
 
     return results
 
@@ -812,16 +826,91 @@ def cmd_ci_check(base_ref: str, root: Path, *, git_runner=None) -> int:
 # ── Current-audit: allowlist helpers ──────────────────────────────────────────
 
 
-def _load_allowlist(allowlist_path: Path) -> list[dict]:
+def _load_allowlist(
+    allowlist_path: Path,
+    *,
+    root: Path | None = None,
+    versions: dict[str, str] | None = None,
+    today_iso: str | None = None,
+) -> list[dict]:
     """Return allowlist entries; empty list if file absent, empty, or invalid."""
     if not allowlist_path.exists():
         return []
     try:
         with allowlist_path.open(encoding="utf-8") as fh:
             data = json.load(fh)
-        return data.get("entries", [])
-    except (json.JSONDecodeError, OSError):
+        if not isinstance(data, dict) or data.get("schema_version") != 1:
+            return []
+        entries = data.get("entries")
+        if not isinstance(entries, list):
+            return []
+        seen = set()
+        for entry in entries:
+            if not isinstance(entry, dict) or any(
+                not isinstance(entry.get(key), str) or not entry[key].strip()
+                for key in ("package", "advisory_id", "affected_range", "reason", "expires")
+            ):
+                return []
+            key = (_normalize_name(entry["package"]), entry["advisory_id"], entry["affected_range"])
+            if key in seen:
+                return []
+            seen.add(key)
+        if "context" in data:
+            context = data["context"]
+            if not _allowlist_context_matches(context, root, versions):
+                return []
+            accepted_on = datetime.date.fromisoformat(context.get("accepted_on", ""))
+            review_on = datetime.date.fromisoformat(context.get("review_on", ""))
+            today = datetime.date.fromisoformat(
+                today_iso or datetime.datetime.now(tz=datetime.UTC).date().isoformat()
+            )
+            expiries = [datetime.date.fromisoformat(entry["expires"]) for entry in entries]
+            if (
+                not expiries
+                or accepted_on > today
+                or not accepted_on < review_on < min(expiries)
+                or max(expiries) > accepted_on + datetime.timedelta(days=14)
+            ):
+                return []
+        return entries
+    except (json.JSONDecodeError, OSError, ValueError, TypeError):
         return []
+
+
+def _allowlist_context_matches(context: dict, root: Path | None, versions: dict | None) -> bool:
+    """Invalidate a reviewed usage exception when its code or dependency owner changes."""
+    if root is None or versions is None or not isinstance(context, dict):
+        return False
+    expected = context.get("mempalace_code_tree")
+    packages = context.get("packages")
+    if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{40}", expected):
+        return False
+    if not isinstance(packages, dict) or not packages:
+        return False
+    for name, pins in packages.items():
+        pins = [pins] if isinstance(pins, str) else pins
+        if (
+            not isinstance(name, str)
+            or not isinstance(pins, list)
+            or not pins
+            or any(not isinstance(pin, str) for pin in pins)
+            or versions.get(_normalize_name(name)) not in pins
+        ):
+            return False
+    commands = [
+        ["git", "rev-parse", "HEAD:mempalace_code"],
+        ["git", "diff", "--quiet", "HEAD", "--", "mempalace_code"],
+        ["git", "ls-files", "--others", "--exclude-standard", "--", "mempalace_code"],
+    ]
+    try:
+        checks = [subprocess.run(cmd, cwd=root, capture_output=True, text=True) for cmd in commands]
+    except OSError:
+        return False
+    return (
+        all(check.returncode == 0 for check in checks)
+        and checks[0].stdout.strip() == expected
+        and not checks[2].stdout.strip()
+    )
 
 
 def _check_allowlist(
@@ -846,7 +935,14 @@ def _check_allowlist(
             continue
         # Package + advisory_id matched — validate remaining fields
         expires = entry.get("expires", "")
-        if not expires or expires <= today_iso:
+        try:
+            expiry_date = datetime.date.fromisoformat(expires)
+            today = datetime.date.fromisoformat(today_iso)
+        except (TypeError, ValueError):
+            return False, "allowlist expiry or audit date is invalid"
+        if expires != expiry_date.isoformat() or today_iso != today.isoformat():
+            return False, "allowlist expiry or audit date is not YYYY-MM-DD"
+        if expiry_date <= today:
             return False, f"allowlist entry expired (expires={expires!r}, today={today_iso!r})"
         entry_range = entry.get("affected_range", "")
         if entry_range != affected_range:
@@ -855,10 +951,107 @@ def _check_allowlist(
                 f"finding has {affected_range!r}"
             )
         reason = entry.get("reason", "")
-        if not reason:
+        if not isinstance(reason, str) or not reason.strip():
             return False, "allowlist entry missing reason"
         return True, reason
     return False, f"no allowlist entry for {advisory_id} / {package} / {affected_range}"
+
+
+def _evaluate_resolver_audit(
+    output: str,
+    returncode: int,
+    root: Path,
+    *,
+    allowlist_path: Path | None = None,
+    today_iso: str | None = None,
+) -> dict:
+    """Keep raw inventory separate from explicitly accepted current-audit risk.
+
+    Upgrade audits never pass an allowlist. Unknown/skipped dependencies, malformed
+    output, contradictory exit codes and audit errors cannot authorize acceptance.
+    """
+    error = {"status": "failed", "raw_status": "error", "findings": []}
+    if returncode not in (0, 1):
+        return error
+    try:
+        data = json.loads(output)
+        dependencies = data["dependencies"]
+        if not isinstance(dependencies, list) or not dependencies:
+            return error
+        versions = {}
+        findings = []
+        for dep in dependencies:
+            if not isinstance(dep, dict) or not isinstance(dep.get("name"), str):
+                return error
+            name = dep["name"]
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+                return error
+            name = _normalize_name(name)
+            if "skip_reason" in dep:
+                # The local project has no published advisory identity. Other
+                # unaudited packages must not silently count as clean.
+                if name != "mempalace-code":
+                    return error
+                continue
+            version = dep.get("version")
+            vulns = dep.get("vulns")
+            if (
+                not isinstance(version, str)
+                or not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.!+_-]*", version)
+                or name in versions
+                or not isinstance(vulns, list)
+            ):
+                return error
+            versions[name] = version
+            for vuln in vulns:
+                if not isinstance(vuln, dict):
+                    return error
+                advisory = vuln.get("id")
+                aliases = vuln.get("aliases", [])
+                if (
+                    not isinstance(advisory, str)
+                    or not isinstance(aliases, list)
+                    or any(
+                        not isinstance(value, str)
+                        or not re.fullmatch(r"(?:GHSA|CVE|PYSEC)-[A-Za-z0-9-]+", value)
+                        for value in [advisory, *aliases]
+                    )
+                ):
+                    return error
+                findings.append(
+                    {
+                        "package": name,
+                        "version": version,
+                        "advisory_id": advisory,
+                        "aliases": aliases,
+                        "allowlisted": False,
+                    }
+                )
+        if not versions or (returncode == 0) != (not findings):
+            return error
+        entries = (
+            _load_allowlist(allowlist_path, root=root, versions=versions, today_iso=today_iso)
+            if allowlist_path is not None
+            else []
+        )
+        today_iso = today_iso or datetime.datetime.now(tz=datetime.UTC).date().isoformat()
+        for finding in findings:
+            for advisory in [finding["advisory_id"], *finding["aliases"]]:
+                allowed, _ = _check_allowlist(
+                    advisory, finding["package"], f"=={finding['version']}", entries, today_iso
+                )
+                if allowed:
+                    finding.update(allowlisted=True, accepted_advisory_id=advisory)
+                    break
+        accepted = bool(findings) and all(f["allowlisted"] for f in findings)
+        status = "accepted_risk" if accepted else ("failed" if findings else "success")
+        return {
+            "status": status,
+            "raw_status": "vulnerabilities" if findings else "clean",
+            "findings": findings,
+        }
+    except (KeyError, TypeError, ValueError):
+        return error
 
 
 # ── Current-audit: resolver plan ───────────────────────────────────────────────
@@ -940,8 +1133,6 @@ def cmd_current_audit(
         yanked_checker = _default_yanked_checker
     if range_drift_querier is None:
         range_drift_querier = _default_range_drift_querier
-    if resolver_runner is None:
-        resolver_runner = _default_resolver_runner
     if allowlist_path is None:
         allowlist_path = root / CURRENT_AUDIT_ALLOWLIST_PATH
     if out_dir is None:
@@ -959,7 +1150,9 @@ def cmd_current_audit(
     pyproject = _parse_pyproject(pyproject_path)
     lock_versions = _parse_lockfile(lockfile_path)
     locked_packages = _parse_locked_packages(lockfile_path)
-    allowlist_entries = _load_allowlist(allowlist_path)
+    allowlist_entries = _load_allowlist(
+        allowlist_path, root=root, versions=lock_versions, today_iso=today_iso
+    )
 
     # Direct declarations: one row per distinct (package, specifier) carrying every
     # group that declares it, so a package listed in several groups (for example
@@ -1115,12 +1308,29 @@ def cmd_current_audit(
 
     # Run fresh resolver audits for all install surfaces
     audit_plan = _plan_current_resolver_audits(pyproject)
-    resolver_results = resolver_runner(audit_plan, root)
-    resolver_blocked = any(r.get("status") == "failed" for r in resolver_results)
+    if resolver_runner is None:
+        resolver_results = _default_resolver_runner(
+            audit_plan, root, allowlist_path=allowlist_path, today_iso=today_iso
+        )
+    else:
+        resolver_results = resolver_runner(audit_plan, root)
+    resolver_blocked = len(resolver_results) != len(audit_plan) or any(
+        r.get("status") not in {"success", "accepted_risk"} for r in resolver_results
+    )
 
     # Blocking findings: all findings that are not allowlisted
     blocking = [f for f in findings if not f.get("allowlisted", False)]
-    overall_status = "clean" if (not blocking and not resolver_blocked) else "findings"
+    accepted = [f for f in findings if f.get("allowlisted")]
+    accepted_resolver = [
+        f for r in resolver_results for f in r.get("findings", []) if f.get("allowlisted")
+    ]
+    overall_status = (
+        "findings"
+        if blocking or resolver_blocked
+        else "accepted_risk"
+        if accepted or accepted_resolver
+        else "clean"
+    )
 
     # Assert no mutation of dependency files occurred during audit
     pyproject_hash_after = _hash_file(pyproject_path)
@@ -1158,6 +1368,8 @@ def cmd_current_audit(
                 "extras": r["extras"],
                 "status": r["status"],
                 "summary": r.get("summary", ""),
+                "raw_status": r.get("raw_status", "not_recorded"),
+                "findings": r.get("findings", []),
             }
             for r in resolver_results
         ],
@@ -1172,7 +1384,7 @@ def cmd_current_audit(
 
     # Write issue body for GitHub (public-safe: no private paths or raw resolver output)
     issue_body_path = out_dir / "current-audit-issue-body.md"
-    if blocking or resolver_blocked:
+    if findings or accepted_resolver or resolver_blocked:
         lines = [
             "## Dependency Audit Findings",
             "",
@@ -1180,6 +1392,22 @@ def cmd_current_audit(
             "packages and the declared dependency ranges.",
             "",
         ]
+        if accepted or accepted_resolver:
+            lines += [
+                "### Accepted temporary risks",
+                "",
+                "These vulnerabilities remain present. Acceptance is scoped and time-limited; "
+                "it is not a claim that the dependency is fixed or the inventory is clean.",
+                "",
+            ]
+            identities = sorted(
+                {
+                    (f["package"], f["version"], f["advisory_id"])
+                    for f in [*accepted, *accepted_resolver]
+                }
+            )
+            lines += [f"- {name} {version}: {advisory}" for name, version, advisory in identities]
+            lines += ["", "See docs/dependency-audit-allowlist.json for reasons and expiry.", ""]
         adv_findings = [f for f in blocking if f["type"] == "advisory"]
         yanked_findings = [f for f in blocking if f["type"] == "yanked"]
         lookup_failures = [f for f in blocking if f["type"] == "yanked_lookup_failed"]
@@ -1236,10 +1464,10 @@ def cmd_current_audit(
     else:
         issue_body_path.write_text("No actionable findings.", encoding="utf-8")
 
-    if overall_status == "clean":
+    if overall_status in {"clean", "accepted_risk"}:
         n_allowed = len(findings) - len(blocking)
         print(
-            f"current-audit passed — {len(adv_queries)} locked packages, "
+            f"current-audit {overall_status} — {len(adv_queries)} locked packages, "
             f"{n_allowed} allowlisted, 0 blocking; report: {report_path}"
         )
         return 0

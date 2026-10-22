@@ -131,9 +131,11 @@ class TestUpsert:
 
 
 class TestGetFilters:
-    def test_get_empty_ids_does_not_query_table(self):
+    def test_get_empty_ids_does_not_query_table(self, tmp_path):
         """AC-5: get() with ids=[] returns empty result before touching LanceDB."""
         store = object.__new__(LanceStore)
+        store._palace_path = str(tmp_path / "palace")
+        store._db = None
 
         class FailingTable:
             def search(self):

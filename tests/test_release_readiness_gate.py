@@ -2722,6 +2722,7 @@ def _audit_run(conclusion: str = "success", age_hours: int = 1) -> dict[str, obj
         "conclusion": conclusion,
         "event": "schedule",
         "headBranch": "main",
+        "headSha": SHA,
         "updatedAt": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
@@ -3507,6 +3508,11 @@ def test_installed_cleanup_poststate_fails_closed(tmp_path, case):
     "case",
     [
         "success",
+        "known-cleanup-warning",
+        "unexpected-cleanup-warning",
+        "cleanup-warning-nonzero",
+        "cleanup-warning-trailing-output",
+        "cleanup-warning-wrong-version",
         "nonzero",
         "nonzero-cleanup",
         "malformed-cleanup",
@@ -3553,7 +3559,7 @@ def test_installed_rollback_no_candidate_fails_closed(tmp_path, case):
         if "mine" in command:
             return SimpleNamespace(returncode=0, stdout="Drawers filed: 1\n", stderr="")
         if command[-3:] == ["cleanup", "--unsafe-now", "--json"]:
-            returncode = 1 if case == "nonzero-cleanup" else 0
+            returncode = 1 if case in {"nonzero-cleanup", "cleanup-warning-nonzero"} else 0
             value = '{"ok":true,"version_count_after":1}'
             if case == "malformed-cleanup":
                 value = "{"
@@ -3561,9 +3567,22 @@ def test_installed_rollback_no_candidate_fails_closed(tmp_path, case):
                 value = '{"ok":false,"version_count_after":1}'
             elif case == "cleanup-version-bool":
                 value = '{"ok":true,"version_count_after":true}'
-            elif case == "cleanup-version-wrong":
+            elif case in {"cleanup-version-wrong", "cleanup-warning-wrong-version"}:
                 value = '{"ok":true,"version_count_after":2}'
-            return SimpleNamespace(returncode=returncode, stdout=value, stderr="")
+            diagnostic = ""
+            if "cleanup-warning" in case:
+                diagnostic = (
+                    "/fixture/site-packages/mempalace_code/storage.py:3135: UserWarning: "
+                    "optimize(cleanup_older_than=0) removes every version except the latest. "
+                    "Any concurrent reader or writer still using an older version will fail. "
+                    "Use a longer cleanup_older_than unless no other process is working on this table."
+                    "\n  table.optimize(\n"
+                )
+                if case == "unexpected-cleanup-warning":
+                    diagnostic = diagnostic.replace("every version", "some versions")
+                elif case == "cleanup-warning-trailing-output":
+                    diagnostic += "unexpected output\n"
+            return SimpleNamespace(returncode=returncode, stdout=value, stderr=diagnostic)
         if command[-2:] == ["health", "--json"]:
             health_count += 1
             value = health
@@ -3613,8 +3632,10 @@ def test_installed_rollback_no_candidate_fails_closed(tmp_path, case):
     )
 
     assert row["id"] == "installed_golden_rollback_no_candidate"
-    assert row["status"] == ("pass" if case == "success" else "fail")
-    assert row["detail"].count(rrg.INSTALLED_GOLDEN_COMMAND) == (0 if case == "success" else 1)
+    assert row["status"] == ("pass" if case in {"success", "known-cleanup-warning"} else "fail")
+    assert row["detail"].count(rrg.INSTALLED_GOLDEN_COMMAND) == (
+        0 if case in {"success", "known-cleanup-warning"} else 1
+    )
     assert str(tmp_path) not in row["detail"]
     assert all(call[1]["cwd"] == str(neutral) for call in calls)
     assert all(call[1]["env"] == {"SAFE": "1"} for call in calls)
@@ -4939,9 +4960,11 @@ _ONNX_PCI_WARNING_VMBUS = _ONNX_PCI_WARNING.replace("MSFT1000:00", "VMBUS:00")
         "pci-arm64",
     ),
 )
+@pytest.mark.parametrize("source_line", [95, 146])
 def test_installed_golden_accepts_exact_linux_onnx_warning_and_completes_suite(
-    tmp_path, monkeypatch, machine, warning
+    tmp_path, monkeypatch, machine, warning, source_line
 ):
+    warning = warning.replace("device_discovery.cc:146", f"device_discovery.cc:{source_line}")
     merged_result = SimpleNamespace(returncode=0, stdout="merged output", stderr=None)
     classified = rrg._classify_installed_golden_diagnostic(
         merged_result, platform_name="linux", machine=machine
@@ -4986,6 +5009,7 @@ def test_installed_golden_accepts_exact_linux_onnx_warning_and_completes_suite(
         ("linux", "arm64", 0, f" {_ONNX_PCI_WARNING}"),
         ("linux", "arm64", 0, f"{_ONNX_PCI_WARNING} "),
         ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace("GetPciBusId", "getpcibusid")),
+        ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace(".cc:146", ".cc:96")),
         (
             "linux",
             "x86_64",
@@ -5060,6 +5084,7 @@ def test_installed_golden_accepts_exact_linux_onnx_warning_and_completes_suite(
         "pci-leading-content",
         "pci-trailing-byte",
         "pci-case-drift",
+        "pci-unobserved-source-line",
         "pci-source-drift",
         "pci-path-drift",
         "pci-unobserved-bus-owner",
@@ -5084,9 +5109,11 @@ def test_installed_golden_accepts_exact_linux_onnx_warning_and_completes_suite(
         "additional-stderr",
     ),
 )
+@pytest.mark.parametrize("source_line", [95, 146])
 def test_installed_golden_onnx_warning_boundaries_fail_closed(
-    tmp_path, monkeypatch, platform_name, machine, returncode, stderr
+    tmp_path, monkeypatch, platform_name, machine, returncode, stderr, source_line
 ):
+    stderr = stderr.replace("device_discovery.cc:146", f"device_discovery.cc:{source_line}")
     wheel = _write_candidate_wheel(tmp_path)
     cache = _write_model_cache(tmp_path / "hf")
     calls = []

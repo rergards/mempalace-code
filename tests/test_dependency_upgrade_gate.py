@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parent.parent
 
 # ── Module loader ──────────────────────────────────────────────────────────────
@@ -837,7 +839,8 @@ def test_default_resolver_runner_upgrades_audit_tooling(monkeypatch):
 
     def fake_run(command, **kwargs):
         calls.append(command)
-        return subprocess.CompletedProcess(command, 0, stdout="{}", stderr="")
+        output = json.dumps({"dependencies": [{"name": "example", "version": "1.0", "vulns": []}]})
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
 
     monkeypatch.setattr(gate.subprocess, "run", fake_run)
 
@@ -848,6 +851,8 @@ def test_default_resolver_runner_upgrades_audit_tooling(monkeypatch):
             "extras": [],
             "status": "success",
             "summary": "resolver audit for (default): success",
+            "raw_status": "clean",
+            "findings": [],
         }
     ]
     assert any(
@@ -923,13 +928,22 @@ def test_dependency_audit_workflow_closes_the_tracked_issue_after_a_clean_run():
 
     notify = by_name["Create or update dependency-audit issue"]
     close = by_name["Close resolved dependency-audit issue"]
+    terminal = by_name["Fail workflow on audit findings"]
 
-    assert notify["if"] == "steps.audit.outcome == 'failure'"
+    assert notify["if"] == (
+        "(steps.audit.outcome == 'failure' || steps.audit.outputs.audit_status == 'accepted_risk') "
+        "&& github.ref == 'refs/heads/main'"
+    )
     # Only a clean run of main speaks for main's lock; a clean dispatch from a
     # feature branch must not close the issue that tracks main's findings.
-    assert close["if"] == "steps.audit.outcome == 'success' && github.ref == 'refs/heads/main'"
+    assert close["if"] == (
+        "steps.audit.outcome == 'success' && steps.audit.outputs.audit_status == 'clean' "
+        "&& github.ref == 'refs/heads/main'"
+    )
     assert close.get("continue-on-error") is True, "issue bookkeeping must not fail a clean run"
     assert "continue-on-error" not in notify
+    assert terminal["if"] == "steps.audit.outcome == 'failure'"
+    assert "exit 1" in terminal["run"]
 
     for step in (notify, close):
         assert f'ISSUE_TITLE="{title}"' in step["run"]
@@ -1700,3 +1714,221 @@ def test_default_advisory_querier_fails_closed_on_failed_or_short_responses(monk
         lambda request, timeout: _Response({"results": [{"vulns": []}, {}]}),
     )
     assert gate._default_advisory_querier(queries) == [{"vulns": []}, {}]
+
+
+# pip-audit's published JSON format supplies dependencies/name/version/vulns and aliases.
+_PILLOW_ADVISORY = "GHSA-8g5g-8vmr-9782"
+
+
+def _pillow_exception(**overrides):
+    return {
+        "package": "pillow",
+        "advisory_id": _PILLOW_ADVISORY,
+        "affected_range": "==12.3.0",
+        "reason": "Reviewed text-only usage; residual risk accepted",
+        "expires": "2026-11-05",
+        **overrides,
+    }
+
+
+def _pillow_inventory(*, version="12.3.0", advisory=_PILLOW_ADVISORY, aliases=None):
+    return {
+        "dependencies": [
+            {
+                "name": "pillow",
+                "version": version,
+                "vulns": [{"id": advisory, "aliases": aliases or []}],
+            },
+            {"name": "fastembed", "version": "0.8.1", "vulns": []},
+            {"name": "mempalace-code", "skip_reason": "local project"},
+        ],
+        "fixes": [],
+    }
+
+
+def test_resolver_accepts_exact_reviewed_risk_and_keeps_raw_findings(tmp_path):
+    allowlist = tmp_path / "allowlist.json"
+    _write_allowlist(allowlist, [_pillow_exception()])
+    result = gate._evaluate_resolver_audit(
+        json.dumps(_pillow_inventory()),
+        1,
+        tmp_path,
+        allowlist_path=allowlist,
+        today_iso="2026-10-22",
+    )
+    assert result["status"] == "accepted_risk"
+    assert result["raw_status"] == "vulnerabilities"
+    assert result["findings"][0]["advisory_id"] == _PILLOW_ADVISORY
+    assert result["findings"][0]["version"] == "12.3.0"
+    assert result["findings"][0]["allowlisted"] is True
+
+
+@pytest.mark.parametrize("case", ["new", "version", "expired", "invalid_date", "blank_reason"])
+def test_resolver_blocks_changed_or_invalid_acceptance(tmp_path, case):
+    inventory = _pillow_inventory()
+    entry = _pillow_exception()
+    today = "2026-10-22"
+    if case == "new":
+        inventory["dependencies"][0]["vulns"].append({"id": "GHSA-new-unreviewed-finding"})
+    elif case == "version":
+        inventory["dependencies"][0]["version"] = "12.2.0"
+    elif case == "expired":
+        today = "2026-11-05"
+    elif case == "invalid_date":
+        entry["expires"] = "tomorrow"
+    else:
+        entry["reason"] = " "
+    allowlist = tmp_path / "allowlist.json"
+    _write_allowlist(allowlist, [entry])
+    result = gate._evaluate_resolver_audit(
+        json.dumps(inventory), 1, tmp_path, allowlist_path=allowlist, today_iso=today
+    )
+    assert result["status"] == "failed"
+    assert result["raw_status"] == "vulnerabilities"
+
+
+def test_resolver_matches_published_advisory_alias_without_discarding_primary(tmp_path):
+    allowlist = tmp_path / "allowlist.json"
+    _write_allowlist(allowlist, [_pillow_exception()])
+    result = gate._evaluate_resolver_audit(
+        json.dumps(_pillow_inventory(advisory="CVE-2026-112395", aliases=[_PILLOW_ADVISORY])),
+        1,
+        tmp_path,
+        allowlist_path=allowlist,
+        today_iso="2026-10-22",
+    )
+    assert result["status"] == "accepted_risk"
+    assert result["findings"][0]["advisory_id"] == "CVE-2026-112395"
+    assert result["findings"][0]["accepted_advisory_id"] == _PILLOW_ADVISORY
+
+
+@pytest.mark.parametrize("case", ["json", "empty", "skipped", "alias", "exit", "contradiction"])
+def test_resolver_errors_and_incomplete_inventory_never_authorize_acceptance(tmp_path, case):
+    inventory = _pillow_inventory()
+    code = 1
+    if case == "empty":
+        inventory["dependencies"] = []
+    elif case == "skipped":
+        inventory["dependencies"].append({"name": "another-package", "skip_reason": "unknown"})
+    elif case == "alias":
+        inventory["dependencies"][0]["vulns"][0]["aliases"] = "malformed"
+    elif case == "exit":
+        code = 2
+    elif case == "contradiction":
+        code = 0
+    output = "invalid JSON" if case == "json" else json.dumps(inventory)
+    allowlist = tmp_path / "allowlist.json"
+    _write_allowlist(allowlist, [_pillow_exception()])
+    result = gate._evaluate_resolver_audit(
+        output, code, tmp_path, allowlist_path=allowlist, today_iso="2026-10-22"
+    )
+    assert result["status"] == "failed"
+    assert result["raw_status"] == "error"
+
+
+def test_upgrade_resolver_remains_strict_even_with_repository_allowlist(tmp_path):
+    _write_allowlist(tmp_path / "docs/dependency-audit-allowlist.json", [_pillow_exception()])
+    result = gate._evaluate_resolver_audit(json.dumps(_pillow_inventory()), 1, tmp_path)
+    assert result["status"] == "failed"
+    assert result["findings"][0]["allowlisted"] is False
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["none", "tracked", "untracked", "committed", "version", "long", "future", "duplicate"],
+)
+def test_usage_exception_is_bound_to_reviewed_code_and_dependency_owner(tmp_path, change):
+    def git(*args):
+        return subprocess.run(
+            ["git", *args], cwd=tmp_path, check=True, capture_output=True, text=True
+        )
+
+    git("init", "-q")
+    source = tmp_path / "mempalace_code/storage.py"
+    source.parent.mkdir()
+    source.write_text("canonical_model = 'MiniLM'\n")
+    git("add", "mempalace_code")
+    git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture")
+    tree = git("rev-parse", "HEAD:mempalace_code").stdout.strip()
+    allowlist = tmp_path / "allowlist.json"
+    data = {
+        "schema_version": 1,
+        "entries": [_pillow_exception()],
+        "context": {
+            "mempalace_code_tree": tree,
+            "packages": {"fastembed": ["0.8.0", "0.8.1"]},
+            "accepted_on": "2026-10-22",
+            "review_on": "2026-10-29",
+        },
+    }
+    if change == "long":
+        data["entries"][0]["expires"] = "2026-11-06"
+    if change == "duplicate":
+        data["entries"].append(data["entries"][0].copy())
+    allowlist.write_text(json.dumps(data))
+    versions = {"fastembed": "0.8.1"}
+    if change in {"tracked", "committed"}:
+        source.write_text("image_input_enabled = True\n")
+    if change == "committed":
+        git("add", "mempalace_code")
+        git(
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "changed",
+        )
+    if change == "untracked":
+        (source.parent / "images.py").write_text("image_input_enabled = True\n")
+    if change == "version":
+        versions["fastembed"] = "0.8.2"
+    accepted = gate._load_allowlist(
+        allowlist,
+        root=tmp_path,
+        versions=versions,
+        today_iso="2026-10-21" if change == "future" else "2026-10-22",
+    )
+    assert bool(accepted) is (change == "none")
+
+
+def test_current_audit_reports_accepted_risk_instead_of_claiming_clean(tmp_path):
+    _write_pyproject(tmp_path / "pyproject.toml", runtime=["fastembed>=0.8"])
+    _write_lockfile(tmp_path / "uv.lock", {"fastembed": "0.8.1", "pillow": "12.3.0"})
+    allowlist = tmp_path / "allowlist.json"
+    _write_allowlist(allowlist, [_pillow_exception()])
+
+    def resolver(plan, root):
+        result = gate._evaluate_resolver_audit(
+            json.dumps(_pillow_inventory()),
+            1,
+            root,
+            allowlist_path=allowlist,
+            today_iso="2026-10-22",
+        )
+        return [{**result, "extras": extra} for extra in plan]
+
+    rc = gate.cmd_current_audit(
+        tmp_path,
+        allowlist_path=allowlist,
+        out_dir=tmp_path / "out",
+        advisory_querier=lambda queries: [
+            {"vulns": [{"id": _PILLOW_ADVISORY}]} if q["name"] == "pillow" else {"vulns": []}
+            for q in queries
+        ],
+        yanked_checker=_no_yanked,
+        range_drift_querier=_no_range_drift,
+        resolver_runner=resolver,
+        today_iso="2026-10-22",
+    )
+    assert rc == 0
+    report = json.loads((tmp_path / "out/current-audit-report.json").read_text())
+    assert report["status"] == "accepted_risk"
+    assert report["findings"][0]["allowlisted"] is True
+    assert report["resolver_audits"][0]["raw_status"] == "vulnerabilities"
+    assert report["resolver_audits"][0]["findings"][0]["advisory_id"] == _PILLOW_ADVISORY
+    issue = (tmp_path / "out/current-audit-issue-body.md").read_text()
+    assert "Accepted temporary risks" in issue
+    assert "not a claim that the dependency is fixed" in issue
+    assert _PILLOW_ADVISORY in issue

@@ -56,6 +56,7 @@ def _wings(archive: str) -> list:
 
 
 def test_sibling_palaces_keep_separate_backups_and_retention(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "0")
     palace_x = _make_palace(str(tmp_path / "palaceX"), "projX")
     palace_y = _make_palace(str(tmp_path / "palaceY"), "projY")
     x_archives = [create_backup(palace_x, kind="scheduled")[1] for _ in range(3)]
@@ -84,7 +85,7 @@ def test_pre_optimize_backups_of_siblings_do_not_prune_each_other(tmp_path, monk
         create_backup(palace_b, kind="pre_optimize")
 
     assert os.path.isfile(a_archive)
-    assert len(os.listdir(managed_backups_dir(palace_b))) == 1
+    assert len(os.listdir(managed_backups_dir(palace_b))) == 2
 
 
 def test_legacy_shared_dir_archives_are_listed_as_shared_and_never_pruned(tmp_path, monkeypatch):

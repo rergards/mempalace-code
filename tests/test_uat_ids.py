@@ -221,15 +221,14 @@ class TestAdversarialStorePaths:
             store.delete(["id-alpha"])
         assert store.count() == before
 
-    def test_get_by_ids_raises_on_lookup_failure(self, tmp_path):
+    def test_get_by_ids_raises_on_lookup_failure(self, tmp_path, monkeypatch):
         store = _store(tmp_path)
         _seed(store, ["alpha"])
 
-        class _BrokenTable:
-            def search(self, *args: Any, **kwargs: Any):
-                raise RuntimeError("lance read failed")
+        def broken_search(*args: Any, **kwargs: Any):
+            raise RuntimeError("lance read failed")
 
-        store._table = _BrokenTable()  # type: ignore[assignment]  # reason: fault injection
+        monkeypatch.setattr(type(store._table), "search", broken_search)
         with pytest.raises(RuntimeError, match="lance read failed"):
             store.get(ids=["id-alpha"])
 

@@ -202,13 +202,16 @@ Actions, runs a `current-audit` on a weekly schedule and on
   the default implementation).
 - Uploads a sanitized JSON/Markdown artifact on every run.
 - Creates or updates a single GitHub issue (`[dependency-audit] current dependency
-  audit findings`, labelled `dependency-audit`) when actionable findings exist,
-  matching it by exact title. A missing label is a visible warning, not a
-  silent fallback.
+  audit findings`, labelled `dependency-audit`) when actionable findings exist on
+  `main`, matching it by exact title. Candidate-branch findings fail the workflow
+  and retain their artifacts without changing the main issue. A missing label
+  is a visible warning, not a silent fallback.
 - Closes that issue, with a comment linking the run, on the next clean run of
   `main` (scheduled, or dispatched from `main`); a clean dispatch from another
   branch audits that branch's lock and leaves the issue open. The close step
   cannot fail a clean run, because release admission reads the run conclusion.
+  An `accepted_risk` run updates the issue on `main` and keeps it open. Candidate
+  branches never create, update or close it.
 
 ### Scheduled Audit Commands
 
@@ -269,6 +272,102 @@ Each entry requires all five fields; missing or partial entries are rejected.
 
 Entries are fail-closed: expired entries, missing fields, or mismatched
 `affected_range` values cause the audit to fail as if no entry existed.
+
+Current-audit applies reviewed entries to both locked OSV findings and fresh
+pip-audit findings. A fresh-install exception must match the **actual resolved
+version exactly**, using `==<version>`. Published advisory aliases can identify the
+same advisory; the report retains the primary ID, aliases and accepted ID. Unknown
+or skipped third-party dependencies, invalid JSON, inconsistent exit status,
+tooling failure and additional vulnerabilities block acceptance. The local
+`mempalace-code` distribution can be skipped because it has no published advisory
+identity. Dependency-upgrade `audit` remains strict and does not use this allowlist.
+
+Reports distinguish `clean`, `accepted_risk` and blocking `findings`. Fresh resolver
+rows retain `raw_status` and sanitized vulnerability identities. A successful
+`accepted_risk` exit permits admission under the explicit exception; it does not
+claim a clean inventory or a fixed dependency. Main's tracking issue remains open.
+
+An optional top-level `context` binds usage-based exceptions to the reviewed
+`mempalace_code_tree` Git object and exact `packages` versions (a string or explicit
+list of reviewed pins). The code must match
+HEAD with no tracked changes or untracked package files. A missing Git tree,
+changed code or changed resolved owner version invalidates all scoped entries.
+This context includes `accepted_on` and `review_on` dates. Its entries expire no
+later than 14 days after acceptance; review precedes expiry. Duplicate or malformed
+entries cannot grant acceptance. The dated review is a maintainer action; the
+audit automatically enforces expiry on each run and does not launch an AI reviewer.
+Release preflight revalidates the same entries at admission time. A previous
+successful hosted audit cannot extend an exception beyond its expiry, even while
+that workflow result remains inside the normal freshness window.
+
+### Temporary Pillow risk acceptance
+
+Accepted on **2026-10-22**, review on **2026-10-29**, expires on **2026-11-05**.
+The existing allowlist records the exact 28 advisory IDs for **Pillow 12.3.0**.
+It is bound to **FastEmbed 0.8.0** in the lock, **0.8.1** in fresh installs, and the
+reviewed application package tree.
+No fork, dependency override, model change or package upgrade is involved.
+
+The reviewed canonical MiniLM path supplies strings to FastEmbed's text tokenizer
+and numerical ONNX inference. It does not invoke the affected image/PDF operations.
+FastEmbed imports Pillow through shared image/type modules; import alone does not
+decode an image. A bounded installed check also processed six synthetic texts
+with 13 Pillow image/PDF entrypoints blocked and observed no calls. Source review,
+primary advisories and independent security review establish the applicability
+rationale; that bounded run alone is not a universal proof.
+
+| Advisory | Severity | Required operation absent from canonical text inference |
+| --- | --- | --- |
+| GHSA-462x-pgg6-55fp | Moderate | Crafted tiled TIFF decoding |
+| GHSA-58r4-6rv3-gfh8 | High | Morphology on a zero-width image |
+| GHSA-65qm-jvmh-6pqg | High | GIF reuse after an oversized-frame exception |
+| GHSA-8g5g-8vmr-9782 | Critical | Crafted JPEG decoding after draft/thumbnail scaling |
+| GHSA-c6hw-5grf-ff96 | High | TIFF tile/RGBA decoding |
+| GHSA-p4wg-p73j-c528 | High | Existing PDF parsing, including append/save |
+| GHSA-pchr-8j38-3x4p | High | TIFF encoding with retained ColorMap metadata |
+| GHSA-q45j-58j2-45rg | High | TIFF decoding with shortened image data |
+| GHSA-vx6w-vv9f-6gvg | Moderate | Scaled EPS rendering through Ghostscript |
+| GHSA-22hg-r758-rrw9 | High | Read MIC image frame counts |
+| GHSA-254f-3936-288h | Moderate | Parse PDF values or page trees |
+| GHSA-27h8-gf7j-v5hc | High | Apply rank filters to images |
+| GHSA-332p-7hrc-92wf | Critical | Save TIFF to in-memory buffers |
+| GHSA-4558-3h8r-v8xp | Moderate | Decode packed P;2L or P;4L image pixels |
+| GHSA-4rr5-89j8-mwwm | Moderate | Encode TIFF to in-memory buffers |
+| GHSA-5xm2-6676-qcp9 | High | Decode APNG frames |
+| GHSA-74r2-7ff9-mjj2 | Moderate | Open GIF images or concatenate their comments |
+| GHSA-7mwm-ghpf-9vrm | High | Transform image pixels |
+| GHSA-cp9v-662q-vvx9 | High | Merge image bands |
+| GHSA-f2g6-542v-9j58 | High | Rewrite PDF page trees |
+| GHSA-fc9g-5qg7-mf45 | Moderate | Save GIF comments |
+| GHSA-gg2r-wvfm-q9rx | High | Decode MSP RLE images |
+| GHSA-j4m9-6w36-pw47 | High | Render FreeType glyphs with a stroker |
+| GHSA-jg86-v3jv-hrpm | High | Save images as multipage PDFs |
+| GHSA-rfgq-q3w2-pmv2 | Moderate | Quantize image pixels with a palette |
+| GHSA-w889-685w-c8fh | Critical | Render EPS through Ghostscript |
+| GHSA-xgh8-jp6q-p5x8 | Moderate | Open XBM images |
+| GHSA-xvh5-g6gv-559v | High | Encode TIFF tags with libtiff |
+
+The maintainer accepted the additional 19 IDs on 2026-10-22 under the same
+review and expiry dates. The 28 findings include three Critical, sixteen High
+and nine Moderate advisories; their component severity is unchanged. FreeType
+glyph rendering is separate from the tokenizer used for canonical text inference.
+
+The component remains vulnerable, including the Critical JPEG, TIFF and EPS findings. This is
+an accepted temporary residual risk, not a claim that all MemPalace configurations
+are unaffected. Arbitrary `[custom-models]` implementations and applications using
+Pillow's image APIs are outside the canonical-path conclusion. Their exposure
+requires a separate assessment; installing an extra alone does not demonstrate
+an exploitable image path. The acceptance retains this uncertainty explicitly.
+
+Reassess immediately on an application tree or FastEmbed change, a new advisory,
+image/PDF processing or model change. At review, check published compatible
+FastEmbed/Pillow releases and replace these entries with a normal audited upgrade
+when one exists. No automatic renewal is permitted. Deleting an entry, changing
+its pinned version or reaching expiry restores the blocking finding.
+
+Primary examples: https://github.com/advisories/GHSA-8g5g-8vmr-9782,
+https://github.com/advisories/GHSA-p4wg-p73j-c528 and
+https://github.com/advisories/GHSA-65qm-jvmh-6pqg.
 
 ### Scheduled Audit Verification Boundary
 

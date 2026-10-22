@@ -64,7 +64,7 @@ INSTALLED_GOLDEN_ONNX_CPU_WARNING = (
 INSTALLED_GOLDEN_ONNX_PCI_WARNING = re.compile(
     r"\x1b\[0;93m"
     r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{9} "
-    r"\[W:onnxruntime:Default, device_discovery\.cc:146 GetPciBusId\] "
+    r"\[W:onnxruntime:Default, device_discovery\.cc:(?:95|146) GetPciBusId\] "
     r'Skipping pci_bus_id for PCI path at "'
     r"/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/(?:MSFT1000|VMBUS):00/"
     r'(?P<pci_filename>[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})" '
@@ -74,9 +74,11 @@ INSTALLED_GOLDEN_ONNX_PCI_WARNING = re.compile(
 )
 INSTALLED_CLI_INVENTORY_PROBE_NAME = "installed-cli-inventory-probe.py"
 INSTALLED_SAFE_MIRROR_COMMAND = (
-    "rsync -a --delete --exclude=palace/ --exclude=knowledge_graph.sqlite3 "
+    "rsync -a --delete --exclude=palace --exclude=knowledge_graph.sqlite3 "
+    "--exclude='knowledge_graph.sqlite3-*' --exclude=knowledge_graph.sqlite3.adopted "
     "--exclude=config.json --exclude=backups/ --exclude=palace.backup-*/ "
-    "--exclude=palace.quarantine-*/ ~/.mempalace/ user@host:.mempalace/"
+    "--exclude=palace.quarantine-*/ --exclude=locks/ --exclude='operation.lock*' "
+    "--exclude='watch-*.claim' ~/.mempalace/ user@host:.mempalace/"
 )
 INSTALLED_CLI_INVENTORY_OUTPUT_LIMIT = 64 * 1024
 INSTALLED_CLI_INVENTORY_MEMBER_LIMIT = 128
@@ -665,6 +667,7 @@ def _run_public_admission_checks(
             admission.check_dependency_audit_freshness(
                 repo,
                 public_read,
+                expected_sha=candidate_sha,
                 max_age_hours=audit_max_age_hours,
             ),
             "public GET workflow runs",
@@ -3859,11 +3862,13 @@ def _run_installed_rollback_no_candidate_scenario(
             merge_stderr=merge_stderr,
         )
 
-    def require_success(step: str, result, success_marker: str | None = None) -> dict | None:
+    def require_success(
+        step: str, result, success_marker: str | None = None, *, expected_stderr: str = ""
+    ) -> dict | None:
         if (
             result.returncode != 0
             or not result.stdout
-            or result.stderr
+            or (result.stderr and result.stderr != expected_stderr)
             or not _installed_output_is_clean(result)
             or (success_marker is not None and success_marker not in result.stdout)
         ):
@@ -3910,7 +3915,22 @@ def _run_installed_rollback_no_candidate_scenario(
                 return failed
 
         cleanup = run(["--palace", str(palace), "cleanup", "--unsafe-now", "--json"])
-        failed = require_success("cleanup", cleanup)
+        # The documented explicit unsafe mode may emit Lance's exact safety warning.
+        # Keep it visible; other diagnostics, errors, and all state checks still fail.
+        cleanup_warning = (
+            "UserWarning: optimize(cleanup_older_than=0) removes every version except the latest. "
+            "Any concurrent reader or writer still using an older version will fail. "
+            "Use a longer cleanup_older_than unless no other process is working on this table."
+        )
+        expected_cleanup_stderr = ""
+        if re.fullmatch(
+            r"[^\n]+/mempalace_code/storage\.py:[0-9]+: "
+            + re.escape(cleanup_warning)
+            + r"\n  table\.optimize\(\n",
+            cleanup.stderr or "",
+        ):
+            expected_cleanup_stderr = cleanup.stderr
+        failed = require_success("cleanup", cleanup, expected_stderr=expected_cleanup_stderr)
         if failed is not None:
             return failed
         cleanup_value = json.loads(cleanup.stdout)
@@ -3993,7 +4013,8 @@ def _run_installed_rollback_no_candidate_scenario(
         "installed_golden_rollback_no_candidate",
         INSTALLED_ROLLBACK_NO_CANDIDATE_COMMAND,
         "pass",
-        "four rollback no-candidate modes preserved output, health, and disposable state",
+        "four rollback no-candidate modes preserved output, health, and disposable state"
+        + ("; exact Lance unsafe-cleanup warning retained" if cleanup.stderr else ""),
     )
 
 

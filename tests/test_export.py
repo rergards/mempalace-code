@@ -309,10 +309,10 @@ def _drawer_records(*drawers):
     ]
 
 
-class TestImportDedupUsesTargetWingCosine:
-    """Import skips only drawers whose target wing already holds cosine >= 0.9."""
+class TestImportDedupUsesTargetWingExactText:
+    """Import controls same-wing exact text and ids; distinct statements survive."""
 
-    def test_distinct_paraphrases_import_and_near_identical_dedups(self, tmp_path, pin_cosine):
+    def test_distinct_paraphrases_and_near_identical_statements_import(self, tmp_path, pin_cosine):
         store = _store(str(tmp_path / "palace"))
         _add_manual_drawer(
             store, wing="notes", content=pin_cosine("chose postgres for billing", 1.0, axis=1)
@@ -325,9 +325,10 @@ class TestImportDedupUsesTargetWingCosine:
 
         summary = import_jsonl(path="unused", store=store, skip_kg=True, records=records)
 
-        assert (summary["imported_drawers"], summary["skipped_duplicates"]) == (2, 1)
+        assert (summary["imported_drawers"], summary["skipped_duplicates"]) == (3, 0)
         assert sorted(store.get(ids=["mysql", "rejected", "near"])["ids"]) == [
             "mysql",
+            "near",
             "rejected",
         ]
 
@@ -374,31 +375,26 @@ class TestImportDedupUsesTargetWingCosine:
         assert (summary["imported_drawers"], summary["skipped_duplicates"]) == (1, 2)
         assert sorted(store.get()["ids"]) == sorted([stored_id, "fresh"])
 
-    def test_similarity_check_compares_with_the_nearest_drawer(
-        self, tmp_path, pin_cosine, monkeypatch
+    def test_exact_lookup_preserves_opposite_fact_without_semantic_ranking(
+        self, tmp_path, monkeypatch
     ):
-        """The dedup query skips the code-intent rerank, so its top hit is the nearest drawer."""
         store = _store(str(tmp_path / "palace"))
-        _add_manual_drawer(
-            store, wing="notes", content=pin_cosine("chose postgres for billing", 1.0, axis=1)
-        )
-        calls = []
-        real_query = store.query
+        text = "Use SQLite for the metadata storage boundary."
+        _add_manual_drawer(store, wing="notes", content=text)
 
-        def spy(*args, **kwargs):
-            calls.append(kwargs)
-            return real_query(*args, **kwargs)
+        def unexpected_query(*args, **kwargs):
+            raise AssertionError("Exact duplicate proof must not use semantic ranking")
 
-        monkeypatch.setattr(store, "query", spy)
+        monkeypatch.setattr(store, "query", unexpected_query)
         records = _drawer_records(
-            ("near", "notes", pin_cosine("chose postgres for billing!", 0.95, axis=2))
+            ("exact", "notes", text),
+            ("opposite", "notes", "Do not use SQLite for the metadata storage boundary."),
         )
-
         summary = import_jsonl(path="unused", store=store, skip_kg=True, records=records)
-
+        assert summary["imported_drawers"] == 1
         assert summary["skipped_duplicates"] == 1
-        assert calls
-        assert all(call.get("intent_rerank") is False for call in calls)
+        assert store.get(ids=["opposite"])["ids"] == ["opposite"]
+        assert store.get(ids=["exact"])["ids"] == []
 
 
 # ── Dry-run leaves palace unchanged ──────────────────────────────────────────

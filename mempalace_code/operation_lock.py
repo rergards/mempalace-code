@@ -14,6 +14,7 @@ import hashlib
 import inspect
 import json
 import os
+import stat
 import sys
 import threading
 import time
@@ -50,7 +51,7 @@ _R = TypeVar("_R")
 # Advisory locks held by this process, keyed by absolute path and acquiring thread.
 # flock() conflicts between descriptors of one process. Only the acquiring thread
 # may reuse its lease; another thread must obtain its own shared installation lease.
-_PROCESS_HOLDS: dict[tuple[str, threading.Thread], int] = {}
+_PROCESS_HOLDS: dict[tuple[str, threading.Thread], dict[int, LockMode]] = {}
 _PROCESS_HOLDS_GUARD = threading.Lock()
 
 
@@ -124,7 +125,7 @@ class OperationLease:
                 fcntl.flock(self.fd, fcntl.LOCK_UN)
             os.close(self.fd)
             self.released = True
-            self.lock._note_process_hold(-1, self.owner_thread)
+            self.lock._note_process_hold(self.fd, None, self.owner_thread)
 
     def __enter__(self) -> OperationLease:
         return self
@@ -192,19 +193,53 @@ class OperationLock:
         """Return True while the current thread holds a lease on this lock file."""
         key = (self._hold_key(), threading.current_thread())
         with _PROCESS_HOLDS_GUARD:
-            return _PROCESS_HOLDS.get(key, 0) > 0
+            return bool(_PROCESS_HOLDS.get(key))
 
     def _hold_key(self) -> str:
         return os.path.abspath(self.path)
 
-    def _note_process_hold(self, delta: int, owner_thread: threading.Thread | None = None) -> None:
+    def _note_process_hold(
+        self, fd: int, mode: LockMode | None, owner_thread: threading.Thread | None = None
+    ) -> None:
         key = (self._hold_key(), owner_thread or threading.current_thread())
         with _PROCESS_HOLDS_GUARD:
-            count = _PROCESS_HOLDS.get(key, 0) + delta
-            if count > 0:
-                _PROCESS_HOLDS[key] = count
+            holds = _PROCESS_HOLDS.setdefault(key, {})
+            if mode is not None:
+                holds[fd] = mode
             else:
+                holds.pop(fd, None)
+            if not holds:
                 _PROCESS_HOLDS.pop(key, None)
+
+    def held_linked_in_thread(self, *, exclusive: bool = False) -> bool:
+        """Whether a recorded live lease still names the same single-link regular inode.
+
+        A replacement pathname does not inherit the flock of an unlinked open file.
+        Keep descriptors with the existing process registry so nested operations can
+        reject that state without acquiring a competing descriptor or trusting metadata.
+        """
+        key = (self._hold_key(), threading.current_thread())
+        with _PROCESS_HOLDS_GUARD:
+            try:
+                named = os.lstat(self.path)
+                if (
+                    not stat.S_ISREG(named.st_mode)
+                    or named.st_nlink != 1
+                    or named.st_uid != os.getuid()
+                ):
+                    return False
+                for fd, mode in _PROCESS_HOLDS.get(key, {}).items():
+                    if exclusive and mode != "exclusive":
+                        continue
+                    held = os.fstat(fd)
+                    if held.st_nlink == 1 and (held.st_dev, held.st_ino) == (
+                        named.st_dev,
+                        named.st_ino,
+                    ):
+                        return True
+            except OSError:
+                return False
+        return False
 
     def owner_details(self) -> dict[str, object] | None:
         """Return one current owner record for actionable contention diagnostics."""
@@ -272,7 +307,7 @@ class OperationLock:
             fcntl.flock(fd, fcntl.LOCK_UN)
             os.close(fd)
             raise
-        self._note_process_hold(1)
+        self._note_process_hold(fd, mode)
         return OperationLease(lock=self, fd=fd, token=token, mode=mode)
 
     def _metadata_fd(self) -> int:
@@ -375,6 +410,29 @@ def owner_palace_kwargs(lock: object, palace: str | os.PathLike[str] | None) -> 
     if palace is None or not isinstance(lock, OperationLock):
         return OwnerPalaceKwargs()
     return OwnerPalaceKwargs(palace=palace)
+
+
+@contextmanager
+def palace_snapshot_fence(palace_path: str | os.PathLike[str], *, maintenance: bool = False):
+    """Fence version pruning with an existing directory descriptor, without state writes.
+
+    Ordinary writes use their existing separate lease. Restore/repair retain their
+    install/write gates. The palace directory stays stable during version pruning.
+    Unsupported platforms keep reads available and refuse pruning.
+    """
+    if fcntl is None:
+        raise OperationLockUnavailable("snapshot fencing requires POSIX advisory locking")
+    path = os.path.realpath(os.path.expanduser(os.fspath(palace_path)))
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        mode = fcntl.LOCK_EX | fcntl.LOCK_NB if maintenance else fcntl.LOCK_SH
+        try:
+            fcntl.flock(fd, mode)
+        except BlockingIOError as exc:
+            raise OperationLockedError({"operation": "active snapshot read"}) from exc
+        yield
+    finally:
+        os.close(fd)
 
 
 def palace_lock_path(palace_path: str | os.PathLike[str]) -> Path:

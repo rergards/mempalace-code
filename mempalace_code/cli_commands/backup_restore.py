@@ -90,7 +90,7 @@ def cmd_backup_create(args):
     print(f"  Archive: {os.path.abspath(out_path)}")
     pruned = meta.get("pruned") or []
     if pruned:
-        print(f"  Retention pruned {len(pruned)} older {kind} archive(s).")
+        print(f"  Retention pruned {len(pruned)} older automatic archive(s).")
 
 
 def cmd_backup_list(args):

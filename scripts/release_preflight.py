@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 _ADMISSION_CHECKS_MODULE = None
 _PUBLIC_READ_MODULE = None
 _PUBLIC_SAFETY_MODULE = None
+_DEPENDENCY_GATE_MODULE = None
 
 ACCEPTANCE_REPORT_DIR = "docs/quality/acceptance"
 ACCEPTANCE_FORMAT_DOC = f"{ACCEPTANCE_REPORT_DIR}/README.md"
@@ -102,6 +103,53 @@ def _load_public_safety():
         spec.loader.exec_module(module)
         _PUBLIC_SAFETY_MODULE = module
     return _PUBLIC_SAFETY_MODULE
+
+
+def check_dependency_risk_expiry(root: Path, *, today_iso: str | None = None) -> dict | None:
+    """Revalidate exceptions now; a cached successful workflow cannot extend expiry."""
+    path = root / "docs/dependency-audit-allowlist.json"
+    if not path.exists():
+        return None
+    row = {"name": "dependency_risk_expiry", "status": "fail"}
+    remediation = (
+        "Review the exact dependency exceptions and rerun current-audit; "
+        "do not reuse a workflow success after an exception expires."
+    )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("entries"), list):
+            raise ValueError("invalid exception document")
+        if not data["entries"]:
+            return None
+        global _DEPENDENCY_GATE_MODULE
+        if _DEPENDENCY_GATE_MODULE is None:
+            name = "dependency_upgrade_gate"
+            spec = importlib.util.spec_from_file_location(
+                name, Path(__file__).resolve().parent / f"{name}.py"
+            )
+            if spec is None or spec.loader is None:
+                raise RuntimeError("dependency exception validator unavailable")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module
+            spec.loader.exec_module(module)
+            _DEPENDENCY_GATE_MODULE = module
+        gate = _DEPENDENCY_GATE_MODULE
+        today_iso = today_iso or datetime.datetime.now(tz=datetime.UTC).date().isoformat()
+        entries = gate._load_allowlist(
+            path, root=root, versions=gate._parse_lockfile(root / "uv.lock"), today_iso=today_iso
+        )
+        if len(entries) != len(data["entries"]):
+            raise ValueError("exception document or source/dependency binding is invalid")
+        for entry in entries:
+            valid, _ = gate._check_allowlist(
+                entry["advisory_id"], entry["package"], entry["affected_range"], entries, today_iso
+            )
+            if not valid:
+                raise ValueError("dependency exception expired or is invalid at admission time")
+        row.update(status="ok", detail=f"{len(entries)} dependency exceptions valid on {today_iso}")
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as exc:
+        row["detail"] = str(exc)
+    return _with_remediation(row, remediation)
 
 
 def package_version(root: Path) -> str:
@@ -498,6 +546,7 @@ def evaluate(
     branch: str | None = None,
     required_check_name: str | None = None,
     audit_max_age_hours: int | None = None,
+    audit_branch: str | None = None,
     run: Callable[[list[str], Path], tuple[int, str]] = _run,
     public_read: Callable[[object], object] | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
@@ -550,6 +599,9 @@ def evaluate(
         run=run,
     )
     checks.extend(sha_rows)
+    dependency_risk = check_dependency_risk_expiry(root)
+    if dependency_risk is not None:
+        checks.append(dependency_risk)
     expected_sha_valid = not any(
         row["name"] == "expected_sha_format" and row["status"] != "ok" for row in sha_rows
     )
@@ -605,11 +657,33 @@ def evaluate(
                 admission.REMEDIATE_EXPECT_SHA,
             ).to_dict()
         )
-    if check_dependency_audit:
+    main_audit_required = check_public_main or candidate_ref in (
+        "publish/main",
+        "refs/remotes/publish/main",
+    )
+    if (
+        check_dependency_audit
+        and main_audit_required
+        and audit_branch
+        not in (
+            None,
+            admission.DEFAULT_BRANCH,
+        )
+    ):
+        checks.append(
+            admission.fail_row(
+                "dependency_audit_freshness",
+                "public-main admission requires its audit on main",
+                admission.REMEDIATE_AUDIT,
+            ).to_dict()
+        )
+    elif check_dependency_audit:
         checks.append(
             admission.check_dependency_audit_freshness(
                 repo_name,
                 query_public,
+                audit_branch=audit_branch if audit_branch is not None else admission.DEFAULT_BRANCH,
+                expected_sha=expect_sha,
                 max_age_hours=audit_max_age_hours or admission.DEFAULT_AUDIT_MAX_AGE_HOURS,
             ).to_dict()
         )
@@ -723,7 +797,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-dependency-audit",
         action="store_true",
-        help="Require a fresh successful scheduled dependency-audit workflow run.",
+        help="Require a fresh successful dependency audit for --expect-sha on --audit-branch.",
+    )
+    parser.add_argument(
+        "--audit-branch",
+        help="Dependency Audit branch: immutable release/v* before promotion; main by default.",
     )
     parser.add_argument(
         "--check-branch-rules",
@@ -777,6 +855,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--json", action="store_true", dest="json_output", help="Emit JSON.")
     args = parser.parse_args(argv)
+    if args.audit_branch is not None and not args.check_dependency_audit:
+        parser.error("--audit-branch requires --check-dependency-audit")
 
     try:
         version, checks = evaluate(
@@ -797,6 +877,7 @@ def main(argv: list[str] | None = None) -> int:
             branch=args.branch,
             required_check_name=args.required_check_name,
             audit_max_age_hours=args.audit_max_age_hours,
+            audit_branch=args.audit_branch,
         )
     except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
         print(f"release-preflight: ERROR — {exc}", file=sys.stderr)

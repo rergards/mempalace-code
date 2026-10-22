@@ -7,8 +7,12 @@ import shutil
 import sys
 from pathlib import Path
 
-CANONICAL_CLI_COMMAND = "mempalace-code"
-ALIAS_INSTALLER_COMMAND = "mempalace-code-alias"
+from ..cli_invocation import (
+    ALIAS_INSTALLER_COMMAND,
+    CANONICAL_CLI_COMMAND,
+    resolve_invoked_canonical_cli,
+)
+
 LEGACY_CLI_ALIAS = "mempalace"
 
 
@@ -17,39 +21,6 @@ def _same_command_path(left: Path, right: Path) -> bool:
         return left.samefile(right)
     except OSError:
         return left.resolve(strict=False) == right.resolve(strict=False)
-
-
-def resolve_invoked_canonical_cli() -> Path | None:
-    """Return the invocation-preserving canonical CLI path when it can be proven."""
-    argv0_text = sys.argv[0] if sys.argv else ""
-    if not argv0_text:
-        return None
-
-    argv0 = Path(argv0_text).expanduser()
-    if argv0.name not in (CANONICAL_CLI_COMMAND, ALIAS_INSTALLER_COMMAND):
-        return None
-
-    if not argv0.is_absolute() and not os.path.dirname(argv0_text):
-        if argv0.name != ALIAS_INSTALLER_COMMAND:
-            return None
-        found_installer = shutil.which(ALIAS_INSTALLER_COMMAND)
-        if not found_installer:
-            return None
-        argv0 = Path(found_installer).expanduser()
-
-    invoked = argv0.parent.resolve() / argv0.name
-    if not invoked.exists() or not os.access(invoked, os.X_OK):
-        return None
-    if invoked.name == CANONICAL_CLI_COMMAND:
-        return invoked
-
-    canonical_sibling = invoked.with_name(CANONICAL_CLI_COMMAND)
-    if canonical_sibling.exists() and os.access(canonical_sibling, os.X_OK):
-        return canonical_sibling
-    raise RuntimeError(
-        f"cannot find executable sibling `{CANONICAL_CLI_COMMAND}` next to "
-        f"`{ALIAS_INSTALLER_COMMAND}`"
-    )
 
 
 def recovery_cli_command() -> str:

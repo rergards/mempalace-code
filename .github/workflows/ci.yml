@@ -183,7 +183,7 @@ jobs:
           --base-ref "${{ steps.gitleaks-range.outputs.base }}"
           --head-ref "${{ steps.gitleaks-range.outputs.head }}"
           --artifact-dir "${{ runner.temp }}/gitleaks/changed-range"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: gitleaks-changed-range
@@ -330,6 +330,13 @@ jobs:
         run: |
           python -m pip install build pipx pytest uv
           python -m build --wheel --outdir dist
+          python - <<'PYHASH'
+          import hashlib
+          from pathlib import Path
+
+          for wheel in sorted(Path("dist").glob("*.whl")):
+              print("candidate-wheel-sha256", hashlib.sha256(wheel.read_bytes()).hexdigest(), wheel.name)
+          PYHASH
       - name: Verify pinned MiniLM runtime compatibility
         if: matrix.arch == 'x64'
         shell: bash
@@ -634,7 +641,7 @@ jobs:
 
       - name: Upload benchmark report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dotnet-bench-results
           path: benchmarks/results_dotnet_bench_ci.json
