@@ -627,6 +627,12 @@ schemas. Its `mcp.json` declares stdio transport with the installed
 only `mempalace_status`, `mempalace_search`, `mempalace_check_duplicate`, and
 `mempalace_add_drawer`.
 
+The skill checks the client's actual tool list. Retrieval needs search only; status,
+duplicate checks and writes are optional capabilities. Preserve an intentionally
+read-only registration. When MCP is unavailable and the host permits shell commands,
+use `mempalace-code search "<query>" --wing <wing> --results 3 --json`. Keep the explicit
+project wing and verify current source before applying historical advice.
+
 That `mcp.json` names the bare command `mempalace-code-mcp`, so the client must find it on its
 own `PATH`. `uv tool`, `pipx`, and bootstrap installs link it into their bin directory
 (`~/.local/bin` by default); a `project` venv provides it only when that venv's `bin` directory
@@ -1080,9 +1086,12 @@ when `backup_dir` is unset. To choose another disk, follow
 [backup directory configuration](BACKUP_RESTORE.md#choosing-the-managed-backup-directory),
 merge the key into the existing config, and use an absolute path. Preserve existing
 archives, mounts and services; setting `backup_dir` does not migrate them.
-Pre-optimize archives are bounded by default (newest 5 kept); scheduled archives are
-bounded by default (newest 14 kept); set `MEMPALACE_BACKUP_RETAIN_COUNT=0` to keep all
-kinds unbounded. Successful optimize runs also perform best-effort verified
+Healthy scheduled, pre-watch and pre-optimize archives share a default limit of two.
+Automatic cleanup verifies two retained recovery points; manual, explicit-output,
+degraded and ambiguous legacy archives are preserved. Set
+`MEMPALACE_BACKUP_RETAIN_COUNT=0` to keep all automatic archives. The
+[retention procedure](BACKUP_RESTORE.md#retention-automatic-pruning) describes
+first-use reconciliation and deferred-cleanup recovery. Successful optimize runs also perform best-effort verified
 stale-version cleanup; use `"$MEMPALACE_BIN" cleanup` manually for older accumulations
 or emergency disk recovery after stopping writers.
 

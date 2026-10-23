@@ -178,7 +178,7 @@ def test_backup_link_failure_cleans_temporary_archive_without_retention(
         pytest.fail("failed publication must not prune existing backups")
 
     monkeypatch.setattr(backup_module.os, "link", unsupported_link)
-    monkeypatch.setattr(backup_module, "prune_managed_backups", unexpected_retention)
+    monkeypatch.setattr(backup_module, "reconcile_managed_backups", unexpected_retention)
     with pytest.raises(OSError, match="filesystem that supports hard links"):
         create_backup(palace_path, kg_path=seeded_kg.db_path, kind="scheduled")
     assert sorted(os.listdir(managed)) == names_before
@@ -1071,12 +1071,12 @@ class TestRenderSchedule:
 
 
 class TestManagedRetention:
-    """AC-1, AC-2: Per-kind retention via create_backup."""
+    """Global healthy automatic retention via create_backup."""
 
-    def test_scheduled_retain_1_keeps_only_newest(
+    def test_scheduled_retain_1_keeps_two_recovery_points(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):
-        """AC-1: MEMPALACE_BACKUP_RETAIN_COUNT=1 leaves only the newest scheduled archive."""
+        """AC-1: MEMPALACE_BACKUP_RETAIN_COUNT=1 clamps to two recovery points."""
         monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "1")
 
         kg_path = os.path.join(tmp_dir, "kg.sqlite3")
@@ -1092,8 +1092,8 @@ class TestManagedRetention:
             for f in os.listdir(backups_dir)
             if f.startswith("scheduled_") and f.endswith(".tar.gz")
         ]
-        assert len(remaining) == 1
-        assert os.path.abspath(remaining[0]) == paths_created[-1]
+        assert len(remaining) == 2
+        assert set(map(os.path.abspath, remaining)) == set(paths_created[-2:])
 
     def test_scheduled_retain_0_keeps_all(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
@@ -1201,10 +1201,10 @@ class TestManagedRetention:
         ]
         assert len(archives) == 3
 
-    def test_retention_does_not_prune_other_kinds(
+    def test_retention_preserves_manual_archives(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):
-        """Scheduled retention only prunes scheduled archives, not manual ones."""
+        """Automatic retention excludes manual archives, including with a positive limit."""
         monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "1")
 
         backups_dir = managed_backups_dir(palace_path)
@@ -1222,13 +1222,13 @@ class TestManagedRetention:
 
         scheduled = [f for f in os.listdir(backups_dir) if f.startswith("scheduled_")]
         manual = [f for f in os.listdir(backups_dir) if f.startswith("mempalace_backup_")]
-        assert len(scheduled) == 1
+        assert len(scheduled) == 2
         assert len(manual) == 1  # manual sentinel untouched
 
     def test_explicit_out_path_does_not_trigger_retention(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):
-        """Archives created with explicit --out do not trigger per-kind retention."""
+        """Archives created with explicit --out do not trigger automatic retention."""
         monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "1")
 
         backups_dir = managed_backups_dir(palace_path)
@@ -1243,96 +1243,21 @@ class TestManagedRetention:
         remaining = [f for f in os.listdir(backups_dir) if f.startswith("scheduled_explicit_")]
         assert len(remaining) == 3  # all survive — explicit paths skip retention
 
-    def test_prune_managed_backups_tied_mtime_keeps_newest_filename(self, tmp_dir):
-        """When archives share an mtime, the secondary sort key must keep the newest filename.
-
-        Each managed prefix embeds a sortable YYYYMMDD_HHMMSS timestamp, so among
-        same-mtime ties we must retain the lexicographically highest filename
-        (newest embedded timestamp), not the lowest.
-        """
-        from mempalace_code.backup import prune_managed_backups
-
-        backups_dir = os.path.join(tmp_dir, "managed")
-        os.makedirs(backups_dir, exist_ok=True)
-        names = [
-            "scheduled_20260101_120000.tar.gz",
-            "scheduled_20260101_120001.tar.gz",
-            "scheduled_20260101_120002.tar.gz",
-        ]
-        # Create files with identical mtimes
-        fixed_ts = 1_700_000_000.0
-        for name in names:
-            fpath = os.path.join(backups_dir, name)
-            with open(fpath, "wb") as f:
-                f.write(b"stub")
-            os.utime(fpath, (fixed_ts, fixed_ts))
-
-        deleted = prune_managed_backups(backups_dir, "scheduled", retain_count=1)
-
-        remaining = sorted(os.listdir(backups_dir))
-        assert remaining == ["scheduled_20260101_120002.tar.gz"], (
-            f"expected newest-named archive to survive on mtime tie, got {remaining}; "
-            f"deleted={deleted}"
-        )
-
-    def test_prune_managed_backups_handles_concurrent_disappearance(
-        self, tmp_dir, monkeypatch, caplog
-    ):
-        """A concurrently removed candidate is quiet; other unlink failures still warn."""
-        original_unlink = os.unlink
-
-        def create_candidates(directory):
-            os.makedirs(directory)
-            retained = os.path.join(directory, "scheduled_20260101_120001.tar.gz")
-            stale = os.path.join(directory, "scheduled_20260101_120000.tar.gz")
-            for path in (retained, stale):
-                with open(path, "wb") as archive:
-                    archive.write(b"stub")
-                os.utime(path, (1_700_000_000.0, 1_700_000_000.0))
-            return retained, stale
-
-        disappeared_dir = os.path.join(tmp_dir, "disappeared")
-        disappeared_retained, disappeared_stale = create_candidates(disappeared_dir)
-
-        def disappear_then_unlink(path):
-            original_unlink(path)
-            raise FileNotFoundError(path)
-
-        with monkeypatch.context() as patch_context:
-            patch_context.setattr(backup_module.os, "unlink", disappear_then_unlink)
-            disappeared = backup_module.prune_managed_backups(
-                disappeared_dir, "scheduled", retain_count=1
-            )
-
-        assert disappeared == []
-        assert os.path.isfile(disappeared_retained)
-        assert not os.path.exists(disappeared_stale)
-        assert not any("Backup pruning failed" in message for message in caplog.messages)
-
-        caplog.clear()
-        denied_dir = os.path.join(tmp_dir, "denied")
-        denied_retained, denied_stale = create_candidates(denied_dir)
-
-        def deny_unlink(path):
-            raise PermissionError(path)
-
-        with monkeypatch.context() as patch_context:
-            patch_context.setattr(backup_module.os, "unlink", deny_unlink)
-            denied = backup_module.prune_managed_backups(denied_dir, "scheduled", retain_count=1)
-
-        assert denied == []
-        assert os.path.isfile(denied_retained)
-        assert os.path.isfile(denied_stale)
-        pruning_failures = [
-            message for message in caplog.messages if "Backup pruning failed" in message
-        ]
-        assert len(pruning_failures) == 1
-        assert denied_stale in pruning_failures[0]
+    def test_filename_only_pruning_refuses_unqualified_bytes(self, tmp_dir):
+        directory = os.path.join(tmp_dir, "managed")
+        os.mkdir(directory)
+        paths = [os.path.join(directory, f"scheduled_{i}.tar.gz") for i in range(3)]
+        for path in paths:
+            with open(path, "wb") as archive:
+                archive.write(b"stub")
+        with pytest.raises(ValueError, match="Filename-only pruning is unsafe"):
+            backup_module.prune_managed_backups(directory, "scheduled", 1)
+        assert all(os.path.isfile(path) for path in paths)
 
     def test_default_scheduled_retention_prunes_to_bound(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):
-        """AC-4: 15 managed scheduled backups leave only the newest 14 by default."""
+        """AC-4: 15 managed scheduled backups leave two recovery points by default."""
         from datetime import datetime as _dt
         from unittest.mock import MagicMock, patch
 
@@ -1354,9 +1279,7 @@ class TestManagedRetention:
             for f in os.listdir(backups_dir)
             if f.startswith("scheduled_") and f.endswith(".tar.gz")
         ]
-        assert len(remaining) == 14, (
-            f"expected 14 archives after default prune, got {len(remaining)}"
-        )
+        assert len(remaining) == 2, f"expected 2 archives after default prune, got {len(remaining)}"
 
     def test_default_scheduled_retain_0_keeps_all(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
@@ -1415,7 +1338,7 @@ class TestManagedRetention:
     def test_explicit_out_path_does_not_trigger_scheduled_default_retention(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):
-        """AC-6: explicit --out archives bypass the implicit scheduled retention of 14."""
+        """AC-6: explicit --out archives bypass the shared automatic retention limit."""
         monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
 
         backups_dir = managed_backups_dir(palace_path)
@@ -1570,31 +1493,17 @@ class TestDiskPreflight:
 class TestListBackupsAnnotations:
     """AC-5: list_backups stale/oversized annotations and totals."""
 
-    def test_stale_annotation_for_kind(self, seeded_collection, palace_path, tmp_dir, monkeypatch):
-        """AC-5: older archives beyond retain_count are marked stale."""
-        backups_dir = managed_backups_dir(palace_path)
-        os.makedirs(backups_dir, exist_ok=True)
-        kg_path = os.path.join(tmp_dir, "kg.sqlite3")
-
-        # Create 2 scheduled archives via explicit paths (no retention triggered)
-        p_old = os.path.join(backups_dir, "scheduled_old.tar.gz")
-        p_new = os.path.join(backups_dir, "scheduled_new.tar.gz")
-        create_backup(palace_path, out_path=p_old, kg_path=kg_path)
-        time.sleep(0.05)
-        create_backup(palace_path, out_path=p_new, kg_path=kg_path)
-
-        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "1")
-        from mempalace_code.config import MempalaceConfig
-
-        config = MempalaceConfig()
-        result = list_backups(palace_path, config=config)
-
-        scheduled = [e for e in result if e["kind"] == "scheduled"]
-        assert len(scheduled) == 2
-        newest = next(e for e in scheduled if "new" in os.path.basename(e["path"]))
-        oldest = next(e for e in scheduled if "old" in os.path.basename(e["path"]))
-        assert not newest["stale"]
-        assert oldest["stale"]
+    def test_stale_annotation_for_global_pool(self, seeded_collection, palace_path, monkeypatch):
+        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "0")
+        paths = [
+            create_backup(palace_path, kind=kind)[1]
+            for kind in ("pre_optimize", "scheduled", "pre_watch")
+        ]
+        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "2")
+        before = {path: os.stat(path).st_size for path in paths}
+        result = list_backups(palace_path)
+        assert [entry["path"] for entry in result if entry["stale"]] == paths[:1]
+        assert {path: os.stat(path).st_size for path in paths} == before
 
     def test_oversized_annotation(self, seeded_collection, palace_path, tmp_dir, monkeypatch):
         """AC-5: archives exceeding warn_size_bytes are marked oversized."""
@@ -1654,10 +1563,10 @@ class TestListBackupsAnnotations:
         result = list_backups(palace_path, config=MempalaceConfig())
         assert all(not e["stale"] for e in result)
 
-    def test_stale_flags_use_kind_aware_retention_defaults(
+    def test_explicit_out_archives_never_stale(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):
-        """AC-7: backup list uses kind-aware defaults — scheduled stale after 14, pre_optimize after 5, manual never."""
+        """Explicit-out archives remain outside the automatic pool at every limit."""
         monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
 
         backups_dir = managed_backups_dir(palace_path)
@@ -1700,12 +1609,10 @@ class TestListBackupsAnnotations:
         manual = [e for e in result if e["kind"] == "manual"]
 
         assert all(not e["stale"] for e in scheduled), (
-            "scheduled under implicit 14 must not be stale"
+            "explicit-out scheduled archives must not be stale"
         )
         stale_pre_opt = [e for e in pre_optimize if e["stale"]]
-        assert len(stale_pre_opt) == 1, (
-            f"only the oldest pre_optimize should be stale; got {stale_pre_opt}"
-        )
+        assert stale_pre_opt == []
         assert all(not e["stale"] for e in manual), "manual archives must not be stale by default"
 
 
@@ -1768,11 +1675,11 @@ class TestBoundedPreOptimizeRetention:
     def test_pre_optimize_default_retention_does_not_prune_manual_or_explicit_out(
         self, seeded_collection, palace_path, tmp_dir, monkeypatch
     ):
-        """AC-4: implicit pre_optimize pruning leaves manual, scheduled, and unrelated archives intact.
+        """Implicit automatic pruning preserves manual, explicit-out and unrelated archives.
 
         Creates one manual and one scheduled sentinel archive, then triggers
         implicit pre_optimize retention by running six pre_optimize creates
-        (default bound = 5).  Only the oldest pre_optimize is pruned; the
+        (shared default bound = 2).  The oldest pre_optimize snapshots expire; the
         sentinels must survive.
         """
         from datetime import datetime as _dt
@@ -1792,7 +1699,7 @@ class TestBoundedPreOptimizeRetention:
         create_backup(palace_path, out_path=manual_path, kg_path=kg_path)
         create_backup(palace_path, out_path=scheduled_path, kg_path=kg_path)
 
-        # Six pre_optimize creates via managed path — default bound of 5 prunes the oldest
+        # Six pre_optimize creates via managed path — shared default bound of 2 prunes the oldest
         fake_dt = MagicMock()
         fake_dt.now.side_effect = [
             _dt(2026, 1, 1, 12, 0, 0),
@@ -1817,8 +1724,8 @@ class TestBoundedPreOptimizeRetention:
         manual = [f for f in files if f.startswith("mempalace_backup_")]
         scheduled = [f for f in files if f.startswith("scheduled_")]
 
-        # Oldest pre_optimize pruned; newest five kept
-        assert len(pre_opt) == 5
+        # Oldest pre_optimize pruned; newest two kept
+        assert len(pre_opt) == 2
         assert "pre_optimize_20260101_120000_000000.tar.gz" not in pre_opt
         # Sentinels untouched
         assert len(manual) == 1
@@ -2507,3 +2414,679 @@ def test_restore_reads_kg_in_bounded_chunks(tmp_path, monkeypatch):
     with sqlite3.connect(target) as graph:
         assert graph.execute("SELECT value FROM marker").fetchall() == [("bounded",)]
         assert graph.execute("SELECT length(data) FROM padding").fetchone() == (200000,)
+
+
+# Force restore: one catchable interruption returns the prior canonical state.
+
+
+def _tree_image(root: str) -> dict[str, bytes]:
+    """Map every regular file below *root* to its exact bytes."""
+    image: dict[str, bytes] = {}
+    for directory, _, names in os.walk(root):
+        for name in names:
+            path = os.path.join(directory, name)
+            with open(path, "rb") as handle:
+                image[os.path.relpath(path, root)] = handle.read()
+    return image
+
+
+def _read_bytes(path: str) -> bytes:
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def _seed_force_target(palace_path: str, root: str, existing: bool = True) -> tuple[str, str, str]:
+    """Archive new Lance/KG state; with *existing*, seed distinct prior target state."""
+    source_kg = os.path.join(root, "interrupt-source.sqlite3")
+    _write_sqlite_kg(source_kg, "NEW_KG")
+    archive = os.path.join(root, "interrupt.tar.gz")
+    create_backup(palace_path, out_path=archive, kg_path=source_kg)
+    target = os.path.join(root, "interrupt-target")
+    target_kg = os.path.join(root, "interrupt-target.sqlite3")
+    if existing:
+        restore_backup(archive, target, kg_path=target_kg)
+        with open(os.path.join(target, "lance", "prior-marker.bin"), "wb") as handle:
+            handle.write(b"PRIOR_LANCE")
+        os.unlink(target_kg)
+        _write_sqlite_kg(target_kg, "PRIOR_KG")
+    return archive, target, target_kg
+
+
+def _assert_no_restore_leftovers(target: str, target_kg: str) -> None:
+    if os.path.isdir(target):
+        assert not any(name.startswith(".mempalace-lance-") for name in os.listdir(target))
+    kg_prefix = f".{os.path.basename(target_kg)}."
+    kg_dir = os.path.dirname(target_kg)
+    assert not any(name.startswith(kg_prefix) for name in os.listdir(kg_dir))
+
+
+@pytest.mark.parametrize("kind", ["lance", "kg"])
+@pytest.mark.parametrize("edge", ["old", "new"])
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_force_restore_single_interrupt_restores_existing_state(
+    seeded_collection, palace_path, tmp_path, kind, edge, when
+):
+    archive, target, target_kg = _seed_force_target(palace_path, str(tmp_path))
+    lance_dir = os.path.join(target, "lance")
+    prior_lance = _tree_image(lance_dir)
+    prior_kg = _read_bytes(target_kg)
+    canonical = lance_dir if kind == "lance" else target_kg
+    real_replace = os.replace
+    fired: list[str] = []
+
+    def interrupt(source, destination):
+        moved = os.fspath(source) if edge == "old" else os.fspath(destination)
+        hit = not fired and moved == canonical
+        if hit:
+            fired.append(moved)
+            if when == "before":
+                raise KeyboardInterrupt("single injected interrupt")
+        result = real_replace(source, destination)
+        if hit:
+            raise KeyboardInterrupt("single injected interrupt")
+        return result
+
+    with patch("mempalace_code.backup.os.replace", side_effect=interrupt):
+        with pytest.raises(KeyboardInterrupt):
+            restore_backup(archive, target, force=True, kg_path=target_kg)
+
+    assert fired == [canonical]
+    assert _tree_image(lance_dir) == prior_lance
+    assert _read_bytes(target_kg) == prior_kg
+    _assert_no_restore_leftovers(target, target_kg)
+    restore_backup(archive, target, force=True, kg_path=target_kg)
+    assert open_store(target, create=False, read_only=True).count() == 4
+    with sqlite3.connect(target_kg) as graph:
+        assert graph.execute("SELECT value FROM marker").fetchall() == [("NEW_KG",)]
+
+
+@pytest.mark.parametrize("kind", ["lance", "kg"])
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_force_restore_single_interrupt_keeps_absent_destinations_absent(
+    seeded_collection, palace_path, tmp_path, kind, when
+):
+    archive, target, target_kg = _seed_force_target(palace_path, str(tmp_path), existing=False)
+    canonical = os.path.join(target, "lance") if kind == "lance" else target_kg
+    real_replace = os.replace
+    fired: list[str] = []
+
+    def interrupt(source, destination):
+        hit = not fired and os.fspath(destination) == canonical
+        if hit:
+            fired.append(os.fspath(destination))
+            if when == "before":
+                raise KeyboardInterrupt("single injected interrupt")
+        result = real_replace(source, destination)
+        if hit:
+            raise KeyboardInterrupt("single injected interrupt")
+        return result
+
+    with patch("mempalace_code.backup.os.replace", side_effect=interrupt):
+        with pytest.raises(KeyboardInterrupt):
+            restore_backup(archive, target, force=True, kg_path=target_kg)
+
+    assert fired == [canonical]
+    assert not os.path.lexists(target)
+    assert not os.path.lexists(target_kg)
+    _assert_no_restore_leftovers(target, target_kg)
+
+
+@pytest.mark.parametrize("kind", ["lance", "kg"])
+def test_force_restore_interrupt_leaves_foreign_occupant_and_parked_original(
+    seeded_collection, palace_path, tmp_path, kind
+):
+    archive, target, target_kg = _seed_force_target(palace_path, str(tmp_path))
+    lance_dir = os.path.join(target, "lance")
+    prior_lance = _tree_image(lance_dir)
+    prior_kg = _read_bytes(target_kg)
+    canonical = lance_dir if kind == "lance" else target_kg
+    real_replace = os.replace
+    parked: list[str] = []
+
+    def occupy_after_park(source, destination):
+        result = real_replace(source, destination)
+        if not parked and os.fspath(source) == canonical:
+            parked.append(os.fspath(destination))
+            if kind == "lance":
+                os.mkdir(canonical)
+                with open(os.path.join(canonical, "foreign.bin"), "wb") as handle:
+                    handle.write(b"FOREIGN")
+            else:
+                with open(canonical, "wb") as handle:
+                    handle.write(b"FOREIGN")
+            raise KeyboardInterrupt("single injected interrupt")
+        return result
+
+    with patch("mempalace_code.backup.os.replace", side_effect=occupy_after_park):
+        with pytest.raises(RuntimeError, match="prior state remains") as error:
+            restore_backup(archive, target, force=True, kg_path=target_kg)
+
+    assert len(parked) == 1
+    assert parked[0] in str(error.value)
+    if kind == "lance":
+        assert _tree_image(canonical) == {"foreign.bin": b"FOREIGN"}
+        assert _tree_image(parked[0]) == prior_lance
+        assert _read_bytes(target_kg) == prior_kg
+    else:
+        assert _read_bytes(canonical) == b"FOREIGN"
+        assert _read_bytes(parked[0]) == prior_kg
+        assert _tree_image(lance_dir) == prior_lance
+
+
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_force_restore_interrupt_in_kg_placeholder_interval_keeps_original_kg(
+    seeded_collection, palace_path, tmp_path, when
+):
+    archive, target, target_kg = _seed_force_target(palace_path, str(tmp_path))
+    lance_dir = os.path.join(target, "lance")
+    prior_lance = _tree_image(lance_dir)
+    prior_kg = _read_bytes(target_kg)
+    placeholder_prefix = f".{os.path.basename(target_kg)}.backup."
+    real_unlink = os.unlink
+    fired: list[str] = []
+
+    def interrupt(path, *args, **kwargs):
+        hit = not fired and os.path.basename(os.fspath(path)).startswith(placeholder_prefix)
+        if hit:
+            fired.append(os.fspath(path))
+            if when == "before":
+                raise KeyboardInterrupt("single placeholder interrupt")
+        result = real_unlink(path, *args, **kwargs)
+        if hit:
+            raise KeyboardInterrupt("single placeholder interrupt")
+        return result
+
+    with patch("mempalace_code.backup.os.unlink", side_effect=interrupt):
+        with pytest.raises(KeyboardInterrupt):
+            restore_backup(archive, target, force=True, kg_path=target_kg)
+
+    assert len(fired) == 1
+    # The canonical graph keeps the original bytes, never the empty mkstemp placeholder.
+    assert _read_bytes(target_kg) == prior_kg
+    assert _tree_image(lance_dir) == prior_lance
+    _assert_no_restore_leftovers(target, target_kg)
+
+
+@pytest.mark.parametrize("existing", [True, False])
+def test_force_restore_interrupt_in_stage_cleanup_rolls_back_published_lance(
+    seeded_collection, palace_path, tmp_path, existing
+):
+    archive, target, target_kg = _seed_force_target(palace_path, str(tmp_path), existing)
+    lance_dir = os.path.join(target, "lance")
+    prior_lance = _tree_image(lance_dir) if existing else None
+    prior_kg = _read_bytes(target_kg) if existing else None
+    real_rmtree = backup_module.shutil.rmtree
+    fired: list[str] = []
+
+    def interrupt(path, *args, **kwargs):
+        name = os.path.basename(os.fspath(path))
+        if not fired and name.startswith(".mempalace-lance-stage-"):
+            # The staged copy is already published as the canonical Lance directory.
+            assert os.path.isdir(lance_dir)
+            assert not os.path.lexists(os.path.join(lance_dir, "prior-marker.bin"))
+            fired.append(name)
+            raise KeyboardInterrupt("single stage cleanup interrupt")
+        return real_rmtree(path, *args, **kwargs)
+
+    with patch("mempalace_code.backup.shutil.rmtree", side_effect=interrupt):
+        with pytest.raises(KeyboardInterrupt):
+            restore_backup(archive, target, force=True, kg_path=target_kg)
+
+    assert len(fired) == 1
+    if existing:
+        assert _tree_image(lance_dir) == prior_lance
+        assert _read_bytes(target_kg) == prior_kg
+        _assert_no_restore_leftovers(target, target_kg)
+    else:
+        assert not os.path.lexists(target)
+        assert not os.path.lexists(target_kg)
+
+
+@pytest.mark.parametrize("existing", [True, False])
+def test_force_restore_interrupt_in_target_verification_rolls_back_publication(
+    seeded_collection, palace_path, tmp_path, existing
+):
+    archive, target, target_kg = _seed_force_target(palace_path, str(tmp_path), existing)
+    lance_dir = os.path.join(target, "lance")
+    prior_lance = _tree_image(lance_dir) if existing else None
+    prior_kg = _read_bytes(target_kg) if existing else None
+    with tarfile.open(archive, "r:gz") as tar:
+        member = tar.extractfile("mempalace_backup/knowledge_graph.sqlite3")
+        assert member is not None
+        archived_kg = member.read()
+    real_verify = backup_module._verify_restored_lance
+    verified: list[str] = []
+
+    def verify(path, count):
+        verified.append(os.fspath(path))
+        if os.fspath(path) == target and verified.count(target) == 1:
+            # Both candidate artifacts are published before the single interruption.
+            assert _read_bytes(target_kg) == archived_kg
+            assert os.path.isdir(lance_dir)
+            assert not os.path.lexists(os.path.join(lance_dir, "prior-marker.bin"))
+            raise KeyboardInterrupt("single target verification interrupt")
+        return real_verify(path, count)
+
+    with patch("mempalace_code.backup._verify_restored_lance", side_effect=verify):
+        with pytest.raises(KeyboardInterrupt):
+            restore_backup(archive, target, force=True, kg_path=target_kg)
+
+    # The extracted archive is verified for real first; only the destination is interrupted.
+    assert len(verified) == 2
+    assert verified[0] != target
+    assert verified[1] == target
+    if existing:
+        assert _tree_image(lance_dir) == prior_lance
+        assert _read_bytes(target_kg) == prior_kg
+        _assert_no_restore_leftovers(target, target_kg)
+    else:
+        assert not os.path.lexists(target)
+        assert not os.path.lexists(target_kg)
+
+
+def test_force_restore_success_disposes_parked_state(seeded_collection, palace_path, tmp_path):
+    archive, target, target_kg = _seed_force_target(palace_path, str(tmp_path))
+    restore_backup(archive, target, force=True, kg_path=target_kg)
+    assert not os.path.lexists(os.path.join(target, "lance", "prior-marker.bin"))
+    assert open_store(target, create=False, read_only=True).count() == 4
+    with sqlite3.connect(target_kg) as graph:
+        assert graph.execute("SELECT value FROM marker").fetchall() == [("NEW_KG",)]
+    _assert_no_restore_leftovers(target, target_kg)
+
+
+# Global retention uses real archives. Origin inspection is deliberately weaker than
+# keeper qualification; only restore_backup establishes a usable recovery point.
+def _retention_pool(palace_path, monkeypatch, count=3):
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "0")
+    kg_path = os.path.join(palace_path, "knowledge_graph.sqlite3")
+    _write_sqlite_kg(kg_path, "unique source evidence")
+    kinds = ("pre_optimize", "scheduled", "pre_watch")
+    paths = [create_backup(palace_path, kind=kinds[i % 3])[1] for i in range(count)]
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "2")
+    return paths
+
+
+def _rewrite_retention_archive(path, change_metadata=lambda metadata: metadata, *, kg=None):
+    with tarfile.open(path, "r:gz") as archive:
+        payloads = []
+        for member in archive.getmembers():
+            extracted = archive.extractfile(member) if member.isfile() else None
+            assert not member.isfile() or extracted is not None
+            payloads.append((member, extracted.read() if extracted is not None else b""))
+    with tarfile.open(path, "w:gz") as archive:
+        for member, payload in payloads:
+            if member.name == "mempalace_backup/metadata.json":
+                payload = json.dumps(change_metadata(json.loads(payload))).encode()
+            if member.name == "mempalace_backup/knowledge_graph.sqlite3" and kg is not None:
+                payload = kg
+            member.size = len(payload)
+            archive.addfile(member, io.BytesIO(payload) if member.isfile() else None)
+
+
+class TestGlobalAutomaticRetention:
+    def test_cross_kind_idle_reconcile_and_repeat(self, palace_path, tmp_path, monkeypatch):
+        paths = _retention_pool(palace_path, monkeypatch)
+        source = os.path.join(palace_path, "knowledge_graph.sqlite3")
+        before = open(source, "rb").read()
+        result = backup_module.reconcile_managed_backups(palace_path)
+        assert result == {"pruned": paths[:1]}
+        assert not os.path.exists(paths[0])  # idle pre_optimize expires through other kinds
+        assert all(os.path.exists(path) for path in paths[1:])
+        assert open(source, "rb").read() == before
+        assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": []}
+        for index, path in enumerate(paths[1:]):
+            restored = tmp_path / f"restore-{index}"
+            restore_backup(path, str(restored))
+            with sqlite3.connect(restored / "knowledge_graph.sqlite3") as graph:
+                assert graph.execute("SELECT value FROM marker").fetchall() == [
+                    ("unique source evidence",)
+                ]
+
+    def test_publication_uses_same_global_pool(self, palace_path, tmp_path, monkeypatch):
+        paths = _retention_pool(palace_path, monkeypatch, count=2)
+        metadata, new = create_backup(palace_path, kind="pre_watch")
+        assert metadata["pruned"] == paths[:1]
+        assert all(os.path.isfile(path) for path in [paths[1], new])
+        with tarfile.open(new, "r:gz") as archive:
+            first = archive.next()
+            assert first is not None
+            assert first.name == "mempalace_backup/metadata.json"
+        recorded = _read_metadata(new)
+        assert recorded["backup_origin"] == "managed-auto"
+        assert recorded["source_palace"] == os.path.realpath(palace_path)
+        assert recorded["backup_namespace"] == os.path.realpath(managed_backups_dir(palace_path))
+
+    def test_manual_explicit_foreign_legacy_protected_and_links_survive(
+        self, palace_path, tmp_path, monkeypatch
+    ):
+        paths = _retention_pool(palace_path, monkeypatch)
+        directory = managed_backups_dir(palace_path)
+        explicit = os.path.join(directory, "scheduled_20000101_000000_000000.tar.gz")
+        create_backup(palace_path, out_path=explicit, kind="scheduled")
+        assert _read_metadata(explicit)["backup_origin"] == "explicit-out"
+        manual = create_backup(palace_path)[1]
+        import shutil
+
+        extras = []
+        for i, change in enumerate(
+            [
+                lambda m: {**m, "backup_origin": "unknown"},
+                lambda m: {**m, "source_palace": str(tmp_path / "foreign")},
+                lambda m: {**m, "backup_namespace": str(tmp_path / "foreign-backups")},
+                lambda m: {**m, "degraded": True},
+                lambda m: {**m, "protected": True},
+                lambda m: {k: v for k, v in m.items() if k != "backup_origin"},
+            ]
+        ):
+            path = os.path.join(directory, f"scheduled_20000101_000001_{i:06d}.tar.gz")
+            shutil.copyfile(paths[1], path)
+            _rewrite_retention_archive(path, change)
+            extras.append(path)
+        for name in (
+            ".scheduled_20000101_000002_000000.tar.gz",
+            "scheduled_20000101_000002_000000.protected.tar.gz",
+        ):
+            path = os.path.join(directory, name)
+            shutil.copyfile(paths[1], path)
+            extras.append(path)
+        linked = os.path.join(directory, "scheduled_20000101_000003_000000.tar.gz")
+        os.symlink(paths[1], linked)
+        extras.append(linked)
+        hardlinked = os.path.join(directory, "scheduled_20000101_000004_000000.tar.gz")
+        os.link(explicit, hardlinked)
+        extras.append(hardlinked)
+        legacy = os.path.join(directory, "scheduled_20000101_000005_000000.tar.gz")
+        with tarfile.open(legacy, "w:gz") as archive:
+            _write_member(archive, "mempalace_backup/payload", tarfile.REGTYPE, b"legacy data")
+            _write_member(
+                archive,
+                "mempalace_backup/metadata.json",
+                tarfile.REGTYPE,
+                json.dumps(_read_metadata(paths[1])).encode(),
+            )
+        extras.append(legacy)
+        before = {path: os.lstat(path) for path in [explicit, manual, *extras]}
+        assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": paths[:1]}
+        assert {path: os.lstat(path) for path in before} == before
+
+    def test_idle_legacy_inspection_is_bounded(self, palace_path, tmp_path, monkeypatch):
+        _write_sqlite_kg(os.path.join(palace_path, "knowledge_graph.sqlite3"), "source")
+        directory = managed_backups_dir(palace_path)
+        os.makedirs(directory)
+        legacy = os.path.join(directory, "scheduled_20000101_000000_000000.tar.gz")
+        with tarfile.open(legacy, "w:gz") as archive:
+            _write_member(archive, "mempalace_backup/lance", tarfile.DIRTYPE)
+            _write_member(archive, "mempalace_backup/lance/large", tarfile.REGTYPE, b"x" * 2000000)
+            _write_member(archive, "mempalace_backup/metadata.json", tarfile.REGTYPE, b"{}")
+        real_read = backup_module.gzip.GzipFile.read
+        reads = []
+
+        def bounded_read(stream, size=-1):
+            reads.append(size)
+            assert 0 <= size <= 65536
+            return real_read(stream, size)
+
+        monkeypatch.setattr(backup_module.gzip.GzipFile, "read", bounded_read)
+        with patch.object(backup_module, "restore_backup") as restore:
+            assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": []}
+        assert reads == [512]
+        restore.assert_not_called()
+        assert os.path.exists(legacy)
+
+    def test_tied_mtime_keeps_deterministic_two(self, palace_path, tmp_path, monkeypatch):
+        paths = _retention_pool(palace_path, monkeypatch)
+        for path in paths:
+            os.utime(path, ns=(1700000000000000000, 1700000000000000000))
+        oldest = sorted(paths, key=os.path.basename)[0]
+        assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": [oldest]}
+        assert sum(os.path.isfile(path) for path in paths) == 2
+
+    @pytest.mark.parametrize("damage", ["kg", "truncated"])
+    def test_corrupt_keeper_defers_all_deletion(self, palace_path, tmp_path, monkeypatch, damage):
+        paths = _retention_pool(palace_path, monkeypatch)
+        if damage == "kg":
+            _rewrite_retention_archive(paths[-1], kg=b"not a database")
+        else:
+            with open(paths[-1], "rb+") as archive:
+                archive.truncate(os.path.getsize(paths[-1]) - 12)
+        with pytest.raises((BackupArchiveError, EOFError, tarfile.TarError)):
+            restore_backup(paths[-1], str(tmp_path / "refused"))
+        result = backup_module.reconcile_managed_backups(palace_path)
+        assert result["pruned"] == []
+        assert result["error"]
+        assert all(os.path.exists(path) for path in paths)
+        assert not os.path.exists(tmp_path / "refused")
+
+    @pytest.mark.parametrize("swap", ["victim", "keeper", "namespace", "lease"])
+    def test_substitution_during_verification_refuses(
+        self, palace_path, tmp_path, monkeypatch, swap
+    ):
+        paths = _retention_pool(palace_path, monkeypatch)
+        real_restore = backup_module.restore_backup
+        swapped = []
+
+        def substitute(*args, **kwargs):
+            result = real_restore(*args, **kwargs)
+            if not swapped:
+                swapped.append(True)
+                if swap in ("victim", "keeper"):
+                    path = paths[0 if swap == "victim" else -1]
+                    os.replace(path, path + ".saved")
+                    with open(path, "wb") as replacement:
+                        replacement.write(b"preserve replacement")
+                elif swap == "namespace":
+                    directory = managed_backups_dir(palace_path)
+                    os.rename(directory, directory + ".saved")
+                    os.mkdir(directory)
+                else:
+                    from mempalace_code.operation_lock import OperationLock
+
+                    lock = OperationLock.for_palace(palace_path).path
+                    os.link(lock, str(lock) + ".extra-link")
+            return result
+
+        monkeypatch.setattr(backup_module, "restore_backup", substitute)
+        result = backup_module.reconcile_managed_backups(palace_path)
+        assert result["pruned"] == []
+        assert result["error"]
+        if swap == "namespace":
+            directory = managed_backups_dir(palace_path)
+            assert os.listdir(directory) == []
+            assert not any(
+                name.startswith(".retention-") for name in os.listdir(directory + ".saved")
+            )
+            assert all(
+                os.path.isfile(os.path.join(directory + ".saved", os.path.basename(p)))
+                for p in paths
+            )
+        else:
+            assert all(os.path.isfile(path) for path in paths)
+
+    def test_partial_unlink_failure_and_retry(self, palace_path, tmp_path, monkeypatch):
+        paths = _retention_pool(palace_path, monkeypatch, count=4)
+        real_unlink = os.unlink
+
+        def unlink(path, *args, **kwargs):
+            if path == os.path.basename(paths[0]):
+                raise PermissionError("test refusal")
+            return real_unlink(path, *args, **kwargs)
+
+        with monkeypatch.context() as patch_context:
+            patch_context.setattr(backup_module.os, "unlink", unlink)
+            result = backup_module.reconcile_managed_backups(palace_path)
+        assert result["pruned"] == [paths[1]]
+        assert "test refusal" in result["error"]
+        assert all(os.path.isfile(path) for path in [paths[0], *paths[2:]])
+        assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": paths[:1]}
+        assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": []}
+
+    def test_conflicting_writer_defers(
+        self, palace_path, tmp_path, monkeypatch, exclusive_install_lease_elsewhere
+    ):
+        paths = _retention_pool(palace_path, monkeypatch)
+        with exclusive_install_lease_elsewhere():
+            result = backup_module.reconcile_managed_backups(palace_path)
+        assert result["pruned"] == []
+        assert result["error"]
+        assert all(os.path.exists(path) for path in paths)
+
+    def test_successful_backup_reports_retention_failure(self, palace_path, tmp_path, monkeypatch):
+        _retention_pool(palace_path, monkeypatch, count=2)
+        with patch.object(
+            backup_module,
+            "reconcile_managed_backups",
+            return_value={"pruned": [], "error": "verification deferred"},
+        ):
+            metadata, path = create_backup(palace_path, kind="scheduled")
+        assert os.path.isfile(path)
+        assert metadata["retention_error"] == "verification deferred"
+        assert not metadata.get("degraded")
+        assert restore_backup(path, str(tmp_path / "restored"))["drawer_count"] == 0
+
+    def test_no_full_verification_without_deletion_candidates(
+        self, palace_path, tmp_path, monkeypatch
+    ):
+        _retention_pool(palace_path, monkeypatch, count=2)
+        with patch.object(backup_module, "restore_backup") as restore:
+            assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": []}
+        restore.assert_not_called()
+        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "0")
+        with patch.object(backup_module, "_retention_header") as header:
+            assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": []}
+        header.assert_not_called()
+
+    @pytest.mark.parametrize("failure", ["publication", "degraded"])
+    def test_failed_or_degraded_publication_never_reconciles(
+        self, palace_path, tmp_path, monkeypatch, failure
+    ):
+        paths = _retention_pool(palace_path, monkeypatch)
+        with patch.object(backup_module, "reconcile_managed_backups") as reconcile:
+            if failure == "publication":
+                with patch.object(
+                    backup_module, "_publish_new_file", side_effect=OSError("refused")
+                ):
+                    with pytest.raises(OSError, match="refused"):
+                        create_backup(palace_path, kind="pre_watch")
+            else:
+                with open(os.path.join(palace_path, "knowledge_graph.sqlite3"), "wb") as graph:
+                    graph.write(b"corrupt source")
+                metadata, path = create_backup(palace_path, kind="pre_watch")
+                assert metadata["degraded"]
+                assert os.path.isfile(path)
+            reconcile.assert_not_called()
+        assert all(os.path.isfile(path) for path in paths)
+
+    @pytest.mark.parametrize("link", ["symlink", "hardlink"])
+    def test_linked_lease_refuses_before_owner_mutation(
+        self, palace_path, tmp_path, monkeypatch, link
+    ):
+        from mempalace_code.operation_lock import OperationLock
+
+        paths = _retention_pool(palace_path, monkeypatch)
+        lease = OperationLock.for_palace(palace_path).path
+        if link == "symlink":
+            os.rename(lease, str(lease) + ".saved")
+            os.symlink(str(lease) + ".saved", lease)
+        else:
+            os.link(lease, str(lease) + ".saved")
+        before = OperationLock.for_palace(palace_path).owners_path.read_bytes()
+        result = backup_module.reconcile_managed_backups(palace_path)
+        assert result["pruned"] == []
+        assert result["error"]
+        assert OperationLock.for_palace(palace_path).owners_path.read_bytes() == before
+        assert all(os.path.isfile(path) for path in paths)
+
+    def test_missing_victim_then_retry_preserves_keepers(self, palace_path, tmp_path, monkeypatch):
+        paths = _retention_pool(palace_path, monkeypatch, count=4)
+        real_restore = backup_module.restore_backup
+        removed = []
+
+        def disappear(*args, **kwargs):
+            result = real_restore(*args, **kwargs)
+            if not removed:
+                os.unlink(paths[0])
+                removed.append(paths[0])
+            return result
+
+        with patch.object(backup_module, "restore_backup", side_effect=disappear):
+            result = backup_module.reconcile_managed_backups(palace_path)
+        assert result["pruned"] == []
+        assert result["error"]
+        assert all(os.path.isfile(path) for path in paths[1:])
+        assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": [paths[1]]}
+        assert backup_module.reconcile_managed_backups(palace_path) == {"pruned": []}
+
+    def test_real_cli_backup_restore_and_refusal(self, palace_path, tmp_path, monkeypatch):
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        graph = KnowledgeGraph(db_path=os.path.join(palace_path, "knowledge_graph.sqlite3"))
+        graph.add_triple("source", "records", "manual evidence")
+        archive = tmp_path / "manual.tar.gz"
+        restored = tmp_path / "restored"
+        monkeypatch.setenv("MEMPALACE_VERSION_CHECK", "0")
+        monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+        monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+        command = [sys.executable, "-m", "mempalace_code"]
+        created = subprocess.run(
+            [*command, "--palace", palace_path, "backup", "create", "--out", str(archive)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert created.returncode == 0, created.stderr
+        assert _read_metadata(str(archive))["backup_origin"] == "explicit-out"
+        restore = [*command, "--palace", str(restored), "restore", str(archive)]
+        success = subprocess.run(restore, capture_output=True, text=True, check=False)
+        assert success.returncode == 0, success.stderr
+        assert (
+            KnowledgeGraph(db_path=str(restored / "knowledge_graph.sqlite3")).stats()["triples"]
+            == 1
+        )
+        before = (restored / "knowledge_graph.sqlite3").read_bytes()
+        refusal = subprocess.run(restore, capture_output=True, text=True, check=False)
+        assert refusal.returncode == 1
+        assert (restored / "knowledge_graph.sqlite3").read_bytes() == before
+
+    def test_missing_nested_lease_file_refuses(self, palace_path, monkeypatch):
+        from mempalace_code.operation_lock import OperationLock, palace_write_lease
+
+        paths = _retention_pool(palace_path, monkeypatch)
+        with palace_write_lease(palace_path, "test outer writer"):
+            os.unlink(OperationLock.for_palace(palace_path).path)
+            result = backup_module.reconcile_managed_backups(palace_path)
+        assert result["pruned"] == []
+        assert "lease file is missing" in result["error"]
+        assert all(os.path.isfile(path) for path in paths)
+
+    def test_gzip_optional_header_cannot_force_unbounded_inspection(self):
+        class BoundedArchive(io.BytesIO):
+            def read(self, size=-1):
+                assert 0 <= size <= 131072
+                return super().read(size)
+
+        # A gzip FNAME header whose terminator lies beyond the inspection budget.
+        archive = BoundedArchive(b"\x1f\x8b\x08\x08" + b"\0" * 6 + b"name" * 100000 + b"\0")
+        with pytest.raises(EOFError):
+            backup_module._retention_header(archive)
+        assert archive.tell() == 131072
+
+
+@pytest.mark.parametrize("orphan", ["installation", "palace"])
+def test_retention_refuses_replaced_nested_lease(palace_path, monkeypatch, orphan):
+    from mempalace_code.operation_lock import OperationLock, palace_write_lease
+
+    paths = _retention_pool(palace_path, monkeypatch)
+    with palace_write_lease(palace_path, "outer test writer"):
+        lock = (
+            OperationLock.default()
+            if orphan == "installation"
+            else OperationLock.for_palace(palace_path)
+        )
+        old_inode = lock.path.stat().st_ino
+        lock.path.unlink()
+        lock.path.touch(mode=0o600)
+        assert lock.path.stat().st_ino != old_inode
+        result = backup_module.reconcile_managed_backups(palace_path)
+    assert result["pruned"] == []
+    assert result["error"]
+    assert all(os.path.isfile(path) for path in paths)

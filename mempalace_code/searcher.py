@@ -282,11 +282,16 @@ def _file_glob_matches(source_file: str, file_glob: str) -> bool:
     return fnmatch.fnmatch(source_file, f"*/{file_glob}")
 
 
+# Stored filing metadata exposed on every hit; it never asserts freshness or authority.
+_PROVENANCE_FIELDS = ("filed_at", "extractor_version", "source_hash", "chunker_strategy")
+
+
 def _project_hit(drawer_id, doc, meta, dist, *, missing_source: str | None) -> dict:
     """Return the public search-hit shape shared by search_memories() and code_search().
 
     Every hit carries its drawer ``id`` (for mempalace_delete_drawer corrections).
     Markdown section fields appear only on hits whose drawer has section metadata.
+    ``provenance`` copies the stored filing fields, null when a drawer has none.
     """
     meta = meta or {}
     line_range = _compact_line_range(meta)
@@ -308,6 +313,7 @@ def _project_hit(drawer_id, doc, meta, dist, *, missing_source: str | None) -> d
         {"start": line_range[0], "end": line_range[1]} if line_range is not None else None
     )
     hit["similarity"] = distance_to_similarity(dist)
+    hit["provenance"] = {field: meta.get(field) or None for field in _PROVENANCE_FIELDS}
     return hit
 
 

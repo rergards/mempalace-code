@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -524,6 +525,26 @@ class TestPublicSafetyCheckExtended:
 
 
 class TestRunCliReturncode:
+    def test_fixture_cli_preserves_user_home_and_backup_root(self, tmp_path, monkeypatch):
+        user_home = tmp_path / "user-home"
+        user_backups = user_home / "backups"
+        user_backups.mkdir(parents=True)
+        sentinel = user_backups / "keep.txt"
+        sentinel.write_text("Preserve existing user data.")
+        monkeypatch.setenv("HOME", str(user_home))
+        monkeypatch.setenv("MEMPALACE_BACKUP_DIR", str(user_backups))
+        fixture = tmp_path / "fixture"
+        fixture.mkdir()
+        palace = fixture / "palace"
+        reply = SimpleNamespace(returncode=0, stdout="ok", stderr="")
+        with patch("subprocess.run", return_value=reply) as run:
+            _PKT._run_cli(["--palace", str(palace), "mine", str(fixture)])
+        env = run.call_args.kwargs["env"]
+        assert Path(env["HOME"]) == fixture / "cli_home"
+        assert env["USERPROFILE"] == env["HOME"]
+        assert Path(env["MEMPALACE_BACKUP_DIR"]) == fixture / "backups"
+        assert sentinel.read_text() == "Preserve existing user data."
+
     def test_raises_on_nonzero_exit(self):
         mock_result = MagicMock()
         mock_result.returncode = 1
@@ -724,3 +745,27 @@ class TestOwnerAcceptanceChecklist:
         assert any("checklist" in e for e in errors2), (
             f"Expected checklist error for empty list, got: {errors2}"
         )
+
+
+def test_demo_provenance_preserves_identity_and_normalizes_only_filing_time():
+    provenance = {
+        "filed_at": "2026-10-17T12:00:00",
+        "extractor_version": "1.16.1",
+        "source_hash": "independent-source-digest",
+        "chunker_strategy": "treesitter_v3",
+    }
+
+    def normalize(timestamp):
+        payload = {"results": [{"provenance": {**provenance, "filed_at": timestamp}}]}
+        exhibit = {
+            "code_search": {
+                "response": {"result": {"content": [{"type": "text", "text": json.dumps(payload)}]}}
+            }
+        }
+        result = _PKT._normalize_mcp_exhibit(exhibit, "/fixture-palace", "/fixture-source")
+        return json.loads(result["code_search"]["response"]["result"]["content"][0]["text"])
+
+    first = normalize(provenance["filed_at"])
+    assert first == normalize("2026-10-18T13:15:00")
+    assert first["results"][0]["provenance"] == {**provenance, "filed_at": "<FILED_AT>"}
+    assert normalize(None)["results"][0]["provenance"]["filed_at"] is None

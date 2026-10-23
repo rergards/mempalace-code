@@ -914,7 +914,7 @@ def main(prog: str | None = None):
         "--skip-dedup",
         action="store_true",
         help=(
-            "Skip only the similarity check; records whose id is already stored "
+            "Skip only the same-wing exact-text check; records whose id is already stored "
             "or repeats in the file are still skipped"
         ),
     )

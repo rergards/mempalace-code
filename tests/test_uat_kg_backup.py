@@ -715,14 +715,15 @@ def test_restore_prints_where_the_kg_went(tmp_path, capsys):
 
 def test_backup_create_reports_pruned_archives(tmp_path, capsys, monkeypatch):
     palace = _make_palace(tmp_path / "palace")
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "0")
     for _ in range(3):
-        create_backup(palace)
+        create_backup(palace, kind="scheduled")
     monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "2")
 
-    code, out, _ = _run(["--palace", palace, "backup", "create"], capsys)
+    code, out, _ = _run(["--palace", palace, "backup", "create", "--kind", "scheduled"], capsys)
 
     assert code == 0
-    assert "Retention pruned 2 older manual archive(s)" in out
+    assert "Retention pruned 2 older automatic archive(s)" in out
     assert len(os.listdir(managed_backups_dir(palace))) == 2
 
 

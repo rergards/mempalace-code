@@ -402,6 +402,40 @@ class names, packages, examples, and variables often look like people or product
 heuristic pass. Code structure, symbols, languages, and architecture relationships are
 handled by `mempalace-code mine`, not by entity detection.
 
+### Source selection and generated copies
+
+Mining reads the selected checkout's current files, including uncommitted changes. A branch
+name does not pin the indexed commit. Select the checkout that contains the project state
+you want to retrieve; Git is optional for mining.
+
+The default scan skips nested Git checkouts. Exact `--include-ignored` paths can include
+one deliberately. It also skips the project-root `.tasks` and `.local` directories, where
+agents and tools keep task checkouts, workspaces and temporary verification receipts.
+Directories with those names deeper in the project, such as `docs/.tasks`, are mined as
+usual. An `--include-ignored` root, subtree or exact path selects technical content
+deliberately, under the same rules as any other included path.
+
+Records already stored from those directories stay: unique and rejected-decision reports,
+manual drawers and their knowledge-graph facts are not stale-swept once the default scan
+stops walking them. Exact stored copies of project files below them are still found from
+their stored paths and reconciled as described next, without walking those directories.
+
+A normal unlimited mine also reconciles previously stored generated copies. It removes
+rows only after checking current regular files, identical ordered chunks and metadata,
+and a healthy recovery backup. Manual, ambiguous, missing-source and different-content
+records stay. Source aliases are recorded before removal and retained with the Lance data through
+backup, restore and rebuild. An interrupted run
+reassesses remaining candidates on the next mine. Limited and dry runs remove nothing.
+
+Physical space is reclaimed through supported maintenance when post-mine optimization is
+enabled. Active readers defer version cleanup. `MEMPALACE_OPTIMIZE_AFTER_MINE=0` and
+`--skip-optimize` keep their existing effect. The mine result reports removed rows,
+retained sources, table-file bytes and maintenance refusals. Backup and provenance-record
+sizes must be counted separately when measuring the total disk footprint.
+The watcher honors the same setting. Each watcher batch makes one maintenance decision: it
+retries maintenance left pending by an exact-copy removal, even when the batch filed
+nothing, under the same backup and reader gates.
+
 ### Auto-Watch
 
 Keep your palace in sync automatically. By default, watches git metadata — branch refs plus
@@ -727,7 +761,7 @@ returns an empty result. A tool that reports a failure in its payload
 | `mempalace_code_search` | Filter by language, symbol name/type, file glob (all applied before ranking); optional `rerank="hybrid"` |
 | `mempalace_file_context` | Indexed chunks for a source file, ordered by chunk_index and paged with `limit`/`offset`; resolves paths like `mempalace_read` |
 | `mempalace_read` | Surgical read of stored source lines in a range for a file; use after a search/file_context hit to avoid reading the whole file; reports gaps, `out_of_range`, and `no_line_metadata` (conversation drawers) |
-| `mempalace_check_duplicate` | Similarity check before filing (duplicate at cosine similarity ≥ 0.9 by default; `threshold` must be -1 to 1) |
+| `mempalace_check_duplicate` | Exact-text duplicate check, optionally scoped by `wing`; similar matches are advisory (`threshold` must be -1 to 1) |
 
 </details>
 
@@ -736,7 +770,7 @@ returns an empty result. A tool that reports a failure in its payload
 
 | Tool | What |
 |------|------|
-| `mempalace_add_drawer` | File verbatim content into a wing/room; refuses a near-identical drawer (similarity ≥ 0.9 and no new number or identifier) and a new wing/room name that only re-spells an existing one (names are trimmed and case-sensitive) |
+| `mempalace_add_drawer` | File verbatim content into a wing/room; refuses identical text already stored in the same wing and a new wing/room name that only re-spells an existing one (names are trimmed and case-sensitive) |
 | `mempalace_delete_drawer` | Remove a drawer by ID |
 | `mempalace_delete_wing` | Delete all drawers in a wing |
 | `mempalace_mine` | Trigger re-mining of a project directory (incremental or full) |
@@ -1021,7 +1055,7 @@ replays an export written before 1.15.0; its contents are never modified. `--kg-
 restore destination. The complete quarantine, rebuild, restore, force-restore,
 and failure-recovery procedure is in [docs/BACKUP_RESTORE.md](https://github.com/rergards/mempalace-code/blob/main/docs/BACKUP_RESTORE.md).
 
-**Backup kinds:** Each archive has a kind that controls its filename prefix and per-kind retention:
+**Backup kinds:** Each archive has a kind that controls its filename prefix. Automatic kinds share one retention pool:
 
 | Kind | Prefix | Created by |
 |------|--------|-----------|
@@ -1085,23 +1119,37 @@ for inspection commands, permissions and existing-archive behavior.
 
 **Retention (automatic pruning):**
 
-`pre_optimize` and `pre_watch` archives are **bounded by default** to the newest 5 per kind (implicit safe default for repeated mine/optimize cycles and watcher restarts).
-`scheduled` archives are **bounded by default** to the newest 14 (implicit safe default for cron and launchd jobs).
-`manual` archives are **unbounded by default** (retain all, no pruning).
+Healthy `scheduled`, `pre_watch`, and `pre_optimize` archives share **one automatic
+pool with a default limit of 2**. This replaces the previous independent limits of
+14/5/5. A positive `backup_retain_count` applies to the whole pool and has a safety
+floor of 2; explicit `0` keeps all. Manual and explicit `--out` archives always stay
+outside the pool, including automatic-looking names in the managed directory.
 
 ```bash
-export MEMPALACE_BACKUP_RETAIN_COUNT=5   # explicit limit for all kinds; overrides implicit pre_optimize, pre_watch, and scheduled bounds
-# Deliberate keep-all opt-out (including pre_optimize, pre_watch, and scheduled):
-export MEMPALACE_BACKUP_RETAIN_COUNT=0   # 0 disables pruning for every kind
+export MEMPALACE_BACKUP_RETAIN_COUNT=5   # keep 5 healthy automatic snapshots total
+export MEMPALACE_BACKUP_RETAIN_COUNT=0   # deliberate keep-all opt-out
 ```
 
-Or in `~/.mempalace/config.json`: `{"backup_retain_count": 5}`. Retention affects only
-the palace's selected managed directory. With `backup_dir` unset, that directory is
-`<palace_parent>/backups/<palace_name>/`; a configured root uses the isolated child
-described above. Explicit `--out` archives are never pruned, and `backup create --out`
-refuses to overwrite an existing file.
+The equivalent config key is `{"backup_retain_count": 5}` in
+`~/.mempalace/config.json`. Retention examines only the selected managed directory.
+New archives record their origin, kind, canonical source palace and namespace, with
+metadata first for bounded inspection. Unknown legacy archives, foreign archives,
+degraded snapshots, linked files and protected or hidden extra files are preserved.
+A filename alone never authorizes deletion. Explicit `--out` never overwrites a file.
 
-`backup list` (`--json` for scripts) prints `stale` in its FLAGS column for archives that would be pruned at the current retain count, `oversized` for archives larger than `MEMPALACE_BACKUP_WARN_SIZE_BYTES`, `degraded` for a snapshot of a damaged palace, and `shared` for archives an older release wrote into the shared `<palace_parent>/backups/` directory (they may belong to a sibling palace; check their wings before restoring, and retention never deletes them).
+Reconciliation runs after healthy automatic publication and on mine/watch write
+maintenance, including idle batches with optimize disabled. It creates no archive
+just to rotate. Before deleting anything, it fully restores and verifies two retained
+recovery points in scratch space on the backup filesystem. A verification, identity,
+lease or disk failure defers cleanup; a successful backup stays successful and logs
+the retention error. Package-only updates stay package-only; the next managed write
+or watcher batch supplies the first-use cleanup. Search, status and dry runs remain
+read-only with respect to retention.
+
+`backup list` (`--json` for scripts) marks qualified automatic archives beyond the
+shared limit as `stale`. This is a selection hint; deletion still requires keeper
+validation. `oversized`, `degraded` and `shared` describe size, damaged snapshots and
+legacy shared-directory archives. Listing never prunes.
 
 `backup create` fails with exit 1 instead of writing an empty archive when the path holds no palace (missing directory, empty directory, or a legacy ChromaDB palace). For a degraded palace (unreadable drawers, or a knowledge graph that fails SQLite's `quick_check`) it still writes a forensic `*_DEGRADED.tar.gz` copy, warns, and exits 1; `restore` refuses such an archive, and degraded archives never displace healthy ones in retention.
 
@@ -1174,30 +1222,43 @@ Use these recommended excludes for any delete-mode state-directory mirror:
 
 ```bash
 rsync -a --delete \
-  --exclude=palace/ \
+  --exclude=palace \
   --exclude='palace.backup-*/' \
   --exclude='palace.quarantine-*/' \
   --exclude=knowledge_graph.sqlite3 \
+  --exclude='knowledge_graph.sqlite3-*' \
   --exclude=knowledge_graph.sqlite3.adopted \
   --exclude=config.json \
   --exclude=backups/ \
+  --exclude=locks/ \
+  --exclude='operation.lock*' \
+  --exclude='watch-*.claim' \
   ~/.mempalace/ user@host:.mempalace/
 ```
+
+`--exclude=palace` has no trailing slash: a directory-only pattern such as `palace/` does not
+protect the regular MOVED/guard file that can take the palace directory's place. The lock
+entries (`locks/`, `operation.lock*`, `watch-*.claim`) are required too: rsync would unlink a
+held lock file while its holder keeps locking the orphaned inode. A palace configured inside
+`~/.mempalace` under another name needs its own exclude (for example `--exclude=/palace_live`).
+For a home mirror such as `~/`, exclude the whole state directory with `--exclude=/.mempalace/`;
+keep selective excludes only for deliberate state-directory mirrors.
 
 `palace.backup-<UTC>/` (left by `repair`) and `palace.quarantine-<UTC>/` (left by the rebuild
 workflow) are full palace copies. Run a preflight check before installing a mirror job (the
 command is never executed). It also blocks `--del`, `--remove-source-files`, mirrors of a palace
 configured outside `~/.mempalace`, and mirrors of a parent such as `~/` that contains
 `~/.mempalace` without excluding the same families under it (for example
-`--exclude=/.mempalace/palace/`), and reports `UNVERIFIED` when excludes come from files or an
+`--exclude=/.mempalace/`), and reports `UNVERIFIED` when excludes come from files or an
 earlier include:
 
 ```bash
 mempalace-code preflight mirror --command \
-  "rsync -a --delete --exclude=palace/ --exclude='palace.backup-*/' \
+  "rsync -a --delete --exclude=palace --exclude='palace.backup-*/' \
    --exclude='palace.quarantine-*/' --exclude=knowledge_graph.sqlite3 \
-   --exclude=knowledge_graph.sqlite3.adopted --exclude=config.json --exclude=backups/ \
-   ~/.mempalace/ user@host:.mempalace/"
+   --exclude='knowledge_graph.sqlite3-*' --exclude=knowledge_graph.sqlite3.adopted \
+   --exclude=config.json --exclude=backups/ --exclude=locks/ --exclude='operation.lock*' \
+   --exclude='watch-*.claim' ~/.mempalace/ user@host:.mempalace/"
 # OK
 #   warning: advisory: no --exclude for 'logs' (add --exclude='*.log' if you route MemPalace logs into the state directory)
 ```
@@ -1251,6 +1312,8 @@ Every mine that walks the whole project (no `--limit`) ends with a stale-file sw
 removes drawers of files that are no longer discovered by the scanner — deleted files and
 previously indexed files that now fall under an exclusion rule. `--full` runs the same
 sweep and also re-chunks and re-embeds every remaining file.
+Records stored from the project-root `.tasks` and `.local` directories are the exception:
+they are kept after the default scan stops walking them.
 
 ---
 
@@ -1364,19 +1427,19 @@ the same way, and `version-check --status` says the value is unrecognized. Run `
 
 This is a code-first fork of the upstream `mempalace` project. The canonical upstream repository is [MemPalace/mempalace](https://github.com/MemPalace/mempalace); the older `milla-jovovich/mempalace` URL redirects there.
 
-Snapshot reviewed on 2026-10-03 against upstream `develop` at commit `43122aefb8ed58e9fa4e1953e15ce70026339ec2` (upstream release 3.11.0), using pinned upstream public sources. Nothing below is a performance, quality, or adoption comparison — no upstream build or benchmark was run.
+Snapshot reviewed on 2026-10-23 against upstream `develop` at commit `f41e8e75ddaadf5588d5127715fa531d79eadb45` (upstream release 3.12.0), using pinned upstream public sources. Nothing below is a performance, quality, or adoption comparison — no upstream build or benchmark was run.
 
 | Area | Upstream, as advertised at that commit | This fork |
 |---|---|---|
 | Focus | General-purpose AI memory | Code-first: repository mining, `code_search`, symbol/type/project-graph tools |
 | Default storage | ChromaDB | LanceDB |
 | Other backends offered | `sqlite_exact`, native `rust_exact`, Milvus, Qdrant, pgvector | LanceDB-only current package; ChromaDB support is retired; no server-backed backends |
-| Embedding model | `all-MiniLM-L6-v2` by default; onboarding recommends the multilingual `embeddinggemma-300m`; optional OpenAI-compatible embedding server | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration flow |
+| Embedding model | `all-MiniLM-L6-v2` by default; `init --embedding-model` selects recommended Gemma or optional experimental Gemma2/media; optional configured OpenAI-compatible server | `all-MiniLM-L6-v2`; no supported multilingual configuration or migration flow |
 | Retrieval | Hybrid retrieval | Vector search, plus a local deterministic `code_search(rerank="hybrid")` |
 | Reranking | Optional LLM reranking | None — no LLM reranker; this direction is explicitly rejected |
-| MCP tools | 47 in the full server registry (its README still says 45), plus a 3-tool lightweight server | 29 in the full profile, plus a 4-tool minimal profile for agent plugins |
+| MCP tools | 47 in the full server registry and README, plus a 3-tool lightweight server | 29 in the full profile, plus a 4-tool minimal profile for agent plugins |
 
-This fork has not adopted upstream's multilingual embedding, broad hybrid-retrieval, or alternative-backend paths. LLM reranking is explicitly rejected: it would put an API key, a per-query network call, and non-deterministic results into a tool that stays local after the one-time model download.
+This fork has not adopted upstream's multilingual embedding, broad hybrid-retrieval, or alternative-backend paths. LLM reranking is explicitly rejected because it adds a model/service dependency and non-deterministic ranking. Upstream can use local Ollama; its external LLM routes require explicit consent. This fork keeps its existing local retrieval path after the one-time model download.
 
 Reviewed comparison with source links, evidence limits, and the reasoning behind each decision: [`docs/UPSTREAM_COMPARISON.md`](https://github.com/rergards/mempalace-code/blob/main/docs/UPSTREAM_COMPARISON.md).
 
@@ -1655,7 +1718,7 @@ python -m pyright --pythonpath "$(python -c 'import sys; print(sys.executable)')
 Apache 2.0 — see [LICENSE](https://github.com/rergards/mempalace-code/blob/main/LICENSE) and [NOTICE](https://github.com/rergards/mempalace-code/blob/main/NOTICE).
 
 <!-- Link Definitions -->
-[version-shield]: https://img.shields.io/badge/version-1.16.0-4dc9f6?style=flat-square&labelColor=0a0e14
+[version-shield]: https://img.shields.io/badge/version-1.16.1-4dc9f6?style=flat-square&labelColor=0a0e14
 [release-link]: https://github.com/rergards/mempalace-code/releases
 [python-shield]: https://img.shields.io/badge/python-3.11+-7dd8f8?style=flat-square&labelColor=0a0e14&logo=python&logoColor=7dd8f8
 [python-link]: https://www.python.org/

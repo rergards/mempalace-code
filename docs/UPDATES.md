@@ -119,7 +119,10 @@ Watcher coordination follows whichever user service manager owns the host:
   `com.mempalace.watch*` LaunchAgent, not just one. A loaded job that lists no PID is included,
   because `KeepAlive` can respawn it mid-replacement. Each label must be backed by an owned, regular,
   label-matching plist in `~/Library/LaunchAgents` whose `ProgramArguments` is a supported MemPalace
-  `watch` command.
+  `watch` command. Discovery verifies each watcher's account domain (`gui/<uid>` or
+  `user/<uid>`) and uses that same domain for stop, compensation and restart.
+  Missing, ambiguous or unavailable domain evidence refuses the update. Service
+  dumps are discarded; their environments are not recorded.
 
 Ambiguous, malformed, unattributable, or unavailable watcher evidence is a visible refusal before
 package, lease, or service mutation. When `HOME` is not the account's passwd home directory (for

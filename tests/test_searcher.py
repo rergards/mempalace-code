@@ -1862,6 +1862,12 @@ class TestStructuredLineRangeMetadata:
             "contains_code": True,
             "contains_table": False,
             "line_range": line_range,
+            "provenance": {
+                "filed_at": None,
+                "extractor_version": None,
+                "source_hash": None,
+                "chunker_strategy": None,
+            },
             "similarity": 0.938,
         }
 

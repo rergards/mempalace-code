@@ -15,10 +15,12 @@ from mempalace_code.mirror_preflight import classify_mirror_command
 
 ROOT = Path(__file__).resolve().parent.parent
 REQUIRED_EXCLUDES = (
-    "--exclude=palace/ --exclude=knowledge_graph.sqlite3 --exclude=config.json --exclude=backups/"
-    " --exclude='palace.backup-*/' --exclude='palace.quarantine-*/'"
+    "--exclude=palace --exclude=knowledge_graph.sqlite3 --exclude='knowledge_graph.sqlite3-*'"
+    " --exclude=config.json --exclude=backups/ --exclude='palace.backup-*/'"
+    " --exclude='palace.quarantine-*/' --exclude=locks/ --exclude='operation.lock*'"
+    " --exclude='watch-*.claim'"
 )
-ALL_FAMILIES = ["palace", "kg", "config", "backups", "repair-backups", "quarantines"]
+ALL_FAMILIES = ["palace", "kg", "config", "backups", "repair-backups", "quarantines", "locks"]
 
 
 def _cli(capsys, *argv: str) -> tuple[int, str]:
@@ -167,10 +169,14 @@ def test_cli_uses_configured_palace_path(tmp_path, monkeypatch, capsys):
 def test_filter_rules_are_recognised_as_excludes():
     """REG preflight-2: --filter/-f exclude rules count like --exclude."""
     for command in (
-        "rsync -a --delete --filter='- palace*/' --filter='- knowledge_graph.sqlite3' "
-        "--filter='- config.json' --filter='- backups/' ~/.mempalace/ user@host:.mempalace/",
-        "rsync -a --delete -f'- palace*/' -f '- knowledge_graph.sqlite3' "
-        "--filter='exclude config.json' --filter=-_backups/ ~/.mempalace/ user@host:.mempalace/",
+        "rsync -a --delete --filter='- palace*' --filter='- knowledge_graph.sqlite3' "
+        "--filter='- knowledge_graph.sqlite3-*' --filter='- config.json' --filter='- backups/' "
+        "--filter='- locks/' --filter='- operation.lock*' --filter='- watch-*.claim' "
+        "~/.mempalace/ user@host:.mempalace/",
+        "rsync -a --delete -f'- palace*' -f '- knowledge_graph.sqlite3' "
+        "-f '- knowledge_graph.sqlite3-*' --filter='exclude config.json' --filter=-_backups/ "
+        "--filter='exclude locks/' --filter=-_operation.lock* -f '- watch-*.claim' "
+        "~/.mempalace/ user@host:.mempalace/",
     ):
         result = classify_mirror_command(command)
         assert result.ok, (command, result)

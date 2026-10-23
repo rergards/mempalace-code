@@ -154,7 +154,7 @@ def test_repair_that_cannot_save_its_copy_leaves_the_palace_as_it_was(tmp_path, 
     assert not glob.glob(os.path.join(palace, ".mempalace-repair-*"))
 
 
-def test_plain_repair_stops_at_the_first_failed_read_without_bisecting(tmp_path):
+def test_plain_repair_stops_at_the_first_failed_read_without_bisecting(tmp_path, monkeypatch):
     palace = str(tmp_path / "palace")
     store = open_store(palace, create=True)
     store.add(
@@ -177,9 +177,19 @@ def test_plain_repair_stops_at_the_first_failed_read_without_bisecting(tmp_path)
         def __getattr__(self, name):
             return getattr(self._table, name)
 
+    actual_reopen = LanceStore._reopen_table
+
+    def count_refreshed_reads(store, proxy):
+        def reopen():
+            proxy._table = actual_reopen(store)
+            store._table = cast("Any", proxy)
+            return store._table
+
+        monkeypatch.setattr(store, "_reopen_table", reopen)
+
     plain = open_store(palace, create=False, read_only=True)
     plain_table = CountingTable(plain._table)
-    plain._table = cast("Any", plain_table)  # counting proxy around the real table
+    count_refreshed_reads(plain, plain_table)
     result = plain.read_all_for_rebuild(salvage=False)
     assert plain_table.searches == 1  # one failed batch decides; no row-by-row bisecting
     assert result["stopped_at"] == 0
@@ -187,7 +197,7 @@ def test_plain_repair_stops_at_the_first_failed_read_without_bisecting(tmp_path)
 
     salvage = open_store(palace, create=False, read_only=True)
     salvage_table = CountingTable(salvage._table)
-    salvage._table = cast("Any", salvage_table)
+    count_refreshed_reads(salvage, salvage_table)
     result = salvage.read_all_for_rebuild(salvage=True)
     assert salvage_table.searches == 31  # 16 rows bisected down to single-row reads
     assert result["stopped_at"] is None
