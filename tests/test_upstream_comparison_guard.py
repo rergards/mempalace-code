@@ -530,8 +530,8 @@ def test_canonical_document_records_the_exact_commit_inventory():
         expected_inventory_lines.append(line)
 
     assert len(merge_groups) == len(set(merge_groups)) == len(decisions)
-    assert len(full_inventory) == 36
-    assert "range contains exactly 36 commits" in document
+    assert len(full_inventory) == 409
+    assert "range contains exactly 409 commits" in document
     assert inventory_lines == expected_inventory_lines
 
 
@@ -936,7 +936,7 @@ def test_repository_manifest_and_document_agree():
     assert errors == []
     assert facts["inventory_anchor_algorithm"] == "sha256"
     assert facts["inventory_anchor_version"] == 1
-    assert facts["inventory_anchor_declared_count"] == 36
-    assert facts["inventory_anchor_derived_count"] == 36
+    assert facts["inventory_anchor_declared_count"] == 409
+    assert facts["inventory_anchor_derived_count"] == 409
     assert facts["inventory_anchor_digest"] == facts["inventory_anchor_computed_digest"]
     assert facts["commit_inventory_exact"] is True

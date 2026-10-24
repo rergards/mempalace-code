@@ -427,6 +427,7 @@ class LaunchdUserService:
         self.runner = runner
         self.unit = DEFAULT_LAUNCHD_WATCH_LABEL
         self.labels: tuple[str, ...] = ()
+        self._domains: dict[str, str] = {}
         self._stopped: tuple[str, ...] = ()
         self._discovery: WatcherDiscovery | None = None
 
@@ -455,6 +456,10 @@ class LaunchdUserService:
             owned, detail = self._is_owned_watch_agent(label)
             if not owned:
                 return self._record_discovery(False, f"watcher discovery refused {label}: {detail}")
+            domain, detail = self._find_domain(label)
+            if domain is None:
+                return self._record_discovery(False, f"watcher discovery refused {label}: {detail}")
+            self._domains[label] = domain
         if not active:
             return self._record_discovery(True, "no active MemPalace watcher discovered")
         return self._record_discovery(
@@ -521,9 +526,18 @@ class LaunchdUserService:
             return False, self._with_recovery("; ".join(failures))
         return True, ""
 
-    @property
-    def _domain(self) -> str:
-        return f"gui/{os.geteuid()}"
+    def _find_domain(self, label: str) -> tuple[str | None, str]:
+        domains: list[str] = []
+        for kind in ("gui", "user"):
+            domain = f"{kind}/{os.geteuid()}"
+            rc, _out, _err = self._run(["launchctl", "print", f"{domain}/{label}"])
+            if rc == 0:
+                domains.append(domain)
+            elif rc not in (113, 125):
+                return None, f"cannot verify launchd domain {domain} (exit {rc})"
+        if len(domains) != 1:
+            return None, "watcher must exist in exactly one account launchd domain"
+        return domains[0], ""
 
     @staticmethod
     def _verified_home() -> tuple[Path, str | None]:
@@ -618,7 +632,10 @@ class LaunchdUserService:
         return tokens or None
 
     def _bootout(self, label: str) -> tuple[bool, str]:
-        rc, out, err = self._run(["launchctl", "bootout", f"{self._domain}/{label}"])
+        domain = self._domains.get(label)
+        if domain is None:
+            return False, "watcher launchd domain was not verified"
+        rc, out, err = self._run(["launchctl", "bootout", f"{domain}/{label}"])
         return rc == 0, (err or out).strip()
 
     def _wait_until_unloaded(self, label: str) -> tuple[bool, str]:
@@ -632,10 +649,13 @@ class LaunchdUserService:
         return False, f"launchd job remained loaded after bootout: {label}"
 
     def _bootstrap(self, label: str) -> tuple[bool, str]:
+        domain = self._domains.get(label)
+        if domain is None:
+            return False, "watcher launchd domain was not verified"
         path, path_error = self._plist_path(label)
         if path is None:
             return False, path_error
-        rc, out, err = self._run(["launchctl", "bootstrap", self._domain, str(path)])
+        rc, out, err = self._run(["launchctl", "bootstrap", domain, str(path)])
         if rc == 0:
             return True, ""
         active, error = self._active_watch_labels()
@@ -853,6 +873,18 @@ def service_manager_name() -> str:
 
 
 def _default_runner(command: list[str]) -> tuple[int, str, str]:
+    # Domain existence needs only the status. A service dump can include its
+    # environment, so never capture or retain that output.
+    if command[:2] == ["launchctl", "print"]:
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=DEFAULT_COMMAND_TIMEOUT,
+            check=False,
+        )
+        return completed.returncode, "", completed.stderr
     completed = subprocess.run(
         command,
         capture_output=True,

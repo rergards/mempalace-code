@@ -526,7 +526,10 @@ def test_extra_requirements_come_from_installed_metadata():
     from mempalace_code.storage import _extra_requirements
 
     assert _extra_requirements("watch") == ["watchfiles>=1.0"]
-    assert _extra_requirements("custom-models") == ["sentence-transformers>=5.6.0"]
+    assert _extra_requirements("custom-models") == [
+        "sentence-transformers>=5.6.0",
+        "setuptools>=84.1.0",
+    ]
     assert _extra_requirements("no-such-extra") == []
 
 

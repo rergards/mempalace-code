@@ -221,15 +221,14 @@ class TestAdversarialStorePaths:
             store.delete(["id-alpha"])
         assert store.count() == before
 
-    def test_get_by_ids_raises_on_lookup_failure(self, tmp_path):
+    def test_get_by_ids_raises_on_lookup_failure(self, tmp_path, monkeypatch):
         store = _store(tmp_path)
         _seed(store, ["alpha"])
 
-        class _BrokenTable:
-            def search(self, *args: Any, **kwargs: Any):
-                raise RuntimeError("lance read failed")
+        def broken_search(*args: Any, **kwargs: Any):
+            raise RuntimeError("lance read failed")
 
-        store._table = _BrokenTable()  # type: ignore[assignment]  # reason: fault injection
+        monkeypatch.setattr(type(store._table), "search", broken_search)
         with pytest.raises(RuntimeError, match="lance read failed"):
             store.get(ids=["id-alpha"])
 
@@ -610,7 +609,7 @@ class TestImportDryRunKgCounts:
         _triple("Existing Subject", "relates to", "Existing Object"),
         _triple("existing subject", "relates_to", "existing object"),  # same normalized fact
         _triple("O'Brien", "works_on", "Payments"),
-        _triple("OBrien", "works_on", "payments"),  # add_triple strips apostrophes
+        _triple("o'brien", "works_on", "payments"),  # same name, case-insensitive
         _triple("Marco", "on_call_for", "payments", valid_from="2026-02-01", valid_to="2026-06-30"),
         _triple("Fresh", "uses", "Redis"),
     ]
@@ -643,6 +642,38 @@ class TestImportDryRunKgCounts:
         replay = import_jsonl(path="unused", store=store, kg=kg, records=records)
         assert (again["imported_triples"], again["skipped_kg_duplicates"]) == (0, 6)
         assert (replay["imported_triples"], replay["skipped_kg_duplicates"]) == (0, 6)
+
+    def test_name_collision_refuses_dry_run_and_live_without_changing_kg(self, tmp_path):
+        from mempalace_code.export import import_jsonl
+        from mempalace_code.knowledge_graph import LazyKnowledgeGraph
+
+        store = _store(tmp_path)
+        kg = self._kg(tmp_path)
+        kg.add_triple("O'Brien", "works_on", "Payments")
+        palace = tmp_path / "palace"
+        before = (palace / "knowledge_graph.sqlite3").read_bytes()
+        records = [
+            _header(),
+            _triple("Fresh", "uses", "Redis"),
+            _triple("OBrien", "works_on", "Other"),
+        ]
+        results = []
+        for dry_run in (True, False):
+            result = import_jsonl(
+                path="unused",
+                store=store,
+                kg=LazyKnowledgeGraph(str(palace)),
+                dry_run=dry_run,
+                records=records,
+            )
+            assert result["imported_triples"] == 0
+            assert result["skipped_kg_duplicates"] == 0
+            assert "InvalidArgumentError" in result["kg_error"]
+            assert "collides" in result["kg_error"]
+            assert (palace / "knowledge_graph.sqlite3").read_bytes() == before
+            results.append(result)
+        assert results[0]["kg_error"] == results[1]["kg_error"]
+        assert kg.stats()["triples"] == 2
 
     def test_dry_run_reads_kg_without_creating_side_files(self, tmp_path):
         from mempalace_code.export import import_jsonl

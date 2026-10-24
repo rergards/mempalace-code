@@ -123,13 +123,20 @@ def workflow_runs(
     _fixed(repo, PUBLIC_REPOSITORY, "repository")
     if workflow not in _WORKFLOWS:
         raise ValueError(f"unsupported workflow: {workflow!r}")
+    if branch is not None:
+        _branch(branch)
+        candidate_audit = workflow == "Dependency Audit" and re.fullmatch(
+            r"release/v[0-9]+\.[0-9]+\.[0-9]+(?:-rc[1-9][0-9]*)?", branch
+        )
+        if not candidate_audit:
+            _fixed(branch, "main", "workflow branch")
     return _PublicQuery(
         "github_workflow_runs",
         (
             repo,
             workflow,
             _positive(limit, "limit", 100),
-            _fixed(_branch(branch), "main", "workflow branch") if branch else None,
+            branch,
         ),
     )
 

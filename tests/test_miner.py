@@ -6108,3 +6108,46 @@ def test_mine_tiny_files_no_change_incremental_skip():
         )
     finally:
         shutil.rmtree(tmpdir)
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_idle_mine_reconciles_retention_without_archive(tmp_path, monkeypatch, dry_run):
+    from mempalace_code.backup import create_backup
+
+    project = tmp_path / "project"
+    palace = tmp_path / "palace"
+    write_file(project / "module.py", "def current_state():\n    return 'source evidence'\n")
+    write_file(
+        project / "mempalace.yaml",
+        "wing: project\nrooms:\n  - name: code\n    patterns: ['*.py']\n",
+    )
+    monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
+    mine(str(project), str(palace))
+    store = open_store(str(palace), create=False)
+    store.add(
+        ids=["manual-decision"],
+        documents=["Rejected decision: keep the source record."],
+        metadatas=[{"wing": "notes", "room": "decisions", "added_by": "manual"}],
+    )
+    from mempalace_code.knowledge_graph import KnowledgeGraph
+
+    graph_path = palace / "knowledge_graph.sqlite3"
+    graph = KnowledgeGraph(db_path=str(graph_path))
+    graph.add_triple("decision", "status", "rejected")
+    graph_before = graph_path.read_bytes()
+    source = list(open_store(str(palace), create=False).iter_all(include_vectors=True))
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "0")
+    paths = [
+        create_backup(str(palace), kind=kind)[1]
+        for kind in ("pre_optimize", "scheduled", "pre_watch")
+    ]
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "2")
+    with patch("mempalace_code.backup.create_backup") as create:
+        result = mine(str(project), str(palace), dry_run=dry_run)
+    assert result["drawers_filed"] == 0
+    assert os.path.exists(paths[0]) == dry_run
+    assert all(os.path.exists(path) for path in paths[1:])
+    after = list(open_store(str(palace), create=False).iter_all(include_vectors=True))
+    assert source == after  # ids, text, metadata and vectors are all preserved
+    assert graph_path.read_bytes() == graph_before
+    create.assert_not_called()

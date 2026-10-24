@@ -33,7 +33,13 @@ from .config import MempalaceConfig
 from .disk_budget import DiskBudgetStatus, check_watch_budget, format_bytes
 from .knowledge_graph import palace_kg_path as _palace_kg_path
 from .launchd import daemon_environment, launchd_label, launchd_log_path
-from .mining.orchestrator import get_collection, mine
+from .mining.orchestrator import (
+    _copy_maintenance_due,
+    _no_copy_reconcile,
+    _retry_copy_maintenance,
+    get_collection,
+    mine,
+)
 from .mining.projects import INIT_MARKERS
 from .mining.scanner import (
     KNOWN_FILENAMES,
@@ -48,6 +54,7 @@ from .mining.scanner import (
     is_gitignored,
     is_scan_excluded,
     is_shebang_script,
+    is_technical_root_path,
     load_gitignore_matcher,
     normalize_include_paths,
     scan_project,
@@ -349,8 +356,8 @@ def _is_relevant_change(
 
     Mirrors scan_project() filtering: READABLE_EXTENSIONS, KNOWN_FILENAMES,
     extension-less shebang scripts, SKIP_FILENAMES, should_skip_dir() on parents,
-    app-level scan_rules, gitignore, include_ignored. Works for deleted paths with a
-    recognised name.
+    project-root technical directories, app-level scan_rules, gitignore,
+    include_ignored. Works for deleted paths with a recognised name.
 
     A directory renamed, moved in, or moved out produces one event for the directory
     itself, not one per file, so directories are relevant too: an existing directory
@@ -389,6 +396,11 @@ def _is_relevant_change(
 
     force_include = is_force_included(file_path, project_path, include_paths)
     exact_force_include = is_exact_force_include(file_path, project_path, include_paths)
+
+    # Project-root .tasks/.local hold technical artifacts that default mining does not
+    # walk: their file, directory and vanished-path events start no cycle.
+    if not force_include and is_technical_root_path(file_path, project_path):
+        return False
 
     # Reject known-skip filenames unless the file is explicitly force-included.
     if not force_include and filename in SKIP_FILENAMES:
@@ -1446,7 +1458,19 @@ def _create_pre_watch_backup(palace_path: str, kg_path: str, run_id: str) -> Opt
     attempt = 1
     while True:
         try:
-            _, archive = create_backup(palace_path, kind="pre_watch", kg_path=kg_path)
+            metadata, archive = create_backup(palace_path, kind="pre_watch", kg_path=kg_path)
+            if not isinstance(metadata, dict) or metadata.get("degraded"):
+                # A forensic *_DEGRADED archive is kept but is never a recovery point.
+                _emit_run_state(run_id, "pre-watch-backup-degraded")
+                print(
+                    "  Error: pre-watch backup is degraded "
+                    f"({metadata.get('degraded_error', 'unknown reason') if isinstance(metadata, dict) else 'invalid recovery metadata'}); the forensic "
+                    f"archive {archive} is kept but is not a recovery point.\n"
+                    "  Watcher did not start.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                sys.exit(1)
             print(f"  Pre-watch backup: {archive}", flush=True)
             return archive
         except BackupSourceError:
@@ -1778,22 +1802,16 @@ def _watch_single_project(
                 f"    {stats['files_processed']} file(s), {filed} drawer(s)",
                 flush=True,
             )
-            # Guarded optimize: only if drawers were filed and budget still allows it
-            if _should_run():
-                from .storage import open_store
-
-                outcome = _optimize_once(
-                    palace_path,
-                    open_store,
-                    kg_path=_local_kg_path,
-                    store=mining_store.collection,
-                )
-                if outcome == "completed":
-                    _emit_run_state(run_id, "optimize-completed")
-                elif outcome == "skipped:safety-check":
-                    _emit_run_state(run_id, "optimize-skipped", "reason=safety-check")
-                else:
-                    _emit_run_state(run_id, "optimize-skipped", "reason=error")
+        # One guarded maintenance decision: pending copy maintenance, else optimize.
+        outcome = _batch_maintenance(
+            palace_path,
+            mining_store,
+            _local_kg_path,
+            filed=filed,
+            should_run=_should_run,
+            wing_label=label,
+        )
+        _emit_maintenance_state(run_id, outcome)
     else:
         _emit_run_state(run_id, "initial-mine-skipped", "reason=disk-budget")
 
@@ -1867,16 +1885,15 @@ def _watch_single_project(
                 stats,
                 project=project_path,
             )
-            # Guarded optimize after batch
-            if stats.get("drawers_filed", 0) and _should_run():
-                from .storage import open_store
-
-                _optimize_once(
-                    palace_path,
-                    open_store,
-                    kg_path=_local_kg_path,
-                    store=mining_store.collection,
-                )
+            # One guarded maintenance decision after the batch.
+            _batch_maintenance(
+                palace_path,
+                mining_store,
+                _local_kg_path,
+                filed=stats.get("drawers_filed", 0),
+                should_run=_should_run,
+                wing_label=label,
+            )
             cycles += 1
             event_count += len(relevant)
 
@@ -1898,15 +1915,23 @@ def _optimize_once(
     *,
     store=None,
 ) -> str:
-    """Run a single optimize pass; return 'completed', 'skipped:safety-check', or 'skipped:error'."""
+    """Run a single optimize pass and return its outcome.
+
+    Outcomes: 'completed', 'skipped:disabled', 'skipped:safety-check', 'skipped:error'.
+    A disabled ``optimize_after_mine`` refuses before any store is opened, backed up or
+    optimized.
+    """
     from .config import MempalaceConfig
 
     try:
+        config = MempalaceConfig()
+        if not config.optimize_after_mine:
+            print("  >> Skipping optimize (disabled in config)", flush=True)
+            return "skipped:disabled"
         t0 = time.time()
         print("  >> Optimizing storage...", end="", flush=True)
         if store is None:
             store = open_store_fn(palace_path, create=False)
-        config = MempalaceConfig()
         result = optimize_store(
             store, palace_path, backup_first=config.backup_before_optimize, kg_path=kg_path
         )
@@ -1918,6 +1943,100 @@ def _optimize_once(
     except Exception as exc:
         print(f" skipped ({exc})", flush=True)
         return "skipped:error"
+
+
+def _batch_maintenance(
+    palace_path: str,
+    mining_store: _WatcherMiningStore,
+    kg_path: Optional[str],
+    *,
+    filed: int,
+    should_run: Callable[[], bool],
+    wing_label: str,
+) -> str:
+    """Make the one post-mine maintenance decision of a watcher batch.
+
+    Per-project watcher mines skip optimize, so each batch gets at most this one
+    decision. When an earlier exact-copy removal left physical maintenance pending, it
+    is retried through the orchestrator's existing path even if the batch filed
+    nothing, and that attempt replaces ordinary optimize. Otherwise drawers filed by
+    the batch get the usual optimize. A disabled ``optimize_after_mine`` and the disk
+    budget are honored before either path. Returns 'idle' when nothing was filed or
+    pending, otherwise an optimize outcome (see :func:`_optimize_once`).
+    """
+    from .backup import reconcile_managed_backups
+    from .config import MempalaceConfig
+
+    reconcile_managed_backups(palace_path)
+    due = _copy_maintenance_due(palace_path)
+    if not filed and not due:
+        return "idle"
+    if not MempalaceConfig().optimize_after_mine:
+        print("  >> Skipping optimize (disabled in config)", flush=True)
+        return "skipped:disabled"
+    if not should_run():
+        return "skipped:disk-budget"
+    if due:
+        try:
+            # The pending record is assessed and updated under the palace write lease;
+            # optimize and cleanup re-enter it.
+            with palace_write_lease(palace_path, "watch"):
+                if _copy_maintenance_due(palace_path):
+                    return _retry_pending_copy_maintenance(
+                        palace_path, mining_store, kg_path, wing_label
+                    )
+        except PalaceBusyError as exc:
+            print(f"  >> Copy maintenance skipped: {exc}", flush=True)
+            return "skipped:busy"
+    if not filed:
+        return "idle"
+    from .storage import open_store
+
+    return _optimize_once(palace_path, open_store, kg_path=kg_path, store=mining_store.collection)
+
+
+def _retry_pending_copy_maintenance(
+    palace_path: str, mining_store: _WatcherMiningStore, kg_path: Optional[str], wing_label: str
+) -> str:
+    """Retry pending exact-copy maintenance once; the orchestrator keeps every gate."""
+    print("  >> Retrying pending copy maintenance...", end="", flush=True)
+    try:
+        outcome = _retry_copy_maintenance(
+            mining_store.collection, wing_label, palace_path, kg_path, _no_copy_reconcile()
+        )
+    except Exception as exc:
+        print(f" skipped ({exc})", flush=True)
+        return "skipped:error"
+    disk = outcome.get("copy_disk")
+    if not isinstance(disk, dict) or not isinstance(disk.get("maintenance"), dict):
+        # Settled versions are recorded without a measurement; anything else is unknown.
+        if _copy_maintenance_due(palace_path):
+            print(" skipped (storage maintenance state unavailable)", flush=True)
+            return "skipped:error"
+        print(" done (no stale versions)", flush=True)
+        return "completed"
+    maintenance = disk["maintenance"]
+    if maintenance.get("ok") is True:
+        if _copy_maintenance_due(palace_path):
+            print(f" deferred ({disk.get('reason', '')})", flush=True)
+            return "skipped:deferred"
+        print(f" done ({disk.get('reason', '')})", flush=True)
+        return "completed"
+    print(f" not completed ({disk.get('reason', '')})", flush=True)
+    return "skipped:deferred" if maintenance.get("deferred") else "skipped:safety-check"
+
+
+def _emit_maintenance_state(run_id: str, outcome: str) -> None:
+    """Emit the startup run state of one batch maintenance outcome."""
+    if outcome == "idle":
+        return
+    if outcome == "completed":
+        _emit_run_state(run_id, "optimize-completed")
+        return
+    reason = outcome.partition(":")[2]
+    if reason not in {"safety-check", "disabled", "disk-budget", "deferred", "busy"}:
+        reason = "error"
+    _emit_run_state(run_id, "optimize-skipped", f"reason={reason}")
 
 
 @_with_watcher_lease
@@ -2012,7 +2131,6 @@ def _watch_planned_projects(
 ) -> None:
     """Run the startup backup, initial mines, and watch loop for a validated plan."""
     from .knowledge_graph import open_palace_kg
-    from .storage import open_store
 
     project_map = plan.projects
     initialized = {project for project in project_map if _has_init_marker(project)}
@@ -2116,23 +2234,18 @@ def _watch_planned_projects(
                     flush=True,
                 )
         _emit_run_state(run_id, "initial-mine-completed")
+        # One guarded maintenance decision after all initial mines.
+        outcome = _batch_maintenance(
+            palace_path,
+            mining_store,
+            _all_local_kg_path,
+            filed=total_init_filed,
+            should_run=_should_run_all,
+            wing_label=",".join(sorted(project_map.values())),
+        )
+        _emit_maintenance_state(run_id, outcome)
     else:
         _emit_run_state(run_id, "initial-mine-skipped", "reason=disk-budget")
-
-    # Single guarded optimize after all initial mines (only if something was filed)
-    if total_init_filed and _should_run_all():
-        outcome = _optimize_once(
-            palace_path,
-            open_store,
-            kg_path=_all_local_kg_path,
-            store=mining_store.collection,
-        )
-        if outcome == "completed":
-            _emit_run_state(run_id, "optimize-completed")
-        elif outcome == "skipped:safety-check":
-            _emit_run_state(run_id, "optimize-skipped", "reason=safety-check")
-        else:
-            _emit_run_state(run_id, "optimize-skipped", "reason=error")
 
     print("  Watching for changes... (Ctrl-C to stop)", flush=True)
 
@@ -2308,14 +2421,15 @@ def _watch_planned_projects(
                     cycles += 1
                     event_count += len(relevant)
 
-            # Guarded optimize: only when something was filed and budget still allows it
-            if batch_filed and _should_run_all():
-                _optimize_once(
-                    palace_path,
-                    open_store,
-                    kg_path=_all_local_kg_path,
-                    store=mining_store.collection,
-                )
+            # One guarded maintenance decision per batch, shared by its projects.
+            _batch_maintenance(
+                palace_path,
+                mining_store,
+                _all_local_kg_path,
+                filed=batch_filed,
+                should_run=_should_run_all,
+                wing_label=",".join(sorted(project_map.values())),
+            )
 
     except KeyboardInterrupt:
         pass
@@ -2399,7 +2513,7 @@ def render_watch_schedule(
         raise ValueError(f"Unsupported platform {platform!r}; must be 'darwin' or 'linux'")
 
     if mempalace_bin is None:
-        from .cli_commands.alias import resolve_invoked_canonical_cli
+        from .cli_invocation import resolve_invoked_canonical_cli
 
         invoked_bin = resolve_invoked_canonical_cli()
         resolved_bin = (

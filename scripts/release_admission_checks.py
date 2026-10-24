@@ -195,10 +195,16 @@ REMEDIATE_CHECK = (
     "instead; never rerun or dispatch a workflow_dispatch run, which skips release-critical jobs "
     f"and republishes a failing {AGGREGATE_REQUIRED_CHECK}."
 )
-REMEDIATE_AUDIT = (
-    f"Rerun the audit and wait for a fresh success: gh workflow run "
-    f"'{DEPENDENCY_AUDIT_WORKFLOW}' --repo {DEFAULT_REPO}"
-)
+
+
+def _audit_remediation(branch: str = DEFAULT_BRANCH) -> str:
+    return (
+        f"Rerun the audit and wait for a fresh success: gh workflow run "
+        f"'{DEPENDENCY_AUDIT_WORKFLOW}' --repo {DEFAULT_REPO} --ref {branch}"
+    )
+
+
+REMEDIATE_AUDIT = _audit_remediation()
 REMEDIATE_MAIN_RULESET = f"Apply the public main branch-rule contract in {RULESET_DOC}."
 REMEDIATE_TAG_RULESET = f"Apply the public v* tag ruleset contract in {RULESET_DOC}."
 REMEDIATE_RULESET_SCOPE = (
@@ -468,30 +474,42 @@ def check_dependency_audit_freshness(
     repo: str,
     public_read: Callable[[object], object],
     *,
+    audit_branch: str = DEFAULT_BRANCH,
+    expected_sha: str | None = None,
     max_age_hours: int = DEFAULT_AUDIT_MAX_AGE_HOURS,
     now: datetime | None = None,
 ) -> AdmissionRow:
-    """Require a recent successful scheduled or dispatched Dependency Audit on main."""
+    """Require the latest eligible audit on the requested branch for the exact SHA."""
     row_name = "dependency_audit_freshness"
+    normalized, sha_row = normalize_expected_sha(expected_sha)
+    if normalized is None:
+        return fail_row(
+            row_name,
+            sha_row.detail if sha_row is not None else "dependency audit requires --expect-sha",
+            REMEDIATE_EXPECT_SHA,
+        )
+    if not isinstance(audit_branch, str) or not audit_branch:
+        return error_row(row_name, "unsupported dependency-audit branch", REMEDIATE_AUDIT)
     public = _load_public_read()
     try:
         query = public.workflow_runs(
-            repo, DEPENDENCY_AUDIT_WORKFLOW, MAX_WORKFLOW_RUN_LIST, branch=DEFAULT_BRANCH
+            repo, DEPENDENCY_AUDIT_WORKFLOW, MAX_WORKFLOW_RUN_LIST, branch=audit_branch
         )
     except ValueError as exc:
         return error_row(row_name, str(exc), REMEDIATE_AUDIT)
+    remediation = _audit_remediation(audit_branch)
     data, error = _public_data(
         public_read,
         query,
         row_name=row_name,
-        remediation=REMEDIATE_AUDIT,
+        remediation=remediation,
         what=f"public workflow-runs lookup for {DEPENDENCY_AUDIT_WORKFLOW!r}",
     )
     if error is not None:
         return error
     if not isinstance(data, list):
         return error_row(
-            row_name, "unexpected dependency-audit workflow response shape", REMEDIATE_AUDIT
+            row_name, "unexpected dependency-audit workflow response shape", remediation
         )
 
     # Sort by parsed timestamp instead of trusting the order gh happens to return.
@@ -500,9 +518,11 @@ def check_dependency_audit_freshness(
     for run in data:
         if not isinstance(run, dict):
             continue
-        if run.get("headBranch") != DEFAULT_BRANCH:
+        if run.get("headBranch") != audit_branch:
             continue
         if run.get("event") not in {"schedule", "workflow_dispatch"}:
+            continue
+        if audit_branch != DEFAULT_BRANCH and run.get("event") != "workflow_dispatch":
             continue
         if run.get("status") != "completed":
             continue
@@ -522,23 +542,31 @@ def check_dependency_audit_freshness(
             row_name,
             f"{undatable} of {undatable + len(eligible)} completed dependency-audit runs have "
             "no parseable timestamp; the latest run cannot be identified",
-            REMEDIATE_AUDIT,
+            remediation,
         )
     if not eligible:
         return fail_row(
             row_name,
             f"no completed scheduled or dispatched {DEPENDENCY_AUDIT_WORKFLOW!r} "
-            f"run found on {DEFAULT_BRANCH}",
-            REMEDIATE_AUDIT,
+            f"run found on {audit_branch}",
+            remediation,
         )
 
     timestamp, latest = max(eligible, key=lambda item: item[0])
+    actual_sha = latest.get("headSha")
+    if not isinstance(actual_sha, str) or actual_sha.lower() != normalized:
+        return fail_row(
+            row_name,
+            f"latest dependency-audit run on {audit_branch} does not match "
+            f"expected SHA {normalized}",
+            remediation,
+        )
     conclusion = latest.get("conclusion")
     if conclusion != "success":
         return fail_row(
             row_name,
             f"latest dependency-audit run concluded {str(conclusion)!r}",
-            REMEDIATE_AUDIT,
+            remediation,
         )
 
     age = (now or datetime.now(UTC)).astimezone(UTC) - timestamp
@@ -547,7 +575,7 @@ def check_dependency_audit_freshness(
             row_name,
             "latest dependency-audit run is stamped in the future; the evidence clock "
             "cannot be trusted",
-            REMEDIATE_AUDIT,
+            remediation,
         )
     age_hours = int(max(age, timedelta(0)).total_seconds() // 3600)
     if age > timedelta(hours=max_age_hours):
@@ -555,9 +583,13 @@ def check_dependency_audit_freshness(
             row_name,
             f"latest successful dependency-audit run is stale ({age_hours}h old; "
             f"limit {max_age_hours}h)",
-            REMEDIATE_AUDIT,
+            remediation,
         )
-    return ok_row(row_name, f"latest dependency-audit run succeeded {age_hours}h ago")
+    return ok_row(
+        row_name,
+        f"latest dependency-audit run on {audit_branch} for {normalized} "
+        f"succeeded {age_hours}h ago",
+    )
 
 
 # ── Public ref protection ─────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import email
 import errno
 import hashlib
@@ -64,7 +65,7 @@ INSTALLED_GOLDEN_ONNX_CPU_WARNING = (
 INSTALLED_GOLDEN_ONNX_PCI_WARNING = re.compile(
     r"\x1b\[0;93m"
     r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{9} "
-    r"\[W:onnxruntime:Default, device_discovery\.cc:146 GetPciBusId\] "
+    r"\[W:onnxruntime:Default, device_discovery\.cc:(?:95|146) GetPciBusId\] "
     r'Skipping pci_bus_id for PCI path at "'
     r"/sys/devices/LNXSYSTM:00/LNXSYBUS:00/ACPI0004:00/(?:MSFT1000|VMBUS):00/"
     r'(?P<pci_filename>[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})" '
@@ -74,9 +75,11 @@ INSTALLED_GOLDEN_ONNX_PCI_WARNING = re.compile(
 )
 INSTALLED_CLI_INVENTORY_PROBE_NAME = "installed-cli-inventory-probe.py"
 INSTALLED_SAFE_MIRROR_COMMAND = (
-    "rsync -a --delete --exclude=palace/ --exclude=knowledge_graph.sqlite3 "
+    "rsync -a --delete --exclude=palace --exclude=knowledge_graph.sqlite3 "
+    "--exclude='knowledge_graph.sqlite3-*' --exclude=knowledge_graph.sqlite3.adopted "
     "--exclude=config.json --exclude=backups/ --exclude=palace.backup-*/ "
-    "--exclude=palace.quarantine-*/ ~/.mempalace/ user@host:.mempalace/"
+    "--exclude=palace.quarantine-*/ --exclude=locks/ --exclude='operation.lock*' "
+    "--exclude='watch-*.claim' ~/.mempalace/ user@host:.mempalace/"
 )
 INSTALLED_CLI_INVENTORY_OUTPUT_LIMIT = 64 * 1024
 INSTALLED_CLI_INVENTORY_MEMBER_LIMIT = 128
@@ -665,6 +668,7 @@ def _run_public_admission_checks(
             admission.check_dependency_audit_freshness(
                 repo,
                 public_read,
+                expected_sha=candidate_sha,
                 max_age_hours=audit_max_age_hours,
             ),
             "public GET workflow runs",
@@ -3859,11 +3863,13 @@ def _run_installed_rollback_no_candidate_scenario(
             merge_stderr=merge_stderr,
         )
 
-    def require_success(step: str, result, success_marker: str | None = None) -> dict | None:
+    def require_success(
+        step: str, result, success_marker: str | None = None, *, expected_stderr: str = ""
+    ) -> dict | None:
         if (
             result.returncode != 0
             or not result.stdout
-            or result.stderr
+            or (result.stderr and result.stderr != expected_stderr)
             or not _installed_output_is_clean(result)
             or (success_marker is not None and success_marker not in result.stdout)
         ):
@@ -3910,7 +3916,22 @@ def _run_installed_rollback_no_candidate_scenario(
                 return failed
 
         cleanup = run(["--palace", str(palace), "cleanup", "--unsafe-now", "--json"])
-        failed = require_success("cleanup", cleanup)
+        # The documented explicit unsafe mode may emit Lance's exact safety warning.
+        # Keep it visible; other diagnostics, errors, and all state checks still fail.
+        cleanup_warning = (
+            "UserWarning: optimize(cleanup_older_than=0) removes every version except the latest. "
+            "Any concurrent reader or writer still using an older version will fail. "
+            "Use a longer cleanup_older_than unless no other process is working on this table."
+        )
+        expected_cleanup_stderr = ""
+        if re.fullmatch(
+            r"[^\n]+/mempalace_code/storage\.py:[0-9]+: "
+            + re.escape(cleanup_warning)
+            + r"\n  table\.optimize\(\n",
+            cleanup.stderr or "",
+        ):
+            expected_cleanup_stderr = cleanup.stderr
+        failed = require_success("cleanup", cleanup, expected_stderr=expected_cleanup_stderr)
         if failed is not None:
             return failed
         cleanup_value = json.loads(cleanup.stdout)
@@ -3993,7 +4014,8 @@ def _run_installed_rollback_no_candidate_scenario(
         "installed_golden_rollback_no_candidate",
         INSTALLED_ROLLBACK_NO_CANDIDATE_COMMAND,
         "pass",
-        "four rollback no-candidate modes preserved output, health, and disposable state",
+        "four rollback no-candidate modes preserved output, health, and disposable state"
+        + ("; exact Lance unsafe-cleanup warning retained" if cleanup.stderr else ""),
     )
 
 
@@ -6795,6 +6817,7 @@ def _installed_extra_install_commands(
                     "-m",
                     "pip",
                     "install",
+                    "--no-cache-dir",
                     "torch",
                     "--index-url",
                     INSTALLED_CUSTOM_MODELS_CPU_INDEX,
@@ -6804,13 +6827,15 @@ def _installed_extra_install_commands(
     commands.append(
         (
             f"{extra} candidate extra",
-            [str(python_bin), "-m", "pip", "install", f"{wheel}[{extra}]"],
+            [str(python_bin), "-m", "pip", "install", "--no-cache-dir", f"{wheel}[{extra}]"],
         )
     )
     return commands
 
 
-def _installed_extra_install_failure(stage: str, result) -> str:
+def _installed_extra_install_failure(
+    stage: str, result, *, paths: dict[str, Path] | None = None
+) -> str:
     """Retain one bounded decisive diagnostic and one recovery action."""
     diagnostic = (
         getattr(result, "stderr", None)
@@ -6827,10 +6852,28 @@ def _installed_extra_install_failure(stage: str, result) -> str:
         or "errno 28" in full_diagnostic.lower()
         or "no space left on device" in full_diagnostic.lower()
     )
-    if is_enospc:
+    is_quota = (
+        getattr(result, "errno", None) == errno.EDQUOT
+        or "errno 122" in full_diagnostic.lower()
+        or "disk quota exceeded" in full_diagnostic.lower()
+    )
+    if is_enospc or is_quota:
+        capacity = []
+        for label, path in (paths or {}).items():
+            try:
+                stats = os.statvfs(path)
+                capacity.append(
+                    f"{label} filesystem free_bytes={stats.f_bavail * stats.f_frsize} "
+                    f"free_inodes={stats.f_favail}"
+                )
+            except OSError:
+                capacity.append(f"{label} filesystem capacity unknown")
+        error = "Disk quota exceeded" if is_quota else "No space left on device"
+        allocation = "free or increase the selected filesystem quota, then " if is_quota else ""
         return (
-            f"{prefix}: {normalized}; error: No space left on device; "
-            f"recovery: {INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY}"
+            f"{prefix}: {full_diagnostic[:400]}; error: {error}; "
+            f"{'; '.join(capacity)}; recovery: {allocation}"
+            f"{INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY}"
         )
     return f"{prefix}: {normalized}"
 
@@ -6853,7 +6896,7 @@ def _run_installed_extra_and_export_reconciliation(
     base_env: dict[str, str],
     setup_env: dict[str, str],
     neutral_cwd: Path,
-    hf_home: Path,
+    release_base,
     watch_receipt: bool,
     export_receipts: dict[str, bool],
     platform_name: str,
@@ -6905,8 +6948,7 @@ def _run_installed_extra_and_export_reconciliation(
         except (json.JSONDecodeError, TypeError, UnicodeError):
             raise RuntimeError(f"{label} returned invalid JSON") from None
 
-    def install_extra(extra: str) -> tuple[Path, dict[str, str], Path, Path]:
-        contour = temp_root / f"extra-{extra}"
+    def install_extra(extra: str, contour: Path) -> tuple[Path, dict[str, str], Path, Path]:
         contour_venv = contour / "venv"
         contour_cwd = contour / "neutral"
         contour_cwd.mkdir(parents=True)
@@ -6917,12 +6959,17 @@ def _run_installed_extra_and_export_reconciliation(
         for stage, command in _installed_extra_install_commands(
             python_bin, wheel, extra, platform_name
         ):
+            install_paths = {"scratch": Path(setup_env["TMPDIR"]), "install": contour_venv}
             try:
                 install = completed(command, env=setup_env, timeout=INSTALLED_GOLDEN_TIMEOUT)
             except OSError as exc:
-                raise RuntimeError(_installed_extra_install_failure(stage, exc)) from None
+                raise RuntimeError(
+                    _installed_extra_install_failure(stage, exc, paths=install_paths)
+                ) from None
             if install.returncode != 0:
-                raise RuntimeError(_installed_extra_install_failure(stage, install))
+                raise RuntimeError(
+                    _installed_extra_install_failure(stage, install, paths=install_paths)
+                )
         site = completed([str(python_bin), "-c", smoke._SITE_PACKAGES_SCRIPT], env=setup_env)
         try:
             site_paths = json.loads(site.stdout)
@@ -6947,7 +6994,7 @@ def _run_installed_extra_and_export_reconciliation(
         env = _installed_golden_env(
             base_env,
             temp_root=contour,
-            hf_home=hf_home,
+            hf_home=contour / "model-home",
             console=contour_venv / "bin" / "mempalace-code",
             marker=marker,
             attempts=attempts,
@@ -6989,24 +7036,6 @@ def _run_installed_extra_and_export_reconciliation(
             "palace_absent": True,
         }:
             raise RuntimeError("base custom-model contour did not fail before palace mutation")
-        custom_python, custom_env, custom_attempts, custom_marker = install_extra("custom-models")
-        custom = json_probe(
-            custom_python,
-            INSTALLED_CUSTOM_MODEL_PROBE,
-            [],
-            custom_env,
-            "installed custom-model behavior probe",
-        )
-        if (
-            not isinstance(custom, dict)
-            or custom.get("rows") != 2
-            or not isinstance(custom.get("dimensions"), int)
-            or custom["dimensions"] <= 0
-            or custom.get("normalized") is not True
-        ):
-            raise RuntimeError("installed custom-model behavior evidence is incomplete")
-        evidence["extra:custom-models"] = True
-
         fixture = temp_root / "spellcheck-fixture.txt"
         fixture.write_text("> mispelled quick brown fox\nassistant: unchanged\n", encoding="utf-8")
         base_spell = json_probe(
@@ -7016,37 +7045,9 @@ def _run_installed_extra_and_export_reconciliation(
             base_env,
             "base spellcheck fallback probe",
         )
-        spell_python, spell_env, spell_attempts, spell_marker = install_extra("spellcheck")
-        spell = json_probe(
-            spell_python,
-            INSTALLED_SPELLCHECK_PROBE,
-            [str(fixture)],
-            spell_env,
-            "installed spellcheck behavior probe",
-        )
-        spellcheck_error = _installed_spellcheck_evidence_error(
-            base_spell,
-            spell,
-            source=fixture.read_text(encoding="utf-8"),
-            expected="> misspelled quick brown fox\nassistant: unchanged\n",
-        )
-        if spellcheck_error:
-            raise RuntimeError(spellcheck_error)
-        evidence["extra:spellcheck"] = True
-
-        tree_python, tree_env, tree_attempts, tree_marker = install_extra("treesitter")
-        tree = json_probe(
-            tree_python,
-            INSTALLED_TREESITTER_PROBE,
-            [],
-            tree_env,
-            "installed tree-sitter behavior probe",
-        )
-        treesitter_error = _installed_treesitter_evidence_error(tree)
-        if treesitter_error:
-            raise RuntimeError(treesitter_error)
-        evidence["extra:treesitter"] = True
-
+        source = fixture.read_text(encoding="utf-8")
+        if base_spell != {"autocorrect": False, "mined": source, "output": source}:
+            raise RuntimeError("base spellcheck contour did not preserve safe fallback")
         migration = json_probe(
             base_python,
             INSTALLED_MIGRATION_PROBE,
@@ -7076,12 +7077,82 @@ def _run_installed_extra_and_export_reconciliation(
             raise RuntimeError("installed alias launcher behavior failed")
         evidence["export:mempalace_code.cli:main_alias"] = True
 
-        checked_attempts = [custom_attempts, spell_attempts, tree_attempts]
-        checked_markers = [custom_marker, spell_marker, tree_marker]
-        if not all(path.is_file() for path in checked_markers):
-            raise RuntimeError("installed optional-extra socket guard did not load")
-        if any(path.exists() and path.read_text(encoding="utf-8") for path in checked_attempts):
-            raise RuntimeError("installed optional-extra runtime attempted network access")
+        # All base-only proofs must finish before releasing its completed fixtures.
+        release_base()
+
+        def check_network(marker: Path, attempts: Path):
+            if not marker.is_file():
+                raise RuntimeError("installed optional-extra socket guard did not load")
+            if attempts.exists() and attempts.read_text(encoding="utf-8"):
+                raise RuntimeError("installed optional-extra runtime attempted network access")
+
+        with tempfile.TemporaryDirectory(prefix="extra-custom-models-", dir=temp_root) as directory:
+            contour = Path(directory)
+            neutral_cwd = contour / "neutral"
+            custom_python, custom_env, custom_attempts, custom_marker = install_extra(
+                "custom-models", contour
+            )
+            custom = json_probe(
+                custom_python,
+                INSTALLED_CUSTOM_MODEL_PROBE,
+                [],
+                custom_env,
+                "installed custom-model behavior probe",
+            )
+            if (
+                not isinstance(custom, dict)
+                or custom.get("rows") != 2
+                or not isinstance(custom.get("dimensions"), int)
+                or custom["dimensions"] <= 0
+                or custom.get("normalized") is not True
+            ):
+                raise RuntimeError("installed custom-model behavior evidence is incomplete")
+            evidence["extra:custom-models"] = True
+
+            check_network(custom_marker, custom_attempts)
+
+        with tempfile.TemporaryDirectory(prefix="extra-spellcheck-", dir=temp_root) as directory:
+            contour = Path(directory)
+            neutral_cwd = contour / "neutral"
+            spell_python, spell_env, spell_attempts, spell_marker = install_extra(
+                "spellcheck", contour
+            )
+            spell = json_probe(
+                spell_python,
+                INSTALLED_SPELLCHECK_PROBE,
+                [str(fixture)],
+                spell_env,
+                "installed spellcheck behavior probe",
+            )
+            spellcheck_error = _installed_spellcheck_evidence_error(
+                base_spell,
+                spell,
+                source=fixture.read_text(encoding="utf-8"),
+                expected="> misspelled quick brown fox\nassistant: unchanged\n",
+            )
+            if spellcheck_error:
+                raise RuntimeError(spellcheck_error)
+            evidence["extra:spellcheck"] = True
+
+            check_network(spell_marker, spell_attempts)
+
+        with tempfile.TemporaryDirectory(prefix="extra-treesitter-", dir=temp_root) as directory:
+            contour = Path(directory)
+            neutral_cwd = contour / "neutral"
+            tree_python, tree_env, tree_attempts, tree_marker = install_extra("treesitter", contour)
+            tree = json_probe(
+                tree_python,
+                INSTALLED_TREESITTER_PROBE,
+                [],
+                tree_env,
+                "installed tree-sitter behavior probe",
+            )
+            treesitter_error = _installed_treesitter_evidence_error(tree)
+            if treesitter_error:
+                raise RuntimeError(treesitter_error)
+            evidence["extra:treesitter"] = True
+
+            check_network(tree_marker, tree_attempts)
 
         evidence["extra:watch"] = watch_receipt
         return _reconcile_installed_optional_extras_and_public_exports(
@@ -7139,8 +7210,14 @@ def _run_installed_golden_wheel(
         return [_make_row("installed_golden_wheel", INSTALLED_GOLDEN_COMMAND, "fail", str(exc))]
 
     smoke = _load_sibling("_release_install_metadata_golden", "release_install_metadata_smoke.py")
-    with tempfile.TemporaryDirectory(prefix="mempalace-installed-golden-") as tmpdir:
-        temp_root = Path(tmpdir)
+    with (
+        tempfile.TemporaryDirectory(prefix="mempalace-installed-golden-") as tmpdir,
+        contextlib.ExitStack() as base_scope,
+    ):
+        suite_root = Path(tmpdir)
+        temp_root = Path(
+            base_scope.enter_context(tempfile.TemporaryDirectory(prefix="base-", dir=suite_root))
+        )
         venv = temp_root / "venv"
         neutral_cwd = temp_root / "neutral"
         neutral_cwd.mkdir()
@@ -7150,7 +7227,7 @@ def _run_installed_golden_wheel(
         marker = temp_root / "socket-guard-loaded"
         attempts = temp_root / "socket-attempts.log"
         setup_env = _credential_free_build_env(
-            temp_root / "setup-home", temp_root / "setup-tmp", env_source
+            suite_root / "setup-home", suite_root / "setup-tmp", env_source
         )
 
         create = _run_golden_subprocess(
@@ -7710,17 +7787,57 @@ def _run_installed_golden_wheel(
                 )
             ]
 
+        executed_members = set()
+
+        def release_base():
+            nonlocal executed_members
+            trace_path = temp_root / "installed-cli-execution-trace.json"
+            try:
+                trace_path.write_text(recorder.render(), encoding="utf-8")
+                execution_probe = _run_golden_subprocess(
+                    underlying_run_subprocess,
+                    [str(python_bin), str(probe_path), str(trace_path)],
+                    capture_output=True,
+                    text=True,
+                    cwd=str(neutral_cwd),
+                    env=golden_env,
+                    timeout=DEFAULT_TIMEOUT,
+                )
+                if execution_probe.returncode != 0 or not _installed_output_is_clean(
+                    execution_probe
+                ):
+                    raise ValueError("installed CLI execution attribution failed")
+                executed_members = _parse_installed_cli_execution(
+                    execution_probe.stdout or "", discovered_members
+                )
+            except (OSError, TypeError, UnicodeError, ValueError) as exc:
+                raise RuntimeError(str(exc)) from None
+            coverage = _reconcile_installed_cli_inventory(
+                [_make_row("installed_golden_suite", INSTALLED_GOLDEN_COMMAND, "pass", "")],
+                discovered_members,
+                executed_members,
+            )
+            if coverage[-1]["status"] != "pass":
+                raise RuntimeError(
+                    coverage[-1]["detail"].removesuffix(f"; rerun: {INSTALLED_GOLDEN_COMMAND}")
+                )
+            if not marker.is_file():
+                raise RuntimeError("installed base socket guard did not load")
+            if attempts.exists() and attempts.read_text(encoding="utf-8"):
+                raise RuntimeError(attempts.read_text(encoding="utf-8"))
+            base_scope.close()
+
         direct_claim_failure = _run_installed_extra_and_export_reconciliation(
             root=root,
             wheel=wheel,
             expected_version=expected_version,
-            temp_root=temp_root,
+            temp_root=suite_root,
             base_venv=venv,
             base_python=python_bin,
             base_env=golden_env,
             setup_env=setup_env,
             neutral_cwd=neutral_cwd,
-            hf_home=disposable_hf_home,
+            release_base=release_base,
             watch_receipt=all(
                 row["status"] == "pass"
                 for row in (
@@ -7755,16 +7872,6 @@ def _run_installed_golden_wheel(
                 )
             ]
 
-        attempts_text = attempts.read_text(encoding="utf-8") if attempts.exists() else ""
-        if attempts_text:
-            return [
-                _make_row(
-                    "installed_golden_suite",
-                    INSTALLED_GOLDEN_COMMAND,
-                    "fail",
-                    attempts_text,
-                )
-            ]
         rows = [
             _make_row("installed_golden_cache", INSTALLED_GOLDEN_COMMAND, "pass", cache_detail),
             _make_row(
@@ -7799,32 +7906,6 @@ def _run_installed_golden_wheel(
                 "complete golden CLI suite, optional extras, and public exports passed offline",
             ),
         ]
-        trace_path = temp_root / "installed-cli-execution-trace.json"
-        try:
-            trace_path.write_text(recorder.render(), encoding="utf-8")
-            execution_probe = _run_golden_subprocess(
-                underlying_run_subprocess,
-                [str(python_bin), str(probe_path), str(trace_path)],
-                capture_output=True,
-                text=True,
-                cwd=str(neutral_cwd),
-                env=golden_env,
-                timeout=DEFAULT_TIMEOUT,
-            )
-            if execution_probe.returncode != 0 or not _installed_output_is_clean(execution_probe):
-                raise ValueError("installed CLI execution attribution failed")
-            executed_members = _parse_installed_cli_execution(
-                execution_probe.stdout or "", discovered_members
-            )
-        except (OSError, TypeError, UnicodeError, ValueError) as exc:
-            return [
-                _make_row(
-                    "installed_golden_suite",
-                    INSTALLED_GOLDEN_COMMAND,
-                    "fail",
-                    f"{exc}; rerun: {INSTALLED_GOLDEN_COMMAND}",
-                )
-            ]
         return _reconcile_installed_cli_inventory(rows, discovered_members, executed_members)
 
 

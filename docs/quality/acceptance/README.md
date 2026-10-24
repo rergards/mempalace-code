@@ -63,6 +63,11 @@ substitute for operation coverage. Missing required coverage is blocking `UNRUN`
 it cannot be deferred to obtain PASS. Platform-specific cases run on a supported
 platform. No confirmed critical or high issue may remain open; other product
 findings must be fixed or explicitly deferred with a reason and a backlog reference.
+An explicitly accepted dependency usage exception follows
+`docs/DEPENDENCY_UPGRADE_GATE.md`: retain its original severity, exact version,
+scope, expiry and residual uncertainty, and require an `accepted_risk` audit
+result with the raw findings preserved. This exception does not waive functional
+coverage or a confirmed reachable application vulnerability.
 
 ## Sections
 

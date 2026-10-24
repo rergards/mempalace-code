@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import stat
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -61,6 +62,11 @@ SKIP_FILENAMES: set[str] = {
     "package-lock.json",
     "entities.json",
 }
+
+# Project-root directories where agents and tools keep task checkouts, writer workspaces
+# and temporary verification receipts. Only the first project-relative component is
+# matched: a same-named directory deeper in the project stays eligible.
+TECHNICAL_ROOTS: frozenset[str] = frozenset({".tasks", ".local"})
 
 
 # =============================================================================
@@ -242,6 +248,45 @@ def _is_dotnet_project(project_path: Path) -> bool:
 def should_skip_dir(dirname: str) -> bool:
     """Skip known generated/cache directories before gitignore matching."""
     return dirname in SKIP_DIRS or dirname.endswith(".egg-info")
+
+
+def is_technical_root_path(path: Path | str, project_path: Path) -> bool:
+    """Return True when *path* is or lies below a project-root technical directory.
+
+    Only the first project-relative component is compared with TECHNICAL_ROOTS, so a
+    same-named directory deeper in the project is not technical. Paths outside
+    *project_path* and the project root itself are not technical. Callers give
+    explicit ``--include-ignored`` paths precedence.
+    """
+    try:
+        parts = Path(path).relative_to(project_path).parts
+    except ValueError:
+        return False
+    return bool(parts) and parts[0] in TECHNICAL_ROOTS
+
+
+NESTED_GIT_ROOT = "nested"
+NESTED_GIT_UNKNOWN = "unknown"
+
+
+def nested_git_marker(dir_path: Path) -> str | None:
+    """Classify the ``.git`` marker of a directory below the project root.
+
+    None means the marker is proven absent (``FileNotFoundError``): ordinary
+    directories and non-Git projects are traversed as before. A real directory or
+    regular file marker (a checkout or a worktree) is NESTED_GIT_ROOT. Any other
+    marker kind or lookup error is NESTED_GIT_UNKNOWN: callers neither traverse that
+    directory nor treat its stored sources as stale.
+    """
+    try:
+        marker_stat = (dir_path / ".git").lstat()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return NESTED_GIT_UNKNOWN
+    if stat.S_ISDIR(marker_stat.st_mode) or stat.S_ISREG(marker_stat.st_mode):
+        return NESTED_GIT_ROOT
+    return NESTED_GIT_UNKNOWN
 
 
 IncludePaths: TypeAlias = Iterable[str]
@@ -525,8 +570,9 @@ def is_traversed_dir(
     """Return whether :func:`scan_project` descends into *dir_path* under *project_path*.
 
     Applies the scanner's directory rules to every directory from the project root down:
-    skipped names, scan-filter rules, and (with *respect_gitignore*) ``.gitignore`` files.
-    Symlinks are not checked here.
+    skipped names, project-root technical directories, scan-filter rules, and (with
+    *respect_gitignore*) ``.gitignore`` files. Explicit include overrides and symlinks
+    are not checked here.
     """
     project_path = Path(project_path).resolve()
     try:
@@ -547,6 +593,7 @@ def is_traversed_dir(
         child = current / part
         if (
             should_skip_dir(part)
+            or is_technical_root_path(child, project_path)
             or (dotnet_project and part == "bin")
             or is_scan_excluded(child, project_path, scan_rules, is_dir=True)
             or is_dir_subtree_excluded(child, project_path, scan_rules)
@@ -566,6 +613,7 @@ def scan_project(
     skip_invalid_source_symlinks: bool = False,
     symlink_diagnostics: list[SourceDiagnostic] | None = None,
     unsupported_files: list[Path] | None = None,
+    nested_roots: list[tuple[Path, str]] | None = None,
 ) -> list[Path]:
     """Return ordinary regular source paths selected by the project rules.
 
@@ -576,6 +624,14 @@ def scan_project(
     Files are selected by extension, by known filename, or — for extension-less
     files — by a shebang naming a known interpreter. When ``unsupported_files`` is
     provided, it receives the non-ignored files skipped only because of their type.
+
+    A directory below the project root whose ``.git`` marker is not proven absent
+    (a nested checkout or worktree, or an unclassifiable marker) is not traversed
+    unless explicitly included; ``nested_roots`` receives ``(directory, kind)``.
+
+    The project-root TECHNICAL_ROOTS directories are neither traversed nor selected
+    unless an ``include_ignored`` root, subtree, or exact path covers them; the
+    symlink, non-regular, and nested-Git rules still apply to what is included.
     """
     project_path = Path(project_dir).expanduser().resolve()
     hard_exclude_paths = normalize_hard_exclude_dirs(hard_exclude_dirs)
@@ -612,6 +668,7 @@ def scan_project(
                 is_force_included(root_path / d, project_path, include_paths)
                 or not (
                     should_skip_dir(d)
+                    or is_technical_root_path(root_path / d, project_path)
                     or (dotnet_project and d == "bin")
                     or is_scan_excluded(root_path / d, project_path, scan_rules, is_dir=True)
                     or is_dir_subtree_excluded(root_path / d, project_path, scan_rules)
@@ -634,8 +691,15 @@ def scan_project(
             dirpath = root_path / dirname
             if _looks_like_source_name(dirpath):
                 _record_non_regular_source(dirpath, symlink_diagnostics)
-            if not dirpath.is_symlink():
-                accepted_dirs.append(dirname)
+            if dirpath.is_symlink():
+                continue
+            marker = nested_git_marker(dirpath)
+            if marker is not None and not is_force_included(dirpath, project_path, include_paths):
+                # Another checkout's tree is never this project's source input.
+                if nested_roots is not None:
+                    nested_roots.append((dirpath, marker))
+                continue
+            accepted_dirs.append(dirname)
         dirs[:] = accepted_dirs
 
         for filename in filenames:
@@ -646,6 +710,9 @@ def scan_project(
             exact_force_include = is_exact_force_include(filepath, project_path, include_paths)
 
             if not force_include and filename in SKIP_FILENAMES:
+                continue
+            if not force_include and is_technical_root_path(filepath, project_path):
+                # Only reached below a technical directory entered for a deeper include.
                 continue
             if not force_include and is_scan_excluded(filepath, project_path, scan_rules):
                 continue
