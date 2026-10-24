@@ -1912,12 +1912,16 @@ class TestMirrorPreflightCommand:
     # A delete-mode state mirror with all required excludes — must be accepted.
     SAFE_CMD = (
         "rsync -a --delete "
-        "--exclude=palace/ "
+        "--exclude=palace "
         "--exclude=knowledge_graph.sqlite3 "
+        "--exclude='knowledge_graph.sqlite3-*' "
         "--exclude=config.json "
         "--exclude=backups/ "
         "--exclude='palace.backup-*/' "
         "--exclude='palace.quarantine-*/' "
+        "--exclude=locks/ "
+        "--exclude='operation.lock*' "
+        "--exclude='watch-*.claim' "
         "~/.mempalace/ user@host:.mempalace/"
     )
 
@@ -2053,11 +2057,15 @@ class TestMirrorPreflightCommand:
         """AC-1: wrapper-prefixed rsync --delete state mirror with all required excludes is accepted."""
         wrapped_safe = (
             "sudo rsync -a --delete "
-            "--exclude=palace/ "
+            "--exclude=palace "
             "--exclude=knowledge_graph.sqlite3 "
+            "--exclude='knowledge_graph.sqlite3-*' "
             "--exclude=config.json "
             "--exclude=backups/ "
             "--exclude='palace*/' "
+            "--exclude=locks/ "
+            "--exclude='operation.lock*' "
+            "--exclude='watch-*.claim' "
             "~/.mempalace/ user@host:.mempalace/"
         )
         with patch.object(

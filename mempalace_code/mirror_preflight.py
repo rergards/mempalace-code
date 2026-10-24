@@ -39,15 +39,6 @@ RSYNC_REMOVE_SOURCE_FLAGS: frozenset[str] = frozenset(
 # and bare .mempalace/ (relative path from home dir).
 _MEMPALACE_STATE_RE = re.compile(r"(?:[/:]|^)\.mempalace(?:/|$)")
 
-# Required exclude families: a delete-mode state mirror must exclude each of
-# these families to receive an ok=True verdict.
-_FAMILY_MATCHERS: dict[str, re.Pattern[str]] = {
-    "palace": re.compile(r"^palace(?:/|$|\*)"),
-    "kg": re.compile(r"^knowledge_graph\.sqlite3$|^\*\.sqlite3$"),
-    "config": re.compile(r"^config\.json$"),
-    "backups": re.compile(r"^backups(?:/|$|\*)"),
-}
-
 # Full palace copies that `repair` (<palace>.backup-<UTC>) and the rebuild workflow
 # (<palace>.quarantine-<UTC>) leave beside the palace; each family is covered by an exclude
 # that matches its sample name (for example 'palace.backup-*/' or 'palace*/').
@@ -55,15 +46,36 @@ _COPY_FAMILY_SAMPLES: dict[str, str] = {
     "repair-backups": "palace.backup-20260101T000000Z",
     "quarantines": "palace.quarantine-20260101T000000Z",
 }
-# Sample state-dir entries for each required family, used when a mirror source is a parent
-# of the state directory and excludes are written relative to that parent.
-_FAMILY_SAMPLES: dict[str, str] = {
-    "palace": "palace",
-    "kg": "knowledge_graph.sqlite3",
-    "config": "config.json",
-    "backups": "backups",
-    **_COPY_FAMILY_SAMPLES,
+# Required exclude families: a delete-mode state mirror must exclude every sample entry of
+# each family to receive an ok=True verdict; a parent mirror (for example of ~/) must exclude
+# the same entries below .mempalace/. A sample is (state-dir entry, is a directory): rsync
+# applies a directory-only exclude such as 'palace/' or 'palace*/' only to directories, so it
+# does not protect the regular MOVED/guard file that can replace a palace directory.
+_FAMILY_SAMPLES: dict[str, tuple[tuple[str, bool], ...]] = {
+    "palace": (("palace", True), ("palace", False)),
+    "kg": (
+        ("knowledge_graph.sqlite3", False),
+        ("knowledge_graph.sqlite3-wal", False),
+        ("knowledge_graph.sqlite3-shm", False),
+        ("knowledge_graph.sqlite3-journal", False),
+    ),
+    "config": (("config.json", False),),
+    "backups": (("backups", True),),
+    **{family: ((sample, True),) for family, sample in _COPY_FAMILY_SAMPLES.items()},
+    # rsync unlinks a held lock file, so its holder keeps locking an orphaned inode.
+    "locks": (
+        ("locks", True),
+        ("operation.lock", False),
+        ("operation.lock.metadata.lock", False),
+        ("operation.lock.owners.json", False),
+    ),
 }
+# Watch claim files (watch-<id>.claim) belong to the locks family too. Their names are
+# open-ended, so no finite sample can prove them; see _exclude_covers_claims.
+_CLAIM_FAMILY = "locks"
+_CLAIM_PREFIX = "watch-"
+_CLAIM_SUFFIX = ".claim"
+_STATUS_ORDER = ("covered", "unverified", "missing")
 
 # Advisory families: missing members produce a warning, not a blocked verdict.
 _ADVISORY_MATCHERS: dict[str, tuple[re.Pattern[str], str]] = {
@@ -376,18 +388,38 @@ def _coverage(rules: list[tuple[str, str]], covers) -> str:
     return "missing"
 
 
-def _exclude_covers_path(pattern: str, relative_parts: tuple[str, ...]) -> bool:
-    """Whether an rsync exclude pattern excludes the given transfer-relative path."""
+def _split_pattern(pattern: str) -> tuple[bool, bool, str]:
+    """Return (anchored, directory-only, pattern without its anchor and directory suffix).
+
+    rsync applies a pattern ending in '/' only to a directory, and 'dir/***', 'dir/**' or
+    'dir/*' only to a directory or its contents, never to a regular file named dir.
+    """
     anchored = pattern.startswith("/")
+    dir_only = pattern.endswith("/")
     normalized = pattern.strip("/")
     for suffix in ("/***", "/**", "/*"):
-        if normalized.endswith(suffix):
+        if not dir_only and normalized.endswith(suffix):
             normalized = normalized[: -len(suffix)]
+            dir_only = True
             break
+    return anchored, dir_only, normalized
+
+
+def _exclude_covers_path(
+    pattern: str, relative_parts: tuple[str, ...], *, final_is_dir: bool = True
+) -> bool:
+    """Whether an rsync exclude pattern excludes the given transfer-relative path.
+
+    Leading parts are directories. The final part is a regular file when ``final_is_dir``
+    is False, so a directory-only pattern can then protect it only through a parent.
+    """
+    anchored, dir_only, normalized = _split_pattern(pattern)
     if not normalized:
         return anchored  # "/" or "/***" excludes the whole transfer
     pattern_parts = tuple(normalized.split("/"))
     for end in range(1, len(relative_parts) + 1):
+        if dir_only and not final_is_dir and end == len(relative_parts):
+            continue
         prefix = relative_parts[:end]
         if anchored or len(pattern_parts) > 1:
             candidates = [prefix] if anchored else [prefix[-len(pattern_parts) :]]
@@ -399,6 +431,52 @@ def _exclude_covers_path(pattern: str, relative_parts: tuple[str, ...]) -> bool:
             ):
                 return True
     return False
+
+
+def _covers_claim_names(glob: str) -> bool:
+    """Whether one basename glob matches every watch-*.claim name.
+
+    The proof is syntactic: a single '*' between a prefix of 'watch-' and a suffix of
+    '.claim' (watch-*.claim, watch-*, *.claim or *). Exact names, '?', brackets, escapes
+    and extra stars never prove the open-ended family, whatever names they happen to match.
+    """
+    if glob.count("*") != 1 or any(char in glob for char in "?[\\"):
+        return False
+    prefix, suffix = glob.split("*")
+    return _CLAIM_PREFIX.startswith(prefix) and _CLAIM_SUFFIX.endswith(suffix)
+
+
+def _exclude_covers_claims(pattern: str, parent: tuple[str, ...]) -> bool:
+    """Whether an exclude protects every regular watch-*.claim file directly in parent."""
+    if parent and _exclude_covers_path(pattern, parent):
+        return True  # an excluded ancestor directory protects everything inside it
+    anchored, dir_only, normalized = _split_pattern(pattern)
+    if not normalized:
+        return anchored
+    if dir_only:
+        return False  # never matches a regular claim file
+    *directories, name = normalized.split("/")
+    if not _covers_claim_names(name) or len(directories) > len(parent):
+        return False
+    if anchored:
+        return tuple(directories) == parent
+    return tuple(directories) == parent[len(parent) - len(directories) :]
+
+
+def _family_coverage(
+    rules: list[tuple[str, str]], family: str, roots: Sequence[tuple[str, ...]]
+) -> str:
+    """Worst coverage of every sample of one family under every plausible transfer root."""
+    checks = [
+        lambda value, path=(*root, name), is_dir=is_dir: _exclude_covers_path(
+            value, path, final_is_dir=is_dir
+        )
+        for root in roots
+        for name, is_dir in _FAMILY_SAMPLES[family]
+    ]
+    if family == _CLAIM_FAMILY:
+        checks += [lambda value, root=root: _exclude_covers_claims(value, root) for root in roots]
+    return max((_coverage(rules, covers) for covers in checks), key=_STATUS_ORDER.index)
 
 
 def _local_path(argument: str) -> tuple[str, bool] | None:
@@ -459,25 +537,29 @@ def _classify_rsync(argv: list[str], palace_paths: Sequence[str]) -> PreflightRe
         )
         if parts:
             state_parents.append((arg, parts))
-    exposures: list[tuple[str, str, tuple[str, ...]]] = []
+    # A palace inside a state directory is checked as well: a regular MOVED/guard file can
+    # take its directory's place, so only a file-capable exclude (final_is_dir=False) protects
+    # it there. Other palaces keep directory semantics.
+    exposures: list[tuple[str, str, tuple[str, ...], bool]] = []
     palaces = [os.path.normpath(os.path.expanduser(p)) for p in palace_paths if p]
     palaces += [os.path.realpath(p) for p in palaces]
+    state_dirs = {PurePosixPath(state_dir), PurePosixPath(os.path.realpath(state_dir))}
     for palace in dict.fromkeys(palaces):
-        if (state_args or state_parents) and PurePosixPath(state_dir) in PurePosixPath(
-            palace
-        ).parents:
-            continue  # the state-dir families already cover a palace inside it
+        palace_path = PurePosixPath(palace)
+        in_state = ".mempalace" in palace_path.parts[:-1] or bool(
+            state_dirs.intersection(palace_path.parents)
+        )
         for arg in positional:
             parts = _palace_exposure(arg, palace)
             if parts is not None:
-                exposures.append((arg, palace, parts))
+                exposures.append((arg, palace, parts, not in_state))
     if not state_args and not state_parents and not exposures:
         return PreflightResult(ok=True)
 
     if parsed.remove_source and (
         any(arg in sources for arg in state_args)
         or any(arg in sources for arg, _ in state_parents)
-        or any(arg in sources for arg, _, _ in exposures)
+        or any(arg in sources for arg, *_ in exposures)
     ):
         return PreflightResult(
             ok=False,
@@ -515,49 +597,44 @@ def _classify_rsync(argv: list[str], palace_paths: Sequence[str]) -> PreflightRe
         elif status == "unverified" and family not in unverified:
             unverified.append(family)
 
-    if state_args:
-        for family, pattern in _FAMILY_MATCHERS.items():
-            note(family, _coverage(rules, pattern.match))
-        for family, sample in _COPY_FAMILY_SAMPLES.items():
-            note(
-                family,
-                _coverage(
-                    rules,
-                    lambda value, sample=sample: (
-                        _exclude_covers_path(value, (sample,))
-                        or _exclude_covers_path(value, (".mempalace", sample))
-                    ),
-                ),
-            )
-    for _arg, parts in state_parents:
-        for family, sample in _FAMILY_SAMPLES.items():
-            note(
-                family,
-                _coverage(
-                    rules,
-                    lambda value, path=(*parts, sample): _exclude_covers_path(value, path),
-                ),
-            )
     if state_args or state_parents:
+        # rsync names entries relative to the source argument: with a trailing slash the
+        # state directory's contents sit at the transfer root, otherwise below .mempalace/.
+        # Unless every state argument proves the root, each family must be covered under both.
+        roots: list[tuple[str, ...]] = []
+        if state_args:
+            state_sources = [arg for arg in state_args if arg in sources] or state_args
+            roots.append(())
+            if not all(arg.endswith("/") for arg in state_sources):
+                roots.append((".mempalace",))
+        roots += [parts for _arg, parts in state_parents]
+        for family in _FAMILY_SAMPLES:
+            note(family, _family_coverage(rules, family, roots))
         excludes = [value for kind, value in rules if kind == "exclude"]
         for family, (pattern, hint) in _ADVISORY_MATCHERS.items():
             if not any(pattern.match(value) for value in excludes):
                 warnings.append(f"advisory: no --exclude for '{family}' ({hint})")
 
     palace_missing = False
-    for arg, palace, parts in exposures:
+    for arg, palace, parts, palace_is_dir in exposures:
         status = (
             "missing"
             if not parts
-            else _coverage(rules, lambda value, parts=parts: _exclude_covers_path(value, parts))
+            else _coverage(
+                rules,
+                lambda value, parts=parts, is_dir=palace_is_dir: _exclude_covers_path(
+                    value, parts, final_is_dir=is_dir
+                ),
+            )
         )
         if status == "covered":
             continue
         where = "is inside" if not parts else "contains"
+        hint = "/" + "/".join(parts) + ("/" if palace_is_dir else "")
         warnings.append(
             f"{arg} {where} the configured palace {palace}; a delete-mode mirror removes "
             "palace content the other side holds"
-            + ("" if not parts else f" (exclude it with --exclude='/{'/'.join(parts)}/')")
+            + ("" if not parts else f" (exclude it with --exclude='{hint}')")
         )
         if status == "missing":
             palace_missing = True

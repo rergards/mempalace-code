@@ -564,7 +564,7 @@ output to the account owner. Re-render after changing those settings.
 
 ### Backup Kinds
 
-Each backup has a kind that controls its filename prefix and per-kind retention:
+Each backup has a kind that controls its filename prefix. Automatic kinds share one retention pool:
 
 | Kind | Prefix | Created by |
 |------|--------|-----------|
@@ -712,7 +712,7 @@ remain listed with the `shared` flag and are never pruned.
 Explicit `backup create --out /path/archive.tar.gz` takes priority over `backup_dir`,
 even when that setting is invalid. It keeps the existing no-overwrite behavior and
 disables managed rotation for that operation. The disk guard uses the explicit
-destination. See [Retention](#retention-automatic-pruning) for per-kind limits.
+destination. See [Retention](#retention-automatic-pruning) for the shared automatic limit.
 
 ### Auto-Backup Before Optimize
 
@@ -727,38 +727,53 @@ To disable: set `auto_backup_before_optimize: false` in `~/.mempalace/config.jso
 
 ### Retention (automatic pruning)
 
-**`pre_optimize` archives are bounded by default** to the newest 5.  A long-running
-`mempalace-code watch` daemon creates one archive before every compaction, so without a
-bound the `backups/` directory can fill the local volume even when the palace itself
-is small.
-
-**`pre_watch` archives are bounded by default** to the newest 5. The watcher creates one before
-each startup's initial mine when an existing palace is present.
-
-**`scheduled` archives are bounded by default** to the newest 14.  Cron and launchd
-jobs create one archive per run, so without a bound the `backups/` directory
-accumulates archives indefinitely.
-
-**`manual` archives are unbounded by default** — they are never pruned unless you
-set `backup_retain_count` explicitly.
+Healthy `scheduled`, `pre_watch`, and `pre_optimize` snapshots share **one automatic
+pool, default 2**. This replaces the old independent limits of 14 scheduled,
+5 pre-watch and 5 pre-optimize archives. A positive setting is a total across kinds;
+`1` is clamped to `2` so two recovery points remain. An explicitly configured `0`
+keeps all automatic snapshots. Manual archives always stay outside automatic pruning.
 
 ```bash
-# Override the implicit pre_optimize, pre_watch, and scheduled bounds with an explicit limit for all kinds:
+# Keep 10 healthy automatic snapshots total:
 export MEMPALACE_BACKUP_RETAIN_COUNT=10
-# Or in ~/.mempalace/config.json:
-# {"backup_retain_count": 10}
-
-# Deliberate keep-all opt-out — disables pruning for every kind, including pre_optimize and pre_watch:
+# Or in ~/.mempalace/config.json: {"backup_retain_count": 10}
+# Deliberate keep-all opt-out:
 export MEMPALACE_BACKUP_RETAIN_COUNT=0
 ```
 
 Each palace has its own [selected managed directory](#choosing-the-managed-backup-directory).
-With `backup_dir` unset, it is `<palace_parent>/backups/<palace_name>/`
-(the default palace `~/.mempalace/palace` uses `~/.mempalace/backups/palace/`). Retention prunes
-**only that directory**, so palaces that share a parent directory never prune each other's
-archives. Archives written with explicit `--out` paths are never pruned, and `backup create
---out` never overwrites an existing file. Each archive's `metadata.json` records the absolute
-`palace_path` it was taken from.
+Retention examines only that directory, with a fixed canonical source and namespace.
+New archives record `backup_origin` (`managed-auto`, `manual`, or `explicit-out`),
+`backup_kind`, `source_palace`, and `backup_namespace` in the first tar member.
+`palace_path` remains available for older consumers. Restore also accepts old metadata
+ordering. Idle origin inspection reads only the bounded first metadata record, so it
+does not scan legacy payloads to find metadata at the end.
+
+Automatic pruning excludes every explicit `--out` archive, even with an automatic
+kind and filename inside the managed directory. It also preserves ambiguous legacy,
+foreign, degraded, linked, renamed, protected and hidden extra files. Canonical
+automatic names plus qualified metadata are required; names alone grant no ownership.
+There is no automatic legacy admission. `backup create --out` refuses existing paths.
+
+Reconciliation runs after healthy managed automatic publication and through existing
+mine/watch write maintenance, before idle or optimize-disabled returns. It creates no
+new snapshot just to rotate archives. Package-only updater preflight stays read-only
+for palace data; the next managed write or watcher batch performs first-use cleanup.
+Dry runs, status, search and read-only MCP calls do not reconcile retention.
+
+Selection, keeper qualification and deletion hold the existing installation and
+palace write leases. Before any deletion, two retained recovery points must fully
+restore through the normal validators, including Lance health/count checks and KG
+integrity. Scratch restore uses the backup filesystem; insufficient space defers
+cleanup. Namespace, archive and lease identities are rechecked before deletion.
+A conflicting writer, corrupt keeper, substitution or verification failure preserves
+the dependent archives. Partial cleanup reports only completed deletions and can be
+retried safely by the next managed use. Retention errors are logged and returned as
+`retention_error` separately from successful backup publication. Resolve the logged
+cause and rerun `mempalace-code --palace <palace> mine <project>` to retry.
+
+Retention expires historical automatic snapshots according to policy; it does not
+prove that their bytes equal current data. Source drawers and KG records stay intact.
 
 Archive publication uses an atomic hard link to keep concurrent archives intact.
 If the destination filesystem refuses hard links, `backup create` fails with exit 1
@@ -771,7 +786,8 @@ Releases before 1.15.0 wrote every sibling palace's archives into the shared
 `shared` flag, because they may belong to another palace: check their wings (or `backup list
 --json`) before restoring one. Retention never deletes them; move or remove them yourself.
 
-`backup list` prints `stale` in its FLAGS column for would-be-pruned archives, `oversized` for
+`backup list` prints `stale` in its FLAGS column for qualified automatic archives beyond
+the shared limit (deletion still requires keeper validation), `oversized` for
 archives larger than `MEMPALACE_BACKUP_WARN_SIZE_BYTES`, and `degraded` for snapshots of a
 damaged palace. `backup list --json` prints the same entries as JSON.
 
@@ -783,8 +799,8 @@ A palace whose drawers cannot all be read, or whose knowledge graph fails SQLite
 `*_DEGRADED.tar.gz`, with `degraded: true` and the reason (`kg_corrupt: ...` for the KG) in
 its metadata; the command warns and exits 1. `restore` refuses such an archive, naming it a
 forensic copy, and also refuses an older archive whose knowledge graph fails `quick_check`
-(`invalid_kg_payload`). Degraded archives are counted and pruned separately, so they never
-push a healthy backup out of retention. When retention deletes older archives, `backup
+(`invalid_kg_payload`). Automatic pruning preserves degraded archives, so they never
+displace healthy recovery points. When retention deletes older archives, `backup
 create` prints how many.
 
 When a miner or watcher writes while an archive is being written, the snapshot could
@@ -831,10 +847,10 @@ If the backups directory has grown large, inspect with:
 mempalace-code backup list
 ```
 
-Then delete old archives manually, or set `MEMPALACE_BACKUP_RETAIN_COUNT` to let future backups prune automatically.
-With current defaults, future managed `pre_optimize` and `pre_watch` backups keep the newest 5
-each and managed `scheduled` backups keep the newest 14; `manual` backups stay
-unbounded unless you set an explicit retain count.
+Confirm archive ownership and recovery coverage before any manual removal. Qualified
+automatic archives reconcile during future managed writes/watch batches and healthy
+automatic backup publication. The default shared limit is two. Manual, explicit-out
+and ambiguous legacy archives require separate operator decisions.
 
 If LanceDB stale versions/fragments are the problem rather than backup archives,
 run storage cleanup only after stopping MemPalace watchers, miners, maintenance
@@ -1095,21 +1111,46 @@ are healthy.
 
 If you must mirror the palace state directory between hosts, exclude the live palace data,
 the full palace copies `repair` (`palace.backup-<UTC>/`) and the rebuild workflow
-(`palace.quarantine-<UTC>/`) leave beside it, the KG database, config, and managed backups
-directory so a delete sweep cannot remove remote-owned content. The legacy-KG adoption marker
+(`palace.quarantine-<UTC>/`) leave beside it, the KG database with its SQLite sidecar files,
+config, the managed backups directory, and the installation and palace lock files so a delete
+sweep cannot remove remote-owned content or live lock state. The legacy-KG adoption marker
 records a host-local file state, so exclude it too:
 
 ```bash
 rsync -a --delete \
-  --exclude=palace/ \
+  --exclude=palace \
   --exclude='palace.backup-*/' \
   --exclude='palace.quarantine-*/' \
   --exclude=knowledge_graph.sqlite3 \
+  --exclude='knowledge_graph.sqlite3-*' \
   --exclude=knowledge_graph.sqlite3.adopted \
   --exclude=config.json \
   --exclude=backups/ \
+  --exclude=locks/ \
+  --exclude='operation.lock*' \
+  --exclude='watch-*.claim' \
   ~/.mempalace/ user@host:.mempalace/
 ```
+
+What the excludes protect:
+
+- `--exclude=palace` has no trailing slash. rsync applies a directory-only pattern (`palace/`,
+  `palace*/`) only to directories, so it does not protect the regular MOVED/guard file that
+  can take the palace directory's place, and the mirror would delete that file.
+- `locks/`, `operation.lock*` (`operation.lock`, `operation.lock.metadata.lock`,
+  `operation.lock.owners.json`) and `watch-*.claim` are live lock and watcher claim files.
+  rsync would unlink a held lock file: its holder keeps locking the open inode (link count 0)
+  while other processes create and lock a new file at the same path.
+- `knowledge_graph.sqlite3-*` covers the SQLite `-wal`, `-shm` and `-journal` sidecar files of
+  the KG database.
+- A palace configured inside `~/.mempalace` under another name, such as `palace_live`, needs
+  its own file-capable exclude (for example `--exclude=/palace_live`); the preflight check
+  below blocks the mirror until it is present.
+
+For a home-directory mirror such as `~/`, the simplest complete protection is to exclude the
+whole state directory with `--exclude=/.mempalace/` (it is always a directory, so the
+directory-only form is valid there). Keep the selective excludes above only for deliberate
+state-directory mirrors.
 
 Add `--exclude='*.log'` if you route MemPalace watch logs into the state directory
 (by default, watch daemon logs go to `~/Library/Logs/` and do not need excluding).
@@ -1121,10 +1162,11 @@ rsync invocation is safe (the command is inspected only — it is never executed
 
 ```bash
 mempalace-code preflight mirror --command \
-  "rsync -a --delete --exclude=palace/ --exclude='palace.backup-*/' \
+  "rsync -a --delete --exclude=palace --exclude='palace.backup-*/' \
    --exclude='palace.quarantine-*/' --exclude=knowledge_graph.sqlite3 \
-   --exclude=knowledge_graph.sqlite3.adopted --exclude=config.json --exclude=backups/ \
-   ~/.mempalace/ user@host:.mempalace/"
+   --exclude='knowledge_graph.sqlite3-*' --exclude=knowledge_graph.sqlite3.adopted \
+   --exclude=config.json --exclude=backups/ --exclude=locks/ --exclude='operation.lock*' \
+   --exclude='watch-*.claim' ~/.mempalace/ user@host:.mempalace/"
 # OK
 #   warning: advisory: no --exclude for 'logs' (add --exclude='*.log' if you route MemPalace logs into the state directory)
 
@@ -1136,8 +1178,10 @@ mempalace-code preflight mirror --command "rsync -a --delete ~/.mempalace/ user@
 #   missing exclude: backups
 #   missing exclude: repair-backups
 #   missing exclude: quarantines
+#   missing exclude: locks
 #   warning: advisory: no --exclude for 'logs' (add --exclude='*.log' if you route MemPalace logs into the state directory)
 #   warning: advisory: no --exclude for 'adopted' (add --exclude=knowledge_graph.sqlite3.adopted; the legacy-KG adoption marker records host-local state)
+#   warning: ~/.mempalace/ contains the configured palace /home/user/.mempalace/palace; a delete-mode mirror removes palace content the other side holds (exclude it with --exclude='/palace')
 ```
 
 The check covers every rsync deletion form (`--delete`, its `--del` alias, and the
@@ -1146,9 +1190,11 @@ and compares path arguments with the configured palace (`palace_path`, `MEMPALAC
 or the global `--palace`), so a delete-mode mirror of a palace outside `~/.mempalace`, or of a
 directory that contains it without excluding it, is `BLOCKED [delete-mode-palace-mirror]`.
 A delete-mode mirror of a parent of the state directory, such as `~/`, is checked for the same
-families under `.mempalace/` (for example `--exclude=/.mempalace/palace/` or
+families under `.mempalace/` (for example `--exclude=/.mempalace/palace` or, simplest,
 `--exclude=/.mempalace/`) and is `BLOCKED [delete-mode-state-mirror-missing-excludes]` when one
 is missing.
+A receiver-side `rsync --server` command line does not show the sender's filter rules, so
+preflight the sending command itself.
 `--filter='- PATTERN'` and `-f` exclude rules count like `--exclude`. rsync applies the first
 matching rule, and the preflight cannot read `--exclude-from`, `--include-from`, or merge files,
 so a family protected only by such a file, or by an exclude placed after an include or merge

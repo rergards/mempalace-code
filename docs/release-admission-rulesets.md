@@ -139,9 +139,22 @@ mutation, a whole-workflow rerun, and a new publish dispatch are unsupported.
 
 ## Scheduled dependency-audit freshness
 
-Publication also requires recent evidence that the scheduled **Dependency Audit**
-workflow succeeded. See [DEPENDENCY_UPGRADE_GATE.md](DEPENDENCY_UPGRADE_GATE.md)
-for the window and its rationale. Missing, failed, stale, future-stamped, and
+Before promotion, the existing **Dependency Audit** workflow must succeed on the
+immutable candidate branch for the exact reviewed SHA. Preflight selects that
+audit target explicitly with `--audit-branch release/vX.Y.Z[-rcN]`; it is separate
+from the `--branch` argument for public-main protection. Before tagging and
+publication, the audit must instead cover `main` at the same promoted SHA.
+Public-main, readiness/public-admission and publication-status checks cannot use
+candidate-branch evidence.
+
+The latest eligible completed run on the selected branch is checked before its
+SHA and conclusion. A newer failure or wrong-SHA run cannot be hidden by filtering
+it away in favour of an older success. Candidate audits accept dispatched runs;
+main accepts scheduled or dispatched runs. Candidate audit failure still fails
+the workflow, while both issue-update paths are restricted to main.
+
+See [DEPENDENCY_UPGRADE_GATE.md](DEPENDENCY_UPGRADE_GATE.md) for the freshness
+window and its rationale. Missing, failed, mismatched, stale, future-stamped, and
 unqueryable evidence all fail closed.
 
 ## Read-only admission rows and recovery
@@ -157,7 +170,7 @@ recovery command.
 | `tag_expected_sha` | `git rev-parse --verify refs/tags/vX.Y.Z^{commit}` | none | re-review the SHA or bump `project.version`, and never move a published tag |
 | `candidate_ref_expected_sha` | `git rev-parse <ref>^{commit}` | none | `git fetch <remote> <branch>`, then rerun with the candidate `--expect-sha` |
 | `aggregate_required_check` | fixed GitHub check-runs GET for the exact SHA and `release-required` | none | `gh run list --repo rergards/mempalace-code --workflow Tests --json headSha,event,databaseId,conclusion`, then `gh run rerun <run-id> --repo rergards/mempalace-code --failed` for the run whose head SHA is the candidate SHA **and** whose event is `push` or `pull_request`; if that SHA has no such run — none at all, or only a `workflow_dispatch` run — land it through a `push` or `pull_request` event instead |
-| `dependency_audit_freshness` | fixed GitHub workflow-runs GET for `Dependency Audit` | none | `gh workflow run 'Dependency Audit' --repo rergards/mempalace-code` and wait for a fresh success |
+| `dependency_audit_freshness` | fixed GitHub workflow-runs GET for `Dependency Audit` on the selected audit branch and exact SHA | none | `gh workflow run 'Dependency Audit' --repo rergards/mempalace-code --ref <selected-audit-branch>` and wait for the bound run to succeed |
 | `public_main_protection` | fixed GitHub effective branch-rules GET for `main` | none | apply the *Public main* table above in repository → Settings → Rules |
 | `public_v_tag_ruleset` | fixed GitHub ruleset list/detail GETs | none | apply the *Public version tags* table in `rergards/mempalace-code` → Settings → Rules, owner-verify the minimal release bypass, then run `python scripts/release_preflight.py --repo rergards/mempalace-code --check-tag-ruleset --json` |
 | `public_orphan_tags` | fixed GitHub matching-ref and release list/latest GETs plus fixed PyPI metadata GET | none | rerun `release_status_gate.py`; use its exact-job command only for the proven partial state, otherwise follow its bounded instruction; only a reviewed permanent gap enters `ACKNOWLEDGED_ORPHAN_TAGS` |

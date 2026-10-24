@@ -89,22 +89,25 @@ def test_kinds_list_and_rotation_use_destination(kg_palace, destination, kind):
     archives = [backup.create_backup(str(kg_palace), kind=kind)[1] for _ in range(3)]
     managed = Path(backup.managed_backups_dir(str(kg_palace)))
     assert managed.parent == destination
-    assert not Path(archives[0]).exists()
-    assert all(Path(p).is_file() for p in archives[1:])
+    retained = archives if kind == "manual" else archives[1:]
+    assert Path(archives[0]).exists() == (kind == "manual")
+    assert all(Path(p).is_file() for p in retained)
     entries = backup.list_backups(str(kg_palace))
-    assert {e["path"] for e in entries} == set(archives[1:])
+    assert {e["path"] for e in entries} == set(retained)
     assert all(e["kind"] == kind and e["location"] == "managed" for e in entries)
     assert watcher.check_configured_watch_budget(str(kg_palace), 1).backups_bytes == sum(
-        Path(p).stat().st_size for p in archives[1:]
+        Path(p).stat().st_size for p in retained
     )
     assert Path(palace_kg_path(str(kg_palace))).read_bytes() == source
     assert stat.S_IMODE(managed.stat().st_mode) == 0o700
-    assert all(stat.S_IMODE(Path(p).stat().st_mode) == 0o600 for p in archives[1:])
+    assert all(stat.S_IMODE(Path(p).stat().st_mode) == 0o600 for p in retained)
     assert stat.S_IMODE(destination.stat().st_mode) == 0o700
     assert not (kg_palace.parent / "backups").exists()
 
 
-def test_retention_isolates_palaces_kinds_and_degraded(kg_palace, destination, tmp_path):
+def test_retention_isolates_palaces_and_preserves_manual_and_degraded(
+    kg_palace, destination, tmp_path
+):
     other = tmp_path / "unrelated" / kg_palace.name
     other.mkdir(parents=True)
     KnowledgeGraph(db_path=palace_kg_path(str(other)))
@@ -115,9 +118,28 @@ def test_retention_isolates_palaces_kinds_and_degraded(kg_palace, destination, t
     scheduled = backup.create_backup(str(kg_palace), kind="scheduled")[1]
     Path(palace_kg_path(str(kg_palace))).write_bytes(b"broken SQLite")
     degraded = [backup.create_backup(str(kg_palace))[1] for _ in range(3)]
-    assert all(Path(p).exists() for p in healthy + [scheduled] + degraded[1:])
-    assert not Path(degraded[0]).exists()
+    assert all(Path(p).exists() for p in healthy + [scheduled] + degraded)
     assert other_archive.read_bytes() == other_bytes
+
+
+def test_alias_preserves_existing_namespace_and_automatic_rotation(
+    kg_palace, destination, tmp_path
+):
+    import hashlib
+
+    alias = tmp_path / "existing-palace-name"
+    alias.symlink_to(kg_palace, target_is_directory=True)
+    digest = hashlib.sha256(os.fsencode(os.path.realpath(kg_palace))).hexdigest()[:16]
+    expected = destination / f"{alias.name}-{digest}"
+    assert Path(backup.managed_backups_dir(str(alias))) == expected
+    archives = [
+        Path(backup.create_backup(str(alias), kind=kind)[1])
+        for kind in ("scheduled", "pre_watch", "pre_optimize")
+    ]
+    assert all(path.parent == expected for path in archives)
+    assert not archives[0].exists()
+    assert all(path.is_file() for path in archives[1:])
+    assert Path(backup.managed_backups_dir(str(kg_palace))) != expected
 
 
 def test_changing_setting_is_read_only_and_preserves_existing_archives(

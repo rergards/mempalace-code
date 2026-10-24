@@ -605,13 +605,13 @@ def test_watch_env_takes_precedence_over_file_config(monkeypatch):
 
 
 def test_pre_optimize_retain_count_default_bounded(monkeypatch):
-    """AC-1: Fresh config resolves pre_optimize retention to DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT (5)."""
+    """AC-1: Fresh config resolves pre_optimize retention to the shared automatic limit (2)."""
     from mempalace_code.config import DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
 
     monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
     cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
 
-    assert DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT == 5
+    assert DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT == 2
     assert not cfg._backup_retain_count_explicit
     assert cfg.retain_count_for_kind("pre_optimize") == DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
 
@@ -649,13 +649,13 @@ def test_explicit_zero_via_file_keeps_pre_optimize_unbounded(monkeypatch):
 
 
 def test_explicit_nonzero_retain_count_overrides_implicit_pre_optimize_bound(monkeypatch):
-    """Explicit backup_retain_count=3 applies to pre_optimize instead of the implicit 5."""
+    """Explicit backup_retain_count=3 applies to pre_optimize instead of the implicit 2."""
     monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "3")
     cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
 
     assert cfg._backup_retain_count_explicit is True
     assert cfg.retain_count_for_kind("pre_optimize") == 3
-    assert cfg.retain_count_for_kind("manual") == 3
+    assert cfg.retain_count_for_kind("manual") == 0
 
 
 def test_empty_env_retain_count_is_not_explicit(monkeypatch):
@@ -685,7 +685,7 @@ def test_invalid_env_retain_count_is_not_explicit(monkeypatch):
 
 
 def test_negative_file_config_retain_count_is_not_explicit(monkeypatch):
-    """A negative backup_retain_count in file config must not suppress implicit per-kind defaults."""
+    """A negative backup_retain_count in file config must not suppress the automatic default."""
     from mempalace_code.config import (
         DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT,
         DEFAULT_SCHEDULED_RETAIN_COUNT,
@@ -708,7 +708,7 @@ def test_negative_file_config_retain_count_is_not_explicit(monkeypatch):
 
 
 def test_default_kind_retention_counts(monkeypatch):
-    """AC-1: Fresh config resolves scheduled to 14, pre_optimize to 5, manual to 0."""
+    """AC-1: Fresh config resolves automatic kinds to the shared limit 2, manual to 0."""
     from mempalace_code.config import (
         DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT,
         DEFAULT_SCHEDULED_RETAIN_COUNT,
@@ -717,8 +717,8 @@ def test_default_kind_retention_counts(monkeypatch):
     monkeypatch.delenv("MEMPALACE_BACKUP_RETAIN_COUNT", raising=False)
     cfg = MempalaceConfig(config_dir=tempfile.mkdtemp())
 
-    assert DEFAULT_SCHEDULED_RETAIN_COUNT == 14
-    assert cfg.retain_count_for_kind("scheduled") == 14
+    assert DEFAULT_SCHEDULED_RETAIN_COUNT == 2
+    assert cfg.retain_count_for_kind("scheduled") == 2
     assert cfg.retain_count_for_kind("pre_optimize") == DEFAULT_PRE_OPTIMIZE_RETAIN_COUNT
     assert cfg.retain_count_for_kind("manual") == 0
     assert cfg.backup_retain_count == 0  # INV-1: global property unchanged
@@ -743,4 +743,15 @@ def test_explicit_nonzero_retain_count_overrides_all_implicit_bounds(monkeypatch
     assert cfg._backup_retain_count_explicit is True
     assert cfg.retain_count_for_kind("scheduled") == 7
     assert cfg.retain_count_for_kind("pre_optimize") == 7
-    assert cfg.retain_count_for_kind("manual") == 7
+    assert cfg.retain_count_for_kind("manual") == 0
+
+
+@pytest.mark.parametrize("value, expected", [("0", 0), ("1", 2), ("2", 2), ("8", 8)])
+def test_global_automatic_retention_floor(monkeypatch, tmp_path, value, expected):
+    monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", value)
+    config = MempalaceConfig(config_dir=str(tmp_path))
+    assert config.automatic_backup_retain_count == expected
+    assert {
+        config.retain_count_for_kind(kind) for kind in ("scheduled", "pre_watch", "pre_optimize")
+    } == {expected}
+    assert config.retain_count_for_kind("manual") == 0

@@ -1,6 +1,6 @@
 module github.com/rergards/mempalace-code/tools/gitleaks
 
-go 1.27.1
+go 1.27.3
 
 require github.com/zricethezav/gitleaks/v8 v8.30.1
 

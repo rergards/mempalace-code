@@ -219,7 +219,7 @@ def test_default_preflight_executes_static_upstream_guard_successfully():
 
     upstream = next(check for check in checks if check["name"] == "upstream_comparison")
     assert upstream["status"] == "ok"
-    assert "manifest_inventory_commits=36" in upstream["detail"]
+    assert "manifest_inventory_commits=409" in upstream["detail"]
 
 
 def test_default_preflight_propagates_static_inventory_failure(tmp_path: Path):
@@ -488,6 +488,7 @@ def test_dependency_audit_staleness_blocks_release_admission(tmp_path: Path):
                     "conclusion": "success",
                     "event": "schedule",
                     "headBranch": "main",
+                    "headSha": SHA,
                     "updatedAt": stale_stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 }
             ],
@@ -499,6 +500,7 @@ def test_dependency_audit_staleness_blocks_release_admission(tmp_path: Path):
         tag=None,
         require_clean=False,
         check_dependency_audit=True,
+        expect_sha=SHA,
         run=run,
         public_read=public_read,
     )
@@ -507,6 +509,89 @@ def test_dependency_audit_staleness_blocks_release_admission(tmp_path: Path):
     assert audit["status"] == "fail"
     assert "stale" in audit["detail"]
     assert "Dependency Audit" in audit["remediation"]
+
+
+def test_candidate_audit_is_bound_separately_from_main_protection(tmp_path: Path):
+    root = _root(tmp_path)
+    audit_branch = "release/v1.16.1-rc3"
+
+    def run(command, _root):
+        if command[:2] == ["git", "rev-parse"]:
+            return (1, "absent") if "--verify" in command else (0, SHA)
+        return 0, "passed"
+
+    def public_read(query):
+        assert query.endpoint == "github_workflow_runs"
+        assert query.values[3] == audit_branch
+        return SimpleNamespace(
+            data=[
+                {
+                    "headBranch": audit_branch,
+                    "headSha": SHA,
+                    "event": "workflow_dispatch",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "updatedAt": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            ],
+            error="",
+        )
+
+    _, checks = preflight.evaluate(
+        root,
+        tag=None,
+        require_clean=False,
+        expect_sha=SHA,
+        check_dependency_audit=True,
+        audit_branch=audit_branch,
+        branch="main",
+        run=run,
+        public_read=public_read,
+    )
+    audit = next(x for x in checks if x["name"] == "dependency_audit_freshness")
+    assert audit["status"] == "ok", audit
+
+
+@pytest.mark.parametrize(
+    ("check_public_main", "candidate_ref"),
+    [(True, None), (False, "publish/main"), (False, "refs/remotes/publish/main")],
+)
+def test_main_admission_cannot_opt_into_candidate_audit(tmp_path, check_public_main, candidate_ref):
+    root = _root(tmp_path)
+    queries = []
+
+    def run(command, _root):
+        if command[:2] == ["git", "rev-parse"]:
+            return (1, "absent") if "--verify" in command else (0, SHA)
+        return 0, "passed"
+
+    def public_read(query):
+        queries.append(query)
+        return SimpleNamespace(data={"sha": SHA}, error="")
+
+    _, checks = preflight.evaluate(
+        root,
+        tag=None,
+        require_clean=False,
+        expect_sha=SHA,
+        check_dependency_audit=True,
+        audit_branch="release/v1.16.1-rc3",
+        check_public_main=check_public_main,
+        candidate_ref=candidate_ref,
+        run=run,
+        public_read=public_read,
+    )
+    audit = next(x for x in checks if x["name"] == "dependency_audit_freshness")
+    assert audit["status"] == "fail"
+    assert "requires its audit on main" in audit["detail"]
+    assert not any(q.endpoint == "github_workflow_runs" for q in queries)
+
+
+def test_cli_rejects_unused_audit_branch(capsys):
+    with pytest.raises(SystemExit) as exc:
+        preflight.main(["--audit-branch", "release/v1.16.1-rc3"])
+    assert exc.value.code == 2
+    assert "requires --check-dependency-audit" in capsys.readouterr().err
 
 
 def test_public_main_comparison_uses_the_normalized_public_query(tmp_path: Path):
@@ -619,6 +704,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
         branch,
         required_check_name,
         audit_max_age_hours,
+        audit_branch,
     ):
         observed.update(
             root=root,
@@ -638,6 +724,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
             branch=branch,
             required_check_name=required_check_name,
             audit_max_age_hours=audit_max_age_hours,
+            audit_branch=audit_branch,
         )
         return "1.2.3", [{"name": "live_upstream_comparison", "status": "ok", "detail": "passed"}]
 
@@ -677,6 +764,7 @@ def test_cli_wires_live_upstream_opt_in(tmp_path: Path, monkeypatch, capsys):
         "branch": None,
         "required_check_name": None,
         "audit_max_age_hours": None,
+        "audit_branch": None,
     }
     assert json.loads(capsys.readouterr().out)["ok"] is True
 
@@ -1102,3 +1190,87 @@ def test_publish_workflow_runs_tag_admission_that_includes_acceptance():
         r"python scripts/release_preflight\.py \\\n\s+--tag \"\$TAG_NAME\"", publish
     )
     assert len(invocations) == 2
+
+
+def _write_dependency_exception(root: Path, expiry: str) -> Path:
+    path = root / "docs/dependency-audit-allowlist.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": [
+                    {
+                        "package": "pillow",
+                        "advisory_id": "GHSA-8g5g-8vmr-9782",
+                        "affected_range": "==12.3.0",
+                        "expires": expiry,
+                        "reason": "Explicitly accepted bounded fixture",
+                    }
+                ],
+            }
+        )
+    )
+    (root / "uv.lock").write_text('version = 1\n[[package]]\nname = "pillow"\nversion = "12.3.0"\n')
+    return path
+
+
+@pytest.mark.parametrize(
+    ("today", "expected"), [("2026-11-04", "ok"), ("2026-11-05", "fail"), ("2026-11-06", "fail")]
+)
+def test_release_rechecks_exception_expiry_on_the_actual_admission_date(tmp_path, today, expected):
+    root = _root(tmp_path)
+    _write_dependency_exception(root, "2026-11-05")
+    row = preflight.check_dependency_risk_expiry(root, today_iso=today)
+    assert row["name"] == "dependency_risk_expiry"
+    assert row["status"] == expected
+    if expected == "fail":
+        assert "expired" in row["detail"]
+        assert "rerun current-audit" in row["remediation"]
+
+
+def test_fresh_green_hosted_audit_cannot_override_expired_dependency_exception(tmp_path):
+    root = _root(tmp_path)
+    _write_dependency_exception(root, datetime.now(UTC).date().isoformat())
+
+    def run(command, _root):
+        if command[:2] == ["git", "rev-parse"]:
+            return (1, "absent") if "--verify" in command else (0, SHA)
+        return 0, "passed"
+
+    def public_read(query):
+        assert query.endpoint == "github_workflow_runs"
+        return SimpleNamespace(
+            data=[
+                {
+                    "headBranch": "main",
+                    "headSha": SHA,
+                    "event": "schedule",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "updatedAt": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+            ],
+            error="",
+        )
+
+    _, rows = preflight.evaluate(
+        root,
+        tag=None,
+        require_clean=False,
+        check_dependency_audit=True,
+        expect_sha=SHA,
+        run=run,
+        public_read=public_read,
+    )
+    assert next(r for r in rows if r["name"] == "dependency_audit_freshness")["status"] == "ok"
+    assert next(r for r in rows if r["name"] == "dependency_risk_expiry")["status"] == "fail"
+
+
+@pytest.mark.parametrize("contents", ["invalid JSON", "[]", '{"entries": null}'])
+def test_invalid_exception_document_blocks_local_preflight(tmp_path, contents):
+    root = _root(tmp_path)
+    path = _write_dependency_exception(root, "2026-11-05")
+    path.write_text(contents)
+    row = preflight.check_dependency_risk_expiry(root, today_iso="2026-10-22")
+    assert row["status"] == "fail"

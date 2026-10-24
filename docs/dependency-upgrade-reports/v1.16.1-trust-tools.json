@@ -1,0 +1,2112 @@
+{
+  "schema_version": 1,
+  "status": "accepted_risk",
+  "slug": "v1.16.1-trust-tools",
+  "pyproject_hash": "sha256:cbbd2f8ced9210b55501babdc0e2fab7437c1034fce7e30ed4acc16114ea7878",
+  "lockfile_hash": "sha256:3e9215213ab515ec8331d51d2201b610f615104e818edd6aea58b47716d343f2",
+  "dependencies": [
+    {
+      "name": "certifi",
+      "normalized_name": "certifi",
+      "group": "runtime",
+      "specifier": ">=2026.10.19",
+      "current_version": "2026.10.23",
+      "target_version": "2026.10.23"
+    },
+    {
+      "name": "filelock",
+      "normalized_name": "filelock",
+      "group": "runtime",
+      "specifier": ">=4.2.1",
+      "current_version": "4.2.4",
+      "target_version": "4.2.4"
+    },
+    {
+      "name": "lancedb",
+      "normalized_name": "lancedb",
+      "group": "runtime",
+      "specifier": ">=0.20",
+      "current_version": "0.33.0",
+      "target_version": "0.33.0"
+    },
+    {
+      "name": "pyarrow",
+      "normalized_name": "pyarrow",
+      "group": "runtime",
+      "specifier": "<25",
+      "current_version": "24.0.0",
+      "target_version": "24.0.0"
+    },
+    {
+      "name": "overrides",
+      "normalized_name": "overrides",
+      "group": "runtime",
+      "specifier": ">=7.7",
+      "current_version": "7.7.0",
+      "target_version": "7.7.0"
+    },
+    {
+      "name": "fastembed",
+      "normalized_name": "fastembed",
+      "group": "runtime",
+      "specifier": ">=0.8,<0.9",
+      "current_version": "0.8.0",
+      "target_version": "0.8.0"
+    },
+    {
+      "name": "huggingface-hub",
+      "normalized_name": "huggingface-hub",
+      "group": "runtime",
+      "specifier": ">=0.20,<2",
+      "current_version": "1.9.1",
+      "target_version": "1.9.1"
+    },
+    {
+      "name": "fsspec",
+      "normalized_name": "fsspec",
+      "group": "runtime",
+      "specifier": ">=2026.6.0",
+      "current_version": "2026.6.0",
+      "target_version": "2026.6.0"
+    },
+    {
+      "name": "onnxruntime",
+      "normalized_name": "onnxruntime",
+      "group": "runtime",
+      "specifier": ">=1.20,<2",
+      "current_version": "1.29.0",
+      "target_version": "1.29.0"
+    },
+    {
+      "name": "pyyaml",
+      "normalized_name": "pyyaml",
+      "group": "runtime",
+      "specifier": ">=6.0",
+      "current_version": "6.0.3",
+      "target_version": "6.0.3"
+    },
+    {
+      "name": "packaging",
+      "normalized_name": "packaging",
+      "group": "runtime",
+      "specifier": ">=21.0",
+      "current_version": "26.2",
+      "target_version": "26.2"
+    },
+    {
+      "name": "mcp",
+      "normalized_name": "mcp",
+      "group": "runtime",
+      "specifier": ">=2.2,<3",
+      "current_version": "2.3.0",
+      "target_version": "2.3.0"
+    },
+    {
+      "name": "opentelemetry-api",
+      "normalized_name": "opentelemetry-api",
+      "group": "runtime",
+      "specifier": ">=1.45.1",
+      "current_version": "1.45.1",
+      "target_version": "1.45.1"
+    },
+    {
+      "name": "pytest",
+      "normalized_name": "pytest",
+      "group": "dev",
+      "specifier": ">=7.0",
+      "current_version": "9.0.3",
+      "target_version": "9.0.3"
+    },
+    {
+      "name": "pyright",
+      "normalized_name": "pyright",
+      "group": "dev",
+      "specifier": ">=1.1.350",
+      "current_version": "1.1.410",
+      "target_version": "1.1.410"
+    },
+    {
+      "name": "ruff",
+      "normalized_name": "ruff",
+      "group": "dev",
+      "specifier": "==0.15.16",
+      "current_version": "0.15.16",
+      "target_version": "0.15.16"
+    },
+    {
+      "name": "watchfiles",
+      "normalized_name": "watchfiles",
+      "group": "dev",
+      "specifier": ">=1.0",
+      "current_version": "1.2.0",
+      "target_version": "1.2.0"
+    },
+    {
+      "name": "build",
+      "normalized_name": "build",
+      "group": "dev",
+      "specifier": ">=1.0",
+      "current_version": "1.4.2",
+      "target_version": "1.4.2"
+    },
+    {
+      "name": "twine",
+      "normalized_name": "twine",
+      "group": "dev",
+      "specifier": ">=5.0",
+      "current_version": "7.0.0",
+      "target_version": "7.0.0"
+    },
+    {
+      "name": "jsonschema",
+      "normalized_name": "jsonschema",
+      "group": "dev",
+      "specifier": ">=4.18",
+      "current_version": "4.26.0",
+      "target_version": "4.26.0"
+    },
+    {
+      "name": "actionlint-py",
+      "normalized_name": "actionlint-py",
+      "group": "dev",
+      "specifier": "==1.7.12.24",
+      "current_version": "1.7.12.24",
+      "target_version": "1.7.12.24"
+    },
+    {
+      "name": "zizmor",
+      "normalized_name": "zizmor",
+      "group": "dev",
+      "specifier": "==1.29.0",
+      "current_version": "1.29.0",
+      "target_version": "1.29.0"
+    },
+    {
+      "name": "pypi-attestations",
+      "normalized_name": "pypi-attestations",
+      "group": "dev",
+      "specifier": "==0.0.30",
+      "current_version": "0.0.30",
+      "target_version": "0.0.30"
+    },
+    {
+      "name": "sentence-transformers",
+      "normalized_name": "sentence-transformers",
+      "group": "extra:custom-models",
+      "specifier": ">=5.6.0",
+      "current_version": "5.6.0",
+      "target_version": "5.6.0"
+    },
+    {
+      "name": "setuptools",
+      "normalized_name": "setuptools",
+      "group": "extra:custom-models",
+      "specifier": ">=84.1.0",
+      "current_version": "84.2.1",
+      "target_version": "84.2.1"
+    },
+    {
+      "name": "autocorrect",
+      "normalized_name": "autocorrect",
+      "group": "extra:spellcheck",
+      "specifier": ">=2.0",
+      "current_version": "2.6.1",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter",
+      "normalized_name": "tree-sitter",
+      "group": "extra:treesitter",
+      "specifier": ">=0.22,<0.26",
+      "current_version": "0.25.2",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter-python",
+      "normalized_name": "tree-sitter-python",
+      "group": "extra:treesitter",
+      "specifier": ">=0.23,<0.26",
+      "current_version": "0.25.0",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter-typescript",
+      "normalized_name": "tree-sitter-typescript",
+      "group": "extra:treesitter",
+      "specifier": ">=0.23,<0.26",
+      "current_version": "0.23.2",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter-go",
+      "normalized_name": "tree-sitter-go",
+      "group": "extra:treesitter",
+      "specifier": ">=0.23,<0.26",
+      "current_version": "0.25.0",
+      "target_version": null
+    },
+    {
+      "name": "tree-sitter-rust",
+      "normalized_name": "tree-sitter-rust",
+      "group": "extra:treesitter",
+      "specifier": ">=0.23,<0.26",
+      "current_version": "0.24.2",
+      "target_version": null
+    },
+    {
+      "name": "watchfiles",
+      "normalized_name": "watchfiles",
+      "group": "extra:watch",
+      "specifier": ">=1.0",
+      "current_version": "1.2.0",
+      "target_version": "1.2.0"
+    }
+  ],
+  "advisory_results": [
+    {
+      "name": "certifi",
+      "version": "2026.10.23",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "certifi",
+      "version": "2026.10.23",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "filelock",
+      "version": "4.2.4",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "filelock",
+      "version": "4.2.4",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "lancedb",
+      "version": "0.33.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "lancedb",
+      "version": "0.33.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyarrow",
+      "version": "24.0.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyarrow",
+      "version": "24.0.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "overrides",
+      "version": "7.7.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "overrides",
+      "version": "7.7.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "fastembed",
+      "version": "0.8.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "fastembed",
+      "version": "0.8.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "huggingface-hub",
+      "version": "1.9.1",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "huggingface-hub",
+      "version": "1.9.1",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "fsspec",
+      "version": "2026.6.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "fsspec",
+      "version": "2026.6.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.29.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.29.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyyaml",
+      "version": "6.0.3",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyyaml",
+      "version": "6.0.3",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "packaging",
+      "version": "26.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "packaging",
+      "version": "26.2",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "mcp",
+      "version": "2.3.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "mcp",
+      "version": "2.3.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "opentelemetry-api",
+      "version": "1.45.1",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "opentelemetry-api",
+      "version": "1.45.1",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pytest",
+      "version": "9.0.3",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pytest",
+      "version": "9.0.3",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyright",
+      "version": "1.1.410",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pyright",
+      "version": "1.1.410",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "ruff",
+      "version": "0.15.16",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "ruff",
+      "version": "0.15.16",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "watchfiles",
+      "version": "1.2.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "watchfiles",
+      "version": "1.2.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "build",
+      "version": "1.4.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "build",
+      "version": "1.4.2",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "twine",
+      "version": "7.0.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "twine",
+      "version": "7.0.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "actionlint-py",
+      "version": "1.7.12.24",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "actionlint-py",
+      "version": "1.7.12.24",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "zizmor",
+      "version": "1.29.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "zizmor",
+      "version": "1.29.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pypi-attestations",
+      "version": "0.0.30",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "pypi-attestations",
+      "version": "0.0.30",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "sentence-transformers",
+      "version": "5.6.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "sentence-transformers",
+      "version": "5.6.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "setuptools",
+      "version": "84.2.1",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "setuptools",
+      "version": "84.2.1",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "autocorrect",
+      "version": "2.6.1",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter",
+      "version": "0.25.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-python",
+      "version": "0.25.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-typescript",
+      "version": "0.23.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-go",
+      "version": "0.25.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "tree-sitter-rust",
+      "version": "0.24.2",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "watchfiles",
+      "version": "1.2.0",
+      "role": "current",
+      "advisories": [],
+      "status": "clean"
+    },
+    {
+      "name": "watchfiles",
+      "version": "1.2.0",
+      "role": "target",
+      "advisories": [],
+      "status": "clean"
+    }
+  ],
+  "resolver_audits": [
+    {
+      "status": "accepted_risk",
+      "raw_status": "vulnerabilities",
+      "findings": [
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112895",
+          "aliases": [
+            "GHSA-p4wg-p73j-c528"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-p4wg-p73j-c528"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112400",
+          "aliases": [
+            "GHSA-65qm-jvmh-6pqg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-65qm-jvmh-6pqg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112397",
+          "aliases": [
+            "GHSA-58r4-6rv3-gfh8"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-58r4-6rv3-gfh8"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112896",
+          "aliases": [
+            "GHSA-pchr-8j38-3x4p"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-pchr-8j38-3x4p"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112897",
+          "aliases": [
+            "GHSA-q45j-58j2-45rg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-q45j-58j2-45rg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112395",
+          "aliases": [
+            "GHSA-462x-pgg6-55fp"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-462x-pgg6-55fp"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112404",
+          "aliases": [
+            "GHSA-c6hw-5grf-ff96"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-c6hw-5grf-ff96"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112899",
+          "aliases": [
+            "GHSA-vx6w-vv9f-6gvg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-vx6w-vv9f-6gvg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112402",
+          "aliases": [
+            "GHSA-7mwm-ghpf-9vrm"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-7mwm-ghpf-9vrm"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112900",
+          "aliases": [
+            "GHSA-w889-685w-c8fh"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-w889-685w-c8fh"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112893",
+          "aliases": [
+            "GHSA-j4m9-6w36-pw47"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-j4m9-6w36-pw47"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112392",
+          "aliases": [
+            "GHSA-27h8-gf7j-v5hc"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-27h8-gf7j-v5hc"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112891",
+          "aliases": [
+            "GHSA-fc9g-5qg7-mf45"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-fc9g-5qg7-mf45"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112405",
+          "aliases": [
+            "GHSA-cp9v-662q-vvx9"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-cp9v-662q-vvx9"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112390",
+          "aliases": [
+            "GHSA-22hg-r758-rrw9"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-22hg-r758-rrw9"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112401",
+          "aliases": [
+            "GHSA-74r2-7ff9-mjj2"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-74r2-7ff9-mjj2"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112901",
+          "aliases": [
+            "GHSA-xgh8-jp6q-p5x8"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-xgh8-jp6q-p5x8"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112391",
+          "aliases": [
+            "GHSA-254f-3936-288h"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-254f-3936-288h"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112894",
+          "aliases": [
+            "GHSA-jg86-v3jv-hrpm"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-jg86-v3jv-hrpm"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112406",
+          "aliases": [
+            "GHSA-f2g6-542v-9j58"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-f2g6-542v-9j58"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112399",
+          "aliases": [
+            "GHSA-5xm2-6676-qcp9"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-5xm2-6676-qcp9"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112892",
+          "aliases": [
+            "GHSA-gg2r-wvfm-q9rx"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-gg2r-wvfm-q9rx"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112393",
+          "aliases": [
+            "GHSA-332p-7hrc-92wf"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-332p-7hrc-92wf"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112396",
+          "aliases": [
+            "GHSA-4rr5-89j8-mwwm"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-4rr5-89j8-mwwm"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96638",
+          "aliases": [
+            "GHSA-24rc-8hj2-v98c"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-24rc-8hj2-v98c"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96641",
+          "aliases": [
+            "GHSA-4rm8-3hmm-39fg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-4rm8-3hmm-39fg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96640",
+          "aliases": [
+            "GHSA-mrfp-p49p-3hf2"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-mrfp-p49p-3hf2"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96642",
+          "aliases": [
+            "GHSA-3j72-p6qg-6xp7"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-3j72-p6qg-6xp7"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96639",
+          "aliases": [
+            "GHSA-v9pv-5gc8-w2m6"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-v9pv-5gc8-w2m6"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96643",
+          "aliases": [
+            "GHSA-g4qv-2jxx-769h"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-g4qv-2jxx-769h"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96637",
+          "aliases": [
+            "GHSA-g842-9rc4-69pw"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-g842-9rc4-69pw"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96644",
+          "aliases": [
+            "GHSA-9v9v-9qvf-h2hj"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-9v9v-9qvf-h2hj"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96778",
+          "aliases": [
+            "GHSA-g7cr-3p24-7wf7"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-g7cr-3p24-7wf7"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96636",
+          "aliases": [
+            "GHSA-p8hx-v2p6-rp84"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-p8hx-v2p6-rp84"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "GHSA-78g4-xqwv-q3g8",
+          "aliases": [],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-78g4-xqwv-q3g8"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-114501",
+          "aliases": [
+            "GHSA-654x-cwwv-5j9c"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-654x-cwwv-5j9c"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112398",
+          "aliases": [
+            "GHSA-5x8w-8jj5-q52h"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-5x8w-8jj5-q52h"
+        }
+      ],
+      "audited_versions": {
+        "annotated-types": "0.8.0",
+        "anyio": "4.15.1",
+        "attrs": "26.1.0",
+        "boolean-py": "5.0",
+        "cachecontrol": "0.14.4",
+        "certifi": "2026.10.23",
+        "cffi": "2.1.1",
+        "charset-normalizer": "3.5.2",
+        "click": "8.5.0",
+        "cryptography": "50.0.2",
+        "cyclonedx-python-lib": "11.12.0",
+        "defusedxml": "0.7.1",
+        "deprecation": "2.1.0",
+        "fastembed": "0.8.1",
+        "filelock": "4.2.4",
+        "flatbuffers": "25.12.19",
+        "fsspec": "2026.9.0",
+        "h11": "0.16.0",
+        "hf-xet": "1.7.0",
+        "httpcore": "1.0.9",
+        "httpcore2": "2.16.0",
+        "httpx": "0.28.1",
+        "httpx2": "2.16.0",
+        "huggingface-hub": "1.33.0",
+        "idna": "3.20",
+        "jsonschema": "4.26.0",
+        "jsonschema-specifications": "2025.9.1",
+        "lance-namespace": "0.13.0",
+        "lance-namespace-urllib3-client": "0.13.0",
+        "lancedb": "0.40.0",
+        "license-expression": "30.4.4",
+        "loguru": "0.7.3",
+        "markdown-it-py": "4.2.0",
+        "mcp": "2.3.0",
+        "mcp-types": "2.3.0",
+        "mdurl": "0.1.2",
+        "mmh3": "5.3.1",
+        "msgpack": "1.2.3",
+        "numpy": "2.5.4",
+        "onnxruntime": "1.31.0",
+        "opentelemetry-api": "1.45.1",
+        "overrides": "7.7.0",
+        "packageurl-python": "0.17.6",
+        "packaging": "26.3",
+        "pillow": "12.3.0",
+        "pip": "26.2.2",
+        "pip-api": "0.0.35",
+        "pip-audit": "2.10.1",
+        "pip-requirements-parser": "32.0.1",
+        "platformdirs": "4.13.5",
+        "protobuf": "7.36.2",
+        "py-rust-stemmers": "0.1.8",
+        "py-serializable": "2.1.0",
+        "pyarrow": "24.0.0",
+        "pycparser": "3.12",
+        "pydantic": "2.14.1",
+        "pydantic-core": "2.50.1",
+        "pygments": "2.21.0",
+        "pyjwt": "2.15.1",
+        "pyparsing": "3.3.3",
+        "python-dateutil": "3.0.0",
+        "python-multipart": "0.0.32",
+        "pyyaml": "6.0.3",
+        "referencing": "0.37.0",
+        "requests": "2.34.2",
+        "rich": "15.0.0",
+        "rpds-py": "2026.9.1",
+        "setuptools": "84.2.1",
+        "six": "1.17.0",
+        "sortedcontainers": "2.4.0",
+        "sse-starlette": "3.5.1",
+        "starlette": "1.10.0",
+        "tokenizers": "0.23.3",
+        "tomli": "2.5.0",
+        "tomli-w": "1.2.0",
+        "tqdm": "4.70.1",
+        "truststore": "0.10.5",
+        "typing-extensions": "4.16.0",
+        "typing-inspection": "0.4.4",
+        "tzdata": "2026.5",
+        "urllib3": "2.8.0",
+        "uvicorn": "0.54.0"
+      },
+      "extras": [],
+      "summary": "resolver audit for (default): accepted_risk"
+    },
+    {
+      "status": "accepted_risk",
+      "raw_status": "vulnerabilities",
+      "findings": [
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112895",
+          "aliases": [
+            "GHSA-p4wg-p73j-c528"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-p4wg-p73j-c528"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112400",
+          "aliases": [
+            "GHSA-65qm-jvmh-6pqg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-65qm-jvmh-6pqg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112397",
+          "aliases": [
+            "GHSA-58r4-6rv3-gfh8"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-58r4-6rv3-gfh8"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112896",
+          "aliases": [
+            "GHSA-pchr-8j38-3x4p"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-pchr-8j38-3x4p"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112897",
+          "aliases": [
+            "GHSA-q45j-58j2-45rg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-q45j-58j2-45rg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112395",
+          "aliases": [
+            "GHSA-462x-pgg6-55fp"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-462x-pgg6-55fp"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112404",
+          "aliases": [
+            "GHSA-c6hw-5grf-ff96"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-c6hw-5grf-ff96"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112899",
+          "aliases": [
+            "GHSA-vx6w-vv9f-6gvg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-vx6w-vv9f-6gvg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112402",
+          "aliases": [
+            "GHSA-7mwm-ghpf-9vrm"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-7mwm-ghpf-9vrm"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112900",
+          "aliases": [
+            "GHSA-w889-685w-c8fh"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-w889-685w-c8fh"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112893",
+          "aliases": [
+            "GHSA-j4m9-6w36-pw47"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-j4m9-6w36-pw47"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112392",
+          "aliases": [
+            "GHSA-27h8-gf7j-v5hc"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-27h8-gf7j-v5hc"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112891",
+          "aliases": [
+            "GHSA-fc9g-5qg7-mf45"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-fc9g-5qg7-mf45"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112405",
+          "aliases": [
+            "GHSA-cp9v-662q-vvx9"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-cp9v-662q-vvx9"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112390",
+          "aliases": [
+            "GHSA-22hg-r758-rrw9"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-22hg-r758-rrw9"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112401",
+          "aliases": [
+            "GHSA-74r2-7ff9-mjj2"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-74r2-7ff9-mjj2"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112901",
+          "aliases": [
+            "GHSA-xgh8-jp6q-p5x8"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-xgh8-jp6q-p5x8"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112391",
+          "aliases": [
+            "GHSA-254f-3936-288h"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-254f-3936-288h"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112894",
+          "aliases": [
+            "GHSA-jg86-v3jv-hrpm"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-jg86-v3jv-hrpm"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112406",
+          "aliases": [
+            "GHSA-f2g6-542v-9j58"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-f2g6-542v-9j58"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112399",
+          "aliases": [
+            "GHSA-5xm2-6676-qcp9"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-5xm2-6676-qcp9"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112892",
+          "aliases": [
+            "GHSA-gg2r-wvfm-q9rx"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-gg2r-wvfm-q9rx"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112393",
+          "aliases": [
+            "GHSA-332p-7hrc-92wf"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-332p-7hrc-92wf"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112396",
+          "aliases": [
+            "GHSA-4rr5-89j8-mwwm"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-4rr5-89j8-mwwm"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96638",
+          "aliases": [
+            "GHSA-24rc-8hj2-v98c"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-24rc-8hj2-v98c"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96641",
+          "aliases": [
+            "GHSA-4rm8-3hmm-39fg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-4rm8-3hmm-39fg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96640",
+          "aliases": [
+            "GHSA-mrfp-p49p-3hf2"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-mrfp-p49p-3hf2"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96642",
+          "aliases": [
+            "GHSA-3j72-p6qg-6xp7"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-3j72-p6qg-6xp7"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96639",
+          "aliases": [
+            "GHSA-v9pv-5gc8-w2m6"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-v9pv-5gc8-w2m6"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96643",
+          "aliases": [
+            "GHSA-g4qv-2jxx-769h"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-g4qv-2jxx-769h"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96637",
+          "aliases": [
+            "GHSA-g842-9rc4-69pw"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-g842-9rc4-69pw"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96644",
+          "aliases": [
+            "GHSA-9v9v-9qvf-h2hj"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-9v9v-9qvf-h2hj"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96778",
+          "aliases": [
+            "GHSA-g7cr-3p24-7wf7"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-g7cr-3p24-7wf7"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96636",
+          "aliases": [
+            "GHSA-p8hx-v2p6-rp84"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-p8hx-v2p6-rp84"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "GHSA-78g4-xqwv-q3g8",
+          "aliases": [],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-78g4-xqwv-q3g8"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-114501",
+          "aliases": [
+            "GHSA-654x-cwwv-5j9c"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-654x-cwwv-5j9c"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112398",
+          "aliases": [
+            "GHSA-5x8w-8jj5-q52h"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-5x8w-8jj5-q52h"
+        }
+      ],
+      "audited_versions": {
+        "actionlint-py": "1.7.12.24",
+        "annotated-types": "0.8.0",
+        "anyio": "4.15.1",
+        "attrs": "26.1.0",
+        "boolean-py": "5.0",
+        "build": "1.6.1",
+        "cachecontrol": "0.14.4",
+        "certifi": "2026.10.23",
+        "cffi": "2.1.1",
+        "charset-normalizer": "3.5.2",
+        "click": "8.5.0",
+        "cryptography": "50.0.2",
+        "cyclonedx-python-lib": "11.12.0",
+        "defusedxml": "0.7.1",
+        "deprecation": "2.1.0",
+        "dnspython": "2.9.0",
+        "docutils": "0.23",
+        "email-validator": "2.3.0",
+        "fastembed": "0.8.1",
+        "filelock": "4.2.4",
+        "flatbuffers": "25.12.19",
+        "fsspec": "2026.9.0",
+        "h11": "0.16.0",
+        "hf-xet": "1.7.0",
+        "httpcore": "1.0.9",
+        "httpcore2": "2.16.0",
+        "httpx": "0.28.1",
+        "httpx2": "2.16.0",
+        "huggingface-hub": "1.33.0",
+        "id": "1.6.1",
+        "idna": "3.20",
+        "iniconfig": "2.3.1",
+        "jaraco-classes": "3.4.0",
+        "jaraco-context": "6.1.2",
+        "jaraco-functools": "4.6.0",
+        "jsonschema": "4.26.0",
+        "jsonschema-specifications": "2025.9.1",
+        "keyring": "25.7.0",
+        "lance-namespace": "0.13.0",
+        "lance-namespace-urllib3-client": "0.13.0",
+        "lancedb": "0.40.0",
+        "license-expression": "30.4.4",
+        "loguru": "0.7.3",
+        "markdown-it-py": "4.2.0",
+        "mcp": "2.3.0",
+        "mcp-types": "2.3.0",
+        "mdurl": "0.1.2",
+        "mmh3": "5.3.1",
+        "more-itertools": "11.2.1",
+        "msgpack": "1.2.3",
+        "nh3": "0.3.7",
+        "nodeenv": "1.11.0",
+        "numpy": "2.5.4",
+        "onnxruntime": "1.31.0",
+        "opentelemetry-api": "1.45.1",
+        "overrides": "7.7.0",
+        "packageurl-python": "0.17.6",
+        "packaging": "26.3",
+        "pillow": "12.3.0",
+        "pip": "26.2.2",
+        "pip-api": "0.0.35",
+        "pip-audit": "2.10.1",
+        "pip-requirements-parser": "32.0.1",
+        "platformdirs": "4.13.5",
+        "pluggy": "1.7.0",
+        "protobuf": "7.36.2",
+        "py-rust-stemmers": "0.1.8",
+        "py-serializable": "2.1.0",
+        "pyarrow": "24.0.0",
+        "pyasn1": "0.6.4",
+        "pycparser": "3.12",
+        "pydantic": "2.14.1",
+        "pydantic-core": "2.50.1",
+        "pygments": "2.21.0",
+        "pyjwt": "2.15.1",
+        "pyparsing": "3.3.3",
+        "pypi-attestations": "0.0.30",
+        "pyproject-hooks": "1.3.3",
+        "pyright": "1.1.414",
+        "pytest": "9.1.1",
+        "python-dateutil": "3.0.0",
+        "python-multipart": "0.0.32",
+        "pyyaml": "6.0.3",
+        "readme-renderer": "46.0",
+        "referencing": "0.37.0",
+        "requests": "2.34.2",
+        "requests-toolbelt": "1.0.0",
+        "rfc3161-client": "1.0.9",
+        "rfc3986": "2.0.0",
+        "rfc8785": "0.1.4",
+        "rich": "15.0.0",
+        "rpds-py": "2026.9.1",
+        "ruff": "0.15.16",
+        "securesystemslib": "1.6.0",
+        "setuptools": "84.2.1",
+        "sigstore": "4.5.1",
+        "sigstore-models": "0.0.6",
+        "sigstore-rekor-types": "0.0.18",
+        "six": "1.17.0",
+        "sortedcontainers": "2.4.0",
+        "sse-starlette": "3.5.1",
+        "starlette": "1.10.0",
+        "tokenizers": "0.23.3",
+        "tomli": "2.5.0",
+        "tomli-w": "1.2.0",
+        "tqdm": "4.70.1",
+        "truststore": "0.10.5",
+        "tuf": "7.0.1",
+        "twine": "7.0.0",
+        "typing-extensions": "4.16.0",
+        "typing-inspection": "0.4.4",
+        "tzdata": "2026.5",
+        "urllib3": "2.8.0",
+        "uvicorn": "0.54.0",
+        "watchfiles": "1.3.0",
+        "zizmor": "1.29.0"
+      },
+      "extras": [
+        "dev"
+      ],
+      "summary": "resolver audit for dev: accepted_risk"
+    },
+    {
+      "status": "accepted_risk",
+      "raw_status": "vulnerabilities",
+      "findings": [
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112895",
+          "aliases": [
+            "GHSA-p4wg-p73j-c528"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-p4wg-p73j-c528"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112400",
+          "aliases": [
+            "GHSA-65qm-jvmh-6pqg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-65qm-jvmh-6pqg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112397",
+          "aliases": [
+            "GHSA-58r4-6rv3-gfh8"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-58r4-6rv3-gfh8"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112896",
+          "aliases": [
+            "GHSA-pchr-8j38-3x4p"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-pchr-8j38-3x4p"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112897",
+          "aliases": [
+            "GHSA-q45j-58j2-45rg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-q45j-58j2-45rg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112395",
+          "aliases": [
+            "GHSA-462x-pgg6-55fp"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-462x-pgg6-55fp"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112404",
+          "aliases": [
+            "GHSA-c6hw-5grf-ff96"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-c6hw-5grf-ff96"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112899",
+          "aliases": [
+            "GHSA-vx6w-vv9f-6gvg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-vx6w-vv9f-6gvg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112402",
+          "aliases": [
+            "GHSA-7mwm-ghpf-9vrm"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-7mwm-ghpf-9vrm"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112900",
+          "aliases": [
+            "GHSA-w889-685w-c8fh"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-w889-685w-c8fh"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112893",
+          "aliases": [
+            "GHSA-j4m9-6w36-pw47"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-j4m9-6w36-pw47"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112392",
+          "aliases": [
+            "GHSA-27h8-gf7j-v5hc"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-27h8-gf7j-v5hc"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112891",
+          "aliases": [
+            "GHSA-fc9g-5qg7-mf45"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-fc9g-5qg7-mf45"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112405",
+          "aliases": [
+            "GHSA-cp9v-662q-vvx9"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-cp9v-662q-vvx9"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112390",
+          "aliases": [
+            "GHSA-22hg-r758-rrw9"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-22hg-r758-rrw9"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112401",
+          "aliases": [
+            "GHSA-74r2-7ff9-mjj2"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-74r2-7ff9-mjj2"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112901",
+          "aliases": [
+            "GHSA-xgh8-jp6q-p5x8"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-xgh8-jp6q-p5x8"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112391",
+          "aliases": [
+            "GHSA-254f-3936-288h"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-254f-3936-288h"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112894",
+          "aliases": [
+            "GHSA-jg86-v3jv-hrpm"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-jg86-v3jv-hrpm"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112406",
+          "aliases": [
+            "GHSA-f2g6-542v-9j58"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-f2g6-542v-9j58"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112399",
+          "aliases": [
+            "GHSA-5xm2-6676-qcp9"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-5xm2-6676-qcp9"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112892",
+          "aliases": [
+            "GHSA-gg2r-wvfm-q9rx"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-gg2r-wvfm-q9rx"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112393",
+          "aliases": [
+            "GHSA-332p-7hrc-92wf"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-332p-7hrc-92wf"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112396",
+          "aliases": [
+            "GHSA-4rr5-89j8-mwwm"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-4rr5-89j8-mwwm"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96638",
+          "aliases": [
+            "GHSA-24rc-8hj2-v98c"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-24rc-8hj2-v98c"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96641",
+          "aliases": [
+            "GHSA-4rm8-3hmm-39fg"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-4rm8-3hmm-39fg"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96640",
+          "aliases": [
+            "GHSA-mrfp-p49p-3hf2"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-mrfp-p49p-3hf2"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96642",
+          "aliases": [
+            "GHSA-3j72-p6qg-6xp7"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-3j72-p6qg-6xp7"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96639",
+          "aliases": [
+            "GHSA-v9pv-5gc8-w2m6"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-v9pv-5gc8-w2m6"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96643",
+          "aliases": [
+            "GHSA-g4qv-2jxx-769h"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-g4qv-2jxx-769h"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96637",
+          "aliases": [
+            "GHSA-g842-9rc4-69pw"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-g842-9rc4-69pw"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96644",
+          "aliases": [
+            "GHSA-9v9v-9qvf-h2hj"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-9v9v-9qvf-h2hj"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96778",
+          "aliases": [
+            "GHSA-g7cr-3p24-7wf7"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-g7cr-3p24-7wf7"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-96636",
+          "aliases": [
+            "GHSA-p8hx-v2p6-rp84"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-p8hx-v2p6-rp84"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "GHSA-78g4-xqwv-q3g8",
+          "aliases": [],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-78g4-xqwv-q3g8"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-114501",
+          "aliases": [
+            "GHSA-654x-cwwv-5j9c"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-654x-cwwv-5j9c"
+        },
+        {
+          "package": "pillow",
+          "version": "12.3.0",
+          "advisory_id": "CVE-2026-112398",
+          "aliases": [
+            "GHSA-5x8w-8jj5-q52h"
+          ],
+          "allowlisted": true,
+          "accepted_advisory_id": "GHSA-5x8w-8jj5-q52h"
+        }
+      ],
+      "audited_versions": {
+        "annotated-doc": "0.0.5",
+        "annotated-types": "0.8.0",
+        "anyio": "4.15.1",
+        "attrs": "26.1.0",
+        "boolean-py": "5.0",
+        "cachecontrol": "0.14.4",
+        "certifi": "2026.10.23",
+        "cffi": "2.1.1",
+        "charset-normalizer": "3.5.2",
+        "click": "8.5.0",
+        "cloudpickle": "3.1.2",
+        "cryptography": "50.0.2",
+        "cyclonedx-python-lib": "11.12.0",
+        "defusedxml": "0.7.1",
+        "deprecation": "2.1.0",
+        "fastembed": "0.8.1",
+        "filelock": "4.2.4",
+        "flatbuffers": "25.12.19",
+        "fsspec": "2026.9.0",
+        "h11": "0.16.0",
+        "hf-xet": "1.7.0",
+        "httpcore": "1.0.9",
+        "httpcore2": "2.16.0",
+        "httpx": "0.28.1",
+        "httpx2": "2.16.0",
+        "huggingface-hub": "1.33.0",
+        "idna": "3.20",
+        "jinja2": "3.1.6",
+        "joblib": "1.6.0",
+        "jsonschema": "4.26.0",
+        "jsonschema-specifications": "2025.9.1",
+        "lance-namespace": "0.13.0",
+        "lance-namespace-urllib3-client": "0.13.0",
+        "lancedb": "0.40.0",
+        "license-expression": "30.4.4",
+        "loguru": "0.7.3",
+        "markdown-it-py": "4.2.0",
+        "markupsafe": "3.0.4",
+        "mcp": "2.3.0",
+        "mcp-types": "2.3.0",
+        "mdurl": "0.1.2",
+        "mmh3": "5.3.1",
+        "mpmath": "1.3.0",
+        "msgpack": "1.2.3",
+        "narwhals": "2.27.1",
+        "networkx": "3.7",
+        "numpy": "2.5.4",
+        "onnxruntime": "1.31.0",
+        "opentelemetry-api": "1.45.1",
+        "overrides": "7.7.0",
+        "packageurl-python": "0.17.6",
+        "packaging": "26.3",
+        "pillow": "12.3.0",
+        "pip": "26.2.2",
+        "pip-api": "0.0.35",
+        "pip-audit": "2.10.1",
+        "pip-requirements-parser": "32.0.1",
+        "platformdirs": "4.13.5",
+        "protobuf": "7.36.2",
+        "py-rust-stemmers": "0.1.8",
+        "py-serializable": "2.1.0",
+        "pyarrow": "24.0.0",
+        "pycparser": "3.12",
+        "pydantic": "2.14.1",
+        "pydantic-core": "2.50.1",
+        "pygments": "2.21.0",
+        "pyjwt": "2.15.1",
+        "pyparsing": "3.3.3",
+        "python-dateutil": "3.0.0",
+        "python-multipart": "0.0.32",
+        "pyyaml": "6.0.3",
+        "referencing": "0.37.0",
+        "regex": "2026.9.29",
+        "requests": "2.34.2",
+        "rich": "15.0.0",
+        "rpds-py": "2026.9.1",
+        "safetensors": "0.8.0",
+        "scikit-learn": "1.9.1",
+        "scipy": "1.18.1",
+        "sentence-transformers": "6.2.0",
+        "setuptools": "84.2.1",
+        "shellingham": "1.5.4",
+        "six": "1.17.0",
+        "sortedcontainers": "2.4.0",
+        "sse-starlette": "3.5.1",
+        "starlette": "1.10.0",
+        "sympy": "1.14.0",
+        "threadpoolctl": "3.7.0",
+        "tokenizers": "0.23.3",
+        "tomli": "2.5.0",
+        "tomli-w": "1.2.0",
+        "torch": "2.14.1",
+        "tqdm": "4.70.1",
+        "transformers": "5.20.2",
+        "truststore": "0.10.5",
+        "typer": "0.27.3",
+        "typing-extensions": "4.16.0",
+        "typing-inspection": "0.4.4",
+        "tzdata": "2026.5",
+        "urllib3": "2.8.0",
+        "uvicorn": "0.54.0"
+      },
+      "extras": [
+        "custom-models"
+      ],
+      "summary": "resolver audit for custom-models: accepted_risk"
+    }
+  ]
+}

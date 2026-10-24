@@ -723,7 +723,7 @@ def test_dependency_audit_query_is_bound_to_main():
         assert query.values[3] == "main"
         return _fixture_result([])
 
-    row = ADMISSION.check_dependency_audit_freshness("acme/tool", public_read)
+    row = ADMISSION.check_dependency_audit_freshness("acme/tool", public_read, expected_sha=NEW_SHA)
     assert row.status == ADMISSION.STATUS_FAIL
 
 
@@ -748,7 +748,7 @@ def test_other_branch_audit_cannot_answer_for_main(main_conclusion):
         },
     ]
     row = ADMISSION.check_dependency_audit_freshness(
-        "acme/tool", _audit_gh(runs), now=datetime(2026, 8, 16, tzinfo=UTC)
+        "acme/tool", _audit_gh(runs), now=datetime(2026, 8, 16, tzinfo=UTC), expected_sha=OLD_SHA
     )
     expected = ADMISSION.STATUS_OK if main_conclusion == "success" else ADMISSION.STATUS_FAIL
     assert row.status == expected, row.detail
@@ -770,8 +770,169 @@ def test_dependency_audit_without_main_evidence_fails_closed(branch):
             ]
         ),
         now=datetime(2026, 8, 16, tzinfo=UTC),
+        expected_sha=NEW_SHA,
     )
     assert row.status == ADMISSION.STATUS_FAIL
+
+
+@pytest.mark.parametrize("branch", ["main", "release/v1.16.1", "release/v1.16.1-rc3"])
+def test_dependency_audit_binds_branch_and_exact_sha(branch):
+    run = {
+        "status": "completed",
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "headBranch": branch,
+        "headSha": NEW_SHA,
+        "updatedAt": "2026-08-16T00:00:00Z",
+    }
+
+    def public_read(query):
+        assert query.values[3] == branch
+        return _fixture_result([run])
+
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool",
+        public_read,
+        audit_branch=branch,
+        expected_sha=NEW_SHA,
+        now=datetime(2026, 8, 16, tzinfo=UTC),
+    )
+    assert row.status == ADMISSION.STATUS_OK, row.detail
+
+
+@pytest.mark.parametrize("sha", [OLD_SHA, None, "malformed"])
+def test_newer_wrong_identity_audit_cannot_hide_behind_older_green(sha):
+    branch = "release/v1.16.1-rc3"
+    base = {
+        "status": "completed",
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "headBranch": branch,
+        "headSha": NEW_SHA,
+        "updatedAt": "2026-08-15T00:00:00Z",
+    }
+    newer = {**base, "headSha": sha, "updatedAt": "2026-08-16T00:00:00Z"}
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool",
+        _audit_gh([base, newer]),
+        audit_branch=branch,
+        expected_sha=NEW_SHA,
+        now=datetime(2026, 8, 16, tzinfo=UTC),
+    )
+    assert row.status == ADMISSION.STATUS_FAIL
+    assert "does not match" in row.detail
+    assert f"--ref {branch}" in row.remediation
+
+
+def test_newer_failed_candidate_audit_blocks_older_green():
+    branch = "release/v1.16.1-rc3"
+    base = {
+        "status": "completed",
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "headBranch": branch,
+        "headSha": NEW_SHA,
+        "updatedAt": "2026-08-15T00:00:00Z",
+    }
+    newer = {**base, "conclusion": "failure", "updatedAt": "2026-08-16T00:00:00Z"}
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool",
+        _audit_gh([newer, base]),
+        audit_branch=branch,
+        expected_sha=NEW_SHA,
+        now=datetime(2026, 8, 16, tzinfo=UTC),
+    )
+    assert row.status == ADMISSION.STATUS_FAIL
+    assert "failure" in row.detail
+    assert f"--ref {branch}" in row.remediation
+
+
+@pytest.mark.parametrize(
+    ("audit_branch", "reported_branch"),
+    [("main", "release/v1.16.1-rc3"), ("release/v1.16.1-rc3", "main")],
+)
+def test_dependency_audit_cannot_answer_for_the_other_stage(audit_branch, reported_branch):
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool",
+        _audit_gh(
+            [
+                {
+                    "status": "completed",
+                    "conclusion": "success",
+                    "event": "workflow_dispatch",
+                    "headBranch": reported_branch,
+                    "headSha": NEW_SHA,
+                    "updatedAt": "2026-08-16T00:00:00Z",
+                }
+            ]
+        ),
+        expected_sha=NEW_SHA,
+        audit_branch=audit_branch,
+        now=datetime(2026, 8, 16, tzinfo=UTC),
+    )
+    assert row.status == ADMISSION.STATUS_FAIL
+    assert f"on {audit_branch}" in row.detail
+
+
+@pytest.mark.parametrize(
+    ("stamp", "status"),
+    [
+        ("2026-08-01T00:00:00Z", "fail"),
+        ("2026-08-20T00:00:00Z", "error"),
+        ("untrusted-time", "error"),
+    ],
+)
+def test_candidate_audit_keeps_freshness_and_clock_guards(stamp, status):
+    branch = "release/v1.16.1-rc3"
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool",
+        _audit_gh(
+            [
+                {
+                    "status": "completed",
+                    "conclusion": "success",
+                    "event": "workflow_dispatch",
+                    "headBranch": branch,
+                    "headSha": NEW_SHA,
+                    "updatedAt": stamp,
+                }
+            ]
+        ),
+        audit_branch=branch,
+        expected_sha=NEW_SHA,
+        now=datetime(2026, 8, 16, tzinfo=UTC),
+    )
+    assert row.status == status
+
+
+@pytest.mark.parametrize("sha", [None, "short"])
+def test_dependency_audit_missing_or_invalid_expected_sha_refuses_before_lookup(sha):
+    def forbidden_read(_query):
+        raise AssertionError("invalid identity must not query public state")
+
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool",
+        forbidden_read,
+        expected_sha=sha,
+    )
+    assert row.status == ADMISSION.STATUS_FAIL
+    assert "expect-sha" in row.detail
+
+
+@pytest.mark.parametrize(
+    "branch", [None, "", "feature", "release/v1.2.3-rc0", "release/v1.2.3/extra"]
+)
+def test_dependency_audit_rejects_unsupported_branch_before_lookup(branch):
+    def forbidden_read(_query):
+        raise AssertionError("invalid branch must not query public state")
+
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool",
+        forbidden_read,
+        audit_branch=branch,
+        expected_sha=NEW_SHA,
+    )
+    assert row.status == ADMISSION.STATUS_ERROR
 
 
 def test_yesterdays_sha_does_not_inherit_todays_green_check():
@@ -1096,7 +1257,7 @@ def test_orphan_remediation_puts_repair_before_acknowledgement():
 
 def test_unqueryable_dependency_audit_is_an_error_not_a_pass():
     row = ADMISSION.check_dependency_audit_freshness(
-        "acme/tool", _audit_gh((1, "", "HTTP 403: Resource not accessible"))
+        "acme/tool", _audit_gh((1, "", "HTTP 403: Resource not accessible")), expected_sha=NEW_SHA
     )
 
     assert row.status == ADMISSION.STATUS_ERROR
@@ -1116,10 +1277,12 @@ def test_future_stamped_dependency_audit_is_untrusted_evidence():
                     "event": "schedule",
                     "headBranch": "main",
                     "updatedAt": "2026-08-20T00:00:00Z",
+                    "headSha": NEW_SHA,
                 }
             ]
         ),
         now=datetime(2026, 8, 16, tzinfo=UTC),
+        expected_sha=NEW_SHA,
     )
 
     assert row.status == ADMISSION.STATUS_ERROR
@@ -1137,10 +1300,12 @@ def test_undatable_dependency_audit_runs_error_instead_of_passing():
                     "event": "schedule",
                     "headBranch": "main",
                     "updatedAt": "not-a-timestamp",
+                    "headSha": NEW_SHA,
                 }
             ]
         ),
         now=datetime(2026, 8, 16, tzinfo=UTC),
+        expected_sha=NEW_SHA,
     )
 
     assert row.status == ADMISSION.STATUS_ERROR
@@ -1165,6 +1330,7 @@ def test_an_undatable_audit_run_is_not_dropped_in_favour_of_an_older_datable_suc
                     "event": "schedule",
                     "headBranch": "main",
                     "updatedAt": "2026-08-15T00:00:00Z",
+                    "headSha": NEW_SHA,
                 },
                 {
                     "status": "completed",
@@ -1173,10 +1339,12 @@ def test_an_undatable_audit_run_is_not_dropped_in_favour_of_an_older_datable_suc
                     "headBranch": "main",
                     "updatedAt": "not-a-timestamp",
                     "createdAt": "also-not-a-timestamp",
+                    "headSha": NEW_SHA,
                 },
             ]
         ),
         now=datetime(2026, 8, 16, tzinfo=UTC),
+        expected_sha=NEW_SHA,
     )
 
     assert row.status == ADMISSION.STATUS_ERROR, row.detail
@@ -1196,6 +1364,7 @@ def test_a_fully_datable_audit_history_still_passes():
                     "event": "workflow_dispatch",
                     "headBranch": "main",
                     "updatedAt": "2026-08-10T00:00:00Z",
+                    "headSha": NEW_SHA,
                 },
                 {
                     "status": "completed",
@@ -1203,10 +1372,12 @@ def test_a_fully_datable_audit_history_still_passes():
                     "event": "schedule",
                     "headBranch": "main",
                     "updatedAt": "2026-08-15T00:00:00Z",
+                    "headSha": NEW_SHA,
                 },
             ]
         ),
         now=datetime(2026, 8, 16, tzinfo=UTC),
+        expected_sha=NEW_SHA,
     )
 
     assert row.status == ADMISSION.STATUS_OK, row.detail
@@ -1227,6 +1398,7 @@ def test_manual_push_event_audit_run_does_not_satisfy_the_scheduled_requirement(
             ]
         ),
         now=datetime(2026, 8, 16, tzinfo=UTC),
+        expected_sha=NEW_SHA,
     )
 
     assert row.status == ADMISSION.STATUS_FAIL
@@ -1235,7 +1407,9 @@ def test_manual_push_event_audit_run_does_not_satisfy_the_scheduled_requirement(
 
 def test_live_diagnostics_are_truncated_so_a_gate_log_cannot_echo_an_api_dump():
     noisy = "x" * (ADMISSION.MAX_DETAIL_CHARS * 3)
-    row = ADMISSION.check_dependency_audit_freshness("acme/tool", _audit_gh((1, "", noisy)))
+    row = ADMISSION.check_dependency_audit_freshness(
+        "acme/tool", _audit_gh((1, "", noisy)), expected_sha=NEW_SHA
+    )
 
     assert row.status == ADMISSION.STATUS_ERROR
     assert len(row.detail) <= ADMISSION.MAX_DETAIL_CHARS + len("… (truncated)")
