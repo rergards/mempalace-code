@@ -302,6 +302,45 @@ def test_unsupported_targets_are_rejected_before_a_request(factory, args):
     assert opener.requests == []
 
 
+@pytest.mark.parametrize("branch", ["release/v1.16.1", "release/v1.16.1-rc3"])
+def test_dependency_audit_query_accepts_only_explicit_candidate_branch(branch):
+    query = public.workflow_runs(public.PUBLIC_REPOSITORY, "Dependency Audit", 30, branch=branch)
+    assert query.values[3] == branch
+    for workflow in ("Tests", "Publish to PyPI"):
+        with pytest.raises(ValueError, match="unsupported workflow branch"):
+            public.workflow_runs(public.PUBLIC_REPOSITORY, workflow, 30, branch=branch)
+
+
+def test_candidate_audit_transport_sends_the_explicit_branch_filter():
+    branch = "release/v1.16.1-rc3"
+    opener = Opener(
+        [
+            _json(
+                {
+                    "total_count": 1,
+                    "workflow_runs": [
+                        {
+                            "status": "completed",
+                            "conclusion": "success",
+                            "event": "workflow_dispatch",
+                            "head_branch": branch,
+                            "head_sha": "a" * 40,
+                            "updated_at": "2026-08-16T00:00:00Z",
+                        }
+                    ],
+                }
+            )
+        ]
+    )
+    result = public.PublicReader(opener)(
+        public.workflow_runs(public.PUBLIC_REPOSITORY, "Dependency Audit", 30, branch=branch)
+    )
+    assert result.ok
+    assert result.data[0]["headBranch"] == branch
+    assert result.data[0]["headSha"] == "a" * 40
+    assert "branch=release%2Fv1.16.1-rc3" in opener.requests[0].full_url
+
+
 @pytest.mark.parametrize(
     "url",
     [

@@ -1270,11 +1270,14 @@ def test_non_regular_socket_paths_remain_supported_under_long_root(tmp_path, mon
 
 
 def _stub_direct_golden_scenarios(monkeypatch):
-    monkeypatch.setattr(
-        rrg,
-        "_run_installed_extra_and_export_reconciliation",
-        lambda **_kwargs: None,
-    )
+    def finish_base(**kwargs):
+        try:
+            kwargs["release_base"]()
+        except RuntimeError as exc:
+            return str(exc).replace(str(kwargs["temp_root"]), "<protected-path>")
+        return None
+
+    monkeypatch.setattr(rrg, "_run_installed_extra_and_export_reconciliation", finish_base)
     monkeypatch.setattr(
         rrg,
         "_run_installed_mcp_stdio_scenario",
@@ -2722,6 +2725,7 @@ def _audit_run(conclusion: str = "success", age_hours: int = 1) -> dict[str, obj
         "conclusion": conclusion,
         "event": "schedule",
         "headBranch": "main",
+        "headSha": SHA,
         "updatedAt": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
@@ -3507,6 +3511,11 @@ def test_installed_cleanup_poststate_fails_closed(tmp_path, case):
     "case",
     [
         "success",
+        "known-cleanup-warning",
+        "unexpected-cleanup-warning",
+        "cleanup-warning-nonzero",
+        "cleanup-warning-trailing-output",
+        "cleanup-warning-wrong-version",
         "nonzero",
         "nonzero-cleanup",
         "malformed-cleanup",
@@ -3553,7 +3562,7 @@ def test_installed_rollback_no_candidate_fails_closed(tmp_path, case):
         if "mine" in command:
             return SimpleNamespace(returncode=0, stdout="Drawers filed: 1\n", stderr="")
         if command[-3:] == ["cleanup", "--unsafe-now", "--json"]:
-            returncode = 1 if case == "nonzero-cleanup" else 0
+            returncode = 1 if case in {"nonzero-cleanup", "cleanup-warning-nonzero"} else 0
             value = '{"ok":true,"version_count_after":1}'
             if case == "malformed-cleanup":
                 value = "{"
@@ -3561,9 +3570,22 @@ def test_installed_rollback_no_candidate_fails_closed(tmp_path, case):
                 value = '{"ok":false,"version_count_after":1}'
             elif case == "cleanup-version-bool":
                 value = '{"ok":true,"version_count_after":true}'
-            elif case == "cleanup-version-wrong":
+            elif case in {"cleanup-version-wrong", "cleanup-warning-wrong-version"}:
                 value = '{"ok":true,"version_count_after":2}'
-            return SimpleNamespace(returncode=returncode, stdout=value, stderr="")
+            diagnostic = ""
+            if "cleanup-warning" in case:
+                diagnostic = (
+                    "/fixture/site-packages/mempalace_code/storage.py:3135: UserWarning: "
+                    "optimize(cleanup_older_than=0) removes every version except the latest. "
+                    "Any concurrent reader or writer still using an older version will fail. "
+                    "Use a longer cleanup_older_than unless no other process is working on this table."
+                    "\n  table.optimize(\n"
+                )
+                if case == "unexpected-cleanup-warning":
+                    diagnostic = diagnostic.replace("every version", "some versions")
+                elif case == "cleanup-warning-trailing-output":
+                    diagnostic += "unexpected output\n"
+            return SimpleNamespace(returncode=returncode, stdout=value, stderr=diagnostic)
         if command[-2:] == ["health", "--json"]:
             health_count += 1
             value = health
@@ -3613,8 +3635,10 @@ def test_installed_rollback_no_candidate_fails_closed(tmp_path, case):
     )
 
     assert row["id"] == "installed_golden_rollback_no_candidate"
-    assert row["status"] == ("pass" if case == "success" else "fail")
-    assert row["detail"].count(rrg.INSTALLED_GOLDEN_COMMAND) == (0 if case == "success" else 1)
+    assert row["status"] == ("pass" if case in {"success", "known-cleanup-warning"} else "fail")
+    assert row["detail"].count(rrg.INSTALLED_GOLDEN_COMMAND) == (
+        0 if case in {"success", "known-cleanup-warning"} else 1
+    )
     assert str(tmp_path) not in row["detail"]
     assert all(call[1]["cwd"] == str(neutral) for call in calls)
     assert all(call[1]["env"] == {"SAFE": "1"} for call in calls)
@@ -4362,6 +4386,15 @@ def test_installed_golden_uses_watch_extra_provenance_neutral_cwd_and_safe_env(
 
     def run_extras(**kwargs):
         extra_calls.append(kwargs)
+        assert kwargs["base_python"].is_file()
+        assert Path(kwargs["base_env"]["HF_HOME"]).is_dir()
+        kwargs["release_base"]()
+        assert not kwargs["base_venv"].exists()
+        assert not Path(kwargs["base_env"]["HF_HOME"]).exists()
+        assert any(
+            len(command) == 3 and command[1].endswith(rrg.INSTALLED_CLI_INVENTORY_PROBE_NAME)
+            for command, _kwargs in calls
+        )
 
     monkeypatch.setattr(rrg, "_run_installed_extra_and_export_reconciliation", run_extras)
     recovery_calls = []
@@ -4522,7 +4555,7 @@ def test_installed_golden_uses_watch_extra_provenance_neutral_cwd_and_safe_env(
     assert "GITHUB_TOKEN" not in golden_kwargs["env"]
     assert "PYTHONPATH" not in golden_kwargs["env"]
     assert len(extra_calls) == 1
-    assert extra_calls[0]["hf_home"] == Path(golden_kwargs["env"]["HF_HOME"])
+    assert not Path(golden_kwargs["env"]["HF_HOME"]).exists()
     assert extra_calls[0]["platform_name"] == sys.platform
     assert len(recovery_calls) == 1
     recovery_args, recovery_kwargs = recovery_calls[0]
@@ -4573,7 +4606,7 @@ def test_installed_golden_uses_watch_extra_provenance_neutral_cwd_and_safe_env(
         setup_home = Path(kwargs["env"]["HOME"])
         setup_cache = Path(kwargs["env"]["XDG_CACHE_HOME"])
         assert setup_home.name == "setup-home"
-        assert setup_home.parent == Path(kwargs["cwd"]).parent
+        assert setup_home.parent == Path(kwargs["cwd"]).parent.parent
         assert setup_cache.parent.parent == setup_home.parent
         assert "GITHUB_TOKEN" not in kwargs["env"]
         assert "PYTHONPATH" not in kwargs["env"]
@@ -4823,6 +4856,7 @@ def test_installed_custom_models_platform_contours(tmp_path):
                 "-m",
                 "pip",
                 "install",
+                "--no-cache-dir",
                 "torch",
                 "--index-url",
                 "https://download.pytorch.org/whl/cpu",
@@ -4830,19 +4864,19 @@ def test_installed_custom_models_platform_contours(tmp_path):
         ),
         (
             "custom-models candidate extra",
-            [str(python_bin), "-m", "pip", "install", f"{wheel}[custom-models]"],
+            [str(python_bin), "-m", "pip", "install", "--no-cache-dir", f"{wheel}[custom-models]"],
         ),
     ]
     assert rrg._installed_extra_install_commands(python_bin, wheel, "custom-models", "darwin") == [
         (
             "custom-models candidate extra",
-            [str(python_bin), "-m", "pip", "install", f"{wheel}[custom-models]"],
+            [str(python_bin), "-m", "pip", "install", "--no-cache-dir", f"{wheel}[custom-models]"],
         )
     ]
     assert rrg._installed_extra_install_commands(python_bin, wheel, "spellcheck", "linux") == [
         (
             "spellcheck candidate extra",
-            [str(python_bin), "-m", "pip", "install", f"{wheel}[spellcheck]"],
+            [str(python_bin), "-m", "pip", "install", "--no-cache-dir", f"{wheel}[spellcheck]"],
         )
     ]
 
@@ -4939,9 +4973,11 @@ _ONNX_PCI_WARNING_VMBUS = _ONNX_PCI_WARNING.replace("MSFT1000:00", "VMBUS:00")
         "pci-arm64",
     ),
 )
+@pytest.mark.parametrize("source_line", [95, 146])
 def test_installed_golden_accepts_exact_linux_onnx_warning_and_completes_suite(
-    tmp_path, monkeypatch, machine, warning
+    tmp_path, monkeypatch, machine, warning, source_line
 ):
+    warning = warning.replace("device_discovery.cc:146", f"device_discovery.cc:{source_line}")
     merged_result = SimpleNamespace(returncode=0, stdout="merged output", stderr=None)
     classified = rrg._classify_installed_golden_diagnostic(
         merged_result, platform_name="linux", machine=machine
@@ -4986,6 +5022,7 @@ def test_installed_golden_accepts_exact_linux_onnx_warning_and_completes_suite(
         ("linux", "arm64", 0, f" {_ONNX_PCI_WARNING}"),
         ("linux", "arm64", 0, f"{_ONNX_PCI_WARNING} "),
         ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace("GetPciBusId", "getpcibusid")),
+        ("linux", "arm64", 0, _ONNX_PCI_WARNING.replace(".cc:146", ".cc:96")),
         (
             "linux",
             "x86_64",
@@ -5060,6 +5097,7 @@ def test_installed_golden_accepts_exact_linux_onnx_warning_and_completes_suite(
         "pci-leading-content",
         "pci-trailing-byte",
         "pci-case-drift",
+        "pci-unobserved-source-line",
         "pci-source-drift",
         "pci-path-drift",
         "pci-unobserved-bus-owner",
@@ -5084,9 +5122,11 @@ def test_installed_golden_accepts_exact_linux_onnx_warning_and_completes_suite(
         "additional-stderr",
     ),
 )
+@pytest.mark.parametrize("source_line", [95, 146])
 def test_installed_golden_onnx_warning_boundaries_fail_closed(
-    tmp_path, monkeypatch, platform_name, machine, returncode, stderr
+    tmp_path, monkeypatch, platform_name, machine, returncode, stderr, source_line
 ):
+    stderr = stderr.replace("device_discovery.cc:146", f"device_discovery.cc:{source_line}")
     wheel = _write_candidate_wheel(tmp_path)
     cache = _write_model_cache(tmp_path / "hf")
     calls = []
@@ -5897,3 +5937,296 @@ def test_marked_migration_json_requires_one_evidence_document():
         rrg._parse_single_marked_json(output + f"{marker}{{}}\n", marker, "migration")
     with pytest.raises(ValueError, match="invalid JSON"):
         rrg._parse_single_marked_json(f"{marker}not-json\n", marker, "migration")
+
+
+@pytest.mark.parametrize("as_exception", [False, True])
+def test_installed_extra_quota_refusal_reports_capacity_and_recovery(tmp_path, as_exception):
+    result = (
+        OSError(errno.EDQUOT, "Disk quota exceeded")
+        if as_exception
+        else SimpleNamespace(
+            returncode=1, stdout="", stderr="OSError: [Errno 122] Disk quota exceeded"
+        )
+    )
+    failure = rrg._installed_extra_install_failure(
+        "custom-models candidate extra", result, paths={"scratch": tmp_path, "install": tmp_path}
+    )
+    row = rrg._make_row(
+        "installed_golden_suite",
+        rrg.INSTALLED_GOLDEN_COMMAND,
+        "fail",
+        rrg._installed_extra_suite_failure(failure),
+    )
+    assert row["status"] == "fail"
+    assert "Disk quota exceeded" in row["detail"]
+    assert "scratch filesystem free_bytes=" in row["detail"]
+    assert "install filesystem free_bytes=" in row["detail"]
+    assert "free_inodes=" in row["detail"]
+    assert "free or increase the selected filesystem quota" in row["detail"]
+    assert row["detail"].count(rrg.INSTALLED_CUSTOM_MODELS_ENOSPC_RECOVERY) == 1
+    assert "rerun:" not in row["detail"]
+    assert str(tmp_path) not in row["detail"]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["success", "base-absence", "base-fallback", "base-handoff", "guard", "network", "install"],
+)
+def test_installed_extra_scopes_release_completed_allocations_and_preserve_external_paths(
+    tmp_path, fault
+):
+    suite = tmp_path / "suite"
+    base = tmp_path / "base"
+    external = tmp_path / "external"
+    for path in (suite, base, external):
+        path.mkdir()
+    preserved = external / "operator-data"
+    preserved.write_bytes(b"preserve")
+    source_model = external / "model-cache"
+    source_model.write_bytes(b"source model")
+    base_python = base / "venv/bin/python"
+    base_python.parent.mkdir(parents=True)
+    base_python.write_text("owned interpreter")
+    (base / "completed-palace").write_bytes(b"completed fixture")
+    (base / "model-link").symlink_to(source_model)
+    neutral = base / "neutral"
+    neutral.mkdir()
+    setup = rrg._credential_free_build_env(suite / "setup-home", suite / "setup-tmp", {})
+    extras = []
+    installed_commands = []
+    probes = []
+    released = []
+    wheel = external / "candidate.whl"
+    wheel.write_bytes(b"exact candidate")
+    exports = {
+        "bindings": {
+            "root_main_is_one_shot_main": True,
+            "mcp_tools_is_registry_tools": True,
+            "mcp_handle_request_is_dispatch": True,
+            "mcp_main_is_dispatch": True,
+        },
+        "owners": [
+            {"owner": owner, "file": str(base / "venv" / "site" / owner), "exports": members}
+            for owner, members in rrg.INSTALLED_PUBLIC_EXPORTS.items()
+        ],
+    }
+
+    def release_base():
+        assert probes == ["exports", "absence", "base-spell", "migration", "alias"]
+        assert base_python.is_file()
+        assert not extras
+        if fault == "base-handoff":
+            raise RuntimeError("base CLI attribution refused")
+        # The production handoff closes its owned TemporaryDirectory scope.
+        shutil.rmtree(base)
+        released.append("base")
+
+    def run(command, **kwargs):
+        command = [str(part) for part in command]
+        env = kwargs["env"]
+        payload = None
+        if command[1:3] == ["-m", "venv"]:
+            contour = Path(command[-1]).parent
+            assert released == ["base"]
+            assert not base.exists()
+            assert not any(path.exists() for path in extras)
+            assert Path(kwargs["cwd"]) == contour / "neutral"
+            assert all(Path(setup[key]).is_dir() for key in ("HOME", "TMPDIR"))
+            extras.append(contour)
+            (contour / "venv/site").mkdir(parents=True)
+            (contour / "operator-link").symlink_to(external, target_is_directory=True)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if command[1:4] == ["-m", "pip", "install"]:
+            installed_commands.append(command)
+            if fault == "install":
+                return SimpleNamespace(returncode=19, stdout="", stderr="retained resolver refusal")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if command[-1] == "site-packages-probe":
+            payload = [str(Path(command[0]).parent.parent / "site")]
+        elif "--target-dir" in command:
+            probes.append("alias")
+            (Path(command[-1]) / "mempalace").symlink_to(base_python)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        else:
+            code = command[2]
+            if code == rrg.INSTALLED_EXPORT_PROBE:
+                probes.append("exports")
+                payload = exports
+            elif code == rrg.INSTALLED_CUSTOM_MODEL_ABSENT_PROBE:
+                probes.append("absence")
+                payload = {
+                    "dependency_absent": fault != "base-absence",
+                    "preflight_failed": True,
+                    "palace_absent": True,
+                }
+            elif code == rrg.INSTALLED_SPELLCHECK_PROBE:
+                source = Path(command[-1]).read_text()
+                is_base = Path(command[0]) == base_python
+                probes.append("base-spell" if is_base else "spell")
+                payload = {
+                    "autocorrect": not is_base,
+                    "mined": source,
+                    "output": source if is_base else source.replace("mispelled", "misspelled"),
+                }
+                if is_base and fault == "base-fallback":
+                    payload["mined"] = "rewritten"
+            elif code == rrg.INSTALLED_MIGRATION_PROBE:
+                probes.append("migration")
+                payload = {
+                    "returncode": 1,
+                    "stderr_exact": True,
+                    "bridge_modules_absent": True,
+                    "chromadb_dependency_absent": True,
+                }
+                return SimpleNamespace(
+                    returncode=0,
+                    stdout=rrg.INSTALLED_MIGRATION_EVIDENCE_MARKER + json.dumps(payload),
+                    stderr="",
+                )
+            elif code == rrg.INSTALLED_CUSTOM_MODEL_PROBE:
+                probes.append("custom")
+                payload = {"rows": 2, "dimensions": 3, "normalized": True}
+            elif code == rrg.INSTALLED_TREESITTER_PROBE:
+                probes.append("tree")
+                payload = {
+                    language: {
+                        "parser": True,
+                        "grammar": True,
+                        "chunks": [
+                            {
+                                "marker": name,
+                                "strategy": "treesitter_v3",
+                                "exact": True,
+                                "start": index * 10,
+                                "end": index * 10 + 8,
+                            }
+                            for index, name in enumerate(("alpha", "beta"))
+                        ],
+                    }
+                    for language in ("python", "typescript", "go", "rust")
+                }
+            else:
+                raise AssertionError("unexpected installed probe")
+            if Path(command[0]) != base_python:
+                assert Path(env["HF_HOME"]).parent == extras[-1]
+                assert not Path(env["HF_HOME"]).exists()
+                assert env["HF_HUB_OFFLINE"] == env["TRANSFORMERS_OFFLINE"] == "1"
+                if fault != "guard":
+                    Path(env["MEMPALACE_SOCKET_GUARD_LOADED"]).write_text("loaded")
+                if fault == "network":
+                    Path(env["MEMPALACE_SOCKET_ATTEMPTS"]).write_text("blocked socket")
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    smoke = SimpleNamespace(
+        _SITE_PACKAGES_SCRIPT="site-packages-probe",
+        _SITE_GUARD_PTH="guard.pth",
+        _SITE_GUARD="guard",
+        probe_candidate_extra_metadata=lambda *args, **kwargs: SimpleNamespace(
+            ok=True, runtime_extras=("custom-models", "spellcheck", "treesitter", "watch")
+        ),
+    )
+    failure = rrg._run_installed_extra_and_export_reconciliation(
+        root=tmp_path / "repository",
+        wheel=wheel,
+        expected_version="candidate",
+        temp_root=suite,
+        base_venv=base / "venv",
+        base_python=base_python,
+        base_env={"PATH": os.defpath},
+        setup_env=setup,
+        neutral_cwd=neutral,
+        release_base=release_base,
+        watch_receipt=True,
+        export_receipts={
+            f"export:{owner}:{member}": True
+            for owner, members in rrg.INSTALLED_PUBLIC_EXPORTS.items()
+            for member in members
+            if member != "main_alias"
+        },
+        platform_name="linux",
+        smoke=smoke,
+        run_subprocess=run,
+    )
+    assert preserved.read_bytes() == b"preserve"
+    assert source_model.read_bytes() == b"source model"
+    assert wheel.read_bytes() == b"exact candidate"
+    assert not any(path.exists() for path in extras)
+    if fault == "success":
+        assert failure is None
+        assert len(extras) == 3
+        assert probes[-3:] == ["custom", "spell", "tree"]
+        assert [command[-1] for command in installed_commands] == [
+            rrg.INSTALLED_CUSTOM_MODELS_CPU_INDEX,
+            f"{wheel}[custom-models]",
+            f"{wheel}[spellcheck]",
+            f"{wheel}[treesitter]",
+        ]
+    else:
+        assert failure
+        assert str(tmp_path) not in failure
+        if fault.startswith("base-"):
+            assert not extras
+            assert not released
+            assert base_python.is_file()
+        else:
+            assert len(extras) == 1
+            assert "spell" not in probes
+            assert "tree" not in probes
+            if fault == "install":
+                assert "retained resolver refusal" in failure
+                assert "19" in failure
+
+
+@pytest.mark.parametrize("fault", ["attribution", "coverage", "guard", "network"])
+def test_installed_base_handoff_refuses_cleanup_and_extra_install_before_valid_proof(
+    tmp_path, monkeypatch, fault
+):
+    wheel = _write_candidate_wheel(tmp_path)
+    cache = _write_model_cache(tmp_path / "hf")
+    calls = []
+    runner = _successful_golden_runner(calls)
+    _stub_direct_golden_scenarios(monkeypatch)
+    handoffs = []
+
+    def run(command, **kwargs):
+        result = runner(command, **kwargs)
+        if len(command) == 3 and str(command[1]).endswith(rrg.INSTALLED_CLI_INVENTORY_PROBE_NAME):
+            assert Path(command[0]).is_file()
+            assert Path(command[2]).is_file()
+            if fault == "attribution":
+                return SimpleNamespace(returncode=0, stdout="malformed", stderr="")
+            if fault == "coverage":
+                return SimpleNamespace(returncode=0, stdout='{"executed": []}', stderr="")
+            if fault == "guard":
+                Path(kwargs["env"]["MEMPALACE_SOCKET_GUARD_LOADED"]).unlink()
+            if fault == "network":
+                Path(kwargs["env"]["MEMPALACE_SOCKET_ATTEMPTS"]).write_text("blocked socket")
+        return result
+
+    def begin_extras(**kwargs):
+        try:
+            kwargs["release_base"]()
+        except RuntimeError as exc:
+            # Refusal must happen before the handoff deletes its base evidence.
+            assert kwargs["base_python"].is_file()
+            assert Path(kwargs["base_env"]["HF_HOME"]).is_dir()
+            handoffs.append("refused")
+            return str(exc)
+        raise AssertionError("invalid base proof allowed optional-extra installation")
+
+    monkeypatch.setattr(rrg, "_run_installed_extra_and_export_reconciliation", begin_extras)
+    rows = rrg._run_installed_golden_wheel(
+        tmp_path,
+        wheel,
+        base_env={"PATH": os.defpath, "MEMPALACE_TEST_HF_HOME": str(cache)},
+        run_subprocess=run,
+    )
+    assert handoffs == ["refused"]
+    assert len(rows) == 1
+    assert rows[0]["status"] == "fail"
+    assert rows[0]["detail"].count(f"rerun: {rrg.INSTALLED_GOLDEN_COMMAND}") == 1
+    assert str(tmp_path) not in rows[0]["detail"]
+    assert cache.is_dir()
+    assert [
+        command[-1] for command, _kwargs in calls if command[1:4] == ["-m", "pip", "install"]
+    ] == [f"{wheel}[watch]"]

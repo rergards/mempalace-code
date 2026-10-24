@@ -1,20 +1,21 @@
 """mempalace_code.mcp.tools.write — Add/delete drawer, delete wing, and mine handlers."""
 
 import hashlib
-import re
 from datetime import datetime
 from pathlib import Path
 
 from ...errors import InvalidArgumentError
 from ...knowledge_graph import LazyKnowledgeGraph
 from ...operation_lock import PalaceBusyError
-from ...storage import distance_to_similarity
 from ...taxonomy_filters import clean_write_name, near_duplicate_names
 from ...version import __version__
 from .. import runtime
 
 DUPLICATE_THRESHOLD = 0.9
-"""Cosine similarity at or above which add_drawer compares a neighbour's facts."""
+"""Default advisory cosine for check_duplicate neighbours; similarity never refuses a write."""
+
+EXACT_MATCH_LIMIT = 5
+"""Most identical drawers one duplicate check reports."""
 
 MAX_DRAWER_CHARS = 100_000
 """Longest drawer or diary text an MCP write accepts (schema maxLength).
@@ -24,51 +25,32 @@ long text belongs in several drawers; this cap keeps one call from filing a
 multi-megabyte row.
 """
 
-_TOKEN_RE = re.compile(r"\w[\w.:/-]*\w|\w")
 
+def exact_drawer_matches(col, content: str, wing: str | None = None) -> list[dict]:
+    """Stored drawers whose complete text equals *content*, within *wing* when given.
 
-def _distinguishing_tokens(text: str) -> set[str]:
-    """Numbers and identifiers: the tokens that tell otherwise-similar facts apart.
-
-    A token counts when it contains a digit, an inner connector (``- _ . : /``),
-    or an uppercase letter after its first character (``CheckoutService``, ``API``).
+    Exact equality is the only automatic duplicate proof. Case, word order, negation,
+    punctuation and conditions all count, so an opposite or conditional statement is a
+    different fact, and identical text in another wing belongs to another project.
+    The lookup is an exact filtered read, independent of semantic ranking.
     """
-    return {
-        token
-        for token in _TOKEN_RE.findall(text)
-        if any(ch.isdigit() for ch in token)
-        or any(ch in "-_.:/" for ch in token)
-        or any(ch.isupper() for ch in token[1:])
-    }
-
-
-def _near_identical_drawers(col, content: str) -> list[dict]:
-    """Existing drawers that already hold *content*'s facts.
-
-    A neighbour is a duplicate when its cosine similarity is at least
-    DUPLICATE_THRESHOLD and the new content adds no number or identifier it
-    lacks. Templated facts ("Decision 5 ... team-2") embed close to each other,
-    so similarity alone would refuse distinct facts.
-    """
-    results = col.query(
-        query_texts=[content],
-        n_results=5,
-        include=["metadatas", "documents", "distances"],
-    )
-    new_tokens = _distinguishing_tokens(content)
+    clauses: list[dict] = [{"text": content}]
+    if wing is not None:
+        clauses.insert(0, {"wing": wing})
+    where = clauses[0] if len(clauses) == 1 else {"$and": clauses}
+    found = col.get(where=where, include=["documents", "metadatas"], limit=EXACT_MATCH_LIMIT)
     matches = []
-    for i, drawer_id in enumerate(results["ids"][0] if results["ids"] else []):
-        similarity = distance_to_similarity(results["distances"][0][i])
-        doc = results["documents"][0][i]
-        if similarity < DUPLICATE_THRESHOLD or new_tokens - _distinguishing_tokens(doc):
+    for drawer_id, doc, meta in zip(
+        found.get("ids", []), found.get("documents", []), found.get("metadatas", [])
+    ):
+        meta = meta or {}
+        if doc != content or (wing is not None and meta.get("wing") != wing):
             continue
-        meta = results["metadatas"][0][i]
         matches.append(
             {
                 "id": drawer_id,
                 "wing": meta.get("wing", "?"),
                 "room": meta.get("room", "?"),
-                "similarity": similarity,
                 "content": doc[:200] + "..." if len(doc) > 200 else doc,
             }
         )
@@ -134,7 +116,7 @@ def _add_drawer(wing: str, room: str, content: str, source_file: str | None, add
         return conflict
 
     try:
-        duplicates = _near_identical_drawers(col, content)
+        duplicates = exact_drawer_matches(col, content, wing)
     except Exception as e:
         return {"success": False, "error": f"Duplicate check failed: {e}"}
     if duplicates:
@@ -143,8 +125,9 @@ def _add_drawer(wing: str, room: str, content: str, source_file: str | None, add
             "reason": "duplicate",
             "matches": duplicates,
             "hint": (
-                "A drawer with these facts already exists; cite its id instead of storing a "
-                "copy. New facts or identifiers are stored as a separate drawer."
+                "A drawer in this wing already holds exactly this text; cite its id instead "
+                "of storing a copy. Different wording, a negation, a new condition, or the "
+                "same text in another wing is stored as a separate drawer."
             ),
         }
 
@@ -266,10 +249,10 @@ TOOL_SPECS = {
         "description": (
             "File verbatim content into the palace (at most 100,000 characters; only about "
             "the first 1,000 characters steer search, so file long text as several drawers). "
-            "Refuses a near-identical duplicate "
-            "(reason: duplicate, with the matching drawer ids): an existing drawer with "
-            "cosine similarity >= 0.9 that already contains every number and identifier "
-            "in the new content. Wing and room names are trimmed and case-sensitive; a new "
+            "Refuses an exact duplicate (reason: duplicate, with the matching drawer ids): a "
+            "drawer in the same wing whose complete text is identical. Different wording, a "
+            "negation, a new condition, or the same text in another wing is stored. Wing and "
+            "room names are trimmed and case-sensitive; a new "
             "name that differs from an existing wing or room only by case, spacing, or "
             "punctuation other than + and # is refused with the existing name as a suggestion."
         ),

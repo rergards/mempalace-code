@@ -603,6 +603,16 @@ def test_maintenance_and_degraded_hints_use_the_installation_launcher(tmp_path):
 
 
 class TestMirrorPreflightStateFamilies:
+    # The canonical selective state-directory excludes (the README and docs safe sample).
+    SELECTIVE = (
+        "rsync -a --delete --exclude=palace --exclude='palace.backup-*/' "
+        "--exclude='palace.quarantine-*/' --exclude=knowledge_graph.sqlite3 "
+        "--exclude='knowledge_graph.sqlite3-*' --exclude=knowledge_graph.sqlite3.adopted "
+        "--exclude=config.json --exclude=backups/ --exclude=locks/ "
+        "--exclude='operation.lock*' --exclude='watch-*.claim' "
+    )
+    STATE = "~/.mempalace/ user@host:.mempalace/"
+
     def test_home_mirror_is_checked_for_state_families(self):
         from mempalace_code.mirror_preflight import classify_mirror_command
 
@@ -613,11 +623,13 @@ class TestMirrorPreflightStateFamilies:
         assert result.dangerous
         assert result.pattern_id == "delete-mode-state-mirror-missing-excludes"
         assert result.missing_excludes == [
+            "palace",
             "kg",
             "config",
             "backups",
             "repair-backups",
             "quarantines",
+            "locks",
         ]
 
     def test_home_mirror_excluding_the_state_dir_is_ok(self):
@@ -631,14 +643,16 @@ class TestMirrorPreflightStateFamilies:
         from mempalace_code.mirror_preflight import classify_mirror_command
 
         base = (
-            "rsync -a --delete --exclude=palace/ --exclude=knowledge_graph.sqlite3 "
-            "--exclude=knowledge_graph.sqlite3.adopted --exclude=config.json --exclude=backups/"
+            "rsync -a --delete --exclude=palace --exclude=knowledge_graph.sqlite3 "
+            "--exclude='knowledge_graph.sqlite3-*' --exclude=knowledge_graph.sqlite3.adopted "
+            "--exclude=config.json --exclude=backups/ --exclude=locks/ "
+            "--exclude='operation.lock*' --exclude='watch-*.claim'"
         )
         blocked = classify_mirror_command(f"{base} ~/.mempalace/ user@host:.mempalace/")
         assert blocked.dangerous
         assert blocked.missing_excludes == ["repair-backups", "quarantines"]
 
-        star = base.replace("--exclude=palace/", "--exclude='palace*/'")
+        star = base.replace("--exclude=palace ", "--exclude='palace*' ")
         assert classify_mirror_command(f"{star} ~/.mempalace/ user@host:.mempalace/").ok
 
     def test_relative_state_path_after_cd_is_blocked_as_documented(self):
@@ -652,6 +666,93 @@ class TestMirrorPreflightStateFamilies:
             encoding="utf-8"
         )
         assert "a relative path that names `.mempalace` is still checked" in guide
+
+    def test_directory_only_palace_exclude_leaves_the_regular_guard_file_exposed(self):
+        from mempalace_code.mirror_preflight import classify_mirror_command
+
+        assert classify_mirror_command(self.SELECTIVE + self.STATE).ok
+        for directory_only in ("--exclude=palace/ ", "--exclude='palace*/' "):
+            command = self.SELECTIVE.replace("--exclude=palace ", directory_only) + self.STATE
+            result = classify_mirror_command(command)
+            assert result.dangerous, command
+            assert result.missing_excludes == ["palace"], command
+
+    def test_directory_only_lock_descendants_do_not_protect_regular_locks(self):
+        from mempalace_code.mirror_preflight import classify_mirror_command
+
+        for pattern in ("locks/*/", "locks/**/", "locks/***/"):
+            command = self.SELECTIVE.replace("--exclude=locks/ ", f"--exclude='{pattern}' ")
+            result = classify_mirror_command(command + self.STATE)
+            assert result.dangerous, pattern
+            assert result.missing_excludes == ["locks"], pattern
+
+    def test_locks_and_kg_sidecars_need_their_own_excludes(self):
+        from mempalace_code.mirror_preflight import classify_mirror_command
+
+        for exclude, family in (
+            ("--exclude=locks/ ", "locks"),
+            ("--exclude='operation.lock*' ", "locks"),
+            ("--exclude='watch-*.claim' ", "locks"),
+            ("--exclude='knowledge_graph.sqlite3-*' ", "kg"),
+        ):
+            command = self.SELECTIVE.replace(exclude, "") + self.STATE
+            assert command != self.SELECTIVE + self.STATE, exclude
+            result = classify_mirror_command(command)
+            assert result.dangerous, command
+            assert result.missing_excludes == [family], command
+
+    def test_watch_claims_need_a_whole_family_exclude(self):
+        from mempalace_code.mirror_preflight import classify_mirror_command
+
+        family = "--exclude='watch-*.claim' "
+        for broad in ("'watch-*'", "'*.claim'", "'w*.claim'", "'/watch-*.claim'"):
+            command = self.SELECTIVE.replace(family, f"--exclude={broad} ") + self.STATE
+            assert classify_mirror_command(command).ok, command
+        # One claim name, or a pattern that is no provable superset, leaves other claims exposed.
+        for narrow in (
+            "watch-47322.claim",
+            "'watch-?.claim'",
+            "'watch-[0-9]*.claim'",
+            "'watch-*/'",
+            "'/.mempalace/watch-*.claim'",
+        ):
+            command = self.SELECTIVE.replace(family, f"--exclude={narrow} ") + self.STATE
+            result = classify_mirror_command(command)
+            assert result.dangerous, command
+            assert result.missing_excludes == ["locks"], command
+        # Without a trailing slash the entries may sit below .mempalace/, so an exclude
+        # anchored at the transfer root does not prove them.
+        assert classify_mirror_command(self.SELECTIVE + "~/.mempalace user@host:").ok
+        anchored = self.SELECTIVE.replace(family, "--exclude='/watch-*.claim' ")
+        result = classify_mirror_command(anchored + "~/.mempalace user@host:")
+        assert result.dangerous
+        assert result.missing_excludes == ["locks"]
+
+    def test_configured_palace_inside_the_state_dir_needs_its_own_exclude(self):
+        from mempalace_code.mirror_preflight import classify_mirror_command
+
+        palace = ["~/.mempalace/palace_live"]
+        blocked = classify_mirror_command(self.SELECTIVE + self.STATE, palace)
+        assert blocked.dangerous
+        assert blocked.pattern_id == "delete-mode-state-mirror-missing-excludes"
+        assert blocked.missing_excludes == ["palace"]
+        assert any("palace_live" in warning for warning in blocked.warnings)
+        # Its regular MOVED/guard file is protected only by a file-capable exclude.
+        directory_only = self.SELECTIVE + "--exclude=/palace_live/ " + self.STATE
+        assert classify_mirror_command(directory_only, palace).missing_excludes == ["palace"]
+        assert classify_mirror_command(
+            self.SELECTIVE + "--exclude=/palace_live " + self.STATE, palace
+        ).ok
+
+    def test_home_mirror_with_selective_state_excludes_is_ok(self):
+        from mempalace_code.mirror_preflight import classify_mirror_command
+
+        selective = self.SELECTIVE.replace("--exclude=", "--exclude=/.mempalace/")
+        assert classify_mirror_command(selective + "~/ user@host:backup/").ok
+        exact = selective.replace("'watch-*.claim'", "watch-47322.claim")
+        result = classify_mirror_command(exact + "~/ user@host:backup/")
+        assert result.dangerous
+        assert result.missing_excludes == ["locks"]
 
 
 def test_watch_messages_show_the_wing_normalized_as_mine_stores_it(tmp_path):

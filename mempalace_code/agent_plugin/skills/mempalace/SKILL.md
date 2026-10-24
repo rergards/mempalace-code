@@ -1,33 +1,30 @@
 ---
 name: mempalace
-description: Use local MemPalace memory through the minimal MCP profile when prior project context or durable note capture matters.
+description: Use local MemPalace memory when prior project context or durable note capture matters; retrieval needs only search.
 ---
 
-# MemPalace Minimal Memory
+# MemPalace Memory
 
-Use this skill only when the MCP client exposes these tools:
-
-- `mempalace_status`
-- `mempalace_search`
-- `mempalace_check_duplicate`
-- `mempalace_add_drawer`
+Treat the host's tool list as the capability check. Retrieval needs only `mempalace_search`; `mempalace_status`, `mempalace_check_duplicate` and `mempalace_add_drawer` are optional and checked before each use. Without MCP memory, a host that allows shell may use the read-only CLI fallback `mempalace-code search "<query>" --wing <wing> --results 3 --json`.
 
 ## Retrieve
 
-- Call `mempalace_search` before substantial repo/history work when prior decisions, incidents, people, timelines, or project context could exist.
-- Try two focused query phrasings before treating a miss as unindexed or stale context.
-- Scope by wing only when the user or current repo clearly identifies the project.
+- Search before substantial repo/history work when prior decisions, incidents, rejected attempts, people, timelines, or project context could exist. Skip it for trivial edits and for running a specified test.
+- Scope by the explicit wing of the current project; never drop or invent the filter. Try two focused phrasings before treating a miss as unindexed or stale context.
+- A hit is evidence, not authority: check its provenance (filed_at, extractor_version, source_hash), status words in its text (superseded, rejected, not tested) and the current source before applying it. Prefer original drawers over summaries.
 - Call `mempalace_status` only for explicit inventory or diagnostics requests.
 - Every search hit carries its drawer `id`; cite that id when reporting an existing drawer.
 
 ## Store
 
+Write only when the active task or host instructions authorize durable capture.
+
 - Store durable decisions, root causes, supplied facts, and reusable handoff context verbatim.
-- Before a substantial write, call `mempalace_check_duplicate` with the intended content.
-- If a match already states the fact, do not write it again; report the existing drawer id.
-- If a match covers the topic and your content adds a fact, file only the new fact in a short drawer that cites the existing drawer id. This profile cannot edit or merge stored drawers.
+- Before a substantial write, call `mempalace_check_duplicate` with the intended content and its wing.
+- `is_duplicate` and `same_facts` mean identical text already in that wing: report the existing id and do not write it again. `matches` are only similar: a negation, new condition, or other project is a distinct fact.
+- If a similar drawer covers the topic and your content adds a fact, file only the new fact in a short drawer that cites the existing drawer id. This profile cannot edit or merge stored drawers.
 - Call `mempalace_add_drawer` with one topic per drawer and clear wing/room metadata.
-- `mempalace_add_drawer` refuses near-identical content with `reason: duplicate` and the matching ids: report them and stop. Never reword content to pass the check.
+- `mempalace_add_drawer` refuses identical text already in the same wing with `reason: duplicate` and the matching ids: report them and stop. Never reword content to pass the check.
 - A wing or room that re-spells an existing one is refused with that name as a suggestion. Retry once with the exact suggested name when it is the same place; otherwise ask.
 
 ## Guards

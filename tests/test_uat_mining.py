@@ -89,7 +89,7 @@ def test_failed_changed_source_batch_preserves_previous_drawers(
         if failure in {"embedding", "interrupt"}:
             injected.setattr(store, "_embed", fail)
         else:
-            injected.setattr(store._table, "merge_insert", fail)
+            injected.setattr(type(store._table), "merge_insert", fail)
         expected_error = KeyboardInterrupt if failure == "interrupt" else RuntimeError
         with pytest.raises(expected_error, match=f"injected {failure} failure"):
             _mine(project, palace, collection=store, warmup=False)

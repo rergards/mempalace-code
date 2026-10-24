@@ -118,6 +118,8 @@ MCP search only sees indexed content. If a source/docs directory is missing or s
 
 For large monorepos, prefer the highest-ROI initialized subdirectory first when the human wants a trial. Do not assume unsupported extensions are indexed: normal scans skip file types outside the miner catalog unless an exact file path is force-included.
 
+Project-root `.tasks` and `.local` directories are not indexed by default; same-named directories deeper in the project are. Records filed from them earlier stay searchable. New content there becomes searchable only after a mine with an explicit `--include-ignored` path.
+
 ## Existing memory systems
 
 If the repo already has curated memory docs (`MEMORY.md`, project notes, hand-written summaries), do not mirror them wholesale into drawers. Use stores by job:
@@ -136,6 +138,14 @@ Use the KG for facts that **change over time** or need **exact-match lookup** �
 facts with an explicit `current` output field. For present state, filter the
 returned facts where `current` is `true`; never send `current` as an input
 argument. Pass `as_of` when the question names another date.
+
+Entity names ignore case and surrounding whitespace. Distinct names can share
+an existing legacy identifier; for example, `O'Brien` and `OBrien`. A collision
+returns `InvalidArgumentError` (`-32602` over MCP) before the KG operation changes
+facts. Read the stored display name in the error. Use it only after confirming
+that it identifies the intended entity; otherwise choose a distinct entity name.
+Do not remove punctuation to force a retry or invalidate another entity's facts.
+Existing identifiers are retained, and old ambiguous data is not rewritten.
 
 Update protocol: `mempalace_kg_query` → select the intended returned triple
 whose `current` field is `true` → `mempalace_kg_invalidate` with its exact stored
@@ -156,12 +166,14 @@ Write a drawer after:
 - Durable context about people, timelines, or project goals.
 - Significant session wrap-up others might need.
 
-**Before filing substantial new prose, call `mempalace_check_duplicate`.** If a match already
-states the fact, do not file it again. If your content adds a fact to a matching drawer, file
-only the new fact and cite the existing drawer id; replacing wrong content follows the
-Corrections rules below. `mempalace_add_drawer` refuses a near-identical drawer
-(`reason: duplicate`, cosine similarity ≥ 0.9 with no number or identifier the match lacks): report
-the returned ids and do not reword content to pass the check.
+**Before filing substantial new prose, call `mempalace_check_duplicate` with the intended
+content and wing.** `is_duplicate` and `same_facts` identify identical text already in that
+scope. Similar `matches` are advisory: a negation, changed condition or another project's
+fact can be distinct. Check the original drawer before deciding what to store. If your
+content adds a fact, file the new fact and cite the existing drawer id; replacing wrong
+content follows the Corrections rules below. `mempalace_add_drawer` refuses identical text
+already in the same wing (`reason: duplicate`): report the returned ids and do not reword
+content to pass the check.
 
 Content rules: store verbatim; one topic per drawer; keep it ≤ ~60 lines; reference file paths and issue/PR IDs rather than pasting large blobs.
 

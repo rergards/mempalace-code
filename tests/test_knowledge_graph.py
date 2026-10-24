@@ -17,6 +17,159 @@ import mempalace_code.knowledge_graph as knowledge_graph_module
 from mempalace_code.knowledge_graph import KnowledgeGraph
 
 
+def _write_colliding_entity(db_path, name, barrier, results):
+    graph = KnowledgeGraph(db_path)
+    barrier.wait(timeout=15)
+    try:
+        graph.add_triple(name, "owns", name + " asset")
+    except ValueError:
+        results.put("refused")
+    else:
+        results.put("added")
+
+
+def _graph_rows(kg):
+    with sqlite3.connect(kg.db_path) as conn:
+        return tuple(
+            conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall()
+            for table in ("entities", "triples")
+        )
+
+
+class TestEntityNamePreservation:
+    @pytest.mark.parametrize("names", [("O'Brien", "OBrien"), ("a b", "a_b")])
+    def test_distinct_names_cannot_share_a_legacy_key(self, kg, names):
+        original, collision = names
+        kg.add_triple(original, "owns", "alpha")
+        before = _graph_rows(kg)
+        with pytest.raises(ValueError, match="collides"):
+            kg.add_triple(collision, "owns", "beta")
+        assert _graph_rows(kg) == before
+        assert [fact["object"] for fact in kg.query_entity(original)] == ["alpha"]
+
+    @pytest.mark.parametrize("operation", ["entity", "query", "timeline", "total", "invalidate"])
+    def test_collision_cannot_relabel_read_or_invalidate_another_entity(self, kg, operation):
+        kg.add_entity("O'Brien", "person", {"role": "owner"})
+        kg.add_triple("O'Brien", "owns", "alpha")
+        before = _graph_rows(kg)
+        calls = {
+            "entity": (kg.add_entity, ("OBrien", "project", {"role": "other"})),
+            "query": (kg.query_entity, ("OBrien",)),
+            "timeline": (kg.timeline, ("OBrien",)),
+            "total": (kg.timeline_total, ("OBrien",)),
+            "invalidate": (kg.invalidate, ("OBrien", "owns", "alpha")),
+        }
+        call, args = calls[operation]
+        with pytest.raises(ValueError, match="collides"):
+            call(*args)
+        assert _graph_rows(kg) == before
+
+    def test_object_collision_does_not_create_subject_or_invalidate_fact(self, kg):
+        kg.add_triple("owner", "owns", "a b")
+        before = _graph_rows(kg)
+        with pytest.raises(ValueError, match="collides"):
+            kg.add_triple("new owner", "owns", "a_b")
+        with pytest.raises(ValueError, match="collides"):
+            kg.invalidate("owner", "owns", "a_b")
+        assert _graph_rows(kg) == before
+
+    def test_same_fact_with_conflicting_names_is_refused_before_duplicate_match(self, kg):
+        kg.add_triple("O'Brien", "owns", "alpha", valid_from="2026-01-01")
+        before = _graph_rows(kg)
+        with pytest.raises(ValueError, match="collides"):
+            kg.add_triple("OBrien", "owns", "alpha", valid_from="2026-02-01")
+        assert _graph_rows(kg) == before
+
+    def test_case_and_outer_whitespace_keep_existing_identity(self, kg):
+        tid = kg.add_triple("Alice", "owns", "An Asset")
+        before = _graph_rows(kg)
+        assert kg.add_triple(" ALICE ", "owns", " an asset ") == tid
+        assert kg.query_entity(" alice ")[0]["subject"] == "Alice"
+        assert kg.timeline_total(" ALICE ") == 1
+        assert _graph_rows(kg) == before
+
+    @pytest.mark.parametrize("dry_run", [False, True])
+    @pytest.mark.parametrize("entity_records", [False, True])
+    def test_import_collision_preserves_all_existing_rows(self, kg, dry_run, entity_records):
+        kg.add_triple("O'Brien", "owns", "alpha")
+        before = _graph_rows(kg)
+        entities = [{"name": "OBrien", "entity_type": "project"}] if entity_records else []
+        triples = (
+            [] if entity_records else [{"subject": "OBrien", "predicate": "owns", "object": "beta"}]
+        )
+        with pytest.raises(ValueError, match="collides"):
+            kg.import_facts(triples, entities, dry_run=dry_run)
+        assert _graph_rows(kg) == before
+
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_import_collision_within_new_batch_is_atomic(self, kg, dry_run):
+        before = _graph_rows(kg)
+        with pytest.raises(ValueError, match="collides"):
+            kg.import_facts(
+                [
+                    {"subject": "O'Brien", "predicate": "owns", "object": "alpha"},
+                    {"subject": "OBrien", "predicate": "owns", "object": "beta"},
+                ],
+                dry_run=dry_run,
+            )
+        assert _graph_rows(kg) == before
+
+    def test_sync_collision_precedes_expiry_and_deduplication(self, kg):
+        kg.add_triple("old", "owns", "asset", source_file="source.py")
+        before = _graph_rows(kg)
+        with pytest.raises(ValueError, match="collides"):
+            kg.sync_facts(
+                [
+                    ("O'Brien", "owns", "alpha", "source.py"),
+                    ("OBrien", "owns", "beta", "source.py"),
+                ],
+                source_files=["source.py"],
+            )
+        assert _graph_rows(kg) == before
+
+    def test_concurrent_collision_has_one_owner(self, kg):
+        context = multiprocessing.get_context("spawn")
+        barrier = context.Barrier(2)
+        results = context.Queue()
+        children = [
+            context.Process(
+                target=_write_colliding_entity, args=(kg.db_path, name, barrier, results)
+            )
+            for name in ("O'Brien", "OBrien")
+        ]
+        for child in children:
+            child.start()
+        for child in children:
+            child.join(timeout=20)
+            assert child.exitcode == 0
+        assert sorted(results.get(timeout=5) for _ in children) == ["added", "refused"]
+        assert kg.stats()["triples"] == 1
+
+    @pytest.mark.parametrize("operation", ["query", "timeline", "total"])
+    def test_name_check_and_read_share_a_snapshot(self, kg, monkeypatch, operation):
+        check = knowledge_graph_module._check_entity_names
+        inserted = False
+
+        def race(conn, names, **kwargs):
+            nonlocal inserted
+            check(conn, names, **kwargs)
+            if names == ["OBrien"] and not inserted:
+                inserted = True
+                kg.add_triple("O'Brien", "owns", "alpha")
+
+        monkeypatch.setattr(knowledge_graph_module, "_check_entity_names", race)
+        if operation == "query":
+            assert kg.query_entity("OBrien") == []
+        elif operation == "timeline":
+            assert kg.timeline("OBrien") == []
+        else:
+            assert kg.timeline_total("OBrien") == 0
+        assert inserted
+        with pytest.raises(ValueError, match="collides"):
+            kg.query_entity("OBrien")
+        assert kg.query_entity("O'Brien")[0]["object"] == "alpha"
+
+
 class _FixedDateTime(datetime):
     @classmethod
     def now(cls, tz=None):

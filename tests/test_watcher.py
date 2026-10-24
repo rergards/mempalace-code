@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 from argparse import Namespace
+from contextlib import contextmanager
 from pathlib import Path
 from types import FrameType
 from typing import TYPE_CHECKING
@@ -213,6 +214,39 @@ class TestIsRelevantChange:
             proj,
             include_ignored=["node_modules/special.js"],
         )
+
+    # --- Project-root technical directories (scanner-owned predicate) ---
+
+    def test_rejects_project_root_technical_receipts(self, proj):
+        """Default events below project-root .tasks/.local never start a cycle."""
+        assert not _is_relevant_change(str(proj / ".tasks" / "x" / "report.md"), proj)
+        assert not _is_relevant_change(str(proj / ".tasks" / "t1" / "plain-receipt.json"), proj)
+        assert not _is_relevant_change(
+            str(proj / ".local" / "cycle" / "tmp" / "current.json"), proj
+        )
+        # A vanished extension-less path there is no directory candidate either.
+        assert not _is_relevant_change(str(proj / ".tasks" / "gone"), proj)
+
+    def test_rejects_existing_technical_root_directory_events(self, proj):
+        report = proj / ".tasks" / "x" / "report.md"
+        report.parent.mkdir(parents=True)
+        report.write_text("# Report\n", encoding="utf-8")
+        assert not _is_relevant_change(str(proj / ".tasks"), proj)
+        assert not _is_relevant_change(str(proj / ".tasks" / "x"), proj)
+
+    def test_accepts_same_named_directories_below_the_project_root(self, proj):
+        assert _is_relevant_change(str(proj / "docs" / ".tasks" / "report.md"), proj)
+        assert _is_relevant_change(str(proj / "docs" / ".local" / "notes.md"), proj)
+
+    def test_include_ignored_selects_technical_paths(self, proj):
+        include = [".tasks/x/report.md"]
+        report = proj / ".tasks" / "x" / "report.md"
+        assert _is_relevant_change(str(report), proj, include_ignored=include)
+        assert not _is_relevant_change(
+            str(proj / ".tasks" / "x" / "other.md"), proj, include_ignored=include
+        )
+        local = proj / ".local" / "a" / "b.json"
+        assert _is_relevant_change(str(local), proj, include_ignored=[".local"])
 
     # --- Delete events ---
 
@@ -478,6 +512,32 @@ class TestWatchAndMine:
             watch_and_mine(str(project), str(tmp_path / "palace"))
 
         # Only the initial mine; no re-mine for .pyc
+        assert len(mine_calls) == 1
+
+    def test_watch_skips_project_root_technical_changes(self, tmp_path):
+        """Receipt churn below project-root .tasks/.local does not trigger a re-mine."""
+        from watchfiles import Change
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        changes = [
+            {
+                (Change.added, str(project / ".tasks" / "t1" / "plain-receipt.json")),
+                (Change.modified, str(project / ".local" / "cycle" / "tmp" / "current.json")),
+            }
+        ]
+        mine_calls = []
+
+        def fake_mine(**kwargs):
+            mine_calls.append(kwargs)
+
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
+        ):
+            watch_and_mine(str(project), str(tmp_path / "palace"))
+
+        # Only the initial mine; technical-root events start no cycle.
         assert len(mine_calls) == 1
 
     def test_watch_detects_file_deletion(self, tmp_path):
@@ -1577,6 +1637,207 @@ class TestOptimizeOnce:
         mock_store.optimize.assert_called_once()
         captured = capsys.readouterr()
         assert "done" in captured.out
+
+    def test_disabled_optimize_refuses_before_any_store_work(self, monkeypatch, capsys):
+        """optimize_after_mine=False refuses before any store, backup, or optimize."""
+        from mempalace_code.watcher import _optimize_once
+
+        monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
+        opened = []
+
+        def refuse_open(*args, **kwargs):
+            opened.append(args)
+            raise AssertionError("a disabled optimize must not open a store")
+
+        with (
+            patch("mempalace_code.watcher.optimize_store") as optimize,
+            patch("mempalace_code.backup.create_backup") as backup,
+        ):
+            outcome = _optimize_once("/fake/palace", refuse_open)
+
+        assert outcome == "skipped:disabled"
+        assert opened == []
+        optimize.assert_not_called()
+        backup.assert_not_called()
+        assert "Skipping optimize (disabled in config)" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Watcher batch maintenance: one guarded decision per batch
+# ---------------------------------------------------------------------------
+
+
+def _seed_pending_copy_record(palace: Path) -> None:
+    """Leave the record an exact-copy removal writes before maintenance has run."""
+    from mempalace_code.mining import orchestrator
+
+    record = orchestrator._copy_reconcile_record_path(str(palace))
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"event": "summary", "maintenance": None}) + "\n")
+
+
+def _watch_projects(tmp_path: Path, entrypoint: str) -> tuple[Path, list[Path]]:
+    """Return the watch root and its projects: one project, or two under a parent."""
+    root = tmp_path / "root"
+    projects = [root] if entrypoint == "watch_and_mine" else [root / "alpha", root / "beta"]
+    for project in projects:
+        _make_project(project)
+        (project / "mempalace.yaml").write_text(f"wing: {project.name}\n", encoding="utf-8")
+    return root, projects
+
+
+def _run_entrypoint(entrypoint: str, root: Path, palace: Path) -> None:
+    if entrypoint == "watch_and_mine":
+        watch_and_mine(str(root), str(palace))
+    else:
+        watch_all(str(root), str(palace), on_commit=False)
+
+
+class TestWatcherBatchMaintenance:
+    """One guarded maintenance decision per watcher batch, at both entry points."""
+
+    @pytest.mark.parametrize("filed, enabled", [(0, True), (1, False)])
+    def test_retention_runs_before_idle_or_optimize_disabled(
+        self, palace_path, tmp_path, monkeypatch, filed, enabled
+    ):
+        from mempalace_code.backup import create_backup
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        graph = KnowledgeGraph(db_path=os.path.join(palace_path, "knowledge_graph.sqlite3"))
+        graph.add_triple("source", "has", "retained evidence")
+        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "0")
+        paths = [
+            create_backup(palace_path, kind=kind)[1]
+            for kind in ("pre_optimize", "scheduled", "pre_watch")
+        ]
+        monkeypatch.setenv("MEMPALACE_BACKUP_RETAIN_COUNT", "2")
+        monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "1" if enabled else "0")
+        with patch("mempalace_code.backup.create_backup") as create:
+            outcome = watcher_module._batch_maintenance(
+                palace_path,
+                MagicMock(),
+                None,
+                filed=filed,
+                should_run=lambda: True,
+                wing_label="project",
+            )
+        assert outcome == ("idle" if not filed else "skipped:disabled")
+        assert not os.path.exists(paths[0])
+        assert all(os.path.isfile(path) for path in paths[1:])
+        create.assert_not_called()
+
+    @pytest.mark.parametrize("filed", [0, 2])
+    @pytest.mark.parametrize("entrypoint", ["watch_and_mine", "watch_all"])
+    def test_pending_copy_maintenance_replaces_optimize_once_per_batch(
+        self, tmp_path, capsys, entrypoint, filed
+    ):
+        """Startup and event batches retry pending maintenance once each, under the lease."""
+        from watchfiles import Change
+
+        root, projects = _watch_projects(tmp_path, entrypoint)
+        palace = tmp_path / "palace"
+        _seed_pending_copy_record(palace)
+        held = [0]
+        events: list = []
+        real_lease = watcher_module.palace_write_lease
+
+        @contextmanager
+        def recording_lease(path, operation, **kwargs):
+            with real_lease(path, operation, **kwargs):
+                held[0] += 1
+                try:
+                    yield
+                finally:
+                    held[0] -= 1
+
+        def fake_mine(**kwargs):
+            events.append(("mine", kwargs["skip_optimize"]))
+            return {"drawers_filed": filed, "files_processed": 1, "elapsed_secs": 0}
+
+        def fake_retry(collection, wing, palace_path, kg_path, outcome):
+            events.append(("retry", held[0] > 0))
+            return {**outcome, "copy_disk": {"maintenance": {"ok": True}, "reason": "retried"}}
+
+        changes = [{(Change.modified, str(project / "app.py")) for project in projects}]
+        with (
+            patch("mempalace_code.watcher.mine", side_effect=fake_mine),
+            patch("mempalace_code.watcher.get_collection", return_value=MagicMock()),
+            patch("mempalace_code.watcher.create_backup", return_value=({}, "archive.tar.gz")),
+            patch("mempalace_code.watcher.palace_write_lease", recording_lease),
+            patch("mempalace_code.watcher._retry_copy_maintenance", side_effect=fake_retry),
+            patch("mempalace_code.watcher._optimize_once") as optimize_once,
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=10 * 1024**3),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory(changes)),
+        ):
+            _run_entrypoint(entrypoint, root, palace)
+
+        mines = [event for event in events if event[0] == "mine"]
+        assert mines == [("mine", True)] * (2 * len(projects))
+        assert [event for event in events if event[0] == "retry"] == [("retry", True)] * 2
+        optimize_once.assert_not_called()
+        assert "state=optimize-skipped reason=deferred" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("entrypoint", ["watch_and_mine", "watch_all"])
+    def test_disabled_optimize_skips_both_maintenance_paths(
+        self, tmp_path, capsys, monkeypatch, entrypoint
+    ):
+        """optimize_after_mine=False stops both the copy retry and the ordinary optimize."""
+        root = _watch_projects(tmp_path, entrypoint)[0]
+        palace = tmp_path / "palace"
+        _seed_pending_copy_record(palace)
+        monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "0")
+        with (
+            patch(
+                "mempalace_code.watcher.mine",
+                return_value={"drawers_filed": 1, "files_processed": 1, "elapsed_secs": 0},
+            ),
+            patch("mempalace_code.watcher.get_collection", return_value=MagicMock()),
+            patch("mempalace_code.watcher.create_backup", return_value=({}, "archive.tar.gz")),
+            patch("mempalace_code.watcher._retry_copy_maintenance") as retry,
+            patch("mempalace_code.watcher.optimize_store") as optimize,
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("mempalace_code.disk_budget.free_bytes", return_value=10 * 1024**3),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            _run_entrypoint(entrypoint, root, palace)
+
+        retry.assert_not_called()
+        optimize.assert_not_called()
+        assert "state=optimize-skipped reason=disabled" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("entrypoint", ["watch_and_mine", "watch_all"])
+    def test_disk_budget_denial_after_mining_skips_both_maintenance_paths(
+        self, tmp_path, capsys, entrypoint
+    ):
+        """A budget denied after the mine stops both the copy retry and the optimize."""
+        root = _watch_projects(tmp_path, entrypoint)[0]
+        palace = tmp_path / "palace"
+        _seed_pending_copy_record(palace)
+        allowed = iter([True])
+
+        def budget(palace_path, min_free):
+            return MagicMock(allowed=next(allowed, False))
+
+        with (
+            patch(
+                "mempalace_code.watcher.mine",
+                return_value={"drawers_filed": 1, "files_processed": 1, "elapsed_secs": 0},
+            ),
+            patch("mempalace_code.watcher.get_collection", return_value=MagicMock()),
+            patch("mempalace_code.watcher.create_backup", return_value=({}, "archive.tar.gz")),
+            patch("mempalace_code.watcher.check_configured_watch_budget", side_effect=budget),
+            patch("mempalace_code.watcher._format_budget_skip_message", return_value="low disk"),
+            patch("mempalace_code.watcher._retry_copy_maintenance") as retry,
+            patch("mempalace_code.watcher.optimize_store") as optimize,
+            patch("mempalace_code.knowledge_graph.KnowledgeGraph"),
+            patch("watchfiles.watch", side_effect=_fake_watch_factory([])),
+        ):
+            _run_entrypoint(entrypoint, root, palace)
+
+        retry.assert_not_called()
+        optimize.assert_not_called()
+        assert "state=optimize-skipped reason=disk-budget" in capsys.readouterr().out
 
 
 # Disk-budget gating tests (AC-1, AC-2, AC-3)

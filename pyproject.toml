@@ -1,6 +1,6 @@
 [project]
 name = "mempalace-code"
-version = "1.16.0"
+version = "1.16.1"
 description = "Developer memory tool — mine codebases and conversations into a LanceDB-backed searchable palace. No API key required."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,15 +30,19 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
+    "certifi>=2026.10.19",
+    "filelock>=4.2.1",
     "lancedb>=0.20",
     "pyarrow<25",
     "overrides>=7.7",
     "fastembed>=0.8,<0.9",
     "huggingface-hub>=0.20,<2",
+    "fsspec>=2026.6.0",
     "onnxruntime>=1.20,<2",
     "pyyaml>=6.0",
     "packaging>=21.0",
-    "mcp>=2,<3",
+    "mcp>=2.2,<3",
+    "opentelemetry-api>=1.45.1",
 ]
 
 [project.urls]
@@ -53,7 +57,7 @@ mempalace-code-alias = "mempalace_code.cli:main_alias"
 mempalace-code-mcp = "mempalace_code.mcp_launcher:main"
 
 [project.optional-dependencies]
-custom-models = ["sentence-transformers>=5.6.0"]
+custom-models = ["sentence-transformers>=5.6.0", "setuptools>=84.1.0"]
 dev = ["pytest>=7.0", "pyright>=1.1.350", "ruff==0.15.16", "watchfiles>=1.0", "build>=1.0", "twine>=5.0", "jsonschema>=4.18", "actionlint-py==1.7.12.24", "zizmor==1.29.0", "pypi-attestations==0.0.30"]
 spellcheck = ["autocorrect>=2.0"]
 watch = ["watchfiles>=1.0"]

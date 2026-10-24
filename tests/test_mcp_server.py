@@ -169,6 +169,7 @@ def test_degraded_retry_requires_a_usable_fresh_table(monkeypatch, tmp_path, sta
     palace = tmp_path / "absent-palace"
     monkeypatch.setattr(runtime, "_config", SimpleNamespace(palace_path=str(palace)))
     store = object.__new__(LanceStore)
+    store._palace_path = str(palace)
     store._read_only = True
 
     def failed_table(name):
@@ -826,7 +827,7 @@ class TestWriteTools:
         assert result["is_duplicate"] is False
 
     def test_duplicate_threshold_is_cosine(self, monkeypatch, config, palace_path, kg, pin_cosine):
-        """The 0.9 default means cosine 0.9: a 0.92 paraphrase is a duplicate, 0.85 is not."""
+        """The 0.9 default is cosine 0.9 for advisory matches; only identical text refuses."""
         _patch_mcp_server(monkeypatch, config, palace_path, kg)
         _ensure_store(palace_path)
         from mempalace_code.mcp_server import tool_add_drawer, tool_check_duplicate
@@ -836,15 +837,23 @@ class TestWriteTools:
         distinct = pin_cosine("Weekly backups run on Sundays.", 0.85, axis=3)
         assert tool_add_drawer(wing="ops", room="backups", content=original)["success"] is True
 
-        duplicate = tool_check_duplicate(paraphrase)
-        assert duplicate["is_duplicate"] is True
-        matches = cast("list[dict[str, Any]]", duplicate["matches"])
+        # The paraphrase drops a condition ("keep 14 days"): similar, not the same fact.
+        similar = tool_check_duplicate(paraphrase)
+        assert similar["is_duplicate"] is False
+        assert similar["same_facts"] == []
+        matches = cast("list[dict[str, Any]]", similar["matches"])
         assert [match["similarity"] for match in matches] == [0.92]
-        assert tool_check_duplicate(distinct) == {"is_duplicate": False, "matches": []}
+        unrelated = tool_check_duplicate(distinct)
+        assert unrelated["is_duplicate"] is False
+        assert unrelated["matches"] == []
+        exact = tool_check_duplicate(original)
+        assert exact["is_duplicate"] is True
+        assert [match["wing"] for match in exact["same_facts"]] == ["ops"]
 
-        refused = tool_add_drawer(wing="ops", room="backups", content=paraphrase)
+        refused = tool_add_drawer(wing="ops", room="backups", content=original)
         assert refused["success"] is False
         assert refused["reason"] == "duplicate"
+        assert tool_add_drawer(wing="ops", room="backups", content=paraphrase)["success"] is True
         assert tool_add_drawer(wing="ops", room="backups", content=distinct)["success"] is True
 
 

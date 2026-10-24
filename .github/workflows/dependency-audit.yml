@@ -12,6 +12,9 @@ permissions:
 jobs:
   current-audit:
     runs-on: ubuntu-latest
+    # Keep full resolver installs without retaining duplicate download caches.
+    env:
+      PIP_NO_CACHE_DIR: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -20,28 +23,53 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: |
-            pyproject.toml
-            uv.lock
 
       - name: Install audit dependencies
         run: pip install pip-audit
 
       - name: Run current dependency audit
         id: audit
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: |
+          findmnt -T /tmp -n -o FSTYPE,SIZE,AVAIL
+          findmnt -T "$RUNNER_TEMP" -n -o FSTYPE,SIZE,AVAIL
+          python - <<'PYTEMP'
+          import os
+          import tempfile
+          from pathlib import Path
+
+          if Path(tempfile.gettempdir()).resolve() != Path(os.environ["RUNNER_TEMP"]).resolve():
+              raise SystemExit("Audit temporary directory must use runner storage")
+          print("Audit temporary directory uses runner storage")
+          PYTEMP
           set +e
           python scripts/dependency_upgrade_gate.py current-audit \
             --out-dir dependency-audit-output
           rc=$?
           echo "audit_exit=$rc" >> "$GITHUB_OUTPUT"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = Path("dependency-audit-output/current-audit-report.json")
+          status = json.loads(report.read_text())["status"]
+          if status not in {"clean", "accepted_risk", "findings"}:
+              raise SystemExit("Unknown audit status")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"audit_status={status}\n")
+          PY
+          status_rc=$?
+          if [ "$status_rc" -ne 0 ]; then
+            exit "$status_rc"
+          fi
           exit $rc
         continue-on-error: true
 
       - name: Upload audit artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dependency-audit-report
           path: dependency-audit-output/
@@ -50,7 +78,7 @@ jobs:
       # One issue tracks the findings: it is matched by its exact title, updated
       # on every failing run, and closed by the first clean run below.
       - name: Create or update dependency-audit issue
-        if: steps.audit.outcome == 'failure'
+        if: (steps.audit.outcome == 'failure' || steps.audit.outputs.audit_status == 'accepted_risk') && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -93,7 +121,7 @@ jobs:
       # must never turn a clean audit into a failed run: release admission reads
       # this workflow's conclusion.
       - name: Close resolved dependency-audit issue
-        if: steps.audit.outcome == 'success' && github.ref == 'refs/heads/main'
+        if: steps.audit.outcome == 'success' && steps.audit.outputs.audit_status == 'clean' && github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
