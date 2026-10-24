@@ -259,6 +259,7 @@ class TestLegacyAdoptionBranches:
         legacy.add_triple("App", "uses", "Kafka", valid_from="2025-01-01")
         palace = KnowledgeGraph(db_path=str(scratch_home.palace_kg))
         open_conn = KnowledgeGraph._conn
+        raced = False
 
         class RacingConnection:
             def __init__(self, conn):
@@ -268,19 +269,38 @@ class TestLegacyAdoptionBranches:
                 return getattr(self._conn, name)
 
             def execute(self, sql, *params):
-                if sql == "BEGIN IMMEDIATE":
+                nonlocal raced
+                if sql == "BEGIN IMMEDIATE" and not raced:
                     # A concurrent writer lands between the filter and the write lock.
+                    raced = True
                     palace.add_triple("App", "uses", "Redis", valid_from="2026-01-01")
                 return self._conn.execute(sql, *params)
 
         monkeypatch.setattr(KnowledgeGraph, "_conn", lambda kg: RacingConnection(open_conn(kg)))
 
         assert adopt_legacy_kg(str(scratch_home.palace)) == 1
+        assert raced
 
         assert _windows(scratch_home.palace_kg) == [
             ("app", "uses", "kafka", "2025-01-01", None),
             ("app", "uses", "redis", "2026-01-01", None),
         ]
+
+    def test_adoption_refuses_a_foreign_name_at_an_occupied_id(self, scratch_home):
+        legacy = KnowledgeGraph(db_path=str(scratch_home.legacy))
+        legacy.add_triple("OBrien", "owns", "beta")
+        palace = KnowledgeGraph(db_path=str(scratch_home.palace_kg))
+        palace.add_triple("O'Brien", "owns", "alpha")
+        before = _facts(scratch_home.palace_kg)
+        with sqlite3.connect(scratch_home.palace_kg) as conn:
+            entities_before = conn.execute("SELECT * FROM entities ORDER BY id").fetchall()
+
+        assert adopt_legacy_kg(str(scratch_home.palace)) == 0
+
+        assert _facts(scratch_home.palace_kg) == before
+        with sqlite3.connect(scratch_home.palace_kg) as conn:
+            assert conn.execute("SELECT * FROM entities ORDER BY id").fetchall() == entities_before
+        assert not scratch_home.legacy.with_name(scratch_home.legacy.name + ".adopted").exists()
 
     def test_other_palace_never_receives_legacy_facts(self, scratch_home, tmp_path):
         KnowledgeGraph(db_path=str(scratch_home.legacy)).add_triple("Global", "knows", "All")

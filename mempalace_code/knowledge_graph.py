@@ -45,6 +45,7 @@ import sys
 import time
 import uuid
 import warnings
+from contextlib import closing
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -589,6 +590,9 @@ def adopt_legacy_kg(palace_path: str, *, after_import_of_version: str | None = N
                 known = set(conn.execute("SELECT subject, predicate, object FROM triples"))
                 missing = {row[1:4] for row in triples} - known
                 conn.execute("BEGIN IMMEDIATE")
+                _check_entity_names(
+                    conn, [row[1] for row in entities], entity_ids=[row[0] for row in entities]
+                )
                 missing = {
                     spo for spo in missing if conn.execute(_HAS_FACT, spo).fetchone() is None
                 }
@@ -606,7 +610,7 @@ def adopt_legacy_kg(palace_path: str, *, after_import_of_version: str | None = N
                 conn.commit()
             finally:
                 conn.close()
-    except (OSError, sqlite3.Error, KnowledgeGraphCorruptError) as exc:
+    except (OSError, sqlite3.Error, KnowledgeGraphCorruptError, InvalidArgumentError) as exc:
         print(
             f"\n  Warning: legacy knowledge graph {legacy} was not adopted into {target} "
             f"({exc}); no facts were copied and it will be retried on the next open.\n"
@@ -672,6 +676,27 @@ def _entity_key(name: str) -> str:
     return name.strip().lower().replace(" ", "_").replace("'", "")
 
 
+def _check_entity_names(
+    conn: sqlite3.Connection, names: list[str], *, entity_ids: list[str] | None = None
+) -> None:
+    """Refuse legacy-key collisions, including two names in one incoming batch."""
+    pending: dict[str, str] = {}
+    for index, name in enumerate(names):
+        name = name.strip()
+        eid = entity_ids[index] if entity_ids is not None else _entity_key(name)
+        stored = pending.get(eid)
+        if stored is None:
+            row = conn.execute("SELECT name FROM entities WHERE id=?", (eid,)).fetchone()
+            stored = row[0] if row is not None else name
+        if stored.strip().lower() != name.lower():
+            raise InvalidArgumentError(
+                f"Entity name {name!r} collides with {stored!r} at id {eid!r}; "
+                "use the stored display name or a name with a distinct entity id",
+                argument="entity",
+            )
+        pending[eid] = stored
+
+
 def _snapshot_connection(db_path: str) -> sqlite3.Connection:
     """Return an in-memory copy of *db_path* (or an empty KG) that a dry run may write."""
     memory = sqlite3.connect(":memory:")
@@ -712,6 +737,13 @@ def _merge_import(conn: sqlite3.Connection, triples, entities) -> dict:
       4. Otherwise the record is inserted with its exported id (unless another fact
          holds it) and its extracted_at.
     """
+    names = [str(record.get("name") or "").strip() for record in entities]
+    names.extend(
+        str(record.get(field) or "").strip()
+        for record in triples
+        for field in ("subject", "object")
+    )
+    _check_entity_names(conn, [name for name in names if name])
     summary: dict = {
         "inserted": 0,
         "duplicates": 0,
@@ -933,12 +965,16 @@ class KnowledgeGraph:
         eid = self._entity_id(name)
         props = json.dumps(properties or {})
         conn = self._conn()
-        conn.execute(
-            "INSERT OR REPLACE INTO entities (id, name, type, properties) VALUES (?, ?, ?, ?)",
-            (eid, name, entity_type, props),
-        )
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            _check_entity_names(conn, [name])
+            conn.execute(
+                "INSERT OR REPLACE INTO entities (id, name, type, properties) VALUES (?, ?, ?, ?)",
+                (eid, name, entity_type, props),
+            )
+            conn.commit()
+        finally:
+            conn.close()
         return eid
 
     @staticmethod
@@ -1069,6 +1105,8 @@ class KnowledgeGraph:
         now = datetime.now(UTC)
         conn = self._conn()
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            _check_entity_names(conn, [subject, obj])
             copies = conn.execute(
                 "SELECT id, valid_from, valid_to FROM triples"
                 " WHERE subject=? AND predicate=? AND object=? ORDER BY rowid",
@@ -1247,6 +1285,8 @@ class KnowledgeGraph:
         obj_id = self._entity_id(wing_name)
         conn = self._conn()
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            _check_entity_names(conn, [wing_name])
             cursor = conn.execute(
                 "UPDATE triples SET valid_to=? WHERE valid_to IS NULL"
                 " AND source_file=? AND predicate='in_project' AND object=?",
@@ -1278,6 +1318,8 @@ class KnowledgeGraph:
 
         conn = self._conn()
         try:
+            conn.execute("BEGIN IMMEDIATE")
+            _check_entity_names(conn, [subject, obj])
             # Validate ended against each active row's valid_from before mutating
             active = conn.execute(
                 "SELECT valid_from FROM triples WHERE subject=? AND predicate=? AND object=?"
@@ -1374,16 +1416,19 @@ class KnowledgeGraph:
             params.extend(exclude_predicates)
 
         desired: dict = {}
+        names: list[str] = []
         for subject, predicate, obj, source_file in facts:
             subject = str(subject).strip()
             obj = str(obj).strip()
             pred = _normalize_predicate(str(predicate))
+            names.extend((subject, obj))
             key = (self._entity_id(subject), pred, self._entity_id(obj))
             desired.setdefault(key, (subject, pred, obj, source_file))
 
         conn = self._conn()
         try:
             conn.execute("BEGIN IMMEDIATE")
+            _check_entity_names(conn, names)
             kept: set = set()
             stale: list = []
             for row_id, sub_id, pred, obj_id in conn.execute(
@@ -1435,21 +1480,20 @@ class KnowledgeGraph:
         eid = self._entity_id(name)
         as_of_parsed = _parse_temporal(as_of)
         current_instant = datetime.now(UTC)
-        conn = self._conn()
-
         results = []
         sides = [("outgoing", "t.subject"), ("incoming", "t.object")]
-        for side, column in sides:
-            if direction not in (side, "both"):
-                continue
-            for row in conn.execute(
-                f"{_FACT_SELECT} WHERE {column} = ? ORDER BY t.rowid", (eid,)
-            ).fetchall():
-                if as_of_parsed is not None and not _in_window(row[4], row[5], as_of_parsed):
+        with closing(self._conn()) as conn:
+            conn.execute("BEGIN")
+            _check_entity_names(conn, [name])
+            for side, column in sides:
+                if direction not in (side, "both"):
                     continue
-                results.append({"direction": side, **_fact_row(row, current_instant)})
-
-        conn.close()
+                for row in conn.execute(
+                    f"{_FACT_SELECT} WHERE {column} = ? ORDER BY t.rowid", (eid,)
+                ).fetchall():
+                    if as_of_parsed is not None and not _in_window(row[4], row[5], as_of_parsed):
+                        continue
+                    results.append({"direction": side, **_fact_row(row, current_instant)})
         return results
 
     def query_relationship(self, predicate: str, as_of: str | None = None):
@@ -1480,13 +1524,14 @@ class KnowledgeGraph:
         """
         current_instant = datetime.now(UTC)
         where, params = self._timeline_filter(entity_name)
-        conn = self._conn()
-        rows = conn.execute(
-            f"{_FACT_SELECT}{where} ORDER BY t.valid_from ASC NULLS LAST, t.extracted_at ASC,"
-            " t.rowid ASC LIMIT ? OFFSET ?",
-            [*params, -1 if limit is None else limit, max(0, offset)],
-        ).fetchall()
-        conn.close()
+        with closing(self._conn()) as conn:
+            conn.execute("BEGIN")
+            _check_entity_names(conn, [entity_name] if entity_name else [])
+            rows = conn.execute(
+                f"{_FACT_SELECT}{where} ORDER BY t.valid_from ASC NULLS LAST, t.extracted_at ASC,"
+                " t.rowid ASC LIMIT ? OFFSET ?",
+                [*params, -1 if limit is None else limit, max(0, offset)],
+            ).fetchall()
         facts = []
         for row in rows:
             fact = _fact_row(row, current_instant)
@@ -1497,9 +1542,10 @@ class KnowledgeGraph:
     def timeline_total(self, entity_name: str | None = None) -> int:
         """Return how many facts :meth:`timeline` pages through for *entity_name*."""
         where, params = self._timeline_filter(entity_name)
-        conn = self._conn()
-        total = conn.execute(f"SELECT COUNT(*) FROM triples t{where}", params).fetchone()[0]
-        conn.close()
+        with closing(self._conn()) as conn:
+            conn.execute("BEGIN")
+            _check_entity_names(conn, [entity_name] if entity_name else [])
+            total = conn.execute(f"SELECT COUNT(*) FROM triples t{where}", params).fetchone()[0]
         return total
 
     def _timeline_filter(self, entity_name: str | None) -> tuple[str, list]:

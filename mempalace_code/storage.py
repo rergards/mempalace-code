@@ -17,8 +17,10 @@ uses instead of calling LanceDB directly. Current releases are LanceDB-only.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import importlib
+import inspect
 import json
 import logging
 import math
@@ -37,11 +39,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from importlib.util import find_spec
 from pathlib import Path
-from threading import Lock
+from threading import Lock, current_thread
 from typing import Any, Dict, List, Optional, Protocol, cast, runtime_checkable
 
 from mempalace_code.config import expand_palace_path
-from mempalace_code.operation_lock import palace_write_lease
+from mempalace_code.operation_lock import (
+    OperationLockedError,
+    OperationLockUnavailable,
+    palace_snapshot_fence,
+    palace_write_lease,
+)
 from mempalace_code.retrieval_rerank import overfetch_limit, rerank, should_overfetch
 from mempalace_code.version import __version__
 
@@ -84,6 +91,103 @@ class _LanceDBConnectionProtocol(Protocol):
     def create_table(
         self, name: str, schema: Any = None, exist_ok: bool = False
     ) -> _LanceTableProtocol: ...
+
+
+class _SnapshotOpenError(RuntimeError):
+    """A fresh table handle could not be opened inside the snapshot fence."""
+
+
+# Descriptor-only fence uses the existing operation-lock owner, separate from writers.
+# Only this thread can reuse a lease; another thread must acquire its own descriptor.
+@dataclass
+class _SnapshotHold:
+    fence: Any
+    maintenance: bool
+    owner: Any
+    depth: int = 0
+
+
+_SNAPSHOT_HOLDS: dict[tuple[int, object, str], _SnapshotHold] = {}
+
+
+@contextmanager
+def _snapshot_lease(store, *, maintenance=False):
+    # An unopened/projection-only object has no connected Lance snapshot.
+    if getattr(store, "_db", None) is None:
+        yield
+        return
+    path = os.path.realpath(store._palace_path)
+    key = (os.getpid(), current_thread(), path)
+    held = _SNAPSHOT_HOLDS.get(key)
+    if held is not None:
+        if maintenance and not held.maintenance:
+            raise OperationLockedError({"operation": "active read stream in this thread"})
+    else:
+        try:
+            fence = palace_snapshot_fence(path, maintenance=maintenance)
+            fence.__enter__()
+        except OperationLockUnavailable:
+            if maintenance:
+                raise
+            # Retain the existing non-POSIX read ability, never authorize cleanup.
+            yield
+            return
+        held = _SnapshotHold(fence, maintenance, store)
+        _SNAPSHOT_HOLDS[key] = held
+    held.depth += 1
+    try:
+        # Refresh inside the fence, before schema, query or scanner construction.
+        nested_maintenance = held.maintenance and held.owner is store and held.depth > 1
+        if not nested_maintenance and store._table is not None:
+            try:
+                store._reopen_table()
+            except Exception as exc:
+                raise _SnapshotOpenError(str(exc)) from exc
+        yield
+    finally:
+        # Streams can close in a different order from their creation. Keep the
+        # descriptor until the last dependent stream/materialization finishes.
+        held.depth -= 1
+        if held.depth == 0:
+            _SNAPSHOT_HOLDS.pop(key, None)
+            held.fence.__exit__(None, None, None)
+
+
+def _snapshot_read(method):
+    if inspect.isgeneratorfunction(method):
+
+        @functools.wraps(method)
+        def stream(self, *args, **kwargs):
+            with _snapshot_lease(self):
+                yield from method(self, *args, **kwargs)
+
+        return stream
+
+    @functools.wraps(method)
+    def read(self, *args, **kwargs):
+        with _snapshot_lease(self):
+            return method(self, *args, **kwargs)
+
+    return read
+
+
+def _snapshot_maintenance(method):
+    @functools.wraps(method)
+    def maintenance(self, *args, **kwargs):
+        try:
+            with _snapshot_lease(self, maintenance=True):
+                return method(self, *args, **kwargs)
+        except (OperationLockedError, OperationLockUnavailable) as exc:
+            return {
+                "ok": False,
+                "freed_bytes": 0,
+                "deferred": True,
+                "error": f"Version cleanup deferred: active readers or unavailable fence: {exc}",
+            }
+        except _SnapshotOpenError as exc:
+            return {"ok": False, "freed_bytes": 0, "error": f"Version cleanup refused: {exc}"}
+
+    return maintenance
 
 
 class LanceStoreDependencyError(RuntimeError):
@@ -1742,22 +1846,32 @@ def cleanup_plan(
     return {"remove": remove, "kept_for_readers": kept, "compacts_first": compacts_first}
 
 
-def _latest_version_is_compact(versions: list) -> bool:
-    """True when the latest version has one fragment and no deletion files.
-
-    Table.optimize() then has nothing to compact: it rewrites no data and commits
-    no version, so its prune step runs alone.  Unknown metadata counts as not compact.
-    """
+def _latest_version_compaction_state(versions: list) -> bool | None:
+    """Classify the existing fragment/deletion predicate; None means unknown."""
     latest = versions[-1] if versions else None
     metadata = latest.get("metadata") if isinstance(latest, dict) else None
     if not isinstance(metadata, dict):
-        return False
+        return None
     try:
-        fragments = int(metadata["total_fragments"])
-        deletion_files = int(metadata["total_deletion_files"])
+        raw = (metadata["total_fragments"], metadata["total_deletion_files"])
+        if any(isinstance(value, bool) for value in raw):
+            return None
+        fragments, deletion_files = (int(value) for value in raw)
     except (KeyError, TypeError, ValueError):
-        return False
+        return None
+    if fragments < 0 or deletion_files < 0:
+        return None
     return fragments <= 1 and deletion_files == 0
+
+
+def _latest_version_is_compact(versions: list) -> bool:
+    """True only when the latest version is proven compact by existing metadata."""
+    return _latest_version_compaction_state(versions) is True
+
+
+def _copy_reconcile_record_path(palace_path: str | Path) -> Path:
+    """Auxiliary provenance in the existing backed-up Lance data subtree."""
+    return Path(palace_path) / "lance" / "copy_reconcile.jsonl"
 
 
 def _is_missing_fragment_error(exc: Exception) -> bool:
@@ -1938,7 +2052,8 @@ class LanceStore(DrawerStore):
             "_LanceDBConnectionProtocol",
             lancedb.connect(lance_dir, read_consistency_interval=timedelta(0)),
         )
-        self._table = self._open_or_create(create)
+        with _snapshot_lease(self):
+            self._table = self._open_or_create(create)
 
     def _get_embedder(self):
         """Load the provider selected by the existing embed_model contract."""
@@ -2221,6 +2336,7 @@ class LanceStore(DrawerStore):
                 merged[name] = float(merged[name])
         return merged
 
+    @_snapshot_read
     def count(self) -> int:
         table = self._table
         if table is None:
@@ -2398,6 +2514,7 @@ class LanceStore(DrawerStore):
             )
             _execute_merge(self._reopen_table())
 
+    @_snapshot_read
     def get(self, ids=None, where=None, include=None, limit=10000, offset=0):
         table = self._table
         if table is None:
@@ -2431,6 +2548,7 @@ class LanceStore(DrawerStore):
 
         return out
 
+    @_snapshot_read
     def query(self, query_texts, n_results=5, where=None, include=None, intent_rerank=True):
         table = self._table
         if table is None:
@@ -2603,6 +2721,7 @@ class LanceStore(DrawerStore):
 
         return total_deleted
 
+    @_snapshot_read
     def get_source_file_hashes(
         self, wing: str, *, project_root=None, protected_source_files: Optional[set] = None
     ) -> Optional[dict]:
@@ -2671,6 +2790,7 @@ class LanceStore(DrawerStore):
             protected_source_files.update(protected)
         return result
 
+    @_snapshot_read
     def count_by(self, column: str) -> Dict[str, int]:
         table = self._table
         if table is None:
@@ -2681,6 +2801,7 @@ class LanceStore(DrawerStore):
         d = result.to_pydict()
         return dict(zip(d[column], d[f"{column}_count"]))
 
+    @_snapshot_read
     def count_by_pair(self, col_a: str, col_b: str) -> Dict[str, Dict[str, int]]:
         table = self._table
         if table is None:
@@ -2694,6 +2815,7 @@ class LanceStore(DrawerStore):
             out.setdefault(a, {})[b] = c
         return out
 
+    @_snapshot_read
     def get_source_file_layout(self, wing: str) -> Optional[dict]:
         """Return {source_file: {"strategies", "rooms", "legacy_compressed"}} for mined rows.
 
@@ -2738,6 +2860,7 @@ class LanceStore(DrawerStore):
                 entry["legacy_compressed"] = True
         return layout
 
+    @_snapshot_read
     def get_source_files(self, wing: str) -> Optional[set]:
         """Return the set of all source_file values already stored for *wing*.
 
@@ -2754,6 +2877,7 @@ class LanceStore(DrawerStore):
         filtered = arrow_tbl.filter(pc.field("wing") == wing)
         return set(filtered.column("source_file").to_pylist())
 
+    @_snapshot_read
     def scan_wing_metadata(self, wing: str, columns: List[str]) -> Optional[List[Dict[str, Any]]]:
         """Return *columns* of every drawer in *wing* via scan-time column projection.
 
@@ -2786,6 +2910,7 @@ class LanceStore(DrawerStore):
             return scanner(columns=columns).to_table()
         return table.search().select(columns).to_arrow()
 
+    @_snapshot_read
     def iter_all(self, where=None, batch_size=1000, include_vectors=False):
         """Stream projected, filtered drawers without materializing the full table."""
         table = self._table
@@ -2861,13 +2986,25 @@ class LanceStore(DrawerStore):
         if backup_first:
             try:
                 backup_mod = importlib.import_module("mempalace_code.backup")
-                _, backup_path = backup_mod.create_backup(
+                metadata, backup_path = backup_mod.create_backup(
                     palace_path, kind="pre_optimize", kg_path=kg_path
                 )
-                logger.info("Pre-optimize backup: %s", backup_path)
             except Exception as e:
                 logger.error("Pre-optimize backup failed — skipping optimize: %s", e)
                 return False
+            if not isinstance(metadata, dict) or metadata.get("degraded"):
+                # A forensic *_DEGRADED archive cannot restore this palace: it is kept,
+                # but it never authorizes compaction.
+                logger.error(
+                    "Pre-optimize backup is degraded (%s); the forensic archive %s is kept "
+                    "but is not a recovery point — skipping optimize",
+                    metadata.get("degraded_error", "unknown reason")
+                    if isinstance(metadata, dict)
+                    else "invalid recovery metadata",
+                    backup_path,
+                )
+                return False
+            logger.info("Pre-optimize backup: %s", backup_path)
 
         # Get row count before optimize
         pre_count = table.count_rows()
@@ -2915,6 +3052,7 @@ class LanceStore(DrawerStore):
             logger.error("Table unreadable after optimize: %s", e)
             return False
 
+    @_snapshot_read
     def storage_stats(self) -> dict:
         """Return disk and version metrics for the Lance table.
 
@@ -2930,6 +3068,7 @@ class LanceStore(DrawerStore):
         """
         empty = {
             "version_count": 0,
+            "latest_version_compact": None,
             "logical_bytes": 0,
             "on_disk_bytes": 0,
             "current_data_files": 0,
@@ -2946,9 +3085,11 @@ class LanceStore(DrawerStore):
         logical_bytes = 0
         current_data_files = 0
         current_deletion_files = 0
+        latest_version_compact = None
 
         try:
             versions = table.list_versions()
+            latest_version_compact = _latest_version_compaction_state(versions)
             version_count = len(versions)
             if versions:
                 meta = versions[-1].get("metadata", {})
@@ -2996,6 +3137,7 @@ class LanceStore(DrawerStore):
 
         return {
             "version_count": version_count,
+            "latest_version_compact": latest_version_compact,
             "logical_bytes": logical_bytes,
             "on_disk_bytes": on_disk_bytes,
             "current_data_files": current_data_files,
@@ -3005,7 +3147,9 @@ class LanceStore(DrawerStore):
             "estimated_reclaimable_bytes": max(0, on_disk_bytes - logical_bytes),
         }
 
-    def cleanup_stale_fragments(self, older_than_days: int = 7, unsafe_now: bool = False) -> dict:
+    def cleanup_stale_fragments(
+        self, older_than_days: int = 7, unsafe_now: bool = False, *, compact: bool = True
+    ) -> dict:
         """Remove stale Lance versions and their data/deletion files.
 
         Uses Table.optimize(cleanup_older_than=..., delete_unverified=...) — the
@@ -3020,6 +3164,7 @@ class LanceStore(DrawerStore):
         Args:
             older_than_days: Remove versions older than this many days. Default 7.
                 Ignored when unsafe_now=True (maps to timedelta(0)).
+            compact: False uses the existing prune-only path; it never rewrites fragments.
             unsafe_now: Map to cleanup_older_than=timedelta(0) and
                 delete_unverified=True. Only safe when no other writer is active.
 
@@ -3038,10 +3183,15 @@ class LanceStore(DrawerStore):
         """
         palace_dir = self._palace_dir()
         if self._table is None or palace_dir is None:
-            return self._cleanup_stale_fragments_locked(older_than_days, unsafe_now)
+            return self._cleanup_stale_fragments_locked(
+                older_than_days, unsafe_now, compact=compact
+            )
         with palace_write_lease(palace_dir, "cleanup"):
-            return self._cleanup_stale_fragments_locked(older_than_days, unsafe_now)
+            return self._cleanup_stale_fragments_locked(
+                older_than_days, unsafe_now, compact=compact
+            )
 
+    @_snapshot_maintenance
     def _cleanup_stale_fragments_locked(
         self, older_than_days: int, unsafe_now: bool, *, compact: bool = True
     ) -> dict:
@@ -3217,6 +3367,22 @@ class LanceStore(DrawerStore):
         }
 
     def health_check(self) -> dict:
+        """Return a structured health report, including snapshot-open failures."""
+        try:
+            with _snapshot_lease(self):
+                return self._health_check_locked()
+        except Exception as exc:
+            return {
+                "ok": False,
+                "total_rows": 0,
+                "current_version": None,
+                "errors": [{"probe": "table_open", "kind": "read_failed", "message": str(exc)}],
+                "warnings": [],
+                "storage": {},
+                "embedding": {},
+            }
+
+    def _health_check_locked(self) -> dict:
         """Probe the store for fragment-missing or read errors.
 
         Runs three probes covering the failure surfaces from the 2026-04-16 incident:
@@ -3550,6 +3716,7 @@ class LanceStore(DrawerStore):
             "dry_run": False,
         }
 
+    @_snapshot_read
     def read_all_for_rebuild(self, batch_size: int = 5000, *, salvage: bool = True) -> dict:
         """Read every stored drawer (text, metadata, vector) for a full rebuild.
 
@@ -3640,6 +3807,19 @@ class LanceStore(DrawerStore):
         table = db.create_table(_LANCE_TABLE, schema=_target_drawer_schema(dim, recorded))
         for i in range(0, len(rows), batch_size):
             table.add(rows[i : i + batch_size])
+        record = _copy_reconcile_record_path(self._palace_path)
+        if record.exists() or record.is_symlink():
+            if record.is_symlink() or not record.is_file():
+                raise RuntimeError("Copy provenance must be a regular file before rebuilding")
+            destination = _copy_reconcile_record_path(staging_palace)
+            shutil.copy2(record, destination)
+            with destination.open("rb") as handle:
+                os.fsync(handle.fileno())
+            descriptor = os.open(destination.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
         return table.count_rows()
 
     def warmup(self) -> None:

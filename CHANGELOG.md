@@ -2,6 +2,81 @@
 
 ## Unreleased
 
+## v1.16.1 — 2026-10-24
+
+### Security
+
+- Require `filelock>=4.2.1` and lock 4.2.4 to address three lock-file
+  advisories. Require `setuptools>=84.1.0` in the existing `custom-models`
+  extra and lock 84.2.1 to fix GHSA-xmj3-9gf7-h52w without adding a
+  default-install dependency.
+- Retain 41 Pillow 12.3.0 dependency findings under an explicitly accepted
+  temporary exception, expiring 2026-11-05. Reviewed canonical MiniLM text
+  inference does not call the affected image/PDF APIs. Arbitrary custom models
+  are outside that conclusion. See `docs/DEPENDENCY_UPGRADE_GATE.md`; the Pillow
+  vulnerabilities remain present and are not described as fixed.
+- Require OpenTelemetry API 1.45.1 or newer and refresh its lock pin, fixing
+  GHSA-xcq7-p3pf-p88h in trace-metadata parsing. Ordinary upgrades replace an
+  older compatible API; conflicting old pins are refused.
+
+- Require `certifi>=2026.10.19` and refresh its lock pin to remove compromised
+  emSign trust roots (GHSA-6q48-6c7w-9gw2). Existing installations must update
+  the certificate bundle when upgrading.
+- Refresh locked Certifi to 2026.10.23 and release-tool Sigstore to 4.5.1;
+  remove Sigstore's unused PyOpenSSL dependency. The exact lock transition
+  reuses the existing temporary risk disposition through a hash-bound upgrade
+  report, with unchanged advisory scope and expiry.
+- Refresh locked cryptography to 50.0.2, whose wheels contain OpenSSL 4.0.3,
+  and update the existing scanner build toolchain to Go 1.27.3 for its checksum
+  verification and certificate distrust fixes.
+
+- Update the locked `fsspec` dependency to 2026.6.0, which fixes
+  GHSA-27vj-qcqg-25rc in reference filesystem template handling.
+
+- Require patched MCP SDK releases in the supported `>=2.2,<3` range and
+  declare `fsspec>=2026.6.0` so an existing vulnerable installation cannot satisfy
+  the new package.
+
+### Fixed
+
+- Classify dependency-audit setup failures with a bounded reason and exit code.
+  Keep failed installs blocking and omit raw subprocess output from reports.
+- Refuse distinct knowledge-graph names that collide under legacy identifiers.
+  Atomic writer, import and legacy-adoption checks preserve existing facts;
+  snapshot-consistent reads refuse ambiguous names. Existing identifiers, schema
+  and case-insensitive name lookup remain compatible.
+- Coordinate macOS watchers in their verified launchd account domains, including
+  background user agents, and refuse ambiguous domain ownership before updating.
+- Prevent recursive ingestion of nested checkouts and verified project copies.
+  Normal mining reconciles proven redundant generated chunks while retaining
+  unique and ambiguous originals, manual drawers, rejected-decision evidence,
+  knowledge-graph facts and source provenance.
+- Keep automatic physical maintenance behind the existing healthy-backup,
+  reader and optimization guards. Interrupted maintenance can retry on an
+  unchanged mine; ordinary later writes avoid repeated full recovery archives.
+- Use exact full-text checks for automatic duplicate refusal within the selected
+  scope. Opposite statements, changed conditions and cross-wing identical text
+  remain available through MCP and JSONL import.
+- Refuse degraded forensic archives as automatic pre-watch recovery points.
+- Reduce compression work while creating lossless gzip recovery archives under
+  the palace write lease.
+- Preserve prior Lance and knowledge-graph state when force restore receives a
+  catchable interruption during publication or verification. If another owner
+  blocks rollback, retain the originals at the reported recovery paths.
+- Resolve installed aliases through the canonical launcher under a conflicting
+  command search path, and align packaged memory instructions with live tools.
+
+### Changed
+
+- Healthy scheduled, pre-watch and pre-optimize backups share one automatic
+  retention pool, defaulting to two recovery points. Existing write maintenance
+  reconciles qualified archives even when optimization is disabled or mining is
+  unchanged. Two retained snapshots must restore successfully before expiry;
+  explicit keep-all, manual, explicit-output, degraded and ambiguous legacy
+  archives are preserved.
+- Release preparation checks all open pull requests and issues, resolves confirmed
+  release blockers, and records a disposition before candidate qualification.
+
 ## v1.16.0 — 2026-10-05
 
 ### Added

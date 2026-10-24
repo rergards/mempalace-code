@@ -1271,6 +1271,7 @@ def run_gate(
             admission.check_dependency_audit_freshness(
                 repo,
                 cached_public_read,
+                expected_sha=candidate_sha,
                 max_age_hours=audit_max_age_hours,
             ),
             SURFACE_AUDIT,
