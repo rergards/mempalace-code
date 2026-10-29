@@ -3,6 +3,22 @@
 Repeatable, audited process for raising package ceilings or refreshing the
 lock file. A dependency change must not land without a passing report.
 
+## Pending v1.16.2: dependency exceptions resolved
+
+The pending v1.16.2 package requires FastEmbed 0.9.1 or newer within the
+supported 0.9 series, Pillow 13 within the supported major version, and
+OpenTelemetry API 1.45.1 or newer. The lock includes dnspython 2.9.0.
+These patched dependencies replace the affected Pillow and OpenTelemetry
+versions. The active `docs/dependency-audit-allowlist.json` uses the existing
+schema with an empty `entries` list and no usage-bound exception context.
+Dependency audits use the normal strict policy, without a risk waiver.
+
+The dated trust-tools, Pillow and OpenTelemetry sections below retain the
+historical acceptance evidence, advisory tables and original review/expiry
+dates. Their source and dependency bindings apply only to those historical
+snapshots. The prior 2026-10-29 review date and 2026-11-05 expiry are retained
+as history; this change retires the exceptions and grants no renewal.
+
 ## Required Gate Order
 
 1. **Collect targets** — create a target manifest JSON that names each
@@ -335,7 +351,7 @@ that workflow result remains inside the normal freshness window.
 ### Temporary Pillow risk acceptance
 
 Accepted on **2026-10-22**, review on **2026-10-29**, expires on **2026-11-05**.
-The existing allowlist records the exact 41 advisory IDs for **Pillow 12.3.0**.
+The historical acceptance covered 41 advisory IDs for **Pillow 12.3.0**.
 The original 28 were accepted on 2026-10-22. The additional 11 were conditionally
 accepted on 2026-10-23 after comparison with published 1.16.0 established no
 new vulnerable operation in the inspected canonical path. The original risk
@@ -343,8 +359,9 @@ window, review date and expiry remain unchanged.
 On 2026-10-24 the maintainer separately accepted GHSA-5x8w-8jj5-q52h
 (Critical FPX/JPEG decoding overflow) and GHSA-654x-cwwv-5j9c (Moderate
 image-to-Arrow heap disclosure), retaining the same review date and expiry.
-Both fixes ship in Pillow 13.0.0, which conflicts with the Pillow `<13`
-requirement of the supported FastEmbed releases. No dependency override is used.
+Both fixes ship in Pillow 13.0.0. At acceptance, that version conflicted with
+the Pillow `<13` requirement of the supported FastEmbed 0.8 releases.
+No dependency override is used.
 It is bound to **FastEmbed 0.8.0** in the lock, **0.8.1** in fresh installs, and the
 reviewed application package tree. MCP 2.3.0 and OpenTelemetry API 1.40.0/1.45.1
 are also pinned by the shared context; any other owner version invalidates it.
@@ -477,8 +494,8 @@ Pillow's canonical-text non-reachability rationale.
 That earlier snapshot allowed compatible existing installations to retain API
 1.40.0. The maintainer subsequently approved the explicit `>=1.45.1` floor and
 lock update. An ordinary upgrade now replaces the old API; a conflicting old pin
-is refused. The historical acceptance record remains unchanged, while current
-locked and fresh audits retain only the 39 Pillow findings. The exact approved
+is refused. The historical acceptance record remains unchanged. Locked and
+fresh audits of that historical snapshot retained 39 Pillow findings. The exact approved
 snapshot uses the bounded upgrade route above; earlier failed strict-audit
 receipts remain historical evidence.
 

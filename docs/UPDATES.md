@@ -106,9 +106,21 @@ mempalace-code update apply --yes
 
 `--yes` confirms package and service mutation. The updater records the old version and whether the
 selected managed watcher was active only after installer, provenance, extras, disk/backup, and
-operation-lease preflight succeeds. It stops the selected active watchers, takes the exclusive lease,
+operation-lease preflight succeeds. Before stopping an active watcher, it requires a stable process
+identity and a positive ownership record for the canonical palace. It acquires the existing palace
+write lease and a write transaction on the existing WAL knowledge graph. Busy writers or unproven
+storage ownership cause a refusal before service shutdown.
+
+The updater holds those write fences until every attempted old process has exited, including failed
+or interrupted stop attempts. It then releases the fences, takes the exclusive installation lease,
 installs the selected version with retained extras, validates `mempalace-code update --help`, probes
-the palace, then restarts and verifies exactly the watchers it stopped.
+the palace, then restarts and verifies exactly the watchers it stopped. During guarded shutdown,
+`Ctrl+C` waits for the attempted processes to exit before restoration and cancellation. Restoration
+runs at most once; a failed restoration reports the recovery command.
+
+These shutdown protections apply after v1.16.2 is installed. For the first upgrade from an older
+version, keep managed watchers and other MemPalace writers inactive through their documented owners
+before invoking the owning installer. The older updater still runs its older shutdown code.
 
 Watcher coordination follows whichever user service manager owns the host:
 
@@ -116,8 +128,9 @@ Watcher coordination follows whichever user service manager owns the host:
   `mempalace-watch-<root>.service` whose `ExecStart` is a supported MemPalace `watch` command, and
   the update coordinates that single selected unit.
 - **macOS (launchd-user)** — discovery coordinates *every* loaded attributable
-  `com.mempalace.watch*` LaunchAgent, not just one. A loaded job that lists no PID is included,
-  because `KeepAlive` can respawn it mid-replacement. Each label must be backed by an owned, regular,
+  `com.mempalace.watch*` LaunchAgent. Discovery reports loaded jobs that list no PID, because
+  `KeepAlive` can respawn them. Apply refuses until every selected job has a confirmed current PID.
+  Each label must be backed by an owned, regular,
   label-matching plist in `~/Library/LaunchAgents` whose `ProgramArguments` is a supported MemPalace
   `watch` command. Discovery verifies each watcher's account domain (`gui/<uid>` or
   `user/<uid>`) and uses that same domain for stop, compensation and restart.
@@ -125,7 +138,8 @@ Watcher coordination follows whichever user service manager owns the host:
   dumps are discarded; their environments are not recorded.
 
 Ambiguous, malformed, unattributable, or unavailable watcher evidence is a visible refusal before
-package, lease, or service mutation. When `HOME` is not the account's passwd home directory (for
+package replacement or service shutdown. Temporary write fences may be acquired and released while
+the updater verifies storage ownership. When `HOME` is not the account's passwd home directory (for
 example in a sandboxed shell), the refusal names the fix instead:
 `rerun with HOME set to the account home: HOME=<account home> mempalace-code update status --json`.
 Otherwise it names the command that shows what the watchers were left in:

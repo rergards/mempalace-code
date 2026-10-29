@@ -435,17 +435,40 @@ def test_workflow_and_release_adapters_preserve_predicate_schema():
     ]
 
 
-def test_annotated_tag_is_peeled_to_a_commit_with_a_fixed_depth():
-    tag_object = "a" * 40
-    commit = "b" * 40
-    refs = [{"ref": "refs/tags/v1.0.0", "object": {"sha": tag_object, "type": "tag"}}]
-    peel = {"object": {"sha": commit, "type": "commit"}}
-    reader = public.PublicReader(Opener([_json(refs), _json(peel)]))
+def _repository_tag(name: str, sha: str) -> dict[str, object]:
+    # GitHub's list-repository-tags response exposes the resolved commit SHA.
+    return {
+        "name": name,
+        "commit": {"sha": sha, "url": f"https://api.github.com/repos/ignored/commits/{sha}"},
+        "zipball_url": "https://api.github.com/repos/ignored/zipball/ignored",
+        "tarball_url": "https://api.github.com/repos/ignored/tarball/ignored",
+        "node_id": "ignored",
+    }
+
+
+def test_repository_tags_resolve_39_commit_refs_with_one_credential_free_get():
+    tags = [_repository_tag(f"v1.{index}.0", f"{index + 1:040X}") for index in range(39)]
+    opener = Opener([_json(tags)])
+    reader = public.PublicReader(opener)
 
     result = reader(public.matching_version_tags(public.PUBLIC_REPOSITORY))
 
-    assert result.data == [{"ref": "refs/tags/v1.0.0", "sha": commit, "type": "commit"}]
+    assert result.data == [
+        {"ref": f"refs/tags/v1.{index}.0", "sha": f"{index + 1:040x}", "type": "commit"}
+        for index in range(39)
+    ]
     assert result.error == ""
+    assert len(opener.requests) == 1
+    request = opener.requests[0]
+    assert request.full_url == (
+        "https://api.github.com/repos/rergards/mempalace-code/tags?per_page=100&page=1"
+    )
+    assert request.get_method() == "GET"
+    assert request.get_header("Authorization") is None
+    assert request.get_header("Cookie") is None
+    assert request.get_header("Accept") == "application/vnd.github+json"
+    assert request.get_header("User-agent") == public.USER_AGENT
+    assert opener.timeouts == [public.TIMEOUT_SECONDS]
 
 
 def test_build_opener_contains_proxy_bypass_and_redirect_refusal():
@@ -538,13 +561,136 @@ def test_counted_github_collections_require_exact_pagination_proof(query, payloa
     assert "complete pagination" in result.error
 
 
-def test_matching_tag_rejects_non_commit_and_non_tag_objects():
-    refs = [{"ref": "refs/tags/v1.0.0", "object": {"sha": "a" * 40, "type": "tree"}}]
-    result = public.PublicReader(Opener([_json(refs)]))(
+@pytest.mark.parametrize("payload", [None, {}, "tags", [None], [True], [[]]])
+def test_repository_tags_reject_malformed_response_shapes(payload):
+    result = public.PublicReader(Opener([_json(payload)]))(
         public.matching_version_tags(public.PUBLIC_REPOSITORY)
     )
     assert result.data is None
-    assert "invalid target" in result.error
+    assert "response shape" in result.error or "malformed item" in result.error
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"name": "v1.0.0"},
+        {"name": "v1.0.0", "commit": None},
+        {"name": "v1.0.0", "commit": []},
+        {"name": "v1.0.0", "commit": "a" * 40},
+        {"name": "v1.0.0", "commit": {}},
+        {"ref": "refs/tags/v1.0.0", "object": {"sha": "a" * 40, "type": "tree"}},
+    ],
+)
+def test_repository_tags_require_the_declared_name_and_commit_shape(item):
+    result = public.PublicReader(Opener([_json([item])]))(
+        public.matching_version_tags(public.PUBLIC_REPOSITORY)
+    )
+    assert result.data is None
+    assert "invalid" in result.error
+
+
+@pytest.mark.parametrize("name", ["v1.0.0", "snapshot"])
+@pytest.mark.parametrize("sha", [None, True, 1, [], {}, "", "a" * 39, "a" * 41, "g" * 40])
+def test_repository_tags_reject_invalid_commit_shas_before_filtering(name, sha):
+    result = public.PublicReader(Opener([_json([{"name": name, "commit": {"sha": sha}}])]))(
+        public.matching_version_tags(public.PUBLIC_REPOSITORY)
+    )
+    assert result.data is None
+    assert "invalid commit target" in result.error
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        None,
+        True,
+        1,
+        [],
+        {},
+        "",
+        "v bad",
+        "v\n",
+        "v\x7f",
+        "v~1",
+        "v^1",
+        "v:1",
+        "v?",
+        "v*",
+        "v[1]",
+        "v\\1",
+        "/v1",
+        "v1/",
+        "v//1",
+        "v1.",
+        "v..1",
+        "v@{1}",
+        ".hidden",
+        "v/.hidden",
+        "v.lock",
+        "v.lock/1",
+    ],
+)
+def test_repository_tags_reject_invalid_git_ref_names(name):
+    result = public.PublicReader(Opener([_json([_repository_tag(name, "a" * 40)])]))(
+        public.matching_version_tags(public.PUBLIC_REPOSITORY)
+    )
+    assert result.data is None
+    assert "invalid name" in result.error
+
+
+@pytest.mark.parametrize("name", ["v1.0.0", "snapshot"])
+def test_repository_tags_reject_duplicate_names_in_the_full_inventory(name):
+    tags = [_repository_tag(name, "a" * 40), _repository_tag(name, "b" * 40)]
+    result = public.PublicReader(Opener([_json(tags)]))(
+        public.matching_version_tags(public.PUBLIC_REPOSITORY)
+    )
+    assert result.data is None
+    assert "duplicate name" in result.error
+
+
+def test_repository_tags_filter_valid_non_version_names_after_validation():
+    tags = [
+        _repository_tag("snapshot/review+1", "a" * 40),
+        _repository_tag("v1.0.0", "b" * 40),
+        _repository_tag("release-1", "c" * 40),
+        _repository_tag("vnext/review+1", "d" * 40),
+    ]
+    result = public.PublicReader(Opener([_json(tags)]))(
+        public.matching_version_tags(public.PUBLIC_REPOSITORY)
+    )
+    assert result.error == ""
+    assert result.data == [
+        {"ref": "refs/tags/v1.0.0", "sha": "b" * 40, "type": "commit"},
+        {"ref": "refs/tags/vnext/review+1", "sha": "d" * 40, "type": "commit"},
+    ]
+
+
+@pytest.mark.parametrize(("limit", "count"), [(2, 2), (2, 3), (100, 100), (100, 101)])
+def test_repository_tags_bound_the_raw_inventory_before_non_version_filtering(limit, count):
+    tags = [_repository_tag(f"snapshot-{index}", "a" * 40) for index in range(count)]
+    opener = Opener([_json(tags)])
+    result = public.PublicReader(opener)(
+        public.matching_version_tags(public.PUBLIC_REPOSITORY, limit)
+    )
+    assert result.data is None
+    assert "bounded pagination limit" in result.error
+    assert len(opener.requests) == 1
+    assert opener.requests[0].full_url.endswith(f"/tags?per_page={limit}&page=1")
+
+
+@pytest.mark.parametrize("limit", [True, 0, -1, 101, 1000])
+def test_repository_tags_request_limit_cannot_exceed_one_api_page(limit):
+    with pytest.raises(ValueError, match="invalid limit"):
+        public.matching_version_tags(public.PUBLIC_REPOSITORY, limit)
+
+
+def test_repository_tags_accept_an_empty_inventory_and_do_not_cache_reads():
+    opener = Opener([_json([]), _json([_repository_tag("v1.0.0", "a" * 40)])])
+    reader = public.PublicReader(opener)
+    query = public.matching_version_tags(public.PUBLIC_REPOSITORY)
+    assert reader(query).data == []
+    assert reader(query).data == [{"ref": "refs/tags/v1.0.0", "sha": "a" * 40, "type": "commit"}]
+    assert len(opener.requests) == 2
 
 
 def test_release_reader_fetches_overflow_entry_and_fails_closed():

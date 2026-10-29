@@ -254,8 +254,8 @@ contour lives in `docs/OFFLINE_USAGE.md`. Prepare an owner-private scratch direc
 filesystem with adequate free space and preserve one `TMPDIR` across the ordered contour:
 
 ```bash
-install -d -m 700 "$HOME/.cache/mempalace/tmp"
-df -h "$HOME/.cache/mempalace/tmp"
+install -d -m 700 "$HOME/mempalace-release-tmp"
+df -h "$HOME/mempalace-release-tmp"
 ```
 
 Both optional-extra installation stages disable pip download caching. An `Errno 28`,
@@ -267,8 +267,13 @@ adequate allocation or increase the selected quota before repeating the owner
 from the prepared scratch directory:
 
 ```bash
-TMPDIR="$HOME/.cache/mempalace/tmp" python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
+TMPDIR="$HOME/mempalace-release-tmp" python scripts/release_readiness_gate.py --installed-golden-wheel "$WHEEL" --json
 ```
+
+The full installed suite creates watched projects beneath `TMPDIR`. Choose a path
+outside ignored directories such as `.cache`, and outside the source checkout.
+Run from a clean source worktree and keep retained test artifacts and logs outside
+that worktree so repository-preservation checks can inspect ordinary files.
 
 The default tag preflight is deterministic, local, and non-mutating. It checks
 tag/version agreement, the committed acceptance report for the package tree, the

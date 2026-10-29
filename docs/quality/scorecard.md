@@ -9,10 +9,10 @@ Schema version: 4
 | Metric | Value |
 |--------|------:|
 | Package files (`mempalace_code/`) | 87 |
-| Package total lines | 49811 |
-| Package code lines | 42005 |
+| Package total lines | 50363 |
+| Package code lines | 42513 |
 | Test files (`tests/`) | 125 |
-| Test total lines | 117119 |
+| Test total lines | 118834 |
 
 ## Largest Modules (top 10)
 
@@ -20,11 +20,11 @@ Schema version: 4
 |--------|------:|
 | `mempalace_code/wing_migration.py` | 5788 |
 | `mempalace_code/storage.py` | 3998 |
-| `mempalace_code/watcher.py` | 2606 |
+| `mempalace_code/watcher.py` | 2684 |
+| `mempalace_code/updater.py` | 2426 |
 | `mempalace_code/mining/orchestrator.py` | 2420 |
-| `mempalace_code/updater.py` | 1965 |
 | `mempalace_code/knowledge_graph.py` | 1783 |
-| `mempalace_code/backup.py` | 1692 |
+| `mempalace_code/backup.py` | 1705 |
 | `mempalace_code/mining/chunkers.py` | 1626 |
 | `mempalace_code/cli.py` | 1181 |
 | `mempalace_code/dialect.py` | 1144 |
@@ -117,7 +117,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 
 | Metric | Value |
 |--------|------:|
-| type/pyright ignores (total) | 181 |
+| type/pyright ignores (total) | 179 |
 | type/pyright unreasoned | 0 |
 | noqa (total) | 43 |
 | noqa blanket | 0 |
@@ -128,7 +128,7 @@ Scope: `mempalace_code/`, `tests/` (excludes `tests/fixtures/`).
 | Metric | Value |
 |--------|------:|
 | Test files | 125 |
-| Test functions | 5113 |
+| Test functions | 5159 |
 
 ## Available Suites
 

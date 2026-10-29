@@ -594,6 +594,12 @@ def reconcile_managed_backups(palace_path: str, config=None) -> dict:
                     shutil.rmtree(scratch_name, dir_fd=fd)
 
                 stack.callback(remove_scratch)
+                scratch_fd = os.open(
+                    scratch_name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd
+                )
+                stack.callback(os.close, scratch_fd)
+                if _path_identity(scratch) != scratch_identity:
+                    raise ValueError("Retention scratch identity changed")
                 for index, (_, name, state) in enumerate(keepers[:2]):
                     check_files(candidates)
                     file_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
@@ -610,6 +616,13 @@ def reconcile_managed_backups(palace_path: str, config=None) -> dict:
                             raise ValueError("Retention keeper has no recovery payload")
                         if _retention_file_state(os.fstat(archive.fileno())) != state:
                             raise ValueError("Retention keeper changed during verification")
+                    check_files(candidates)
+                    current_scratch = os.stat(scratch_name, dir_fd=fd, follow_symlinks=False)
+                    if (current_scratch.st_dev, current_scratch.st_ino) != scratch_identity:
+                        raise ValueError("Retention scratch identity changed")
+                    # The verified archives remain pinned. Their disposable restored
+                    # copies need not coexist while the next recovery point is checked.
+                    shutil.rmtree(str(index), dir_fd=scratch_fd)
                 check_files(candidates)
                 for victim in victims:
                     check_files([*keepers, victim])

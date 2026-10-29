@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## v1.16.2 — 2026-10-29
+
+### Security
+
+- Require FastEmbed 0.9.1 or newer within the 0.9 series and Pillow 13, retain
+  the OpenTelemetry API 1.45.1 minimum, and lock dnspython 2.9.0. Retire the
+  obsolete Pillow and OpenTelemetry exceptions; strict dependency audits
+  require patched packages without a temporary waiver.
+
+### Fixed
+
+- Reduce backup-retention verification disk use by releasing each verified scratch
+  copy before restoring the next recovery point. Both full restore checks remain
+  required before archives expire.
+- Stop admitting watcher mining and maintenance work after a shutdown request.
+- Preserve active palace and knowledge-graph writes when stopping managed
+  watchers. Refuse ambiguous actor or lock ownership.
+- Hold updater write fences until the stopped watcher has exited, including
+  failed or interrupted stop attempts.
+
 ## v1.16.1 — 2026-10-24
 
 ### Security
