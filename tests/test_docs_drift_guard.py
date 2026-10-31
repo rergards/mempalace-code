@@ -2015,7 +2015,7 @@ def test_custom_models_linux_cpu_install_and_recovery_authority_contract():
         "'mempalace-code[custom-models]'"
     )
     recovery = (
-        'TMPDIR="$HOME/.cache/mempalace/tmp" python scripts/release_readiness_gate.py '
+        'TMPDIR="$HOME/mempalace-release-tmp" python scripts/release_readiness_gate.py '
         '--installed-golden-wheel "$WHEEL" --json'
     )
 
@@ -2062,7 +2062,16 @@ def test_custom_models_linux_cpu_install_and_recovery_authority_contract():
     # The release runbook qualifies the candidate wheel through the readiness gate.
     # It must not tell the operator to install the published package or PyTorch
     # into the current interpreter; that end-user contour belongs to OFFLINE_USAGE.
-    assert releasing.index(mkdir) < releasing.index(free_space) < releasing.index(recovery)
+    release_mkdir = 'install -d -m 700 "$HOME/mempalace-release-tmp"'
+    release_free_space = 'df -h "$HOME/mempalace-release-tmp"'
+    assert (
+        releasing.index(release_mkdir)
+        < releasing.index(release_free_space)
+        < releasing.index(recovery)
+    )
+    assert 'TMPDIR="$HOME/.cache/mempalace/tmp"' not in releasing
+    assert "outside ignored directories such as `.cache`" in releasing
+    assert "outside the source checkout" in releasing
     assert cpu_install not in releasing
     assert extra_install not in releasing
     assert "https://download.pytorch.org/whl/cpu" in releasing

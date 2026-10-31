@@ -22,6 +22,7 @@ from mempalace_code.onboarding import (
     quick_setup,
     run_onboarding,
 )
+from scripts.release_install_metadata_smoke import python_runtime_library_env
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Subprocess helpers
@@ -41,7 +42,7 @@ def _run_onboarding_subprocess(
         capture_output=True,
         text=True,
         timeout=timeout,
-        env={"HOME": str(home), "PATH": _path_env()},
+        env={"HOME": str(home), "PATH": _path_env(), **python_runtime_library_env()},
     )
 
 

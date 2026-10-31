@@ -2724,6 +2724,44 @@ def _rewrite_retention_archive(path, change_metadata=lambda metadata: metadata, 
 
 
 class TestGlobalAutomaticRetention:
+    def test_verified_restore_is_removed_before_next_keeper(self, palace_path, monkeypatch):
+        paths = _retention_pool(palace_path, monkeypatch)
+        real_restore = backup_module.restore_backup
+        restored_targets = []
+
+        def restore_with_disk_budget(archive, target, **kwargs):
+            # Reproduce a filesystem that can hold one full restore operation,
+            # but cannot also retain the previously validated recovery copy.
+            assert all(not os.path.lexists(previous) for previous in restored_targets)
+            result = real_restore(archive, target, **kwargs)
+            assert os.path.isfile(os.path.join(target, "knowledge_graph.sqlite3"))
+            restored_targets.append(target)
+            return result
+
+        monkeypatch.setattr(backup_module, "restore_backup", restore_with_disk_budget)
+        result = backup_module.reconcile_managed_backups(palace_path)
+        assert result == {"pruned": paths[:1]}
+        assert len(restored_targets) == 2
+        assert all(not os.path.lexists(target) for target in restored_targets)
+        assert all(os.path.isfile(path) for path in paths[1:])
+
+    def test_verified_restore_cleanup_failure_defers_pruning(self, palace_path, monkeypatch):
+        paths = _retention_pool(palace_path, monkeypatch)
+        real_rmtree = backup_module.shutil.rmtree
+
+        def refuse_verified_copy(path, *args, **kwargs):
+            if path == "0":
+                raise OSError("verified copy cleanup failed")
+            return real_rmtree(path, *args, **kwargs)
+
+        monkeypatch.setattr(backup_module.shutil, "rmtree", refuse_verified_copy)
+        result = backup_module.reconcile_managed_backups(palace_path)
+        assert result == {"pruned": [], "error": "verified copy cleanup failed"}
+        assert all(os.path.isfile(path) for path in paths)
+        assert not any(
+            name.startswith(".retention-") for name in os.listdir(managed_backups_dir(palace_path))
+        )
+
     def test_cross_kind_idle_reconcile_and_repeat(self, palace_path, tmp_path, monkeypatch):
         paths = _retention_pool(palace_path, monkeypatch)
         source = os.path.join(palace_path, "knowledge_graph.sqlite3")
@@ -2867,16 +2905,24 @@ class TestGlobalAutomaticRetention:
         assert sum(os.path.isfile(path) for path in paths) == 2
 
     @pytest.mark.parametrize("damage", ["kg", "truncated"])
-    def test_corrupt_keeper_defers_all_deletion(self, palace_path, tmp_path, monkeypatch, damage):
+    @pytest.mark.parametrize("keeper", [-1, -2])
+    def test_corrupt_keeper_defers_all_deletion(
+        self, palace_path, tmp_path, monkeypatch, damage, keeper
+    ):
         paths = _retention_pool(palace_path, monkeypatch)
+        keeper_stat = os.stat(paths[keeper])
         if damage == "kg":
-            _rewrite_retention_archive(paths[-1], kg=b"not a database")
+            _rewrite_retention_archive(paths[keeper], kg=b"not a database")
         else:
-            with open(paths[-1], "rb+") as archive:
-                archive.truncate(os.path.getsize(paths[-1]) - 12)
+            with open(paths[keeper], "rb+") as archive:
+                archive.truncate(os.path.getsize(paths[keeper]) - 12)
+        os.utime(paths[keeper], ns=(keeper_stat.st_atime_ns, keeper_stat.st_mtime_ns))
         with pytest.raises((BackupArchiveError, EOFError, tarfile.TarError)):
-            restore_backup(paths[-1], str(tmp_path / "refused"))
-        result = backup_module.reconcile_managed_backups(palace_path)
+            restore_backup(paths[keeper], str(tmp_path / "refused"))
+        with patch.object(backup_module, "restore_backup", wraps=restore_backup) as restore:
+            result = backup_module.reconcile_managed_backups(palace_path)
+        assert restore.call_count == -keeper
+        assert restore.call_args.args[0] == paths[keeper]
         assert result["pruned"] == []
         assert result["error"]
         assert all(os.path.exists(path) for path in paths)
