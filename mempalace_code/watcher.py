@@ -1152,12 +1152,17 @@ def _watch_batches(
     refuse its path; *recheck* drops it (or exits when none remain) and the watch
     restarts on what is left.
     """
+    stop_event = watch_kwargs.get("stop_event")
     while True:
+        if stop_event is not None and stop_event.is_set():
+            return
         paths = watch_paths()
         try:
             yield from watchfiles.watch(*paths, **watch_kwargs)
             return
         except FileNotFoundError as exc:
+            if stop_event is not None and stop_event.is_set():
+                return
             recheck()
             if watch_paths() == paths:
                 print(
@@ -1400,7 +1405,8 @@ def _mine_with_transient_retry(
     palace_path: str,
     mining_store: Optional[_WatcherMiningStore],
     wing_prefix: str,
-) -> dict:
+    stop_event: Optional[threading.Event] = None,
+) -> Optional[dict]:
     """Run one watcher mine, retrying storage errors caused by concurrent writers.
 
     The watcher never restores the shared table to an older version: a storage error
@@ -1413,8 +1419,12 @@ def _mine_with_transient_retry(
     attempt = 1
     reopen = False
     while True:
+        if stop_event is not None and stop_event.is_set():
+            return None
         try:
             with palace_write_lease(palace_path, "watch"):
+                if stop_event is not None and stop_event.is_set():
+                    return None
                 if mining_store is None:
                     return _quiet_mine(**mine_kwargs) or {}
                 if reopen:
@@ -1427,9 +1437,13 @@ def _mine_with_transient_retry(
         except Exception as exc:
             if not _is_storage_retry_candidate(exc, palace_path):
                 raise _MineFailure(str(exc)) from exc
+            if stop_event is not None and stop_event.is_set():
+                raise _MineFailure(f"{exc} (not retried: the watcher is stopping)") from exc
             health = _probe_palace_head(palace_path)
             if health.get("ok") is not True:
                 raise _MineFailure(str(exc), degraded=True, health=health) from exc
+            if stop_event is not None and stop_event.is_set():
+                raise _MineFailure(f"{exc} (not retried: the watcher is stopping)") from exc
             if attempt >= _TRANSIENT_MINE_ATTEMPTS:
                 raise _MineFailure(
                     f"{exc} (still failing after {attempt} attempts while the palace head "
@@ -1444,6 +1458,8 @@ def _mine_with_transient_retry(
                 flush=True,
             )
             reopen = True
+            if stop_event is not None and stop_event.is_set():
+                return None
             time.sleep(_TRANSIENT_RETRY_DELAY_SECS * (attempt - 1))
 
 
@@ -1596,6 +1612,7 @@ def _run_cycle_mine(
     mining_store: _WatcherMiningStore,
     wing: str,
     run_id: str,
+    stop_event: Optional[threading.Event] = None,
 ) -> Optional[dict]:
     """Run one watch-loop re-mine; a failure is reported and the watcher keeps running.
 
@@ -1604,12 +1621,16 @@ def _run_cycle_mine(
     another writer past the wait budget skips the cycle. A verified-unreadable palace
     head stops the watcher (exit 1) with recovery commands.
     """
+    if stop_event is not None and stop_event.is_set():
+        return None
     try:
         try:
             kwargs = mine_kwargs()
         except Exception as exc:
             raise _MineFailure(str(exc)) from exc
-        return _mine_with_transient_retry(kwargs, palace_path, mining_store, f" [{wing}]")
+        return _mine_with_transient_retry(
+            kwargs, palace_path, mining_store, f" [{wing}]", stop_event=stop_event
+        )
     except _MineFailure as failure:
         if failure.busy is not None:
             owner = ", ".join(
@@ -1838,6 +1859,8 @@ def _watch_single_project(
             yield_on_timeout=True,
             rust_timeout=_LIVENESS_CHECK_MS,
         ):
+            if shutdown_event.is_set():
+                break
             # A removed or de-initialized project produces no further events, so its
             # liveness is checked on every batch, including idle timeouts.
             _drop_dead_projects(project_map, initialized, run_id, restart=restart)
@@ -1876,8 +1899,12 @@ def _watch_single_project(
             if not _should_run():
                 continue
 
-            stats = _run_cycle_mine(mine_kwargs, palace_path, mining_store, label, run_id)
+            stats = _run_cycle_mine(
+                mine_kwargs, palace_path, mining_store, label, run_id, stop_event=shutdown_event
+            )
             if stats is None:
+                if shutdown_event.is_set():
+                    break
                 _drop_dead_projects(project_map, initialized, run_id, restart=restart)
                 continue
             _print_cycle(
@@ -1885,6 +1912,10 @@ def _watch_single_project(
                 stats,
                 project=project_path,
             )
+            cycles += 1
+            event_count += len(relevant)
+            if shutdown_event.is_set():
+                break
             # One guarded maintenance decision after the batch.
             _batch_maintenance(
                 palace_path,
@@ -1893,9 +1924,8 @@ def _watch_single_project(
                 filed=stats.get("drawers_filed", 0),
                 should_run=_should_run,
                 wing_label=label,
+                stop_event=shutdown_event,
             )
-            cycles += 1
-            event_count += len(relevant)
 
     except KeyboardInterrupt:
         pass
@@ -1953,6 +1983,7 @@ def _batch_maintenance(
     filed: int,
     should_run: Callable[[], bool],
     wing_label: str,
+    stop_event: Optional[threading.Event] = None,
 ) -> str:
     """Make the one post-mine maintenance decision of a watcher batch.
 
@@ -1967,8 +1998,14 @@ def _batch_maintenance(
     from .backup import reconcile_managed_backups
     from .config import MempalaceConfig
 
+    if stop_event is not None and stop_event.is_set():
+        return "skipped:stopping"
     reconcile_managed_backups(palace_path)
+    if stop_event is not None and stop_event.is_set():
+        return "skipped:stopping"
     due = _copy_maintenance_due(palace_path)
+    if stop_event is not None and stop_event.is_set():
+        return "skipped:stopping"
     if not filed and not due:
         return "idle"
     if not MempalaceConfig().optimize_after_mine:
@@ -1976,12 +2013,21 @@ def _batch_maintenance(
         return "skipped:disabled"
     if not should_run():
         return "skipped:disk-budget"
+    if stop_event is not None and stop_event.is_set():
+        return "skipped:stopping"
     if due:
         try:
             # The pending record is assessed and updated under the palace write lease;
             # optimize and cleanup re-enter it.
+            if stop_event is not None and stop_event.is_set():
+                return "skipped:stopping"
             with palace_write_lease(palace_path, "watch"):
-                if _copy_maintenance_due(palace_path):
+                if stop_event is not None and stop_event.is_set():
+                    return "skipped:stopping"
+                still_due = _copy_maintenance_due(palace_path)
+                if stop_event is not None and stop_event.is_set():
+                    return "skipped:stopping"
+                if still_due:
                     return _retry_pending_copy_maintenance(
                         palace_path, mining_store, kg_path, wing_label
                     )
@@ -1992,7 +2038,24 @@ def _batch_maintenance(
         return "idle"
     from .storage import open_store
 
-    return _optimize_once(palace_path, open_store, kg_path=kg_path, store=mining_store.collection)
+    if stop_event is None:
+        return _optimize_once(
+            palace_path, open_store, kg_path=kg_path, store=mining_store.collection
+        )
+    if stop_event.is_set():
+        return "skipped:stopping"
+    try:
+        # Optimize re-enters this lease; check admission after any wait for it.
+        with palace_write_lease(palace_path, "watch"):
+            if stop_event.is_set():
+                return "skipped:stopping"
+            store = mining_store.collection
+            if stop_event.is_set():
+                return "skipped:stopping"
+            return _optimize_once(palace_path, open_store, kg_path=kg_path, store=store)
+    except PalaceBusyError as exc:
+        print(f"  >> Optimize skipped: {exc}", flush=True)
+        return "skipped:busy"
 
 
 def _retry_pending_copy_maintenance(
@@ -2324,6 +2387,8 @@ def _watch_planned_projects(
             yield_on_timeout=True,
             rust_timeout=_LIVENESS_CHECK_MS,
         ):
+            if shutdown_event.is_set():
+                break
             # A removed or de-initialized project produces no further events, so
             # liveness is checked on every batch, including idle timeouts.
             recheck()
@@ -2349,6 +2414,8 @@ def _watch_planned_projects(
                     continue
 
                 for proj_path, wing in triggered.items():
+                    if shutdown_event.is_set():
+                        break
                     if proj_path not in project_map:
                         continue
                     stats = _run_cycle_mine(
@@ -2357,8 +2424,11 @@ def _watch_planned_projects(
                         mining_store,
                         wing,
                         run_id,
+                        stop_event=shutdown_event,
                     )
                     if stats is None:
+                        if shutdown_event.is_set():
+                            break
                         recheck()
                         continue
                     batch_filed += stats.get("drawers_filed", 0)
@@ -2400,6 +2470,8 @@ def _watch_planned_projects(
                     continue
 
                 for proj_path, project_changes in by_project.items():
+                    if shutdown_event.is_set():
+                        break
                     if proj_path not in project_map:
                         continue
                     relevant = _dedupe_changes(project_changes)
@@ -2410,8 +2482,11 @@ def _watch_planned_projects(
                         mining_store,
                         wing,
                         run_id,
+                        stop_event=shutdown_event,
                     )
                     if stats is None:
+                        if shutdown_event.is_set():
+                            break
                         recheck()
                         continue
                     batch_filed += stats.get("drawers_filed", 0)
@@ -2421,6 +2496,8 @@ def _watch_planned_projects(
                     cycles += 1
                     event_count += len(relevant)
 
+            if shutdown_event.is_set():
+                break
             # One guarded maintenance decision per batch, shared by its projects.
             _batch_maintenance(
                 palace_path,
@@ -2429,6 +2506,7 @@ def _watch_planned_projects(
                 filed=batch_filed,
                 should_run=_should_run_all,
                 wing_label=",".join(sorted(project_map.values())),
+                stop_event=shutdown_event,
             )
 
     except KeyboardInterrupt:

@@ -2541,6 +2541,8 @@ def _installed_golden_env(
             "PIP_KEYRING_PROVIDER": "disabled",
         }
     )
+    smoke = _load_sibling("_release_install_metadata_runtime", "release_install_metadata_smoke.py")
+    env.update(smoke.python_runtime_library_env())
     return env
 
 
@@ -7950,6 +7952,10 @@ def _credential_free_build_env(
     for name in ("LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "SYSTEMROOT", "WINDIR"):
         if source.get(name):
             env[name] = source[name]
+    smoke = _load_sibling("_release_install_metadata_runtime", "release_install_metadata_smoke.py")
+    env.update(smoke.python_runtime_library_env())
+    if source.get("MEMPALACE_CI_PACKAGE_INDEX_URL"):
+        env.update(smoke.ci_package_index_env(source))
     return env
 
 

@@ -40,14 +40,16 @@ import signal
 import stat
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping
 
     RunSubprocess = Callable[..., tuple[int, str, str]]
 
@@ -154,6 +156,7 @@ _REQUIRED_AGENT_PLUGIN_FILES = (
     "schemas/SCHEMA-NOTICE.md",
 )
 _SOURCE_ROOT = Path(__file__).resolve().parent.parent
+_PYTHON_BUILD_SHARED = sysconfig.get_config_var("Py_ENABLE_SHARED")
 
 _PROBE_SCRIPT = (
     "import importlib.metadata\n"
@@ -396,6 +399,75 @@ def _path_is_relative_to(path: Path, root: Path) -> bool:
     return True
 
 
+def ci_package_index_env(source: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Map the explicit anonymous CI index; ignore ambient installer settings."""
+    source = os.environ if source is None else source
+    value = source.get("MEMPALACE_CI_PACKAGE_INDEX_URL", "")
+    if not value:
+        return {}
+    invalid = ValueError("CI package index must be an anonymous HTTPS URL")
+    if any(char.isspace() or not char.isprintable() for char in value):
+        raise invalid
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        raise invalid from None
+    if (
+        parsed.scheme != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or "?" in value
+        or "#" in value
+        or "\\" in value
+        or (port is not None and port == 0)
+    ):
+        raise invalid
+    return {"PIP_INDEX_URL": value, "UV_DEFAULT_INDEX": value}
+
+
+def python_runtime_library_env() -> dict[str, str]:
+    """Retain only the active Linux Python installation's shared-library directory."""
+    if sys.platform != "linux" or not _PYTHON_BUILD_SHARED:
+        return {}
+    libraries = [sysconfig.get_config_var("LDLIBRARY"), sysconfig.get_config_var("INSTSONAME")]
+    expected = rf"libpython{sys.version_info.major}\.{sys.version_info.minor}{re.escape(sys.abiflags)}\.so(?:\.[0-9]+)*"
+    libraries = [library for library in libraries if library]
+    if not libraries or any(
+        not isinstance(library, str) or not re.fullmatch(expected, library) for library in libraries
+    ):
+        raise ValueError("active Python shared-library name is invalid")
+    prefix = Path(sys.base_prefix)
+    if not prefix.is_absolute():
+        raise ValueError("active Python installation prefix must be absolute")
+    prefix = prefix.resolve(strict=True)
+    directories = [prefix / "lib"]
+    multiarch = sysconfig.get_config_var("MULTIARCH")
+    if isinstance(multiarch, str) and re.fullmatch(r"[A-Za-z0-9_-]+", multiarch):
+        directories.append(prefix / "lib" / multiarch)
+    for directory in directories:
+        for library in libraries:
+            candidate = directory / library
+            if not candidate.exists() and not candidate.is_symlink():
+                continue
+            resolved_directory = directory.resolve(strict=True)
+            resolved_library = candidate.resolve(strict=True)
+            if (
+                not resolved_directory.is_relative_to(prefix)
+                or not resolved_library.is_relative_to(resolved_directory)
+                or not resolved_library.is_file()
+                or os.pathsep in str(resolved_directory)
+                or any(not char.isprintable() for char in str(resolved_directory))
+            ):
+                raise ValueError("active Python shared library escapes its installation")
+            return {"LD_LIBRARY_PATH": str(resolved_directory)}
+    raise ValueError("active Python shared library is missing from its installation")
+
+
 def _credential_free_env() -> dict[str, str]:
     """Return the small environment needed by disposable install probes."""
     env = {
@@ -411,6 +483,8 @@ def _credential_free_env() -> dict[str, str]:
         value = os.environ.get(name)
         if value:
             env[name] = value
+    env.update(python_runtime_library_env())
+    env.update(ci_package_index_env())
     return env
 
 
@@ -2803,7 +2877,11 @@ def _settle_owned_process_group(
         if visibility != "visible" or time.monotonic() >= term_deadline:
             return stdout, stderr, False
         if caller_pgid is None or not _owned_process_group_matches(process.pid, pgid, caller_pgid):
-            return stdout, stderr, False
+            return (
+                stdout,
+                stderr,
+                _owned_process_group_visibility(pgid, term_deadline, poll=False) == "gone",
+            )
         kill_deadline = time.monotonic() + 2
         try:
             os.killpg(pgid, signal.SIGKILL)

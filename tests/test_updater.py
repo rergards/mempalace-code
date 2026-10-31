@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import dis
+import inspect
 import json
 import os
 import plistlib
 import shlex
+import signal
+import sqlite3
 import subprocess
 import sys
+import threading
 from argparse import Namespace
+from contextlib import ExitStack, closing
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -51,9 +57,20 @@ INCOMPATIBLE_MAJOR_VERSION = f"{_CURRENT.major + 1}.0.0"
 
 
 @pytest.fixture(autouse=True)
-def _supported_update_platform(monkeypatch):
+def _supported_update_platform(monkeypatch, tmp_path):
     """Keep established transaction tests on their supported Linux boundary."""
     monkeypatch.setattr(updater.sys, "platform", "linux")
+    monkeypatch.setattr(updater.Path, "home", lambda: tmp_path)
+    original_alive = OperationLock._owner_is_alive
+    monkeypatch.setattr(
+        OperationLock,
+        "_owner_is_alive",
+        staticmethod(
+            lambda owner: (
+                owner.get("pid") in {91001, 91002, *range(4200, 4300)} or original_alive(owner)
+            )
+        ),
+    )
 
 
 class FakeService:
@@ -61,6 +78,20 @@ class FakeService:
         self.active = active
         self.unit = "mempalace-watch.service"
         self.calls: list[str] = []
+        self._stopped: tuple[str, ...] = ()
+        self.stop_guard: Callable[[], None] | None = None
+        self.prepare_capture: Callable[[], None] = lambda: None
+
+    @property
+    def attempted_stops(self) -> tuple[str, ...]:
+        return self._stopped
+
+    def capture_actors(self, observe: updater.ProcessObserver) -> tuple[updater.WatcherActor, ...]:
+        self.prepare_capture()
+        birth = observe(91001)
+        if birth is None:
+            raise ValueError("selected fixture actor exited")
+        return (updater.WatcherActor(self.unit, 91001, birth),)
 
     def discover(self) -> WatcherDiscovery:
         return WatcherDiscovery(unit=self.unit, active=self.active, safe=True, detail="")
@@ -70,14 +101,54 @@ class FakeService:
         return self.active, "active" if self.active else "inactive"
 
     def stop(self) -> tuple[bool, str]:
+        if self.stop_guard is not None:
+            self.stop_guard()
+        self._stopped = (self.unit,)
         self.calls.append("stop")
         self.active = False
         return True, ""
 
     def start(self) -> tuple[bool, str]:
         self.calls.append("start")
+        self._stopped = ()
         self.active = True
         return True, ""
+
+
+def _wal_fixture(palace: Path) -> None:
+    palace.mkdir(parents=True, exist_ok=True)
+    path = palace / "knowledge_graph.sqlite3"
+    if not path.exists():
+        with closing(sqlite3.connect(path)) as db, db:
+            assert db.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+            db.execute("CREATE TABLE specimen (value TEXT)")
+            db.execute("INSERT INTO specimen VALUES ('preserved')")
+
+
+def _owner_fixture(manager: UpdateManager, actors: tuple[updater.WatcherActor, ...]) -> None:
+    path = manager.lock.owners_path
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    actor.unit: {
+                        "pid": actor.pid,
+                        "mode": "shared",
+                        "operation": "watcher",
+                        "palace": str(Path(manager.palace_path).resolve()),
+                        "acquired_at": int(updater.time.time()),
+                    }
+                    for actor in actors
+                }
+            ),
+            encoding="utf-8",
+        )
+
+
+def _prepare_fake(manager: UpdateManager, service: FakeService) -> None:
+    _wal_fixture(Path(manager.palace_path))
+    _owner_fixture(manager, (updater.WatcherActor(service.unit, 91001, 1),))
 
 
 def _installation(extras: frozenset[str] = frozenset({"watch", "spellcheck"})) -> Installation:
@@ -198,6 +269,15 @@ def _manager(
         scheduler_context=lambda: (Path.home() / ".config" / "systemd" / "user", None),
         minimum_free_bytes=minimum_free_bytes,
     )
+    assert isinstance(manager.service, FakeService)
+    selected_service = manager.service
+    selected_service.prepare_capture = lambda: _prepare_fake(manager, selected_service)
+    if selected_service.active:
+        _owner_fixture(manager, (updater.WatcherActor(selected_service.unit, 91001, 1),))
+    original_alive = manager.lock._owner_is_alive
+    manager.lock._owner_is_alive = lambda owner: owner.get("pid") == 91001 or original_alive(owner)
+    manager.observe_process = lambda _pid: 1 if selected_service.active else None
+    manager.writer_wait = 0
     return manager, commands
 
 
@@ -221,6 +301,8 @@ def _systemd_manager(
             return 0, "\n".join(lines), ""
         if command[:3] == ["systemctl", "--user", "show"]:
             unit = command[3]
+            if "--property=MainPID" in command:
+                return 0, "91001", ""
             if "--property=ExecStart" in command:
                 exec_start = exec_starts.get(unit, "")
                 return 0, f"{{ path=/bin/sh ; argv[]={exec_start} ; ignore_errors=no ; }}", ""
@@ -250,6 +332,11 @@ def _systemd_manager(
         scheduler_context=lambda: (Path.home() / ".config" / "systemd" / "user", None),
         minimum_free_bytes=0,
     )
+    if active_units:
+        _wal_fixture(Path(manager.palace_path))
+        _owner_fixture(manager, (updater.WatcherActor(active_units[0], 91001, 1),))
+    manager.observe_process = lambda _pid: 1 if active else None
+    manager.writer_wait = 0
     return manager, commands
 
 
@@ -514,7 +601,11 @@ def _launchd_manager(
     active = list(active_labels)
     bootout_codes = bootout_rc if bootout_rc is not None else {}
     bootstrap_codes = bootstrap_rc if bootstrap_rc is not None else {}
-    pid_column = pids or {}
+    pid_column = {
+        label: (pids or {}).get(label, str(4200 + index))
+        for index, label in enumerate(active_labels)
+    }
+    living = {int(value) for value in pid_column.values() if value.isdigit()}
 
     def runner(command: list[str]) -> tuple[int, str, str]:
         commands.append(command)
@@ -534,6 +625,8 @@ def _launchd_manager(
         if command[:2] == ["launchctl", "bootout"]:
             label = command[2].rsplit("/", 1)[-1]
             rc = bootout_codes.get(label, 0)
+            if pid_column[label].isdigit():
+                living.discard(int(pid_column[label]))
             if rc == 0 and label in active:
                 active.remove(label)
             return rc, "", ("" if rc == 0 else "Bootout failed: 3: No such process")
@@ -542,6 +635,8 @@ def _launchd_manager(
             rc = bootstrap_codes.get(label, 0)
             if rc == 0 and label not in active:
                 active.append(label)
+            if rc == 0 and pid_column[label].isdigit():
+                living.add(int(pid_column[label]))
             return rc, "", ("" if rc == 0 else "Bootstrap failed: 5: Input/output error")
         return 0, "ok", ""
 
@@ -557,6 +652,18 @@ def _launchd_manager(
         backup_preflight=lambda: (True, "backup policy checked"),
         minimum_free_bytes=0,
     )
+    if active_labels:
+        _wal_fixture(Path(manager.palace_path))
+        _owner_fixture(
+            manager,
+            tuple(
+                updater.WatcherActor(label, int(pid), 1)
+                for label, pid in pid_column.items()
+                if pid.isdigit()
+            ),
+        )
+    manager.observe_process = lambda pid: 1 if pid in living else None
+    manager.writer_wait = 0
     return manager, commands, home
 
 
@@ -796,9 +903,13 @@ class TestLaunchdWatcherDiscovery:
         stopped, _detail = service.stop()
 
         assert stopped is False
-        # Only the watcher compensation could not put back stays pending.
-        assert service._stopped == (DEFAULT_LAUNCHD_WATCH_LABEL,)  # type: ignore[union-attr]  # reason: adapter is the concrete launchd service
+        # Both dispatched attempts remain pending until caller-owned drain and start.
+        assert service.attempted_stops == tuple(labels)
 
+        # Compensation is explicit and runs after the fixture's old actors have exited.
+        started, detail = service.start()
+        assert not started
+        assert service.attempted_stops == (DEFAULT_LAUNCHD_WATCH_LABEL,)
         bootstrap_rc.clear()
         commands.clear()
         started, detail = service.start()
@@ -846,7 +957,7 @@ class TestLaunchdWatcherDiscovery:
             ]
         ]
 
-    def test_status_coordinates_loaded_watchers_listed_without_a_pid(self, tmp_path, monkeypatch):
+    def test_apply_refuses_loaded_watchers_listed_without_a_pid(self, tmp_path, monkeypatch):
         # `launchctl list` prints "-" for a loaded job that is not currently running;
         # KeepAlive can respawn it mid-replacement, so it must still be coordinated.
         labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.srv-dev"]
@@ -856,17 +967,17 @@ class TestLaunchdWatcherDiscovery:
             active_labels=labels,
             pids={DEFAULT_LAUNCHD_WATCH_LABEL: "-"},
         )
-        agents = {label: _write_agent_plist(home, label) for label in labels}
+        for label in labels:
+            _write_agent_plist(home, label)
 
         result = manager.apply()
 
-        assert result.ok is True
-        assert manager.service.labels == tuple(labels)  # type: ignore[union-attr]  # reason: adapter is the concrete launchd service
-        for label in labels:
-            assert ["launchctl", "bootout", _domain(label)] in commands
-            assert ["launchctl", "bootstrap", f"gui/{os.geteuid()}", str(agents[label])] in (
-                commands
-            )
+        assert result.ok is False
+        assert result.stage == "watcher-stop"
+        assert "PID" in result.message
+        assert RECOVERY_HINT in result.message
+        assert not any(command[:2] == ["launchctl", "bootout"] for command in commands)
+        assert not any("install" in command for command in commands)
 
     def test_stop_waits_until_launchd_drops_the_selected_label(self, monkeypatch):
         label = DEFAULT_LAUNCHD_WATCH_LABEL
@@ -884,7 +995,7 @@ class TestLaunchdWatcherDiscovery:
         assert (stopped, detail) == (True, "")
         assert sleeps == [0.1, 0.1]
 
-    def test_stop_restores_a_label_when_launchd_never_settles(self, monkeypatch):
+    def test_stop_defers_restoration_when_launchd_never_settles(self, monkeypatch):
         label = DEFAULT_LAUNCHD_WATCH_LABEL
         commands: list[list[str]] = []
         service = LaunchdUserService(lambda command: commands.append(command) or (0, "", ""))
@@ -899,10 +1010,10 @@ class TestLaunchdWatcherDiscovery:
 
         assert stopped is False
         assert "remained loaded after bootout" in detail
-        assert commands == [
-            ["launchctl", "bootout", _domain(label)],
-            ["launchctl", "bootstrap", f"gui/{os.geteuid()}", "/owned.plist"],
-        ]
+        assert commands == [["launchctl", "bootout", _domain(label)]]
+        assert service._stopped == (label,)
+        assert service.start() == (True, "")
+        assert commands[-1] == ["launchctl", "bootstrap", f"gui/{os.geteuid()}", "/owned.plist"]
 
     def test_start_accepts_an_exact_selected_label_that_is_already_active(self, monkeypatch):
         label = DEFAULT_LAUNCHD_WATCH_LABEL
@@ -1624,7 +1735,7 @@ class TestScheduling:
         data = _current_pypi()
         data["releases"][CURRENT_VERSION][0][field] = value
 
-        class ForbiddenService:
+        class ForbiddenService(FakeService):
             unit = DEFAULT_WATCHER_UNIT
 
             def discover(self) -> WatcherDiscovery:
@@ -1943,11 +2054,12 @@ class TestScheduling:
         manager.lock.owners_path.write_text(
             json.dumps(
                 {
+                    **json.loads(manager.lock.owners_path.read_text()),
                     "stale": {
                         "mode": "exclusive",
                         "operation": "update",
                         "pid": 999999999,
-                    }
+                    },
                 }
             ),
             encoding="utf-8",
@@ -2439,3 +2551,812 @@ class TestUatUpdaterUx:
         assert "  Scheduler enabled: False" in out
         assert "  Detail: scheduled update mutations require Linux systemd-user" in out
         assert "  Next run: not scheduled" in out
+
+
+class TestWriterDrain:
+    @staticmethod
+    def prepared(tmp_path, monkeypatch):
+        monkeypatch.setattr(updater.Path, "home", lambda: tmp_path)
+        manager, commands = _manager(tmp_path)
+        assert isinstance(manager.service, FakeService)
+        service = manager.service
+        _prepare_fake(manager, service)
+        service.prepare_capture = lambda: None
+        return manager, service, commands
+
+    @staticmethod
+    def assert_fenced(manager):
+        for lock in (manager.lock, OperationLock.for_palace(manager.palace_path)):
+            with pytest.raises(updater.OperationLockedError):
+                lock.acquire_exclusive("independent writer")
+        with sqlite3.connect(
+            Path(manager.palace_path) / "knowledge_graph.sqlite3", timeout=0
+        ) as db:
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                db.execute("BEGIN IMMEDIATE")
+
+    @staticmethod
+    def assert_drain_released(manager):
+        with OperationLock.for_palace(manager.palace_path).acquire_exclusive("independent writer"):
+            pass
+        with closing(
+            sqlite3.connect(Path(manager.palace_path) / "knowledge_graph.sqlite3", timeout=0)
+        ) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.rollback()
+
+    @staticmethod
+    def assert_released(manager):
+        with manager.lock.acquire_exclusive("independent writer"):
+            pass
+        TestWriterDrain.assert_drain_released(manager)
+
+    @pytest.mark.parametrize("kind", ["palace", "sqlite"])
+    def test_busy_native_writer_refuses_before_stop(self, tmp_path, monkeypatch, kind):
+        manager, service, commands = self.prepared(tmp_path, monkeypatch)
+        with ExitStack() as stack:
+            if kind == "palace":
+                stack.enter_context(
+                    OperationLock.for_palace(manager.palace_path).acquire_exclusive("writer")
+                )
+            else:
+                db = sqlite3.connect(Path(manager.palace_path) / "knowledge_graph.sqlite3")
+                stack.callback(db.close)
+                db.execute("BEGIN IMMEDIATE")
+            result = manager.apply()
+        assert not result.ok
+        assert result.stage == "watcher-stop"
+        assert "recovery:" in result.message
+        assert "stop" not in service.calls
+        assert not any("install" in command for command in commands)
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            "missing",
+            "malformed",
+            "empty",
+            "incomplete",
+            "foreign",
+            "palace-less",
+            "stale-birth",
+            "contradictory",
+            "duplicate-key",
+        ],
+    )
+    def test_unknown_owner_refuses_before_stop(self, tmp_path, monkeypatch, kind):
+        manager, service, commands = self.prepared(tmp_path, monkeypatch)
+        path = manager.lock.owners_path
+        owners = json.loads(path.read_text())
+        record = owners[service.unit]
+        if kind == "missing":
+            path.unlink()
+        elif kind == "malformed":
+            path.write_text("{broken")
+        elif kind == "empty":
+            path.write_text("{}")
+        elif kind == "duplicate-key":
+            path.write_text('{"same": {}, "same": {}}')
+        else:
+            if kind == "incomplete":
+                record["pid"] = 91002
+            elif kind == "foreign":
+                foreign = tmp_path / "foreign"
+                foreign.mkdir()
+                record["palace"] = str(foreign)
+            elif kind == "palace-less":
+                record.pop("palace")
+            elif kind == "stale-birth":
+                record["acquired_at"] = 0
+            elif kind == "contradictory":
+                owners["conflict"] = {**record, "operation": "mine"}
+            path.write_text(json.dumps(owners))
+        result = manager.apply()
+        assert not result.ok
+        assert "stop" not in service.calls
+        assert not commands
+        assert "recovery:" in result.message
+
+    def test_absent_kg_refuses_without_creating_it(self, tmp_path, monkeypatch):
+        manager, service, commands = self.prepared(tmp_path, monkeypatch)
+        kg = Path(manager.palace_path) / "knowledge_graph.sqlite3"
+        kg.unlink()
+        result = manager.apply()
+        assert not result.ok
+        assert not kg.exists()
+        assert "stop" not in service.calls
+        assert not commands
+        # The existing owner really can create this file outside the palace lease.
+        from mempalace_code.knowledge_graph import KnowledgeGraph
+
+        with updater.palace_write_lease(manager.palace_path, "independent premise"):
+            KnowledgeGraph(db_path=str(kg))
+        assert kg.exists()
+
+    @pytest.mark.parametrize("kind", ["non-wal", "symlink", "directory", "inode-drift"])
+    def test_unsafe_kg_refuses_before_dispatch(self, tmp_path, monkeypatch, kind):
+        manager, service, commands = self.prepared(tmp_path, monkeypatch)
+        kg = Path(manager.palace_path) / "knowledge_graph.sqlite3"
+        if kind == "non-wal":
+            with sqlite3.connect(kg) as db:
+                assert db.execute("PRAGMA journal_mode=DELETE").fetchone() == ("delete",)
+        elif kind == "symlink":
+            replacement = kg.with_suffix(".other")
+            kg.rename(replacement)
+            kg.symlink_to(replacement)
+        elif kind == "directory":
+            kg.unlink()
+            kg.mkdir()
+        else:
+            original = service.capture_actors
+            calls = 0
+
+            def drift(observe):
+                nonlocal calls
+                calls += 1
+                if calls == 3:
+                    replacement = kg.with_suffix(".old")
+                    kg.rename(replacement)
+                    kg.write_bytes(replacement.read_bytes())
+                return original(observe)
+
+            service.capture_actors = drift
+        result = manager.apply()
+        assert not result.ok
+        assert "stop" not in service.calls
+        assert not commands
+
+    def test_actor_birth_drift_refuses_before_dispatch(self, tmp_path, monkeypatch):
+        manager, service, commands = self.prepared(tmp_path, monkeypatch)
+        births = iter([1, 1, 2])
+        manager.observe_process = lambda _pid: next(births)
+        result = manager.apply()
+        assert not result.ok
+        assert "stop" not in service.calls
+        assert not commands
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            "false",
+            "exception",
+            "interrupt",
+            "system-exit",
+            "observer",
+            "pause",
+            "notice",
+            "pid-reuse",
+            "success",
+        ],
+    )
+    def test_attempted_actor_drain_defers_failures_and_compensation(
+        self, tmp_path, monkeypatch, failure
+    ):
+        manager, service, commands = self.prepared(tmp_path, monkeypatch)
+        alive = True
+        dispatched = False
+        events = []
+        observation_failed = False
+        pause_failed = False
+        original_start = service.start
+
+        def observe(_pid):
+            nonlocal observation_failed
+            if dispatched:
+                self.assert_fenced(manager)
+                if failure == "observer" and not observation_failed:
+                    observation_failed = True
+                    raise OSError("observer unavailable")
+            return 1 if alive else (2 if failure == "pid-reuse" else None)
+
+        def stop():
+            nonlocal dispatched
+            assert service.stop_guard is not None
+            service.stop_guard()
+            service._stopped = (service.unit,)
+            dispatched = True
+            service.calls.append("stop")
+            self.assert_fenced(manager)
+            events.append("dispatch")
+            if failure == "exception":
+                raise RuntimeError("dispatched exception")
+            if failure == "interrupt":
+                raise KeyboardInterrupt("dispatched interrupt")
+            if failure == "system-exit":
+                raise SystemExit("dispatched exit")
+            return failure in ("success", "pid-reuse"), "injected stop failure"
+
+        def pause(_seconds):
+            nonlocal alive, pause_failed
+            self.assert_fenced(manager)
+            if failure == "pause" and not pause_failed:
+                pause_failed = True
+                raise KeyboardInterrupt("pause interrupted")
+            events.append("exit")
+            alive = False
+
+        def notice(_message):
+            self.assert_fenced(manager)
+            if failure == "notice":
+                raise SystemExit("notice interrupted")
+
+        def start():
+            assert not alive
+            if failure in ("success", "pid-reuse"):
+                self.assert_drain_released(manager)
+                assert manager.lock.held_linked_in_thread(exclusive=True)
+            else:
+                self.assert_released(manager)
+            events.append("restart")
+            return original_start()
+
+        manager.observe_process = observe
+        manager.drain_pause = pause
+        manager.drain_notice = notice
+        service.stop = stop
+        service.start = start
+        error = {
+            "exception": RuntimeError,
+            "interrupt": KeyboardInterrupt,
+            "system-exit": SystemExit,
+            "observer": OSError,
+            "pause": KeyboardInterrupt,
+            "notice": SystemExit,
+        }.get(failure)
+        if error is not None:
+            with pytest.raises(error):
+                manager.apply()
+        else:
+            result = manager.apply()
+            assert result.ok == (failure in ("success", "pid-reuse"))
+        assert events.index("dispatch") < events.index("exit") < events.index("restart")
+        self.assert_released(manager)
+        if failure not in ("success", "pid-reuse"):
+            assert not any("install" in command for command in commands)
+
+    @pytest.mark.parametrize("mode", ["false", "exception", "unload"])
+    def test_actual_launchd_owner_drains_only_attempted_labels(self, tmp_path, monkeypatch, mode):
+        labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.second"]
+        manager, commands, home = _launchd_manager(tmp_path, monkeypatch, active_labels=labels)
+        for label in labels:
+            _write_agent_plist(home, label)
+        service = manager.service
+        assert isinstance(service, LaunchdUserService)
+        attempted = []
+        alive = True
+        original_observe = manager.observe_process
+        original_start = service.start
+
+        def bootout(label):
+            self.assert_fenced(manager)
+            attempted.append(label)
+            if mode == "exception":
+                raise RuntimeError("after dispatch")
+            return mode != "false", "indeterminate"
+
+        def observe(pid):
+            if attempted:
+                assert pid == 4200
+                self.assert_fenced(manager)
+                return 1 if alive else None
+            return original_observe(pid)
+
+        def pause(_seconds):
+            nonlocal alive
+            self.assert_fenced(manager)
+            alive = False
+
+        def start():
+            assert attempted == [labels[0]]
+            assert not alive
+            self.assert_released(manager)
+            assert service._stopped == (labels[0],)
+            return original_start()
+
+        service._bootout = bootout
+        service._wait_until_unloaded = lambda label: (False, f"unload uncertain: {label}")
+        service.start = start
+        manager.observe_process = observe
+        manager.drain_pause = pause
+        if mode == "exception":
+            with pytest.raises(RuntimeError, match="after dispatch"):
+                manager.apply()
+        else:
+            result = manager.apply()
+            assert not result.ok
+            assert result.stage == "watcher-stop"
+        assert attempted == [labels[0]]
+        assert not any("install" in command for command in commands)
+        assert not any(
+            command[:2] == ["launchctl", "bootstrap"] and command[-1].endswith(labels[1] + ".plist")
+            for command in commands
+        )
+
+    def test_no_watcher_needs_no_kg_or_actor_attribution(self, tmp_path):
+        manager, _commands = _manager(tmp_path, service=FakeService(active=False))
+        assert manager.apply().ok
+        assert not Path(manager.palace_path).exists()
+
+    def test_systemd_zero_main_pid_refuses_before_stop(self, tmp_path, monkeypatch):
+        unit = DEFAULT_WATCHER_UNIT
+        manager, commands = _systemd_manager(
+            tmp_path, active_units=[unit], exec_starts={unit: "mempalace-code watch /srv/dev"}
+        )
+        service = manager.service
+        assert isinstance(service, SystemdUserService)
+        original = service.runner
+
+        def zero_pid(command):
+            if "--property=MainPID" in command:
+                return 0, "0", ""
+            return original(command)
+
+        service.runner = zero_pid
+        result = manager.apply()
+        assert not result.ok
+        assert "MainPID" in result.message
+        assert not any(command[:3] == ["systemctl", "--user", "stop"] for command in commands)
+
+    def test_new_selected_actor_before_dispatch_refuses(self, tmp_path, monkeypatch):
+        manager, service, commands = self.prepared(tmp_path, monkeypatch)
+        original = service.capture_actors
+        captures = 0
+
+        def capture(observe):
+            nonlocal captures
+            captures += 1
+            actors = original(observe)
+            if captures >= 3:
+                return (*actors, updater.WatcherActor("new-watcher", 91002, 1))
+            return actors
+
+        service.capture_actors = capture
+        result = manager.apply()
+        assert not result.ok
+        assert "stop" not in service.calls
+        assert not commands
+
+    def test_success_retains_fences_until_both_launchd_actors_exit(self, tmp_path, monkeypatch):
+        labels = [DEFAULT_LAUNCHD_WATCH_LABEL, "com.mempalace.watch.second"]
+        manager, commands, home = _launchd_manager(tmp_path, monkeypatch, active_labels=labels)
+        for label in labels:
+            _write_agent_plist(home, label)
+        service = manager.service
+        assert isinstance(service, LaunchdUserService)
+        alive = {4200, 4201}
+        phase = "capture"
+        observed = []
+        original_start = service.start
+
+        def observe(pid):
+            if phase == "drain":
+                self.assert_fenced(manager)
+                observed.append(pid)
+            return 1 if pid in alive else None
+
+        original_stop = service.stop
+
+        def stop():
+            nonlocal phase
+            result = original_stop()
+            phase = "drain"
+            return result
+
+        def pause(_seconds):
+            self.assert_fenced(manager)
+            assert service._stopped == tuple(labels)
+            alive.clear()
+
+        def start():
+            assert not alive
+            self.assert_drain_released(manager)
+            assert manager.lock.held_linked_in_thread(exclusive=True)
+            return original_start()
+
+        manager.observe_process = observe
+        manager.drain_pause = pause
+        service.stop = stop
+        service.start = start
+        assert manager.apply().ok
+        assert set(observed) == {4200, 4201}
+        assert sum(command[:2] == ["launchctl", "bootout"] for command in commands) == 2
+
+    @pytest.mark.parametrize("outcome", ["unknown", "absent", "birth", "child", "foreign"])
+    def test_default_process_observer_requires_complete_same_user_identity(
+        self, monkeypatch, outcome
+    ):
+        uid = os.geteuid() + (1 if outcome == "foreign" else 0)
+        rows = "" if outcome == "absent" else f"91001 1 {uid} Tue Oct 27 12:00:00 2026"
+        rows += f"\n{os.getpid()} 1 {os.geteuid()} Tue Oct 27 11:59:00 2026"
+        if outcome == "child":
+            rows += f"\n91002 91001 {uid} Tue Oct 27 12:00:01 2026"
+        monkeypatch.setattr(
+            updater.subprocess,
+            "run",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                returncode=1 if outcome == "unknown" else 0, stdout=rows
+            ),
+        )
+        if outcome in ("unknown", "child", "foreign"):
+            with pytest.raises((OSError, ValueError)):
+                updater._process_birth(91001)
+        elif outcome == "absent":
+            assert updater._process_birth(91001) is None
+        else:
+            assert updater._process_birth(91001) == int(
+                updater.time.mktime(
+                    updater.time.strptime("Tue Oct 27 12:00:00 2026", "%a %b %d %H:%M:%S %Y")
+                )
+            )
+
+
+class TestShutdownSigint:
+    @pytest.mark.parametrize(
+        "boundary",
+        [
+            "drain-entry",
+            "observer-error",
+            "pause-error",
+            "notice-error",
+            "teardown",
+            "restore",
+            "late-check",
+            "return-handoff",
+            "return-opcode",
+        ],
+    )
+    def test_real_sigint_retains_fences_and_restores_signal_state(
+        self, tmp_path, monkeypatch, boundary
+    ):
+        manager, service, commands = TestWriterDrain.prepared(tmp_path, monkeypatch)
+        original_handler = signal.getsignal(signal.SIGINT)
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        assert original_handler is signal.default_int_handler
+        alive = True
+        dispatched = False
+        injected = False
+        failed = False
+        opcode_count = 0
+        restarts = []
+        original_stop = service.stop
+        original_start = service.start
+        method = updater.UpdateManager._drain_fenced_watcher
+        if boundary in ("teardown", "restore", "late-check", "return-handoff", "return-opcode"):
+            method = updater.UpdateManager._stop_fenced_watcher
+        lines, first = inspect.getsourcelines(method)
+        target = {
+            "drain-entry": "while pending:",
+            "observer-error": "if deferred is None:",
+            "pause-error": "if deferred is None:",
+            "notice-error": "if deferred is None:",
+            "teardown": "signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})",
+            "restore": "signal.signal(signal.SIGINT, original_handler)",
+            "late-check": "if interrupted is not None:",
+            "return-handoff": "return result",
+            "return-opcode": "return result",
+        }[boundary]
+        injection_line = next(first + i for i, line in enumerate(lines) if line.strip() == target)
+        instructions = list(dis.get_instructions(method))
+        return_offset = (
+            next(
+                instructions[i + 1].offset
+                for i, instruction in enumerate(instructions[:-1])
+                if instruction.opname == "LOAD_FAST"
+                and instruction.argval == "result"
+                and instructions[i + 1].opname == "RETURN_VALUE"
+            )
+            if boundary == "return-opcode"
+            else None
+        )
+
+        def observe(_pid):
+            nonlocal failed
+            if dispatched and boundary == "observer-error" and not failed:
+                failed = True
+                raise OSError("observer failure before actual SIGINT")
+            return 1 if alive else None
+
+        def stop():
+            nonlocal dispatched
+            result = original_stop()
+            dispatched = True
+            return result
+
+        def pause(_seconds):
+            nonlocal alive, failed
+            TestWriterDrain.assert_fenced(manager)
+            if boundary == "pause-error" and not failed:
+                failed = True
+                raise RuntimeError("pause failure before actual SIGINT")
+            alive = False
+
+        def notice(_message):
+            nonlocal failed
+            if boundary == "notice-error" and not failed:
+                failed = True
+                raise RuntimeError("notice failure before actual SIGINT")
+
+        def start():
+            assert not alive
+            TestWriterDrain.assert_released(manager)
+            restarts.append(True)
+            return original_start()
+
+        def trace(frame, event, _arg):
+            nonlocal injected, opcode_count
+            if frame.f_code is method.__code__ and boundary == "return-opcode":
+                frame.f_trace_opcodes = True
+                if event == "opcode" and dispatched:
+                    opcode_count += 1
+            at_boundary = (
+                event == "opcode" and frame.f_lasti == return_offset
+                if boundary == "return-opcode"
+                else event == "line" and frame.f_lineno == injection_line
+            )
+            if at_boundary and frame.f_code is method.__code__ and dispatched and not injected:
+                injected = True
+                if alive:
+                    TestWriterDrain.assert_fenced(manager)
+                signal.raise_signal(signal.SIGINT)
+                if alive:
+                    TestWriterDrain.assert_fenced(manager)
+            return trace
+
+        manager.observe_process = observe
+        manager.drain_pause = pause
+        manager.drain_notice = notice
+        service.stop = stop
+        service.start = start
+        previous_trace = sys.gettrace()
+        # Prime opcode tracing before settrace on the supported Python 3.12
+        # test runtime, and require positive normal-flow delivery below.
+        tracing_frame = sys._getframe()
+        previous_opcodes = tracing_frame.f_trace_opcodes
+        tracing_frame.f_trace_opcodes = True
+        sys.settrace(trace)
+        try:
+            expected = (
+                OSError
+                if boundary == "observer-error"
+                else RuntimeError
+                if boundary in ("pause-error", "notice-error")
+                else KeyboardInterrupt
+            )
+            with pytest.raises(expected):
+                manager.apply()
+        finally:
+            sys.settrace(previous_trace)
+            tracing_frame.f_trace_opcodes = previous_opcodes
+        assert injected
+        assert not alive
+        assert restarts == [True]
+        assert service.calls.count("stop") == 1
+        if boundary == "return-opcode":
+            assert opcode_count > 0
+        assert signal.getsignal(signal.SIGINT) is original_handler
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == original_mask
+        TestWriterDrain.assert_released(manager)
+        assert not any("install" in command for command in commands)
+
+    def test_sigint_while_acquiring_fence_never_dispatches_stop(self, tmp_path, monkeypatch):
+        manager, service, commands = TestWriterDrain.prepared(tmp_path, monkeypatch)
+        acquire = manager.lock.acquire_shared
+        original_handler = signal.getsignal(signal.SIGINT)
+
+        def interrupted_acquisition(*args, **kwargs):
+            lease = acquire(*args, **kwargs)
+            signal.raise_signal(signal.SIGINT)
+            return lease
+
+        monkeypatch.setattr(manager.lock, "acquire_shared", interrupted_acquisition)
+        with pytest.raises(KeyboardInterrupt):
+            manager.apply()
+        assert "stop" not in service.calls
+        assert signal.getsignal(signal.SIGINT) is original_handler
+        TestWriterDrain.assert_released(manager)
+        assert not any("install" in command for command in commands)
+
+    def test_nonmain_thread_refuses_before_effects(self, tmp_path, monkeypatch):
+        manager, service, commands = TestWriterDrain.prepared(tmp_path, monkeypatch)
+        results = []
+        thread = threading.Thread(target=lambda: results.append(manager.apply()))
+        thread.start()
+        thread.join()
+        assert len(results) == 1
+        assert not results[0].ok
+        assert "main thread" in results[0].message
+        assert "stop" not in service.calls
+        assert not commands
+
+    def test_custom_sigint_handler_refuses_before_effects(self, tmp_path, monkeypatch):
+        manager, service, commands = TestWriterDrain.prepared(tmp_path, monkeypatch)
+        monkeypatch.setattr(signal, "getsignal", lambda _sig: lambda *_args: None)
+        result = manager.apply()
+        assert not result.ok
+        assert "unsupported SIGINT" in result.message
+        assert "stop" not in service.calls
+        assert not commands
+
+    def test_preblocked_sigint_refuses_and_preserves_mask(self, tmp_path, monkeypatch):
+        manager, service, commands = TestWriterDrain.prepared(tmp_path, monkeypatch)
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+        try:
+            result = manager.apply()
+            assert not result.ok
+            assert "already blocked" in result.message
+            assert signal.SIGINT in signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            assert "stop" not in service.calls
+            assert not commands
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+
+    @pytest.mark.parametrize("unsupported", ["mask", "handler-install"])
+    def test_unavailable_deferral_refuses_before_effects(self, tmp_path, monkeypatch, unsupported):
+        manager, service, commands = TestWriterDrain.prepared(tmp_path, monkeypatch)
+        original_handler = signal.getsignal(signal.SIGINT)
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+
+        def unavailable(*_args):
+            raise OSError("unsupported signal route")
+
+        with monkeypatch.context() as patched:
+            if unsupported == "mask":
+                patched.setattr(signal, "pthread_sigmask", unavailable)
+            else:
+                patched.setattr(signal, "signal", unavailable)
+            result = manager.apply()
+        assert not result.ok
+        assert "SIGINT deferral unavailable" in result.message
+        assert "recovery:" in result.message
+        assert "stop" not in service.calls
+        assert not commands
+        assert signal.getsignal(signal.SIGINT) is original_handler
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == original_mask
+
+    @pytest.mark.parametrize("failure", ["false", "exception"])
+    def test_late_sigint_never_retries_failed_compensation(self, tmp_path, monkeypatch, failure):
+        manager, service, commands = TestWriterDrain.prepared(tmp_path, monkeypatch)
+        original_stop = service.stop
+        restores = []
+        injected = False
+
+        def stop():
+            original_stop()
+            return False, "stop failed after dispatch"
+
+        def start():
+            TestWriterDrain.assert_released(manager)
+            restores.append(True)
+            if failure == "exception":
+                raise RuntimeError("restoration failed")
+            return False, "restoration failed"
+
+        method = updater.UpdateManager._stop_fenced_watcher
+        lines, first = inspect.getsourcelines(method)
+        target = next(
+            first + i
+            for i, line in enumerate(lines)
+            if line.strip() == "signal.signal(signal.SIGINT, original_handler)"
+        )
+
+        def trace(frame, event, _arg):
+            nonlocal injected
+            if (
+                event == "line"
+                and frame.f_code is method.__code__
+                and frame.f_lineno == target
+                and not injected
+            ):
+                assert restores == [True]
+                injected = True
+                signal.raise_signal(signal.SIGINT)
+            return trace
+
+        service.stop = stop
+        service.start = start
+        previous_trace = sys.gettrace()
+        sys.settrace(trace)
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                manager.apply()
+        finally:
+            sys.settrace(previous_trace)
+        assert injected
+        assert restores == [True]
+        assert service.calls.count("stop") == 1
+        assert not any("install" in command for command in commands)
+
+    def test_late_sigint_does_not_restore_an_untouched_actor(self, tmp_path, monkeypatch):
+        manager, service, commands = TestWriterDrain.prepared(tmp_path, monkeypatch)
+        (Path(manager.palace_path) / "knowledge_graph.sqlite3").unlink()
+        method = updater.UpdateManager._stop_fenced_watcher
+        lines, first = inspect.getsourcelines(method)
+        target = next(first + i for i, line in enumerate(lines) if line.strip() == "return result")
+        injected = False
+
+        def trace(frame, event, _arg):
+            nonlocal injected
+            if (
+                event == "line"
+                and frame.f_code is method.__code__
+                and frame.f_lineno == target
+                and not injected
+            ):
+                injected = True
+                signal.raise_signal(signal.SIGINT)
+            return trace
+
+        previous_trace = sys.gettrace()
+        sys.settrace(trace)
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                manager.apply()
+        finally:
+            sys.settrace(previous_trace)
+        assert injected
+        assert "stop" not in service.calls
+        assert "start" not in service.calls
+        assert not commands
+
+    @pytest.mark.parametrize("point", ["final-attribution", "after-commit"])
+    def test_systemd_cancel_before_and_after_atomic_dispatch_commit(
+        self, tmp_path, monkeypatch, point
+    ):
+        unit = DEFAULT_WATCHER_UNIT
+        manager, commands = _systemd_manager(
+            tmp_path,
+            active_units=[unit],
+            exec_starts={unit: "/opt/mempalace/bin/python -m mempalace_code watch /srv/dev"},
+        )
+        service = manager.service
+        assert isinstance(service, SystemdUserService)
+        original_owners = updater._watcher_owners
+        original_handler = signal.getsignal(signal.SIGINT)
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        injected = False
+
+        def owners(*args):
+            nonlocal injected
+            original_owners(*args)
+            if service.stop_guard is not None and point == "final-attribution" and not injected:
+                assert signal.SIGINT in signal.pthread_sigmask(signal.SIG_BLOCK, set())
+                injected = True
+                signal.raise_signal(signal.SIGINT)
+
+        monkeypatch.setattr(updater, "_watcher_owners", owners)
+        lines, first = inspect.getsourcelines(SystemdUserService.stop)
+        target = next(
+            first + i
+            for i, line in enumerate(lines)
+            if line.strip() == "self._stopped = (self.unit,)"
+        )
+
+        def trace(frame, event, _arg):
+            nonlocal injected
+            if (
+                point == "after-commit"
+                and event == "line"
+                and frame.f_code is SystemdUserService.stop.__code__
+                and frame.f_lineno == target
+                and not injected
+            ):
+                assert signal.SIGINT in signal.pthread_sigmask(signal.SIG_BLOCK, set())
+                injected = True
+                signal.raise_signal(signal.SIGINT)
+            return trace
+
+        previous_trace = sys.gettrace()
+        sys.settrace(trace)
+        try:
+            with pytest.raises(KeyboardInterrupt):
+                manager.apply()
+        finally:
+            sys.settrace(previous_trace)
+        assert injected
+        expected = 0 if point == "final-attribution" else 1
+        assert commands.count(["systemctl", "--user", "stop", unit]) == expected
+        assert commands.count(["systemctl", "--user", "start", unit]) == expected
+        assert signal.getsignal(signal.SIGINT) is original_handler
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == original_mask
+        TestWriterDrain.assert_released(manager)
+        assert not any("install" in command for command in commands)

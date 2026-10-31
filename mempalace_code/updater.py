@@ -14,11 +14,15 @@ import pwd
 import re
 import shlex
 import shutil
+import signal
+import sqlite3
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import metadata
@@ -30,7 +34,14 @@ from urllib.request import urlopen
 from packaging.version import InvalidVersion, Version
 
 from .cli_commands.alias import CANONICAL_CLI_COMMAND, LEGACY_CLI_ALIAS
-from .operation_lock import OperationLock, OperationLockedError
+from .knowledge_graph import palace_kg_path
+from .operation_lock import (
+    DEFAULT_PALACE_WRITE_WAIT_SECONDS,
+    OperationLock,
+    OperationLockedError,
+    OperationLockError,
+    palace_write_lease,
+)
 from .storage import detect_installed_extras, uv_tool_location_environment
 from .version import __version__
 
@@ -115,10 +126,125 @@ BackupPreflight = Callable[[], tuple[bool, str]]
 SchedulerContext = Callable[[], tuple[Path, str | None]]
 
 
+@dataclass(frozen=True)
+class WatcherActor:
+    """One selected process, bound to its observed birth time."""
+
+    unit: str
+    pid: int
+    started_at: int
+
+
+ProcessObserver = Callable[[int], int | None]
+
+
+def _process_birth(pid: int) -> int | None:
+    """Observe identity without reading commands or environments; unknown raises."""
+    completed = subprocess.run(
+        ["ps", "-axo", "pid=,ppid=,uid=,lstart="],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise OSError("cannot observe watcher process identity")
+    rows: dict[int, tuple[int, int, int]] = {}
+    for line in completed.stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split(maxsplit=3)
+        if len(parts) != 4:
+            raise ValueError("process identity census is incomplete")
+        process, parent, uid = (int(value) for value in parts[:3])
+        birth = int(time.mktime(time.strptime(parts[3], "%a %b %d %H:%M:%S %Y")))
+        if process in rows:
+            raise ValueError("duplicate process identity")
+        rows[process] = (parent, uid, birth)
+    if os.getpid() not in rows:
+        raise ValueError("process identity census does not include its observer")
+    if pid not in rows:
+        return None
+    _parent, uid, birth = rows[pid]
+    if uid != os.geteuid() or any(row[0] == pid for row in rows.values()):
+        raise ValueError("watcher has foreign ownership or an ambiguous child process")
+    return birth
+
+
+def _owned_identity(path: Path, *, directory: bool = False) -> tuple[int, int]:
+    """Require a canonical, same-user, regular path before trusting its inode."""
+    if path.absolute() != path.resolve(strict=True):
+        raise ValueError(f"noncanonical storage path: {path}")
+    info = path.lstat()
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if (
+        not expected(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or (not directory and info.st_nlink != 1)
+    ):
+        raise ValueError(f"storage path is not an owned regular object: {path}")
+    return info.st_dev, info.st_ino
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate ownership metadata key")
+        result[key] = value
+    return result
+
+
+def _watcher_owners(lock: OperationLock, actors: tuple[WatcherActor, ...], palace: Path) -> None:
+    """Read raw owner records strictly; absence is never positive attribution."""
+    path = lock.owners_path
+    identity = _owned_identity(path)
+    with path.open("rb") as handle:
+        held = os.fstat(handle.fileno())
+        if (held.st_dev, held.st_ino) != identity:
+            raise ValueError("installation ownership metadata changed")
+        owners = json.load(handle, object_pairs_hook=_unique_json_object)
+    if _owned_identity(path) != identity or not isinstance(owners, dict) or not owners:
+        raise ValueError("installation ownership metadata is unavailable")
+    for owner in owners.values():
+        if (
+            not isinstance(owner, dict)
+            or type(owner.get("pid")) is not int
+            or owner["pid"] <= 0
+            or owner.get("mode") not in ("shared", "exclusive")
+            or not isinstance(owner.get("operation"), str)
+        ):
+            raise ValueError("installation ownership metadata is malformed")
+    for actor in actors:
+        matches = [owner for owner in owners.values() if owner["pid"] == actor.pid]
+        if not matches:
+            raise ValueError(f"no palace ownership record for {actor.unit}")
+        for owner in matches:
+            acquired = owner.get("acquired_at")
+            selected = owner.get("palace")
+            if (
+                owner["mode"] != "shared"
+                or owner["operation"] != "watcher"
+                or not isinstance(selected, str)
+                or not selected
+                or Path(selected).expanduser().resolve(strict=True) != palace
+                or type(acquired) is not int
+                or acquired < actor.started_at
+                or acquired > int(time.time())
+            ):
+                raise ValueError(f"unproven palace ownership for {actor.unit}")
+
+
 class WatcherService(Protocol):
     """Service controls required by an update transaction."""
 
     unit: str
+    stop_guard: Callable[[], None] | None
+
+    @property
+    def attempted_stops(self) -> tuple[str, ...]: ...
+
+    def capture_actors(self, observe: ProcessObserver) -> tuple[WatcherActor, ...]: ...
 
     def discover(self) -> WatcherDiscovery: ...
 
@@ -280,6 +406,8 @@ class SystemdUserService:
     def __init__(self, runner: CommandRunner, unit: str = DEFAULT_WATCHER_UNIT) -> None:
         self.runner = runner
         self.unit = unit
+        self._stopped: tuple[str, ...] = ()
+        self.stop_guard: Callable[[], None] | None = None
         self._discovery: WatcherDiscovery | None = None
 
     def discover(self) -> WatcherDiscovery:
@@ -341,10 +469,52 @@ class SystemdUserService:
         detail = (err or out).strip()
         return False, detail or "inactive"
 
+    @property
+    def attempted_stops(self) -> tuple[str, ...]:
+        return self._stopped
+
+    def capture_actors(self, observe: ProcessObserver) -> tuple[WatcherActor, ...]:
+        rc, out, _err = self._run(
+            [
+                "systemctl",
+                "--user",
+                "list-units",
+                "--type=service",
+                "--state=active",
+                "--no-legend",
+                "--plain",
+            ]
+        )
+        if rc != 0 or self._active_watcher_units(out) != [self.unit]:
+            raise ValueError("selected systemd watcher set changed or is unknown")
+        valid, detail = self._is_mempalace_watch_command(self.unit)
+        if not valid:
+            raise ValueError(detail)
+        rc, out, _err = self._run(
+            [
+                "systemctl",
+                "--user",
+                "show",
+                self.unit,
+                "--property=MainPID",
+                "--value",
+            ]
+        )
+        if rc != 0 or not out.strip().isdigit() or int(out.strip()) <= 0:
+            raise ValueError("selected systemd watcher has no provable MainPID")
+        pid = int(out.strip())
+        birth = observe(pid)
+        if birth is None:
+            raise ValueError("selected systemd watcher exited during attribution")
+        return (WatcherActor(self.unit, pid, birth),)
+
     def stop(self) -> tuple[bool, str]:
         discovery = self.discover()
         if not discovery.safe:
             return False, discovery.detail
+        if self.stop_guard is not None:
+            self.stop_guard()
+        self._stopped = (self.unit,)
         rc, out, err = self._run(["systemctl", "--user", "stop", self.unit])
         return rc == 0, (err or out).strip()
 
@@ -353,6 +523,8 @@ class SystemdUserService:
         if not discovery.safe:
             return False, discovery.detail
         rc, out, err = self._run(["systemctl", "--user", "start", self.unit])
+        if rc == 0:
+            self._stopped = ()
         return rc == 0, (err or out).strip()
 
     @staticmethod
@@ -429,6 +601,7 @@ class LaunchdUserService:
         self.labels: tuple[str, ...] = ()
         self._domains: dict[str, str] = {}
         self._stopped: tuple[str, ...] = ()
+        self.stop_guard: Callable[[], None] | None = None
         self._discovery: WatcherDiscovery | None = None
 
     def discover(self) -> WatcherDiscovery:
@@ -482,30 +655,54 @@ class LaunchdUserService:
             return False, f"inactive LaunchAgents: {', '.join(missing)}"
         return True, "active"
 
+    @property
+    def attempted_stops(self) -> tuple[str, ...]:
+        return self._stopped
+
+    def capture_actors(self, observe: ProcessObserver) -> tuple[WatcherActor, ...]:
+        rc, out, _err = self._run(["launchctl", "list"])
+        if rc != 0:
+            raise ValueError("cannot enumerate selected launchd watchers")
+        pids: dict[str, int] = {}
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) < 3 or not self._is_watch_candidate(parts[-1]):
+                continue
+            label = parts[-1]
+            if label in pids or not parts[0].isdigit() or int(parts[0]) <= 0:
+                raise ValueError("loaded watcher has no unique running PID")
+            pids[label] = int(parts[0])
+        remaining = tuple(label for label in self.labels if label not in self._stopped)
+        if set(pids) != set(remaining):
+            raise ValueError("selected launchd watcher set changed")
+        actors: list[WatcherActor] = []
+        for label in remaining:
+            owned, detail = self._is_owned_watch_agent(label)
+            domain, domain_detail = self._find_domain(label)
+            if not owned or domain != self._domains.get(label):
+                raise ValueError(detail or domain_detail or "watcher domain changed")
+            birth = observe(pids[label])
+            if birth is None:
+                raise ValueError("selected launchd watcher exited during attribution")
+            actors.append(WatcherActor(label, pids[label], birth))
+        if len({actor.pid for actor in actors}) != len(actors):
+            raise ValueError("selected launchd watchers share an ambiguous PID")
+        return tuple(actors)
+
     def stop(self) -> tuple[bool, str]:
-        """Stop the whole selected set, restoring any already-stopped agent on failure."""
+        """Record every attempted bootout; the caller drains before compensation."""
         discovery = self.discover()
         if not discovery.safe:
             return False, discovery.detail
-        stopped: list[str] = []
         for label in self.labels:
+            if self.stop_guard is not None:
+                self.stop_guard()
+            self._stopped = (*self._stopped, label)
             ok, detail = self._bootout(label)
             if ok:
-                stopped.append(label)
                 ok, detail = self._wait_until_unloaded(label)
             if not ok:
-                failures = [f"could not stop {label}: {detail}"]
-                # Keep only what compensation could not put back, so a later explicit
-                # start retries exactly the watchers still down.
-                unrestored: list[str] = []
-                for restored in reversed(stopped):
-                    restored_ok, restored_detail = self._bootstrap(restored)
-                    if not restored_ok:
-                        unrestored.append(restored)
-                        failures.append(f"could not restore {restored}: {restored_detail}")
-                self._stopped = tuple(unrestored)
-                return False, self._with_recovery("; ".join(failures))
-        self._stopped = tuple(stopped)
+                return False, self._with_recovery(f"could not stop {label}: {detail}")
         return True, ""
 
     def start(self) -> tuple[bool, str]:
@@ -1000,6 +1197,10 @@ class UpdateManager:
         scheduler_context: SchedulerContext | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         minimum_free_bytes: int = MIN_FREE_BYTES,
+        observe_process: ProcessObserver = _process_birth,
+        drain_pause: Callable[[float], None] = time.sleep,
+        drain_notice: Callable[[str], None] | None = None,
+        writer_wait: float = DEFAULT_PALACE_WRITE_WAIT_SECONDS,
     ) -> None:
         self.state_root = Path(state_root or Path.home() / ".mempalace").expanduser()
         self.palace_path = palace_path or str(self.state_root / "palace")
@@ -1014,6 +1215,12 @@ class UpdateManager:
         self.scheduler_context = scheduler_context or self._scheduler_context
         self.now = now
         self.minimum_free_bytes = minimum_free_bytes
+        self.observe_process = observe_process
+        self.drain_pause = drain_pause
+        self.drain_notice = drain_notice or (
+            lambda message: print(message, file=sys.stderr, flush=True)
+        )
+        self.writer_wait = writer_wait
 
     @property
     def updates_dir(self) -> Path:
@@ -1145,6 +1352,21 @@ class UpdateManager:
         # Do not stop a managed watcher just to discover an already-running update.
         # A shared watcher lease is handled below after its service has stopped; an
         # exclusive lease can only be another updater and must fail without mutation.
+        if active:
+            try:
+                actors = self.service.capture_actors(self.observe_process)
+                if not actors:
+                    raise ValueError("active watcher has no attributable actor")
+                _watcher_owners(
+                    self.lock, actors, Path(self.palace_path).expanduser().resolve(strict=True)
+                )
+            except (OSError, ValueError) as exc:
+                return UpdateResult(
+                    False,
+                    "watcher-stop",
+                    f"watcher attribution refused: {exc}; recovery: {status_recovery_command()}",
+                    1,
+                )
         existing_owner = self.lock.exclusive_owner_details()
         if existing_owner:
             return UpdateResult(
@@ -1157,9 +1379,28 @@ class UpdateManager:
 
         was_active = active
         if was_active:
-            stopped, detail = self.service.stop()
-            if not stopped:
-                return UpdateResult(False, "watcher-stop", detail or "could not stop watcher", 1)
+            compensation_attempted = False
+
+            def compensate() -> tuple[bool, str]:
+                nonlocal compensation_attempted
+                if not self.service.attempted_stops:
+                    return True, "no stop was attempted"
+                if compensation_attempted:
+                    return False, "watcher restoration was already attempted"
+                # Shared by the call owner, signal wrapper and drain helper.
+                # Mark before dispatch so failed restoration is never retried.
+                compensation_attempted = True
+                return self.service.start()
+
+            try:
+                stop_error = self._stop_fenced_watcher(compensate)
+                if stop_error is not None:
+                    return stop_error
+            except KeyboardInterrupt:
+                # The callee's RETURN_VALUE itself is outside its exception
+                # table. Keep its CALL handoff under the same recovery owner.
+                compensate()
+                raise
 
         try:
             lease = self.lock.acquire_exclusive("scheduled-update" if scheduled else "update")
@@ -1255,6 +1496,226 @@ class UpdateManager:
                     1,
                     str(log_path),
                 )
+
+    def _stop_fenced_watcher(
+        self, compensate: Callable[[], tuple[bool, str]]
+    ) -> UpdateResult | None:
+        """Defer real SIGINT across every bytecode boundary of fenced shutdown."""
+        if threading.current_thread() is not threading.main_thread():
+            return UpdateResult(
+                False,
+                "watcher-stop",
+                f"watcher shutdown requires the main thread; recovery: {status_recovery_command()}",
+                1,
+            )
+        original_handler = signal.getsignal(signal.SIGINT)
+        if original_handler not in (signal.default_int_handler, signal.SIG_IGN):
+            return UpdateResult(
+                False,
+                "watcher-stop",
+                f"unsupported SIGINT handler; shutdown refused; recovery: {status_recovery_command()}",
+                1,
+            )
+        try:
+            original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        except (AttributeError, OSError, ValueError) as exc:
+            return UpdateResult(
+                False,
+                "watcher-stop",
+                f"SIGINT deferral unavailable: {exc}; recovery: {status_recovery_command()}",
+                1,
+            )
+        if signal.SIGINT in original_mask:
+            return UpdateResult(
+                False,
+                "watcher-stop",
+                f"SIGINT is already blocked; shutdown refused; recovery: {status_recovery_command()}",
+                1,
+            )
+        interrupted: KeyboardInterrupt | None = None
+
+        def defer_interrupt(_signum: int, _frame: object) -> None:
+            nonlocal interrupted
+            if original_handler != signal.SIG_IGN and interrupted is None:
+                interrupted = KeyboardInterrupt("watcher shutdown interrupted")
+
+        def cancellation() -> KeyboardInterrupt | None:
+            if signal.SIGINT in signal.sigpending():
+                defer_interrupt(signal.SIGINT, None)
+            return interrupted
+
+        try:
+            signal.signal(signal.SIGINT, defer_interrupt)
+        except (OSError, ValueError) as exc:
+            return UpdateResult(
+                False,
+                "watcher-stop",
+                f"SIGINT deferral unavailable: {exc}; recovery: {status_recovery_command()}",
+                1,
+            )
+        try:
+            try:
+                result = self._drain_fenced_watcher(cancellation, compensate)
+            finally:
+                # A signal before restoration is recorded or remains pending;
+                # a later signal is caught through the complete return handoff.
+                signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+                try:
+                    cancellation()
+                finally:
+                    signal.signal(signal.SIGINT, original_handler)
+                    signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+            if interrupted is not None:
+                raise interrupted
+            return result
+        except KeyboardInterrupt:
+            compensate()
+            raise
+
+    def _drain_fenced_watcher(
+        self,
+        interrupted: Callable[[], KeyboardInterrupt | None],
+        compensate: Callable[[], tuple[bool, str]],
+    ) -> UpdateResult | None:
+        """Drain native writers before stop; retain fences until exact old exit."""
+        deferred: BaseException | None = None
+        stopped, detail = False, ""
+        attempted: tuple[WatcherActor, ...] = ()
+        try:
+            palace = Path(self.palace_path).expanduser().absolute()
+            actors = self.service.capture_actors(self.observe_process)
+            palace_identity = _owned_identity(palace, directory=True)
+            if not actors:
+                raise ValueError("active watcher has no attributable actor")
+            _watcher_owners(self.lock, actors, palace)
+            with ExitStack() as fences:
+                fences.enter_context(self.lock.acquire_shared("update-drain", palace=palace))
+                fences.enter_context(
+                    palace_write_lease(
+                        palace,
+                        "update-drain",
+                        wait=self.writer_wait,
+                    )
+                )
+                kg = Path(palace_kg_path(str(palace)))
+                kg_identity = _owned_identity(kg)
+                db = sqlite3.connect(kg.as_uri() + "?mode=rw", uri=True, timeout=0)
+                fences.callback(db.close)
+                if db.execute("PRAGMA journal_mode").fetchone() != ("wal",):
+                    raise ValueError("watcher KG must already use WAL mode")
+                db.execute("BEGIN IMMEDIATE")
+
+                def guard() -> None:
+                    cancellation = interrupted()
+                    if cancellation is not None:
+                        raise cancellation
+                    if (
+                        _owned_identity(palace, directory=True) != palace_identity
+                        or _owned_identity(kg) != kg_identity
+                        or not self.lock.held_linked_in_thread()
+                        or not OperationLock.for_palace(palace).held_linked_in_thread(
+                            exclusive=True
+                        )
+                    ):
+                        raise ValueError("writer fence storage identity changed")
+                    expected = tuple(
+                        actor for actor in actors if actor.unit not in self.service.attempted_stops
+                    )
+                    if self.service.capture_actors(self.observe_process) != expected:
+                        raise ValueError("watcher identity changed before stop")
+                    _watcher_owners(self.lock, expected, palace)
+                    if (
+                        _owned_identity(palace, directory=True) != palace_identity
+                        or _owned_identity(kg) != kg_identity
+                    ):
+                        raise ValueError("writer fence storage changed during attribution")
+                    # SIGINT is blocked through the attempt record and manager
+                    # call. This final pending-signal snapshot commits dispatch;
+                    # a later signal is post-commit cancellation and is drained.
+                    cancellation = interrupted()
+                    if cancellation is not None:
+                        raise cancellation
+
+                pending = list(actors)
+                notice_sent = False
+                self.service.stop_guard = guard
+                dispatch_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+                try:
+                    stopped, detail = self.service.stop()
+                except BaseException as exc:
+                    deferred = exc
+                finally:
+                    # The non-raising handler is still installed when pending
+                    # post-commit cancellation is delivered before draining.
+                    signal.pthread_sigmask(signal.SIG_SETMASK, dispatch_mask)
+                    # The adapters mark each attempt before the command, even when
+                    # dispatch has an indeterminate result. Label absence is insufficient.
+                    while pending:
+                        try:
+                            attempted = tuple(
+                                actor
+                                for actor in actors
+                                if actor.unit in self.service.attempted_stops
+                            )
+                            pending = [actor for actor in pending if actor in attempted]
+                            for actor in tuple(pending):
+                                birth = self.observe_process(actor.pid)
+                                if birth is None or birth != actor.started_at:
+                                    pending.remove(actor)
+                            if pending and not notice_sent:
+                                notice_sent = True
+                                self.drain_notice(
+                                    "Waiting for attempted watcher processes to exit; "
+                                    "writer fences remain held; recovery: "
+                                    + status_recovery_command()
+                                )
+                            if pending:
+                                self.drain_pause(0.1)
+                        except BaseException as exc:
+                            # Unknown observations and repeated interruptions cannot
+                            # prove exit or unwind the fence stack.
+                            if deferred is None:
+                                deferred = exc
+                            try:
+                                self.drain_pause(0.1)
+                            except BaseException as pause_error:
+                                if deferred is None:
+                                    deferred = pause_error
+                    self.service.stop_guard = None
+        except (OSError, ValueError, OperationLockError, sqlite3.Error) as exc:
+            return UpdateResult(
+                False,
+                "watcher-stop",
+                f"watcher shutdown refused: {exc}; recovery: {status_recovery_command()}",
+                1,
+            )
+        if deferred is None:
+            deferred = interrupted()
+        if not stopped or deferred is not None:
+            restoration = "no stop was attempted"
+            if attempted:
+                try:
+                    restored, restore_detail = compensate()
+                    restoration = (
+                        "watcher restoration succeeded"
+                        if restored
+                        else f"watcher restoration failed: {restore_detail}"
+                    )
+                except BaseException as restore_error:
+                    restoration = f"watcher restoration failed: {restore_error}"
+                    if deferred is None:
+                        deferred = restore_error
+            message = (
+                f"{detail or 'watcher stop was interrupted'}; {restoration}; "
+                f"recovery: {status_recovery_command()}"
+            )
+            if deferred is not None:
+                deferred.add_note(message)
+                if not attempted and isinstance(deferred, (OSError, ValueError)):
+                    return UpdateResult(False, "watcher-stop", message, 1)
+                raise deferred
+            return UpdateResult(False, "watcher-stop", message, 1)
+        return None
 
     def scheduler_status(self) -> dict[str, object]:
         """Read current systemd-user timer state; unavailable systems remain diagnostic only."""

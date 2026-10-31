@@ -3270,3 +3270,301 @@ class TestWatchRunReadinessDiagnostics:
         assert "state=watch-ready" not in output
         mock_mine.assert_not_called()
         assert not watch_entered, "watch loop must not be entered on backup failure"
+
+
+class TestWatcherStopAdmission:
+    """TERM closes watcher admission while current synchronous work can finish."""
+
+    @pytest.fixture()
+    def shutdown_handlers(self, monkeypatch):
+        original = {
+            signal.SIGTERM: signal.SIG_DFL,
+            signal.SIGINT: signal.default_int_handler,
+        }
+        if hasattr(signal, "SIGHUP"):
+            original[signal.SIGHUP] = signal.SIG_DFL
+        handlers = original.copy()
+        monkeypatch.setattr(watcher_module.signal, "getsignal", lambda number: handlers[number])
+        monkeypatch.setattr(
+            watcher_module.signal,
+            "signal",
+            lambda number, handler: handlers.__setitem__(number, handler),
+        )
+        yield handlers
+        assert handlers == original
+
+    @pytest.mark.parametrize("mode", ["single", "save", "commit"])
+    @pytest.mark.parametrize(
+        "stop_at",
+        [
+            "mine",
+            "lease",
+            "transient",
+            "retry-probe",
+            "retry-delay",
+            "removed",
+            "batch",
+            "idle",
+            "backend",
+        ],
+    )
+    def test_term_closes_admission(
+        self, tmp_path, monkeypatch, capsys, shutdown_handlers, mode, stop_at
+    ):
+        from watchfiles import Change
+
+        from mempalace_code.mining import orchestrator
+
+        root, projects = _watch_projects(
+            tmp_path, "watch_and_mine" if mode == "single" else "watch_all"
+        )
+        for project in projects:
+            _make_git_metadata(project)
+        palace = tmp_path / "palace"
+        _seed_pending_copy_record(palace)
+        record = orchestrator._copy_reconcile_record_path(str(palace))
+        pending_bytes = record.read_bytes()
+        install_lock = OperationLock(tmp_path / "operation.lock")
+        write_lock = OperationLock(tmp_path / "palace.lock")
+        events = []
+        active = False
+        stopped = False
+        guards = MagicMock()
+        mining_store = MagicMock()
+
+        def stop():
+            nonlocal stopped
+            assert not stopped
+            stopped = True
+            handler = shutdown_handlers[signal.SIGTERM]
+            assert callable(handler)
+            handler(signal.SIGTERM, None)
+            events.append("term")
+
+        def remove_projects():
+            for project in projects:
+                project.rename(tmp_path / ("removed-" + project.name))
+
+        def fake_watch(*args, stop_event=None, **kwargs):
+            nonlocal active
+            assert stop_event is not None
+            assert not stop_event.is_set()
+            assert install_lock.held_in_thread()
+            active = True
+            if stop_at in {"batch", "idle", "backend"}:
+                remove_projects()
+                stop()
+            if stop_at == "backend":
+                raise FileNotFoundError("watched project was removed")
+            yield (
+                []
+                if stop_at == "idle"
+                else [
+                    (
+                        Change.modified,
+                        str(project / (".git/refs/heads/main" if mode == "commit" else "app.py")),
+                    )
+                    for project in projects
+                ]
+            )
+            assert stop_event.is_set()
+
+        @contextmanager
+        def lease(*args, **kwargs):
+            with write_lock.acquire_exclusive("watch"):
+                events.append("lease")
+                try:
+                    if stop_at in {"lease", "removed"}:
+                        if stop_at == "removed":
+                            remove_projects()
+                        stop()
+                    yield
+                finally:
+                    events.append("release")
+
+        def mine(kwargs, store):
+            assert store is mining_store
+            assert write_lock.held_in_thread()
+            events.append("mine:" + Path(kwargs["project_dir"]).name)
+            if stop_at in {"mine", "transient"}:
+                stop()
+            if stop_at in {"transient", "retry-probe", "retry-delay"}:
+                raise RuntimeError("commit conflict")
+            events.append("mine-finished")
+            return {"drawers_filed": 1, "files_processed": 1}
+
+        def probe(*args):
+            events.append("probe")
+            if stop_at == "retry-probe":
+                stop()
+            return {"ok": True, "total_rows": 1}
+
+        def delay(*args):
+            events.append("delay")
+            if stop_at == "retry-delay":
+                stop()
+
+        def maintenance(*args, **kwargs):
+            if active:
+                events.append("maintenance")
+            return "idle"
+
+        monkeypatch.setattr("watchfiles.watch", fake_watch)
+        monkeypatch.setattr(watcher_module, "_acquire_project_guards", lambda *a, **k: guards)
+        monkeypatch.setattr(watcher_module, "_WatcherMiningStore", lambda *a: mining_store)
+        monkeypatch.setattr("mempalace_code.knowledge_graph.open_palace_kg", lambda *a: None)
+        monkeypatch.setattr(watcher_module, "_has_existing_lance_data", lambda *a: False)
+        monkeypatch.setattr(watcher_module, "_startup_source_discovery", lambda *a: (1, []))
+        monkeypatch.setattr(
+            watcher_module, "check_configured_watch_budget", lambda *a: MagicMock(allowed=True)
+        )
+        monkeypatch.setattr(watcher_module, "_run_initial_mine_with_recovery", lambda *a: {})
+        monkeypatch.setattr(watcher_module, "_batch_maintenance", maintenance)
+        monkeypatch.setattr(watcher_module, "palace_write_lease", lease)
+        monkeypatch.setattr(watcher_module, "_run_watcher_mine", mine)
+        monkeypatch.setattr(watcher_module, "_probe_palace_head", probe)
+        monkeypatch.setattr(watcher_module.time, "sleep", delay)
+
+        if mode == "single":
+            watch_and_mine(str(root), str(palace), operation_lock=install_lock)
+        else:
+            watch_all(
+                str(root), str(palace), on_commit=mode == "commit", operation_lock=install_lock
+            )
+
+        first = "mine:" + projects[0].name
+        expected = {
+            "mine": ["lease", first, "term", "mine-finished", "release"],
+            "lease": ["lease", "term", "release"],
+            "removed": ["lease", "term", "release"],
+            "transient": ["lease", first, "term", "release"],
+            "retry-probe": ["lease", first, "release", "probe", "term"],
+            "retry-delay": ["lease", first, "release", "probe", "delay", "term"],
+            "batch": ["term"],
+            "idle": ["term"],
+            "backend": ["term"],
+        }
+        assert stopped
+        assert events == expected[stop_at]
+        mining_store.recreate.assert_not_called()
+        guards.release_all.assert_called_once()
+        assert record.read_bytes() == pending_bytes
+        assert watcher_module._copy_maintenance_due(str(palace))
+        assert not install_lock.held_in_process()
+        assert not write_lock.held_in_process()
+        with install_lock.acquire_exclusive("update"), write_lock.acquire_exclusive("check"):
+            pass
+        output = capsys.readouterr().out
+        assert "state=stopped reason=signal" in output
+        assert "state=project-dropped" not in output
+        completed = int(stop_at == "mine")
+        event_label = (
+            "file event(s)."
+            if mode == "single"
+            else (f"event(s) across {len(projects)} project(s).")
+        )
+        assert f"{completed} re-mine cycle(s), {completed} {event_label}" in output
+
+    @pytest.mark.parametrize("pending", [False, True])
+    @pytest.mark.parametrize("stop_at", ["entry", "reconcile", "budget", "lease", "running"])
+    def test_maintenance_stop_boundaries(
+        self, tmp_path, monkeypatch, shutdown_handlers, pending, stop_at
+    ):
+        from mempalace_code.mining import orchestrator
+
+        palace = tmp_path / "palace"
+        if pending:
+            _seed_pending_copy_record(palace)
+        record = orchestrator._copy_reconcile_record_path(str(palace))
+        original_record = record.read_bytes() if pending else None
+        write_lock = OperationLock(tmp_path / "maintenance.lock")
+        shutdown = _WatcherShutdownSignals()
+        shutdown.install()
+        stop_event = shutdown.start_watching()
+        events = []
+        monkeypatch.setenv("MEMPALACE_OPTIMIZE_AFTER_MINE", "1")
+
+        def stop():
+            handler = shutdown_handlers[signal.SIGTERM]
+            assert callable(handler)
+            handler(signal.SIGTERM, None)
+            events.append("term")
+
+        def reconcile(*args):
+            events.append("reconcile")
+            if stop_at == "reconcile":
+                stop()
+
+        def budget():
+            events.append("budget")
+            if stop_at == "budget":
+                stop()
+            return True
+
+        @contextmanager
+        def lease(*args, **kwargs):
+            with write_lock.acquire_exclusive("watch"):
+                events.append("lease")
+                try:
+                    if stop_at == "lease":
+                        stop()
+                    yield
+                finally:
+                    events.append("release")
+
+        def maintenance(*args, **kwargs):
+            assert write_lock.held_in_thread()
+            events.append("maintenance")
+            if stop_at == "running":
+                stop()
+            events.append("maintenance-finished")
+            return "completed"
+
+        monkeypatch.setattr("mempalace_code.backup.reconcile_managed_backups", reconcile)
+        monkeypatch.setattr(watcher_module, "palace_write_lease", lease)
+        retry = MagicMock(side_effect=maintenance)
+        optimize = MagicMock(side_effect=maintenance)
+        monkeypatch.setattr(watcher_module, "_retry_pending_copy_maintenance", retry)
+        monkeypatch.setattr(watcher_module, "_optimize_once", optimize)
+        try:
+            if stop_at == "entry":
+                stop()
+            outcome = watcher_module._batch_maintenance(
+                str(palace),
+                MagicMock(),
+                None,
+                filed=1,
+                should_run=budget,
+                wing_label="project",
+                stop_event=stop_event,
+            )
+        finally:
+            shutdown.restore()
+
+        expected = {
+            "entry": ["term"],
+            "reconcile": ["reconcile", "term"],
+            "budget": ["reconcile", "budget", "term"],
+            "lease": ["reconcile", "budget", "lease", "term", "release"],
+            "running": [
+                "reconcile",
+                "budget",
+                "lease",
+                "maintenance",
+                "term",
+                "maintenance-finished",
+                "release",
+            ],
+        }
+        assert events == expected[stop_at]
+        assert outcome == ("completed" if stop_at == "running" else "skipped:stopping")
+        assert retry.call_count == int(pending and stop_at == "running")
+        assert optimize.call_count == int(not pending and stop_at == "running")
+        if pending:
+            assert record.read_bytes() == original_record
+            assert watcher_module._copy_maintenance_due(str(palace))
+        else:
+            assert not record.exists()
+        assert not write_lock.held_in_process()
+        with write_lock.acquire_exclusive("check"):
+            pass
